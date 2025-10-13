@@ -380,3 +380,42 @@
 261,0x105,2C,2C,2C,yes,10
 262,0x106,6C,6C,6C,yes,10
 264,0x108,3C,3C,3C,yes,10
+256,0x100,Tekkaman_Blade 5A,Tekkaman_Blade 5A,Tekkaman_Blade 5A,yes,26
+257,0x101,Tekkaman_Blade 5B,Tekkaman_Blade 5B,Tekkaman_Blade 5B,yes,26
+258,0x102,Tekkaman_Blade 5C,Tekkaman_Blade 5C,Tekkaman_Blade 5C,yes,26
+259,0x103,Tekkaman_Blade 2A,Tekkaman_Blade 2A,Tekkaman_Blade 2A,yes,26
+260,0x104,Tekkaman_Blade 2B,Tekkaman_Blade 2B,Tekkaman_Blade 2B,yes,26
+261,0x105,Tekkaman_Blade 2C,Tekkaman_Blade 2C,Tekkaman_Blade 2C,yes,26
+262,0x106,Tekkaman_Blade 6C,Tekkaman_Blade 6C,Tekkaman_Blade 6C,yes,26
+264,0x108,Tekkaman_Blade 3C,Tekkaman_Blade 3C,Tekkaman_Blade 3C,yes,26
+270,0x10e,Tekkaman_Blade 6M,Tekkaman_Blade 6M,Tekkaman_Blade 6M,yes,26
+
+256,0x100,Joe 5A,Joe 5A,Joe 5A,yes,27
+257,0x101,Joe 5B,Joe 5B,Joe 5B,yes,27
+258,0x102,Joe 5C,Joe 5C,Joe 5C,yes,27
+259,0x103,Joe 2A,Joe 2A,Joe 2A,yes,27
+260,0x104,Joe 2B,Joe 2B,Joe 2B,yes,27
+261,0x105,Joe 2C,Joe 2C,Joe 2C,yes,27
+262,0x106,Joe 6C,Joe 6C,Joe 6C,yes,27
+264,0x108,Joe 3C,Joe 3C,Joe 3C,yes,27
+270,0x10e,Joe 6M,Joe 6M,Joe 6M,yes,27
+
+256,0x100,Yatterman-2 5A,Yatterman-2 5A,Yatterman-2 5A,yes,28
+257,0x101,Yatterman-2 5B,Yatterman-2 5B,Yatterman-2 5B,yes,28
+258,0x102,Yatterman-2 5C,Yatterman-2 5C,Yatterman-2 5C,yes,28
+259,0x103,Yatterman-2 2A,Yatterman-2 2A,Yatterman-2 2A,yes,28
+260,0x104,Yatterman-2 2B,Yatterman-2 2B,Yatterman-2 2B,yes,28
+261,0x105,Yatterman-2 2C,Yatterman-2 2C,Yatterman-2 2C,yes,28
+262,0x106,Yatterman-2 6C,Yatterman-2 6C,Yatterman-2 6C,yes,28
+264,0x108,Yatterman-2 3C,Yatterman-2 3C,Yatterman-2 3C,yes,28
+270,0x10e,Yatterman-2 6M,Yatterman-2 6M,Yatterman-2 6M,yes,28
+
+256,0x100,Zero 5A,Zero 5A,Zero 5A,yes,29
+257,0x101,Zero 5B,Zero 5B,Zero 5B,yes,29
+258,0x102,Zero 5C,Zero 5C,Zero 5C,yes,29
+259,0x103,Zero 2A,Zero 2A,Zero 2A,yes,29
+260,0x104,Zero 2B,Zero 2B,Zero 2B,yes,29
+261,0x105,Zero 2C,Zero 2C,Zero 2C,yes,29
+262,0x106,Zero 6C,Zero 6C,Zero 6C,yes,29
+264,0x108,Zero 3C,Zero 3C,Zero 3C,yes,29
+270,0x10e,Zero 6M,Zero 6M,Zero 6M,yes,29
