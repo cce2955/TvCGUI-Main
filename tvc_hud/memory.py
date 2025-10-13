@@ -8,7 +8,62 @@ def hook():
         try: dme.hook()
         except Exception: pass
         time.sleep(0.2)
+class _DMEBackend:
+    def hook(self): 
+        if not dme.is_hooked():
+            dme.hook()
+    def read_word(self, addr: int) -> int | None:
+        return dme.read_word(addr)
 
+class DictBackend:
+    """
+    Testing backend: a simple dictionary of {addr:int}, float reads handled by
+    read_word + struct packing (same as real).
+    """
+    def __init__(self, memory: dict[int, int] | None = None):
+        self.mem = memory or {}
+        self._hooked = True
+    def hook(self): self._hooked = True
+    def read_word(self, addr: int) -> int | None:
+        return self.mem.get(addr)
+
+# Global backend (default = real Dolphin)
+_BACKEND = _DMEBackend()
+
+def set_backend(backend) -> None:
+    """Swap memory backend (use DictBackend in tests)."""
+    global _BACKEND
+    _BACKEND = backend
+
+def get_backend():
+    return _BACKEND
+
+# Existing helpers now call _BACKEND instead of dme directly ------------------
+def hook():
+    while True:
+        try:
+            _BACKEND.hook()
+            break
+        except Exception:
+            time.sleep(0.2)
+
+def rd32(addr: int):
+    try:
+        return _BACKEND.read_word(addr)
+    except Exception:
+        return None
+
+def rdf32(addr: int):
+    try:
+        w = _BACKEND.read_word(addr)
+        if w is None:
+            return None
+        f = struct.unpack(">f", struct.pack(">I", w))[0]
+        if not math.isfinite(f) or abs(f) > 1e8:
+            return None
+        return f
+    except Exception:
+        return None
 def rd32(addr):
     try: return dme.read_word(addr)
     except Exception: return None
