@@ -43,6 +43,9 @@ Tip: make sure both ```init.py``` and ```main.py``` exist inside ```tvc_hud/```.
 
 # 3) What you’ll see (GUI)
 
+<img width="1176" height="623" alt="image" src="https://github.com/user-attachments/assets/89f0df71-4364-4e1d-8933-c8730483fb4b" />
+
+
 Four panels (P1-C1, P1-C2, P2-C1, P2-C2)
 
 ```HP: cur/max (percent)``` — colored Green/Yellow/Red by health
