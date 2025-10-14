@@ -1,0 +1,1 @@
+t,victim_label,victim_char,dmg,hp_before,hp_after,attacker_truth_label,attacker_truth_char,proof_mode,proof_details,attacker_gate_label,gate_scheme,gate_low_idx,learn_locked,learn_accuracy,learn_coverage,dist2,victim_ptr_hex,victim_gate020_hex
