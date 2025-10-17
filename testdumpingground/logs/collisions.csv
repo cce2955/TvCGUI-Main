@@ -1,0 +1,2 @@
+t,victim_label,victim_char,dmg,hp_before,hp_after,team_guess,attacker_label,attacker_char,attacker_id_dec,attacker_id_hex,attacker_move,dist2,victim_ptr_hex
+1760704409.446132,P2-C1,Ryu,800,48000,47200,,P1-C1,Ryu,256,0x100,,0.0,0x927EB9E0

@@ -1,2 +1,0 @@
-t,victim_label,victim_char,dmg,hp_before,hp_after,attacker_truth_label,attacker_truth_char,proof_mode,proof_details,attacker_gate020_side_label,gate020_side_details,attacker_gate020_global_label,gate020_global_details,dist2,victim_ptr_hex,victim_gate020_hex
-1760460197.056924,P2-C1,Ryu,1024,48000,46976,,,,,P1-C1,gate+0x020_small_slot idx=0 @ child+0x00,P1-C1,gate+0x020_global_small 0 @ child+0x00,,0x927EB9E0,0x809BF630
