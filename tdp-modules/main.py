@@ -1,9 +1,9 @@
 # main.py
-# Minimal HUD + pooled-life + gate watcher + SAR (Startup/Active/Recovery)
-# - t0 from edges ONLY: 058↑ / 059↑ / 060≠baseline (never 072)
-# - ACTIVE if (064!=0) or (072==0x40)
-# - WINDOW = (060!=baseline) or ACTIVE
-# - WINDOW END when (060==baseline) AND (no ACTIVE) for HYST_END frames (debounce)
+# Minimal HUD + pooled-life + gate watcher + Startup-only (checkpoint)
+# - t0 from edges ONLY: 058↑ / 059↑ / 060≠baseline
+# - STARTUP = duration of 0x072 being non-zero (per your observations)
+# - WINDOW = (060!=baseline) or (072!=0)
+# - WINDOW END when (060==baseline) AND (072==0) for HYST_END frames (debounce)
 
 from __future__ import annotations
 import time, sys
@@ -20,10 +20,9 @@ from resolver import SlotResolver, pick_posy_off_no_jump
 
 # ================= Tunables =================
 FPS = 60.0
-
 POOL_REL = 0x02E
 
-# Gate bytes we watch
+# Gate bytes we watch (original set)
 REL_058 = 0x058
 REL_059 = 0x059
 REL_060 = 0x060
@@ -49,16 +48,18 @@ def _rd8(base: Optional[int], rel: int) -> Optional[int]:
 def _read_pool_byte(base: Optional[int]) -> Optional[int]:
     return _rd8(base, POOL_REL)
 
-# ================= SAR tracker =================
+# ================= Startup-only tracker (checkpoint) =================
 class MoveTracker:
     """
-    Startup/Active/Recovery with:
-      - t0 from edges ONLY: 058↑ / 059↑ / 060≠baseline (never 072)
-      - ACTIVE if (064!=0) or (072==0x40)
-      - WINDOW = (060!=baseline) or ACTIVE
-      - WINDOW END when (060==baseline) AND (no ACTIVE) for HYST_END frames
+    Checkpoint version: TRACKS STARTUP ONLY.
+    - t0 anchor: 058↑ / 059↑ / 060≠baseline (edges only)
+    - Startup is measured from the length of the 0x072 pulse (frames where 0x072 != 0)
+    - Window = (060!=baseline) or (072!=0)
+    - Window ends when (060==baseline) and (072==0) for HYST_END_FRAMES
     """
-    HYST_END_FRAMES = 2  # debounce for window end
+
+    HYST_END_FRAMES = 2
+    FPS = FPS
 
     def __init__(self, side_hint: str = ""):
         self.side_hint = side_hint
@@ -72,21 +73,22 @@ class MoveTracker:
         self.t_window_start: Optional[float] = None
         self.t_window_end: Optional[float] = None
 
-        # earliest trigger (startup anchor) — edges only
+        # t0 anchor (edges only)
         self.t0_edge: Optional[float] = None
         self.t0_src: Optional[str] = None
 
-        # active spans
-        self.active_spans: List[Tuple[float, float]] = []
-        self._active_on_t: Optional[float] = None
-        self._active_any_frame: bool = False
+        # 0x072 pulse timing
+        self._t_072_on: Optional[float] = None
+        self._t_072_off: Optional[float] = None
 
-        # hysteresis
-        self._no_active_frames: int = 0
+        # debounce counter for window end
+        self._zero_frames_after_base: int = 0
 
-        # last computed result
+        # last computed result (startup + total only)
         self.last_result: Optional[Dict[str, int]] = None
+        self.last_072_raw_frames: Optional[int] = None
 
+    # ----- helpers -----
     def _pref_baseline(self) -> Optional[int]:
         if self.baseline_060 is not None:
             return self.baseline_060
@@ -94,23 +96,22 @@ class MoveTracker:
         if self.side_hint.startswith("P2"): return 0x44
         return None
 
+    def _fr(self, dt: float) -> int:
+        return max(0, int((dt * self.FPS) + 0.5))
+
     def _rise(self, rel: int) -> bool:
         a, b = self.prev_vals.get(rel), self.now_vals.get(rel)
         return (a is not None and b is not None and a == 0 and b != 0)
-
-    def _active_now(self) -> bool:
-        v64 = self.now_vals.get(REL_064)
-        v72 = self.now_vals.get(REL_072)
-        return ((v64 is not None and v64 != 0) or (v72 == 0x40))
 
     def _window_now(self) -> bool:
         v60 = self.now_vals.get(REL_060)
         b60 = self._pref_baseline()
         if v60 is not None and b60 is not None and v60 != b60:
             return True
-        # Allow early ACTIVE to hold window even if 060 hasn’t moved yet.
-        return self._active_now()
+        v72 = self.now_vals.get(REL_072)
+        return (v72 is not None and v72 != 0)
 
+    # ----- IO snapshot -----
     def update_vals(self, base: Optional[int]):
         # rotate
         for r in WATCH:
@@ -122,7 +123,7 @@ class MoveTracker:
             for r in WATCH:
                 self.now_vals[r] = None
 
-        # learn/confirm baseline for 060
+        # learn/confirm baseline for 060 when at preferred idle
         v060 = self.now_vals.get(REL_060)
         if v060 is not None:
             pref = 0x04 if self.side_hint.startswith("P1") else (0x44 if self.side_hint.startswith("P2") else None)
@@ -133,116 +134,87 @@ class MoveTracker:
                 if pref is not None and v060 == pref:
                     self.baseline_060 = v060
 
-    def _fr(self, dt: float) -> int:
-        return max(0, int((dt * FPS) + 0.5))  # round half up
-
+    # ----- tick -----
     def tick(self, t: float):
         window_now = self._window_now()
-        active_now = self._active_now()
 
-        # Window start
+        # window start
         if (not self.in_window) and window_now:
             self.in_window = True
             self.t_window_start = t
             self.t_window_end = None
             self.t0_edge = None
             self.t0_src = None
-            self.active_spans.clear()
-            self._active_on_t = None
-            self._active_any_frame = False
-            self._no_active_frames = 0
+            self._t_072_on = None
+            self._t_072_off = None
+            self._zero_frames_after_base = 0
 
-        # Establish t0 (edges ONLY)
+        # t0 from edges
         if self.in_window and self.t0_edge is None:
             if self._rise(REL_058):
                 self.t0_edge, self.t0_src = t, "058↑"
             elif self._rise(REL_059):
                 self.t0_edge, self.t0_src = t, "059↑"
             else:
-                # 060 leaves baseline
                 a60 = self.prev_vals.get(REL_060)
                 b60 = self._pref_baseline()
                 v60 = self.now_vals.get(REL_060)
                 if a60 is not None and b60 is not None and a60 == b60 and v60 is not None and v60 != b60:
                     self.t0_edge, self.t0_src = t, "060≠base"
 
-        # Active spans (064!=0 or 072==0x40)
-        pv64 = self.prev_vals.get(REL_064)
-        pv72 = self.prev_vals.get(REL_072)
-        was_active = ((pv64 is not None and pv64 != 0) or (pv72 == 0x40))
-
-        if (not was_active) and active_now:
-            self._active_on_t = t
-            self._active_any_frame = True
-        if was_active and (not active_now):
-            if self._active_on_t is not None:
-                self.active_spans.append((self._active_on_t, t))
-                self._active_on_t = None
-
-        # Hysteresis for window end: count frames with no active while 060 is back to baseline
-        v60 = self.now_vals.get(REL_060)
-        b60 = self._pref_baseline()
-        v60_is_base = (v60 is not None and b60 is not None and v60 == b60)
+        # 0x072 pulse tracking
         if self.in_window:
-            if (not active_now) and v60_is_base:
-                self._no_active_frames += 1
-            else:
-                self._no_active_frames = 0
+            pv72 = self.prev_vals.get(REL_072)
+            v72  = self.now_vals.get(REL_072)
+            was_on = (pv72 is not None and pv72 != 0)
+            now_on = (v72  is not None and v72  != 0)
 
-        # Window end (debounced)
-        end_now = self.in_window and (self._no_active_frames >= self.HYST_END_FRAMES)
+            if (not was_on) and now_on:
+                self._t_072_on = t
+                self._t_072_off = None
+            elif was_on and (not now_on):
+                if self._t_072_on is not None:
+                    self._t_072_off = t
+
+        # window end debounce
+        if self.in_window:
+            v60 = self.now_vals.get(REL_060)
+            b60 = self._pref_baseline()
+            v72 = self.now_vals.get(REL_072)
+            v60_is_base = (v60 is not None and b60 is not None and v60 == b60)
+            v72_zero = (v72 is None or v72 == 0)
+
+            if v60_is_base and v72_zero:
+                self._zero_frames_after_base += 1
+            else:
+                self._zero_frames_after_base = 0
+
+            end_now = (self._zero_frames_after_base >= self.HYST_END_FRAMES)
+        else:
+            end_now = False
+
         if end_now:
             self.in_window = False
             self.t_window_end = t
-            if self._active_on_t is not None:
-                self.active_spans.append((self._active_on_t, t))
-                self._active_on_t = None
 
-            # Compute SAR
-            total_f = 0
+            # Startup from 072 pulse
             startup_f = 0
-            active_f = 0
-            recovery_f = 0
+            if self._t_072_on is not None and self._t_072_off is not None:
+                startup_f = self._fr(self._t_072_off - self._t_072_on)
+            elif self._t_072_on is not None:
+                startup_f = self._fr(t - self._t_072_on)
 
+            total_f = 0
             if self.t_window_start is not None and self.t_window_end is not None:
                 total_f = self._fr(self.t_window_end - self.t_window_start)
 
-            for a, b in self.active_spans:
-                active_f += self._fr(b - a)
-            if self._active_any_frame and active_f == 0:
-                active_f = 1
-
-            first_active_t = self.active_spans[0][0] if self.active_spans else None
-            if self.t0_edge is not None and first_active_t is not None:
-                startup_f = self._fr(first_active_t - self.t0_edge)
-            elif first_active_t is not None and self.t_window_start is not None:
-                startup_f = self._fr(first_active_t - self.t_window_start)
-            else:
-                startup_f = 0
-
-            last_active_end_t = self.active_spans[-1][1] if self.active_spans else self.t_window_start
-            if self.t_window_end is not None and last_active_end_t is not None:
-                recovery_f = self._fr(self.t_window_end - last_active_end_t)
-
-            # Consistency & clamp
-            if startup_f + active_f > total_f:
-                over = startup_f + active_f - total_f
-                if active_f >= over:
-                    active_f -= over
-                else:
-                    rem = over - active_f
-                    active_f = 0
-                    startup_f = max(0, startup_f - rem)
-
-            recovery_f = max(0, total_f - startup_f - active_f)
-
+            self.last_072_raw_frames = startup_f
             self.last_result = {
                 "startup": startup_f,
-                "active": active_f,
-                "recovery": recovery_f,
-                "total": total_f
+                "total": total_f,
             }
 
+    # ----- HUD -----
     def hud_gate_line(self, label: str) -> str:
         def fmt(rel: int, v: Optional[int]) -> str:
             return f"+0x{rel:03X}:{'--' if v is None else f'{v:02X}'}" + ("•" if v not in (None, 0) else " ")
@@ -251,21 +223,21 @@ class MoveTracker:
 
     def hud_move_line(self, label: str) -> Optional[str]:
         if self.in_window:
-            # live active so far
-            live_active = 0
-            for a, b in self.active_spans:
-                live_active += self._fr(b - a)
-            if self._active_any_frame and live_active == 0:
-                live_active = 1
-            return f"{label:<6} LIVE: startup …  active {live_active}f  (recovery …)"
+            v72 = self.now_vals.get(REL_072)
+            if v72 and self._t_072_on is not None:
+                live_raw = self._fr(time.time() - self._t_072_on)
+                return f"{label:<6} LIVE: startup(raw) {live_raw}f"
+            return f"{label:<6} LIVE: startup …"
         if self.last_result:
             r = self.last_result
-            return f"{label:<6} LAST: startup {r['startup']}f  active {r['active']}f  recovery {r['recovery']}f  total {r['total']}f"
+            if self.last_072_raw_frames is not None:
+                return f"{label:<6} LAST: startup {r['startup']}f  (072raw {self.last_072_raw_frames}f)  total {r['total']}f"
+            return f"{label:<6} LAST: startup {r['startup']}f  total {r['total']}f"
         return None
 
 # ================= Main =================
 def main():
-    print(Colors.BOLD + "Minimal HUD + pooled-life + gate watcher + SAR" + Colors.RESET)
+    print(Colors.BOLD + "Minimal HUD + pooled-life + gate watcher + STARTUP only" + Colors.RESET)
     hook()
     print("Hooked.")
 
@@ -328,7 +300,7 @@ def main():
                     pool_prev[name] = pool_now.get(name)
                     pool_now[name]  = _read_pool_byte(base)
 
-                    # update gates for SAR
+                    # update gates for startup-only
                     trackers[name].update_vals(base)
                 else:
                     info[name] = None
@@ -337,7 +309,7 @@ def main():
 
             t = time.time()
 
-            # Tick SAR per slot
+            # Tick per slot
             for name, _, base, _ in resolved:
                 trackers[name].tick(t)
 
@@ -358,7 +330,7 @@ def main():
                     f"P2:{meter_now['P2']:>6} (Δ{(meter_now['P2']-meter_prev['P2']):+})"
                 )
 
-                # Extras: pooled-life + gates + SAR
+                # Extras: pooled-life + gates + startup-only
                 extras: List[str] = []
                 for nm, _ in SLOTS:
                     # pooled life
@@ -369,7 +341,6 @@ def main():
                         d = 0 if prvp is None else (curp - prvp)
                         extras.append(f"{nm} pool(+0x{POOL_REL:03X}): {curp:>3}  Δ{d:+}")
 
-                # Gates + SAR lines in order
                 for nm, _ in SLOTS:
                     extras.append(trackers[nm].hud_gate_line(nm))
                     mv = trackers[nm].hud_move_line(nm)
