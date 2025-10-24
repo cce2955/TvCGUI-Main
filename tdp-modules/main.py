@@ -1,13 +1,14 @@
 # main.py
-# Minimal HUD + pooled-life + gate watcher + Startup-only (checkpoint)
-# - t0 from edges ONLY: 058↑ / 059↑ / 060≠baseline
-# - STARTUP = duration of 0x072 being non-zero (per your observations)
-# - WINDOW = (060!=baseline) or (072!=0)
-# - WINDOW END when (060==baseline) AND (072==0) for HYST_END frames (debounce)
+# HUD + pooled-life + expanded 0x072 window (PRE / DURING / AFTER)
+# Attack ID used only for labeling; startup/active/recovery from wire lines.
+# - Tracks 0x050..0x080 around 0x072 pulses
+# - Captures attack id/sub/name every frame (same slot) and summarizes DURING
+# - Exports PRE/DURING/AFTER stats + AID metadata + phase segmentation to CSV (+XLSX if pandas available)
 
 from __future__ import annotations
-import time, sys
+import time, sys, csv, os
 from typing import Dict, Optional, Tuple, List
+from collections import deque, Counter
 
 from colors import Colors
 from config import SHOW_HUD, HUD_REFRESH_HZ, INTERVAL
@@ -17,19 +18,33 @@ from hud import fmt_line, render_screen
 from meter import read_meter, drop_meter_cache_for_base
 from models import Fighter, read_fighter
 from resolver import SlotResolver, pick_posy_off_no_jump
+from attack_ids import read_attack_ids  # (id:int?, sub:int?, name:str)
 
 # ================= Tunables =================
 FPS = 60.0
 POOL_REL = 0x02E
 
-# Gate bytes we watch (original set)
+# Scope we scan around 0x072. You can widen/narrow this safely.
+REL_SCOPE_START = 0x050
+REL_SCOPE_END   = 0x080   # inclusive
+REL_SCOPE = tuple(range(REL_SCOPE_START, REL_SCOPE_END + 1))
+
+REL_052 = 0x052
+REL_053 = 0x053
+REL_056 = 0x056
+REL_057 = 0x057
 REL_058 = 0x058
 REL_059 = 0x059
-REL_060 = 0x060
-REL_064 = 0x064
-REL_066 = 0x066
+REL_05B = 0x05B
 REL_072 = 0x072
-WATCH = (REL_058, REL_059, REL_060, REL_064, REL_066, REL_072)
+
+# Window sizes (in frames)
+PRE_FRAMES   = 12   # frames just before 0x072 turns on
+POST_FRAMES  = 24   # frames after 0x072 turns off
+
+# Export settings
+EXPORT_BASENAME = "tvc_sessions"
+EXPORT_DIR = "."  # current folder
 
 # ================= Helpers =================
 def _fighter_to_blk(f: Optional[Fighter]) -> Optional[dict]:
@@ -48,198 +63,480 @@ def _rd8(base: Optional[int], rel: int) -> Optional[int]:
 def _read_pool_byte(base: Optional[int]) -> Optional[int]:
     return _rd8(base, POOL_REL)
 
-# ================= Startup-only tracker (checkpoint) =================
+def _fr(dt: float) -> int:
+    return max(0, int((dt * FPS) + 0.5))
+
+def _compute_stats(series: List[int]) -> Tuple[int, int, int]:
+    """
+    Returns (flips, nz_count, first_nz_index) over a byte-valued series.
+    """
+    if not series:
+        return (0, 0, -1)
+    flips = 0
+    prev = series[0]
+    for v in series[1:]:
+        if v != prev:
+            flips += 1
+        prev = v
+    nz = sum(1 for v in series if v != 0)
+    first = -1
+    for i, v in enumerate(series):
+        if v != 0:
+            first = i
+            break
+    return (flips, nz, first)
+
+def _hot_list(stats_by_rel: Dict[int, Tuple[int,int,int]], topk: int = 5) -> str:
+    # Sort by nz desc, then by first asc (earlier = hotter), then rel asc
+    items = sorted(
+        stats_by_rel.items(),
+        key=lambda kv: (-kv[1][1], kv[1][2] if kv[1][2] != -1 else 9999, kv[0])
+    )
+    items = [f"+0x{rel:03X}:{nz}" for rel, (_, nz, _) in items[:topk] if nz > 0]
+    return ";".join(items)
+
+def _aid_mode(series: List[Tuple[Optional[int], Optional[int], str]]):
+    """
+    Given [(id, sub, name), ...] DURING series, return:
+    - mode_id, mode_sub, mode_name (most frequent nonzero id)
+    - first_id, first_sub, first_name (first nonzero id)
+    - flips, nz_count, first_idx (computed on 'id' stream)
+    """
+    ids = [i or 0 for (i, _, _) in series]
+    flips, nz, first_idx = _compute_stats(ids)
+    # first nonzero
+    first_id = first_sub = None
+    first_name = ""
+    for (i, s, n) in series:
+        if i and i != 0:
+            first_id, first_sub, first_name = i, s, n or ""
+            break
+    # mode over nonzero
+    nonzero_ids = [(i, s, n) for (i, s, n) in series if i and i != 0]
+    mode_id = mode_sub = None
+    mode_name = ""
+    if nonzero_ids:
+        cnt = Counter(i for (i, _, _) in nonzero_ids)
+        mode_id, _ = cnt.most_common(1)[0]
+        for (i, s, n) in reversed(nonzero_ids):
+            if i == mode_id:
+                mode_sub, mode_name = s, (n or "")
+                break
+    return {
+        "mode_id": mode_id, "mode_sub": mode_sub, "mode_name": mode_name or "",
+        "first_id": first_id, "first_sub": first_sub, "first_name": first_name or "",
+        "flips": flips, "nz": nz, "first_idx": first_idx
+    }
+
+def _segment_phases(during_series: Dict[int, List[int]]) -> dict:
+    """
+    Phase segmentation from wire signals (no guessing):
+      - Startup: from first lead activity to first hit activity
+      - Active: contiguous hit activity span(s)
+      - Recovery: remainder of DURING after last hit
+    Lead lines: 0x052, 0x053
+    Hit  lines: 0x056, 0x057, 0x058
+    All indices are DURING-frame coordinates (0..L-1).
+    """
+    L = max((len(during_series.get(REL_072, [])) or 0), 0)
+
+    def first_nz(mask):
+        for i, v in enumerate(mask):
+            if v:
+                return i
+        return -1
+
+    # Build masks across DURING
+    lead_mask = [0]*L
+    hit_mask  = [0]*L
+    for rel in (REL_052, REL_053):
+        s = during_series.get(rel, [])
+        for i in range(min(L, len(s))):
+            if s[i] != 0: lead_mask[i] = 1
+    for rel in (REL_056, REL_057, REL_058):
+        s = during_series.get(rel, [])
+        for i in range(min(L, len(s))):
+            if s[i] != 0: hit_mask[i] = 1
+
+    lf = first_nz(lead_mask)
+    hf = first_nz(hit_mask)
+
+    hl = -1
+    for i in range(L-1, -1, -1):
+        if hit_mask[i]:
+            hl = i
+            break
+
+    if hf == -1:
+        # No active window detected
+        t0 = 0 if lf == -1 else lf
+        startup = max(0, L - t0)
+        return {
+            "during_len": L,
+            "startup_frames": startup,
+            "active_frames": 0,
+            "recovery_frames": 0,
+            "first_hit_idx": -1,
+            "last_hit_idx": -1,
+            "lead_first_idx": lf
+        }
+
+    # Startup begins at min(lf, hf) if lead present, else 0..hf
+    t0 = 0 if lf == -1 else min(lf, hf)
+    startup = max(0, hf - t0)
+    active  = (hl - hf + 1) if hl >= hf else 0
+    recov   = max(0, L - (t0 + startup + active))
+    return {
+        "during_len": L,
+        "startup_frames": startup,
+        "active_frames":  active,
+        "recovery_frames": recov,
+        "first_hit_idx":  hf,
+        "last_hit_idx":   hl,
+        "lead_first_idx": lf
+    }
+
+# ================= Startup/Active tracker based on 0x072 =================
 class MoveTracker:
     """
-    Checkpoint version: TRACKS STARTUP ONLY.
-    - t0 anchor: 058↑ / 059↑ / 060≠baseline (edges only)
-    - Startup is measured from the length of the 0x072 pulse (frames where 0x072 != 0)
-    - Window = (060!=baseline) or (072!=0)
-    - Window ends when (060==baseline) and (072==0) for HYST_END_FRAMES
+    Tracks sessions keyed by 0x072 pulse:
+      - PRE: last PRE_FRAMES frames before 0x072 rises
+      - DURING: frames while 0x072 != 0
+      - AFTER: next POST_FRAMES frames after 0x072 returns to 0
+    Also computes per-address stats, “attack-like” tag, Attack-ID summary,
+    and wire-driven phase segmentation (startup/active/recovery).
     """
 
-    HYST_END_FRAMES = 2
-    FPS = FPS
-
-    def __init__(self, side_hint: str = ""):
+    def __init__(self, slot_name: str, side_hint: str = ""):
+        self.slot_name = slot_name
         self.side_hint = side_hint
-        self.baseline_060: Optional[int] = None
 
-        self.prev_vals: Dict[int, Optional[int]] = {r: None for r in WATCH}
-        self.now_vals:  Dict[int, Optional[int]] = {r: None for r in WATCH}
+        # rolling buffers of the last PRE_FRAMES values (for every rel in scope)
+        self._pre_ring: Dict[int, deque] = {rel: deque(maxlen=PRE_FRAMES) for rel in REL_SCOPE}
 
-        # window state
-        self.in_window: bool = False
-        self.t_window_start: Optional[float] = None
-        self.t_window_end: Optional[float] = None
+        # rolling PRE for attack-id as well
+        self._aid_pre_ring: deque = deque(maxlen=PRE_FRAMES)
 
-        # t0 anchor (edges only)
-        self.t0_edge: Optional[float] = None
-        self.t0_src: Optional[str] = None
+        # live/current byte snapshot
+        self._now: Dict[int, Optional[int]] = {rel: None for rel in REL_SCOPE}
+        self._aid_now: Tuple[Optional[int], Optional[int], str] = (None, None, "")
 
-        # 0x072 pulse timing
+        # session state
+        self.in_session: bool = False
+        self.session_idx: int = 0
+        self._t_start: Optional[float] = None
+        self._t_end: Optional[float] = None
+
+        # per-session raw collections
+        self._pre_series: Dict[int, List[int]] = {}
+        self._during_series: Dict[int, List[int]] = {}
+        self._after_series: Dict[int, List[int]] = {}
+        self._after_left: int = 0
+
+        # Attack-ID series per phase
+        self._aid_pre: List[Tuple[Optional[int], Optional[int], str]] = []
+        self._aid_during: List[Tuple[Optional[int], Optional[int], str]] = []
+        self._aid_after: List[Tuple[Optional[int], Optional[int], str]] = []
+
+        # HUD live length while 0x072 on
         self._t_072_on: Optional[float] = None
-        self._t_072_off: Optional[float] = None
 
-        # debounce counter for window end
-        self._zero_frames_after_base: int = 0
+        # export accumulator callback (set externally)
+        self._export_cb = None
 
-        # last computed result (startup + total only)
-        self.last_result: Optional[Dict[str, int]] = None
-        self.last_072_raw_frames: Optional[int] = None
+    def set_export_cb(self, fn):
+        self._export_cb = fn
 
-    # ----- helpers -----
-    def _pref_baseline(self) -> Optional[int]:
-        if self.baseline_060 is not None:
-            return self.baseline_060
-        if self.side_hint.startswith("P1"): return 0x04
-        if self.side_hint.startswith("P2"): return 0x44
-        return None
-
-    def _fr(self, dt: float) -> int:
-        return max(0, int((dt * self.FPS) + 0.5))
-
-    def _rise(self, rel: int) -> bool:
-        a, b = self.prev_vals.get(rel), self.now_vals.get(rel)
-        return (a is not None and b is not None and a == 0 and b != 0)
-
-    def _window_now(self) -> bool:
-        v60 = self.now_vals.get(REL_060)
-        b60 = self._pref_baseline()
-        if v60 is not None and b60 is not None and v60 != b60:
-            return True
-        v72 = self.now_vals.get(REL_072)
-        return (v72 is not None and v72 != 0)
-
-    # ----- IO snapshot -----
+    # ---- IO snapshot ----
     def update_vals(self, base: Optional[int]):
-        # rotate
-        for r in WATCH:
-            self.prev_vals[r] = self.now_vals[r]
+        # bytes
         if base:
-            for r in WATCH:
-                self.now_vals[r] = _rd8(base, r)
+            for rel in REL_SCOPE:
+                v = _rd8(base, rel)
+                v = 0 if v is None else v
+                self._now[rel] = v
+                self._pre_ring[rel].append(v)
         else:
-            for r in WATCH:
-                self.now_vals[r] = None
+            for rel in REL_SCOPE:
+                self._now[rel] = 0
+                self._pre_ring[rel].append(0)
 
-        # learn/confirm baseline for 060 when at preferred idle
-        v060 = self.now_vals.get(REL_060)
-        if v060 is not None:
-            pref = 0x04 if self.side_hint.startswith("P1") else (0x44 if self.side_hint.startswith("P2") else None)
-            if self.baseline_060 is None:
-                if pref is not None and v060 == pref:
-                    self.baseline_060 = v060
-            else:
-                if pref is not None and v060 == pref:
-                    self.baseline_060 = v060
+        # attack id (same slot)
+        if base:
+            aid, sub, name = read_attack_ids(base)  # (id:int?, sub:int?, name:str)
+            self._aid_now = (aid, sub, name or "")
+        else:
+            self._aid_now = (None, None, "")
+        self._aid_pre_ring.append(self._aid_now)
 
-    # ----- tick -----
+    # ---- tick ----
     def tick(self, t: float):
-        window_now = self._window_now()
+        v72 = self._now.get(REL_072, 0)
+        on = (v72 != 0)
 
-        # window start
-        if (not self.in_window) and window_now:
-            self.in_window = True
-            self.t_window_start = t
-            self.t_window_end = None
-            self.t0_edge = None
-            self.t0_src = None
+        # session start
+        if (not self.in_session) and on:
+            self.in_session = True
+            self.session_idx += 1
+            self._t_start = t
+            self._t_end = None
+            self._t_072_on = t
+
+            # snapshot PRE
+            self._pre_series  = {rel: list(self._pre_ring[rel]) for rel in REL_SCOPE}
+            self._aid_pre     = list(self._aid_pre_ring)
+
+            # start DURING
+            self._during_series = {rel: [] for rel in REL_SCOPE}
+            self._aid_during    = []
+
+            # reset AFTER
+            self._after_series = {rel: [] for rel in REL_SCOPE}
+            self._aid_after    = []
+            self._after_left = 0
+
+        # record DURING
+        if self.in_session and on:
+            for rel in REL_SCOPE:
+                self._during_series[rel].append(self._now[rel])
+            self._aid_during.append(self._aid_now)
+
+        # 072 turned off → begin AFTER
+        if self.in_session and (not on) and self._after_left == 0 and self._t_072_on is not None:
+            self._after_left = POST_FRAMES
             self._t_072_on = None
-            self._t_072_off = None
-            self._zero_frames_after_base = 0
+            self._t_end = t  # wall end (end of DURING)
 
-        # t0 from edges
-        if self.in_window and self.t0_edge is None:
-            if self._rise(REL_058):
-                self.t0_edge, self.t0_src = t, "058↑"
-            elif self._rise(REL_059):
-                self.t0_edge, self.t0_src = t, "059↑"
-            else:
-                a60 = self.prev_vals.get(REL_060)
-                b60 = self._pref_baseline()
-                v60 = self.now_vals.get(REL_060)
-                if a60 is not None and b60 is not None and a60 == b60 and v60 is not None and v60 != b60:
-                    self.t0_edge, self.t0_src = t, "060≠base"
+        # record AFTER
+        if self.in_session and self._after_left > 0:
+            for rel in REL_SCOPE:
+                self._after_series[rel].append(self._now[rel])
+            self._aid_after.append(self._aid_now)
+            self._after_left -= 1
 
-        # 0x072 pulse tracking
-        if self.in_window:
-            pv72 = self.prev_vals.get(REL_072)
-            v72  = self.now_vals.get(REL_072)
-            was_on = (pv72 is not None and pv72 != 0)
-            now_on = (v72  is not None and v72  != 0)
+            # session done once AFTER collected
+            if self._after_left == 0:
+                self._finalize_session()
 
-            if (not was_on) and now_on:
-                self._t_072_on = t
-                self._t_072_off = None
-            elif was_on and (not now_on):
-                if self._t_072_on is not None:
-                    self._t_072_off = t
+    def _finalize_session(self):
+        try:
+            wall_start = self._t_start if self._t_start is not None else time.time()
+            wall_end   = self._t_end   if self._t_end   is not None else time.time()
 
-        # window end debounce
-        if self.in_window:
-            v60 = self.now_vals.get(REL_060)
-            b60 = self._pref_baseline()
-            v72 = self.now_vals.get(REL_072)
-            v60_is_base = (v60 is not None and b60 is not None and v60 == b60)
-            v72_zero = (v72 is None or v72 == 0)
+            # DURING/AFTER stats for each rel
+            D_stats: Dict[int, Tuple[int,int,int]] = {}
+            A_stats: Dict[int, Tuple[int,int,int]] = {}
+            for rel in REL_SCOPE:
+                D_stats[rel] = _compute_stats(self._during_series.get(rel, []))
+                A_stats[rel] = _compute_stats(self._after_series.get(rel, []))
 
-            if v60_is_base and v72_zero:
-                self._zero_frames_after_base += 1
-            else:
-                self._zero_frames_after_base = 0
+            # DURING length from 0x072
+            during_len = max(len(self._during_series.get(REL_072, [])), 0)
+            post_len   = max(len(self._after_series.get(REL_072, [])), 0)
 
-            end_now = (self._zero_frames_after_base >= self.HYST_END_FRAMES)
-        else:
-            end_now = False
+            # attack-like tag (0x058 & 0x059 line up with 0x072 length)
+            tol = 1
+            d58 = D_stats.get(REL_058, (0,0,-1))
+            d59 = D_stats.get(REL_059, (0,0,-1))
+            attack_like = (
+                d58[2] == 0 and d59[2] == 0 and
+                abs(d58[1] - during_len) <= tol and
+                abs(d59[1] - during_len) <= tol
+            )
 
-        if end_now:
-            self.in_window = False
-            self.t_window_end = t
+            # hot lists
+            hot_during = _hot_list(D_stats, topk=5)
+            hot_after  = _hot_list(A_stats, topk=5)
 
-            # Startup from 072 pulse
-            startup_f = 0
-            if self._t_072_on is not None and self._t_072_off is not None:
-                startup_f = self._fr(self._t_072_off - self._t_072_on)
-            elif self._t_072_on is not None:
-                startup_f = self._fr(t - self._t_072_on)
+            # Attack ID summaries (label only)
+            aid_pre_first  = _aid_mode(self._aid_pre)
+            aid_dur_stats  = _aid_mode(self._aid_during)
+            aid_post_first = _aid_mode(self._aid_after)
 
-            total_f = 0
-            if self.t_window_start is not None and self.t_window_end is not None:
-                total_f = self._fr(self.t_window_end - self.t_window_start)
+            # ---- Wire-driven phase segmentation ----
+            seg = _segment_phases(self._during_series)
+            # (we keep 'during_len' from 0x072; seg["during_len"] should match)
+            startup_frames   = seg["startup_frames"]
+            active_frames    = seg["active_frames"]
+            recovery_frames  = seg["recovery_frames"]
+            first_hit_idx    = seg["first_hit_idx"]
+            last_hit_idx     = seg["last_hit_idx"]
+            lead_first_idx   = seg["lead_first_idx"]
 
-            self.last_072_raw_frames = startup_f
-            self.last_result = {
-                "startup": startup_f,
-                "total": total_f,
+            # Row assembly
+            row: Dict[str, object] = {
+                "slot": self.slot_name,
+                "session_idx": self.session_idx,
+                "wall_start": wall_start,
+                "wall_end": wall_end,
+                "len_072_frames": during_len,
+                "post_frames": post_len,
+                "attack_like": int(attack_like),
+                "hot_during": hot_during,
+                "hot_after": hot_after,
+
+                # DURING coordinate endpoints (for convenience)
+                "t0": 0,
+                "t1": max(during_len - 1, -1),
+
+                # ----- Phase segmentation results -----
+                "startup_frames":  startup_frames,
+                "active_frames":   active_frames,
+                "recovery_frames": recovery_frames,
+                "first_hit_idx":   first_hit_idx,
+                "last_hit_idx":    last_hit_idx,
+                "lead_first_idx":  lead_first_idx,
+
+                # --- Attack-ID DURING summary (mode + first) ---
+                "attacker_id_dec": (aid_dur_stats["mode_id"] or ""),
+                "attacker_id_hex": (hex(aid_dur_stats["mode_id"]) if aid_dur_stats["mode_id"] is not None else ""),
+                "attacker_sub":    (aid_dur_stats["mode_sub"] if aid_dur_stats["mode_sub"] is not None else ""),
+                "attacker_move":   aid_dur_stats["mode_name"],
+
+                "aid_flips":       aid_dur_stats["flips"],
+                "aid_nz":          aid_dur_stats["nz"],
+                "aid_first_idx":   aid_dur_stats["first_idx"],
+
+                "aid_first_dec": (aid_dur_stats["first_id"] or ""),
+                "aid_first_hex": (hex(aid_dur_stats["first_id"]) if aid_dur_stats["first_id"] is not None else ""),
+                "aid_first_sub": (aid_dur_stats["first_sub"] if aid_dur_stats["first_sub"] is not None else ""),
+                "aid_first_name": aid_dur_stats["first_name"],
+
+                # PRE/AFTER firsts (debug alignment)
+                "aid_pre_first_hex":  (hex(aid_pre_first["first_id"]) if aid_pre_first["first_id"] is not None else ""),
+                "aid_post_first_hex": (hex(aid_post_first["first_id"]) if aid_post_first["first_id"] is not None else ""),
             }
 
-    # ----- HUD -----
-    def hud_gate_line(self, label: str) -> str:
-        def fmt(rel: int, v: Optional[int]) -> str:
-            return f"+0x{rel:03X}:{'--' if v is None else f'{v:02X}'}" + ("•" if v not in (None, 0) else " ")
-        parts = "    ".join(fmt(r, self.now_vals.get(r)) for r in WATCH)
-        return f"{label:<6} GATES: {parts}"
+            # PRE stats
+            for rel in REL_SCOPE:
+                pf = _compute_stats(self._pre_series.get(rel, []))
+                row[f"P_flips_0x{rel:03X}"] = pf[0]
+                row[f"P_nz_0x{rel:03X}"]    = pf[1]
+                row[f"P_first_0x{rel:03X}"] = pf[2]
 
-    def hud_move_line(self, label: str) -> Optional[str]:
-        if self.in_window:
-            v72 = self.now_vals.get(REL_072)
-            if v72 and self._t_072_on is not None:
-                live_raw = self._fr(time.time() - self._t_072_on)
-                return f"{label:<6} LIVE: startup(raw) {live_raw}f"
-            return f"{label:<6} LIVE: startup …"
-        if self.last_result:
-            r = self.last_result
-            if self.last_072_raw_frames is not None:
-                return f"{label:<6} LAST: startup {r['startup']}f  (072raw {self.last_072_raw_frames}f)  total {r['total']}f"
-            return f"{label:<6} LAST: startup {r['startup']}f  total {r['total']}f"
+            # DURING stats
+            for rel in REL_SCOPE:
+                df = D_stats[rel]
+                row[f"D_flips_0x{rel:03X}"] = df[0]
+                row[f"D_nz_0x{rel:03X}"]    = df[1]
+                row[f"D_first_0x{rel:03X}"] = df[2]
+
+            # AFTER stats
+            for rel in REL_SCOPE:
+                af = A_stats[rel]
+                row[f"A_flips_0x{rel:03X}"] = af[0]
+                row[f"A_nz_0x{rel:03X}"]    = af[1]
+                row[f"A_first_0x{rel:03X}"] = af[2]
+
+            # Export
+            if self._export_cb:
+                self._export_cb(row)
+
+        finally:
+            # reset session state
+            self.in_session = False
+            self._t_start = None
+            self._t_end = None
+            self._t_072_on = None
+            self._pre_series = {}
+            self._during_series = {}
+            self._after_series = {}
+            self._aid_pre = []
+            self._aid_during = []
+            self._aid_after = []
+            self._after_left = 0
+
+    # ----- HUD snippets -----
+    def hud_gate_line(self) -> str:
+        # show a compact HOT readout for the current frame (subset)
+        hot_now = []
+        for rel in (REL_058, REL_059, 0x060, REL_072):
+            v = self._now.get(rel, 0)
+            hot_now.append(f"+0x{rel:03X}:{v:02X}" + ("•" if v else " "))
+        # attach live AID (current id short)
+        aid, sub, name = self._aid_now
+        aid_str = f"AID:{aid if aid is not None else '--'}"
+        return f"{self.slot_name:<6} HOT: " + "  ".join(hot_now) + f"   {aid_str}"
+
+    def hud_move_line(self) -> Optional[str]:
+        if self.in_session and self._t_072_on is not None:
+            live = _fr(time.time() - self._t_072_on)
+            return f"{self.slot_name:<6} 0x072 LIVE: {live}f"
+        if not self.in_session and self._t_end is not None and self._t_start is not None:
+            dur = len(self._during_series.get(REL_072, []))
+            return f"{self.slot_name:<6} LAST 0x072: {dur}f"
         return None
+
+
+# =============== Exporter ===============
+class SessionExporter:
+    def __init__(self, basename: str = EXPORT_BASENAME, out_dir: str = EXPORT_DIR):
+        self.basename = basename
+        self.out_dir = out_dir
+
+        # One timestamp per process/run. Safe for Windows filenames.
+        self.run_id = time.strftime("%Y%m%d-%H%M%S")
+
+        # Example: tvc_sessions.20251021-153422.csv / .xlsx
+        self.csv_path = os.path.join(out_dir, f"{basename}.{self.run_id}.csv")
+        self.xlsx_path = os.path.join(out_dir, f"{basename}.{self.run_id}.xlsx")
+
+        self._fieldnames: List[str] = []
+        self._csv_ready = False
+        self._rows_buffer: List[Dict[str, object]] = []
+
+        # Try pandas/xlsx
+        self._pandas_ok = False
+        try:
+            import pandas as pd  # noqa: F401
+            self._pandas_ok = True
+        except Exception:
+            self._pandas_ok = False
+
+        # ensure directory
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except Exception:
+            pass
+
+        print(f"Exporting to:\n  CSV : {self.csv_path}\n  XLSX: {self.xlsx_path if self._pandas_ok else '(pandas/openpyxl not available)'}")
+
+    def _init_csv(self, row: Dict[str, object]):
+        if not self._csv_ready:
+            self._fieldnames = list(row.keys())
+            with open(self.csv_path, "w", newline="", encoding="utf-8") as f:
+                w = csv.DictWriter(f, fieldnames=self._fieldnames)
+                w.writeheader()
+            self._csv_ready = True
+
+    def add_row(self, row: Dict[str, object]):
+        self._init_csv(row)
+        with open(self.csv_path, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=self._fieldnames)
+            w.writerow(row)
+        self._rows_buffer.append(row)
+        if len(self._rows_buffer) >= 50:
+            self.flush_xlsx()
+
+    def flush_xlsx(self):
+        if not self._pandas_ok or not self._rows_buffer:
+            return
+        try:
+            import pandas as pd
+            df = pd.DataFrame(self._rows_buffer)
+            df.to_excel(self.xlsx_path, index=False)
+            self._rows_buffer.clear()
+        except Exception:
+            pass
+
 
 # ================= Main =================
 def main():
-    print(Colors.BOLD + "Minimal HUD + pooled-life + gate watcher + STARTUP only" + Colors.RESET)
+    print(Colors.BOLD + "HUD + pooled-life + 0x072 session tracker + Attack-ID labeling + Wire segmentation" + Colors.RESET)
     hook()
     print("Hooked.")
+
+    exporter = SessionExporter()
 
     resolver = SlotResolver()
     last_base_by_slot: Dict[int, int] = {}
@@ -253,9 +550,11 @@ def main():
     pool_prev: Dict[str, Optional[int]] = {}
     pool_now:  Dict[str, Optional[int]] = {}
 
-    trackers: Dict[str, MoveTracker] = {
-        nm: MoveTracker(side_hint=("P1" if nm.startswith("P1") else "P2")) for nm, _ in SLOTS
-    }
+    trackers: Dict[str, MoveTracker] = {}
+    for nm, _ in SLOTS:
+        tr = MoveTracker(nm, side_hint=("P1" if nm.startswith("P1") else "P2"))
+        tr.set_export_cb(exporter.add_row)
+        trackers[nm] = tr
 
     if SHOW_HUD:
         sys.stdout.write("\033[?25l"); sys.stdout.flush()
@@ -300,7 +599,6 @@ def main():
                     pool_prev[name] = pool_now.get(name)
                     pool_now[name]  = _read_pool_byte(base)
 
-                    # update gates for startup-only
                     trackers[name].update_vals(base)
                 else:
                     info[name] = None
@@ -310,7 +608,7 @@ def main():
             t = time.time()
 
             # Tick per slot
-            for name, _, base, _ in resolved:
+            for name, _, _base, _ in resolved:
                 trackers[name].tick(t)
 
             # HUD render
@@ -330,10 +628,9 @@ def main():
                     f"P2:{meter_now['P2']:>6} (Δ{(meter_now['P2']-meter_prev['P2']):+})"
                 )
 
-                # Extras: pooled-life + gates + startup-only
                 extras: List[str] = []
+                # pooled life
                 for nm, _ in SLOTS:
-                    # pooled life
                     curp = pool_now.get(nm); prvp = pool_prev.get(nm)
                     if curp is None:
                         extras.append(f"{nm} pool(+0x{POOL_REL:03X}): --  Δ--")
@@ -341,9 +638,10 @@ def main():
                         d = 0 if prvp is None else (curp - prvp)
                         extras.append(f"{nm} pool(+0x{POOL_REL:03X}): {curp:>3}  Δ{d:+}")
 
+                # HOT now + brief move line + AID
                 for nm, _ in SLOTS:
-                    extras.append(trackers[nm].hud_gate_line(nm))
-                    mv = trackers[nm].hud_move_line(nm)
+                    extras.append(trackers[nm].hud_gate_line())
+                    mv = trackers[nm].hud_move_line()
                     if mv: extras.append(mv)
 
                 render_screen(lines, meter_summary, extras)
@@ -355,6 +653,16 @@ def main():
     finally:
         if SHOW_HUD:
             sys.stdout.write("\033[?25h"); sys.stdout.flush()
+        # final XLSX flush
+        try:
+            exporter.flush_xlsx()
+        except Exception:
+            pass
+
 
 if __name__ == "__main__":
+    # Safety: ensure Colors has attributes we reference
+    for attr, fallback in (("CYAN", "\033[36m"), ("DIM", "\033[2m")):
+        if not hasattr(Colors, attr):
+            setattr(Colors, attr, fallback)
     main()

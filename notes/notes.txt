@@ -1,0 +1,353 @@
+# Tatsunoko vs Capcom Reverse-Engineering Notes (Ryu)
+## Integrated with Data Collection Framework
+
+---
+
+## 1. Environment Setup
+
+### Tools in use:
+- **Dolphin 5.0 Debug build** (x64, with Breakpoints, Memory, Registers)
+- **dolphin-memory-engine** (Python) — partial success for static reads, no real-time influence
+- **Lua** (built-in Dolphin interpreter) — initially errored on readbyte (old API name), scanning library now
+- **Python Data Collection Framework** — real-time monitoring with HUD, CSV/XLSX export
+
+### Memory region under investigation:
+- **Base: 0x9246B9C0 → 0x9246BBBF**
+- Identified as character struct for P1 (Ryu)
+- Structure repeats for each player slot at stride ≈0x300–0x400 bytes
+
+---
+
+## 2. Initial Function Discoveries
+
+### Function @ 0x8004AAF4 (stw r4, 0x70(r3))
+This instruction updates a word inside the character struct.
+- `r3` = pointer to character struct (confirmed via 0x9246B9C0)
+- `r4` = control/state flags value (masked by `rlwinm r4, r4, 0, 8, 5`)
+- The surrounding code handles per-frame state updates
+- Call stack (0x8024A4E0 → 0x8024B084 …) suggests this runs under character update / physics step
+
+---
+
+## 3. Behavior Testing
+
+| Test | Code | Result | Interpretation |
+|------|------|--------|----------------|
+| Manual patch `stw r0, 0x70(r3)` | Forces Ryu to slide right forever | 0x70 is likely a velocity/control bitfield (auto-input or walk velocity) |
+| `li r4, 4` test | No visible effect | Confirms control bits are masked or normalized by the engine every frame |
+
+---
+
+## 4. Character Structure Layout
+
+### Confirmed Offsets (from Base Address)
+
+#### Control & State Region
+| Offset | Example Values | Notes |
+|--------|---------------|-------|
+| **+0x02E** | Varies | **Pooled life byte** — tracks shared damage pool |
+| **+0x070** | Fluctuates 0x40 ↔ 0x00 | Movement/control flags (volatile, rewritten per frame) |
+| **+BA20–BA33** | 00 02 20 C1 10, 00 80 00 10, 02 40 00 02 | Pose/action substate flags |
+
+#### Movement & Physics Region (+0x050 to +0x080)
+Core animation and hitbox activity window. **This is the "hot zone" for move detection.**
+
+**Lead/Startup Lines:**
+- **+0x052**: Early lead signal (startup activity)
+- **+0x053**: Early lead signal (startup activity)
+
+**Active/Hit Lines:**
+- **+0x056**: Hit activity marker
+- **+0x057**: Hit activity marker  
+- **+0x058**: Hit activity (tracks with 0x072 duration on attacks)
+- **+0x059**: Hit activity (tracks with 0x072 duration on attacks)
+- **+0x05B**: Secondary activity marker
+
+**Master Gate:**
+- **+0x072**: **Primary move gate** — nonzero during entire move execution
+  - Duration directly corresponds to startup + active + recovery
+  - Used as session boundary for move tracking
+  - When 0x058 & 0x059 align with 0x072 duration (±1 frame), move is "attack-like"
+
+#### Velocity & Animation Region
+| Offset | Example Values | Notes |
+|--------|---------------|-------|
+| **+BA50–BA80** | 3F 43 F0, 3F 12 19, etc. | Velocity or animation scale floats (≈1.0–1.3 range) |
+| **+BA58–BA60** | Written by 0x800AAC7C/84/8C | Velocity/anim-rate cluster |
+| **+BA64–BA6C** | Written by 0x80055DC0/C4/C8 | Velocity/anim-rate cluster |
+| **+BA70–BA78** | Written by 0x80054310/1C/28 | Velocity/anim-rate cluster |
+| **+BA7C–BA80** | Written by 0x80054634/40/48 | Velocity/anim-rate cluster |
+
+#### Impact & Momentum Region
+| Offset | Example Values | Notes |
+|--------|---------------|-------|
+| **+BA90–BAB0** | 3F F3 6B CB, BF 64 A0 B8, 3F 76 7E 50 | Momentum/direction, maybe pushback X/Z |
+| **+BA90** | C2 B4 00 00 (constant -90.0) | Likely rotation/orientation baseline |
+| **+BB90–BBA0** | 3F80 (1.0) → 41E8 (29.0) spikes | Physical impulses on hit/block |
+| **+BBA0** | 40 A0 00 00 (5.0), 41 E8 00 00 (29.0) | **Hit impact magnitude / pushback / hitstop timer** |
+| **+BBB0** | FF FF FF FF 00 00 00 01 … | Tail terminator / struct end marker |
+
+---
+
+## 5. Event Comparison (Snapshots)
+
+| Scenario | Observed Difference |
+|----------|-------------------|
+| Standing HP (whiff) | BBA0 ≈ 5.0 → minor pushback |
+| Neutral Jump | BA50–BA80 cluster shows transient +Z velocity, BBA0 unchanged |
+| HP connects (hit) | BBA0 spikes to 29.0, BA50/BA70 change to ~1.3–1.4 — clear momentum burst |
+| HP blocked | BBA0 also 29.0, BA50 slightly lower (≈1.1) — hitstop magnitude re-used |
+
+### Interpretation:
+- **BBA0** behaves as impact magnitude (shared for hit and block)
+- **BA50–BA80** are velocity scalars or animation rates applied per state
+- **BA20–BA33** are state/pose codes written right before animation triggers
+
+---
+
+## 6. Data Collection Framework (Python Integration)
+
+### Real-Time Monitoring System
+The Python framework provides:
+- **Per-frame byte polling** across +0x050 to +0x080 range
+- **Session tracking** based on 0x072 gate transitions
+- **Three-phase capture**: PRE (12f before) → DURING (while 0x072 ≠ 0) → AFTER (24f after)
+- **Statistical analysis**: flips, nonzero count, first activity index per offset
+- **Attack-like classification**: when 0x058/0x059 duration matches 0x072 (±1 frame tolerance)
+
+### Phase Segmentation Algorithm (Wire-Driven)
+The framework computes frame-accurate phase boundaries **directly from wire signals** (no guessing):
+
+```
+Lead mask = OR(0x052, 0x053)  // startup activity indicators
+Hit mask  = OR(0x056, 0x057, 0x058)  // active/hit indicators
+
+lf = first nonzero in Lead mask
+hf = first nonzero in Hit mask
+hl = last nonzero in Hit mask
+
+t0 = min(lf, hf) if lf exists, else 0
+
+Startup  = hf - t0
+Active   = hl - hf + 1
+Recovery = DURING_length - (t0 + Startup + Active)
+```
+
+### Export Format
+- **CSV + XLSX** with timestamp-based filenames
+- **Per-session rows** containing:
+  - Wall clock start/end times
+  - Duration metrics (len_072_frames, startup, active, recovery)
+  - Attack-like boolean flag
+  - Per-phase statistics for all monitored offsets
+  - Hot lists (top 5 most active offsets per phase)
+  - Attack ID metadata (mode, first occurrence, flip count)
+  - Phase index markers (lead_first_idx, first_hit_idx, last_hit_idx)
+
+### Pooled Life Tracking
+- **Offset +0x02E** monitored for damage pool mechanics
+- Delta tracking per frame for assist/tag damage distribution
+- Integrated into HUD display with real-time Δ values
+
+---
+
+## 7. Critical NOP Experiments (Render & Input Control)
+
+### Input Disabling
+| Address | Effect | Interpretation |
+|---------|--------|----------------|
+| **0x800549BC** | All inputs die | Input buffer processing gate for actor at r3 |
+
+### Rendering Control  
+| Address | Effect | Interpretation |
+|---------|--------|----------------|
+| **0x80054CAC** | Character models stop rendering, hurtboxes/hitboxes still present | Visibility/submit bit or model component enable (does `lwz r0, 0x0064(r3) → rlwinm … → beq`) |
+
+### Character Orientation
+| Address | Effect | Interpretation |
+|---------|--------|----------------|
+| **0x80055560** | All characters face away from camera | Primary orientation controller |
+| **0x80055574** | Right-side character faces away | Right-side orientation bit |
+| **0x8005557C** | Left-side character faces away | Left-side orientation bit |
+
+### Assist Spawn Behavior
+| Address | Effect | Interpretation |
+|---------|--------|----------------|
+| **0x80054D30** (`mr r3, r5`) | P2 assist spawns at super jump height in blocking animation | Assist spawn position/state initialization |
+
+### Knockback Control
+| Address | Effect | Interpretation |
+|---------|--------|----------------|
+| **0x800551C4–0x800551DC** (multiple consecutive) | Megacrash & all Ryu knockdowns lose pushback (animation plays in place) | Knockback impulse application chain |
+
+### Camera & Stage Boundaries
+| Address | Effect | Interpretation |
+|---------|--------|----------------|
+| **0x80055654** | P1 can walk off left side of screen; teleports when hitting right boundary | Asymmetric boundary enforcement |
+| **0x800556CC** | Both players free to walk anywhere in stage X/Y (camera doesn't follow) | Camera follow/boundary lock removal |
+80055c68, 80055cc8,80055cc8,80055d24,80055d60 Ryu is able to move outside the camera of these as well
+80055ba8, if P1 hits the right side of the screen they'll screen wrap to the left. If P1 holds back on the ground they won't screen wrap until hitting the edge of the stage. P2 is unaffected.
+
+### movement
+
+80055ddc By disabled this, P1 and P2's animations and hitboxes work as normal, but the ability to move is set to Zero, Any jump keeps the characer in place. If hit by a launcher they will not move, but a calculation will push them slightly up. After so many frames airborne the character will lock back to the ground, unknown number at the moment.
+
+80055de4 When disbaled, both characters spin in place. Attempting to dash, causes the character to dash in the spun direction, resulting in a net...nothing, this applies to airdash as well. Assist is spinning off screen, trying to call them results in the assist being unable to come on screen, but you can see the projectile flying into the background.
+---
+
+## 8. Confirmed Writers to Velocity Cluster (+BA58–BA80)
+
+All write into the same float cluster under `r3 = 0x9246B9C0`:
+
+| Function Address | Target Offsets |
+|-----------------|----------------|
+| 0x80055DC0/C4/C8 | 0x9246BA64/68/6C |
+| 0x80054310/1C/28 | 0x9246BA70/74/78 |
+| 0x80054634/40/48 | 0x9246BA7C/80 |
+| 0x800AAC7C/84/8C | 0x9246BA58/5C/60 |
+| 0x8004DF9C (occasional) | 0x9246BA50 |
+
+This cluster is the **primary velocity/animation-rate group**.
+
+---
+
+## 9. Function Purpose Summary
+
+### 0x8004AAF4 Block
+**"Apply movement/control state."**
+1. Reads control flag word from `[r3 + 0x70]`
+2. Clears bits via `rlwinm`
+3. Writes back (`stw r4, 0x70(r3)`)
+
+Ensures flags like grounded, hitstop, control-lock are sanitized each frame. The sliding test proved [+0x70] is rewritten every frame, not a persistent velocity variable.
+
+---
+
+## 10. Recommended Next Steps
+
+### High-Priority Investigations
+
+1. **Write Watchpoints**
+   - `0x9246BBA0` → find the impact writer (hit/block resolution)
+   - `0x9246BA30` → pose/state changes
+   - `0x9246BA50` → velocity or animation speed
+   - `0x9246B9C0 + 0x072` → master gate writer
+
+2. **Stack Trace Capture**
+   - Each triggered store reveals the responsible function:
+     - Attack resolver
+     - Physics handler
+     - Animation controller
+   - Correlate with Python session exports to identify exact timing
+
+3. **Attack ID Deep Dive**
+   - Cross-reference Python-captured Attack IDs with memory snapshots
+   - Build attack move → offset pattern database
+   - Validate "attack-like" classification accuracy
+
+4. **Multi-Slot Tracking**
+   - Confirm structure stride between P1/P2 and assist slots
+   - Validate that offset patterns hold across all characters
+   - Map character manager base array (likely near 0x8024A4E0)
+
+5. **Real-Time Lua Polling** (now that API is fixed)
+   - Live correlation of key floats with on-screen motion/hitstop
+   - Trigger alerts on specific offset patterns
+   - Automated breakpoint placement on hot writers
+
+---
+
+## 11. Broader Context & Architecture
+
+### Character Manager Structure
+- Likely a global array feeding into per-frame update loop
+- Each character slot at stride ≈0x300–0x400 bytes
+- Call stack (0x8004AAF4 → 0x8024A4E0) suggests centralized dispatcher
+- Base array identification at **0x8024A4E0** enables symmetric P1/P2 tracking
+
+### Update Loop Pattern
+```
+Global Tick
+  └→ Character Manager Update (0x8024A4E0)
+       └→ Per-Character Update (0x8024B084)
+            ├→ Control State Apply (0x8004AAF4) — sanitizes +0x70
+            ├→ Velocity Writers (0x80055DC0, etc.) — updates +BA50–BA80
+            ├→ Impact Writers (unknown) — updates +BBA0
+            └→ Render Submit (0x80054CAC branch) — visibility check
+```
+
+---
+
+## 12. Key Takeaways
+
+### Memory Layout Confidence
+- **[r3+0x070]**: Volatile control flag word (rewritten per frame)
+- **[r3+0x02E]**: Pooled life byte (damage distribution)
+- **[r3+0x050–0x080]**: Movement gate window (lead/hit/master signals)
+- **[r3+0x072]**: **Master move gate** (primary session boundary)
+- **[r3+BA50–BA80]**: Live velocity/animation rate cluster
+- **[r3+BBA0]**: Impact magnitude (hit/block shared)
+- **[r3+BAxx]**: Live animation/physics parameters
+
+### Data Classification Framework
+- **0x072 duration** = total move length (startup + active + recovery)
+- **0x058/0x059 alignment** = attack-like detection (±1 frame tolerance)
+- **Lead lines (0x052/0x053)** = startup activity markers
+- **Hit lines (0x056/0x057/0x058)** = active frame markers
+- **Phase segmentation** = wire-driven, no guessing required
+
+### Production-Ready Tools
+- **Python framework** provides:
+  - Real-time monitoring with 60 FPS polling
+  - Automated session capture (PRE/DURING/AFTER)
+  - Statistical analysis with CSV/XLSX export
+  - HUD overlay for live debugging
+  - Attack ID correlation and phase timing
+
+### Confirmed Architecture
+- Structure is **live per-frame character state**, not static move data
+- Lua or Memory Engine can monitor struct for real-time state classification:
+  - Attack / Block / Hit / Idle
+  - Startup / Active / Recovery phases
+  - Damage distribution across assist pools
+
+---
+
+## 13. Open Questions
+
+1. **Camera zoom flag** — one NOP test showed background zoom translation, but address not recorded
+2. **Impact writer location** — which function writes to +BBA0 on hit/block?
+3. **Assist damage routing** — how does +0x02E pool interact with main health?
+4. **State transition triggers** — what writes to +BA20–BA33 pose codes?
+5. **Attack ID source** — where in memory is the attack ID table referenced from?
+
+---
+
+## Appendix: Python Framework Field Reference
+
+### CSV/XLSX Export Columns
+- **slot**: P1-C1, P1-C2, P2-C1, P2-C2
+- **session_idx**: Sequential session counter per slot
+- **wall_start/end**: Unix timestamps
+- **len_072_frames**: Total DURING length
+- **startup_frames**: Calculated from lead→hit transition
+- **active_frames**: Calculated from hit span (first→last)
+- **recovery_frames**: Remainder after active
+- **attack_like**: Boolean (0/1) based on 0x058/0x059 alignment
+- **hot_during/after**: Top 5 most active offsets with nonzero counts
+- **attacker_id_dec/hex**: Mode (most frequent) attack ID during DURING
+- **attacker_sub**: Attack sub-ID
+- **attacker_move**: Attack name string
+- **aid_flips/nz/first_idx**: Attack ID series statistics
+- **P_flips/nz/first_0xXXX**: PRE phase stats per offset
+- **D_flips/nz/first_0xXXX**: DURING phase stats per offset
+- **A_flips/nz/first_0xXXX**: AFTER phase stats per offset
+
+---
+
+*Last updated: [Your Date]*  
+*Integration of Python data collection framework with low-level reverse-engineering findings*
+
+Extra notes:
+
+80055904, Extremely subtle, but Ryu and Ken's A B 2B 5C 3C is not a true string when this is removed, the hitbox on 3C is NOT removed, it works normally otherwise, but this natural string no longer works.
