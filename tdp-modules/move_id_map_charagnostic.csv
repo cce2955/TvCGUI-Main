@@ -591,3 +591,6 @@
 91,0x1,Air Hitstun,multihit,multihit,yes,29
 160,0x1,Air Recovery,multihit,multihit,yes,29
 66,0x1,Hit Low,multihit,multihit,yes,29
+416,0x1,Tag Out,multihit,multihit,yes,29
+418,0x1,Tag In,multihit,multihit,yes,29
+425,0x1,Tag In Taunt,multihit,multihit,yes,29
