@@ -1,6 +1,6 @@
 # main.py
 # Slim orchestrator: poll dolphin, build snapshots, detect hits,
-# track frame advantage, render HUD. :contentReference[oaicite:14]{index=14}
+# track frame advantage, render HUD. :contentReference[oaicite:0]{index=0}
 
 import time, os, csv, pygame
 
@@ -15,6 +15,7 @@ from config import (
     FONT_MAIN_SIZE, FONT_SMALL_SIZE,
     HIT_CSV,
     GENERIC_MAPPING_CSV, PAIR_MAPPING_CSV,
+    COL_BG,
 )
 from constants import SLOTS
 from resolver import RESOLVER, pick_posy_off_no_jump
@@ -23,10 +24,12 @@ from fighter import read_fighter, dist2
 from advantage import ADV_TRACK
 from events import log_hit_line
 from moves import (
-    load_generic_map, load_pair_map, move_label_for,
+    load_generic_map,
+    load_pair_map,
+    move_label_for,
+    decode_flag_062,  # still imported for hud_draw via us attaching snaps
+    decode_flag_063,
 )
-from moves import decode_flag_062, decode_flag_063  # used by hud_draw via our closures
-from config import COL_BG
 from hud_draw import (
     draw_panel_classic,
     draw_activity,
@@ -34,12 +37,13 @@ from hud_draw import (
     draw_inspector,
 )
 
+
 def main():
     print("GUI HUD: waiting for Dolphin…")
     hook()
     print("GUI HUD: hooked Dolphin.")
 
-    # Load maps for move labels
+    # Load maps for move labels once
     generic_map = load_generic_map(GENERIC_MAPPING_CSV)
     pair_map    = load_pair_map(PAIR_MAPPING_CSV)
 
@@ -81,7 +85,7 @@ def main():
                 y_off_by_base[base] = pick_posy_off_no_jump(base)
             resolved.append((slotname, teamtag, base))
 
-        # Pick "C1"s for meter readouts
+        # Pick "C1"s for meter readouts (meter is only shown for the first char)
         p1c1_base = next((b for n, t, b in resolved if n == "P1-C1" and b), None)
         p2c1_base = next((b for n, t, b in resolved if n == "P2-C1" and b), None)
 
@@ -97,6 +101,20 @@ def main():
                 if s:
                     s["teamtag"]  = teamtag
                     s["slotname"] = slotname
+
+                    # --- NEW: resolve move label here once, and attach it ---
+                    # Prefer attB (secondary ID) if present, else attA.
+                    atk_id_primary   = s["attA"]
+                    atk_id_secondary = s["attB"]
+                    chosen_id = atk_id_secondary if atk_id_secondary is not None else atk_id_primary
+
+                    # Ask the maps for a nice name. We pass the chosen_id and the fighter's char id.
+                    # move_label_for in moves.py is defined as (aid, cid, pair_map, generic_map)
+                    nice_label = move_label_for(chosen_id, s["id"], pair_map, generic_map)
+
+                    s["mv_label"]       = nice_label
+                    s["mv_id_display"]  = chosen_id
+
                     snaps[slotname] = s
 
         # Detect hits by HP drop
@@ -124,9 +142,13 @@ def main():
                 if atk_snap is None:
                     continue
 
-                atk_id   = atk_snap["attA"]
-                atk_hex  = f"0x{atk_id:X}" if atk_id is not None else "NONE"
-                mv_label = move_label_for(atk_id, atk_snap["id"], pair_map, generic_map)
+                # --- NEW: use the same chosen id we just computed for that attacker ---
+                atk_primary   = atk_snap["attA"]
+                atk_secondary = atk_snap["attB"]
+                chosen_id     = atk_secondary if atk_secondary is not None else atk_primary
+
+                mv_label = move_label_for(chosen_id, atk_snap["id"], pair_map, generic_map)
+                atk_hex  = f"0x{chosen_id:X}" if chosen_id is not None else "NONE"
 
                 hit_row = {
                     "t": time.time(),
@@ -137,14 +159,14 @@ def main():
                     "hp_after": hp_now,
                     "attacker_label": atk_snap["slotname"],
                     "attacker_char": atk_snap["name"],
-                    "attacker_id_dec": atk_id,
+                    "attacker_id_dec": chosen_id,
                     "attacker_id_hex": atk_hex,
                     "attacker_move": mv_label,
                     "dist2": best_d2 if best_d2 is not None else -1.0,
                 }
                 log_hit_line(hit_row)
 
-                # Kick off/update advantage window
+                # Kick off/update advantage tracking
                 ADV_TRACK.start_contact(atk_snap["base"], v_snap["base"], frame_idx)
 
                 # Append to CSV
@@ -167,8 +189,8 @@ def main():
                         hit_row["victim_label"], hit_row["victim_char"],
                         dmg, hp_prev, hp_now,
                         hit_row["attacker_label"], atk_snap["name"],
-                        atk_snap["id"],
-                        atk_id, atk_hex, mv_label,
+                        atk_snap["id"],  # raw char ID
+                        chosen_id, atk_hex, mv_label,
                         0.0 if best_d2 is None else f"{best_d2:.3f}",
                         atk_snap["f062"], atk_snap["f063"],
                         v_snap["f062"], v_snap["f063"],
@@ -190,7 +212,7 @@ def main():
                 d2_val = dist2(atk_snap, vic_snap)
                 ADV_TRACK.update_pair(atk_snap, vic_snap, d2_val, frame_idx)
 
-        # Build advantage string for HUD (right now only P1-C1 vs P2-C1)
+        # Build advantage string for HUD (example: P1-C1 vs P2-C1)
         adv_line = ""
         if "P1-C1" in snaps and "P2-C1" in snaps:
             adv_val = ADV_TRACK.get_latest_adv(
@@ -250,6 +272,7 @@ def main():
         frame_idx += 1
 
     pygame.quit()
+
 
 if __name__ == "__main__":
     main()
