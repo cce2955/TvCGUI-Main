@@ -458,41 +458,129 @@ def dist2(a,b):
 
 #################### FRAME ADVANTAGE ####################
 class AdvantageTracker:
-    def __init__(self):
-        self.active = {}  # (atk, vic) -> dict
-    def note_contact(self, atk_base, vic_base):
-        self.active[(atk_base,vic_base)] = {
-            "t_start": time.time(),
-            "atk_ready_t": None,
-            "vic_ready_t": None,
-            "done": False,
-            "plus_frames": None,
-        }
-    def note_state(self, atk_snap, vic_snap):
-        if atk_snap is None or vic_snap is None: return
-        key=(atk_snap["base"], vic_snap["base"])
-        st=self.active.get(key)
-        if not st or st["done"]: return
-        now=time.time()
-        # attacker ready check
-        _, atk_phrase = decode_flag_063(atk_snap["f063"])
-        if st["atk_ready_t"] is None and atk_phrase in ("ATKR_READY","NEUTRAL"):
-            st["atk_ready_t"]=now
-        # victim ready check
-        _, vic_phrase = decode_flag_063(vic_snap["f063"])
-        if st["vic_ready_t"] is None and vic_phrase in ("DEF_READY","NEUTRAL"):
-            st["vic_ready_t"]=now
-        # finalize
-        if st["atk_ready_t"] is not None and st["vic_ready_t"] is not None:
-            dt = st["vic_ready_t"] - st["atk_ready_t"]
-            plus_frames = dt * POLL_HZ
-            st["plus_frames"]=plus_frames
-            st["done"]=True
-    def get_latest_adv(self, atk_base, vic_base):
-        st=self.active.get((atk_base,vic_base))
-        if not st: return None
-        return st.get("plus_frames")
+    """
+    Track frame advantage using flag 0x62 (f062).
 
+    Rules:
+      - We consider an "interaction" between (atk_base, vic_base).
+      - While interaction is active, we watch each side's f062.
+      - f062 == 160 means "IDLE_BASE" (fully recovered / neutral).
+      - The first frame each side reaches 160 gets recorded.
+      - When both sides have an idle_frame, we finalize plus_frames:
+            plus_frames = vic_idle_frame - atk_idle_frame
+        Negative => attacker recovers first (attacker is plus).
+        Positive => victim recovers first (attacker is minus).
+    """
+
+    def __init__(self):
+        # map (atk_base, vic_base) -> state dict
+        self.pairs = {}
+        self.last_result = []
+
+    def _get_pair_state(self, atk_base, vic_base):
+        key = (atk_base, vic_base)
+        st = self.pairs.get(key)
+        if st is None:
+            st = {
+                "active": False,
+                "contact_frame": None,
+                "last_touch_frame": None,
+
+                "atk_idle_frame": None,  # first frame attacker f062 == 160
+                "vic_idle_frame": None,  # first frame victim   f062 == 160
+
+                "done": False,
+                "plus_frames": None,
+            }
+            self.pairs[key] = st
+        return st
+
+    def start_contact(self, atk_base, vic_base, frame_idx):
+        """
+        Call this when we KNOW contact happened (HP dropped etc.).
+        This either starts or refreshes the window.
+        """
+        st = self._get_pair_state(atk_base, vic_base)
+
+        # new or reset interaction
+        if (not st["active"]) or st["done"]:
+            st["active"]            = True
+            st["contact_frame"]     = frame_idx
+            st["last_touch_frame"]  = frame_idx
+
+            st["atk_idle_frame"]    = None
+            st["vic_idle_frame"]    = None
+
+            st["done"]              = False
+            st["plus_frames"]       = None
+        else:
+            # already in contact, just refresh
+            st["last_touch_frame"]  = frame_idx
+    def get_latest_adv(self, atk_base, vic_base):
+        """
+        Return the last finalized plus_frames for this pair, or None.
+        plus_frames = vic_idle_frame - atk_idle_frame
+          >0  means victim took longer to return to idle_base (attacker recovers first, attacker is +)
+          <0  means attacker took longer (victim is +)
+        """
+        st = self.pairs.get((atk_base, vic_base))
+        if not st:
+            return None
+        return st.get("plus_frames")
+    def update_pair(self, atk_snap, vic_snap, d2_val, frame_idx):
+        if atk_snap is None or vic_snap is None:
+            return
+
+        atk_b = atk_snap["base"]
+        vic_b = vic_snap["base"]
+
+        st = self._get_pair_state(atk_b, vic_b)
+
+        # ----- 1. figure out if they're "interacting" this frame -----
+        close_enough = False
+        if d2_val is not None and d2_val != float("inf"):
+            close_enough = (d2_val <= MAX_DIST2)
+
+        atk_f62 = atk_snap["f062"]
+        vic_f62 = vic_snap["f062"]
+
+        # non-160 means somebody is active / in stun / in block etc
+        atk_busy = (atk_f62 is not None and atk_f62 != 160)
+        vic_busy = (vic_f62 is not None and vic_f62 != 160)
+
+        interacting = close_enough or atk_busy or vic_busy
+
+        if interacting:
+            # if not already active, bootstrap this like a new "contact"
+            if (not st["active"]) or st["done"]:
+                st["active"]            = True
+                st["contact_frame"]     = frame_idx
+                st["last_touch_frame"]  = frame_idx
+
+                st["atk_idle_frame"]    = None
+                st["vic_idle_frame"]    = None
+
+                st["done"]              = False
+                st["plus_frames"]       = None
+            else:
+                st["last_touch_frame"]  = frame_idx
+
+        # ----- 2. if active, log first idle frames -----
+        if st["active"] and (not st["done"]):
+            if st["atk_idle_frame"] is None and atk_f62 == 160:
+                st["atk_idle_frame"] = frame_idx
+            if st["vic_idle_frame"] is None and vic_f62 == 160:
+                st["vic_idle_frame"] = frame_idx
+
+            if (st["atk_idle_frame"] is not None) and (st["vic_idle_frame"] is not None):
+                st["plus_frames"] = (st["vic_idle_frame"] - st["atk_idle_frame"])
+                st["done"] = True
+
+        # ----- 3. timeout if stale -----
+        if st["active"] and st["last_touch_frame"] is not None:
+            if (frame_idx - st["last_touch_frame"]) > 30:
+                st["active"] = False
+                # keep plus_frames as historical
 ADV_TRACK = AdvantageTracker()
 
 #################### EVENT LOGGING ####################
@@ -707,7 +795,6 @@ def main():
     PAIR_MAP    = load_pair_map(PAIR_MAPPING_CSV)
 
     pygame.init()
-    # Monospace like old HUD. fallback if Consolas not present.
     try:
         font      = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
         smallfont = pygame.font.SysFont("consolas", FONT_SMALL_SIZE)
@@ -723,6 +810,8 @@ def main():
     y_off_by_base={}
     prev_hp = {}
 
+    frame_idx = 0  # <-- NEW: global frame counter inside this run
+
     running=True
     while running:
         frame_t0 = time.time()
@@ -732,7 +821,7 @@ def main():
                 running=False
 
         # resolve bases
-        resolved=[]  # (slotname, teamtag, base)
+        resolved=[]
         for slotname, ptr, teamtag in SLOTS:
             base, changed = RESOLVER.resolve_base(ptr)
             if base and last_base_by_slot.get(ptr) != base:
@@ -744,10 +833,11 @@ def main():
         # choose C1s for meter
         p1c1_base = next((b for n,t,b in resolved if n=="P1-C1" and b), None)
         p2c1_base = next((b for n,t,b in resolved if n=="P2-C1" and b), None)
+
         meter_p1 = read_meter(p1c1_base)
         meter_p2 = read_meter(p2c1_base)
 
-        # read fighter snapshots
+        # read snaps
         snaps={}
         for slotname, teamtag, base in resolved:
             if base:
@@ -758,31 +848,34 @@ def main():
                     s["slotname"]=slotname
                     snaps[slotname]=s
 
-        # detect hits by HP drop
+        # detect hits by HP drop (damage)
         for slotname,v_snap in snaps.items():
-            if not v_snap: continue
             base=v_snap["base"]
             hp_now=v_snap["cur"]
             hp_prev=prev_hp.get(base, hp_now)
             prev_hp[base]=hp_now
+
             dmg = hp_prev - hp_now
             if dmg >= MIN_HIT_DAMAGE:
+                # find nearest opposite-team attacker
                 vic_team = v_snap["teamtag"]
-                attackers=[s for s in snaps.values() if s and s["teamtag"]!=vic_team]
-                if not attackers: continue
+                attackers=[s for s in snaps.values() if s["teamtag"]!=vic_team]
+                if not attackers:
+                    continue
                 best_d2=None
                 atk_snap=None
                 for c in attackers:
-                    d2=dist2(v_snap,c)
-                    if best_d2 is None or d2<best_d2:
-                        best_d2=d2; atk_snap=c
+                    d2v = dist2(v_snap,c)
+                    if best_d2 is None or d2v<best_d2:
+                        best_d2=d2v; atk_snap=c
                 if atk_snap is None:
                     continue
 
-                atk_id = atk_snap["attA"]
-                atk_hex = f"0x{atk_id:X}" if atk_id is not None else "NONE"
+                atk_id   = atk_snap["attA"]
+                atk_hex  = f"0x{atk_id:X}" if atk_id is not None else "NONE"
                 mv_label = move_label_for(atk_id, atk_snap["id"])
 
+                # log line to HUD log
                 hit_row = {
                     "t": time.time(),
                     "victim_label": v_snap["slotname"],
@@ -798,8 +891,11 @@ def main():
                     "dist2": best_d2 if best_d2 is not None else -1.0,
                 }
                 log_hit_line(hit_row)
-                ADV_TRACK.note_contact(atk_snap["base"], v_snap["base"])
 
+                # START/REFRESH contact window for advantage calc (hit-confirm)
+                ADV_TRACK.start_contact(atk_snap["base"], v_snap["base"], frame_idx)
+
+                # write CSV (unchanged except for naming)
                 newcsv = not os.path.exists(HIT_CSV)
                 with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
                     w=csv.writer(fh)
@@ -828,62 +924,63 @@ def main():
                         f"0x{(v_snap['ctrl'] or 0):08X}",
                     ])
 
-        # update frame advantage tracking for both teams
-        p1s=[s for s in snaps.values() if s["teamtag"]=="P1"]
-        p2s=[s for s in snaps.values() if s["teamtag"]=="P2"]
-        for a in p1s:
-            for v in p2s:
-                ADV_TRACK.note_state(a,v)
-        for a in p2s:
-            for v in p1s:
-                ADV_TRACK.note_state(a,v)
+        # per-frame advantage update for all cross-team pairs
+        pairs = [
+            ("P1-C1","P2-C1"), ("P1-C1","P2-C2"),
+            ("P1-C2","P2-C1"), ("P1-C2","P2-C2"),
+            ("P2-C1","P1-C1"), ("P2-C1","P1-C2"),
+            ("P2-C2","P1-C1"), ("P2-C2","P1-C2"),
+        ]
+        for atk_slot, vic_slot in pairs:
+            atk_snap = snaps.get(atk_slot)
+            vic_snap = snaps.get(vic_slot)
+            if atk_snap and vic_snap:
+                d2_val = dist2(atk_snap, vic_snap)
+                ADV_TRACK.update_pair(atk_snap, vic_snap, d2_val, frame_idx)
 
+        # build advantage string for HUD
         adv_line = ""
         if "P1-C1" in snaps and "P2-C1" in snaps:
-            adv_val = ADV_TRACK.get_latest_adv(snaps["P1-C1"]["base"], snaps["P2-C1"]["base"])
+            adv_val = ADV_TRACK.get_latest_adv(snaps["P1-C1"]["base"],
+                                               snaps["P2-C1"]["base"])
             if adv_val is not None:
-                # same sign convention we had: positive means P1 recovers first?
-                p1_adv = -adv_val
-                adv_line = f"P1 vs P2 frame adv ~ {p1_adv:+.1f}f"
+                # adv_val = vic_idle - atk_idle
+                # positive means attacker recovered FIRST (attacker has the turn)
+                # we want to *show that exactly*, not negate it
+                adv_line = f"P1 vs P2 frame adv ~ {adv_val:+.1f}f"
 
-        # =========== RENDER ===========
+        # ----------- RENDER (same as you already have) -----------
         screen.fill(COL_BG)
 
-        # top row panels
         r_p1c1 = pygame.Rect(10, ROW1_Y, PANEL_W, PANEL_H)
         r_p2c1 = pygame.Rect(10+PANEL_W+20, ROW1_Y, PANEL_W, PANEL_H)
-
         draw_panel_classic(screen, r_p1c1, snaps.get("P1-C1"), meter_p1, font, smallfont, "P1-C1")
         draw_panel_classic(screen, r_p2c1, snaps.get("P2-C1"), meter_p2, font, smallfont, "P2-C1")
 
-        # second row panels
         r_p1c2 = pygame.Rect(10, ROW2_Y, PANEL_W, PANEL_H)
         r_p2c2 = pygame.Rect(10+PANEL_W+20, ROW2_Y, PANEL_W, PANEL_H)
-
         draw_panel_classic(screen, r_p1c2, snaps.get("P1-C2"), None, font, smallfont, "P1-C2")
         draw_panel_classic(screen, r_p2c2, snaps.get("P2-C2"), None, font, smallfont, "P2-C2")
 
-        # activity bar
-        act_rect = pygame.Rect(10, STACK_TOP_Y, SCREEN_W-20, ACTIVITY_H)
+        act_rect  = pygame.Rect(10, STACK_TOP_Y, SCREEN_W-20, ACTIVITY_H)
         draw_activity(screen, act_rect, font, adv_line)
 
-        # event log
-        log_rect = pygame.Rect(10, act_rect.bottom+10, SCREEN_W-20, LOG_H)
+        log_rect  = pygame.Rect(10, act_rect.bottom+10, SCREEN_W-20, LOG_H)
         draw_event_log(screen, log_rect, font, smallfont)
 
-        # inspector
         insp_rect = pygame.Rect(10, log_rect.bottom+10, SCREEN_W-20, INSP_H)
         draw_inspector(screen, insp_rect, font, smallfont, snaps)
 
         pygame.display.flip()
 
+        # pacing
         frame_elapsed = time.time() - frame_t0
         sleep_left = INTERVAL - frame_elapsed
         if sleep_left>0:
             time.sleep(sleep_left)
 
         clock.tick()
-
+        frame_idx += 1   # <--- advance the frame counter every loop
     pygame.quit()
 
 if __name__=="__main__":
