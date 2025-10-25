@@ -508,8 +508,6 @@
 262,0x106,6C,6C,6C,yes,28
 264,0x108,3C,3C,3C,yes,28
 270,0x10e,6M,6M,6M,yes,28
-1,0x1,forward throw,forward throw,forward throw,yes,28
-64,0x40,yatter splash B?,yatter splash B?,yatter splash B?,yes,28
 304,0x130,yatter shield,yatter shield,yatter shield,yes,28
 305,0x131,yatter shield b,yatter shield b,yatter shield b,yes,28
 306,0x132,yatter shield C,yatter shield C,yatter shield C,yes,28
@@ -561,8 +559,12 @@
 # Global/System Flags
 4294967295,0xffffffff,versus screen loading flag,versus screen loading flag,versus screen loading flag,yes,12
 1,0x1,idle,multihit,multihit,yes,29
+6,0x1,forward dash,multihit,multihit,yes,29
+7,0x1,back dash,multihit,multihit,yes,29
 11,0x1,crouched,multihit,multihit,yes,29
-2,0x1,Foward,multihit,multihit,yes,29
+21,0x1,jump forward,multihit,multihit,yes,29
+22,0x1,jump back,multihit,multihit,yes,29
+2,0x1,Forward,multihit,multihit,yes,29
 3,0x1,backward,multihit,multihit,yes,29
 20,0x1,jump,multihit,multihit,yes,29
 29,0x1,super jump,multihit,multihit,yes,29
@@ -573,4 +575,19 @@
 426,0x1,assist attack,multihit,multihit,yes,29
 430,0x1,assist standby,multihit,multihit,yes,29
 424,0x1,assist taunt,multihit,multihit,yes,29
-417,0x1,assost leave,multihit,multihit,yes,29
+417,0x1,assist leave,multihit,multihit,yes,29
+4562,0x1,forward throw,multihit,multihit,yes,29
+4565,0x1,back throw,multihit,multihit,yes,29
+80,0x1,Hard Knockdown,multihit,multihit,yes,29
+90,0x1,Hard Knockdown,multihit,multihit,yes,29
+96,0x1,Soft Knockdown,multihit,multihit,yes,29
+92,0x1,Hard Knockdown,multihit,multihit,yes,29
+73,0x1,knocked down (face up),multihit,multihit,yes,29
+102,0x1,knocked down (face up),multihit,multihit,yes,29
+113,0x1,get up,multihit,multihit,yes,29
+64,0x1,Standing Hitstun,multihit,multihit,yes,29
+97,0x1,Launched,multihit,multihit,yes,29
+65,0x1,Overhead Hitstun,multihit,multihit,yes,29
+91,0x1,Air Hitstun,multihit,multihit,yes,29
+160,0x1,Air Recovery,multihit,multihit,yes,29
+66,0x1,Hit Low,multihit,multihit,yes,29

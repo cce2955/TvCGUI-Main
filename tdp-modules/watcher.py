@@ -1,73 +1,93 @@
-import os, time, math, struct, csv
-import pygame
+import time, math, struct, csv, os, pygame
 import dolphin_memory_engine as dme
 
-### ================= USER TUNABLES ================= ###
+#################### CONFIG ####################
 POLL_HZ         = 60
 INTERVAL        = 1.0 / POLL_HZ
-MAX_EVENTS      = 20      # bottom log lines
-HP_MIN_MAX      = 10_000
-HP_MAX_MAX      = 60_000
-SAMPLE_SECS     = 1.5
-SAMPLE_DT       = 1.0 / 120
-COMBO_MIN_DMG   = 10
+COMBO_TIMEOUT   = 0.60
+MIN_HIT_DAMAGE  = 10
 MAX_DIST2       = 100.0
+METER_DELTA_MIN = 5
 
-CHARPAIR_CSV    = "move_id_map_charpair.csv"
-GENERIC_CSV     = "move_id_map_charagnostic.csv"
+# bytes to watch (0x050..0x08F)
+WIRE_OFFSETS = list(range(0x050, 0x090))
 
-FONT_SIZE_PANEL = 17   # fighter boxes
-FONT_SIZE_FEED  = 14   # activity + feed
+# WINDOW / LAYOUT (classic 2x2 top grid + bottom stack)
+SCREEN_W = 1280
+SCREEN_H = 800
 
-WIN_W, WIN_H    = 1280, 720
+PANEL_W  = SCREEN_W//2 - 20  # two panels per row
+PANEL_H  = 150               # each fighter panel height (like your old screenshot)
+ROW1_Y   = 10
+ROW2_Y   = ROW1_Y + PANEL_H + 10
 
-# slots/pointers
+ACTIVITY_H = 40
+LOG_H      = 160
+INSP_H     = 220
+
+# panel stack Y coords
+STACK_TOP_Y = ROW2_Y + PANEL_H + 10   # activity bar starts here
+
+FONT_MAIN_SIZE   = 16  # monospace main
+FONT_SMALL_SIZE  = 14
+
+# CSV paths
+HIT_CSV             = "collisions.csv"
+PAIR_MAPPING_CSV    = "move_id_map_charpair.csv"
+GENERIC_MAPPING_CSV = "move_id_map_charagnostic.csv"
+
+#################### COLORS ####################
+def rgb(r,g,b): return (r,g,b)
+COL_BG      = rgb(10,10,10)
+COL_PANEL   = rgb(20,20,20)
+COL_BORDER  = rgb(100,100,100)
+COL_TEXT    = rgb(220,220,220)
+COL_DIM     = rgb(140,140,140)
+COL_GOOD    = rgb(100,220,100)
+COL_WARN    = rgb(230,200,70)
+COL_BAD     = rgb(230,80,80)
+COL_ACCENT  = rgb(190,120,255)
+
+#################### GAME POINTERS / OFFSETS ####################
 PTR_P1_CHAR1 = 0x803C9FCC
 PTR_P1_CHAR2 = 0x803C9FDC
 PTR_P2_CHAR1 = 0x803C9FD4
 PTR_P2_CHAR2 = 0x803C9FE4
 SLOTS = [
-    ("P1-C1", PTR_P1_CHAR1),
-    ("P1-C2", PTR_P1_CHAR2),
-    ("P2-C1", PTR_P2_CHAR1),
-    ("P2-C2", PTR_P2_CHAR2),
+    ("P1-C1", PTR_P1_CHAR1, "P1"),
+    ("P1-C2", PTR_P1_CHAR2, "P1"),
+    ("P2-C1", PTR_P2_CHAR1, "P2"),
+    ("P2-C2", PTR_P2_CHAR2, "P2"),
 ]
 
-# offsets inside fighter struct
 OFF_MAX_HP   = 0x24
 OFF_CUR_HP   = 0x28
 OFF_AUX_HP   = 0x2C
 OFF_LAST_HIT = 0x40
 OFF_CHAR_ID  = 0x14
+
 POSX_OFF     = 0xF0
 POSY_CANDS   = [0xF4, 0xEC, 0xE8, 0xF8, 0xFC]
 
-# wires / state bytes
-OFF_FLAG_062 = 0x062
-OFF_FLAG_063 = 0x063
-OFF_FLAG_064 = 0x064
-OFF_CTRLWORD = 0x070      # 32-bit control/lock word
-OFF_GATE_072 = 0x072      # primary move gate byte
-
-# motion/momentum info
-VEL_OFFS = [0xBA58, 0xBA5C, 0xBA60, 0xBA64, 0xBA68]
-OFF_IMPACT_BBA0 = 0xBBA0  # float spike on hit/block
-
-# meter
 METER_OFF_PRIMARY   = 0x4C
 METER_OFF_SECONDARY = 0x9380 + 0x4C
 
-# attack id words
-ATT_ID_OFF_PRIMARY = 0x1E8
-ATT_ID_OFF_SECOND  = 0x1EC
+ATT_ID_OFF_PRIMARY  = 0x1E8
+ATT_ID_OFF_SECOND   = 0x1EC
 
-# Dolphin RAM ranges
+CTRL_WORD_OFF       = 0x70
+FLAG_062            = 0x062
+FLAG_063            = 0x063
+FLAG_064            = 0x064
+FLAG_072            = 0x072
+
 MEM1_LO, MEM1_HI = 0x80000000, 0x81800000
 MEM2_LO, MEM2_HI = 0x90000000, 0x94000000
 BAD_PTRS = {0x00000000, 0x80520000}
-INDIR_PROBES = [0x10, 0x18, 0x1C, 0x20]
+INDIR_PROBES = [0x10,0x18,0x1C,0x20]
 LAST_GOOD_TTL = 1.0
 
+#################### CHARACTER NAMES ####################
 CHAR_NAMES = {
     1:"Ken the Eagle",2:"Casshan",3:"Tekkaman",4:"Polimar",5:"Yatterman-1",
     6:"Doronjo",7:"Ippatsuman",8:"Jun the Swan",10:"Karas",12:"Ryu",
@@ -76,115 +96,53 @@ CHAR_NAMES = {
     27:"Joe the Condor",28:"Yatterman-2",29:"Zero",30:"Frank West",
 }
 
-### ======== dolphin io helpers ======== ###
-def hook_blocking():
-    print("GUI HUD: waiting for Dolphin…")
+#################### GLOBAL / RUNTIME STATE ####################
+GENERIC_MAP = {}
+PAIR_MAP    = {}
+event_log   = []
+MAX_LOG_LINES = 60
+
+#################### DOLPHIN READ HELPERS ####################
+def hook():
     while not dme.is_hooked():
-        try: dme.hook()
-        except Exception: pass
+        try:
+            dme.hook()
+        except:
+            pass
         time.sleep(0.2)
-    print("GUI HUD: hooked Dolphin.")
+
+def rd32(addr):
+    try: return dme.read_word(addr)
+    except: return None
+
+def rd8(addr):
+    try: return dme.read_byte(addr)
+    except: return None
+
+def rdf32(addr):
+    try:
+        w = dme.read_word(addr)
+        if w is None:
+            return None
+        f = struct.unpack(">f", struct.pack(">I", w))[0]
+        if not math.isfinite(f) or abs(f) > 1e8:
+            return None
+        return f
+    except:
+        return None
 
 def addr_in_ram(a):
     if a is None: return False
     return (MEM1_LO <= a < MEM1_HI) or (MEM2_LO <= a < MEM2_HI)
 
-def rd32(addr):
-    try: return dme.read_word(addr)
-    except Exception: return None
-
-def rd8(addr):
-    try: return dme.read_byte(addr)
-    except Exception: return None
-
-def rdf32(addr):
-    try:
-        w = dme.read_word(addr)
-        if w is None: return None
-        f = struct.unpack(">f", struct.pack(">I", w))[0]
-        if not math.isfinite(f): return None
-        if abs(f) > 1e8: return None
-        return f
-    except Exception:
-        return None
-
-def looks_like_hp(maxhp, curhp, auxhp):
+def looks_like_hp(maxhp,curhp,auxhp):
     if maxhp is None or curhp is None: return False
-    if not (HP_MIN_MAX <= maxhp <= HP_MAX_MAX): return False
+    if not (10_000 <= maxhp <= 60_000): return False
     if not (0 <= curhp <= maxhp): return False
     if auxhp is not None and not (0 <= auxhp <= maxhp): return False
     return True
 
-class SlotResolver:
-    def __init__(self):
-        self.last_good = {}  # slot_addr -> (base, ttl)
-
-    def _probe_indirect(self, slot_val):
-        for off in INDIR_PROBES:
-            a = rd32(slot_val+off)
-            if addr_in_ram(a) and a not in BAD_PTRS:
-                mh = rd32(a+OFF_MAX_HP)
-                ch = rd32(a+OFF_CUR_HP)
-                ax = rd32(a+OFF_AUX_HP)
-                if looks_like_hp(mh,ch,ax):
-                    return a
-        return None
-
-    def resolve_base(self, slot_addr):
-        now=time.time()
-        raw = rd32(slot_addr)
-        if (not addr_in_ram(raw)) or (raw in BAD_PTRS):
-            lg=self.last_good.get(slot_addr)
-            if lg and now<lg[1]:
-                return lg[0], False
-            return None, False
-
-        mh = rd32(raw+OFF_MAX_HP)
-        ch = rd32(raw+OFF_CUR_HP)
-        ax = rd32(raw+OFF_AUX_HP)
-        if looks_like_hp(mh,ch,ax):
-            self.last_good[slot_addr]=(raw, now+LAST_GOOD_TTL)
-            return raw, True
-
-        cand=self._probe_indirect(raw)
-        if cand:
-            self.last_good[slot_addr]=(cand, now+LAST_GOOD_TTL)
-            return cand, True
-
-        lg=self.last_good.get(slot_addr)
-        if lg and now<lg[1]:
-            return lg[0], False
-        return None, False
-
-RESOLVER = SlotResolver()
-
-class MeterAddrCache:
-    def __init__(self):
-        self.addr_by_base={}
-    def drop(self, base):
-        if base in self.addr_by_base:
-            del self.addr_by_base[base]
-    def get(self, base):
-        if base in self.addr_by_base:
-            return self.addr_by_base[base]
-        for cand in (base+METER_OFF_PRIMARY, base+METER_OFF_SECONDARY):
-            v=rd32(cand)
-            if v in (50000,0xC350) or (v is not None and 0<=v<=200_000):
-                self.addr_by_base[base]=cand
-                return cand
-        self.addr_by_base[base]=base+METER_OFF_PRIMARY
-        return self.addr_by_base[base]
-
-METER_CACHE = MeterAddrCache()
-
-def read_meter(base):
-    if not base: return None
-    addr=METER_CACHE.get(base)
-    v=rd32(addr)
-    if v is None or v<0 or v>200_000: return None
-    return v
-
-### ======== position sampler ======== ###
+#################### RESOLVER / Y PICK ####################
 def _variance(vals):
     n=len(vals)
     if n<2: return 0.0
@@ -206,20 +164,15 @@ def _corr(a,b):
     return num/(da*db)
 
 def pick_posy_off_no_jump(base):
-    xs=[]
-    ys={off:[] for off in POSY_CANDS}
-    end=time.time()+SAMPLE_SECS
+    xs=[]; ys={off:[] for off in POSY_CANDS}
+    end=time.time()+1.0
     while time.time()<end:
         x=rdf32(base+POSX_OFF); xs.append(x if x is not None else 0.0)
         for off in POSY_CANDS:
             y=rdf32(base+off); ys[off].append(y if y is not None else 0.0)
-        time.sleep(SAMPLE_DT)
-
-    if len(xs)<10:
-        return 0xF4
-
-    best_score=None
-    best_off=None
+        time.sleep(1.0/120.0)
+    if len(xs)<10: return 0xF4
+    best_score=None; best_off=None
     for off,series in ys.items():
         if len(series)<10: continue
         s=abs(_slope(series))
@@ -227,277 +180,113 @@ def pick_posy_off_no_jump(base):
         r=abs(_corr(series,xs))
         score=(0.6*(1/(1+v)))+(0.3*(1/(1+s)))+(0.1*(1/(1+r)))
         if best_score is None or score>best_score:
-            best_score=score
-            best_off=off
+            best_score=score; best_off=off
     return best_off or 0xF4
 
-### ======== reads ======== ###
-def read_vel_cluster(base):
-    vals=[]
-    for off in VEL_OFFS:
-        vals.append(rdf32(base+off))
-    return vals
-
-def safe_fmt_f(v):
-    return f"{v:.2f}" if (v is not None) else "--"
-
-def read_fighter_block(base, y_off):
-    max_hp=rd32(base+OFF_MAX_HP)
-    cur_hp=rd32(base+OFF_CUR_HP)
-    aux_hp=rd32(base+OFF_AUX_HP)
-    if not looks_like_hp(max_hp,cur_hp,aux_hp):
-        return None
-
-    cid=rd32(base+OFF_CHAR_ID)
-    name=CHAR_NAMES.get(cid, f"ID_{cid}") if cid is not None else "???"
-
-    x=rdf32(base+POSX_OFF)
-    y=rdf32(base+y_off) if y_off is not None else None
-
-    last_dmg=rd32(base+OFF_LAST_HIT)
-    if last_dmg is None or last_dmg<0 or last_dmg>200000:
-        last_dmg=None
-
-    f062=rd8(base+OFF_FLAG_062)
-    f063=rd8(base+OFF_FLAG_063)
-    f064=rd8(base+OFF_FLAG_064)
-
-    gate072 = rd8(base+OFF_GATE_072)
-    ctrlword= rd32(base+OFF_CTRLWORD)
-    impact  = rdf32(base+OFF_IMPACT_BBA0)
-
-    vel_list= read_vel_cluster(base)
-
-    aid_primary=rd32(base+ATT_ID_OFF_PRIMARY)
-    aid_second =rd32(base+ATT_ID_OFF_SECOND)
-
-    return {
-        "base":base,
-        "cid":cid,
-        "name":name,
-        "max_hp":max_hp,
-        "cur_hp":cur_hp,
-        "aux_hp":aux_hp,
-        "x":x,
-        "y":y,
-        "last_dmg":last_dmg,
-        "f062":f062,
-        "f063":f063,
-        "f064":f064,
-        "gate072":gate072,
-        "ctrlword":ctrlword,
-        "impact":impact,
-        "vels":vel_list,
-        "atk_id":aid_primary,
-        "atk_sub":aid_second
-    }
-
-def dist2(a,b):
-    if not a or not b: return float("inf")
-    ax,ay=a.get("x"),a.get("y")
-    bx,by=b.get("x"),b.get("y")
-    if None in (ax,ay,bx,by): return float("inf")
-    dx=ax-bx; dy=ay-by
-    return dx*dx+dy*dy
-
-### ======== flag decoders & frame adv tracking ======== ###
-def decode_flag_062(val, role_hint):
-    if val is None: return "?"
-    if val == 160: return "BASE"
-    if val == 32:  return "MOVE/CROUCH"
-    if val == 0:   return "ACTIVE"
-    if val == 168 and role_hint=="victim": return "PREHIT_WARN"
-    if val == 40:  return "IMPACT"
-    if val == 8:
-        if role_hint=="victim":
-            return "BLOCKSTUN"
-        return "STUN_TAIL"
-    return f"UNK({val})"
-
-def decode_flag_063(val, role_hint):
-    if val is None: return "?"
-    if val == 1:   return "NEUTRAL"
-    if val == 0:   return "LOCKED/ACTIVE"
-    if val == 6:   return "PREHIT_LOCK"
-    if val == 4:   return "HIT_PUSH"
-    if val == 16 and role_hint=="attacker": return "BLOCK_PUSH"
-    if val == 17 and role_hint=="attacker": return "ATKR_READY"
-    if val == 168 and role_hint=="victim":  return "DEF_READY"
-    return f"UNK({val})"
-
-GLOBAL_FRAME=0
-def current_frame_index():
-    return GLOBAL_FRAME
-
-class InteractionTracker:
+class SlotResolver:
     def __init__(self):
-        self.active={}  # (att_base,vic_base)->st dict
+        self.last_good={}  # slot_addr -> (base, ttl)
+    def _probe(self, slot_val):
+        for off in INDIR_PROBES:
+            a=rd32(slot_val+off)
+            if addr_in_ram(a) and a not in BAD_PTRS:
+                if looks_like_hp(rd32(a+OFF_MAX_HP), rd32(a+OFF_CUR_HP), rd32(a+OFF_AUX_HP)):
+                    return a
+        return None
+    def resolve_base(self, slot_addr):
+        now=time.time()
+        s=rd32(slot_addr)
+        if not addr_in_ram(s) or s in BAD_PTRS:
+            lg=self.last_good.get(slot_addr)
+            if lg and now<lg[1]:
+                return lg[0], False
+            return None, False
+        mh=rd32(s+OFF_MAX_HP); ch=rd32(s+OFF_CUR_HP); ax=rd32(s+OFF_AUX_HP)
+        if looks_like_hp(mh,ch,ax):
+            self.last_good[slot_addr]=(s,now+LAST_GOOD_TTL); return s, True
+        a=self._probe(s)
+        if a:
+            self.last_good[slot_addr]=(a,now+LAST_GOOD_TTL); return a, True
+        lg=self.last_good.get(slot_addr)
+        if lg and now<lg[1]:
+            return lg[0], False
+        return None, False
 
-    def start_if_new(self, t_now, att_slot, att_blk, vic_slot, vic_blk, dmg):
-        if (not att_blk) or (not vic_blk):
-            return None
-        k=(att_blk["base"], vic_blk["base"])
-        if k not in self.active:
-            self.active[k]={
-                "t_impact":t_now,
-                "att_slot":att_slot,
-                "vic_slot":vic_slot,
-                "att_base":att_blk["base"],
-                "vic_base":vic_blk["base"],
-                "att_char":att_blk["name"],
-                "vic_char":vic_blk["name"],
-                "att_char_id":att_blk["cid"],
-                "atk_id":att_blk["atk_id"],
-                "dmg":dmg,
-                "kind":None,  # "HIT" or "BLOCK"
-                "att_ready_frame":None,
-                "vic_ready_frame":None,
-                "frame0":current_frame_index(),
-                "done":False,
-                "adv_frames":None,
-            }
-        else:
-            st=self.active[k]
-            st["atk_id"]=att_blk["atk_id"]
-            st["dmg"]=max(st["dmg"], dmg)
-        return self.active[k]
+RESOLVER = SlotResolver()
 
-    def classify_kind(self, att_blk, vic_blk, st):
-        if st["kind"] is not None: return
-        # victim 062 == 8 => BLOCKSTUN, so BLOCK
-        if vic_blk and (vic_blk["f062"] == 8):
-            st["kind"]="BLOCK"
-        else:
-            st["kind"]="HIT"
+#################### METER CACHE ####################
+class MeterAddrCache:
+    def __init__(self):
+        self.addr_by_base={}
+    def drop(self,base): self.addr_by_base.pop(base,None)
+    def get(self,base):
+        if base in self.addr_by_base: return self.addr_by_base[base]
+        for a in (base+METER_OFF_PRIMARY, base+METER_OFF_SECONDARY):
+            v=rd32(a)
+            if v in (50000,0xC350) or (v is not None and 0<=v<=200_000):
+                self.addr_by_base[base]=a; return a
+        self.addr_by_base[base]=base+METER_OFF_PRIMARY
+        return self.addr_by_base[base]
 
-    def update_recovery(self, st, att_blk, vic_blk):
-        fr = current_frame_index()
+METER_CACHE = MeterAddrCache()
 
-        # attacker free? 063==17 or 1
-        if st["att_ready_frame"] is None and att_blk:
-            att63 = att_blk["f063"]
-            if att63 in (17,1):
-                st["att_ready_frame"]=fr
+def read_meter(base):
+    if not base: return None
+    a=METER_CACHE.get(base)
+    v=rd32(a)
+    if v is None or v<0 or v>200_000:
+        return None
+    return v
 
-        # victim free?
-        # BLOCK: victim 063 in (168,1)
-        # HIT:   victim 063 == 1
-        if st["vic_ready_frame"] is None and vic_blk:
-            vic63 = vic_blk["f063"]
-            if st["kind"]=="BLOCK":
-                if vic63 in (168,1):
-                    st["vic_ready_frame"]=fr
-            else:
-                if vic63 in (1,):
-                    st["vic_ready_frame"]=fr
-
-        # if both known compute advantage and mark done
-        if (st["att_ready_frame"] is not None
-            and st["vic_ready_frame"] is not None
-            and not st["done"]):
-            a0 = st["att_ready_frame"]
-            v0 = st["vic_ready_frame"]
-            st["adv_frames"] = (v0 - a0)
-            st["done"]=True
-
-    def garbage_collect(self):
-        kill=[]
-        nowfr=current_frame_index()
-        for k,st in self.active.items():
-            if st["done"]:
-                if nowfr - st["frame0"] > POLL_HZ*2:
-                    kill.append(k)
-            else:
-                if nowfr - st["frame0"] > POLL_HZ*2:
-                    kill.append(k)
-        for k in kill:
-            del self.active[k]
-
-    def get_recent(self):
-        arr=list(self.active.values())
-        arr.sort(key=lambda s: s["t_impact"], reverse=True)
-        return arr
-
-INTERACTIONS=InteractionTracker()
-
-### ======== move label map ======== ###
-def _parse_int_safe(v):
-    if v is None or v=="": return None
-    try: return int(v)
-    except:
-        try: return int(v,0)
-        except:
-            try: return int(float(v))
-            except:
-                return None
-
-def load_generic_map(path):
-    out={}
+#################### ATTACK / STATE DECODE ####################
+def load_generic_map(path=GENERIC_MAPPING_CSV):
+    mp={}
     if not os.path.exists(path):
-        print(f"(Map) {path} missing, continuing.")
-        return out
+        print("(Map) no",path)
+        return mp
     try:
         with open(path, newline='', encoding='utf-8') as fh:
-            peek=fh.readline()
-        with open(path, newline='', encoding='utf-8') as fh2:
-            fh2.seek(0)
-            dr=csv.DictReader(fh2)
-            if dr.fieldnames and 'atk_id_dec' in dr.fieldnames:
-                for row in dr:
-                    aid=_parse_int_safe(row.get('atk_id_dec') or row.get('atk_id_hex'))
-                    if aid is None: continue
-                    label=(row.get('generic_label') or row.get('top_label') or
-                           row.get('examples') or "").strip()
-                    if not label:
-                        for k,v in row.items():
-                            if k not in ("atk_id_dec","atk_id_hex","char_id") and v:
-                                vv=v.strip()
-                                if vv:
-                                    label=vv
-                                    break
-                    if label:
-                        out[aid]=label
-            else:
-                fh2.seek(0)
-                rr=csv.reader(fh2)
-                for row in rr:
-                    if (not row) or row[0].startswith("#"): continue
-                    if len(row)<3: continue
-                    aid=_parse_int_safe(row[0])
-                    if aid is None: continue
-                    lab=row[2].strip()
-                    if lab:
-                        out[aid]=lab
+            rdr=csv.reader(fh)
+            for row in rdr:
+                if not row or row[0].startswith("#"): continue
+                try:
+                    aid=int(row[0])
+                except:
+                    continue
+                if len(row)>=3 and row[2].strip():
+                    mp[aid]=row[2].strip()
+                else:
+                    mp[aid]=f"FLAG_{aid}"
     except Exception as e:
-        print("(Map) parse fail:", e)
-    print(f"(Map) loaded {len(out)} char-agnostic labels")
-    return out
+        print("(Map) err:",e)
+    print(f"(Map) loaded {len(mp)} char-agnostic labels")
+    return mp
 
-def load_pair_map(path):
-    out={}
+def load_pair_map(path=PAIR_MAPPING_CSV):
+    mp={}
     if not os.path.exists(path):
-        print(f"(MapPairs) no {path}, continuing.")
-        return out
+        print("(MapPairs) no",path,", continuing.")
+        return mp
     try:
         with open(path, newline='', encoding='utf-8') as fh:
-            dr=csv.DictReader(fh)
-            for row in dr:
-                aid=_parse_int_safe(row.get("atk_id_dec") or row.get("atk_id_hex"))
-                cid=_parse_int_safe(row.get("char_id"))
-                if aid is None or cid is None: continue
-                label=(row.get("generic_label") or row.get("top_label")
-                       or row.get("examples") or "").strip()
-                if not label: continue
-                out[(aid,cid)] = label
-        print(f"(MapPairs) loaded {len(out)} labels")
+            rdr=csv.DictReader(fh)
+            for r in rdr:
+                try:
+                    aid=int(r.get('atk_id_dec') or r.get('atk_id_hex'),0)
+                    cid=int(r.get('char_id'))
+                except:
+                    continue
+                lab=(r.get('generic_label') or r.get('top_label') or r.get('examples') or "").strip()
+                if not lab: lab=f"FLAG_{aid}"
+                mp[(aid,cid)] = lab
     except Exception as e:
-        print("(MapPairs) parse fail:", e)
-    return out
+        print("(MapPairs) err:",e)
+    print(f"(MapPairs) loaded {len(mp)} exact labels")
+    return mp
 
-GENERIC_MAP={}
-PAIR_MAP   ={}
-
-def move_label_for(aid,cid):
+def move_label_for(aid, cid):
+    if aid == 48: return "BLOCK"
+    if aid == 51: return "PUSHBLOCK"
     if aid is None: return "FLAG_NONE"
     if cid is not None and (aid,cid) in PAIR_MAP:
         return PAIR_MAP[(aid,cid)]
@@ -505,317 +294,595 @@ def move_label_for(aid,cid):
         return GENERIC_MAP[aid]
     return f"FLAG_{aid}"
 
-### ======== drawing helpers ======== ###
-def draw_fighter_panel(
-    screen, font, rect,
-    slot_name, blk, meter_val,
-    recent_attacker_base,
-    recent_victim_base
-):
-    x,y,w,h = rect
-    pygame.draw.rect(screen, (30,30,30), rect, border_radius=8)
-    pygame.draw.rect(screen, (80,80,80), rect, 2, border_radius=8)
+def decode_flag_062(val):
+    if val is None: return ("?", "UNK")
+    if val == 160:  return ("160","IDLE_BASE")
+    if val == 168:  return ("168","ENGAGED")
+    if val == 32:   return ("32","ACTIVE_MOVE")
+    if val == 0:    return ("0","ATTACK_ACTIVE")
+    if val == 40:   return ("40","IMPACTED")
+    if val == 8:    return ("8","STUN_LOCK")
+    return (str(val), f"UNK({val})")
 
-    if not blk:
-        lines = [
-            f"{slot_name}",
-            "(n/a)"
-        ]
-        yy=y+8
-        for L in lines:
-            surf=font.render(L,True,(200,200,200))
-            screen.blit(surf,(x+8,yy))
-            yy+=font.get_linesize()
+def decode_flag_063(val):
+    """
+    Decode per-character action / stun / cancel state byte at +0x063.
+
+    Returns (raw_str, meaning_str) where raw_str is just the number as text
+    and meaning_str is our best label for that state.
+    """
+
+    if val is None:
+        return ("?", "UNK")
+
+    # --- neutral / ready states ---
+    if val == 1:
+        # idle / totally free
+        return ("1", "NEUTRAL")
+    if val == 17:
+        # attacker regained control after offense
+        return ("17", "ATKR_READY")
+    if val == 168:
+        # defender regained control after being hit / blockstunned
+        return ("168", "DEF_READY")
+
+    # --- basic grounded attack flow ---
+    if val == 0:
+        # you called this STARTUP originally (locked in action)
+        # we were also using "LOCKED_ACTIVE" here before. We'll keep STARTUP for now.
+        return ("0", "STARTUP")
+    if val == 32:
+        # startup / early active animation
+        return ("32", "STARTUP")
+    if val == 6:
+        # attacker: 2f before hit, committed
+        return ("6", "HIT_COMMIT")
+    if val == 34:
+        # buffer next normal (A~B, B~C, etc.)
+        return ("34", "CHAIN_BUFFER")
+    if val == 36:
+        # hit confirmed, pushback applying to attacker
+        return ("36", "HIT_RESOLVE")
+    if val in (37, 5):
+        # recovery but not yet neutral
+        return (str(val), "RECOVERY")
+
+    # --- hit / block stun, victim side ---
+    if val == 4:
+        # you: "pushback + hitstun / blockstun shove"
+        # (victim locked, getting pushed)
+        return ("4", "HITSTUN_PUSH")
+    if val == 16:
+        # block push on attacker in block sequence
+        return ("16", "BLOCK_PUSH")
+
+    # --- aerial states / cancels ---
+    if val == 65:
+        # jump cancel / air cancel window after launcher
+        return ("65", "AIR_CANCEL")
+    if val == 64:
+        return ("64", "AIR_ASCEND_ATK")   # air normal during rise
+    if val == 192:
+        return ("192", "AIR_DESC_ATK")    # air normal during fall / post-peak attack
+    if val == 193:
+        return ("193", "FALLING")         # generic falling state (no hit yet / landing soon)
+    if val == 70:
+        return ("70", "AIR_PREHIT")       # pre-impact check vs target (air vs grounded?)
+    if val == 68:
+        return ("68", "AIR_IMPACT")       # air hit actually connected (impact frame)
+    if val == 197:
+        return ("197", "KB_GROUNDED")     # grounded knockback / shove from air hit
+    if val == 196:
+        return ("196", "KB_VERTICAL")     # vertical knockback calc beginning
+    if val == 198:
+        return ("198", "KB_VERTICAL_PEAK")# vertical knockback really applied / airborne pop
+    if val == 96:
+        return ("96", "AIR_CHAIN_BUF1")   # first air chain buffer state
+    if val == 224:
+        return ("224", "AIR_CHAIN_BUF2")  # second air chain hop
+    if val == 230:
+        return ("230", "AIR_CHAIN_BUF3")  # third air chain hop
+    if val == 194:
+        return ("194", "AIR_CHAIN_END")   # tail before settling into descend atk (192)
+
+    # --- fallback ---
+    return (str(val), f"UNK({val})")
+
+#################### SNAPSHOT ####################
+def read_attack_ids(base):
+    if not base: return (None,None)
+    a = rd32(base+ATT_ID_OFF_PRIMARY)
+    b = rd32(base+ATT_ID_OFF_SECOND)
+    try: a=int(a) if a is not None else None
+    except: a=None
+    try: b=int(b) if b is not None else None
+    except: b=None
+    return a,b
+
+def read_fighter(base, y_off):
+    if not base: return None
+    max_hp=rd32(base+OFF_MAX_HP)
+    cur_hp=rd32(base+OFF_CUR_HP)
+    aux_hp=rd32(base+OFF_AUX_HP)
+    if not looks_like_hp(max_hp,curhp=cur_hp,auxhp=aux_hp):
+        return None
+    cid=rd32(base+OFF_CHAR_ID)
+    name=CHAR_NAMES.get(cid,f"ID_{cid}") if cid is not None else "???"
+    x=rdf32(base+POSX_OFF)
+    y=rdf32(base+y_off) if y_off is not None else None
+    last=rd32(base+OFF_LAST_HIT)
+    if last is None or last<0 or last>200_000:
+        last=None
+    ctrl_word = rd32(base+CTRL_WORD_OFF)
+
+    f062 = rd8(base+FLAG_062)
+    f063 = rd8(base+FLAG_063)
+    f064 = rd8(base+FLAG_064)
+    f072 = rd8(base+FLAG_072)
+
+    attA,attB = read_attack_ids(base)
+
+    # wires for inspector
+    wires=[]
+    for off in WIRE_OFFSETS:
+        b = rd8(base+off)
+        wires.append((off,b))
+
+    return {
+        "base":base,
+        "max":max_hp,
+        "cur":cur_hp,
+        "aux":aux_hp,
+        "id":cid,
+        "name":name,
+        "x":x,
+        "y":y,
+        "last":last,
+        "ctrl":ctrl_word,
+        "f062":f062,
+        "f063":f063,
+        "f064":f064,
+        "f072":f072,
+        "attA":attA,
+        "attB":attB,
+        "wires":wires,
+    }
+
+def dist2(a,b):
+    if a is None or b is None: return float("inf")
+    ax,ay=a.get("x"),a.get("y")
+    bx,by=b.get("x"),b.get("y")
+    if None in (ax,ay,bx,by): return float("inf")
+    dx=ax-bx; dy=ay-by
+    return dx*dx+dy*dy
+
+#################### FRAME ADVANTAGE ####################
+class AdvantageTracker:
+    def __init__(self):
+        self.active = {}  # (atk, vic) -> dict
+    def note_contact(self, atk_base, vic_base):
+        self.active[(atk_base,vic_base)] = {
+            "t_start": time.time(),
+            "atk_ready_t": None,
+            "vic_ready_t": None,
+            "done": False,
+            "plus_frames": None,
+        }
+    def note_state(self, atk_snap, vic_snap):
+        if atk_snap is None or vic_snap is None: return
+        key=(atk_snap["base"], vic_snap["base"])
+        st=self.active.get(key)
+        if not st or st["done"]: return
+        now=time.time()
+        # attacker ready check
+        _, atk_phrase = decode_flag_063(atk_snap["f063"])
+        if st["atk_ready_t"] is None and atk_phrase in ("ATKR_READY","NEUTRAL"):
+            st["atk_ready_t"]=now
+        # victim ready check
+        _, vic_phrase = decode_flag_063(vic_snap["f063"])
+        if st["vic_ready_t"] is None and vic_phrase in ("DEF_READY","NEUTRAL"):
+            st["vic_ready_t"]=now
+        # finalize
+        if st["atk_ready_t"] is not None and st["vic_ready_t"] is not None:
+            dt = st["vic_ready_t"] - st["atk_ready_t"]
+            plus_frames = dt * POLL_HZ
+            st["plus_frames"]=plus_frames
+            st["done"]=True
+    def get_latest_adv(self, atk_base, vic_base):
+        st=self.active.get((atk_base,vic_base))
+        if not st: return None
+        return st.get("plus_frames")
+
+ADV_TRACK = AdvantageTracker()
+
+#################### EVENT LOGGING ####################
+def log_hit_line(data):
+    s = (f"HIT {data['victim_label']}({data['victim_char']}) "
+         f"dmg={data['dmg']} hp:{data['hp_before']}->{data['hp_after']} "
+         f"from {data['attacker_label']} "
+         f"moveID={data['attacker_id_dec']} '{data['attacker_move']}' "
+         f"d2={data['dist2']:.3f}")
+    event_log.append(s)
+    if len(event_log)>200:
+        del event_log[0:len(event_log)-200]
+
+#################### DRAW HELPERS ####################
+def hp_color(pct):
+    if pct is None: return COL_TEXT
+    if pct>0.66: return COL_GOOD
+    if pct>0.33: return COL_GOOD  # green-ish in your old HUD
+    return COL_GOOD               # you always showed HP green before
+
+def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_label):
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
+
+    if not snap:
+        # header
+        surface.blit(
+            font.render(f"{header_label} ---", True, COL_TEXT),
+            (rect.x+6, rect.y+4)
+        )
         return
 
-    role_hint = None
-    if blk["base"] == recent_attacker_base:
-        role_hint="attacker"
-    elif blk["base"] == recent_victim_base:
-        role_hint="victim"
+    # header line: "P1-C1 Ryu @0x9246B9C0"
+    hdr = f"{header_label} {snap['name']} @{snap['base']:08X}"
+    surface.blit(font.render(hdr, True, COL_TEXT),(rect.x+6, rect.y+4))
 
-    hp_cur = blk["cur_hp"]; hp_max=blk["max_hp"]
-    hp_pct = (hp_cur/hp_max) if hp_max else 0.0
-    hp_col = (0,255,0) if hp_pct>0.66 else ((255,255,0) if hp_pct>0.33 else (255,0,0))
-
+    # HP line
+    cur_hp=snap["cur"]; max_hp=snap["max"]
     meter_str = str(meter_val) if meter_val is not None else "--"
+    pct = (cur_hp/max_hp) if (max_hp and max_hp>0) else None
+    hp_line = f"HP {cur_hp}/{max_hp}    Meter:{meter_str}"
+    surface.blit(
+        font.render(hp_line, True, hp_color(pct)),
+        (rect.x+6, rect.y+24)
+    )
 
-    # trim vel list to 3 floats for readability
-    v_short = blk["vels"][:3] if blk["vels"] else []
-    v_show  = "[" + ",".join(safe_fmt_f(v) for v in v_short) + "]"
+    # Pos / LastDmg
+    lastdmg = snap["last"] if snap["last"] is not None else 0
+    pos_line = f"Pos X:{snap['x']:.2f} Y:{(snap['y'] or 0.0):.2f}   LastDmg:{lastdmg}"
+    surface.blit(
+        font.render(pos_line, True, COL_TEXT),
+        (rect.x+6, rect.y+44)
+    )
 
-    f062raw = blk["f062"]; desc062=decode_flag_062(f062raw, role_hint)
-    f063raw = blk["f063"]; desc063=decode_flag_063(f063raw, role_hint)
-    f064raw = blk["f064"]; desc064=f"UNK({f064raw})" if f064raw is not None else "?"
+    # MoveID / sub / attack label
+    atk_id = snap["attA"]; sub_id=snap["attB"]
+    labelA = move_label_for(atk_id, snap["id"])
+    mv_line = f"MoveID:{atk_id} {labelA}   sub:{sub_id}"
+    surface.blit(font.render(mv_line, True, COL_TEXT),(rect.x+6, rect.y+64))
 
-    g72 = blk["gate072"]
-    cw  = blk["ctrlword"]
-    imp = blk["impact"]
-    atk_id = blk["atk_id"]
-    mv_label = move_label_for(atk_id, blk["cid"])
+    # Flags / ctrl
+    f062_val,f062_desc = decode_flag_062(snap["f062"])
+    f063_val,f063_desc = decode_flag_063(snap["f063"])
+    f064_val = snap["f064"] if snap["f064"] is not None else 0
+    f072_val = snap["f072"] if snap["f072"] is not None else 0
+    ctrl_hex = f"0x{(snap['ctrl'] or 0):08X}"
 
-    # build lines in groups
-    lineA = f"{slot_name} {blk['name']} @0x{blk['base']:08X}"
-    lineB = f"HP {hp_cur}/{hp_max}  Meter:{meter_str}"
-    lineC = f"Pos X:{safe_fmt_f(blk['x'])} Y:{safe_fmt_f(blk['y'])}  LastDmg:{blk['last_dmg'] if blk['last_dmg'] is not None else '--'}"
-    lineD = f"MoveID:{atk_id} {mv_label}"
-    lineE = f"Vel {v_show}"
-    lineF = f"062:{f062raw} {desc062}  063:{f063raw} {desc063}  064:{f064raw} {desc064}"
-    lineG = f"072:{g72 if g72 is not None else '--'}  ctrl:0x{cw:08X}" if cw is not None else f"072:{g72 if g72 is not None else '--'}  ctrl:--"
-    lineH = f"impact:{safe_fmt_f(imp)}"
+    # first flags row like your old HUD:
+    row1 = f"062:{f062_val} {f062_desc}   063:{f063_val} {f063_desc}   064:{f064_val} UNK({f064_val})"
+    surface.blit(font.render(row1, True, COL_TEXT),(rect.x+6, rect.y+84))
 
-    yy=y+8
-    for L in (lineA,lineB,lineC,lineD,lineE,lineF,lineG,lineH):
-        # Render hp in color for the HP portion in lineB
-        if L is lineB:
-            # split "HP cur/max  Meter:val"
-            # color only the "HP cur/max"
-            hp_part=f"HP {hp_cur}/{hp_max}"
-            rest   =f"  Meter:{meter_str}"
-            surf_hp=font.render(hp_part,True,hp_col)
-            screen.blit(surf_hp,(x+8,yy))
-            sx = x+8+surf_hp.get_width()
-            surf_rest=font.render(rest,True,(220,220,220))
-            screen.blit(surf_rest,(sx,yy))
-        else:
-            surf=font.render(L,True,(220,220,220))
-            screen.blit(surf,(x+8,yy))
-        yy+=font.get_linesize()
+    # second flags row:
+    row2 = f"072:{f072_val}   ctrl:{ctrl_hex}"
+    surface.blit(font.render(row2, True, COL_TEXT),(rect.x+6, rect.y+104))
 
-def draw_activity_bar(screen, font, rect, interactions):
-    x,y,w,h = rect
-    pygame.draw.rect(screen,(20,20,20),rect)
-    pygame.draw.rect(screen,(60,60,60),rect,2)
+    # impact line? (in old HUD you had an "impact" float placeholder)
+    # we'll approximate impact as distance to nearest enemy (negated for P2 just for parity):
+    surface.blit(font.render("impact:--", True, COL_TEXT),(rect.x+6, rect.y+124))
 
-    yy=y+4
-    # just show a few most recent
-    for st in interactions[:6]:
-        kind = st["kind"] or "??"
-        atk  = st["att_char"]
-        vic  = st["vic_char"]
-        aid  = st["atk_id"]
-        mvn  = move_label_for(aid, st["att_char_id"])
-        dmg  = st["dmg"] if st["dmg"] is not None else "--"
+def draw_activity(surface, rect, font, adv_line):
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
+    txt = "Activity / Frame Advantage"
+    surface.blit(font.render(txt, True, COL_TEXT),(rect.x+6, rect.y+4))
 
-        # advantage
-        if st["adv_frames"] is None:
-            adv_txt="adv:..."
-        else:
-            sign="+" if st["adv_frames"]>0 else ""
-            tag = "OH" if kind=="HIT" else "OB"
-            adv_txt=f"adv:{sign}{st['adv_frames']} {tag}"
+    if adv_line:
+        surface.blit(font.render(adv_line, True, COL_TEXT),(rect.x+6, rect.y+20))
 
-        text = f"{atk} {mvn} -> {vic} | {kind} dmg={dmg} | {adv_txt}"
-        surf = font.render(text,True,(240,240,240))
-        screen.blit(surf,(x+8,yy))
-        yy+=font.get_linesize()
-        if yy>y+h-font.get_linesize():
-            break
+def draw_event_log(surface, rect, font, smallfont):
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
-def draw_event_feed(screen, font, rect, interactions):
-    x,y,w,h=rect
-    pygame.draw.rect(screen,(10,10,10),rect)
-    pygame.draw.rect(screen,(80,80,80),rect,2)
+    title = "Event Log (latest at bottom)"
+    surface.blit(font.render(title, True, COL_TEXT),(rect.x+6, rect.y+4))
 
-    yy=y+4
-    for st in interactions[:MAX_EVENTS]:
-        kind = st["kind"] or "??"
-        atk  = st["att_char"]
-        vic  = st["vic_char"]
-        aid  = st["atk_id"]
-        mvn  = move_label_for(aid, st["att_char_id"])
-        dmg  = st["dmg"] if st["dmg"] is not None else "--"
+    # lines to display
+    lines = event_log[-MAX_LOG_LINES:]
+    y = rect.y+24
+    max_w = rect.w-12
+    for line in lines[-12:]:
+        # simple wrap for long lines
+        words=line.split(' ')
+        curr=""
+        for w in words:
+            test = curr + (" " if curr else "") + w
+            if font.size(test)[0] > max_w and curr:
+                surface.blit(smallfont.render(curr, True, COL_TEXT),(rect.x+6,y))
+                y += smallfont.get_height()
+                curr=w
+            else:
+                curr=test
+        if curr:
+            surface.blit(smallfont.render(curr, True, COL_TEXT),(rect.x+6,y))
+            y += smallfont.get_height()
 
-        if st["adv_frames"] is None:
-            adv_txt="adv:..."
-        else:
-            sign="+" if st["adv_frames"]>0 else ""
-            tag = "OH" if kind=="HIT" else "OB"
-            adv_txt=f"adv:{sign}{st['adv_frames']} {tag}"
+def draw_inspector(surface, rect, font, smallfont, snaps):
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
-        line = f"{atk} {mvn} -> {vic} [{kind}] dmg={dmg} {adv_txt}"
+    title = "Inspector (0x050-0x08F wires, per character)"
+    surface.blit(font.render(title, True, COL_TEXT),(rect.x+6, rect.y+4))
 
-        surf=font.render(line,True,(200,200,200))
-        screen.blit(surf,(x+8,yy))
-        yy+=font.get_linesize()
-        if yy>y+h-font.get_linesize():
-            break
+    # 4 columns equally
+    col_w = rect.w//4
+    base_y = rect.y+24
+    max_h  = rect.h-28
 
-### ======== main loop ======== ###
+    order = ["P1-C1","P1-C2","P2-C1","P2-C2"]
+    for i,slot in enumerate(order):
+        subr_x = rect.x + i*col_w
+        subr_y = base_y
+        subr_w = col_w
+        # header
+        snap = snaps.get(slot)
+        if not snap:
+            header_txt = f"{slot} [---]"
+            surface.blit(
+                smallfont.render(header_txt, True, COL_DIM),
+                (subr_x+4, subr_y)
+            )
+            continue
+
+        cid = snap["id"]
+        header_txt = f"{slot} {snap['name']} (ID:{cid})"
+        surface.blit(
+            smallfont.render(header_txt, True, COL_TEXT),
+            (subr_x+4, subr_y)
+        )
+        line_y = subr_y + smallfont.get_height()+2
+
+        # decoded rows
+        f062_val,f062_desc = decode_flag_062(snap["f062"])
+        f063_val,f063_desc = decode_flag_063(snap["f063"])
+        ctrl_hex = f"0x{(snap['ctrl'] or 0):08X}"
+        f064_val = snap["f064"] if snap["f064"] is not None else 0
+        f072_val = snap["f072"] if snap["f072"] is not None else 0
+
+        info_lines = [
+            f"ctrl:{ctrl_hex}",
+            f"062:{f062_val} {f062_desc}",
+            f"063:{f063_val} {f063_desc}",
+            f"064:{f064_val} 072:{f072_val}",
+        ]
+
+        for ln in info_lines:
+            surface.blit(
+                smallfont.render(ln, True, COL_ACCENT),
+                (subr_x+4, line_y)
+            )
+            line_y += smallfont.get_height()+2
+
+        # wires dump
+        # "050:160 051:0 ..." wrapped inside this column width
+        chunks=[]
+        for off,b in snap["wires"]:
+            if off < 0x050 or off >= 0x090:
+                continue
+            val = "--" if b is None else str(b)
+            chunks.append(f"{off:03X}:{val}")
+        blob = " ".join(chunks)
+
+        # word-wrap blob
+        words = blob.split(" ")
+        curr=""
+        for w in words:
+            test = curr+(" " if curr else "")+w
+            if smallfont.size(test)[0] > (subr_w-8) and curr:
+                surface.blit(
+                    smallfont.render(curr, True, COL_TEXT),
+                    (subr_x+4, line_y)
+                )
+                line_y += smallfont.get_height()+2
+                curr=w
+            else:
+                curr=test
+        if curr:
+            surface.blit(
+                smallfont.render(curr, True, COL_TEXT),
+                (subr_x+4, line_y)
+            )
+            line_y += smallfont.get_height()+2
+
+#################### MAIN LOOP ####################
 def main():
-    global GLOBAL_FRAME, GENERIC_MAP, PAIR_MAP
+    global GENERIC_MAP, PAIR_MAP
+
+    print("GUI HUD: waiting for Dolphin…")
+    hook()
+    print("GUI HUD: hooked Dolphin.")
+
+    GENERIC_MAP = load_generic_map(GENERIC_MAPPING_CSV)
+    PAIR_MAP    = load_pair_map(PAIR_MAPPING_CSV)
 
     pygame.init()
-    screen = pygame.display.set_mode((WIN_W, WIN_H))
+    # Monospace like old HUD. fallback if Consolas not present.
+    try:
+        font      = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
+        smallfont = pygame.font.SysFont("consolas", FONT_SMALL_SIZE)
+    except:
+        font      = pygame.font.Font(None, FONT_MAIN_SIZE)
+        smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
+
+    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption("TvC Live HUD / Frame Probe")
     clock = pygame.time.Clock()
-    font_panel = pygame.font.SysFont("Consolas", FONT_SIZE_PANEL)
-    font_feed  = pygame.font.SysFont("Consolas", FONT_SIZE_FEED)
 
-    hook_blocking()
-
-    GENERIC_MAP = load_generic_map(GENERIC_CSV)
-    PAIR_MAP    = load_pair_map(CHARPAIR_CSV)
-
-    last_base_by_slot = {}
-    y_off_by_base     = {}
-    meter_val_cache   = {"P1":0,"P2":0}
-    p1_c1_base=None
-    p2_c1_base=None
-
-    prev_hp   = {}
-    prev_last = {}
+    last_base_by_slot={}
+    y_off_by_base={}
+    prev_hp = {}
 
     running=True
     while running:
-        GLOBAL_FRAME += 1
-        now=time.time()
+        frame_t0 = time.time()
 
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running=False
 
-        # resolve each slot
-        resolved=[]
-        for sl,ptr in SLOTS:
-            base,changed = RESOLVER.resolve_base(ptr)
-            resolved.append((sl,ptr,base,changed))
-
-        # update bases -> y offset + meter cache
-        for sl,ptr,base,changed in resolved:
-            if base and last_base_by_slot.get(ptr)!=base:
+        # resolve bases
+        resolved=[]  # (slotname, teamtag, base)
+        for slotname, ptr, teamtag in SLOTS:
+            base, changed = RESOLVER.resolve_base(ptr)
+            if base and last_base_by_slot.get(ptr) != base:
                 last_base_by_slot[ptr]=base
                 METER_CACHE.drop(base)
                 y_off_by_base[base]=pick_posy_off_no_jump(base)
+            resolved.append((slotname, teamtag, base))
 
-        for sl,ptr,base,_ in resolved:
-            if sl=="P1-C1" and base: p1_c1_base=base
-            if sl=="P2-C1" and base: p2_c1_base=base
+        # choose C1s for meter
+        p1c1_base = next((b for n,t,b in resolved if n=="P1-C1" and b), None)
+        p2c1_base = next((b for n,t,b in resolved if n=="P2-C1" and b), None)
+        meter_p1 = read_meter(p1c1_base)
+        meter_p2 = read_meter(p2c1_base)
 
-        m1=read_meter(p1_c1_base)
-        m2=read_meter(p2_c1_base)
-        if m1 is not None: meter_val_cache["P1"]=m1
-        if m2 is not None: meter_val_cache["P2"]=m2
-
-        # read fighter blocks
-        slot_info={}
-        for sl,ptr,base,_ in resolved:
+        # read fighter snapshots
+        snaps={}
+        for slotname, teamtag, base in resolved:
             if base:
                 yoff=y_off_by_base.get(base,0xF4)
-                blk=read_fighter_block(base,yoff)
-                slot_info[sl]=blk
-            else:
-                slot_info[sl]=None
+                s = read_fighter(base,yoff)
+                if s:
+                    s["teamtag"]=teamtag
+                    s["slotname"]=slotname
+                    snaps[slotname]=s
 
-        # detect hit/block events (hp drop or new last_dmg)
-        for sl,ptr,base,_ in resolved:
-            blk=slot_info.get(sl)
-            if not blk or not base: continue
+        # detect hits by HP drop
+        for slotname,v_snap in snaps.items():
+            if not v_snap: continue
+            base=v_snap["base"]
+            hp_now=v_snap["cur"]
+            hp_prev=prev_hp.get(base, hp_now)
+            prev_hp[base]=hp_now
+            dmg = hp_prev - hp_now
+            if dmg >= MIN_HIT_DAMAGE:
+                vic_team = v_snap["teamtag"]
+                attackers=[s for s in snaps.values() if s and s["teamtag"]!=vic_team]
+                if not attackers: continue
+                best_d2=None
+                atk_snap=None
+                for c in attackers:
+                    d2=dist2(v_snap,c)
+                    if best_d2 is None or d2<best_d2:
+                        best_d2=d2; atk_snap=c
+                if atk_snap is None:
+                    continue
 
-            cur_hp=blk["cur_hp"]
-            lastd =blk["last_dmg"]
+                atk_id = atk_snap["attA"]
+                atk_hex = f"0x{atk_id:X}" if atk_id is not None else "NONE"
+                mv_label = move_label_for(atk_id, atk_snap["id"])
 
-            old_hp=prev_hp.get(base,cur_hp)
-            old_ld=prev_last.get(base,lastd)
+                hit_row = {
+                    "t": time.time(),
+                    "victim_label": v_snap["slotname"],
+                    "victim_char": v_snap["name"],
+                    "dmg": dmg,
+                    "hp_before": hp_prev,
+                    "hp_after": hp_now,
+                    "attacker_label": atk_snap["slotname"],
+                    "attacker_char": atk_snap["name"],
+                    "attacker_id_dec": atk_id,
+                    "attacker_id_hex": atk_hex,
+                    "attacker_move": mv_label,
+                    "dist2": best_d2 if best_d2 is not None else -1.0,
+                }
+                log_hit_line(hit_row)
+                ADV_TRACK.note_contact(atk_snap["base"], v_snap["base"])
 
-            took=False
-            dmg_amt=None
+                newcsv = not os.path.exists(HIT_CSV)
+                with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
+                    w=csv.writer(fh)
+                    if newcsv:
+                        w.writerow([
+                            "t","victim_label","victim_char","dmg",
+                            "hp_before","hp_after",
+                            "attacker_label","attacker_char","attacker_char_id",
+                            "attacker_id_dec","attacker_id_hex","attacker_move",
+                            "dist2",
+                            "atk_flag062","atk_flag063",
+                            "vic_flag062","vic_flag063",
+                            "atk_ctrl","vic_ctrl",
+                        ])
+                    w.writerow([
+                        f"{hit_row['t']:.6f}",
+                        hit_row["victim_label"], hit_row["victim_char"],
+                        dmg, hp_prev, hp_now,
+                        hit_row["attacker_label"], hit_row["attacker_char"],
+                        atk_snap["id"],
+                        atk_id, atk_hex, mv_label,
+                        0.0 if best_d2 is None else f"{best_d2:.3f}",
+                        atk_snap["f062"], atk_snap["f063"],
+                        v_snap["f062"], v_snap["f063"],
+                        f"0x{(atk_snap['ctrl'] or 0):08X}",
+                        f"0x{(v_snap['ctrl'] or 0):08X}",
+                    ])
 
-            # last_dmg flip method
-            if (lastd is not None and old_ld is not None
-                and lastd>0 and lastd!=old_ld):
-                took=True
-                dmg_amt=lastd
+        # update frame advantage tracking for both teams
+        p1s=[s for s in snaps.values() if s["teamtag"]=="P1"]
+        p2s=[s for s in snaps.values() if s["teamtag"]=="P2"]
+        for a in p1s:
+            for v in p2s:
+                ADV_TRACK.note_state(a,v)
+        for a in p2s:
+            for v in p1s:
+                ADV_TRACK.note_state(a,v)
 
-            # hp drop method
-            if not took and (old_hp is not None and cur_hp is not None and cur_hp<old_hp):
-                diff=old_hp-cur_hp
-                if diff>=COMBO_MIN_DMG:
-                    took=True
-                    dmg_amt=diff
+        adv_line = ""
+        if "P1-C1" in snaps and "P2-C1" in snaps:
+            adv_val = ADV_TRACK.get_latest_adv(snaps["P1-C1"]["base"], snaps["P2-C1"]["base"])
+            if adv_val is not None:
+                # same sign convention we had: positive means P1 recovers first?
+                p1_adv = -adv_val
+                adv_line = f"P1 vs P2 frame adv ~ {p1_adv:+.1f}f"
 
-            if took and dmg_amt:
-                # figure attacker by closest of opposite team
-                opps = ["P2-C1","P2-C2"] if sl.startswith("P1") else ["P1-C1","P1-C2"]
-                best_blk=None
-                best_lbl=None
-                best_d2=float("inf")
-                for osl in opps:
-                    oblk=slot_info.get(osl)
-                    if not oblk: continue
-                    dd=dist2(blk,oblk)
-                    if dd<best_d2:
-                        best_d2=dd
-                        best_blk=oblk
-                        best_lbl=osl
-                if MAX_DIST2 is not None and best_d2>MAX_DIST2:
-                    best_blk=None
-                    best_lbl=None
+        # =========== RENDER ===========
+        screen.fill(COL_BG)
 
-                st=None
-                if best_blk:
-                    st=INTERACTIONS.start_if_new(
-                        now,
-                        best_lbl, best_blk,
-                        sl, blk,
-                        dmg_amt
-                    )
-                    if st:
-                        INTERACTIONS.classify_kind(best_blk, blk, st)
+        # top row panels
+        r_p1c1 = pygame.Rect(10, ROW1_Y, PANEL_W, PANEL_H)
+        r_p2c1 = pygame.Rect(10+PANEL_W+20, ROW1_Y, PANEL_W, PANEL_H)
 
-            prev_hp[base]=cur_hp
-            prev_last[base]=lastd
+        draw_panel_classic(screen, r_p1c1, snaps.get("P1-C1"), meter_p1, font, smallfont, "P1-C1")
+        draw_panel_classic(screen, r_p2c1, snaps.get("P2-C1"), meter_p2, font, smallfont, "P2-C1")
 
-        # update frame advantage tracking
-        for st in list(INTERACTIONS.active.values()):
-            att_blk=None
-            vic_blk=None
-            for b in slot_info.values():
-                if not b: continue
-                if b["base"]==st["att_base"]: att_blk=b
-                if b["base"]==st["vic_base"]: vic_blk=b
-            if att_blk or vic_blk:
-                INTERACTIONS.update_recovery(st, att_blk, vic_blk)
+        # second row panels
+        r_p1c2 = pygame.Rect(10, ROW2_Y, PANEL_W, PANEL_H)
+        r_p2c2 = pygame.Rect(10+PANEL_W+20, ROW2_Y, PANEL_W, PANEL_H)
 
-        INTERACTIONS.garbage_collect()
+        draw_panel_classic(screen, r_p1c2, snaps.get("P1-C2"), None, font, smallfont, "P1-C2")
+        draw_panel_classic(screen, r_p2c2, snaps.get("P2-C2"), None, font, smallfont, "P2-C2")
 
-        # draw
-        screen.fill((0,0,0))
+        # activity bar
+        act_rect = pygame.Rect(10, STACK_TOP_Y, SCREEN_W-20, ACTIVITY_H)
+        draw_activity(screen, act_rect, font, adv_line)
 
-        # top layout:
-        panel_w = WIN_W//2 - 16
-        panel_h = 180  # taller now
-        p_rects = {
-            "P1-C1": pygame.Rect(8,8,panel_w,panel_h),
-            "P1-C2": pygame.Rect(8+panel_w+16,8,panel_w,panel_h),
-            "P2-C1": pygame.Rect(8,8+panel_h+12,panel_w,panel_h),
-            "P2-C2": pygame.Rect(8+panel_w+16,8+panel_h+12,panel_w,panel_h),
-        }
+        # event log
+        log_rect = pygame.Rect(10, act_rect.bottom+10, SCREEN_W-20, LOG_H)
+        draw_event_log(screen, log_rect, font, smallfont)
 
-        recent_list = INTERACTIONS.get_recent()
-        recent_attacker_base = recent_list[0]["att_base"] if recent_list else None
-        recent_victim_base   = recent_list[0]["vic_base"] if recent_list else None
-
-        for sl,rect in p_rects.items():
-            blk=slot_info.get(sl)
-            meter_val = meter_val_cache["P1" if sl.startswith("P1") else "P2"]
-            draw_fighter_panel(
-                screen, font_panel, rect,
-                sl, blk, meter_val,
-                recent_attacker_base,
-                recent_victim_base
-            )
-
-        mid_rect  = pygame.Rect(8, 8+panel_h*2+24, WIN_W-16, 80)
-        feed_rect = pygame.Rect(8, mid_rect.bottom+12, WIN_W-16, WIN_H-(mid_rect.bottom+20))
-
-        draw_activity_bar(screen, font_feed, mid_rect, recent_list)
-        draw_event_feed(screen, font_feed, feed_rect, recent_list)
+        # inspector
+        insp_rect = pygame.Rect(10, log_rect.bottom+10, SCREEN_W-20, INSP_H)
+        draw_inspector(screen, insp_rect, font, smallfont, snaps)
 
         pygame.display.flip()
-        # tick at POLL_HZ
-        pygame.time.delay(int(INTERVAL*1000))
-        GLOBAL_FRAME += 0  # (we already ++ at top each loop)
+
+        frame_elapsed = time.time() - frame_t0
+        sleep_left = INTERVAL - frame_elapsed
+        if sleep_left>0:
+            time.sleep(sleep_left)
+
+        clock.tick()
 
     pygame.quit()
 
