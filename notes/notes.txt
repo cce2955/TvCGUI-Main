@@ -178,7 +178,14 @@ Recovery = DURING_length - (t0 + Startup + Active)
 ### Knockback Control
 | Address | Effect | Interpretation |
 |---------|--------|----------------|
-| **0x800551C4–0x800551DC** (multiple consecutive) | Megacrash & all Ryu knockdowns lose pushback (animation plays in place) | Knockback impulse application chain |
+| **0x800551C4–0x800551DC** (multiple consecutive),  | Megacrash & all Ryu knockdowns lose pushback (animation plays in place) | Knockback impulse application chain |
+80054f24, kind of tough to interpret this one. When doing a launcher, the person who initiated the launcher gets launched, but no hitstun, so I can launch and then do a grounded attack while flying into the air. This doesn't apply to supers or megacrash, only attacks that cause a "launch" state. Also seems to apply to wall bounce attacks? Also the momentum seems to shift to the attacker, so if  I tag out, the vector applies to the attacker and throws them behind the opponent and they are unable to act until landing because it's waiting on the taunt state
+80054f28, When launching, the opponent goes max Y value. When doing a wallbounce the opponent goes the max Y value, but the X value increases as well which pushes them to the right side of the stage, when the stage collision happens, the Y value stops and the opponent falls normally.
+80054f2c, When Launching, the Y value increases exponentially, so I can actually see them fly up. The X value works as normal.
+80054f3c, When launching, the opponent falls lower. There is a bug in normal gameplay that if you launch an airborne opponent they'll have this state, this flag reproduces that. As well any non wall bounce attack that's a soft knockdown(?) causes the opponent to immediately snap to the floor
+80054f44, Hard knock down special moves have no knockback including wall bounces
+80054f48/80054f48, Same as 80054f28 but the opponent seemst to have a better chance at falling down? can't monitor values but it seems better.
+
 
 ### Camera & Stage Boundaries
 | Address | Effect | Interpretation |
@@ -192,7 +199,7 @@ Recovery = DURING_length - (t0 + Startup + Active)
 
 80055ddc By disabled this, P1 and P2's animations and hitboxes work as normal, but the ability to move is set to Zero, Any jump keeps the characer in place. If hit by a launcher they will not move, but a calculation will push them slightly up. After so many frames airborne the character will lock back to the ground, unknown number at the moment.
 
-80055de4 When disbaled, both characters spin in place. Attempting to dash, causes the character to dash in the spun direction, resulting in a net...nothing, this applies to airdash as well. Assist is spinning off screen, trying to call them results in the assist being unable to come on screen, but you can see the projectile flying into the background.
+80055de8 When disabled, both characters spin in place. Attempting to dash, causes the character to dash in the spun direction, resulting in a net...nothing, this applies to airdash as well. Assist is spinning off screen, trying to call them results in the assist being unable to come on screen, but you can see the projectile flying into the background.
 ---
 
 ## 8. Confirmed Writers to Velocity Cluster (+BA58–BA80)

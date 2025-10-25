@@ -23,7 +23,7 @@
 257,0x101,5B,5B,5B,yes,2
 260,0x104,2B,2B,2B,yes,2
 270,0x10e,6B,6B,6B,yes,2
-258,0x102,6C,6C,6C,yes,2
+258,0x102,5C,6C,6C,yes,2
 1,0x1,flag,flag,flag,yes,2
 261,0x105,2C,2C,2C,yes,2
 264,0x108,3C,3C,3C,yes,2
@@ -220,7 +220,7 @@
 313,0x139,Donkey L,Donkey L,Donkey L,yes,12
 314,0x13a,Donkey M,Donkey M,Donkey M,yes,12
 315,0x13b,Donkey H,Donkey H,Donkey H,yes,12
-304,0x130,Hado M,Hado M,Hado M,yes,12
+304,0x130,Hado L,Hado M,Hado M,yes,12
 305,0x131,Hado M,Hado M,Hado M,yes,12
 306,0x132,Hado H,Hado H,Hado H,yes,12
 310,0x136,Shoryu L,Shoryu L,Shoryu L,yes,12
