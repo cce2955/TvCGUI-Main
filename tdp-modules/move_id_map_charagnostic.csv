@@ -607,4 +607,6 @@
 444,0x1,Match Start Point,multihit,multihit,yes,29
 444,0x1,Match Start Anchor,multihit,multihit,yes,29
 4610,0x1,Friender Bite,multihit,multihit,yes,29
+4615,0x1,Hitgrab,multihit,multihit,yes,29
+4609,0x1,Captured,multihit,multihit,yes,29
 4619,0x1,Captured,multihit,multihit,yes,29
