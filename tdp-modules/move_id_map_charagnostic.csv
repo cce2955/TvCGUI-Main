@@ -579,18 +579,32 @@
 4562,0x1,forward throw,multihit,multihit,yes,29
 4565,0x1,back throw,multihit,multihit,yes,29
 80,0x1,Hard Knockdown,multihit,multihit,yes,29
+81,0x1,Wall Bounce Launched,multihit,multihit,yes,29
+82,0x1,Wall Bounce Bounce off wall,multihit,multihit,yes,29
 90,0x1,Hard Knockdown,multihit,multihit,yes,29
 96,0x1,Soft Knockdown,multihit,multihit,yes,29
 92,0x1,Hard Knockdown,multihit,multihit,yes,29
 73,0x1,knocked down (face up),multihit,multihit,yes,29
+73,0x1,knocked down (face down),multihit,multihit,yes,29
 102,0x1,knocked down (face up),multihit,multihit,yes,29
-113,0x1,get up,multihit,multihit,yes,29
+104,0x1,knocked down (face down),multihit,multihit,yes,29
+113,0x1,get up (face up),multihit,multihit,yes,29
+119,0x1,get up (face down),multihit,multihit,yes,29
 64,0x1,Standing Hitstun,multihit,multihit,yes,29
+79,0x1,Stagger,multihit,multihit,yes,29
 97,0x1,Launched,multihit,multihit,yes,29
 65,0x1,Overhead Hitstun,multihit,multihit,yes,29
 91,0x1,Air Hitstun,multihit,multihit,yes,29
 160,0x1,Air Recovery,multihit,multihit,yes,29
+105,0x1,OTG Hit (Face up),multihit,multihit,yes,29
+106,0x1,OTG Hit (Face Down),multihit,multihit,yes,29
 66,0x1,Hit Low,multihit,multihit,yes,29
 416,0x1,Tag Out,multihit,multihit,yes,29
 418,0x1,Tag In,multihit,multihit,yes,29
 425,0x1,Tag In Taunt,multihit,multihit,yes,29
+40,0x1,Intro Pose Point,multihit,multihit,yes,29
+41,0x1,Intro Pose Anchor,multihit,multihit,yes,29
+444,0x1,Match Start Point,multihit,multihit,yes,29
+444,0x1,Match Start Anchor,multihit,multihit,yes,29
+4610,0x1,Friender Bite,multihit,multihit,yes,29
+4619,0x1,Captured,multihit,multihit,yes,29
