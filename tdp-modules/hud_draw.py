@@ -1,8 +1,6 @@
-# hud_draw.py
-
 import pygame
 from config import (
-    COL_BG, COL_PANEL, COL_BORDER, COL_TEXT, COL_DIM, COL_GOOD, COL_ACCENT,
+    COL_PANEL, COL_BORDER, COL_TEXT, COL_DIM, COL_GOOD, COL_ACCENT,
 )
 from moves import decode_flag_062, decode_flag_063
 from events import event_log, MAX_LOG_LINES
@@ -11,10 +9,7 @@ from events import event_log, MAX_LOG_LINES
 def hp_color(pct):
     if pct is None:
         return COL_TEXT
-    if pct > 0.66:
-        return COL_GOOD
-    if pct > 0.33:
-        return COL_GOOD
+    # Right now we always draw green. You can color-tier this later.
     return COL_GOOD
 
 
@@ -32,8 +27,8 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
     hdr = f"{header_label} {snap['name']} @{snap['base']:08X}"
     surface.blit(font.render(hdr, True, COL_TEXT), (rect.x+6, rect.y+4))
 
-    cur_hp = snap["cur"]
-    max_hp = snap["max"]
+    cur_hp   = snap["cur"]
+    max_hp   = snap["max"]
     meter_str = str(meter_val) if meter_val is not None else "--"
     pct = (cur_hp / max_hp) if (max_hp and max_hp > 0) else None
     hp_line = f"HP {cur_hp}/{max_hp}    Meter:{meter_str}"
@@ -49,15 +44,14 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
     shown_id   = snap.get("mv_id_display", snap.get("attB", snap.get("attA")))
     shown_name = snap.get("mv_label", f"FLAG_{shown_id}")
     sub_id     = snap.get("attB")
-
     mv_line = f"MoveID:{shown_id} {shown_name}   sub:{sub_id}"
     surface.blit(font.render(mv_line, True, COL_TEXT), (rect.x+6, rect.y+64))
 
     f062_val, f062_desc = decode_flag_062(snap["f062"])
     f063_val, f063_desc = decode_flag_063(snap["f063"])
-    f064_val = snap["f064"] if snap["f064"] is not None else 0
-    f072_val = snap["f072"] if snap["f072"] is not None else 0
-    ctrl_hex = f"0x{(snap['ctrl'] or 0):08X}"
+    f064_val            = snap["f064"] if snap["f064"] is not None else 0
+    f072_val            = snap["f072"] if snap["f072"] is not None else 0
+    ctrl_hex            = f"0x{(snap['ctrl'] or 0):08X}"
 
     row1 = (
         f"062:{f062_val} {f062_desc}   "
@@ -76,8 +70,8 @@ def draw_activity(surface, rect, font, adv_line):
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
-    txt = "Activity / Frame Advantage"
-    surface.blit(font.render(txt, True, COL_TEXT), (rect.x+6, rect.y+4))
+    title = "Activity / Frame Advantage"
+    surface.blit(font.render(title, True, COL_TEXT), (rect.x+6, rect.y+4))
 
     if adv_line:
         surface.blit(font.render(adv_line, True, COL_TEXT), (rect.x+6, rect.y+20))
@@ -94,6 +88,7 @@ def draw_event_log(surface, rect, font, smallfont):
     y = rect.y + 24
     max_w = rect.w - 12
 
+    # show last ~12, word-wrapped
     for line in lines[-12:]:
         words = line.split(" ")
         curr = ""
@@ -153,6 +148,7 @@ def draw_inspector(surface, rect, font, smallfont, snaps):
             surface.blit(smallfont.render(ln, True, COL_ACCENT), (subr_x+4, line_y))
             line_y += smallfont.get_height() + 2
 
+        # dump wire bytes 0x050..0x08F
         chunks = []
         for off, b in snap["wires"]:
             if off < 0x050 or off >= 0x090:
@@ -161,6 +157,7 @@ def draw_inspector(surface, rect, font, smallfont, snaps):
             chunks.append(f"{off:03X}:{val}")
         blob = " ".join(chunks)
 
+        # wrap within column width
         words = blob.split(" ")
         curr = ""
         for w in words:
@@ -173,4 +170,3 @@ def draw_inspector(surface, rect, font, smallfont, snaps):
                 curr = test
         if curr:
             surface.blit(smallfont.render(curr, True, COL_TEXT), (subr_x+4, line_y))
-            # done

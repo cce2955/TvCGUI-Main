@@ -196,8 +196,10 @@
 322,0x142,Air Hado H,Air Hado H,Air Hado H,yes,12
 352,0x160,Shinkuu,Shinkuu,Shinkuu,yes,12
 353,0x161,Tatsu Super,Tatsu Super,Tatsu Super,yes,12
+362,0x161,Shin Sho Startup,Tatsu Super,Tatsu Super,yes,12
 465,0x1d1,Forward Throw,Forward Throw,Forward Throw,yes,12
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,12
+512,0x1d4,Shin Sho,Back Throw,Back Throw,yes,12
 
 # Chun-Li (ID: 13)
 304,0x130,Kikoken L,Kikoken L,Kikoken L,yes,13

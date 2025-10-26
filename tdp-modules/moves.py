@@ -208,10 +208,15 @@ def decode_flag_062(val):
         return ("?", "UNK")
     if val == 160: return ("160", "IDLE_BASE")
     if val == 168: return ("168", "ENGAGED")
-    if val == 32:  return ("32",  "ACTIVE_MOVE")
+    if val == 32:  return ("32",  "MOVEMENT")
     if val == 0:   return ("0",   "ATTACK_ACTIVE")
     if val == 40:  return ("40",  "IMPACTED")
     if val == 8:   return ("8",   "STUN_LOCK")
+    if val == 136:   return ("136",   "ATK_END")
+    if val == 128:   return ("128",   "ATK_REC")
+    if val == 48:   return ("48",   "THROW_TECH")
+    if val == 16:   return ("16",   "THROW")
+    if val == 64:   return ("64",   "??? Only appears on throw knockdown")
     return (str(val), f"UNK({val})")
 
 
