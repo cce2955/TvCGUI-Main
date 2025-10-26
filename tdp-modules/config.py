@@ -25,7 +25,7 @@ WIRE_OFFSETS = list(range(0x050, 0x090))
 # We want to spy on the neighborhood around that block each frame,
 # because that region tends to hold other per-fighter critical runtime data
 # (armor, stun timers, etc.).
-HEALTH_WIRE_OFFSETS = list(range(0x020, 0x040))
+HEALTH_WIRE_OFFSETS = list(range(0x029, 0x030))
 
 # bytes 0x050..0x08F and 0x020..0x03F are both dumped per fighter snapshot.
 # HUD shows both, with the health-cluster bytes shown first.

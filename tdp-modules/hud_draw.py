@@ -246,7 +246,7 @@ def draw_inspector(surface, rect, font, smallfont, snaps):
         hp_chunks = []
         for off, b in hp_pairs:
             # Sanity range check
-            if off < 0x020 or off >= 0x040:
+            if off < 0x000 or off >= 0x090:
                 continue
             val = "--" if b is None else str(b)
             hp_chunks.append(f"{off:03X}:{val}")
