@@ -10,6 +10,8 @@
 266,0x138,j.B,j.B,j.B,yes,1
 267,0x138,j.C,j.C,j.C,yes,1
 270,0x10e,6B,6B,6B,yes,1
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,1
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,1
 304,0x130,Bird Run A,Bird Run A,Bird Run A,yes,1
 305,0x131,Bird Run B,Bird Run B,Bird Run B,yes,1
 306,0x132,Bird Run C,Bird Run C,Bird Run C,yes,1
@@ -31,6 +33,8 @@
 266,0x138,j.B,j.B,j.B,yes,2
 267,0x138,j.C,j.C,j.C,yes,2
 270,0x10e,6B,6B,6B,yes,2
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,2
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,2
 304,0x130,Denko A,Denko A,Denko A,yes,2
 305,0x131,Denko B,Denko B,Denko B,yes,2
 306,0x132,Denko C,Denko C,Denko C,yes,2
@@ -56,34 +60,33 @@
 265,0x138,j.A,j.A,j.A,yes,3
 266,0x138,j.B,j.B,j.B,yes,3
 267,0x138,j.C,j.C,j.C,yes,3
-272,0x138,j.2C,j.C,j.C,yes,3
-288,0x138,j.A (second hit),j.C,j.C,yes,3
-289,0x138,j.B (second hit),j.C,j.C,yes,3
+272,0x138,j.2C,j.2C,j.2C,yes,3
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,3
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,3
 304,0x130,Gatling A,Gatling A,Gatling A,yes,3
 305,0x131,Gatling B,Gatling B,Gatling B,yes,3
-306,0x132,Gatling C, Gatling C?,Gatling C?,yes,3
+306,0x132,Gatling C?,Gatling C?,Gatling C?,yes,3
 307,0x133,TekLancer A,TekLancer A,TekLancer A,yes,3
 308,0x134,Tek Lancer B,Tek Lancer B,Tek Lancer B,yes,3
 309,0x135,Tek Lancer C,Tek Lancer C,Tek Lancer C,yes,3
 310,0x136,Windmill A,Windmill A,Windmill A,yes,3
 311,0x137,Windmill B,Windmill B,Windmill B,yes,3
 312,0x138,Windmill C,Windmill C,Windmill C,yes,3
-313,0x138,Tek Win A Unarmed,Windmill C,Windmill C,yes,3
-320,0x130,Gatling A Air,Gatling A,Gatling A,yes,3
-321,0x130,Gatling B Air,Gatling A,Gatling A,yes,3
-322,0x130,Gatling C Air,Gatling A,Gatling A,yes,3
-323,0x130,Windmill A Air,Gatling A,Gatling A,yes,3
-324,0x130,Windmill B Air,Gatling A,Gatling A,yes,3
-325,0x130,Windmill C Air,Gatling A,Gatling A,yes,3
+313,0x138,Tek Win A Unarmed,Tek Win A Unarmed,Tek Win A Unarmed,yes,3
+320,0x130,Gatling A Air,Gatling A Air,Gatling A Air,yes,3
+321,0x130,Gatling B Air,Gatling B Air,Gatling B Air,yes,3
+322,0x130,Gatling C Air,Gatling C Air,Gatling C Air,yes,3
+323,0x130,Windmill A Air,Windmill A Air,Windmill A Air,yes,3
+324,0x130,Windmill B Air,Windmill B Air,Windmill B Air,yes,3
+325,0x130,Windmill C Air,Windmill C Air,Windmill C Air,yes,3
 352,0x160,voltekka,voltekka,voltekka,yes,3
-352,0x160,voltekka,voltekka,voltekka,yes,3
-354,0x160,voltekka air,voltekka,voltekka,yes,3
 353,0x161,Spinning Tek Lancer,Spinning Tek Lancer,Spinning Tek Lancer,yes,3
-368,0x161,Space Knights Formation Activation,Spinning Tek Lancer,Spinning Tek Lancer,yes,3
+368,0x161,Space Knights Formation Activation,Space Knights Formation Activation,Space Knights Formation Activation,yes,3
 512,0x200,Tek Win A,Tek Win A,Tek Win A,yes,3
 514,0x202,?? check again,?? check again,?? check again,yes,3
-516,0x204,Space Knights Formation Stab,Space Knights Formation,Space Knights Formation,yes,3
+516,0x204,Space Knights Formation Stab,Space Knights Formation Stab,Space Knights Formation Stab,yes,3
 520,0x204,Space Knights Formation,Space Knights Formation,Space Knights Formation,yes,3
+354,0x160,voltekka air,voltekka air,voltekka air,yes,3
 
 # Polimar (ID: 4)
 256,0x100,5A,5A,5A,yes,4
@@ -96,6 +99,8 @@
 265,0x138,j.A,j.A,j.A,yes,4
 266,0x138,j.B,j.B,j.B,yes,4
 267,0x138,j.C,j.C,j.C,yes,4
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,4
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,4
 313,0x139,Storm B?,Storm B?,Storm B?,yes,4
 314,0x13a,Storm Low,Storm Low,Storm Low,yes,4
 315,0x13b,Storm B,Storm B,Storm B,yes,4
@@ -119,6 +124,8 @@
 265,0x138,j.A,j.A,j.A,yes,5
 266,0x138,j.B,j.B,j.B,yes,5
 267,0x138,j.C,j.C,j.C,yes,5
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,5
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,5
 304,0x130,Kendamagic A,Kendamagic A,Kendamagic A,yes,5
 305,0x131,Kendamagic B,Kendamagic B,Kendamagic B,yes,5
 306,0x132,Kendamagic C,Kendamagic C,Kendamagic C,yes,5
@@ -142,11 +149,34 @@
 265,0x138,j.A,j.A,j.A,yes,6
 266,0x138,j.B,j.B,j.B,yes,6
 267,0x138,j.C,j.C,j.C,yes,6
-336,0x150,Comfy Taunt,Comfy Taunt,Comfy Taunt,yes,6
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,6
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,6
+304,0x150,Pummel A,Comfy Taunt,Comfy Taunt,yes,6
+305,0x150,Pummel B,Comfy Taunt,Comfy Taunt,yes,6
+306,0x150,Pummel C,Comfy Taunt,Comfy Taunt,yes,6
+307,0x150,Rock A,Comfy Taunt,Comfy Taunt,yes,6
+308,0x150,Rock B,Comfy Taunt,Comfy Taunt,yes,6
+309,0x150,Rock C,Comfy Taunt,Comfy Taunt,yes,6
+310,0x150,Tree A,Comfy Taunt,Comfy Taunt,yes,6
+311,0x150,Tree B,Comfy Taunt,Comfy Taunt,yes,6
+312,0x150,Tree C,Comfy Taunt,Comfy Taunt,yes,6
+316,0x150,Clutch A,Comfy Taunt,Comfy Taunt,yes,6
+317,0x150,Clutch B,Comfy Taunt,Comfy Taunt,yes,6
+318,0x150,Clutch C,Comfy Taunt,Comfy Taunt,yes,6
+319,0x150,Comfy Transition,Comfy Taunt,Comfy Taunt,yes,6
+336,0x150,Comfy,Comfy Taunt,Comfy Taunt,yes,6
 337,0x151,Comfy Launcher,Comfy Launcher,Comfy Launcher,yes,6
 338,0x152,Breakdance,Breakdance,Breakdance,yes,6
+346,0x152,Air Rock A,Breakdance,Breakdance,yes,6
+347,0x152,Air Rock B,Breakdance,Breakdance,yes,6
+348,0x152,Air Rock C,Breakdance,Breakdance,yes,6
+353,0x152,Pummel Counter,Breakdance,Breakdance,yes,6
+352,0x152,In the beginning,Breakdance,Breakdance,yes,6
+368,0x152,Supreme Evil Plan,Breakdance,Breakdance,yes,6
 513,0x201,Doronjo Counter,Doronjo Counter,Doronjo Counter,yes,6
 516,0x204,Doronjo Level 3,Doronjo Level 3,Doronjo Level 3,yes,6
+573,0x23f,Air Taunt,Taunt,Taunt,yes,6
+574,0x23f,Comfy Taunt,Taunt,Taunt,yes,6
 575,0x23f,Taunt,Taunt,Taunt,yes,6
 
 # Ippatsuman (ID: 7)
@@ -162,6 +192,8 @@
 266,0x138,j.B,j.B,j.B,yes,7
 267,0x138,j.C,j.C,j.C,yes,7
 270,0x10e,6B,6B,6B,yes,7
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,7
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,7
 304,0x130,rainball A,rainball A,rainball A,yes,7
 305,0x131,Rainball B,Rainball B,Rainball B,yes,7
 306,0x132,Rainball C,Rainball C,Rainball C,yes,7
@@ -193,24 +225,23 @@
 265,0x138,j.A,j.A,j.A,yes,8
 266,0x138,j.B,j.B,j.B,yes,8
 267,0x138,j.C,j.C,j.C,yes,8
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,8
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,8
 304,0x130,Yoyo A,Yoyo A,Yoyo A,yes,8
 305,0x131,Yoyo B,Yoyo B,Yoyo B,yes,8
 306,0x132,yoyo C,yoyo C,yoyo C,yes,8
-307,0x134,Lightning Kick A,Lightning Kick B,Lightning Kick B,yes,8
+307,0x134,Lightning Kick A,Lightning Kick A,Lightning Kick A,yes,8
 308,0x134,Lightning Kick B,Lightning Kick B,Lightning Kick B,yes,8
 309,0x135,Lightning Kick C,Lightning Kick C,Lightning Kick C,yes,8
 313,0x139,Bingo,Bingo,Bingo,yes,8
-324,0x139,Swan Dance A,Bingo,Bingo,yes,8
-325,0x139,Swan Dance B,Bingo,Bingo,yes,8
-326,0x139,Swan Dance C,Bingo,Bingo,yes,8
+324,0x139,Swan Dance A,Swan Dance A,Swan Dance A,yes,8
+325,0x139,Swan Dance B,Swan Dance B,Swan Dance B,yes,8
+326,0x139,Swan Dance C,Swan Dance C,Swan Dance C,yes,8
 352,0x160,Talon Burst,Talon Burst,Talon Burst,yes,8
-352,0x160,Talon Burst Air,Talon Burst,Talon Burst,yes,8
 370,0x210,Mirage Swan,Mirage Swan,Mirage Swan,yes,8
 522,0x20a,Swan Dance A,Swan Dance A,Swan Dance A,yes,8
 524,0x20c,Swan Dance B,Swan Dance B,Swan Dance B,yes,8
 526,0x20e,Swan Dance C,Swan Dance C,Swan Dance C,yes,8
-368,0x1ae,Phoenix Startup,Phoenix,Phoenix,yes,8
-520,0x1ae,Phoenix,Phoenix,Phoenix,yes,8
 430,0x1ae,Phoenix,Phoenix,Phoenix,yes,8
 
 # Karas (ID: 10)
@@ -225,6 +256,8 @@
 265,0x138,j.A,j.A,j.A,yes,10
 266,0x138,j.B,j.B,j.B,yes,10
 267,0x138,j.C,j.C,j.C,yes,10
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,10
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,10
 304,0x130,236A,236A,236A,yes,10
 305,0x131,236B,236B,236B,yes,10
 306,0x132,236C,236C,236C,yes,10
@@ -238,8 +271,8 @@
 319,0x13f,2B?,2B?,2B?,yes,10
 321,0x141,Kasha Overhead,Kasha Overhead,Kasha Overhead,yes,10
 352,0x160,Vergil Super,Vergil Super,Vergil Super,yes,10
-526,0x20e,moon super thingie,moon super thingie,moon super thingie,yes,10
 512,0x200,chain hit,chain hit,chain hit,yes,10
+526,0x20e,moon super thingie,moon super thingie,moon super thingie,yes,10
 465,0x1d1,Front Throw,Front Throw,Front Throw,yes,10
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,10
 
@@ -254,6 +287,8 @@
 265,0x138,j.A,j.A,j.A,yes,12
 266,0x138,j.B,j.B,j.B,yes,12
 267,0x138,j.C,j.C,j.C,yes,12
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,12
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,12
 304,0x130,Hado L,Hado L,Hado L,yes,12
 305,0x131,Hado M,Hado M,Hado M,yes,12
 306,0x132,Hado H,Hado H,Hado H,yes,12
@@ -286,6 +321,8 @@
 265,0x138,j.A,j.A,j.A,yes,13
 266,0x138,j.B,j.B,j.B,yes,13
 267,0x138,j.C,j.C,j.C,yes,13
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,13
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,13
 304,0x130,Kikoken L,Kikoken L,Kikoken L,yes,13
 305,0x131,Kikoken M,Kikoken M,Kikoken M,yes,13
 306,0x132,Kikoken C,Kikoken C,Kikoken C,yes,13
@@ -309,6 +346,8 @@
 266,0x138,j.B,j.B,j.B,yes,14
 267,0x138,j.C,j.C,j.C,yes,14
 270,0x10e,6B,6B,6B,yes,14
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,14
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,14
 304,0x130,Guts A,Guts A,Guts A,yes,14
 305,0x131,Guts Bullet B,Guts Bullet B,Guts Bullet B,yes,14
 306,0x132,Guts Bullet C,Guts Bullet C,Guts Bullet C,yes,14
@@ -334,6 +373,8 @@
 265,0x138,j.A,j.A,j.A,yes,15
 266,0x138,j.B,j.B,j.B,yes,15
 267,0x138,j.C,j.C,j.C,yes,15
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,15
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,15
 304,0x130,Soul Fist L,Soul Fist L,Soul Fist L,yes,15
 305,0x131,Soul Fist M,Soul Fist M,Soul Fist M,yes,15
 306,0x132,Soul Fist H,Soul Fist H,Soul Fist H,yes,15
@@ -359,6 +400,8 @@
 265,0x138,j.A,j.A,j.A,yes,16
 266,0x138,j.B,j.B,j.B,yes,16
 267,0x138,j.C,j.C,j.C,yes,16
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,16
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,16
 304,0x130,Flash Chop A,Flash Chop A,Flash Chop A,yes,16
 305,0x131,Flash Chop B,Flash Chop B,Flash Chop B,yes,16
 306,0x132,Flash Chop C,Flash Chop C,Flash Chop C,yes,16
@@ -379,6 +422,8 @@
 534,0x216,Hyperbomb,Hyperbomb,Hyperbomb,yes,16
 
 # Viewtiful Joe (ID: 17)
+11,0xb,??,??,??,yes,17
+89,0x59,Shocking Pink B,Shocking Pink B,Shocking Pink B,yes,17
 256,0x100,5A,5A,5A,yes,17
 257,0x101,5B,5B,5B,yes,17
 258,0x102,5C,5C,5C,yes,17
@@ -390,11 +435,11 @@
 266,0x138,j.B,j.B,j.B,yes,17
 267,0x138,j.C,j.C,j.C,yes,17
 270,0x10e,6B,6B,6B,yes,17
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,17
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,17
 304,0x130,Voomerang A,Voomerang A,Voomerang A,yes,17
 305,0x131,Voomerang B,Voomerang B,Voomerang B,yes,17
 306,0x132,Voomerang C,Voomerang C,Voomerang C,yes,17
-89,0x59,Shocking Pink B,Shocking Pink B,Shocking Pink B,yes,17
-11,0xb,??,??,??,yes,17
 352,0x160,Desperado,Desperado,Desperado,yes,17
 353,0x161,Mach Speed,Mach Speed,Mach Speed,yes,17
 368,0x170,Slow and Zoom,Slow and Zoom,Slow and Zoom,yes,17
@@ -413,11 +458,12 @@
 265,0x138,j.A,j.A,j.A,yes,18
 266,0x138,j.B,j.B,j.B,yes,18
 267,0x138,j.C,j.C,j.C,yes,18
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,18
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,18
 282,0x11a,C level 3?,C level 3?,C level 3?,yes,18
 352,0x160,machine gun super,machine gun super,machine gun super,yes,18
 369,0x171,max drill upper,max drill upper,max drill upper,yes,18
 512,0x200,Shining Laser,Shining Laser,Shining Laser,yes,18
-1,0x1,flag,flag,flag,yes,18
 
 # Roll (ID: 19)
 256,0x100,5A,5A,5A,yes,19
@@ -431,6 +477,8 @@
 266,0x138,j.B,j.B,j.B,yes,19
 267,0x138,j.C,j.C,j.C,yes,19
 270,0x10e,6B,6B,6B,yes,19
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,19
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,19
 304,0x130,Swing A,Swing A,Swing A,yes,19
 305,0x131,Swing B,Swing B,Swing B,yes,19
 306,0x132,Swing C,Swing C,Swing C,yes,19
@@ -464,6 +512,8 @@
 265,0x138,j.A,j.A,j.A,yes,20
 266,0x138,j.B,j.B,j.B,yes,20
 267,0x138,j.C,j.C,j.C,yes,20
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,20
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,20
 304,0x130,Positron A,Positron A,Positron A,yes,20
 305,0x131,Positron B,Positron B,Positron B,yes,20
 306,0x132,Positron C,Positron C,Positron C,yes,20
@@ -482,6 +532,8 @@
 265,0x138,j.A,j.A,j.A,yes,21
 266,0x138,j.B,j.B,j.B,yes,21
 267,0x138,j.C,j.C,j.C,yes,21
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,21
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,21
 304,0x130,Slam A,Slam A,Slam A,yes,21
 305,0x131,Slam B,Slam B,Slam B,yes,21
 306,0x132,Slam C,Slam C,Slam C,yes,21
@@ -512,6 +564,8 @@
 266,0x138,j.B,j.B,j.B,yes,26
 267,0x138,j.C,j.C,j.C,yes,26
 270,0x10e,6M,6M,6M,yes,26
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,26
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,26
 307,0x133,Baselard A,Baselard A,Baselard A,yes,26
 310,0x136,Blitz A,Blitz A,Blitz A,yes,26
 311,0x137,Blitz B,Blitz B,Blitz B,yes,26
@@ -537,6 +591,8 @@
 265,0x138,j.A,j.A,j.A,yes,27
 266,0x138,j.B,j.B,j.B,yes,27
 267,0x138,j.C,j.C,j.C,yes,27
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,27
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,27
 304,0x130,shuriken A,shuriken A,shuriken A,yes,27
 305,0x131,shuriken B,shuriken B,shuriken B,yes,27
 306,0x132,shuriken C,shuriken C,shuriken C,yes,27
@@ -566,6 +622,8 @@
 266,0x138,j.B,j.B,j.B,yes,28
 267,0x138,j.C,j.C,j.C,yes,28
 270,0x10e,6M,6M,6M,yes,28
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,28
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,28
 304,0x130,yatter shield,yatter shield,yatter shield,yes,28
 305,0x131,yatter shield b,yatter shield b,yatter shield b,yes,28
 306,0x132,yatter shield C,yatter shield C,yatter shield C,yes,28
@@ -592,6 +650,8 @@
 266,0x138,j.B,j.B,j.B,yes,29
 267,0x138,j.C,j.C,j.C,yes,29
 270,0x10e,6M,6M,6M,yes,29
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,29
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,29
 305,0x131,Hadengeki B,Hadengeki B,Hadengeki B,yes,29
 306,0x132,Hadengeki C,Hadengeki C,Hadengeki C,yes,29
 311,0x137,DP A,DP A,DP A,yes,29
@@ -611,6 +671,8 @@
 265,0x138,j.A,j.A,j.A,yes,30
 266,0x138,j.B,j.B,j.B,yes,30
 267,0x138,j.C,j.C,j.C,yes,30
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,30
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,30
 305,0x131,Zombie Grab,Zombie Grab,Zombie Grab,yes,30
 314,0x13a,Roundhouse B,Roundhouse B,Roundhouse B,yes,30
 315,0x13b,Roundhouse C,Roundhouse C,Roundhouse C,yes,30
@@ -620,7 +682,7 @@
 516,0x204,Giant Swing,Giant Swing,Giant Swing,yes,30
 
 # Global/System Flags
-4294967295,0xffffffff,versus screen loading flag,versus screen loading flag,versus screen loading flag,yes,12
+161,0x1,j.C Ender,idle,idle,yes,100
 1,0x1,idle,idle,idle,yes,100
 2,0x1,Forward,Forward,Forward,yes,100
 3,0x1,backward,backward,backward,yes,100
@@ -633,8 +695,10 @@
 20,0x1,jump,jump,jump,yes,100
 21,0x1,jump forward,jump forward,jump forward,yes,100
 22,0x1,jump back,jump back,jump back,yes,100
-29,0x1,Super Jump,jump back,jump back,yes,100
+29,0x1,Super Jump,Super Jump,Super Jump,yes,100
 30,0x1,landing,landing,landing,yes,100
+30,0x1,Air Dash Forward,landing,landing,yes,100
+36,0x1,Air Dash Back,landing,landing,yes,100
 40,0x1,Intro Pose Point,Intro Pose Point,Intro Pose Point,yes,100
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
@@ -647,6 +711,7 @@
 82,0x1,Wall Bounce Bounce off wall,Wall Bounce Bounce off wall,Wall Bounce Bounce off wall,yes,100
 90,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 92,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
+95,0x1,Forced Roll,Soft Knockdown,Soft Knockdown,yes,100
 96,0x1,Soft Knockdown,Soft Knockdown,Soft Knockdown,yes,100
 97,0x1,Launched,Launched,Launched,yes,100
 100,0x1,super jump,super jump,super jump,yes,100
@@ -672,7 +737,5 @@
 4615,0x1,Hitgrab,Hitgrab,Hitgrab,yes,100
 4609,0x1,Captured,Captured,Captured,yes,100
 4619,0x1,Captured,Captured,Captured,yes,100
-64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
-79,0x1,Stagger,Stagger,Stagger,yes,100
-91,0x1,Air Hitstun,Air Hitstun,Air Hitstun,yes,100
-160,0x1,Air Recovery,Air Recovery,Air Recovery,yes,100
+4294967295,0xffffffff,versus screen loading flag,versus screen loading flag,versus screen loading flag,yes,12
+
