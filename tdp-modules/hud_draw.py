@@ -1,5 +1,4 @@
 # hud_draw.py
-# All pygame drawing helpers (panels, log, inspector). :contentReference[oaicite:1]{index=1}
 
 import pygame
 from config import (
@@ -30,46 +29,30 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
         )
         return
 
-    # Header line: "P1-C1 Ryu @8034ABCD"
     hdr = f"{header_label} {snap['name']} @{snap['base']:08X}"
     surface.blit(font.render(hdr, True, COL_TEXT), (rect.x+6, rect.y+4))
 
-    # HP / meter line
     cur_hp = snap["cur"]
     max_hp = snap["max"]
     meter_str = str(meter_val) if meter_val is not None else "--"
     pct = (cur_hp / max_hp) if (max_hp and max_hp > 0) else None
     hp_line = f"HP {cur_hp}/{max_hp}    Meter:{meter_str}"
-    surface.blit(
-        font.render(hp_line, True, hp_color(pct)),
-        (rect.x+6, rect.y+24)
-    )
+    surface.blit(font.render(hp_line, True, hp_color(pct)), (rect.x+6, rect.y+24))
 
-    # Pos / LastDmg line
     lastdmg = snap["last"] if snap["last"] is not None else 0
     pos_line = (
         f"Pos X:{snap['x']:.2f} Y:{(snap['y'] or 0.0):.2f}   "
         f"LastDmg:{lastdmg}"
     )
-    surface.blit(
-        font.render(pos_line, True, COL_TEXT),
-        (rect.x+6, rect.y+44)
-    )
+    surface.blit(font.render(pos_line, True, COL_TEXT), (rect.x+6, rect.y+44))
 
-    # --- UPDATED: MoveID / label comes directly from snapshot ---
-    # main() already decided which ID to show (mv_id_display)
-    # and computed a nice label string (mv_label) using the CSV maps.
     shown_id   = snap.get("mv_id_display", snap.get("attB", snap.get("attA")))
     shown_name = snap.get("mv_label", f"FLAG_{shown_id}")
     sub_id     = snap.get("attB")
 
     mv_line = f"MoveID:{shown_id} {shown_name}   sub:{sub_id}"
-    surface.blit(
-        font.render(mv_line, True, COL_TEXT),
-        (rect.x+6, rect.y+64)
-    )
+    surface.blit(font.render(mv_line, True, COL_TEXT), (rect.x+6, rect.y+64))
 
-    # Flags / ctrl info
     f062_val, f062_desc = decode_flag_062(snap["f062"])
     f063_val, f063_desc = decode_flag_063(snap["f063"])
     f064_val = snap["f064"] if snap["f064"] is not None else 0
@@ -81,26 +64,18 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
         f"063:{f063_val} {f063_desc}   "
         f"064:{f064_val} UNK({f064_val})"
     )
-    surface.blit(
-        font.render(row1, True, COL_TEXT),
-        (rect.x+6, rect.y+84)
-    )
+    surface.blit(font.render(row1, True, COL_TEXT), (rect.x+6, rect.y+84))
 
     row2 = f"072:{f072_val}   ctrl:{ctrl_hex}"
-    surface.blit(
-        font.render(row2, True, COL_TEXT),
-        (rect.x+6, rect.y+104)
-    )
+    surface.blit(font.render(row2, True, COL_TEXT), (rect.x+6, rect.y+104))
 
-    surface.blit(
-        font.render("impact:--", True, COL_TEXT),
-        (rect.x+6, rect.y+124)
-    )
+    surface.blit(font.render("impact:--", True, COL_TEXT), (rect.x+6, rect.y+124))
 
 
 def draw_activity(surface, rect, font, adv_line):
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
+
     txt = "Activity / Frame Advantage"
     surface.blit(font.render(txt, True, COL_TEXT), (rect.x+6, rect.y+4))
 
@@ -120,24 +95,18 @@ def draw_event_log(surface, rect, font, smallfont):
     max_w = rect.w - 12
 
     for line in lines[-12:]:
-        words = line.split(' ')
+        words = line.split(" ")
         curr = ""
         for w in words:
             test = curr + (" " if curr else "") + w
             if font.size(test)[0] > max_w and curr:
-                surface.blit(
-                    smallfont.render(curr, True, COL_TEXT),
-                    (rect.x+6, y)
-                )
+                surface.blit(smallfont.render(curr, True, COL_TEXT), (rect.x+6, y))
                 y += smallfont.get_height()
                 curr = w
             else:
                 curr = test
         if curr:
-            surface.blit(
-                smallfont.render(curr, True, COL_TEXT),
-                (rect.x+6, y)
-            )
+            surface.blit(smallfont.render(curr, True, COL_TEXT), (rect.x+6, y))
             y += smallfont.get_height()
 
 
@@ -159,18 +128,12 @@ def draw_inspector(surface, rect, font, smallfont, snaps):
 
         if not snap:
             header_txt = f"{slot} [---]"
-            surface.blit(
-                smallfont.render(header_txt, True, COL_DIM),
-                (subr_x+4, subr_y)
-            )
+            surface.blit(smallfont.render(header_txt, True, COL_DIM), (subr_x+4, subr_y))
             continue
 
         cid = snap["id"]
         header_txt = f"{slot} {snap['name']} (ID:{cid})"
-        surface.blit(
-            smallfont.render(header_txt, True, COL_TEXT),
-            (subr_x+4, subr_y)
-        )
+        surface.blit(smallfont.render(header_txt, True, COL_TEXT), (subr_x+4, subr_y))
         line_y = subr_y + smallfont.get_height() + 2
 
         f062_val, f062_desc = decode_flag_062(snap["f062"])
@@ -187,13 +150,9 @@ def draw_inspector(surface, rect, font, smallfont, snaps):
         ]
 
         for ln in info_lines:
-            surface.blit(
-                smallfont.render(ln, True, COL_ACCENT),
-                (subr_x+4, line_y)
-            )
+            surface.blit(smallfont.render(ln, True, COL_ACCENT), (subr_x+4, line_y))
             line_y += smallfont.get_height() + 2
 
-        # wires dump per char
         chunks = []
         for off, b in snap["wires"]:
             if off < 0x050 or off >= 0x090:
@@ -207,17 +166,11 @@ def draw_inspector(surface, rect, font, smallfont, snaps):
         for w in words:
             test = curr + (" " if curr else "") + w
             if smallfont.size(test)[0] > (col_w - 8) and curr:
-                surface.blit(
-                    smallfont.render(curr, True, COL_TEXT),
-                    (subr_x+4, line_y)
-                )
+                surface.blit(smallfont.render(curr, True, COL_TEXT), (subr_x+4, line_y))
                 line_y += smallfont.get_height() + 2
                 curr = w
             else:
                 curr = test
         if curr:
-            surface.blit(
-                smallfont.render(curr, True, COL_TEXT),
-                (subr_x+4, line_y)
-            )
-            # we don't really need to advance line_y further since we're done
+            surface.blit(smallfont.render(curr, True, COL_TEXT), (subr_x+4, line_y))
+            # done
