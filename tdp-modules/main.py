@@ -1,7 +1,3 @@
-# main.py
-# Orchestrator loop: read memory, build fighter snapshots,
-# label moves, detect hits, render HUD.
-
 import time, os, csv, pygame
 
 from dolphin_io import hook
@@ -15,7 +11,7 @@ from config import (
     FONT_MAIN_SIZE, FONT_SMALL_SIZE,
     HIT_CSV,
     GENERIC_MAPPING_CSV,  # path to move_id_map_charagnostic.csv
-    PAIR_MAPPING_CSV,     # path to move_id_map_charpair.csv (overrides)
+    PAIR_MAPPING_CSV,     # path to move_id_map_charpair.csv
     COL_BG,
 )
 from constants import SLOTS
@@ -44,13 +40,14 @@ def main():
     hook()
     print("GUI HUD: hooked Dolphin.")
 
-    # Build ONE map: (atk_id_dec, char_id) -> "Move Name"
-    move_map = load_move_map(
-        GENERIC_MAPPING_CSV,  # actually your big per-char CSV
-        PAIR_MAPPING_CSV      # small override CSV (optional)
+    # Build maps:
+    # move_map[char_id][atk_id] = "Name"
+    # global_map[atk_id]        = "Name" for shared/system flags
+    move_map, global_map = load_move_map(
+        GENERIC_MAPPING_CSV,
+        PAIR_MAPPING_CSV
     )
 
-    # Init pygame
     pygame.init()
     try:
         font      = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
@@ -73,12 +70,11 @@ def main():
     while running:
         frame_start = time.time()
 
-        # Handle quit
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running = False
 
-        # Resolve memory bases (each slot -> base ptr)
+        # Identify each slot's fighter struct
         resolved = []
         for slotname, ptr, teamtag in SLOTS:
             base, changed = RESOLVER.resolve_base(ptr)
@@ -88,17 +84,18 @@ def main():
                 y_off_by_base[base] = pick_posy_off_no_jump(base)
             resolved.append((slotname, teamtag, base))
 
-        # Read meter from P1-C1/P2-C1 only
+        # Meter for first active characters
         p1c1_base = next((b for n, t, b in resolved if n == "P1-C1" and b), None)
         p2c1_base = next((b for n, t, b in resolved if n == "P2-C1" and b), None)
         meter_p1 = read_meter(p1c1_base)
         meter_p2 = read_meter(p2c1_base)
 
-        # Snapshot fighters
+        # Snapshots for HUD
         snaps = {}
         for slotname, teamtag, base in resolved:
             if not base:
                 continue
+
             yoff = y_off_by_base.get(base, 0xF4)
             s = read_fighter(base, yoff)
             if not s:
@@ -107,29 +104,28 @@ def main():
             s["teamtag"]  = teamtag
             s["slotname"] = slotname
 
-            # Pick which attack ID to consider "current move".
-            # We prefer attB (secondary) because that's usually more specific.
-            atk_id_primary   = s.get("attA")
-            atk_id_secondary = s.get("attB")
-            chosen_id        = atk_id_secondary if atk_id_secondary is not None else atk_id_primary
+            # Pick which ID represents the current state/move.
+            # You said: use the thing that's currently showing up as "FLAG_266".
+            # That's your attA.
+            atk_a = s.get("attA")
+            atk_b = s.get("attB")
+            chosen_id = atk_a if atk_a is not None else atk_b
 
-            # Normalize character ID.
-            # snap["name"] is e.g. "Zero".
-            # CHAR_ID_CORRECTION["Zero"] -> 29 (which matches the last column in CSV rows for Zero).
+            # Normalize char_id using HUD name -> CSV ID mapping.
             display_name = s.get("name")
             csv_char_id  = CHAR_ID_CORRECTION.get(display_name, s.get("id"))
 
-            # Now label the move using ONLY (move_id, char_id) pairs.
-            nice_label = move_label_for(chosen_id, csv_char_id, move_map)
+            # Label resolution with per-char first, then global/system, else FLAG.
+            nice_label = move_label_for(chosen_id, csv_char_id, move_map, global_map)
 
-            # Stash info for HUD
+            # Store for HUD
             s["mv_label"]      = nice_label
             s["mv_id_display"] = chosen_id
             s["csv_char_id"]   = csv_char_id
 
             snaps[slotname] = s
 
-        # Hit detection by HP drop
+        # Hit detection (HP drop)
         for slotname, v_snap in snaps.items():
             base = v_snap["base"]
             hp_now  = v_snap["cur"]
@@ -139,7 +135,6 @@ def main():
             dmg = hp_prev - hp_now
             if dmg >= MIN_HIT_DAMAGE:
                 vic_team = v_snap["teamtag"]
-                # Who probably hit them? Nearest opponent.
                 attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
                 if not attackers:
                     continue
@@ -154,14 +149,14 @@ def main():
                 if not atk_snap:
                     continue
 
-                atk_primary   = atk_snap.get("attA")
-                atk_secondary = atk_snap.get("attB")
-                chosen_id     = atk_secondary if atk_secondary is not None else atk_primary
+                atk_a = atk_snap.get("attA")
+                atk_b = atk_snap.get("attB")
+                chosen_id = atk_a if atk_a is not None else atk_b
 
                 atk_display_name = atk_snap.get("name")
                 atk_csv_char_id  = CHAR_ID_CORRECTION.get(atk_display_name, atk_snap.get("id"))
 
-                mv_label = move_label_for(chosen_id, atk_csv_char_id, move_map)
+                mv_label = move_label_for(chosen_id, atk_csv_char_id, move_map, global_map)
                 atk_hex  = f"0x{chosen_id:X}" if chosen_id is not None else "NONE"
 
                 hit_row = {
@@ -180,10 +175,8 @@ def main():
                 }
                 log_hit_line(hit_row)
 
-                # Start/refresh frame advantage tracking between them
                 ADV_TRACK.start_contact(atk_snap["base"], v_snap["base"], frame_idx)
 
-                # Write line to CSV
                 newcsv = not os.path.exists(HIT_CSV)
                 with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
                     w = csv.writer(fh)
@@ -212,7 +205,7 @@ def main():
                         f"0x{(v_snap['ctrl'] or 0):08X}",
                     ])
 
-        # Update frame advantage tracker every frame for relevant pairs
+        # Advantage model updates
         pairs_to_check = [
             ("P1-C1","P2-C1"), ("P1-C1","P2-C2"),
             ("P1-C2","P2-C1"), ("P1-C2","P2-C2"),
@@ -226,7 +219,7 @@ def main():
                 d2_val = dist2(atk_snap, vic_snap)
                 ADV_TRACK.update_pair(atk_snap, vic_snap, d2_val, frame_idx)
 
-        # Frame advantage summary (P1-C1 vs P2-C1 as headline)
+        # Advantage summary for HUD
         adv_line = ""
         if "P1-C1" in snaps and "P2-C1" in snaps:
             adv_val = ADV_TRACK.get_latest_adv(
@@ -236,7 +229,7 @@ def main():
             if adv_val is not None:
                 adv_line = f"P1 vs P2 frame adv ~ {adv_val:+.1f}f"
 
-        # RENDER HUD
+        # RENDER
         screen.fill(COL_BG)
 
         r_p1c1 = pygame.Rect(10, ROW1_Y, PANEL_W, PANEL_H)
@@ -260,7 +253,6 @@ def main():
 
         pygame.display.flip()
 
-        # pacing
         elapsed = time.time() - frame_start
         sleep_left = INTERVAL - elapsed
         if sleep_left > 0:

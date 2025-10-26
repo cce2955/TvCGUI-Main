@@ -2,8 +2,9 @@ import os, csv
 from dolphin_io import rd32
 from constants import ATT_ID_OFF_PRIMARY, ATT_ID_OFF_SECOND
 
-# Map display name (what HUD shows in snap["name"]) -> final char_id in CSV.
-# Make sure the keys match EXACTLY what your HUD prints for each character.
+# VERY IMPORTANT:
+# Keys here MUST exactly match snap["name"] as shown in your HUD.
+# Values MUST match the final column in your CSV for that character.
 CHAR_ID_CORRECTION = {
     "Ken the Eagle":     1,
     "Casshan":           2,
@@ -29,8 +30,11 @@ CHAR_ID_CORRECTION = {
     "Yatterman-2":       28,
     "Zero":              29,
     "Frank West":        30,
-    # Update/add any others, e.g. if HUD shows "Frank" instead of "Frank West",
-    # you MUST add "Frank": 30 here.
+
+    # If the HUD ever prints slightly different names (like "Frank" or "ZERO"),
+    # you MUST add those spellings here mapped to the same number.
+    # e.g. "ZERO": 29,
+    #      "Frank": 30,
 }
 
 
@@ -39,7 +43,7 @@ def _pick_label_from_row(row):
     Your CSV rows look like:
       atk_id_dec, atk_id_hex, label1, label2, label3, yes/no, char_id
 
-    We'll choose first non-empty of label1 / label2 / label3.
+    We'll choose the first non-empty of label1 / label2 / label3.
     """
     for idx in (2, 3, 4):
         if idx < len(row):
@@ -51,17 +55,19 @@ def _pick_label_from_row(row):
 
 def load_move_map(big_csv_path, override_csv_path=None):
     """
-    Build nested dict:
-        move_map[char_id][atk_id_dec] = "Move Name"
+    Build TWO maps:
 
-    Source 1: move_id_map_charagnostic.csv (your big file)
-    Source 2: move_id_map_charpair.csv (override rows)
+      move_map[char_id][atk_id]  = "Move Name"
+      global_map[atk_id]         = "Move Name"   (for char_id == 100)
 
-    We do NOT assume headers. We parse using csv.reader.
+    We parse both CSVs:
+    - move_id_map_charagnostic.csv  (main "big" file)
+    - move_id_map_charpair.csv      (override / refinement)
     """
-    move_map = {}
+    move_map   = {}  # dict[int -> dict[int -> str]]
+    global_map = {}  # dict[int -> str]
 
-    # pass 1: main file
+    # PASS 1: bulk file (the "agnostic" file that actually has per-char rows)
     if os.path.exists(big_csv_path):
         with open(big_csv_path, newline="", encoding="utf-8") as fh:
             rdr = csv.reader(fh)
@@ -73,35 +79,39 @@ def load_move_map(big_csv_path, override_csv_path=None):
                 if not first_cell:
                     continue
                 if first_cell.startswith("#"):
-                    # e.g. "# Zero (ID: 29)" -> skip
+                    # e.g. "# Zero (ID: 29)"
                     continue
 
-                # try to parse move id
+                # move id
                 try:
-                    atk_id = int(first_cell, 0)  # "315" or "0x13b"
+                    atk_id = int(first_cell, 0)  # handles "315" or "0x13b"
                 except Exception:
-                    # header-ish row? skip it
+                    # header-ish or junk row
                     continue
 
-                # try to parse char_id from last column
+                # char id = last col
                 last_cell = (row[-1] or "").strip()
                 try:
                     char_id = int(last_cell, 0)
                 except Exception:
-                    # if last column isn't an int, skip
+                    # can't map without char_id
                     continue
 
                 label = _pick_label_from_row(row)
                 if not label:
                     label = f"FLAG_{atk_id}"
 
-                bucket = move_map.setdefault(char_id, {})
-                bucket[atk_id] = label
-
+                if char_id == 100:
+                    # This is your global/system/assist/etc bucket.
+                    global_map[atk_id] = label
+                else:
+                    bucket = move_map.setdefault(char_id, {})
+                    bucket[atk_id] = label
     else:
         print(f"(load_move_map) WARNING: {big_csv_path} not found")
 
-    # pass 2: override file (explicit pairs), if present
+    # PASS 2: overrides file (pair csv)
+    # This lets you hand-fix specific (char_id, atk_id) names or add new ones.
     if override_csv_path and os.path.exists(override_csv_path):
         with open(override_csv_path, newline="", encoding="utf-8") as fh:
             rdr = csv.DictReader(fh)
@@ -124,43 +134,55 @@ def load_move_map(big_csv_path, override_csv_path=None):
                 if not lab:
                     lab = f"FLAG_{atk_id}"
 
-                bucket = move_map.setdefault(char_id, {})
-                bucket[atk_id] = lab  # override wins
+                if char_id == 100:
+                    global_map[atk_id] = lab
+                else:
+                    bucket = move_map.setdefault(char_id, {})
+                    bucket[atk_id] = lab
 
-    # debug: report how many chars and total moves loaded
-    total_moves = sum(len(v) for v in move_map.values())
-    print(f"(load_move_map) chars:{len(move_map)} total_moves:{total_moves}")
+    total_chars  = len(move_map)
+    total_moves  = sum(len(v) for v in move_map.values())
+    total_global = len(global_map)
+    print(f"(load_move_map) chars:{total_chars} char_moves:{total_moves} global_flags:{total_global}")
 
-    return move_map
+    return move_map, global_map
 
 
-def move_label_for(aid, cid, move_map):
+def move_label_for(aid, cid, move_map, global_map):
     """
-    Lookup rule you just described:
-    - Find that character's sub-table by cid.
-    - Inside it, find that move ID.
-    - If not found, just show FLAG_<aid>.
+    Priority:
+      1. If we know cid (the character), try that character's table: move_map[cid][aid]
+      2. Else try global_map[aid] (shared/system flags / throws / movement states)
+      3. Else fall back to FLAG_<aid>
+
+    This matches what you just said:
+    "if I have flag_266, get my character ID, find 266 in their section.
+     If it's not there, use the shared/global flags."
     """
     if aid is None:
         return "FLAG_NONE"
 
-    # universal special states
+    # universal stuff you already recognized
     if aid == 48:
         return "BLOCK"
     if aid == 51:
         return "PUSHBLOCK"
 
     if cid is not None:
-        bucket = move_map.get(cid, {})
-        if aid in bucket:
+        bucket = move_map.get(cid)
+        if bucket and aid in bucket:
             return bucket[aid]
+
+    if aid in global_map:
+        return global_map[aid]
 
     return f"FLAG_{aid}"
 
 
 def read_attack_ids(base):
     """
-    Read both attack/state IDs from memory.
+    Pull raw state/move IDs from memory.
+    Returns (attA, attB)
     """
     if not base:
         return (None, None)
