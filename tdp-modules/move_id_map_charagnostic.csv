@@ -1,17 +1,23 @@
+# GLOBAL UNIVERSAL NORMALS / AIR NORMALS
+256,0x100,5A,5A,5A,yes,100
+257,0x101,5B,5B,5B,yes,100
+258,0x102,5C,5C,5C,yes,100
+259,0x103,2A,2A,2A,yes,100
+260,0x104,2B,2B,2B,yes,100
+261,0x105,2C,2C,2C,yes,100
+262,0x106,6C,6C,6C,yes,100
+264,0x108,3C,3C,3C,yes,100
+265,0x138,j.A,j.A,j.A,yes,100
+266,0x138,j.B,j.B,j.B,yes,100
+267,0x138,j.C,j.C,j.C,yes,100
+270,0x10e,6B,6B,6B,yes,100
+270,0x10e,6M,6M,6M,yes,100
+271,0x10f,3B,3B,3B,yes,100
+272,0x138,j.2C,j.2C,j.2C,yes,100
+288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,100
+289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,100
+
 # Ken the Eagle (ID: 1)
-256,0x100,5A,5A,5A,yes,1
-257,0x101,5B,5B,5B,yes,1
-258,0x102,5C,5C,5C,yes,1
-259,0x103,2A,2A,2A,yes,1
-260,0x104,2B,2B,2B,yes,1
-261,0x105,2C,2C,2C,yes,1
-264,0x108,3C,3C,3C,yes,1
-265,0x138,j.A,j.A,j.A,yes,1
-266,0x138,j.B,j.B,j.B,yes,1
-267,0x138,j.C,j.C,j.C,yes,1
-270,0x10e,6B,6B,6B,yes,1
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,1
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,1
 304,0x130,Bird Run A,Bird Run A,Bird Run A,yes,1
 305,0x131,Bird Run B,Bird Run B,Bird Run B,yes,1
 306,0x132,Bird Run C,Bird Run C,Bird Run C,yes,1
@@ -22,19 +28,6 @@
 -1,NONE,Bird Shoot B,Bird Shoot B,Bird Shoot B,yes,1
 
 # Casshan (ID: 2)
-256,0x100,5A,5A,5A,yes,2
-257,0x101,5B,5B,5B,yes,2
-258,0x102,5C,5C,5C,yes,2
-259,0x103,2A,2A,2A,yes,2
-260,0x104,2B,2B,2B,yes,2
-261,0x105,2C,2C,2C,yes,2
-264,0x108,3C,3C,3C,yes,2
-265,0x138,j.A,j.A,j.A,yes,2
-266,0x138,j.B,j.B,j.B,yes,2
-267,0x138,j.C,j.C,j.C,yes,2
-270,0x10e,6B,6B,6B,yes,2
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,2
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,2
 304,0x130,Denko A,Denko A,Denko A,yes,2
 305,0x131,Denko B,Denko B,Denko B,yes,2
 306,0x132,Denko C,Denko C,Denko C,yes,2
@@ -49,20 +42,6 @@
 516,0x204,Super Destruction Beam,Super Destruction Beam,Super Destruction Beam,yes,2
 
 # Tekkaman (ID: 3)
-256,0x100,5A,5A,5A,yes,3
-257,0x101,5B,5B,5B,yes,3
-258,0x102,5C,5C,5C,yes,3
-259,0x103,2A,2A,2A,yes,3
-260,0x104,2B,2B,2B,yes,3
-261,0x105,2C,2C,2C,yes,3
-262,0x106,6C,6C,6C,yes,3
-264,0x108,3C,3C,3C,yes,3
-265,0x138,j.A,j.A,j.A,yes,3
-266,0x138,j.B,j.B,j.B,yes,3
-267,0x138,j.C,j.C,j.C,yes,3
-272,0x138,j.2C,j.2C,j.2C,yes,3
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,3
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,3
 304,0x130,Gatling A,Gatling A,Gatling A,yes,3
 305,0x131,Gatling B,Gatling B,Gatling B,yes,3
 306,0x132,Gatling C?,Gatling C?,Gatling C?,yes,3
@@ -89,18 +68,6 @@
 354,0x160,voltekka air,voltekka air,voltekka air,yes,3
 
 # Polimar (ID: 4)
-256,0x100,5A,5A,5A,yes,4
-257,0x101,5B,5B,5B,yes,4
-258,0x102,5C,5C,5C,yes,4
-259,0x103,2A,2A,2A,yes,4
-260,0x104,2B,2B,2B,yes,4
-261,0x105,2C,2C,2C,yes,4
-262,0x106,6C,6C,6C,yes,4
-265,0x138,j.A,j.A,j.A,yes,4
-266,0x138,j.B,j.B,j.B,yes,4
-267,0x138,j.C,j.C,j.C,yes,4
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,4
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,4
 313,0x139,Storm B?,Storm B?,Storm B?,yes,4
 314,0x13a,Storm Low,Storm Low,Storm Low,yes,4
 315,0x13b,Storm B,Storm B,Storm B,yes,4
@@ -113,19 +80,6 @@
 512,0x200,Illusion Fist,Illusion Fist,Illusion Fist,yes,4
 
 # Yatterman-1 (ID: 5)
-256,0x100,5A,5A,5A,yes,5
-257,0x101,5B,5B,5B,yes,5
-258,0x102,5C,5C,5C,yes,5
-259,0x103,2A,2A,2A,yes,5
-260,0x104,2B,2B,2B,yes,5
-261,0x105,2C,2C,2C,yes,5
-262,0x106,6C,6C,6C,yes,5
-264,0x108,3C,3C,3C,yes,5
-265,0x138,j.A,j.A,j.A,yes,5
-266,0x138,j.B,j.B,j.B,yes,5
-267,0x138,j.C,j.C,j.C,yes,5
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,5
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,5
 304,0x130,Kendamagic A,Kendamagic A,Kendamagic A,yes,5
 305,0x131,Kendamagic B,Kendamagic B,Kendamagic B,yes,5
 306,0x132,Kendamagic C,Kendamagic C,Kendamagic C,yes,5
@@ -139,18 +93,6 @@
 -1,NONE,yatter run C,yatter run C,yatter run C,yes,5
 
 # Doronjo (ID: 6)
-256,0x100,5A,5A,5A,yes,6
-257,0x101,5B,5B,5B,yes,6
-258,0x102,5C,5C,5C,yes,6
-259,0x103,2A,2A,2A,yes,6
-260,0x104,2B,2B,2B,yes,6
-261,0x105,2C,2C,2C,yes,6
-264,0x108,3C,3C,3C,yes,6
-265,0x138,j.A,j.A,j.A,yes,6
-266,0x138,j.B,j.B,j.B,yes,6
-267,0x138,j.C,j.C,j.C,yes,6
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,6
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,6
 304,0x150,Pummel A,Comfy Taunt,Comfy Taunt,yes,6
 305,0x150,Pummel B,Comfy Taunt,Comfy Taunt,yes,6
 306,0x150,Pummel C,Comfy Taunt,Comfy Taunt,yes,6
@@ -180,23 +122,9 @@
 575,0x23f,Taunt,Taunt,Taunt,yes,6
 
 # Ippatsuman (ID: 7)
-256,0x100,5A,5A,5A,yes,7
-257,0x101,5B,5B,5B,yes,7
-258,0x102,5C,5C,5C,yes,7
-259,0x103,2A,2A,2A,yes,7
-260,0x104,2B,2B,2B,yes,7
-261,0x105,2C,2C,2C,yes,7
-262,0x106,6C,6C,6C,yes,7
-264,0x108,3C,3C,3C,yes,7
-265,0x138,j.A,j.A,j.A,yes,7
-266,0x138,j.B,j.B,j.B,yes,7
-267,0x138,j.C,j.C,j.C,yes,7
-270,0x10e,6B,6B,6B,yes,7
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,7
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,7
-304,0x130,rainball A,rainball A,rainball A,yes,7
-305,0x131,Rainball B,Rainball B,Rainball B,yes,7
-306,0x132,Rainball C,Rainball C,Rainball C,yes,7
+304,0x130,rainb100 A,rainb100 A,rainb100 A,yes,7
+305,0x131,Rainb100 B,Rainb100 B,Rainb100 B,yes,7
+306,0x132,Rainb100 C,Rainb100 C,Rainb100 C,yes,7
 307,0x133,Mound A,Mound A,Mound A,yes,7
 308,0x134,Mound B,Mound B,Mound B,yes,7
 309,0x135,Mound C,Mound C,Mound C,yes,7
@@ -214,19 +142,6 @@
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,7
 
 # Jun the Swan (ID: 8)
-256,0x100,5A,5A,5A,yes,8
-257,0x101,5B,5B,5B,yes,8
-258,0x102,5C,5C,5C,yes,8
-259,0x103,2A,2A,2A,yes,8
-260,0x104,2B,2B,2B,yes,8
-261,0x105,2C,2C,2C,yes,8
-262,0x106,6C,6C,6C,yes,8
-264,0x108,3C,3C,3C,yes,8
-265,0x138,j.A,j.A,j.A,yes,8
-266,0x138,j.B,j.B,j.B,yes,8
-267,0x138,j.C,j.C,j.C,yes,8
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,8
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,8
 304,0x130,Yoyo A,Yoyo A,Yoyo A,yes,8
 305,0x131,Yoyo B,Yoyo B,Yoyo B,yes,8
 306,0x132,yoyo C,yoyo C,yoyo C,yes,8
@@ -245,19 +160,6 @@
 430,0x1ae,Phoenix,Phoenix,Phoenix,yes,8
 
 # Karas (ID: 10)
-256,0x100,5A,5A,5A,yes,10
-257,0x101,5B,5B,5B,yes,10
-258,0x102,5C,5C,5C,yes,10
-259,0x103,2A,2A,2A,yes,10
-260,0x104,2B,2B,2B,yes,10
-261,0x105,2C,2C,2C,yes,10
-262,0x106,6C,6C,6C,yes,10
-264,0x108,3C,3C,3C,yes,10
-265,0x138,j.A,j.A,j.A,yes,10
-266,0x138,j.B,j.B,j.B,yes,10
-267,0x138,j.C,j.C,j.C,yes,10
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,10
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,10
 304,0x130,236A,236A,236A,yes,10
 305,0x131,236B,236B,236B,yes,10
 306,0x132,236C,236C,236C,yes,10
@@ -277,18 +179,6 @@
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,10
 
 # Ryu (ID: 12)
-256,0x100,5A,5A,5A,yes,12
-257,0x101,5B,5B,5B,yes,12
-258,0x102,5C,5C,5C,yes,12
-259,0x103,2A,2A,2A,yes,12
-260,0x104,2B,2B,2B,yes,12
-261,0x105,2C,2C,2C,yes,12
-262,0x106,6C,6C,6C,yes,12
-265,0x138,j.A,j.A,j.A,yes,12
-266,0x138,j.B,j.B,j.B,yes,12
-267,0x138,j.C,j.C,j.C,yes,12
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,12
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,12
 304,0x130,Hado L,Hado L,Hado L,yes,12
 305,0x131,Hado M,Hado M,Hado M,yes,12
 306,0x132,Hado H,Hado H,Hado H,yes,12
@@ -310,19 +200,6 @@
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,12
 
 # Chun-Li (ID: 13)
-256,0x100,5A,5A,5A,yes,13
-257,0x101,5B,5B,5B,yes,13
-258,0x102,5C,5C,5C,yes,13
-259,0x103,2A,2A,2A,yes,13
-260,0x104,2B,2B,2B,yes,13
-261,0x105,2C,2C,2C,yes,13
-262,0x106,6C,6C,6C,yes,13
-264,0x108,3C,3C,3C,yes,13
-265,0x138,j.A,j.A,j.A,yes,13
-266,0x138,j.B,j.B,j.B,yes,13
-267,0x138,j.C,j.C,j.C,yes,13
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,13
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,13
 304,0x130,Kikoken L,Kikoken L,Kikoken L,yes,13
 305,0x131,Kikoken M,Kikoken M,Kikoken M,yes,13
 306,0x132,Kikoken C,Kikoken C,Kikoken C,yes,13
@@ -334,20 +211,8 @@
 417,0x1a1,flag?,flag?,flag?,yes,13
 
 # Batsu (ID: 14)
-256,0x100,5A,5A,5A,yes,14
-257,0x101,5B,5B,5B,yes,14
-258,0x102,5C,5C,5C,yes,14
 259,0x103,2B,2B,2B,yes,14
 260,0x104,2B,2B,2B,yes,14
-261,0x105,2C,2C,2C,yes,14
-262,0x106,6C,6C,6C,yes,14
-264,0x108,3C,3C,3C,yes,14
-265,0x138,j.A,j.A,j.A,yes,14
-266,0x138,j.B,j.B,j.B,yes,14
-267,0x138,j.C,j.C,j.C,yes,14
-270,0x10e,6B,6B,6B,yes,14
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,14
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,14
 304,0x130,Guts A,Guts A,Guts A,yes,14
 305,0x131,Guts Bullet B,Guts Bullet B,Guts Bullet B,yes,14
 306,0x132,Guts Bullet C,Guts Bullet C,Guts Bullet C,yes,14
@@ -362,19 +227,6 @@
 516,0x204,United by Fate: Upper,United by Fate: Upper,United by Fate: Upper,yes,14
 
 # Morrigan (ID: 15)
-256,0x100,5A,5A,5A,yes,15
-257,0x101,5B,5B,5B,yes,15
-258,0x102,5C,5C,5C,yes,15
-259,0x103,2A,2A,2A,yes,15
-260,0x104,2B,2B,2B,yes,15
-261,0x105,2C,2C,2C,yes,15
-262,0x106,6C,6C,6C,yes,15
-264,0x108,3C,3C,3C,yes,15
-265,0x138,j.A,j.A,j.A,yes,15
-266,0x138,j.B,j.B,j.B,yes,15
-267,0x138,j.C,j.C,j.C,yes,15
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,15
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,15
 304,0x130,Soul Fist L,Soul Fist L,Soul Fist L,yes,15
 305,0x131,Soul Fist M,Soul Fist M,Soul Fist M,yes,15
 306,0x132,Soul Fist H,Soul Fist H,Soul Fist H,yes,15
@@ -390,18 +242,6 @@
 4294967295,0xffffffff,Versus Screen load (assist Priming?),Versus Screen load (assist Priming?),Versus Screen load (assist Priming?),yes,15
 
 # Alex (ID: 16)
-256,0x100,5A,5A,5A,yes,16
-257,0x101,5B,5B,5B,yes,16
-258,0x102,5C,5C,5C,yes,16
-259,0x103,2A,2A,2A,yes,16
-260,0x104,2B,2B,2B,yes,16
-261,0x105,2C,2C,2C,yes,16
-262,0x106,6C,6C,6C,yes,16
-265,0x138,j.A,j.A,j.A,yes,16
-266,0x138,j.B,j.B,j.B,yes,16
-267,0x138,j.C,j.C,j.C,yes,16
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,16
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,16
 304,0x130,Flash Chop A,Flash Chop A,Flash Chop A,yes,16
 305,0x131,Flash Chop B,Flash Chop B,Flash Chop B,yes,16
 306,0x132,Flash Chop C,Flash Chop C,Flash Chop C,yes,16
@@ -424,19 +264,6 @@
 # Viewtiful Joe (ID: 17)
 11,0xb,??,??,??,yes,17
 89,0x59,Shocking Pink B,Shocking Pink B,Shocking Pink B,yes,17
-256,0x100,5A,5A,5A,yes,17
-257,0x101,5B,5B,5B,yes,17
-258,0x102,5C,5C,5C,yes,17
-259,0x103,2A,2A,2A,yes,17
-260,0x104,2B,2B,2B,yes,17
-261,0x105,2C,2C,2C,yes,17
-264,0x108,3C,3C,3C,yes,17
-265,0x138,j.A,j.A,j.A,yes,17
-266,0x138,j.B,j.B,j.B,yes,17
-267,0x138,j.C,j.C,j.C,yes,17
-270,0x10e,6B,6B,6B,yes,17
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,17
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,17
 304,0x130,Voomerang A,Voomerang A,Voomerang A,yes,17
 305,0x131,Voomerang B,Voomerang B,Voomerang B,yes,17
 306,0x132,Voomerang C,Voomerang C,Voomerang C,yes,17
@@ -447,38 +274,15 @@
 -1,NONE,Red Hot Kick B,Red Hot Kick B,Red Hot Kick B,yes,17
 
 # Volnutt (ID: 18)
-256,0x100,5A,5A,5A,yes,18
-257,0x101,5B,5B,5B,yes,18
-258,0x102,5C,5C,5C,yes,18
-259,0x103,2A,2A,2A,yes,18
-260,0x104,2B,2B,2B,yes,18
-261,0x105,2C,2C,2C,yes,18
 270,0x10e,6B Fist,6B Fist,6B Fist,yes,18
 271,0x10f,3B,3B,3B,yes,18
-265,0x138,j.A,j.A,j.A,yes,18
-266,0x138,j.B,j.B,j.B,yes,18
-267,0x138,j.C,j.C,j.C,yes,18
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,18
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,18
 282,0x11a,C level 3?,C level 3?,C level 3?,yes,18
 352,0x160,machine gun super,machine gun super,machine gun super,yes,18
 369,0x171,max drill upper,max drill upper,max drill upper,yes,18
 512,0x200,Shining Laser,Shining Laser,Shining Laser,yes,18
 
 # Roll (ID: 19)
-256,0x100,5A,5A,5A,yes,19
-257,0x101,5B,5B,5B,yes,19
-258,0x102,5C,5C,5C,yes,19
-259,0x103,2A,2A,2A,yes,19
-260,0x104,2B,2B,2B,yes,19
-261,0x105,2C,2C,2C,yes,19
-264,0x108,3C,3C,3C,yes,19
-265,0x138,j.A,j.A,j.A,yes,19
-266,0x138,j.B,j.B,j.B,yes,19
-267,0x138,j.C,j.C,j.C,yes,19
 270,0x10e,6B,6B,6B,yes,19
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,19
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,19
 304,0x130,Swing A,Swing A,Swing A,yes,19
 305,0x131,Swing B,Swing B,Swing B,yes,19
 306,0x132,Swing C,Swing C,Swing C,yes,19
@@ -501,19 +305,6 @@
 368,0x170,Oh no  you didn't,Oh no  you didn't,Oh no  you didn't,yes,19
 
 # Saki (ID: 20)
-256,0x100,5A,5A,5A,yes,20
-257,0x101,5B,5B,5B,yes,20
-258,0x102,5C,5C,5C,yes,20
-259,0x103,2A,2A,2A,yes,20
-260,0x104,2B,2B,2B,yes,20
-261,0x105,2C,2C,2C,yes,20
-262,0x106,6C,6C,6C,yes,20
-264,0x108,3C,3C,3C,yes,20
-265,0x138,j.A,j.A,j.A,yes,20
-266,0x138,j.B,j.B,j.B,yes,20
-267,0x138,j.C,j.C,j.C,yes,20
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,20
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,20
 304,0x130,Positron A,Positron A,Positron A,yes,20
 305,0x131,Positron B,Positron B,Positron B,yes,20
 306,0x132,Positron C,Positron C,Positron C,yes,20
@@ -521,19 +312,6 @@
 512,0x200,Headbutt,Headbutt,Headbutt,yes,20
 
 # Soki (ID: 21)
-256,0x100,5A,5A,5A,yes,21
-257,0x101,5B,5B,5B,yes,21
-258,0x102,5C,5C,5C,yes,21
-259,0x103,2A,2A,2A,yes,21
-260,0x104,2B,2B,2B,yes,21
-261,0x105,2C,2C,2C,yes,21
-262,0x106,6C,6C,6C,yes,21
-264,0x108,3C,3C,3C,yes,21
-265,0x138,j.A,j.A,j.A,yes,21
-266,0x138,j.B,j.B,j.B,yes,21
-267,0x138,j.C,j.C,j.C,yes,21
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,21
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,21
 304,0x130,Slam A,Slam A,Slam A,yes,21
 305,0x131,Slam B,Slam B,Slam B,yes,21
 306,0x132,Slam C,Slam C,Slam C,yes,21
@@ -552,21 +330,8 @@
 -1,NONE,??,??,??,yes,21
 
 # Tekkaman Blade (ID: 26)
-256,0x100,5A,5A,5A,yes,26
-257,0x101,5B,5B,5B,yes,26
-258,0x102,5C,5C,5C,yes,26
-259,0x103,2A,2A,2A,yes,26
-260,0x104,2B,2B,2B,yes,26
-261,0x105,2C,2C,2C,yes,26
-262,0x106,6C,6C,6C,yes,26
-264,0x108,3C,3C,3C,yes,26
-265,0x138,j.A,j.A,j.A,yes,26
-266,0x138,j.B,j.B,j.B,yes,26
-267,0x138,j.C,j.C,j.C,yes,26
 270,0x10e,6M,6M,6M,yes,26
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,26
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,26
-307,0x133,Baselard A,Baselard A,Baselard A,yes,26
+304,0x130,Baselard A,Baselard A,Baselard A,yes,26
 310,0x136,Blitz A,Blitz A,Blitz A,yes,26
 311,0x137,Blitz B,Blitz B,Blitz B,yes,26
 313,0x139,Falchion A,Falchion A,Falchion A,yes,26
@@ -580,19 +345,7 @@
 518,0x206,Omnidirectional Voltekka,Omnidirectional Voltekka,Omnidirectional Voltekka,yes,26
 
 # Joe the Condor (ID: 27)
-256,0x100,5A,5A,5A,yes,27
-257,0x101,5B,5B,5B,yes,27
-258,0x102,5C,5C,5C,yes,27
-259,0x103,2A,2A,2A,yes,27
 260,0x104,3B,3B,3B,yes,27
-261,0x105,2C,2C,2C,yes,27
-262,0x106,6C,6C,6C,yes,27
-264,0x108,3C,3C,3C,yes,27
-265,0x138,j.A,j.A,j.A,yes,27
-266,0x138,j.B,j.B,j.B,yes,27
-267,0x138,j.C,j.C,j.C,yes,27
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,27
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,27
 304,0x130,shuriken A,shuriken A,shuriken A,yes,27
 305,0x131,shuriken B,shuriken B,shuriken B,yes,27
 306,0x132,shuriken C,shuriken C,shuriken C,yes,27
@@ -610,20 +363,9 @@
 -1,NONE,Savage Shot Air,Savage Shot Air,Savage Shot Air,yes,27
 
 # Yatterman-2 (ID: 28)
-256,0x100,5A,5A,5A,yes,28
-257,0x101,5B,5B,5B,yes,28
 258,0x102,charge C,charge C,charge C,yes,28
-259,0x103,2A,2A,2A,yes,28
-260,0x104,2B,2B,2B,yes,28
 261,0x105,charge 2C,charge 2C,charge 2C,yes,28
-262,0x106,6C,6C,6C,yes,28
-264,0x108,3C,3C,3C,yes,28
-265,0x138,j.A,j.A,j.A,yes,28
-266,0x138,j.B,j.B,j.B,yes,28
-267,0x138,j.C,j.C,j.C,yes,28
 270,0x10e,6M,6M,6M,yes,28
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,28
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,28
 304,0x130,yatter shield,yatter shield,yatter shield,yes,28
 305,0x131,yatter shield b,yatter shield b,yatter shield b,yes,28
 306,0x132,yatter shield C,yatter shield C,yatter shield C,yes,28
@@ -638,20 +380,6 @@
 468,0x1d4,back throw,back throw,back throw,yes,28
 
 # Zero (ID: 29)
-256,0x100,5A,5A,5A,yes,29
-257,0x101,5B,5B,5B,yes,29
-258,0x102,5C,5C,5C,yes,29
-259,0x103,2A,2A,2A,yes,29
-260,0x104,2B,2B,2B,yes,29
-261,0x105,2C,2C,2C,yes,29
-262,0x106,6C,6C,6C,yes,29
-264,0x108,3C,3C,3C,yes,29
-265,0x138,j.A,j.A,j.A,yes,29
-266,0x138,j.B,j.B,j.B,yes,29
-267,0x138,j.C,j.C,j.C,yes,29
-270,0x10e,6M,6M,6M,yes,29
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,29
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,29
 305,0x131,Hadengeki B,Hadengeki B,Hadengeki B,yes,29
 306,0x132,Hadengeki C,Hadengeki C,Hadengeki C,yes,29
 311,0x137,DP A,DP A,DP A,yes,29
@@ -661,18 +389,6 @@
 512,0x200,Dark Hold,Dark Hold,Dark Hold,yes,29
 
 # Frank West (ID: 30)
-256,0x100,5A,5A,5A,yes,30
-257,0x101,5B,5B,5B,yes,30
-258,0x102,5C,5C,5C,yes,30
-259,0x103,2A,2A,2A,yes,30
-260,0x104,2B,2B,2B,yes,30
-261,0x105,2C,2C,2C,yes,30
-264,0x108,3C,3C,3C,yes,30
-265,0x138,j.A,j.A,j.A,yes,30
-266,0x138,j.B,j.B,j.B,yes,30
-267,0x138,j.C,j.C,j.C,yes,30
-288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,30
-289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,30
 305,0x131,Zombie Grab,Zombie Grab,Zombie Grab,yes,30
 314,0x13a,Roundhouse B,Roundhouse B,Roundhouse B,yes,30
 315,0x13b,Roundhouse C,Roundhouse C,Roundhouse C,yes,30
@@ -707,8 +423,8 @@
 73,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
 73,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
 80,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
-81,0x1,Wall Bounce Launched,Wall Bounce Launched,Wall Bounce Launched,yes,100
-82,0x1,Wall Bounce Bounce off wall,Wall Bounce Bounce off wall,Wall Bounce Bounce off wall,yes,100
+81,0x1,W100 Bounce Launched,W100 Bounce Launched,W100 Bounce Launched,yes,100
+82,0x1,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 90,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 92,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 95,0x1,Forced Roll,Soft Knockdown,Soft Knockdown,yes,100
@@ -738,4 +454,3 @@
 4609,0x1,Captured,Captured,Captured,yes,100
 4619,0x1,Captured,Captured,Captured,yes,100
 4294967295,0xffffffff,versus screen loading flag,versus screen loading flag,versus screen loading flag,yes,12
-
