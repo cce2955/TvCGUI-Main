@@ -104,7 +104,7 @@ WIRE_OFFSETS = [
 # We'll read *both* for debug, and expose them in HUD.
 # We'll call 0x9246CB9D the "main" readiness byte and drive HUD readiness off it.
 
-BAROQUE_STATUS_ADDR_MAIN  = 0x9246CB9D  # authoritative gate byte
+BAROQUE_STATUS_ADDR_MAIN  = 0x9246CBab  # authoritative gate byte
 BAROQUE_STATUS_ADDR_BUDDY = 0x9246CB9C  # neighbor / buddy byte
 
 # We *think* these addresses twitch when Baroque is actually ACTIVATED
