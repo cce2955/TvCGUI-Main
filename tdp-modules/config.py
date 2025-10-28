@@ -1,88 +1,143 @@
 # config.py
-# Runtime tuning knobs and UI layout.
+#
+# Global config / constants for TvC HUD & runtime probes.
 
-import math
+# ------------------------------
+# Update / timing / rendering
+# ------------------------------
 
-# =========================
-# RUNTIME / POLLING
-# =========================
-
-POLL_HZ         = 60
-INTERVAL        = 1.0 / POLL_HZ
-COMBO_TIMEOUT   = 0.60
-MIN_HIT_DAMAGE  = 10
-MAX_DIST2       = 100.0
-METER_DELTA_MIN = 5
-
-# bytes to watch (0x050..0x08F)
-# This region appears to carry a bunch of control / action state flags,
-# cancel logic, etc. We already surface this in the Inspector.
-WIRE_OFFSETS = list(range(0x050, 0x090))
-
-# NEW:
-# extra "health cluster" watch window.
-# HP-related struct members live starting ~0x024-0x02C (max/cur/aux HP).
-# We want to spy on the neighborhood around that block each frame,
-# because that region tends to hold other per-fighter critical runtime data
-# (armor, stun timers, etc.).
-HEALTH_WIRE_OFFSETS = list(range(0x029, 0x030))
-
-# bytes 0x050..0x08F and 0x020..0x03F are both dumped per fighter snapshot.
-# HUD shows both, with the health-cluster bytes shown first.
-
-
-# =========================
-# MEMORY WATCH (debug wires)
-# =========================
-
-# WIRE_OFFSETS and HEALTH_WIRE_OFFSETS are consumed in fighter.read_fighter()
-# and later rendered by hud_draw.draw_inspector().
-
-
-# =========================
-# WINDOW / LAYOUT CONSTANTS
-# =========================
+INTERVAL = 1 / 30.0           # seconds per HUD update tick
+MIN_HIT_DAMAGE = 10           # min HP delta to consider "a hit" for logging
 
 SCREEN_W = 1280
-SCREEN_H = 1200
+SCREEN_H = 720
 
-# Two character panels per row. Panels are fixed-height.
-PANEL_W  = SCREEN_W // 2 - 20
-PANEL_H  = 150
+PANEL_W  = 300
+PANEL_H  = 200
 
 ROW1_Y   = 10
 ROW2_Y   = ROW1_Y + PANEL_H + 10
 
-ACTIVITY_H = 40
-LOG_H      = 160
-INSP_H     = 220
+STACK_TOP_Y = ROW2_Y + PANEL_H + 20
+ACTIVITY_H  = 40
 
-STACK_TOP_Y = ROW2_Y + PANEL_H + 10  # activity bar starts here
+LOG_H   = 140
+INSP_H  = 200
 
-FONT_MAIN_SIZE  = 16  # monospace main
+FONT_MAIN_SIZE  = 16
 FONT_SMALL_SIZE = 14
 
-# =========================
-# CSV OUTPUT PATHS
-# =========================
-
 HIT_CSV             = "collisions.csv"
-PAIR_MAPPING_CSV    = "move_id_map_charpair.csv"
 GENERIC_MAPPING_CSV = "move_id_map_charagnostic.csv"
+PAIR_MAPPING_CSV    = "move_id_map_charpair.csv"
 
-# =========================
-# COLORS (RGB tuples)
-# =========================
+# ------------------------------
+# Colors / HUD helpers
+# ------------------------------
 
-def rgb(r, g, b):
-    return (r, g, b)
+COL_BG     = (10, 10, 12)
+COL_PANEL  = (24, 24, 28)
+COL_BORDER = (80, 80, 90)
+COL_TEXT   = (230, 230, 230)
+COL_GOOD   = (80, 220, 80)
+COL_WARN   = (255, 180, 0)
+COL_BAD    = (255, 60, 60)
 
-COL_BG      = rgb(10, 10, 10)
-COL_PANEL   = rgb(20, 20, 20)
-COL_BORDER  = rgb(100, 100, 100)
-COL_TEXT    = rgb(220, 220, 220)
-COL_DIM     = rgb(140, 140, 140)
-COL_GOOD    = rgb(100, 220, 100)
-COL_WARN    = rgb(230, 200, 70)
-COL_BAD     = rgb(230, 80, 80)
-COL_ACCENT  = rgb(190, 120, 255)
+def hp_color(pct):
+    """
+    Pick a text color based on % life remaining.
+    pct should be in [0,1]; None falls back to neutral text.
+    """
+    if pct is None:
+        return COL_TEXT
+    if pct > 0.50:
+        return COL_GOOD
+    if pct > 0.25:
+        return COL_WARN
+    return COL_BAD
+
+# ------------------------------
+# Fighter struct probing
+# ------------------------------
+# We read small slices of each fighter struct, relative to that fighter's
+# resolved base pointer. These bytes are dumped into the HUD inspector.
+
+HEALTH_WIRE_OFFSETS = [
+    # 0x000..0x00B is typically current HP, max HP, last_damage, etc.
+    0x000, 0x001, 0x002, 0x003,  # cur_hp (likely 32-bit int)
+    0x004, 0x005, 0x006, 0x007,  # max_hp (32-bit)
+    0x008, 0x009, 0x00A, 0x00B,  # most recent hit dmg / "last damage"
+    # bytes of interest around health / red-life
+    0x02A,  # pooled life / "red bar total" style aggregate (goes down as you lose health)
+    0x02B,  # odd decrementer that seems to tick down in steps and wrap
+]
+
+WIRE_OFFSETS = [
+    # Various status / flags we already cared about
+    0x062,
+    0x063,
+    0x064,
+    0x072,
+    # Control state (0x90..0x93)
+    0x090, 0x091, 0x092, 0x093,
+    # "attA/attB" / subaction / y-pos cluster around 0x0F0..0x0F7
+    0x0F0,
+    0x0F1,
+    0x0F2,
+    0x0F3,
+    0x0F4, 0x0F5, 0x0F6, 0x0F7,
+]
+
+# ------------------------------
+# Baroque / input monitor
+# ------------------------------
+#
+# Your Dolphin dump showed:
+#   0x9246CB9C -> a small value (ex: 03)
+#   0x9246CB9D -> a byte that constantly increments ONLY while Baroque is available,
+#                 and goes 00 when Baroque is not available / spent.
+#
+# Rule:
+#   if (0x9246CB9D == 0x00): "Baroque not ready"
+#   else:                    "Baroque ready"
+#
+# We'll read *both* for debug, and expose them in HUD.
+# We'll call 0x9246CB9D the "main" readiness byte and drive HUD readiness off it.
+
+BAROQUE_STATUS_ADDR_MAIN  = 0x9246CB9D  # authoritative gate byte
+BAROQUE_STATUS_ADDR_BUDDY = 0x9246CB9C  # neighbor / buddy byte
+
+# We *think* these addresses twitch when Baroque is actually ACTIVATED
+# (on superflash). We'll continue showing them and you'll tell us if we
+# need to move them.
+BAROQUE_FLAG_ADDR_0 = 0x9246CC48
+BAROQUE_FLAG_ADDR_1 = 0x9246CC50
+
+# Controller / input monitor for P1:
+# From your captures:
+#   0x9246CC40 region: heavy, assist style codes showed up here
+#   0x9246CC50 region: light / medium press bytes
+#   0x9246CC60 region: taunt, etc
+#
+# We'll read these direct and display them.
+
+INPUT_MONITOR_ADDRS = {
+    "A0": 0x9246CC40,
+    "A1": 0x9246CC50,
+    "A2": 0x9246CC60,
+}
+
+# We'll dump a big slab of that CC40 range each frame in the inspector so
+# you can watch all those 05 01 sequences live.
+BAROQUE_MONITOR_ADDR = 0x9246CC40
+BAROQUE_MONITOR_SIZE = 0x80  # 128 bytes to cover CC40..CCBF-ish
+
+# ------------------------------
+# Advantage tracking
+# ------------------------------
+# Distance cutoff for deciding who is "in contact" for frame advantage logging.
+MAX_CONTACT_DIST = 250.0
+MAX_DIST2 = MAX_CONTACT_DIST * MAX_CONTACT_DIST
+
+# How long (in frames) we keep the interaction alive in ADV_TRACK after hit/block.
+ADV_FORGET_FRAMES = 120

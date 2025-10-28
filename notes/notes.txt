@@ -909,7 +909,58 @@ That’s where we are.
 
 
 ---
+possibly all rendering addresses on the 92 range:
 
-That’s the updated notes file with everything we’ve learned and wired so far, rewritten to match how we’re actually using it now (not just the first “Ryu slide right forever” era).
+9246dae0, 9246dad0, 9246db10 hitstun
 
-You can drop this in as your new notes.txt.
+9246ff00, 9246ff10 incrementers. Look later for timer
+
+9246cde0 observe
+
+9246bdf0 htstun? p1c1
+
+9246baf0 p1c2?
+
+v9246ba50 assist cluster
+
+9246bb00 recovery on landing?
+
+9246baf0 Calculation?
+
+9246baa0 collision?
+
+9246bb90, assist okay flag , actually 9246bbe0 is better since it starts at 00
+
+9246baa0, P2 Distance from  P1 Assist X/Y vector, and I guess Assist position as well? Collision detection for assist?
+
+9246b9f0 Combo counter? possible valid hitstun flag
+
+9246bb20, Hitstun/blockstun, 100% no question. but only applies to grounded opponents? doens't apply to gorunded opponents, only normals, does not calc on specials/supers
+
+9246ba90, determines when side switching occurs, not a crossup detector, flag only swaps when the character physically turns around
+
+
+803f5650 Pause menu, byte 24 controls the training mode baroque values, 00 for nothing, 01 for 10%, 02 for 20%, etc.
+
+803f5680 Pause menu again, byte 16 controls P1 super meter, 00 for normal, 01 for recover, 02 for infinite
+
+803f5680, byte 8 sets health to infinite, byte 24 turns on free baroque
+
+
+803f5650, byte 32 turns on attack data.....
+
+803f5670, Byte 32 turns on key display, these only work in training at the moment, can't make it work in arcade/versus
+
+803fb7f0, when byte 4 is 01, assist is unavailable. Technically assist is available but UI is showing otherwise. Seems to be the flag for UI status as opposed to actual assist.
+
+803fb7e0, setting byte 4 to 40 causes the UI to think Ryu is tagging out, causing it to flicker the animation.
+
+803fb940, stores the last combo and flashes it on screen, changing byte 20 to 41 causes the combo counter to flash on screen
+
+803fb950, changing byte 10 to 40 made the combo counter only show the number and nothing else, but I messed around and now the counter doesn't appear at all
+
+803fb9e0, byte 10 on flag 40 causes the combo description "yes","awesome", "amazing", or whatever to flash on screen, whatever the last one stored was.
+
+803fba70, setting byte 12 to 40 causes the baroque UI to flash on screen
+
+803fbb90/803fbb80, something UI related to supers, not sure
