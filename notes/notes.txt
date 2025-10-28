@@ -1,966 +1,860 @@
----
+Environment / Tooling
 
-
-Tatsunoko vs Capcom Reverse-Engineering Notes
-
-Live State Model + HUD Capture System
-
-Last updated: 2025-10-25
-
-
----
-
-1. Environment Setup
+I’m currently reverse-engineering TvC using a combination of emulator-level hooks, memory polling, and my own live HUD.
 
 Tools in use:
 
-Dolphin 5.0 Debug build (x64)
+Dolphin 5.0 Debug (x64)
 
-Breakpoints, watchpoints, register view.
+Using breakpoints, watchpoints, register view, stepping through PPC calls, and live memory editing.
 
+I also NOP out instructions to confirm responsibilities (movement freeze, knockback cancel, etc.).
 
 dolphin-memory-engine (Python)
 
-External process reader. We use it for: polling RAM, following pointers, dumping per-frame state.
+External process reader that polls Dolphin’s RAM in real time.
 
+I use it to resolve per-character base addresses every frame, follow pointers, read interesting bytes/words/floats, and dump per-frame state.
 
-Custom Python HUD / GUI (pygame)
+My custom Python HUD / GUI (pygame)
 
-Live overlay that shows per-character health, meter, current move ID, position, control state, stun state, wire bytes, event log, and a first-pass frame advantage estimate.
+Real-time overlay that shows per-character HP, meter, X/Y world position, control state, current move ID (and a label), stun flags, assist state, etc.
 
-Also writes collisions.csv automatically for every damaging interaction.
+It also logs events (every real hit I detect) and exports collisions.csv with attacker/victim, move ID, distance at impact, etc.
 
+I’ve added a first-pass frame advantage tracker that tries to say “+2f on block,” etc.
 
-In-memory frame trackers
+I’m in the process of extending the HUD to show things the vanilla game lies about, like assist readiness.
 
-HitTracker: finds who actually hit who (without relying on on-screen effects).
+In-memory trackers:
 
-AdvantageTracker: estimates frame advantage on hit and block by watching recovery flags on both characters.
+HitTracker: figures out attacker/victim on hit from the actual health change and proximity instead of relying on effects.
 
+AdvantageTracker: watches recovery / “I can act now” flags for both players and estimates frame advantage on hit or block.
 
-Lua in Dolphin
+(Experimental) Dolphin Lua:
 
-Currently experimental for real-time correlation and auto-breakpointing.
+I’ve started playing with this for auto-breakpointing and deeper correlation, but it’s not the main pipeline yet.
 
+Spreadsheet/CSV flow:
 
-Spreadsheet/CSV analysis flow
+I still support exporting session data to CSV for offline analysis, but honestly I’m way less Excel-first now that I’ve got a stable live HUD.
 
-We still support exporting event and session data, but we’re less Excel-first now that the GUI is stable.
+Fighter Struct Basics (Per-Character Live State)
 
+Each character in TvC (P1 active, P1 partner, P2 active, P2 partner) has a live, constantly-updated “fighter struct.” This is basically the engine’s truth for that character that gets rewritten every frame. I’ll call this “the fighter struct.”
 
+Example observed base: around 0x9246B9C0 for a character. The stride between character slots is on the order of a few hundred bytes (~0x300–0x400). All of this lives in RAM and gets hammered constantly.
 
-Memory region under investigation (core fighter struct):
+The game resolves which struct belongs to which slot using pointers hanging off static addresses in the US build:
 
-Per-character “fighter state struct”. Example observed base: 0x9246B9C0.
+P1 active (P1-C1): 0x803C9FCC
 
-Structure repeats for each character slot (P1 active, P1 partner, P2 active, P2 partner). Stride between fighters is a few hundred bytes (≈0x300–0x400 ish).
+P1 partner (P1-C2): 0x803C9FDC
 
-This struct is live state, not move data. It gets rewritten every frame.
+P2 active (P2-C1): 0x803C9FD4
 
+P2 partner (P2-C2): 0x803C9FE4
 
-We resolve the base for each slot at runtime using pointer indirection from these known addresses (US build):
+Those aren’t the structs themselves; those point to slot managers, and I walk a couple layers (pointers of pointers) to land on the actual fighter struct. I verify I’ve got a real fighter struct by sanity-checking HP layout (see below). If all else fails mid-match, I can re-lock onto a character by looking for “sane max HP / current HP” and position floats, even if the pointer chain flickers.
 
-P1-C1: 0x803C9FCC
+Core offsets (relative to the fighter struct base r3 in PPC terms):
 
-P1-C2: 0x803C9FDC
+Health / Identity:
 
-P2-C1: 0x803C9FD4
++0x24 (word): Max HP
 
-P2-C2: 0x803C9FE4
++0x28 (word): Current HP
 
++0x2C (word): Red life / recoverable health / baroque pool
 
-Those addresses point to per-slot managers. We then walk a couple layers of pointers to land on the real fighter struct. We verify we’re in the right struct by checking for valid HP layout (see below).
++0x14 (word): Character ID (Ryu = 12, Batsu = 14, Volnutt = 18, etc.)
 
++0x40 (word): “last damage chunk,” updates whenever you get hit
 
----
+I use these to confirm I’m tracking the right struct for that slot.
 
-2. Core Per-Frame Anatomy of a Fighter Struct
+Position:
 
-We treat the fighter struct as [r3] in a lot of the PowerPC code. (Example: in stw r4,0x70(r3), r3 is the fighter struct for that character.)
++0xF0 / +0xF4 (floats): world X / world Y (and nearby Z in some cases)
 
-Health / Identity
+I probe for which float consistently behaves like “vertical position” instead of camera pan or stage scroll.
 
-+0x24  (word): Max HP
+I draw those as X:###.## Y:###.## in the HUD.
 
-+0x28  (word): Current HP
-
-+0x2C  (word): Aux HP / red life / reserve healing pool
-
-+0x14  (word): Character ID
-
-Known mappings:
-
-12 = Ryu
-
-14 = Batsu
-
-18 = Volnutt
-
-etc.
-
-
-
-+0x40  (word): “last damage chunk.” Updates on hit.
-
-
-We validate we’ve got a real fighter by checking that Max HP is sane (10k–60k), Cur HP is 0..Max, etc. This let us lock / recover the base even if pointers flicker for a frame.
-
-Position
-
-+0xF0 / +0xF4 / nearby floats: world X and Y (and sometimes Z).
-
-We probe candidate Y offsets at startup and pick the one that behaves like “vertical position” (not camera parallax, not stage scroll).
-
-
-These floats drive the HUD “X:123.4  Y:0.00”.
-
-
-Control Word
+Control word:
 
 +0x70 (word): ctrl
 
-Volatile per frame. The engine writes, masks, and restores bits here every update.
+This is a per-frame control/state mask. The game rewrites and sanitizes it constantly.
 
-We can see things like movement lock, hitstop lock, “you’re being pushed,” etc.
+If I manually force this to zero mid-frame (stw r0,0x70(r3) in Dolphin), Ryu basically loses grounded stability and slides forever, so +0x70 is very tied to allowed movement/impulse.
 
-Manually forcing [r3+0x70] = 0 via stw r0,0x70(r3) caused Ryu to slide endlessly → so this word participates in grounded movement/impulse.
+But it’s not “velocity storage,” because the engine just replaces it next frame anyway.
 
-BUT: the engine immediately overwrites it every frame, so it’s not “persistent velocity,” it’s “current frame’s legal control state.”
+There’s a routine at 0x8004AAF4 that does something like:
 
+read [r3+0x70]
 
+rlwinm stuff
 
-In PowerPC:
+write a sanitized version back with stw r4,0x70(r3)
 
-Function @ 0x8004AAF4:
+This looks like the master “clamp/control gate” each frame.
 
-Reads [r3+0x70]
+Attack / State ID:
 
-Applies rlwinm bitmasks
++0x1E8 (word): Attack / action ID
 
-Writes sanitized result back with stw r4,0x70(r3)
++0x1EC (word): Sub-ID / followup
 
-This is basically the per-frame sanity pass for control flags.
-
-
-
-
----
-
-3. High-Value Runtime Offsets (The “Hot Zone”)
-
-We care most about bytes in r3 + 0x050 .. 0x090 and some specific later regions. We call these the “wires,” and the HUD shows them live for every slot.
-
-0x050–0x05F-ish: Move startup / active / collision window
-
-These bytes flicker hard during attacks. We use them to detect when a move is in startup, when it’s active, and when it’s recovering.
-
-In particular:
-
-0x052 / 0x053: “lead / startup tells.” They light up right before an attack becomes dangerous.
-
-0x056 / 0x057 / 0x058 / 0x059: “hit / active tells.” These spike during hitbox-active frames.
-
-0x058 and 0x059 tend to align with actual strike frames.
-
-If the duration of those lines basically matches the “gate” at 0x072, we treat it as an “attack-like” move.
-
-
-0x05B: secondary / follow-up signal we see after big hits or state transitions (recovery onset / hit confirm window).
-
-
-
-We originally used these to generate per-move frame data (startup / active / recovery) offline. That logic still exists in the exporter.
-
-0x062 : f062 — “engagement / stun context” (1 byte)
-
-Live meanings from observation:
-
-160 → IDLE_BASE. “I’m neutral.”
-
-168 → ENGAGED. Character is “armed” / evaluating collision even if far away. Shows up even fullscreen if they’re in a threatening state.
-
-32  → ACTIVE_MOVE. Character is moving / crouching / acting.
-
-0   → ATTACK_ACTIVE. You are actively performing something.
-
-40  → IMPACTED. Victim on the exact hit frame.
-
-8   → STUN_LOCK. Victim is in hitstun or blockstun, frozen.
-
-
-Rough read:
-
-160 = you're done, fully idle.
-
-anything else = you’re in some kind of offense/defense exchange.
-
-we also see this byte flip on the defender before hit actually lands (anticipation). On the attacker: it clears when they commit.
-
-
-The HUD labels this for each slot and also logs raw values.
-
-0x063 : f063 — “action / cancel / recovery / pushback / air state” (1 byte)
-
-This one is huge. This byte basically tells us:
-
-are you in startup,
-
-did you just hit,
-
-are you in pushback,
-
-are you recovering,
-
-are you airborne chaining,
-
-have you regained control.
-
-
-Collected meanings so far:
-
-Ground and general:
-
-1   → NEUTRAL (completely idle / actionable)
-
-0   → STARTUP (you pressed a button, you’re locked into it)
-
-32  → STARTUP (same bucket as 0, early part of the move)
-
-6   → HIT_COMMIT (attacker side ~2f before hit; locked in)
-
-34  → CHAIN_BUFFER (you’ve input the next normal, like A→B or B→C)
-
-36  → HIT_RESOLVE (pushback is being applied to attacker)
-
-4   → HITSTUN_PUSH (victim being shoved on impact / blockstun shove)
-
-16  → BLOCK_PUSH (attacker pushback during blocked string)
-
-37 / 5 → RECOVERY (you’re coming down from action but not neutral yet)
-
-17  → ATKR_READY (attacker has their turn back after pressure)
-
-168 → DEF_READY (defender just got control back after being hit or blocking)
-
-
-Air / juggle / knockback side:
-
-65  → AIR_CANCEL (launcher → jump cancel window)
-
-64  → AIR_ASCEND_ATK (air normal during rising)
-
-192 → AIR_DESC_ATK (air normal during fall)
-
-193 → FALLING (airborne falling state, not yet stable)
-
-70  → AIR_PREHIT (about to connect vs grounded or air target)
-
-68  → AIR_IMPACT (the air hit actually connected)
-
-197 → KB_GROUNDED (grounded knockback result from air hit)
-
-196 → KB_VERTICAL (vertical launch knockback calc starting)
-
-198 → KB_VERTICAL_PEAK (vertical pop fully applied / high float)
-
-96  → AIR_CHAIN_BUF1
-
-224 → AIR_CHAIN_BUF2
-
-230 → AIR_CHAIN_BUF3
-
-194 → AIR_CHAIN_END (end of the air chain just before settling into descend state 192)
-
-
-We watch this one byte live per slot and surface both the raw number and the decoded label in the HUD.
-
-This byte is also where we detect:
-
-“attacker got control back”
-
-“defender got control back”
-
-“you are allowed to jump cancel now”
-
-“this was blocked vs hit”
-
-“this is pushblock / pushback resolution”
-
-
-0x064 : f064
-
-We’re polling it but it’s less charted right now. It’s stable most of the time, and spikes around certain airborne interactions. Still partly UNKNOWN.
-
-0x072 : f072 — “master gate”
-
-When nonzero, we are “in a move.”
-
-Duration of f072 == total move duration (startup+active+recovery).
-We used to call this the “session boundary.”
-
-When 0x058/0x059 (hit-active lines) match 0x072’s span ±1f, we treat that sequence as “attack-like.”
-
-We originally cut PRE / DURING / AFTER windows for CSV around f072 edges.
-
-
-HUD shows f072 live, so we can see it pulse when a normal or special fires. We’ve also seen patterns on hit where ctrl goes 0x4000 then settles to 0x20004000 type masks while pushback happens.
-
-
----
-
-4. Velocity / Animation Cluster
-
-Later in the struct (big positive offsets, e.g. +0xBA50..+0xBA80) there’s a float cluster we call “vel block.” Examples:
-
-Values like 1.0, 1.2, 1.3 spike when you get hit or dash, then decay.
-
-Multiple engine functions write into this region:
-
-0x80055DC0 / C4 / C8 → writes to [r3+0xBA64/68/6C]
-
-0x80054310 / 1C / 28 → writes to [r3+0xBA70/74/78]
-
-0x80054634 / 40 / 48 → writes to [r3+0xBA7C/80]
-
-0x800AAC7C / 84 / 8C → writes to [r3+0xBA58/5C/60]
-
-0x8004DF9C (sometimes) → [r3+0xBA50]
-
-
-
-This chunk looks like:
-
-Current movement scaling (walk speed / dash speed / hit recoil multiplier)
-
-Animation rate scaling
-
-Air drift / launch velocity
-
-
-Directly writing zeros into these from Dolphin debugger didn’t instantly freeze movement the way you’d expect. The engine often re-applies them every frame, and some movement is actually from other systems (global pushback, camera correction, gravity). So this block is important, but not a single “master velocity.”
-
-
----
-
-5. Impact / Momentum Region
-
-Farther out (0xBA90.., 0xBBA0..):
-
-We see floating point bursts that line up with hitstop / knockback.
-
-Example: at +BBA0, values spike from ~5.0 to ~29.0 when you land a heavy hit or when something is blocked.
-
-That suggests “impact magnitude” or “pushback strength.”
-
-It fires on hit and on block, so it’s more like “how big was the collision resolution” than “damage.”
-
-
-
-When you land Standing HP and it connects:
-
-BBA0 jumps ~29
-
-The vel cluster up at BA50/BA70 also jumps (~1.3–1.4), showing momentum burst.
-
-On block: BBA0 still jumps to ~29, but BA50/BA70 spike slightly lower (~1.1).
-That tells us the pushback magnitude is shared, but post-impact movement differs.
-
-
-So:
-
-+BBA0 = impact magnitude / shove strength / hitstop driver
-
-These floats are being written by “knockback impulse” code, like 0x800551C4..0x800551DC.
-
-
-
----
-
-6. The HUD / GUI
-
-We now run a pygame HUD that polls all four character slots ~60 FPS.
-
-For each slot (P1-C1, P1-C2, P2-C1, P2-C2) we show:
-
-Character name (from char ID)
-
-Base pointer (struct address)
-
-HP (current / max)
-
-Meter (for P1-C1 and P2-C1; partner usually mirrors but we read primary)
-
-XY position
-
-ctrl word ([+0x70]) as 0x########
-
-Attack ID (+[0x1E8]) and a label:
-
-We map move IDs → human names using two layers:
-
-char-agnostic map (generic per attack ID)
-
-per-(attackID,charID) overrides for precise naming
-
-
-Special cases:
+The game treats even blocking as a “move,” so blocking has an attack ID too. Examples I’ve confirmed:
 
 48 = BLOCK
 
 51 = PUSHBLOCK
 
+I maintain two lookup maps:
 
+global: attack ID → generic label (BLOCK, PUSHBLOCK, etc.)
 
-Key state bytes:
+per-character: (charID, attackID) → move name (“Ryu 5A”, “Batsu j.C”, etc.)
 
-f062 (0x062) raw + decoded meaning
+The HUD will preferentially show the per-character label, and if I don’t have that it falls back to the global label. If neither exists, I just display the raw ID.
 
-f063 (0x063) raw + decoded meaning
+The Hot Zones Inside the Fighter Struct
 
-f064 (0x064) raw
+There are two main “hot zones” in the fighter struct that matter most in neutral / offense / defense reading.
 
-f072 (0x072) raw
+Hot Zone A: ~0x050–0x090 region
+This block flickers like crazy during actual gameplay. It’s basically the “what are you doing this instant?” region.
 
+Some of the bytes in here:
 
-We also render an “Inspector” panel at the bottom:
+0x052 / 0x053: “startup tells.” These light right before an attack becomes dangerous.
 
-For each slot, dump 0x050–0x08F wire bytes live (byte value in decimal alongside its offset).
+0x056 / 0x057 / 0x058 / 0x059: “active/hit tells.” These spike while the move is actively hitting.
 
-This is our microscope. It’s how we found air cancel windows, knockback markers, etc.
+0x058 and 0x059 line up with actual strike frames really well.
 
+If the lifetime of these bytes lines up with the “gate” I’ll describe below (0x072), I treat it as a real attack.
 
+0x05B: tends to flip after bigger hits or state changes (hit confirm window / recovery onset).
 
-We also have:
+I originally used these values to get startup/active/recovery frame counts for frame data dumps.
 
-Activity / Frame Advantage bar:
+The engagement/stun/recovery state bytes live here too and they’re gold:
 
-A running line like:
-P1-C1 vs P2-C1 advantage ~ +2.0f
+0x062 (1 byte): I call this f062.
+This is basically “engagement / stun context.”
+Observed values include:
 
-That’s our heuristic “who recovered first in that exchange.”
+160 → IDLE_BASE (fully neutral)
 
+168 → ENGAGED (you’re “armed,” even fullscreen, evaluating collision)
 
-Event Log:
+32 → ACTIVE_MOVE (moving / crouching / acting)
 
-Every time we detect real damage on a character (HP drop ≥ MIN_HIT_DAMAGE), we log:
+0 → ATTACK_ACTIVE (you’re currently performing an attack)
 
-Attacker slot / char
+40 → IMPACTED (defender when the exact frame of being hit)
 
-Victim slot / char
+8 → STUN_LOCK (victim in hitstun or blockstun, frozen)
+The rough logic I’m using:
 
-Damage number
+160 means “I’m done, neutral”
 
-Pre/post HP
+anything else is “I’m in some kind of offense/defense exchange,” including blockstun or hitstun
+This byte flips on the defender before the hit actually connects (“anticipation”), and on the attacker when they commit.
 
-Move ID + decoded label
+0x063 (1 byte): I call this f063.
+This byte is insane. It’s basically “what precise phase am I in right now?”
+I’ve seen all of these:
+Ground/general:
+1 → NEUTRAL (fully actionable)
+0 → STARTUP (you pressed a button, you’re now locked)
+32 → STARTUP (same bucket as 0, early part)
+6 → HIT_COMMIT (attacker ~2f before hit; locked in)
+34 → CHAIN_BUFFER (you’ve already buffered the next normal, e.g. A→B)
+36 → HIT_RESOLVE (pushback being applied to attacker post-hit)
+4 → HITSTUN_PUSH (victim shove in hitstun/blockstun)
+16 → BLOCK_PUSH (attacker being pushed back on block)
+37 / 5 → RECOVERY (still in post-move cleanup)
+17 → ATKR_READY (attacker has their turn back; basically “you’re plus now”)
+168 → DEF_READY (defender finally got control back after hit/block)
+Air/juggle/knockback:
+65 → AIR_CANCEL (launcher → jump cancel window)
+64 → AIR_ASCEND_ATK (air normal during rising)
+192 → AIR_DESC_ATK (air normal while falling)
+193 → FALLING (airborne falling state after action)
+70 → AIR_PREHIT (about to connect vs grounded/air target)
+68 → AIR_IMPACT (air normal connected)
+196 → KB_VERTICAL (vertical launch knockback application starting)
+198 → KB_VERTICAL_PEAK (fully popped up)
+197 → KB_GROUNDED (grounded knockback result from an air hit)
+96 / 224 / 230 → AIR_CHAIN_BUF* (buffered followups during air strings)
+194 → AIR_CHAIN_END (end of the juggle chain before you start falling again at 192)
+This one byte (f063) is how I detect:
 
-Distance² at impact
+did you hit?
 
+are you in pushback?
 
-This scrolls in the HUD AND gets appended to collisions.csv.
+can you chain cancel?
 
+are you now “ready” again?
 
+did you just land from air and are burning landing recovery?
 
-This is huge because we can stand in training mode, do a string, and watch in real time:
+0x064 (1 byte): f064
+I’m polling this but it’s not fully decoded yet. It spikes around certain airborne states. I suspect it’s either a substate of air/landing or some “air subtype” that pairs with f063.
 
-which per-byte state flags fired,
+0x072 (byte/word region): f072
+This is what I call the “master gate.”
+If it’s nonzero, you’re “in a move.”
+Duration of f072 = total move duration (startup+active+recovery).
+Originally I used f072 to split pre/during/after windows for data logging; when 0x058/0x059 line up with f072’s active duration, I treat that as a valid strike sequence.
 
-when the victim left stun,
+Hot Zone B: ~0xBB00–0xBBE0 region (still in the fighter struct)
+This block turned out to be equally important, just later in memory. This is where a lot of “truth flags” live for stun, assist, landing recovery, facing, etc. These are the bytes the game is using to drive real outcomes, and sometimes the UI lies about them.
 
-whether they blocked or got hit,
+Key bytes/words from this region:
 
-how many frames you were “still locked” after they were actionable.
+0xBB20
+Grounded hitstun/blockstun flag.
+This thing is extremely reliable for normal hits/blockstrings.
+When you’re in grounded hitstun or blockstun (off normals), this flips.
+I’m treating this as TRUE_STUN.
+Caveat: I’ve seen that supers/specials don’t always reflect here the same way, so specials/supers might use a different sub-flag.
 
+0xBDF0 / 0xBAF0
+I’ve caught these behaving like stun flags per slot (P1C1, P1C2). I’m pretty sure these are either mirrors of 0xBB20 per character slot or at least per-side copies (active vs assist). This confirms the engine redundantly stores “is this guy in hitstun?” in multiple nearby places for different systems to read quickly.
 
+0xBB00
+Landing recovery / post-air landing recovery.
+This flag flips when you touch the ground after doing air actions and forces you through grounded landing lag.
+This solves one of the nastiest parts of advantage testing: after a jump-in or air normal, how soon can each side act? I can watch this byte to time when somebody is still burning landing recovery frames versus when they’re actually actionable.
 
----
+0xBA90
+Facing / orientation flag.
+This flips when the character physically turns around.
+It doesn’t fire for “pseudo-crossup” unless the game actually decides you’ve swapped sides. This is the byte that says “the engine now officially considers you to be facing the other way.”
+I can HUD this as “L” vs “R” and prove when TvC thinks you’ve actually side-switched.
 
-7. Advantage Heuristic (First Pass “+ on block / hit” Guess)
+0xBA50 (and neighbors like 0xBB90 / 0xBBE0)
+Assist cluster.
+This area clearly tracks assist state.
+I’ve seen 0xBB90/0xBBE0 reflect “assist OK” vs “assist locked,” and 0xBBE0 in particular sits at a clean 0x00 baseline when assist is totally good to go.
+This is the real assist availability, not the UI portrait guess.
 
-We don’t have the full frame advantage system nailed, but we have something workable that runs live.
+0xBAA0
+Assist vector math.
+This region looks like X/Y deltas and positional info linking the assist to the opponent:
 
-We track per pair (attacker_base, victim_base):
+I’ve watched it behave like “P2 distance from P1 assist, X/Y vector,” and it even updates when the assist or projectile is pursuing the opponent.
 
-1. While they’re interacting (close, or either player is still in non-idle state according to f062), we keep that pair “active.”
+This is basically the assist’s targeting/tracking math and proximity line.
 
+It’s nuts, because it means I can know when an assist is actually lining up to connect before it even visibly overlaps.
 
-2. We watch f062 on both sides:
+0xB9F0
+Internal combo counter / true juggle count / “valid hitstun” counter.
+This increments in ways that match how long you’ve actually been in a juggle / hit sequence.
+My read is this is what the engine uses for scaling, burst/escape logic, etc.
+This matters because the game’s visible combo counter can de-sync or stop displaying, but this internal number is still advancing.
 
-160 == IDLE_BASE (neutral / fully recovered).
+0xCBA8–0xCBA9
+Baroque-ready flag(s).
+This is gigantic.
+These bytes flip when Baroque is actually available.
+I don’t have to infer from red life anymore. I can just read this and say “Baroque: READY / NOT READY.”
+This is how I’m going to display Baroque status in my HUD from now on.
 
+TL;DR:
+Hot Zone A (0x050–0x090 range) tells me “what animation/phase am I in right now?”
+Hot Zone B (0xBB00–0xBBE0+ range) tells me “how the engine is treating me right now” (stunned, landing recovery, facing, assist online, baroque ready, combo-in-progress count).
 
+Movement / Velocity / Knockback Clusters
 
-3. We record the first frame index where each side hits 160 again.
+Much later in the struct there’s a big float cluster (call it the velocity/animation block) around +0xBA50..+0xBA80 and then another shove/impact cluster a little after that (BBA0 etc.). These floats spike during dashes, hitstop bursts, knockback, wallbounce, etc.
 
+I’ve seen routines like:
 
-4. Once both sides have hit 160:
+0x80055DC0 / C4 / C8 writing to [r3+0xBA64/68/6C]
 
-plus_frames = victim_idle_frame - attacker_idle_frame
+0x80054310 / 1C / 28 writing to [r3+0xBA70/74/78]
 
+0x80054634 / 40 / 48 writing to [r3+0xBA7C/80]
 
+0x800AAC7C / 84 / 8C writing to [r3+0xBA58/5C/60]
 
+0x8004DF9C sometimes hitting [r3+0xBA50]
 
-Interpretation:
+These write values like 1.0, 1.2, 1.3 that spike on hit or dash and then decay out. It looks like:
 
-If plus_frames is positive, the victim took longer to return to idle.
-That means attacker recovered first → attacker is + on that interaction.
+movement scaling
 
-If it’s negative, victim was free first → attacker is minus.
+animation rate scaling
 
+dash burst
 
-We display that on screen.
+pushback / recoil magnitude
 
-Caveat:
+vertical launch velocity
 
-This counts “fully idle again,” not “first actionable frame.”
-There are states like RECOVERY (f063 = 5 / 37) where the attacker is technically still doing cleanup animation but might already be allowed to special-cancel or super. That’s why sometimes the number flashes for one frame and then “0.0f” returns: we’re seeing a valid intermediate but then the window resets because they stayed overlapping.
+If I NOP some of those writers (especially in the 0x80055xxx / 0x800551C4+ neighborhood), movement either freezes, loses knockback, or stops responding to collision in the “normal” way, so this is definitely tied to active physics, not just animation fluff.
 
+There’s also a float that spikes hard on heavy hits or blocks, ~29.0:
 
-We’re keeping this in the tracker as a heuristic, not gospel.
+I’m seeing this around +0xBBA0.
 
+On heavy standing HP that connects, +0xBBA0 jumps ~29.
 
----
+On block of the same heavy, it still jumps ~29, but the BA5x/BA7x floats don’t spike quite as high (more like ~1.1 instead of ~1.3).
 
-8. Block vs Hit vs Pushblock
+That tells me:
 
-We now have clear differentiators for defense.
++0xBBA0 is some “impact magnitude / shove strength / collision resolution magnitude,” and it triggers even on block.
 
-We’ve confirmed blocking itself has an attack ID:
+Then the actual velocity cluster splits hit vs block by dialing different values.
 
-Attack ID 48 = BLOCK
+Long story short: it’s not “just play an animation.” Knockback and pushback are physically written into these floats every frame in a really direct way.
 
-Attack ID 51 = PUSHBLOCK
-That means the defending character still “runs a move ID” during block sequences, and we can pick that up off [+0x1E8].
+Rendering / Puppet Structs (Second Layer of State)
 
+Besides the main fighter struct, I’ve caught what looks like a separate “puppet/render pose” struct at different addresses in the 0x9246DAxx / 0x9246DBxx range:
 
-On block:
+0x9246DAE0
 
-Attacker’s f063 often goes:
+0x9246DAD0
 
-0/32 (startup)
-→ 6 / HIT_COMMIT (they’re locked in)
-→ 16 / BLOCK_PUSH (pushback being applied to attacker) → 17 / ATKR_READY (they’re actionable again)
+0x9246DB10
 
+These flip during hitstun, and behave like “this actor is stunned for animation / camera / pose reasons.” I’m treating these as more of a render/pose mirror of the stun state.
 
-Defender’s f062 / f063 pattern:
+I’ve also seen additional timers/incrementers here:
 
-f062 hits STUN_LOCK / 8 and IMPACTED / 40 flashes
+0x9246FF00
 
-f063 hits HITSTUN_PUSH / 4 during block push, then eventually DEF_READY / 168
+0x9246FF10
 
+Those constantly increment. I need to pin down what they’re counting. Possibilities:
 
+hitstop counter,
 
-On hit:
+juggle/decay budget,
 
-Similar pattern, but instead of BLOCK_PUSH you see HIT_RESOLVE / 36 etc.
+cinematic freeze timer.
 
-Air hits produce whole extra branches (AIR_PREHIT 70, AIR_IMPACT 68, KB_VERTICAL 196, 198, etc.).
+Either way, this convinces me TvC maintains at least two live structures per fighter:
+A. Gameplay struct (HP, control, knockback, stun phase, assist state, etc.).
+B. Render/camera struct (pose, stun animation, camera shake info, maybe threat proximity).
 
+The HUD currently reads A. I’ll probably start sampling B as well to mark stun visually.
 
+UI / Training Mode / Match-Director Globals
 
-We are logging f062/f063 raw values at hit time in collisions.csv, so later we can diff “real hit” vs “blocked string that still caused pushback.”
+The game’s UI and training options aren’t magic. They’re just a bunch of globals I can write to.
 
+Training mode / pause settings live in the 0x803F56xx–0x803F5680 range. I’ve confirmed:
 
----
+At 0x803F5650:
 
-9. NOP / Hook Experiments (Behavior Breakers)
+byte 0x24:
 
-We’ve isolated several key engine locations (PPC addresses) that control core behavior:
+Controls training Baroque setup.
 
-Input gating
+00 = nothing
 
-0x800549BC
+01 = 10%
 
-NOPing this kills all input processing for that actor.
-
-Suggests this is where player input buffer feeds into state machine.
-
-
-
-Render submission
-
-0x80054CAC
-
-NOPing makes bodies invisible but collision/hurtboxes still exist.
-
-This looks like a branch deciding whether to submit the model for rendering.
-
-
-
-Facing / orientation
-
-0x80055560 / 0x80055574 / 0x8005557C
-
-Forcing these makes everyone face the wrong way.
-
-Split versions exist for P1/P2 specifically.
-
-This is the “character face camera / face opponent” controller.
-
-
-
-Assist spawn / partner call
-
-0x80054D30 (mr r3, r5)
-
-Alters assist entry position/state.
-
-Observed: partner spawns at super-jump height in a blocking animation. So this is basically “assist init pose / physics seed.”
-
-
-
-Knockback / launch / wallbounce resolution
-
-0x800551C4–0x800551DC cluster
-
-Killing these removes knockback impulses. Megacrash and all knockdowns lose pushback.
-
-
-0x80054F24
-
-Launches attacker instead of victim in some launcher states.
-
-Throws attacker behind opponent if you tag during the launch momentum.
-
-Also messes with wallbounce behavior and post-launch taunt lock.
-
-
-0x80054F28 / 0x80054F2C / 0x80054F3C / 0x80054F44 / 0x80054F48
-
-These flip gravity behaviors, wallbounce arcs, auto-slam-to-floor bugs, etc.
-
-They’re clearly the impact physics “impulse apply” pipeline:
-
-set vertical velocity,
-
-clamp / snap to ground,
-
-apply wall bounce rebound,
+02 = 20%
 
 etc.
 
+Basically “preload my red life % for Baroque.”
 
+byte 0x20:
 
+Turns on the built-in attack data display (training hitbox/frame data overlay).
 
-We use these addresses to track where “pushback force” is injected, same region that ultimately powers +BBA0 and the velocity cluster.
+Game only actually draws it in training mode. Forcing it in versus doesn’t currently render, which means versus HUD path just ignores it.
 
-Camera / stage boundaries
+At 0x803F5670:
 
-0x80055654
+byte 0x20:
 
-Lets P1 walk offscreen left and teleports on right boundary.
+Turns on key display (input history).
 
+At 0x803F5680:
 
-0x800556CC
+byte 0x10:
 
-Removes camera follow / stage lock entirely. Both players can walk anywhere.
+P1 super meter behavior.
 
+00 normal / 01 recover / 02 infinite.
 
-Other addresses around 0x80055BA8 / 0x80055C68 / 0x80055CC8 / 0x80055D24 / 0x80055D60
+byte 0x08:
 
-Control asymmetric wrapping, stage-edge teleport, etc.
+Infinite health toggle.
 
-We’ve seen P1 wrap from right edge to left. P2 unaffected. So these routines enforce world bounds separately for each side.
+byte 0x24:
 
+Free Baroque toggle (basically “just let me Baroque, don’t consume it”).
 
+So, yeah: infinite meter, infinite health, permanent 10% red life, attack data overlay, and input display are literally just bytes you can flip in RAM. No scripts, no menu calls. The pause menu is just writing those for you.
 
-Movement freeze / spin
+Assist UI lies:
 
-0x80055DDC
+0x803FB7F0, byte 0x04:
 
-Disabling this halts movement entirely. Animations and hitboxes still “play,” but position never changes.
+If this is 0x01, the UI will tell you assist is unavailable (greys it out, etc.).
 
-Air launch will barely nudge up, then “snap” the fighter back to the ground after some internal airborne frame budget expires.
+But that does NOT necessarily mean the assist is actually locked. I’ve seen cases where the game shows “not ready,” but the underlying assist state in the fighter struct (0xBBE0 etc.) says it’s fine.
 
+0x803FB7E0, byte 0x04:
 
-0x80055DE8
+Setting this to 0x40 makes the UI think Ryu is tagging out and flickers the “tagging out” animation in the portrait.
 
-Disabling this makes characters spin in place, dashes cancel out (net zero movement), assists get stuck offscreen spinning, etc.
+So 0x803FB7E0/0x803FB7F0 are UI/portrait animation and “assist cooldown icon” only.
 
-Suggests high-level orientation / velocity integration for both player and assist.
+Conclusion: the assist portrait is just cosmetics. The real assist availability is in the fighter struct cluster at ~0xBA50/0xBB90/0xBBE0 (where I see a clean 00 baseline when assist is actually usable). I’m showing both in the HUD so I can prove when the game is lying.
 
+Combo counter / hype text:
+There’s a block of UI memory starting around 0x803FB940 that handles on-screen combo text:
 
+0x803FB940
 
-These experiments confirm:
+Holds the last combo count and flashes it.
 
-Pushback / knockback is not just “play an animation,” it’s active physics state being applied via code that writes floats into the struct.
+If I set byte 0x20 to 0x41, it forces the combo counter to pop on-screen again.
 
-Stage boundaries are code-driven, not just collision volumes in stage data.
+0x803FB950
 
-Assists are actual actors obeying most of the same struct model, just spawned with different init flags.
+Setting byte 0x10 to 0x40 used to make the combo counter only show the number (no text), then after I poked it too much the counter stopped appearing at all. So that’s some formatting/visibility sub-control.
 
+0x803FB9E0
 
+Byte 0x10 at 0x40 triggers the descriptor (“Yes,” “Awesome,” “Amazing,” etc.) to flash.
 
----
+0x803FBA70
 
-10. Attack IDs
+Setting byte 0x12 to 0x40 makes the Baroque UI flash on screen.
 
-Each fighter struct has:
+0x803FBB90 / 0x803FBB80
 
-+0x1E8 (word): primary “attack / state ID”
+These react to supers. Looks like the UI side of super flash / portrait highlight.
 
-+0x1EC (word): sub-ID / followup
+Meanwhile, in the fighter struct I’ve got 0xB9F0 which looks like the internal combo counter / “this is still a valid chain” counter. That one keeps going even if the on-screen combo number disappears. So:
 
+0xB9F0 = actual internal combo length / juggle state.
 
-This ID changes when you press a button, block, pushblock, etc.
+0x803FB940 etc. = “marketing layer” for the combo display and hype text.
 
-e.g. 48 = BLOCK, 51 = PUSHBLOCK.
+I can now capture both and spot when TvC decides not to show you how dead you actually are.
 
-We also see per-move values for normals/specials.
+Pause / match flow:
 
+0x805610F0:
 
-We maintain two lookup tables:
+Bytes 0x18–0x24 control whether you can pause.
 
-1. Generic map: attack ID → label (works across characters when universal, like “Baroque,” “Launcher,” “Block”).
+Zeroing them basically disables pause.
 
+0x80561100:
 
-2. Pair map: (attack ID, character ID) → specific move name (“Batsu 5A”, “Ryu 5A”, “Ryu j.B”, etc.).
+Byte 0x24 darkens the screen (pause dim overlay).
 
+So pausing is just controlled by a global “match director” block, not baked into the fighter structs. You can selectively kill the pause menu or trigger the darken overlay.
 
+Round intro / match director:
 
-Priority is:
+0x80560EB0: P1 intro pose state.
 
-Pair map match first
+0x80560FB0: P2 intro pose state.
 
-Then generic map
+0x805C78B0 .. ~0x805FAB70:
 
-Else fallback like FLAG_256
+Huge “match director / scene controller” region.
 
+This thing updates constantly and clearly drives camera behavior, KO freeze, announcer triggers, etc.
 
-The HUD shows the decoded move name next to atk:###.
+I haven’t fully mapped it yet, but anytime something “big and cinematic” happens, this block lights up.
 
-This is good enough to live-tag what move you just did, and what move the opponent is currently stuck in (including if they’re still considered in BLOCK state).
+Collision / threat assessment:
 
+0x80405890 / 0x804050B0 / 0x80405530:
 
----
+I’m seeing constantly moving triplets of numbers that look like position vectors. These are very likely collision candidates / hitbox or hurtbox positions feeding the overlap loop.
 
-11. The Big Picture: Engine Loop
+0x80405BF0:
 
-From call stacks we’ve walked:
+Similar pattern, but reacts to hitstop more directly.
 
-There’s a global “character manager update,” e.g. around 0x8024A4E0 → 0x8024B084.
+0x8049B990:
 
-Per-frame, each active fighter gets:
+Flips with animation calls. This looks like some central animation dispatcher state.
 
-1. Movement/control sanitize (0x8004AAF4, writes [+0x70])
+0x80476D90 / 0x80476EB0:
 
+These respond to being hit (light vs heavy reactions). So those are probably animation channels for reel / hit reactions.
 
-2. Velocity & animation updates (0x80055DC0 etc. writing BA5x-BA8x)
+0x80478A30:
 
+This one is wild. Byte 0x30 here reacts whenever “something is moving toward P2,” and “something” can be P1 themselves, P1’s assist, or even a projectile.
 
-3. Knockback / impact resolution (0x800551C4+ cluster writing the big shove values, BBA0 region)
+For P1’s point character, it doesn’t fully flip until P1 is actually touching P2. That feels like a throw/proximity/“in my face” detector.
 
+There are also two bytes next to it that are constantly shuffling, which look like a target arbitration queue.
 
-4. Render submit gate (0x80054CAC branch)
+My read is: this is the defender’s internal “threat / grab eligibility / you’re in danger right now” detection.
 
+I’m going to surface this too, because it basically tells me when the defender believes they have to respect throw/meaty.
 
-5. Orientation / facing logic (0x80055560+ etc.)
+Frame Advantage Heuristic (Current vs Next Version)
 
+Right now (first pass), I do this:
 
+While two characters are “interacting,” I treat them as a pair.
 
+“Interacting” = they’re close OR either side’s f062 isn’t 160 (i.e. somebody’s in offense/defense mode).
 
-So structurally:
+I watch for both to return to 160 (IDLE_BASE) in f062.
 
-Global Tick
-  -> Character Manager Loop (0x8024A4E0)
-      -> Per-Character Update (0x8024B084)
-          -> Apply/Clamp Control State (0x8004AAF4)      // sets +0x70
-          -> Update Velocity/Anim Scale (0x80055DC0...)  // writes BA5x-BA8x
-          -> Apply Impact / Pushback (0x800551C4...)     // writes BBA0 etc.
-          -> Render Submit Decision (0x80054CAC)
-          -> Orientation / Facing (0x80055560+)
+I record the frame index each one hits 160.
 
-Because we can point the HUD at any slot, we’re effectively watching that loop’s output in real time.
+plus_frames = victim_idle_frame - attacker_idle_frame.
 
+If plus_frames > 0, attacker got control back first → attacker is plus.
 
----
+If plus_frames < 0, defender actually recovered first → attacker is minus.
 
-12. What We Can Do Right Now (What’s Solved)
+This is decent but not perfect, because “f062 == 160” is “visually neutral,” not necessarily “first actionable frame.” There are states (like RECOVERY in f063 = 5/37) where you already have some cancel options before you’re fully neutral.
 
-We can:
+Now that I’ve got the new flags, I can do better. The plan for “first actionable frame” is:
 
-Identify each fighter struct for P1 active, P1 assist, P2 active, P2 assist.
+TRUE_STUN (0xBB20) has cleared (you’re not in hitstun/blockstun anymore).
 
-Show health, meter, world position, last damage taken.
+Landing recovery flag 0xBB00 is cleared (you’re not still burning landing lag).
 
-Watch control word [+0x70].
+f063 has transitioned to something like ATKR_READY (17), DEF_READY (168), or straight NEUTRAL (1), not still in BLOCK_PUSH or HIT_RESOLVE or AIR_IMPACT.
 
-Watch high-signal wires in [+0x050..+0x090].
+If you were airborne, you’ve already gone through the forced landing frames (which I can see on 0xBB00).
 
-Decode and display f062 and f063 states frame-by-frame for all four characters.
+Optionally check facing flip (0xBA90) if a side switch happened mid-string, just so I don’t count that orientation rewrite as “still recovering.”
 
-Includes grounded recovery, block push, air chain states, jump cancel windows, etc.
+That will get much closer to “who was actually plus after that interaction,” including jump-ins and blockstrings.
 
+Block vs Hit vs Pushblock Behavior
 
-Attach attack IDs to human-readable move names (including BLOCK and PUSHBLOCK as “moves”).
+Because I can see the internal states, I can finally separate these cleanly.
 
-Detect hits and log them with attacker/victim assignment (distance check + HP delta).
+On block:
 
-Guess “who’s plus” after a clash using a f062→160 heuristic for each side.
+Defender runs its own attack ID for blocking. Attack ID 48 = BLOCK.
 
+Pushblock (attack ID 51) is literally its own “move” from the defender.
 
-We can also:
+The attacker’s f063 path usually looks like:
+STARTUP (0 or 32)
+→ HIT_COMMIT (6)
+→ BLOCK_PUSH (16) (the game is shoving the attacker away)
+→ ATKR_READY (17) (attacker gets turn back)
 
-Capture blockstrings and see:
+Defender’s f062 shows STUN_LOCK / 8 and IMPACTED / 40, and f063 shows HITSTUN_PUSH / 4, then eventually DEF_READY / 168.
 
-pre-hit lock (f063=6 / HIT_COMMIT),
+On hit:
 
-pushback (f063=4 or 16 depending on side),
+You see similar sequences, but with HIT_RESOLVE (36) instead of BLOCK_PUSH, and then you get all the airborne states (AIR_PREHIT 70 → AIR_IMPACT 68 → KB_VERTICAL 196 → KB_VERTICAL_PEAK 198 → AIR_DESC_ATK 192 → FALLING 193 → landing recovery BB00, etc.).
 
-return-to-neutral (f063=17/168 etc.),
+Now, with 0xBB20 (TRUE_STUN) and 0xB9F0 (internal combo counter), I can tell:
 
-whether defender ever truly left IDLE_BASE (f062=160) or sat in STUN_LOCK (8).
+“this was a true combo hit” (HP dropped, BB20 lit, combo counter incremented)
 
+“this was blocked” (HP didn’t drop, but BB20 lit briefly, and defender’s attack ID is 48)
 
+“this was pushblock” (defender’s attack ID 51, attacker’s f063 shows BLOCK_PUSH then ATKR_READY)
 
+That should make collisions.csv way more useful because now I can tag each logged interaction as HIT / BLOCK / PUSHBLOCK automatically.
 
-This is stuff arcade training modes don’t give you.
+Assist Behavior and Lying UI
 
+I’ve basically confirmed assist behavior splits into two worlds:
 
----
+Gameplay truth (fighter struct assist cluster):
 
-13. Still Open / Needs More Work
+~0xBA50 / 0xBAA0 / 0xBB90 / 0xBBE0
 
-1. Frame advantage calc refinement
+0xBBE0 starts clean as 0x00 when assist is ready (“assist okay flag”).
 
-Our current logic waits for f062==160 (IDLE_BASE).
+0xBAA0 gives me assist/target X/Y deltas. I’m literally watching assist tracking vectors here.
 
-But sometimes characters are actionable before they visually settle to that state.
+This lets me see:
 
-We’ve seen f063 values like RECOVERY (5/37) where you can already cancel.
-→ We probably want “first actionable” instead of “first idle.” We’re close but not perfect.
+Is the assist actually callable?
 
+Is it actively homing / lining up?
 
+Which direction it’s attacking from.
 
-2. f064 meaning
+UI lie (HUD portrait / cooldown flash):
 
-We’re reading it and showing it but haven’t fully decoded it. It seems less noisy, might be a “substate” or air/landing subtype.
+0x803FB7F0 byte 0x04:
 
+0x01 = “assist unavailable” as far as the portrait animation is concerned.
 
+But this can disagree with BBE0. So it’s just the icon logic.
 
-3. Launch / air chain states
+0x803FB7E0 byte 0x04:
 
-We mapped a bunch of aerial flags (64 / 70 / 68 / 196 / 198 / 192 / 193 / etc.).
+Forcing 0x40 makes the portrait flicker like you’re tagging out.
 
-We need to match those to specific air sequences: jump-in, launcher follow, airdash, falling reset, OTG slam, etc.
+Conclusion: the game will happily tell you “assist is locked” in the UI when in reality the assist is totally usable. I’m reading both values in my HUD and labeling when the portrait is lying.
 
+Threat / Proximity / Throw Window Detection
 
+Address 0x80478A30 looks like a defender-side threat assessment block.
 
-4. Assist readiness
+What I’m seeing:
 
-We’ve seen “assist ready / assist in / assist locked out” states in flags (you called them “flag 8 assist state”, “flag 9 assist tag/out” earlier).
+There’s a byte at offset 0x30 inside that block that flips when “something is moving toward P2.”
 
-Those weren’t fully folded into f062/f063 decode yet — they’re probably additional nearby bytes. We should carve those in next.
+“Something” can be: P1 point, P1 assist, or even a projectile.
 
+For P1 point, that byte doesn’t fully set until P1 is actually physically touching P2, which smells exactly like a throw range / grab eligibility trigger.
 
+There are two other bytes next to it that shuffle constantly, like it’s tracking “which attacker is the live threat right now.”
 
-5. Attack ID table source
+This is probably how the game knows “you’re in danger” vs “you’re safe,” and whether to allow or deny certain defensive options (tech windows, etc.). I’m planning to surface this in the HUD as THREAT so I can prove which blockstrings are actually airtight and which ones the game considers ‘escapable.’
 
-We don’t yet know where the attack IDs are being assigned from (anim table? move definition struct?).
+Match Director / Pause / Camera / Orientation
 
-That’s the key to auto-labeling moves without manual CSV.
+There’s a big “match director” region starting around 0x805C78B0 and going up to ~0x805FAB70 that lights up for a ton of global events: camera stuff, KO freeze, dramatic slowdown, intros, etc.
 
+Related globals:
 
+0x80560EB0: P1 intro pose data.
 
-6. Impact writer for +BBA0
+0x80560FB0: P2 intro pose data.
 
-We know BBA0 spikes on hit and block with ~29.0 for heavy stuff.
+0x805610F0: a pause controller block (bytes 0x18–0x24 disable pause if you zero them).
 
-We haven’t pinned the exact function that sets it. We have candidate ranges (0x800551C4.. etc.) but not a direct confirmed store to [r3+BBA0].
+0x80561100: byte 0x24 is the pause menu dim overlay flag (darkens the screen).
 
+Also, I’ve messed with world boundary / facing logic via code hooks like:
 
+0x80055560 / 0x80055574 / 0x8005557C: orientation / facing logic. If I force these, characters will face the wrong way.
 
-7. Camera zoom flag
+0x80055654 / 0x800556CC: stage boundary and camera follow. Killing these lets P1 walk offscreen, wrap around, or break the camera lock completely. I’ve literally gotten P1 to wrap from right edge to left edge with P2 still obeying normal rules.
 
-One experiment warped background zoom / stage depth, but we didn’t grab the address. Need to repro and log.
+Assist spawn logic lives around 0x80054D30 (mr r3, r5). Modifying that makes the partner spawn at weird heights, sometimes already blocking.
 
+Knockback / launch / wallbounce:
 
+0x800551C4–0x800551DC is the knockback impulse cluster. NOPing these kills real pushback, breaks megacrash, makes knockdowns just stand in place.
 
+0x80054F24 (and neighbors 0x80054F28 / 0x80054F2C / 0x80054F3C / 0x80054F44 / 0x80054F48):
 
+These are very obviously handling vertical velocity, wallbounce, ground slam, etc. If I mess with them I get cursed behavior like swapping who actually gets launched, throwing the attacker behind the victim, zero-gravity float, etc.
 
----
+Rendering submit gate:
 
-14. TL;DR Mental Model
+0x80054CAC:
 
-Every fighter slot in TvC has a live struct (r3) that the engine updates every frame.
+If I NOP this, bodies become invisible but their collision/hurtboxes still exist. That’s “submit mesh for rendering or not.”
 
-[+0x70] is your per-frame control mask. The game keeps force-writing it to clamp what you’re allowed to do.
+Input gating:
 
-[+0x050..+0x090] is basically your “what’s happening right now” zone:
+0x800549BC:
 
-Startup, hitboxes, collision, stun, recovery, air cancel, pushback, launch, etc.
+NOPing this kills all inputs for that actor. So that’s almost definitely the point where player input buffer feeds the state machine each frame.
 
-In particular, +0x062 (f062) and +0x063 (f063) are insanely rich.
+Where I Am Right Now / What I Can Already Do
 
-f062 is “are you in engagement / stun?”
+At this point I can:
 
-f063 is “what phase exactly are you in?”
+Dynamically find each character’s fighter struct every frame (P1 active, P1 assist, P2 active, P2 assist).
 
+Read and display:
 
+Health / max / red life
 
-[+0x1E8] is “what move/state am I doing,” including “BLOCK.”
+Meter
 
-[+0xBA50..+0xBA80] and [+0xBBA0...] are the physical consequences: movement scaling, knockback force, and impact magnitude.
+World position (X/Y floats)
 
-We now surface all of this live in a custom HUD, and we log hits and can estimate advantage.
+Control word at +0x70
 
+Attack ID + human-readable move (including BLOCK and PUSHBLOCK)
 
-That’s where we are.
+f062 (engagement/stun context)
 
+f063 (current phase: startup, hit commit, pushback, recovery, ATKR_READY, DEF_READY, air states, etc.)
 
----
-possibly all rendering addresses on the 92 range:
+f064 (unknown air/substate byte)
 
-9246dae0, 9246dad0, 9246db10 hitstun
+f072 (move active gate)
 
-9246ff00, 9246ff10 incrementers. Look later for timer
+Facing / orientation flag (0xBA90) to see if the game thinks you’ve actually turned
 
-9246cde0 observe
+TRUE_STUN flag (0xBB20) which is the engine’s “you are in hitstun/blockstun right now” byte for grounded normals
 
-9246bdf0 htstun? p1c1
+Landing recovery flag (0xBB00) so I know when air actions are still locking you out after you touch the ground
 
-9246baf0 p1c2?
+Internal combo counter / juggle state (0xB9F0)
 
-v9246ba50 assist cluster
+Baroque-ready flag (0xCBA8–0xCBA9) so I can flat-out say “Baroque: READY” on screen without guessing from HP
 
-9246bb00 recovery on landing?
+Assist OK flag from the fighter struct (0xBB90/0xBBE0 cluster) versus assist UI portrait state at 0x803FB7F0 (which lies)
 
-9246baf0 Calculation?
+Assist targeting vectors (0xBAA0) to see where the assist is trying to collide
 
-9246baa0 collision?
+Threat proximity / throw danger (0x80478A30 block, byte 0x30)
 
-9246bb90, assist okay flag , actually 9246bbe0 is better since it starts at 00
+Training mode toggles (0x803F5650 / 0x803F5680 etc.), including infinite health/meter, always-on baroque, attack data overlay, input display
 
-9246baa0, P2 Distance from  P1 Assist X/Y vector, and I guess Assist position as well? Collision detection for assist?
+Pause controller, intro pose states, and match director globals
 
-9246b9f0 Combo counter? possible valid hitstun flag
+Detect actual hits with attacker/victim assignment by watching HP drop, distance, and these stun flags instead of relying on pretty hit sparks.
 
-9246bb20, Hitstun/blockstun, 100% no question. but only applies to grounded opponents? doens't apply to gorunded opponents, only normals, does not calc on specials/supers
+Auto-label interactions as HIT / BLOCK / PUSHBLOCK and log them to collisions.csv.
 
-9246ba90, determines when side switching occurs, not a crossup detector, flag only swaps when the character physically turns around
+Estimate frame advantage after an interaction by timing who becomes actionable first.
 
+Old method: wait for f062 to return to 160 (IDLE_BASE).
 
-803f5650 Pause menu, byte 24 controls the training mode baroque values, 00 for nothing, 01 for 10%, 02 for 20%, etc.
+New method (in progress): look for TRUE_STUN cleared (BB20), landing lag cleared (BB00), and f063 hitting ATKR_READY (17) / DEF_READY (168) / NEUTRAL (1).
 
-803f5680 Pause menu again, byte 16 controls P1 super meter, 00 for normal, 01 for recover, 02 for infinite
+Force HUD-style stuff (combo counter popups, “Amazing!!” hype text, baroque splash, assist portrait flicker) on demand by writing to those UI globals in the 0x803FBxxx range. I can now literally make the game scream “AMAZING!!” even when it wasn’t going to.
 
-803f5680, byte 8 sets health to infinite, byte 24 turns on free baroque
+Flip training toggles and match flow flags (infinite meter, input display, pause dim/lockout, etc.) just by touching a few bytes instead of navigating menus.
 
+Open Items / Next Steps
 
-803f5650, byte 32 turns on attack data.....
+Even with everything above, there are still a few pieces I want tighter:
 
-803f5670, Byte 32 turns on key display, these only work in training at the moment, can't make it work in arcade/versus
+A. First actionable frame detection
 
-803fb7f0, when byte 4 is 01, assist is unavailable. Technically assist is available but UI is showing otherwise. Seems to be the flag for UI status as opposed to actual assist.
+“Who is plus?” really means “who can act first,” not “who looks neutral first.”
 
-803fb7e0, setting byte 4 to 40 causes the UI to think Ryu is tagging out, causing it to flicker the animation.
+With TRUE_STUN (0xBB20), landing recovery (0xBB00), facing flip state (0xBA90), and f063 (especially ATKR_READY 17 and DEF_READY 168), I can now compute first actionable frame precisely, including after air normals and side switches. I just need to wire that logic into AdvantageTracker.
 
-803fb940, stores the last combo and flashes it on screen, changing byte 20 to 41 causes the combo counter to flash on screen
+B. f064 (0x064)
 
-803fb950, changing byte 10 to 40 made the combo counter only show the number and nothing else, but I messed around and now the counter doesn't appear at all
+I see it changing mostly around airborne states. It might be sub-phases of jump, techable state, air dash eligibility, etc.
 
-803fb9e0, byte 10 on flag 40 causes the combo description "yes","awesome", "amazing", or whatever to flash on screen, whatever the last one stored was.
+Now that I have BB00 (landing recovery) and 0x80478A30 (proximity threat), I can correlate f064 with those to narrow it down.
 
-803fba70, setting byte 12 to 40 causes the baroque UI to flash on screen
+C. Air chain / launcher state map
 
-803fbb90/803fbb80, something UI related to supers, not sure
+I’ve mapped a whole bunch of air codes in f063 (AIR_PREHIT 70, AIR_IMPACT 68, KB_VERTICAL 196, KB_VERTICAL_PEAK 198, AIR_DESC_ATK 192, FALLING 193, AIR_CHAIN_BUF*, AIR_CHAIN_END 194).
+
+With the landing recovery flag 0xBB00 being so obvious now, I should be able to label full juggle → landing → “your turn is over / you’re minus” windows cleanly.
+
+D. Assist logic
+
+I’ve got assist readiness, assist targeting vector, and the fact the UI lies.
+
+I still want to map exact meaning of the BB90 / BBE0 bytes and how they change after calling assist (cooldown vs active lockout vs “assist is mid-action, cannot be re-summoned”).
+
+That plus the 0x803FB7F0 portrait bytes should give a perfect assist timeline.
+
+E. Attack ID table source
+
+I know +0x1E8/+0x1EC stores the move/block/pushblock IDs, and I’ve got 0x8049B990 / 0x80476D90 / 0x80476EB0 lighting alongside animations.
+
+I haven’t actually trapped the write to +0x1E8 yet to see which function assigns move IDs per normal/special.
+
+Once I get that, I’ll be able to auto-name normals (5A / 2B / j.C, etc.) per character without maintaining a manual CSV.
+
+F. Impact writer for +0xBBA0
+
+I know knockback magnitude (~29.0 for heavy stuff) shows up there.
+
+The 0x800551C4–0x800551DC cluster is definitely part of the physics impulse pipeline, because NOPing it kills pushback and wallbounce.
+
+I want to confirm the exact stfs into [r3+0xBBA0]-ish so I can screenshot “this is literally the impulse write.”
+
+G. Camera / zoom flag
+
+I’ve definitely seen a flag that affects camera zoom/lock and stage depth in that big 0x805C78B0..0x805FAB70 match director region, but I didn’t grab the exact byte yet. I need to reproduce and log that.
+
+H. Timers at 0x9246FF00 / 0x9246FF10
+
+These increment in patterns that look like internal timers (hitstop timer, juggle decay timer, etc.).
+
+I need to correlate them against collisions.csv timestamps to guess which one is which.
+
+I. Threat block at 0x80478A30
+
+I’m 99% sure this is how the defender decides “they’re in grab range / immediate danger.”
+
+I want to test throws specifically with that byte and see if it flips exactly on throw-start frames versus just “close enough.”
+
+If so, that gives me a built-in “this string is airtight / this string is fake” detector straight from the game’s brain.
+
+Working Mental Model
+
+Here’s how I see the engine now:
+
+Each fighter slot has a “fighter struct.” That struct is the truth for that character for this frame, and the core update loop (character manager) runs over it every frame. That struct includes:
+
+Health, red life, etc.
+
+Control word @ +0x70, constantly sanitized every frame.
+
+Attack/State ID @ +0x1E8/+0x1EC (and yes, BLOCK and PUSHBLOCK are real “moves” with IDs).
+
+The “Hot Zone A” block (~0x050–0x090): startup/active tells, engagement flags (f062), phase/chain state (f063), move gate (f072), etc.
+f062 tells me “engaged or idle,” f063 tells me “what exact phase are you in right now (startup, hit, block pushback, recovery, air juggle, ATKR_READY, DEF_READY).”
+
+The “Hot Zone B” block (~0xBB00–0xBBE0 and friends): ground truth aftermath.
+This is where the engine records the practical consequences:
+
+TRUE_STUN flag (0xBB20) saying “you are in grounded hitstun/blockstun right now.”
+
+Landing recovery (0xBB00) saying “you touched ground and you’re still burning landing lag.”
+
+Facing/orientation (0xBA90) saying “the game officially thinks you turned around.”
+
+Assist readiness / assist OK / assist targeting vectors (0xBA50 / 0xBAA0 / 0xBB90 / 0xBBE0).
+
+Internal combo counter / juggle state (0xB9F0).
+
+Baroque availability (0xCBA8–0xCBA9).
+
+Movement/velocity/knockback floats (BA5x–BA8x, BBA0, etc.) that get written every frame by routines like 0x80055DC0 and 0x800551C4 to actually apply dash bursts, launch velocity, pushback, and impact magnitudes (~29.0 spikes on big hits). These aren’t animations; they’re actual physics impulses.
+
+On top of that, the game keeps a bunch of global director / HUD blocks:
+
+Training mode / pause / cheats / overlays live around 0x803F5650–0x803F5680:
+
+Infinite meter
+
+Infinite health
+
+Always-barogue
+
+Attack data display
+
+Input display
+
+Assist portrait status is at 0x803FB7E0 / 0x803FB7F0 and is allowed to lie. The “real assist is ready” truth is back in the fighter struct (0xBBE0, etc.).
+
+Combo counter text, “Amazing!!” hype messages, Baroque popups, and super flash HUD are all driven by 0x803FB940+ range. I can just force those to fire.
+
+Threat assessment and proximity danger (including throw range) lives around 0x80478A30, and it tracks point, assist, and even projectiles moving at the opponent.
+
+Collision triplets / hitbox-ish vectors are in 0x80405890 / 0x804050B0 / 0x80405530 / 0x80405BF0. These are constantly moving XYZ-like floats that look like live hurtbox/hitbox candidates going into the overlap loop.
+
+Match director / camera / pause overlay / round intro actors are in the 0x80560EB0+, 0x805610F0+, and gigantic 0x805C78B0..0x805FAB70 region. That blob tells the fighters how to behave cinematically (KO freeze, intro pose, camera locks, stage wrap logic).
+
+Putting it all together:
+
+The fighter struct is where the gameplay actually lives: stun, cancel windows, recovery, assist lockout, baroque, knockback vectors, etc.
+
+A separate set of globals controls HUD and training mode toggles (which are just bytes in RAM, no mystery).
+
+There’s a “match director” region that handles cinematic flow, camera, pause, intro, and tells the HUD what to show.
+
+The stock TvC UI lies in multiple places (assist ready portrait is not authoritative, combo counter can turn off even when internal combo is still counting, etc.), but the fighter struct doesn’t lie. So my HUD is now actually more honest than the game’s HUD.
