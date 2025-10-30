@@ -277,4 +277,26 @@ python tvc_experiments/sweep_fill_abs.py --start 0x92477400 --len 0x60 --mode u3
 
 0x9247742C..0x92477437 → Counter-anchor (lower-right pull)
 
+0x9247742C specifically anchors Ryu's fist to P2-C1's left leg
+
 0x92477454..0x9247745F → Hand/elbow constraint blend; 0x54 extends, 0x58/0x5C throw whole arm up-right/up-left
+
+
+0x9246CB80 + 15	(16th byte)	Current hit counter	Increments per valid hit registered. Resets when combo ends or on round start.
+0x9246CB80 + 31	(32nd byte)	Airborne-hit counter	Tracks number of hits landed since the fighter entered an airborne state.
+-----
+9246daa0
+9246dab0
+9246dac0 These three addresses have "something" to do with throws, but NOPing doesn't do anything
+
+9246da90 here it is, changing hex byte 48 to 80 causes the throw animation to play, it's influenced on the next line at  9246daa0 +  hex 22, d5 for back throw, d2 for forward throw (p1-C1 only)
+---
+9246dad0
+9246dae0 On hit both of these flash and count down, it does the same on block, if the opponent push blocks the counter immediately stops
+-------------
+Figher blocks
+------------
+P1C1 → 0x9246B9C0
+P1C2 → 0x9246D9C0
+P2C1 → 0x924789C0
+P2C2 → 0x9247A9C0
