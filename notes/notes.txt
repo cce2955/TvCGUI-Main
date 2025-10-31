@@ -293,6 +293,8 @@ python tvc_experiments/sweep_fill_abs.py --start 0x92477400 --len 0x60 --mode u3
 ---
 9246dad0
 9246dae0 On hit both of these flash and count down, it does the same on block, if the opponent push blocks the counter immediately stops
+
+9246b9e0 health and baroque? + 34/36 move on hit, + 48 50 also moves on hit and moves again when using baroque
 -------------
 Figher blocks
 ------------
@@ -300,3 +302,46 @@ P1C1 → 0x9246B9C0
 P1C2 → 0x9246D9C0
 P2C1 → 0x924789C0
 P2C2 → 0x9247A9C0
+
+
+9246ba20
+
+9246b9f0 ff ff ef 34
+
+9246ba10 index 14, setting it to 40 causes the P1-C1 to hit the top of the stage and float down, related to this is index 10, setting it to zero kills all inputs, if index 14 is set to 40 and then 10 is set to 40, Ryu stops floating, if hit he'll suddenly get control back
+
+9246ba10, index 11, 12, set to 0c 01 causes landing animation to play, or it did, I can't get it working again, setting it to 0e makes Ryu unable to move, I assume this means the character is airborne and Ryu cannot move until the airborne flag is removed, again this is a guess
+
+
+9246baf0, index 13,14,15,16 is the vector that determines the inertia of air jumps, so if I jump, hold right, it'll move. if I jump hold left it'll move, if I jump press nothing, no reaction, this only applies to super jumps (at the moment)
+
+9246bac0, , index 13,14,15 seems to do the same thing but has...slightly different values?
+
+9246bb00, index 5,6,7 Y value from ground, tracks jumps. Goes to zero is a move stops momentum, then tracks again. 9,10 seems to be a flag that just says "on" or "off"
+
+9246bb20, Tracks dash movement both forward and backward, air and ground, however 9246bb20 index 13,14,15,16 seems to only track ground dashes, possibly a jump cancel timer?
+
+9246bb30, is a simple flag that says dash is active. 
+
+9246bae0, seems to track inputs for dash? index 5-8  bd 30 20 c5  index 13-16 bd a9 93 0b when dash is active, ALSO there seems to be some X translation shenanigans, I changed it around and Ryu was sliding even offscreen, setting index 5 to C1 throws P1-C1 off screen I believe to the left wall? but definitely does X movement, which lines up with dashing I guess, there is setting it to Bd (which is how it tracks backdashes) slides P1C1 away from the opponent infinitely, setting it to 3D slides towards. By going up a few (like 3E or 3F) the movement gets a little aggressive, I have the perfect dummy to test this with. Megaman volnutt has a known glitch that causes this flag to fire, and I can get it to fire but it looks like it's linked with something else. For now it's just a fun little oddity. Also seems to activate on pushblock, so this seems like a general X lateral movement tracker. but not movement, just..micromovements?
+
+-------
+9246bc10
+9246bc20
+
+For index 5-8 on both lines holds
+
+ff ff ff ff
+ff ff ff ff
+
+changed to
+
+00 00 00 16
+00 00 00 11
+
+does absolutely nothing, it reacts on hit, but nothing
+----------
+
+9246ba20 00 04 00 00 does nothing ignore
+
+9246b9f0 ff ff ef 34 does nothing ignore
