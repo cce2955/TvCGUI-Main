@@ -345,3 +345,16 @@ does absolutely nothing, it reacts on hit, but nothing
 9246ba20 00 04 00 00 does nothing ignore
 
 9246b9f0 ff ff ef 34 does nothing ignore
+
+hit box bundles start with ff ff ff fe
+
+
+908aee10 Possible Ryu animation string for 5A? 04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 XX changing it to 02 causes the last hit of shin sho to happen with the special background, changing it to 00 makes it so Ryu never punches, the animation startup begins but nothing happens.
+
+The default  is 04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 01, but if I make it 04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 01 01 then light punch turns to medium punch even if I hit light
+
+04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 01 02 turns it into heavy punch
+
+04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 01 03 is 2A 
+
+04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 02 01 causes the shin shoryuken launch animation 
