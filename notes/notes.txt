@@ -349,12 +349,38 @@ does absolutely nothing, it reacts on hit, but nothing
 hit box bundles start with ff ff ff fe
 
 
-908aee10 Possible Ryu animation string for 5A? 04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 XX changing it to 02 causes the last hit of shin sho to happen with the special background, changing it to 00 makes it so Ryu never punches, the animation startup begins but nothing happens.
+908aee10, index 7, default 01, light punch. Set to 02 it does the end animation of Shin Sho, 00 makes ryu raise his hand and put it down, no anim, so far as I can see, any value above 02 causes Ryu to punch and then freeze in place
 
-The default  is 04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 01, but if I make it 04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 01 01 then light punch turns to medium punch even if I hit light
+908aee10, index 8, default 00, nothing strange. 01 Ryu does Med kick, 02 Heavy Punch, 03 2A, 04 2B, 05 2C, 06 6C, 07 heavy punch, 08 launcher, 09 j.A, 010 j.A (second), 
 
-04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 01 02 turns it into heavy punch
+908aee20, index 2, changing this to any value between 04 and 08 causes the super background to generate with the animation
 
-04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 01 03 is 2A 
+908aee20, index 8, this "seems" to mess with startup, but it also doesn't, I'm not entirely sure what this is, it's not startup though.
 
-04 01 60 00 00 00 01 E8 3F 00 00 00 00 00 02 01 causes the shin shoryuken launch animation 
+908aee30, index 8, default 03 is normal, 00 causes Ryu to punch towards the camera, 02 causes ryu to punch backwards, 04 makes Ryu punch away from the camera
+
+908aee40, index 15, default 01, normal, value 02 does the round start intro pose
+
+908aee40, index 16, does the same as 908aee10
+
+908aee50, index 2, default 3c, setting it to 3b causes Ryu to freeze at animation end, then he just punches again, forever, only enemy can interrupt. 3A is fine though...
+
+908aee70, index 10, default 41, changing to 42 pushes Ryu back to the edge of the screen away from the opponent then freezes.
+
+908aee90, index 13 default 3f, determines the distance of Ryu's 5A, seems that it's exponential or very sensitive? changing it to 3E makes him punch his chest and 4a goes to the opposite side of the screen, oh that's just me forgetting hex, changing it to 40 makes him stretchy like Mr. Fantastic but not agressively so
+
+908aeea0, index 1, does the same thing as 908aee90 but for the Z value (foreground to background) instead of on the 2D plane
+
+908aeea0, index 5, determines the squash of the animation, Ryu's arm can be a stick or a thick tree trunk when set to 00 or 40
+
+908aef20, index 1, default 00, absolutely nothing interesting, change it to 01/04, enemy has zero health no red life on hit, change it to 02/05, enemy has no health but a full red bar on hit
+
+908aef60, index 0, default 04, changing it to 00 removes the hitbox, but freezes on animation end
+
+908aef60, index 15, default 02, changing to 00 causes the super background to appear during animation
+
+908aef60, index 16, default 58, when set to 0, Ryu punches, then freezes, BUT if combined with index 15 above and both are set to zero, Ryu will lose all health, taunt twice, and then meter will slowly drop to zero
+
+908af060, index 2, removes hitbox and freezes Ryu
+
+908af0d0, entire line, if FF'd entire arm seems to derender on animation but is fine in neutral, hitbox is fine
