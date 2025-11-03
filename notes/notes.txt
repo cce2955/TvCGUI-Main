@@ -384,3 +384,11 @@ hit box bundles start with ff ff ff fe
 908af060, index 2, removes hitbox and freezes Ryu
 
 908af0d0, entire line, if FF'd entire arm seems to derender on animation but is fine in neutral, hitbox is fine
+
+908aefb0, index 13, default 41, changing it to 60 causes the hitbox to be "attached" to the enemy? I dunno, I just know I can hit him from any where on the screen, oh it seems to just be expontential, at 41 the range is doubled, 42 double that, etc. etc., setting it to FF hits anywhere on the screen but the hitspark generates at the bottom of the enemy
+
+908af010, index 10, default 33, when changed to 00 Ryu can punch and gets frozen, BUT, if Ryu is in an attackable range, he can still punch, once out of range, Ryu is frozen, if hit by opponent Ryu is free to move, but again, if japbbing outside of range, Ryu freezes.
+
+908af040, Index 2, hit reaction animation, default 17. My notes seems to differ from James? 01 causes spiral knockdown, 04 hard knockdown, 05 hard knockdown, 08 throw knockdown?, 10/11/12/15/16/18 spiral knockdown with massive hitstun at the front, 13/14 overhead hit,
+
+908af050, index 2, default 15, hitstun...but not really 10 causes a lot of hitstun, 16 causes stagger knockdown
