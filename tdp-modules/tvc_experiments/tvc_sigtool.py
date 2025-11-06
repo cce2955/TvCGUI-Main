@@ -1,9 +1,7 @@
-#!/usr/bin/env python3
-# tvc_sigtool.py - tiny TvC RAM helper (scan / dump / poke)
-
+# tvc_sigtool.py
 import argparse, re, sys, csv
 
-# ------------ PDME hook ------------
+# --- Dolphin hook ---
 _dme = None
 try:
     import dolphin_memory_engine as _dme
@@ -31,13 +29,11 @@ def read_bytes(dme, addr: int, size: int) -> bytes:
         return dme.read_bytes(addr, size)
     return _dme.read_bytes(addr, size)
 
-def write_bytes(dme, addr: int, data: bytes) -> None:
+def write_bytes(dme, addr: int, data: bytes):
     if hasattr(dme, "write_bytes"):
-        dme.write_bytes(addr, data)
-        return
-    _dme.write_bytes(addr, data)
+        return dme.write_bytes(addr, data)
+    return _dme.write_bytes(addr, data)
 
-# ------------ memory ranges ------------
 MEM1 = (0x80000000, 0x81800000)
 MEM2 = (0x90000000, 0x94000000)
 
@@ -48,39 +44,34 @@ def ranges_for(mem: str):
         return [MEM2]
     return [MEM1, MEM2]
 
-def page_align_up(a: int, pagesz: int = 0x1000) -> int:
-    return ((a // pagesz) + 1) * pagesz
+def page_align_up(addr: int, pagesz: int = 0x1000) -> int:
+    return ((addr // pagesz) + 1) * pagesz
 
-# ------------ helpers ------------
-def compile_pattern(pat: str) -> re.Pattern:
-    # "AA BB ?? CC" -> b"\xAA\xBB.\xCC"
-    bs = bytearray()
-    for tok in pat.strip().split():
+# ---------- FIXED PATTERN BUILDER ----------
+def compile_wildcard_hex_pattern(hexpat: str) -> re.Pattern:
+    """
+    "AA BB ?? CC" -> b"\xAA\xBB.\xCC" as a regex.
+    Every real byte must be escaped so 0x3F (aka '?') doesn't break regex.
+    """
+    tokens = hexpat.strip().split()
+    parts = []
+    for tok in tokens:
         if tok == "??":
-            bs.extend(b".")
+            parts.append(b".")          # wildcard
         else:
-            bs.append(int(tok, 16))
-    return re.compile(bytes(bs), re.S)
+            bval = bytes([int(tok, 16)])
+            parts.append(re.escape(bval))  # escape literal byte
+    pattern_bytes = b"".join(parts)
+    return re.compile(pattern_bytes, re.S)
+# -------------------------------------------
 
-def write_csv(path: str, header, rows):
-    with open(path, "w", newline="") as fp:
-        w = csv.writer(fp)
-        w.writerow(header)
-        for r in rows:
-            w.writerow(r)
-    print(f"[csv] wrote {path}")
-
-# ------------ commands ------------
-
-def cmd_scan_generic(args):
-    d = hook()
-    regex = compile_pattern(args.pattern)
-    rows = []
-    hits = 0
-    for start, end in ranges_for(args.mem):
-        pos, tail = start, b""
-        while pos < end and hits < args.limit:
-            n = min(args.chunk, end - pos)
+def chunk_scan(d, ranges, regex: re.Pattern, chunk: int, overlap: int, limit: int):
+    hits = []
+    for start, end in ranges:
+        pos = start
+        tail = b""
+        while pos < end:
+            n = min(chunk, end - pos)
             try:
                 buf = tail + read_bytes(d, pos, n)
             except Exception:
@@ -88,33 +79,58 @@ def cmd_scan_generic(args):
                 tail = b""
                 continue
             base = pos - len(tail)
+
             i = 0
-            while hits < args.limit:
+            while True:
                 m = regex.search(buf, i)
                 if not m:
                     break
-                addr = base + m.start()
-                print(f"hit @{hex(addr)}")
-                rows.append([hex(addr), addr])
-                hits += 1
+                hit_addr = base + m.start()
+                print(f"hit @{hex(hit_addr)}")
+                hits.append(hit_addr)
+                if len(hits) >= limit:
+                    return hits
                 i = m.start() + 1
-            tail = buf[-args.overlap:] if len(buf) >= args.overlap else buf
+
+            tail = buf[-overlap:] if len(buf) >= overlap else buf
             pos += n
+    return hits
+
+def write_csv(path: str, header, rows):
+    with open(path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(header)
+        w.writerows(rows)
+    print(f"[csv] wrote {path}")
+
+# -------- commands --------
+def cmd_scan_generic(args):
+    d = hook()
+    pat = compile_wildcard_hex_pattern(args.pattern)
+    hits = chunk_scan(d, ranges_for(args.mem), pat, args.chunk, args.overlap, args.limit)
+    if args.csv and hits:
+        write_csv(args.csv, ["addr_hex", "addr_int"], [[hex(a), a] for a in hits])
+
+def cmd_scan_control(args):
+    d = hook()
+    pat = compile_wildcard_hex_pattern("00 04 ?? 60")
+    hits = chunk_scan(d, ranges_for(args.mem), pat, args.chunk, args.overlap, args.limit)
+    rows = []
+    for a in hits:
+        region = next((r for r in ranges_for(args.mem) if r[0] <= a < r[1]), None)
+        if region:
+            s = max(region[0], a - args.context)
+            e = min(region[1], a + args.context)
+            try:
+                buf = read_bytes(d, s, e - s)
+                print(f"@ {hex(a)}")
+                print(" ".join(f"{b:02X}" for b in buf))
+                print()
+            except Exception:
+                pass
+        rows.append([hex(a), a])
     if args.csv and rows:
         write_csv(args.csv, ["addr_hex", "addr_int"], rows)
-
-def cmd_dump(args):
-    d = hook()
-    addr = int(args.addr, 0)
-    size = int(args.size, 0)
-    buf = read_bytes(d, addr, size)
-    # pretty hex
-    base = addr
-    for off in range(0, len(buf), 0x10):
-        chunk = buf[off:off+0x10]
-        hexes = " ".join(f"{b:02X}" for b in chunk)
-        print(f"{base+off:08X}  {hexes}")
-    # no csv here; this is just for eyeballing
 
 def cmd_poke(args):
     d = hook()
@@ -123,35 +139,67 @@ def cmd_poke(args):
     write_bytes(d, addr, data)
     print(f"[poke] wrote {len(data)} byte(s) to {hex(addr)}")
 
-# ------------ cli ------------
+def cmd_dump(args):
+    d = hook()
+    addr = int(args.addr, 0)
+    size = int(args.size, 0)
+    buf = read_bytes(d, addr, size)
+    off = 0
+    while off < len(buf):
+        line = buf[off:off+0x10]
+        print(f"{addr+off:08X}  " + " ".join(f"{b:02X}" for b in line))
+        off += 0x10
+
+def cmd_scan_active(args):
+    d = hook()
+    pat = compile_wildcard_hex_pattern("20 35 01 20 3F 00 00 00 ?? 00 00 00 3F 00 00 00 ?? 07 01 60")
+    chunk_scan(d, ranges_for(args.mem), pat, args.chunk, args.overlap, args.limit)
+
+def cmd_scan_damage(args):
+    d = hook()
+    pat = compile_wildcard_hex_pattern("35 10 20 3F 00 ?? ?? ?? 00 00 00 3F 00 00 00 ??")
+    hits = chunk_scan(d, ranges_for(args.mem), pat, args.chunk, args.overlap, args.limit)
+    if args.csv and hits:
+        write_csv(args.csv, ["addr_hex", "addr_int"], [[hex(a), a] for a in hits])
+
 def build_cli():
-    ap = argparse.ArgumentParser(description="TvC RAM sig + poke helper")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    ap = argparse.ArgumentParser(description="TvC RAM signature tool (Dolphin)")
+    sp = ap.add_subparsers(dest="cmd", required=True)
 
     def add_common(p):
         p.add_argument("--mem", choices=["mem1", "mem2", "both"], default="mem2")
         p.add_argument("--chunk", type=lambda s: int(s, 0), default=0x40000)
         p.add_argument("--overlap", type=int, default=64)
-        p.add_argument("--limit", type=int, default=2000)
+        p.add_argument("--limit", type=int, default=5000)
         p.add_argument("--csv", default=None)
 
-    # scan-generic
-    p1 = sub.add_parser("scan-generic", help="scan RAM for hex pattern with ??")
-    add_common(p1)
-    p1.add_argument("--pattern", required=True, help='e.g. "04 01 60 00 00 00 ?? ?? 3F 00 00 00"')
-    p1.set_defaults(run=cmd_scan_generic)
+    p = sp.add_parser("scan-generic", help="scan arbitrary hex pattern (?? = wildcard)")
+    add_common(p)
+    p.add_argument("--pattern", required=True)
+    p.set_defaults(run=cmd_scan_generic)
 
-    # dump
-    p2 = sub.add_parser("dump", help="dump bytes around an address")
-    p2.add_argument("--addr", required=True, help="address, e.g. 0x908aee10")
-    p2.add_argument("--size", default="0x100", help="how many bytes to read")
-    p2.set_defaults(run=cmd_dump)
+    p2 = sp.add_parser("scan-control", help="scan 00 04 ?? 60")
+    add_common(p2)
+    p2.add_argument("--context", type=lambda s: int(s, 0), default=0x60)
+    p2.set_defaults(run=cmd_scan_control)
 
-    # poke
-    p3 = sub.add_parser("poke", help="write raw bytes at address")
-    p3.add_argument("--addr", required=True)
-    p3.add_argument("--bytes", required=True)
-    p3.set_defaults(run=cmd_poke)
+    p3 = sp.add_parser("scan-active", help="scan active-frame pattern")
+    add_common(p3)
+    p3.set_defaults(run=cmd_scan_active)
+
+    p4 = sp.add_parser("scan-damage", help="scan damage pattern")
+    add_common(p4)
+    p4.set_defaults(run=cmd_scan_damage)
+
+    p5 = sp.add_parser("poke", help="write bytes")
+    p5.add_argument("--addr", required=True)
+    p5.add_argument("--bytes", required=True)
+    p5.set_defaults(run=cmd_poke)
+
+    p6 = sp.add_parser("dump", help="dump RAM")
+    p6.add_argument("--addr", required=True)
+    p6.add_argument("--size", required=True)
+    p6.set_defaults(run=cmd_dump)
 
     return ap
 

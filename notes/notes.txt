@@ -392,3 +392,99 @@ hit box bundles start with ff ff ff fe
 908af040, Index 2, hit reaction animation, default 17. My notes seems to differ from James? 01 causes spiral knockdown, 04 hard knockdown, 05 hard knockdown, 08 throw knockdown?, 10/11/12/15/16/18 spiral knockdown with massive hitstun at the front, 13/14 overhead hit,
 
 908af050, index 2, default 15, hitstun...but not really 10 causes a lot of hitstun, 16 causes stagger knockdown
+
+908aef40, index 16, default 40, changes hitspark, 01 makes a big ole hitspark, also any variation of X1 like 11, 21, 31, etc. X0 normal hitsparks, anything else removes it
+
+
+908aef30,index 8, default 44, 43 produces no hitstun (not the hitstun value itself, just no anim), 41/42 overhead, 40 is interesting, it "looks" like a guard break animation, but it's the same animation used for Viewtiful joe Slow and Zoom or Blade's omnidirectional stagger anim
+
+
+
+Got it — summarizing everything we’ve learned so far about Ryu’s 5A hitbox block @ 0x908AEFB0, with the behavioral notes from all your pokes so this can serve as a “field map” going forward.
+
+
+---
+
+Ryu 5A Hitbox Structure @ 0x908AEFB0
+
+Full 0x50-byte region
+
+908AEFB0: 00 00 00 3F  00 00 00 00  00 00 00 3F  41 A0 00 00
+908AEFC0: 35 0D 20 3F  00 00 00 0A  00 00 00 3F  00 00 00 00
+908AEFD0: 00 00 00 3F  00 00 00 00  00 00 00 3F  41 20 00 00
+908AEFE0: 00 00 00 3F  00 00 00 0A  00 00 00 3F  00 00 00 00
+
+
+---
+
+Confirmed / Observed Behavior
+
+Address	Default	Float Value	Effect / Behavior
+
+0x908AEFBC	41 A0 00 00	20.0	Expands hitbox size/range for first hitbox. Increasing this → huge global hitbox.
+0x908AEFDC	41 20 00 00	10.0	Second hitbox’s radius. Increasing this affects secondary contact point; sparks drift downward as opponent moves away.
+0x908AEFB8	00 00 00 3F	0.5	Changing to 40 20 00 00 (2.5) → crash. Likely struct padding, pointer, or flag bitfield, not a float.
+0x908AEFD8	00 00 00 3F	0.5	Changing to 40 20 00 00 → Ryu freezes post-attack if opponent out of range. Probably an active frame duration or animation gate.
+0x908AEFC8	00 00 00 0A	(int 10)	Changing to 00 00 00 14 → Ryu freezes after punch. Likely sub-hitbox count / duration counter.
+0x908AEFE8	00 00 00 0A	(int 10)	(Not yet tested; predicted same effect as 0xC8.)
+0x908AEF7C	(not in region, earlier)	–	“Global” hitbox range — setting to FF previously expanded all hits. Related global flag or header byte.
+
+
+
+---
+
+Behavior Summary
+
+Two sequential hitboxes inside one move block (35 0D 20 3F marker denotes the start of each).
+
+Each hitbox appears to end with a float controlling radius/range (20.0 / 10.0 defaults).
+
+Increasing these floats enlarges the hit area proportionally.
+
+The game accepts large positive floats but crashes or softlocks if internal padding/pointer fields are replaced with valid float patterns.
+
+Spark offset/direction correlates with secondary hitbox range; when both are huge, engine computes mid-point → sparks shift vertically.
+
+
+
+---
+
+Working Theory (Field Labels)
+
+Offset (from 0x908AEFB0)	Tentative Label	Type	Notes
+
++0x00	unknown_A	float	constant 0.5
++0x04	unknown_B	float	always 0.0
++0x08	unknown_C	float	constant 0.5
++0x0C	radius_1	float	Primary hitbox radius
++0x10	marker	bytes	35 0D 20 3F → hitbox delimiter
++0x14	subid_or_flags	int	“10” = 0xA; freezing if changed
++0x18	unknown_F	float	0.5f constant
++0x1C	pad	bytes	zeroed
++0x20	unknown_G	float	0.5f
++0x24	unknown_H	float	0.0
++0x28	unknown_I	float	0.5f
++0x2C	radius_2	float	Secondary hitbox radius
++0x30	unknown_J	float	0.5f
++0x34	subid2	int	“10” = 0xA; not tested yet
+…	…	…	continues
+
+
+
+---
+
+Stable working pokes
+
+:: reset to defaults
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "41 A0 00 00"
+python tvc_sigtool.py poke --addr 0x908AEFDC --bytes "41 20 00 00"
+
+:: enlarge first hitbox
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "43 20 00 00"
+
+:: enlarge both
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908AEFDC --bytes "43 20 00 00"
+
+
+---
