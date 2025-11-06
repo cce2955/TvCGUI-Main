@@ -483,3 +483,267 @@ python tvc_sigtool.py poke --addr 0x908AEFDC --bytes "43 20 00 00"
 
 
 ---
+
+Hitbox instances we verified
+
+Ryu 5A live block (training):
+
+marker 1: 0x908AEF78 (35 0D 20 3F)
+
+primary radius: 0x908AEFBC
+
+default: 41 A0 00 00 (20.0)
+
+enlarged test: 43 20 00 00
+
+secondary radius: 0x908AEFDC
+
+default: 41 20 00 00 (10.0)
+
+enlarged test: 43 20 00 00
+
+second marker in same move: 0x908AEFC0
+
+second-marker radius: 0x908AF004 (= 0x908AEFC0 + 0x44)
+
+Ryu 5B live block:
+
+marker: 0x908AF3F0
+
+primary radius: 0x908AF434 (= marker + 0x44)
+
+default: 41 C8 00 00 (25.0)
+
+enlarged: 43 20 00 00
+
+second marker (same block): 0x908AF43C
+
+second radius: 0x908AF480 (= 0x908AF43C + 0x44)
+
+Ryu 5C live block:
+
+marker: 0x908AF804
+
+primary radius: 0x908AF848 (= marker + 0x44)
+
+default: 41 A0 00 00 (20.0)
+
+enlarged: 43 20 00 00
+
+second marker: 0x908AF84C
+
+second radius: 0x908AF890 (= 0x908AF84C + 0x44)
+
+Rule confirmed: for this match/state, every hitbox that starts with 35 0D 20 3F has its active radius at marker+0x44.
+
+Fighter base pointers (slots)
+
+0x803C9FCC → P1-C1 manager
+
+0x803C9FDC → P1-C2 manager
+
+0x803C9FD4 → P2-C1 manager
+
+0x803C9FE4 → P2-C2 manager
+
+Resolution flow:
+
+read manager at the static address
+
+follow 1–2 pointers → fighter_base (example: 0x9246B9C0)
+
+sanity:
+
+[base+0x24] max HP 10k–60k
+
+[base+0x28] current HP
+
+[base+0xF0]/[base+0xF4] world X/Y floats
+
+Known fighter bases from your notes:
+
+P1C1 → 0x9246B9C0
+
+P1C2 → 0x9246D9C0
+
+P2C1 → 0x924789C0
+
+P2C2 → 0x9247A9C0
+
+Fighter struct key offsets (relative to fighter_base)
+
++0x14 u32 character ID
+
++0x24 u32 max HP
+
++0x28 u32 cur HP
+
++0x2C u32 red life / baroque pool
+
++0x40 u32 last damage chunk
+
++0x70 u32 control/legality word (constantly rewritten)
+
++0xF0 f32 world X
+
++0xF4 f32 world Y
+
++0x1E8 u32 attack/action/state ID
+
++0x1EC u32 sub-ID/follow-up
+
+“Hot zone” bytes you mapped (relative to fighter_base):
+
++0x052–0x05B: startup/active/hit tells
+
++0x062: “engagement/stun context”
+
+160 IDLE_BASE
+
+168 ENGAGED
+
+32 ACTIVE_MOVE
+
+0 ATTACK_ACTIVE
+
+40 IMPACTED
+
+8 STUN_LOCK
+
++0x063: phase
+
+0/32 startup
+
+6 hit commit
+
+16 block push
+
+17 ATKR_READY
+
+168 DEF_READY
+
+1 neutral
+
++0x072: move gate
+
+Absolute/runtime addresses you called out
+
+Training toggles: 0x803F5650–0x803F5680
+
+Pause/match director: ~0x805610F0+
+
+Baroque/input monitor (P1): 0x9246CB80+ (hit counter etc.)
+
+Throw-related cluster you probed: 0x9246DA90–0x9246DAE0 area
+
+Animation/move-control cluster you poked (908AEE10+ etc.)
+You mapped that 0x908AEE10/0x908AEE20/... region as the current move/animation driver:
+
+0x908AEE10 index 7/8 picks the normal
+
+0x908AEE30 index 8 changes facing/punch direction
+
+0x908AEF60 index 0/15/16 affects hitbox presence and weird super BG
+
+0x908AEFB0 index 13 (the one you cranked) makes hitbox “attach” everywhere
+
+Those stay in the notes as “animation/state driver, not the hitbox itself.”
+
+Stable working pokes (summary)
+
+reset:
+
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "41 A0 00 00"
+
+python tvc_sigtool.py poke --addr 0x908AEFDC --bytes "41 20 00 00"
+
+enlarge 5A:
+
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "43 20 00 00"
+
+python tvc_sigtool.py poke --addr 0x908AEFDC --bytes "43 20 00 00"
+
+enlarge 5B:
+
+python tvc_sigtool.py poke --addr 0x908AF434 --bytes "43 20 00 00"
+
+enlarge 5C:
+
+python tvc_sigtool.py poke --addr 0x908AF848 --bytes "43 20 00 00"
+
+Move	Marker Addr	Radius Addr (+0x44)	Confirmed?	Notes
+5A	0x908AEF78	0x908AEFBC	✓	baseline small jab
+5B	0x908AF3F0	0x908AF434	✓	medium punch
+5C	0x908AF804	0x908AF848	✓	large hitbox, strong punch
+(extra 5C?)	0x908AF894	0x908AF8D8	✓	same animation as 5C
+2A	0x908AFD2C	0x908AFD70	✓	crouch light
+2B	0x908AFCE4	0x908AFD28	✓	crouch medium
+2C	0x908B0804	0x908B0848	✓	crouch heavy
+(extra 2C?)	0x908B084C	0x908B0890	?	maybe multi-hit / lingering frame
+3C	—	—	pending	not yet found in this block; may appear after 0x908B0Fxx range
+6C	0x908B0FE8	0x908B102C	✓	standing launcher
+(extra 6C?)	0x908B1030	0x908B1074	?	likely secondary 6C hitbox or whiff zone
+
+# Ground Normals
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "43 20 00 00"   # 5A
+python tvc_sigtool.py poke --addr 0x908AF434 --bytes "43 20 00 00"   # 5B
+python tvc_sigtool.py poke --addr 0x908AF848 --bytes "43 20 00 00"   # 5C (no response)
+python tvc_sigtool.py poke --addr 0x908AFD70 --bytes "43 20 00 00"   # 2A
+python tvc_sigtool.py poke --addr 0x908AFD28 --bytes "43 20 00 00"   # 2B (no response)
+python tvc_sigtool.py poke --addr 0x908B0848 --bytes "43 20 00 00"   # 2C
+python tvc_sigtool.py poke --addr 0x908B159C --bytes "43 20 00 00"   # 3C
+python tvc_sigtool.py poke --addr 0x908B102C --bytes "43 20 00 00"   # 6C
+
+# Air Normals (inactive, revisit in jump state)
+python tvc_sigtool.py poke --addr 0x908B51C8 --bytes "43 20 00 00"   # j.A
+python tvc_sigtool.py poke --addr 0x908B5210 --bytes "43 20 00 00"   # j.B
+python tvc_sigtool.py poke --addr 0x908B5258 --bytes "43 20 00 00"   # j.C
+
+
+2A / 2B share the same hitbox region.
+0x908AFCE0–0x908AFD7F = unified crouching jab/mid cluster.
+Both read from the same iterator; modifying 0x908AFD24 (radius) corrupts 2A’s pointer and freezes.
+Treat 0x908AFD70 as the safe radius edit for both moves.
+
+
+python tvc_sigtool.py poke --addr 0x908aefbc --bytes "43 20 00 00" 5A
+python tvc_sigtool.py poke --addr 0x908af434 --bytes "43 20 00 00" 5B
+python tvc_sigtool.py poke --addr 0x908af848 --bytes "43 20 00 00" 5C
+python tvc_sigtool.py poke --addr 0x908afd28 --bytes "43 20 00 00" 2A
+python tvc_sigtool.py poke --addr 0x908b02f8 --bytes "43 20 00 00" 2B
+python tvc_sigtool.py poke --addr 0x908b0848 --bytes "43 20 00 00" 2C
+python tvc_sigtool.py poke --addr 0x908b102c --bytes "43 20 00 00" 6c
+python tvc_sigtool.py poke --addr 0x908b159c --bytes "43 20 00 00" 3C
+python tvc_sigtool.py poke --addr 0x908b19f4 --bytes "43 20 00 00" j.A
+python tvc_sigtool.py poke --addr 0x908b1f54 --bytes "43 20 00 00" j.B
+python tvc_sigtool.py poke --addr 0x908b2180 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b249c --bytes "43 20 00 00" j.C
+python tvc_sigtool.py poke --addr 0x908b2994 --bytes "43 20 00 00" 6B (first hit)
+python tvc_sigtool.py poke --addr 0x908b2c2c --bytes "43 20 00 00" 6B (Second Hit)
+python tvc_sigtool.py poke --addr 0x908b2f64 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b34c0 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b36ec --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b46b0 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b49c4 --bytes "43 20 00 00" Light Tatsu
+python tvc_sigtool.py poke --addr 0x908b4e7c --bytes "43 20 00 00" Medium Tatsu
+python tvc_sigtool.py poke --addr 0x908b5334 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b5a00 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b5ef8 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b6340 --bytes "43 20 00 00" ?? 
+python tvc_sigtool.py poke --addr 0x908b6820 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b6ce8 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b7210 --bytes "43 20 00 00" (freeze on heavy shoryu)
+python tvc_sigtool.py poke --addr 0x908b7754 --bytes "43 20 00 00" ..this is Light Donkey Kick, but the hitbox isn't expanded? the hitspark is missing so I guess it is but not sure
+python tvc_sigtool.py poke --addr 0x908b7ca0 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b81dc --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b8758 --bytes "43 20 00 00" Freezes on air light hado
+python tvc_sigtool.py poke --addr 0x908b8c98 --bytes "43 20 00 00" Freezes on air light hado
+python tvc_sigtool.py poke --addr 0x908b9174 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b9668 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b9b50 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b9fbc --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908ba48c --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908ba9d8 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908baf48 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908bb4a8 --bytes "43 20 00 00" ??
+python tvc_sigtool.py poke --addr 0x908b21c8 --bytes "43 20 00 00" j.B (second hit)
