@@ -398,11 +398,6 @@ hit box bundles start with ff ff ff fe
 
 908aef30,index 8, default 44, 43 produces no hitstun (not the hitstun value itself, just no anim), 41/42 overhead, 40 is interesting, it "looks" like a guard break animation, but it's the same animation used for Viewtiful joe Slow and Zoom or Blade's omnidirectional stagger anim
 
-
-
-Got it — summarizing everything we’ve learned so far about Ryu’s 5A hitbox block @ 0x908AEFB0, with the behavioral notes from all your pokes so this can serve as a “field map” going forward.
-
-
 ---
 
 Ryu 5A Hitbox Structure @ 0x908AEFB0
