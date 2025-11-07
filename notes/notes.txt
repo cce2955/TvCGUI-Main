@@ -726,8 +726,10 @@ python tvc_sigtool.py poke --addr 0x908B2994 --bytes "43 20 00 00"   # 6B hit 1
 python tvc_sigtool.py poke --addr 0x908B2C2C --bytes "43 20 00 00"   # 6B hit 2
 
 python tvc_sigtool.py poke --addr 0x908B49C4 --bytes "43 20 00 00"   # Tatsu L
-python tvc_sigtool.py poke --addr 0x908B4E7C --bytes "43 20 00 00"   # Tatsu M
-python tvc_sigtool.py poke --addr 0x908B5994 --bytes "43 20 00 00"   # Tatsu H
+python tvc_sigtool.py poke --addr 0x908B4E7C --bytes "43 20 00 00"   # Tatsu M (First Hit)
+python tvc_sigtool.py poke --addr 0x908B4E7C --bytes "43 20 00 00"   # Tatsu M (second and third hit)
+python tvc_sigtool.py poke --addr 0x908B5994 --bytes "43 20 00 00"   # Tatsu H (Last Three Hits)
+python tvc_sigtool.py poke --addr 0x908b5670 --bytes "43 20 00 00"   # Tatsu H (First Hit)
 
 python tvc_sigtool.py poke --addr 0x908B2180 --bytes "43 20 00 00"
 python tvc_sigtool.py poke --addr 0x908B2F64 --bytes "43 20 00 00"
@@ -839,7 +841,7 @@ python tvc_sigtool.py poke --addr 0x908B83B0 --bytes "43 20 00 00" nothing
 # 3) Donkey / 236K family (they all had that same 33 03 20 3F header)
 # poke a few floats down each one
 
-python tvc_sigtool.py poke --addr 0x908B2AA4 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B2AA4 --bytes "43 20 00 00" nothing all the way down
 python tvc_sigtool.py poke --addr 0x908B2AB0 --bytes "43 20 00 00"
 python tvc_sigtool.py poke --addr 0x908B2AC0 --bytes "43 20 00 00"
 
