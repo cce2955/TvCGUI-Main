@@ -705,45 +705,151 @@ python tvc_sigtool.py poke --addr 0x908B5258 --bytes "43 20 00 00"   # j.C
 Both read from the same iterator; modifying 0x908AFD24 (radius) corrupts 2A’s pointer and freezes.
 Treat 0x908AFD70 as the safe radius edit for both moves.
 
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "43 20 00 00"   # 5A
+python tvc_sigtool.py poke --addr 0x908AF434 --bytes "43 20 00 00"   # 5B
+python tvc_sigtool.py poke --addr 0x908AF848 --bytes "43 20 00 00"   # 5C
 
-python tvc_sigtool.py poke --addr 0x908aefbc --bytes "43 20 00 00" 5A
-python tvc_sigtool.py poke --addr 0x908af434 --bytes "43 20 00 00" 5B
-python tvc_sigtool.py poke --addr 0x908af848 --bytes "43 20 00 00" 5C
-python tvc_sigtool.py poke --addr 0x908afd28 --bytes "43 20 00 00" 2A
-python tvc_sigtool.py poke --addr 0x908b02f8 --bytes "43 20 00 00" 2B
-python tvc_sigtool.py poke --addr 0x908b0848 --bytes "43 20 00 00" 2C
-python tvc_sigtool.py poke --addr 0x908b102c --bytes "43 20 00 00" 6c
-python tvc_sigtool.py poke --addr 0x908b159c --bytes "43 20 00 00" 3C
-python tvc_sigtool.py poke --addr 0x908b19f4 --bytes "43 20 00 00" j.A
-python tvc_sigtool.py poke --addr 0x908b1f54 --bytes "43 20 00 00" j.B
-python tvc_sigtool.py poke --addr 0x908b2180 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b249c --bytes "43 20 00 00" j.C
-python tvc_sigtool.py poke --addr 0x908b2994 --bytes "43 20 00 00" 6B (first hit)
-python tvc_sigtool.py poke --addr 0x908b2c2c --bytes "43 20 00 00" 6B (Second Hit)
-python tvc_sigtool.py poke --addr 0x908b2f64 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b34c0 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b36ec --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b46b0 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b49c4 --bytes "43 20 00 00" Light Tatsu
-python tvc_sigtool.py poke --addr 0x908b4e7c --bytes "43 20 00 00" Medium Tatsu
-python tvc_sigtool.py poke --addr 0x908b5334 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b5a00 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b5ef8 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b6340 --bytes "43 20 00 00" ?? 
-python tvc_sigtool.py poke --addr 0x908b6820 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b6ce8 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b7210 --bytes "43 20 00 00" (freeze on heavy shoryu)
-python tvc_sigtool.py poke --addr 0x908b7754 --bytes "43 20 00 00" ..this is Light Donkey Kick, but the hitbox isn't expanded? the hitspark is missing so I guess it is but not sure
-python tvc_sigtool.py poke --addr 0x908b7ca0 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b81dc --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b8758 --bytes "43 20 00 00" Freezes on air light hado
-python tvc_sigtool.py poke --addr 0x908b8c98 --bytes "43 20 00 00" Freezes on air light hado
-python tvc_sigtool.py poke --addr 0x908b9174 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b9668 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b9b50 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b9fbc --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908ba48c --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908ba9d8 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908baf48 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908bb4a8 --bytes "43 20 00 00" ??
-python tvc_sigtool.py poke --addr 0x908b21c8 --bytes "43 20 00 00" j.B (second hit)
+python tvc_sigtool.py poke --addr 0x908AFD28 --bytes "43 20 00 00"   # 2A
+python tvc_sigtool.py poke --addr 0x908B02F8 --bytes "43 20 00 00"   # 2B
+python tvc_sigtool.py poke --addr 0x908B0848 --bytes "43 20 00 00"   # 2C
+
+python tvc_sigtool.py poke --addr 0x908B102C --bytes "43 20 00 00"   # 6C
+python tvc_sigtool.py poke --addr 0x908B159C --bytes "43 20 00 00"   # 3C
+
+
+python tvc_sigtool.py poke --addr 0x908B19F4 --bytes "43 20 00 00"   # j.A
+python tvc_sigtool.py poke --addr 0x908B1F54 --bytes "43 20 00 00"   # j.B
+python tvc_sigtool.py poke --addr 0x908B21C8 --bytes "43 20 00 00"   # j.B (second hit)
+python tvc_sigtool.py poke --addr 0x908B249C --bytes "43 20 00 00"   # j.C
+
+python tvc_sigtool.py poke --addr 0x908B2994 --bytes "43 20 00 00"   # 6B hit 1
+python tvc_sigtool.py poke --addr 0x908B2C2C --bytes "43 20 00 00"   # 6B hit 2
+
+python tvc_sigtool.py poke --addr 0x908B49C4 --bytes "43 20 00 00"   # Tatsu L
+python tvc_sigtool.py poke --addr 0x908B4E7C --bytes "43 20 00 00"   # Tatsu M
+python tvc_sigtool.py poke --addr 0x908B5994 --bytes "43 20 00 00"   # Tatsu H
+
+python tvc_sigtool.py poke --addr 0x908B2180 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B2F64 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B34C0 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B36EC --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B46B0 --bytes "43 20 00 00"
+
+python tvc_sigtool.py poke --addr 0x908B5334 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B5A00 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B5EF8 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B6340 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B6820 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B6CE8 --bytes "43 20 00 00"
+
+python tvc_sigtool.py poke --addr 0x908B7CA0 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B81DC --bytes "43 20 00 00"
+
+python tvc_sigtool.py poke --addr 0x908B7210 --bytes "43 20 00 00"   # freezes on heavy shoryu
+python tvc_sigtool.py poke --addr 0x908B8758 --bytes "43 20 00 00"   # freeze on air L hado
+python tvc_sigtool.py poke --addr 0x908B8C98 --bytes "43 20 00 00"   # freeze on air L hado
+python tvc_sigtool.py poke --addr 0x908B8D14 --bytes "43 20 00 00"   # freeze on air hado
+
+python tvc_sigtool.py poke --addr 0x908B9174 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B9668 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B9B50 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B9FBC --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908BA48C --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908BA9D8 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908BAF48 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908BB4A8 --bytes "43 20 00 00"
+
+
+python tvc_sigtool.py poke --addr 0x908B49F0 --bytes "43 20 00 00" L tatsu on second spin second hitbox never comes out, Ryu never lands and just floats forever"
+python tvc_sigtool.py poke --addr 0x908B4EBC --bytes "43 20 00 00" nothing
+python tvc_sigtool.py poke --addr 0x908B59D4 --bytes "43 20 00 00" nothing
+
+python tvc_sigtool.py poke --addr 0x908B49CC --bytes "00 00 00 1E" nothing
+python tvc_sigtool.py poke --addr 0x908B4E84 --bytes "00 00 00 1E" nothing
+python tvc_sigtool.py poke --addr 0x908B599C --bytes "00 00 00 1E" nothing
+
+python tvc_sigtool.py poke --addr 0x908B49D0 --bytes "43 20 00 00" L tatsu on second spin second hitbox never comes out, Ryu never lands and just floats forever"
+python tvc_sigtool.py poke --addr 0x908B49DC --bytes "43 20 00 00" nothing
+
+python tvc_sigtool.py poke --addr 0x908B78B0 --bytes "42 20 00 00" nothing
+python tvc_sigtool.py poke --addr 0x908B789C --bytes "43 20 00 00" nothing
+
+python tvc_sigtool.py poke --addr 0x908B51F4 --bytes "43 20 00 00" freezes on mid tatsu
+
+python tvc_sigtool.py poke --addr 0x908B569C --bytes "43 20 00 00" H tatsu on last spin last hitbox never comes out, Ryu never lands and just floats forever
+
+Testing 0x908B49C4 / 0x908B4E7C / 0x908B5994 (Ryu Tatsu hitbox blocks):
+
++0x00 (first float): confirmed safe radius modifier — enlarges hitbox without breaking behavior.
+
++0x0C / +0x2C: control-flow values tied to spin/landing behavior. Enlarging these causes the move to break (Ryu floats forever, missing later hits).
+
++0x08 (ID field): changing to alternate IDs (e.g., 00 00 00 1E) had no visible effect on hit sparks or SFX.
+
++0x40 region: no effect — outside the used data for these templates.
+
+Projectile candidate (0x908B789C): pokes at +0x00 and +0x14 produced no visible change, indicating these are not pure hitbox radii but projectile motion/config floats.
+
+Confirmed behavior:
+
+Offset 0x00 = main radius, safe to modify.
+
+Offset 0x0C and 0x2C = motion/flow parameters (unsafe to alter).
+
+Offsets beyond 0x30 likely belong to movement or animation references.
+
+Broken moves restored by resetting 0x908B49F0, 0x908B49D0, and 0x908B569C to their original values (42 00 00 00, 00 00 00 3F, 42 00 00 00).
+
+Next steps:
+
+Continue searching for hitbox templates using the 35 0D 20 3F marker pattern.
+
+Once new hitboxes are found for hado, shoryu, or donkey kick, test enlargements only at the first float offset (0x00).
+
+Future experiments should clone known-good enlarged templates to free memory and redirect scripts rather than overwriting active ones.
+
+# 1) Tatsu-adjacent pokes (light/medium/heavy neighbors)
+
+python tvc_sigtool.py poke --addr 0x908B49C8 --bytes "43 20 00 00" freeze
+python tvc_sigtool.py poke --addr 0x908B4A00 --bytes "43 20 00 00" float
+
+python tvc_sigtool.py poke --addr 0x908B4E80 --bytes "43 20 00 00" freeze
+python tvc_sigtool.py poke --addr 0x908B4EB0 --bytes "43 20 00 00" float
+
+python tvc_sigtool.py poke --addr 0x908B59A0 --bytes "43 20 00 00" float, but there is a velocity increase
+python tvc_sigtool.py poke --addr 0x908B59D8 --bytes "43 20 00 00" float
+
+
+# 2) Hado clones (0x908B789C, 0x908B7E10, 0x908B838C)
+# we already hit +0x00; let’s hit the next 3 obvious float-looking words
+
+python tvc_sigtool.py poke --addr 0x908B78A0 --bytes "43 20 00 00" nothing
+python tvc_sigtool.py poke --addr 0x908B78B0 --bytes "43 20 00 00" nothing
+python tvc_sigtool.py poke --addr 0x908B78C0 --bytes "43 20 00 00" nothing
+
+python tvc_sigtool.py poke --addr 0x908B7E14 --bytes "43 20 00 00" nothing
+python tvc_sigtool.py poke --addr 0x908B7E24 --bytes "43 20 00 00" nothing
+python tvc_sigtool.py poke --addr 0x908B7E34 --bytes "43 20 00 00" nothing
+
+python tvc_sigtool.py poke --addr 0x908B8390 --bytes "43 20 00 00" nothing
+python tvc_sigtool.py poke --addr 0x908B83A0 --bytes "43 20 00 00" nothing
+python tvc_sigtool.py poke --addr 0x908B83B0 --bytes "43 20 00 00" nothing
+
+
+# 3) Donkey / 236K family (they all had that same 33 03 20 3F header)
+# poke a few floats down each one
+
+python tvc_sigtool.py poke --addr 0x908B2AA4 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B2AB0 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B2AC0 --bytes "43 20 00 00"
+
+python tvc_sigtool.py poke --addr 0x908B589C --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B58AC --bytes "43 20 00 00"
+
+python tvc_sigtool.py poke --addr 0x908B603C --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B604C --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B6060 --bytes "43 20 00 00"
+
+python tvc_sigtool.py poke --addr 0x908B68D4 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B68E4 --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908B68F4 --bytes "43 20 00 00"
