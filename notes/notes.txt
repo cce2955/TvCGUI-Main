@@ -767,7 +767,7 @@ python tvc_sigtool.py poke --addr 0x908b662C --bytes "43 FF 00 00"
 # Shoryu M (second hit)
 python tvc_sigtool.py poke --addr 0x908b6814 --bytes "43 FF 00 00" 
 # Shoryu M (first hit)
-python tvc_sigtool.py poke --addr 0x908b6ef4 --bytes "43 FF 00 00" 
+python tvc_sigtool.py poke --addr 0x908b6ef4 --bytes "43 FF 00 00"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
 # Shoryu H (first hit)
 python tvc_sigtool.py poke --addr 0x908b7094 --bytes "43 FF 00 00" 
 # Shoryu H (second hit)
@@ -779,4 +779,34 @@ python tvc_sigtool.py poke --addr 0x908b7c18 --bytes "43 FF 00 00"
 python tvc_sigtool.py poke --addr 0x908b8194 --bytes "43 FF 00 00" 
 # Donkey H
 
-Hado is around 908b8810, looking
+python tvc_sigtool.py poke --addr 0x908bd260 --bytes "43 FF 00 00" 
+# Tatsu Super
+python tvc_sigtool.py poke --addr 4 --bytes "43 FF 00 00" 
+# Tatsu Super Last hit, any hitboxes inside here are presumed to be part of the super hitbox, have to grab those later
+
+
+python tvc_sigtool.py poke --addr 0x908c11b4 --bytes "43 FF 00 00" 
+#ShinSho Hitbox
+python tvc_sigtool.py poke --addr 0x908c17a0 --bytes "43 FF 00 00" 
+#ShinSho Hitbox (second hit? it's one of em)
+python tvc_sigtool.py poke --addr 0x908c1d70 --bytes "43 FF 00 00" 
+#Shinsho Hitbox (third fourth I guess)
+python tvc_sigtool.py poke --addr 0x908c1f60 --bytes "43 FF 00 00" 
+#Shinsho possibly last hit
+
+908c2580 ???
+
+L Hado is around 908b8810, looking, 908b8820 is air hado, but it seems more animation based as opposed to the projectile itself, interested but I want the projectile, moving on
+same thing 908b8b30, medium air hado animation/spawner?
+
+908b9060, this follows the hitbox logic but adjusting the hitbox results in...nothing?
+908b9330, same as above, will walk back later
+and again 908b96e0...is this C2? not C2 or anyone, I have no idea, no response
+another 908b9a10
+another 908b9d80
+another 908ba0b0
+
+908ba500 Shinkuu Hadouken block is around here, investigating
+908bab70 seems animation related?
+
+past the Tatsu super is this 908bd590, not sure what it's for
