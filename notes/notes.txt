@@ -810,3 +810,157 @@ another 908ba0b0
 908bab70 seems animation related?
 
 past the Tatsu super is this 908bd590, not sure what it's for
+
+possible Assist memory area? or character? testing something
+# 5A
+# orig: 0x908AEFBC
+python tvc_sigtool.py poke --addr 0x908AF270 --bytes "43 FF 00 00"
+
+# 5B
+# orig: 0x908AF434
+python tvc_sigtool.py poke --addr 0x908AF6E8 --bytes "43 FF 00 00"
+
+# 5C
+# orig: 0x908AF848
+python tvc_sigtool.py poke --addr 0x908AFAFC --bytes "43 FF 00 00"
+
+# 2A
+# orig: 0x908AFD28
+python tvc_sigtool.py poke --addr 0x908AFFDC --bytes "43 FF 00 00"
+
+# 2B
+# orig: 0x908B02F8
+python tvc_sigtool.py poke --addr 0x908B05AC --bytes "43 FF 00 00"
+
+# 2C
+# orig: 0x908B0848
+python tvc_sigtool.py poke --addr 0x908B0AFC --bytes "43 FF 00 00"
+
+# 3C
+# orig: 0x908B159C
+python tvc_sigtool.py poke --addr 0x908B1850 --bytes "43 FF 00 00"
+
+# j.A
+# orig: 0x908B19F4
+python tvc_sigtool.py poke --addr 0x908B1CA8 --bytes "43 FF 00 00"
+
+# j.B
+# orig: 0x908B1F54
+python tvc_sigtool.py poke --addr 0x908B2208 --bytes "43 FF 00 00"
+
+# j.B (second hit)
+# orig: 0x908B21C8
+python tvc_sigtool.py poke --addr 0x908B247C --bytes "43 FF 00 00"
+
+# j.C
+# orig: 0x908B249C
+python tvc_sigtool.py poke --addr 0x908B2750 --bytes "43 FF 00 00"
+
+# 6B hit 1
+# orig: 0x908B2994
+python tvc_sigtool.py poke --addr 0x908B2C48 --bytes "43 FF 00 00"
+
+# 6B hit 2
+# orig: 0x908B2C2C
+python tvc_sigtool.py poke --addr 0x908B2EE0 --bytes "43 FF 00 00"
+
+# 6C
+# orig: 0x908B102C
+python tvc_sigtool.py poke --addr 0x908B12E0 --bytes "43 FF 00 00"
+
+# Tatsu L
+# orig: 0x908B49C4
+python tvc_sigtool.py poke --addr 0x908B4C78 --bytes "43 FF 00 00"
+
+# Tatsu M (first hit)
+# orig: 0x908B4E7C
+python tvc_sigtool.py poke --addr 0x908B5130 --bytes "43 FF 00 00"
+
+# Tatsu M (2nd/3rd)
+# orig: 0x908B5198
+python tvc_sigtool.py poke --addr 0x908B543C --bytes "43 FF 00 00"
+
+# Tatsu H (last three)
+# orig: 0x908B5994
+python tvc_sigtool.py poke --addr 0x908B5C38 --bytes "43 FF 00 00"
+
+# Tatsu H (first)
+# orig: 0x908B5670
+python tvc_sigtool.py poke --addr 0x908B5914 --bytes "43 FF 00 00"
+
+# Tatsu L (air)
+# orig: 0x908B90AD
+python tvc_sigtool.py poke --addr 0x908B9351 --bytes "43 FF 00 00"
+
+# Tatsu L (air, second hit)
+# orig: 0x908B933C
+python tvc_sigtool.py poke --addr 0x908B95E0 --bytes "43 FF 00 00"
+
+# Tatsu M (air, first)
+# orig: 0x908B9730
+python tvc_sigtool.py poke --addr 0x908B99D4 --bytes "43 FF 00 00"
+
+# Tatsu M (air, 2-3)
+# orig: 0x908B99D0
+python tvc_sigtool.py poke --addr 0x908B9C84 --bytes "43 FF 00 00"
+
+# Tatsu H (air, first)
+# orig: 0x908B9D88
+python tvc_sigtool.py poke --addr 0x908BA03C --bytes "43 FF 00 00"
+
+# Tatsu H (air, rest)
+# orig: 0x908BA0B8
+python tvc_sigtool.py poke --addr 0x908BA36C --bytes "43 FF 00 00"
+
+# Shoryu L
+# orig: 0x908B5E48
+python tvc_sigtool.py poke --addr 0x908B60FC --bytes "43 FF 00 00"
+
+# Shoryu M (second)
+# orig: 0x908B662C
+python tvc_sigtool.py poke --addr 0x908B68E0 --bytes "43 FF 00 00"
+
+# Shoryu M (first)
+# orig: 0x908B6814
+python tvc_sigtool.py poke --addr 0x908B6AC8 --bytes "43 FF 00 00"
+
+# Shoryu H (first)
+# orig: 0x908B6EF4
+python tvc_sigtool.py poke --addr 0x908B71A8 --bytes "43 FF 00 00"
+
+# Shoryu H (second)
+# orig: 0x908B7094
+python tvc_sigtool.py poke --addr 0x908B7348 --bytes "43 FF 00 00"
+
+# Donkey L
+# orig: 0x908B76A4
+python tvc_sigtool.py poke --addr 0x908B7958 --bytes "43 FF 00 00"
+
+# Donkey M
+# orig: 0x908B7C18
+python tvc_sigtool.py poke --addr 0x908B7ECC --bytes "43 FF 00 00"
+
+# Donkey H
+# orig: 0x908B8194
+python tvc_sigtool.py poke --addr 0x908B8448 --bytes "43 FF 00 00"
+
+# Tatsu Super
+# orig: 0x908BD260
+python tvc_sigtool.py poke --addr 0x908BD514 --bytes "43 FF 00 00"
+
+# ShinSho hits
+# orig: 0x908C11B4
+python tvc_sigtool.py poke --addr 0x908C1468 --bytes "43 FF 00 00"
+
+# orig: 0x908C17A0
+python tvc_sigtool.py poke --addr 0x908C1A54 --bytes "43 FF 00 00"
+
+# orig: 0x908C1D70
+python tvc_sigtool.py poke --addr 0x908C2024 --bytes "43 FF 00 00"
+
+# orig: 0x908C1F60
+python tvc_sigtool.py poke --addr 0x908C2214 --bytes "43 FF 00 00"
+
+IDs
+when observing hitboxes, it seems like characers have an ID attached, I'm going to note a few, then see if this turns out to work
+Ryu ID: 00 00 00 38 01 33 00 00
