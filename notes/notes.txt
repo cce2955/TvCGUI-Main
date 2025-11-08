@@ -705,7 +705,7 @@ python tvc_sigtool.py poke --addr 0x908B5258 --bytes "43 20 00 00"   # j.C
 Both read from the same iterator; modifying 0x908AFD24 (radius) corrupts 2A’s pointer and freezes.
 Treat 0x908AFD70 as the safe radius edit for both moves.
 
-python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "43 FF 00 00"   
+python tvc_sigtool.py poke --addr 0x908af004 --bytes "43 FF 00 00"   
 # 5A
 python tvc_sigtool.py poke --addr 0x908AF434 --bytes "43 FF 00 00"   
 # 5B
