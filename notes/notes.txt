@@ -325,6 +325,8 @@ P2C2 → 0x9247A9C0
 
 9246bae0, seems to track inputs for dash? index 5-8  bd 30 20 c5  index 13-16 bd a9 93 0b when dash is active, ALSO there seems to be some X translation shenanigans, I changed it around and Ryu was sliding even offscreen, setting index 5 to C1 throws P1-C1 off screen I believe to the left wall? but definitely does X movement, which lines up with dashing I guess, there is setting it to Bd (which is how it tracks backdashes) slides P1C1 away from the opponent infinitely, setting it to 3D slides towards. By going up a few (like 3E or 3F) the movement gets a little aggressive, I have the perfect dummy to test this with. Megaman volnutt has a known glitch that causes this flag to fire, and I can get it to fire but it looks like it's linked with something else. For now it's just a fun little oddity. Also seems to activate on pushblock, so this seems like a general X lateral movement tracker. but not movement, just..micromovements?
 
+908aeef8 Knockback modifier, higher values seems to reduce it
+
 -------
 9246bc10
 9246bc20
@@ -640,6 +642,7 @@ Animation/move-control cluster you poked (908AEE10+ etc.)
 You mapped that 0x908AEE10/0x908AEE20/... region as the current move/animation driver:
 
 These below are Ryu P1 Point, investigating offsets and slot references
+
 908aee17 908aee18
 
 0x908AEE30 index 8 changes facing/punch direction
@@ -738,9 +741,7 @@ python tvc_sigtool.py poke --addr 0x908c1f60 --bytes "43 FF 00 00"
 #Shinsho possibly last hit
 
 IDs
-when observing hitboxes, it seems like charatcers have an ID attached, I'm going to note a few, then see if this turns out to work
 
-Upon observing these aren't characters, the Slot position has an ID
+looking
 
-P1 Point ID: 00 00 00 38 01 33 00 00
-00 00 00 38 01 32 00 00
+on match start searching for 41 A0 00 00 04 03 3F 00 00 00 00 00 3F 00 00 00 will give you the first hitbox of the point character
