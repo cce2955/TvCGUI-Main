@@ -1,0 +1,60 @@
+# ryu.moves
+# tail in your dump: 0x908AF014
+
+# — ground normals —
+5A = -0x10
+5B = 0x420
+5C = 0x834
+2A = 0xD14
+2B = 0x12E4
+2C = 0x1834
+3C = 0x2588
+6C = 0x2018
+
+# — air normals —
+j.A = 0x29E0
+j.B = 0x2F40
+j.B (second hit) = 0x31B4
+j.C = 0x3488
+
+# — command normals —
+6B hit 1 = 0x3980
+6B hit 2 = 0x3C18
+
+# — tatsu (ground) —
+Tatsu L = 0x59B0
+Tatsu M (First Hit) = 0x5E68
+Tatsu M (second and third hit) = 0x6184
+Tatsu H (First Hit) = 0x665C
+Tatsu H (Last Three Hits) = 0x6980
+
+# — shoryu —
+Shoryu L = 0x6E34
+Shoryu M (second hit) = 0x7618
+Shoryu M (first hit) = 0x7800
+Shoryu H (first hit) = 0x7EE0
+Shoryu H (second hit) = 0x8080
+
+# — donkey kick —
+Donkey L = 0x8690
+Donkey M = 0x8C04
+Donkey H = 0x9180
+
+# — tatsu (air) —
+Tatsu L (Air) = 0xA099
+Tatsu L (Air, second hit) = 0xA328
+Tatsu M (Air, first hit) = 0xA71C
+Tatsu M (Air, second third hit) = 0xA9BC
+Tatsu H (Air, first) = 0xAD74
+Tatsu H (Air, rest of the hits) = 0xB0A4
+
+# — supers —
+Tatsu Super = 0xE24C
+# you had a "poke --addr 4" for "Tatsu Super Last hit" but that was clearly a placeholder,
+# so I'm leaving it out — add it here once you know the real relative address
+
+# — Shin Shoryuken —
+ShinSho Hitbox = 0x121A0
+ShinSho Hitbox (second hit) = 0x1278C
+Shinsho Hitbox (third fourth I guess) = 0x12D5C
+Shinsho possibly last hit = 0x12F4C

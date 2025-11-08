@@ -740,8 +740,3 @@ python tvc_sigtool.py poke --addr 0x908c1d70 --bytes "43 FF 00 00"
 python tvc_sigtool.py poke --addr 0x908c1f60 --bytes "43 FF 00 00" 
 #Shinsho possibly last hit
 
-IDs
-
-looking
-
-on match start searching for 41 A0 00 00 04 03 3F 00 00 00 00 00 3F 00 00 00 will give you the first hitbox of the point character

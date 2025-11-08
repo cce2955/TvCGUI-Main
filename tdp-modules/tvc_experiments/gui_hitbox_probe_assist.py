@@ -1,16 +1,9 @@
 # gui_hitbox_probe.py
 #
-# - load ryu.bin (text or raw)
-# - scan MEM2 for the first 0x40 bytes (your working method)
-# - when found:
-#     tail = match + 0x10
-#     latch tail
-# - every tick:
-#     read (tail - 0xB0), expect FF FF FF FE
-#     if matches -> keep tail
-#     else -> drop tail and rescan
-#
-# So editing 5A etc. won't break it; only if the whole table shifts will it rescan.
+# Data-driven version:
+# - character table snapshot: ryu.bin
+# - character move list:      ryu.moves
+# change those two filenames to do Chun, Ken, etc.
 
 import os, re, tkinter as tk
 from tkinter import ttk
@@ -29,41 +22,62 @@ except Exception as e:
     MEM2_LO = 0x90000000
     MEM2_HI = 0x94000000
 
-# ------------------------------------------------------------
-# CONFIG
-# ------------------------------------------------------------
-RYU_BIN_PATH = "ryu.bin"
+# ------------------------------------------------------------------
+# CONFIG: change these two to switch character
+# ------------------------------------------------------------------
+TABLE_FILE = "ryu.bin"
+MOVES_FILE = "ryu.moves"
 
-# your slice: start 0x908AF004, tail 0x908AF014
-RYU_SAMPLE_TAIL_REL = 0x10
-
-# your scan length that actually worked
+# in your dump: sample at 0x908AF004, tail at 0x908AF014
+SAMPLE_TAIL_REL = 0x10
 SCAN_MATCH_LEN = 0x40
 
-# from your screenshot:
-# 0x908AEF64: FF FF FF FE ...
-# 0x908AF014: tail
-# tail - anchor = 0xB0
+# anchor: tail - 0xB0 = FF FF FF FE
 ANCHOR_REL_FROM_TAIL = -0xB0
 ANCHOR_BYTES = b"\xFF\xFF\xFF\xFE"
 
-# offsets you want to display
-RYU_FIELDS = [
-    ("5A",      -0x10),
-    ("5B",       0x420),
-    ("5C",       0x834),
-    ("Tatsu L",  0x59B0),
-]
-
 HEX_PAIR_RE = re.compile(r"^[0-9A-Fa-f]{2}$")
 
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
 # helpers
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
 def read_mem2() -> bytes:
     if not HAVE_DOLPHIN:
         return b""
     return rbytes(MEM2_LO, MEM2_HI - MEM2_LO)
+
+def parse_hex_or_int(s: str) -> int:
+    s = s.strip()
+    # allow negative hex like -0x10
+    if s.startswith("-0x") or s.startswith("-0X"):
+        return -int(s[3:], 16)
+    if s.startswith("0x") or s.startswith("0X"):
+        return int(s, 16)
+    return int(s, 0)
+
+def load_moves(path: str):
+    moves = []
+    if not os.path.exists(path):
+        print(f"[gui] moves file not found: {path}")
+        return moves
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            name, off = line.split("=", 1)
+            name = name.strip()
+            off = off.strip()
+            try:
+                rel = parse_hex_or_int(off)
+            except Exception:
+                print(f"[gui] bad offset in {path}: {line}")
+                continue
+            moves.append((name, rel))
+    print(f"[gui] loaded {len(moves)} moves from {path}")
+    return moves
 
 def _try_parse_text_hexdump(data: str) -> bytes | None:
     out = bytearray()
@@ -71,30 +85,27 @@ def _try_parse_text_hexdump(data: str) -> bytes | None:
         line = line.strip()
         if not line:
             continue
-        # strip "0x908AF004:" part
         line = re.sub(r"^(0x)?[0-9A-Fa-f]+:\s*", "", line)
         for p in line.split():
             if HEX_PAIR_RE.match(p):
                 out.append(int(p, 16))
     return bytes(out) if out else None
 
-def load_ryu_sample(path: str) -> bytes | None:
+def load_table_sample(path: str) -> bytes | None:
     if not os.path.exists(path):
-        print("[gui] ryu.bin not found")
+        print(f"[gui] table file not found: {path}")
         return None
-    with open(path, "rb") as f:
-        raw = f.read()
-    # try text
+    raw = open(path, "rb").read()
     try:
         txt = raw.decode("utf-8")
     except UnicodeDecodeError:
-        print(f"[gui] loaded ryu.bin as raw bytes ({len(raw)} bytes)")
+        print(f"[gui] loaded {path} as raw bytes ({len(raw)} bytes)")
         return raw
     parsed = _try_parse_text_hexdump(txt)
     if parsed:
-        print(f"[gui] loaded ryu.bin as text hexdump -> {len(parsed)} bytes")
+        print(f"[gui] loaded {path} as text hexdump -> {len(parsed)} bytes")
         return parsed
-    print(f"[gui] loaded ryu.bin as text but no bytes parsed, using raw ({len(raw)} bytes)")
+    print(f"[gui] loaded {path} as text but no bytes parsed, using raw ({len(raw)} bytes)")
     return raw
 
 def find_sample_in_mem(mem: bytes, sample: bytes, match_len: int) -> int | None:
@@ -114,64 +125,70 @@ def read2(addr: int):
         return None
     return raw
 
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
 # GUI
-# ------------------------------------------------------------
+# ------------------------------------------------------------------
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("TvC Ryu probe (anchor-based)")
-        self.geometry("650x300")
+        self.title(f"TvC table probe ({TABLE_FILE} / {MOVES_FILE})")
+        self.geometry("850x500")
 
-        frame = ttk.LabelFrame(self, text="Ryu fields")
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        outer = ttk.Frame(self); outer.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(outer)
+        scroll = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        self.inner = ttk.Frame(canvas)
+        self.inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0,0), window=self.inner, anchor="nw")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.table_sample = load_table_sample(TABLE_FILE)
+        self.move_defs = load_moves(MOVES_FILE)
 
         self.rows = []
-        for name, off in RYU_FIELDS:
-            row = ttk.Frame(frame); row.pack(fill=tk.X, pady=2)
-            tk.Label(row, text=name, width=10).pack(side=tk.LEFT)
+        for name, rel in self.move_defs:
+            row = ttk.Frame(self.inner); row.pack(fill=tk.X, pady=1)
+            tk.Label(row, text=name, width=30, anchor="w").pack(side=tk.LEFT)
             addr_var = tk.StringVar(value="—")
             val_var = tk.StringVar(value="—")
-            tk.Label(row, textvariable=addr_var, width=16).pack(side=tk.LEFT)
+            tk.Label(row, textvariable=addr_var, width=14).pack(side=tk.LEFT)
             tk.Label(row, textvariable=val_var, width=10).pack(side=tk.LEFT)
-            self.rows.append((name, off, addr_var, val_var))
+            self.rows.append((name, rel, addr_var, val_var))
 
-        self.ryu_sample = load_ryu_sample(RYU_BIN_PATH)
         self.latched_tail = None
         self.mem_cache = None
 
         self.after(400, self.tick)
 
-    # check if anchor still present at latched address
     def anchor_ok(self) -> bool:
         if self.latched_tail is None or self.mem_cache is None:
             return False
         anchor_abs = self.latched_tail + ANCHOR_REL_FROM_TAIL
-        mem_off = anchor_abs - MEM2_LO
-        if mem_off < 0 or mem_off + 4 > len(self.mem_cache):
+        off = anchor_abs - MEM2_LO
+        if off < 0 or off + 4 > len(self.mem_cache):
             return False
-        return self.mem_cache[mem_off:mem_off+4] == ANCHOR_BYTES
+        return self.mem_cache[off:off+4] == ANCHOR_BYTES
 
     def tick(self):
-        # refresh mem
         self.mem_cache = read_mem2() if HAVE_DOLPHIN else None
 
-        # if we have a latched tail, check anchor
+        # check anchor
         if self.latched_tail is not None and self.mem_cache is not None:
             if not self.anchor_ok():
-                # anchor moved -> table moved -> drop and rescan
-                print("[gui] anchor moved, rescanning…")
+                print("[gui] anchor moved -> rescanning")
                 self.latched_tail = None
 
-        # if no latch, scan
-        if self.latched_tail is None and self.ryu_sample is not None and self.mem_cache is not None:
-            off = find_sample_in_mem(self.mem_cache, self.ryu_sample, SCAN_MATCH_LEN)
+        # scan if needed
+        if self.latched_tail is None and self.table_sample is not None and self.mem_cache is not None:
+            off = find_sample_in_mem(self.mem_cache, self.table_sample, SCAN_MATCH_LEN)
             if off is not None:
-                tail_off = off + RYU_SAMPLE_TAIL_REL
+                tail_off = off + SAMPLE_TAIL_REL
                 self.latched_tail = MEM2_LO + tail_off
-                print(f"[gui] Ryu tail found at 0x{self.latched_tail:08X}")
+                print(f"[gui] tail found at 0x{self.latched_tail:08X}")
 
-        # display
+        # update display
         for name, rel, addr_var, val_var in self.rows:
             if self.latched_tail and HAVE_DOLPHIN:
                 addr = self.latched_tail + rel
