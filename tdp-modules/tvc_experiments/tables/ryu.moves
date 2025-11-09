@@ -50,8 +50,6 @@ Tatsu H (Air, rest of the hits) = 0xB0A4
 
 # — supers —
 Tatsu Super = 0xE24C
-# you had a "poke --addr 4" for "Tatsu Super Last hit" but that was clearly a placeholder,
-# so I'm leaving it out — add it here once you know the real relative address
 
 # — Shin Shoryuken —
 ShinSho Hitbox = 0x121A0
