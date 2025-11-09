@@ -6,7 +6,8 @@
 # - animation speed
 # - active frames
 # - attack damage
-# - attack property (high/low/mid + strength)
+# - attack property
+# - hit reaction
 
 import sys
 import tkinter as tk
@@ -80,15 +81,55 @@ DAMAGE_TOTAL_LEN = 16
 DAMAGE_PAIR_RANGE = 0x400
 
 # attack property block
-# 04 01 60 00 00 00 02 40 3F 00 00 00 00 00 00 XX 04 01 60
 ATKPROP_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ]
-ATKPROP_TOTAL_LEN = 17  # enough to read XX
+ATKPROP_TOTAL_LEN = 17
 ATKPROP_PAIR_RANGE = 0x400
 
-# we could decode these, but for now we just show the hex
+# hit reaction block
+# 04 17 60 00 00 00 02 40 3F 00 00 00 80 04 2F 00
+# 04 15 60 00 00 00 02 40 3F 00 00 00 XX YY ZZ 00 35
+HITREACTION_HDR = [
+    0x04, 0x17, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
+    0x3F, 0x00, 0x00, 0x00, 0x80, 0x04, 0x2F, 0x00,
+    0x04, 0x15, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
+    0x3F, 0x00, 0x00, 0x00,
+]
+HITREACTION_TOTAL_LEN = 33
+HITREACTION_PAIR_RANGE = 0x400
+
+# human meaning for reaction codes we know
+HITREACTION_MEANING = {
+    0x000000: "Stay on ground",
+    0x000001: "KB",
+    0x000002: "KD",
+    0x000003: "Spiral KD",
+    0x000004: "Sweep",
+    0x000008: "Stagger",
+    0x000010: "G stay, A KB",
+    0x000040: "G stay, A KB, OTG stay",
+    0x000041: "KB, OTG stay",
+    0x000042: "KD, OTG stay",
+    0x000080: "G stay, A KB (alt)",
+    0x000082: "KD (alt)",
+    0x000083: "Spiral KD (alt)",
+    0x000400: "Launcher",
+    0x000800: "Soft KD",
+    0x000848: "Stagger/soft KD",
+    0x002010: "G stay, A KB (2)",
+    0x003010: "G stay, A KB (3)",
+    0x004200: "KD (3)",
+    0x800000: "Crumple, A KB",
+    0x800002: "KD, wallbounce",
+    0x800008: "Alex chop",
+    0x800020: "Snapback",
+    0x800082: "KD, wallbounce (2)",
+    0x001001: "Wonky grab",
+    0x001003: "Wonky grab 2",
+}
+
 ATKPROP_MEANING = {
     0x04: "Unblockable",
     0x09: "Mid L",
@@ -256,6 +297,19 @@ def parse_atkprop(buf: bytes, start: int):
     return prop
 
 
+def parse_hitreaction(buf: bytes, start: int):
+    if start + HITREACTION_TOTAL_LEN > len(buf):
+        return None
+    for i, b in enumerate(HITREACTION_HDR):
+        if buf[start + i] != b:
+            return None
+    xx = buf[start + 28]
+    yy = buf[start + 29]
+    zz = buf[start + 30]
+    code = (xx << 16) | (yy << 8) | zz
+    return code
+
+
 # ------------------------------------------------------------
 def scan_once():
     slots_info = read_slots()
@@ -264,6 +318,7 @@ def scan_once():
     tails.sort()
     clusters = cluster_tails(tails)
 
+    # your slot remap
     cluster_to_slot = [0, 2, 1, 3]
 
     result = []
@@ -387,7 +442,19 @@ def scan_once():
                 continue
             ap += 1
 
-        # PASS 7: attach to moves
+        # PASS 7: hit reaction
+        hitreact_blocks = []
+        hr = 0
+        while hr < len(buf):
+            if match_bytes(buf, hr, HITREACTION_HDR):
+                code = parse_hitreaction(buf, hr)
+                if code is not None:
+                    hitreact_blocks.append((base_abs + hr, code))
+                hr += HITREACTION_TOTAL_LEN
+                continue
+            hr += 1
+
+        # PASS 8: attach to moves
         for mv in moves:
             aid = mv["id"]
             mv_abs = mv["abs"]
@@ -416,7 +483,7 @@ def scan_once():
             else:
                 mv["speed"] = None
 
-            # active frames
+            # active
             mv_active_start = None
             mv_active_end = None
             best_dist = None
@@ -455,7 +522,18 @@ def scan_once():
                         mv_prop = prop
             mv["attack_property"] = mv_prop
 
-        # assign to correct slot
+            # hit reaction
+            mv_react = None
+            best_dist = None
+            for hr_abs, code in hitreact_blocks:
+                if hr_abs >= mv_abs and hr_abs - mv_abs <= HITREACTION_PAIR_RANGE:
+                    dist = hr_abs - mv_abs
+                    if best_dist is None or dist < best_dist:
+                        best_dist = dist
+                        mv_react = code
+            mv["hit_reaction"] = mv_react
+
+        # assign to real slot
         slot_idx = cluster_to_slot[c_idx] if c_idx < len(cluster_to_slot) else c_idx
         slot_label, base_ptr, cid, cname = slots_info[slot_idx] if slot_idx < len(slots_info) else (f"slot{slot_idx}", 0, None, "—")
         result[slot_idx] = {
@@ -474,7 +552,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("TvC move viewer")
-        self.geometry("1280x560")
+        self.geometry("1500x580")
 
         left = ttk.Frame(self); left.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=4)
         ttk.Label(left, text="Characters").pack(anchor="w")
@@ -488,25 +566,27 @@ class App(tk.Tk):
 
         right = ttk.Frame(self); right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        cols = ("move", "addr", "meter", "speed", "active", "damage", "dflag", "atkprop")
+        cols = ("move", "addr", "meter", "speed", "active", "damage", "dflag", "atkprop", "hitreact")
         self.tree = ttk.Treeview(right, columns=cols, show="headings")
         self.tree.heading("move", text="Move")
         self.tree.heading("addr", text="Addr")
         self.tree.heading("meter", text="Meter")
         self.tree.heading("speed", text="Speed")
-        self.tree.heading("active", text="Active (start-end)")
+        self.tree.heading("active", text="Active")
         self.tree.heading("damage", text="Damage")
         self.tree.heading("dflag", text="DmgFlag")
         self.tree.heading("atkprop", text="AtkProp")
+        self.tree.heading("hitreact", text="HitReact")
 
         self.tree.column("move", width=200)
         self.tree.column("addr", width=120)
         self.tree.column("meter", width=60)
         self.tree.column("speed", width=60)
-        self.tree.column("active", width=120)
+        self.tree.column("active", width=110)
         self.tree.column("damage", width=90)
         self.tree.column("dflag", width=70)
-        self.tree.column("atkprop", width=90)
+        self.tree.column("atkprop", width=110)
+        self.tree.column("hitreact", width=150)
 
         self.tree.pack(fill=tk.BOTH, expand=True)
 
@@ -560,24 +640,22 @@ class App(tk.Tk):
             dmg = mv.get("damage")
             dflag = mv.get("damage_flag")
             atkprop = mv.get("attack_property")
+            hitreact = mv.get("hit_reaction")
 
             if aid is not None:
                 name = ANIM_MAP.get(aid, f"anim_{aid:02X}")
             else:
-                if mv.get("kind") == "super":
-                    name = "SUPER?"
-                else:
-                    name = "SPECIAL?"
+                name = "SUPER?" if mv.get("kind") == "super" else "SPECIAL?"
 
             addr_txt = f"0x{addr:08X}"
             meter_txt = f"{meter:02X}" if meter is not None else ""
             speed_txt = f"{speed:02X}" if speed is not None else ""
+
             if a_s is not None and a_e is not None:
                 active_txt = f"{a_s}-{a_e}"
             else:
                 active_txt = ""
 
-            # damage in decimal with commas
             if dmg is not None:
                 dmg_txt = f"{dmg:,d}"
             else:
@@ -585,15 +663,24 @@ class App(tk.Tk):
 
             dflag_txt = f"{dflag:02X}" if dflag is not None else ""
 
-            # attack property: show hex + short text if we know it
             if atkprop is not None:
                 short = ATKPROP_MEANING.get(atkprop)
-                if short:
-                    atkprop_txt = f"{atkprop:02X} ({short})"
-                else:
-                    atkprop_txt = f"{atkprop:02X}"
+                atkprop_txt = f"{atkprop:02X}" + (f" ({short})" if short else "")
             else:
                 atkprop_txt = ""
+
+            if hitreact is not None:
+                # show as 00 00 02 style and name if known
+                b0 = (hitreact >> 16) & 0xFF
+                b1 = (hitreact >> 8) & 0xFF
+                b2 = hitreact & 0xFF
+                hr_name = HITREACTION_MEANING.get(hitreact)
+                if hr_name:
+                    hitreact_txt = f"{b0:02X} {b1:02X} {b2:02X} ({hr_name})"
+                else:
+                    hitreact_txt = f"{b0:02X} {b1:02X} {b2:02X}"
+            else:
+                hitreact_txt = ""
 
             self.tree.insert(
                 "",
@@ -607,6 +694,7 @@ class App(tk.Tk):
                     dmg_txt,
                     dflag_txt,
                     atkprop_txt,
+                    hitreact_txt,
                 ),
             )
 
