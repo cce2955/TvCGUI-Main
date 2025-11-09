@@ -6,6 +6,7 @@
 # - animation speed
 # - active frames
 # - attack damage
+# - attack property (high/low/mid + strength)
 
 import sys
 import tkinter as tk
@@ -72,12 +73,34 @@ ACTIVE_TOTAL_LEN = 20
 ACTIVE_PAIR_RANGE = 0x400
 
 # attack damage block
-# 35 10 20 3F 00 XX XX XX 00 00 00 3F 00 00 00 YY
 DAMAGE_HDR = [
     0x35, 0x10, 0x20, 0x3F, 0x00,
 ]
 DAMAGE_TOTAL_LEN = 16
 DAMAGE_PAIR_RANGE = 0x400
+
+# attack property block
+# 04 01 60 00 00 00 02 40 3F 00 00 00 00 00 00 XX 04 01 60
+ATKPROP_HDR = [
+    0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
+    0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+]
+ATKPROP_TOTAL_LEN = 17  # enough to read XX
+ATKPROP_PAIR_RANGE = 0x400
+
+# we could decode these, but for now we just show the hex
+ATKPROP_MEANING = {
+    0x04: "Unblockable",
+    0x09: "Mid L",
+    0x0A: "Mid M",
+    0x0C: "Mid H",
+    0x11: "High L",
+    0x12: "High M",
+    0x14: "High H",
+    0x21: "Low L",
+    0x22: "Low M",
+    0x24: "Low H",
+}
 
 ANIM_MAP = {
     0x00: "5A / light",
@@ -210,10 +233,6 @@ def parse_active_frames(buf: bytes, start: int):
 
 
 def parse_damage(buf: bytes, start: int):
-    """
-    35 10 20 3F 00 XX XX XX 00 00 00 3F 00 00 00 YY
-    return (damage_int, damage_flag)
-    """
     if start + 16 > len(buf):
         return None, None
     for i, b in enumerate(DAMAGE_HDR):
@@ -225,6 +244,16 @@ def parse_damage(buf: bytes, start: int):
     damage_val = (d0 << 16) | (d1 << 8) | d2
     dmg_flag = buf[start + 15]
     return damage_val, dmg_flag
+
+
+def parse_atkprop(buf: bytes, start: int):
+    if start + 17 > len(buf):
+        return None
+    for i, b in enumerate(ATKPROP_HDR):
+        if buf[start + i] != b:
+            return None
+    prop = buf[start + len(ATKPROP_HDR)]
+    return prop
 
 
 # ------------------------------------------------------------
@@ -346,9 +375,23 @@ def scan_once():
                 continue
             d += 1
 
-        # PASS 6: attach to moves
+        # PASS 6: attack property
+        atkprop_blocks = []
+        ap = 0
+        while ap < len(buf):
+            if match_bytes(buf, ap, ATKPROP_HDR):
+                prop = parse_atkprop(buf, ap)
+                if prop is not None:
+                    atkprop_blocks.append((base_abs + ap, prop))
+                ap += ATKPROP_TOTAL_LEN
+                continue
+            ap += 1
+
+        # PASS 7: attach to moves
         for mv in moves:
             aid = mv["id"]
+            mv_abs = mv["abs"]
+
             # meter
             if mv["kind"] == "normal":
                 mv["meter"] = DEFAULT_METER.get(aid)
@@ -357,10 +400,8 @@ def scan_once():
             else:
                 mv["meter"] = None
 
-            # override meter if near
             best_val = mv["meter"]
             best_dist = None
-            mv_abs = mv["abs"]
             for m_abs, m_val in meters:
                 if m_abs >= mv_abs and m_abs - mv_abs <= METER_PAIR_RANGE:
                     dist = m_abs - mv_abs
@@ -369,7 +410,7 @@ def scan_once():
                         best_val = m_val
             mv["meter"] = best_val
 
-            # anim speed
+            # speed
             if aid is not None and aid in speed_map:
                 mv["speed"] = speed_map[aid]
             else:
@@ -403,7 +444,18 @@ def scan_once():
             mv["damage"] = mv_dmg
             mv["damage_flag"] = mv_dflag
 
-        # assign into result
+            # attack property
+            mv_prop = None
+            best_dist = None
+            for ap_abs, prop in atkprop_blocks:
+                if ap_abs >= mv_abs and ap_abs - mv_abs <= ATKPROP_PAIR_RANGE:
+                    dist = ap_abs - mv_abs
+                    if best_dist is None or dist < best_dist:
+                        best_dist = dist
+                        mv_prop = prop
+            mv["attack_property"] = mv_prop
+
+        # assign to correct slot
         slot_idx = cluster_to_slot[c_idx] if c_idx < len(cluster_to_slot) else c_idx
         slot_label, base_ptr, cid, cname = slots_info[slot_idx] if slot_idx < len(slots_info) else (f"slot{slot_idx}", 0, None, "—")
         result[slot_idx] = {
@@ -422,7 +474,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("TvC move viewer")
-        self.geometry("1100x540")
+        self.geometry("1280x560")
 
         left = ttk.Frame(self); left.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=4)
         ttk.Label(left, text="Characters").pack(anchor="w")
@@ -436,7 +488,7 @@ class App(tk.Tk):
 
         right = ttk.Frame(self); right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        cols = ("move", "addr", "meter", "speed", "active", "damage", "dflag")
+        cols = ("move", "addr", "meter", "speed", "active", "damage", "dflag", "atkprop")
         self.tree = ttk.Treeview(right, columns=cols, show="headings")
         self.tree.heading("move", text="Move")
         self.tree.heading("addr", text="Addr")
@@ -445,6 +497,7 @@ class App(tk.Tk):
         self.tree.heading("active", text="Active (start-end)")
         self.tree.heading("damage", text="Damage")
         self.tree.heading("dflag", text="DmgFlag")
+        self.tree.heading("atkprop", text="AtkProp")
 
         self.tree.column("move", width=200)
         self.tree.column("addr", width=120)
@@ -453,6 +506,7 @@ class App(tk.Tk):
         self.tree.column("active", width=120)
         self.tree.column("damage", width=90)
         self.tree.column("dflag", width=70)
+        self.tree.column("atkprop", width=90)
 
         self.tree.pack(fill=tk.BOTH, expand=True)
 
@@ -478,7 +532,6 @@ class App(tk.Tk):
             self.slot_list.event_generate("<<ListboxSelect>>")
 
     def on_slot_sel(self, event):
-        # which slot did the user click?
         sel = self.slot_list.curselection()
         if not sel:
             return
@@ -489,11 +542,9 @@ class App(tk.Tk):
         slot = self.slots_data[idx]
         moves = slot.get("moves", [])
 
-        # clear the table
         for iid in self.tree.get_children():
             self.tree.delete(iid)
 
-        # sort by anim id, then by address
         moves_sorted = sorted(
             moves,
             key=lambda m: ((m["id"] if m["id"] is not None else 0xFF), m["abs"])
@@ -508,47 +559,55 @@ class App(tk.Tk):
             a_e = mv.get("active_end")
             dmg = mv.get("damage")
             dflag = mv.get("damage_flag")
+            atkprop = mv.get("attack_property")
 
-            # move name
             if aid is not None:
                 name = ANIM_MAP.get(aid, f"anim_{aid:02X}")
             else:
-                # distinguish supers vs specials
                 if mv.get("kind") == "super":
                     name = "SUPER?"
                 else:
                     name = "SPECIAL?"
 
-            # address
             addr_txt = f"0x{addr:08X}"
-
-            # meter in hex like before
             meter_txt = f"{meter:02X}" if meter is not None else ""
-
-            # animation speed
             speed_txt = f"{speed:02X}" if speed is not None else ""
-
-            # active frames
             if a_s is not None and a_e is not None:
                 active_txt = f"{a_s}-{a_e}"
             else:
                 active_txt = ""
 
-            # damage: show as decimal, human readable
+            # damage in decimal with commas
             if dmg is not None:
-                # dmg is already an int we built from 3 bytes
-                dmg_txt = f"{dmg:,d}"   # e.g. 2,720
+                dmg_txt = f"{dmg:,d}"
             else:
                 dmg_txt = ""
 
-            # damage flag stays hex so you can see 04 / 08 / 0C
             dflag_txt = f"{dflag:02X}" if dflag is not None else ""
 
-            # insert row
+            # attack property: show hex + short text if we know it
+            if atkprop is not None:
+                short = ATKPROP_MEANING.get(atkprop)
+                if short:
+                    atkprop_txt = f"{atkprop:02X} ({short})"
+                else:
+                    atkprop_txt = f"{atkprop:02X}"
+            else:
+                atkprop_txt = ""
+
             self.tree.insert(
                 "",
                 tk.END,
-                values=(name, addr_txt, meter_txt, speed_txt, active_txt, dmg_txt, dflag_txt),
+                values=(
+                    name,
+                    addr_txt,
+                    meter_txt,
+                    speed_txt,
+                    active_txt,
+                    dmg_txt,
+                    dflag_txt,
+                    atkprop_txt,
+                ),
             )
 
 
