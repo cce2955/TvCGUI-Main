@@ -1,13 +1,11 @@
 # tvc_move_viewer.py
 #
 # GUI viewer for TvC move tables
-# - finds 4 character clusters in MEM2
-# - for each:
-#     * detect moves (normals / specials / supers)
-#     * detect meter (real block if near, else default by anim id)
-#     * detect animation speed block
-#     * detect active frames block
-# - shows as a GUI: select character -> see moves
+# now with:
+# - meter
+# - animation speed
+# - active frames
+# - attack damage
 
 import sys
 import tkinter as tk
@@ -65,13 +63,21 @@ METER_PAIR_RANGE = 0x400
 ANIM_SPEED_HDR = [
     0x04, 0x01, 0x02, 0x3F, 0x00, 0x00, 0x01,
 ]
+
 # active frames block
-# 20 35 01 20 3F 00 00 00 XX 00 00 00 3F 00 00 00 YY 07 01 60
 ACTIVE_HDR = [
     0x20, 0x35, 0x01, 0x20, 0x3F, 0x00, 0x00, 0x00,
 ]
-ACTIVE_TOTAL_LEN = 20  # enough to read XX and YY
+ACTIVE_TOTAL_LEN = 20
 ACTIVE_PAIR_RANGE = 0x400
+
+# attack damage block
+# 35 10 20 3F 00 XX XX XX 00 00 00 3F 00 00 00 YY
+DAMAGE_HDR = [
+    0x35, 0x10, 0x20, 0x3F, 0x00,
+]
+DAMAGE_TOTAL_LEN = 16
+DAMAGE_PAIR_RANGE = 0x400
 
 ANIM_MAP = {
     0x00: "5A / light",
@@ -108,8 +114,6 @@ DEFAULT_METER = {
 SPECIAL_DEFAULT_METER = 0xC8
 
 
-# ------------------------------------------------------------
-# helpers
 # ------------------------------------------------------------
 def match_bytes(buf, pos, pat):
     L = len(pat)
@@ -195,10 +199,6 @@ def parse_anim_speed(buf: bytes, start: int):
 
 
 def parse_active_frames(buf: bytes, start: int):
-    """
-    20 35 01 20 3F 00 00 00 XX 00 00 00 3F 00 00 00 YY 07 01 60
-    returns (start_frame, end_frame) logical (XX+1, YY+1)
-    """
     if start + 20 > len(buf):
         return None, None
     for i, b in enumerate(ACTIVE_HDR):
@@ -209,34 +209,34 @@ def parse_active_frames(buf: bytes, start: int):
     return (xx + 1, yy + 1)
 
 
+def parse_damage(buf: bytes, start: int):
+    """
+    35 10 20 3F 00 XX XX XX 00 00 00 3F 00 00 00 YY
+    return (damage_int, damage_flag)
+    """
+    if start + 16 > len(buf):
+        return None, None
+    for i, b in enumerate(DAMAGE_HDR):
+        if buf[start + i] != b:
+            return None, None
+    d0 = buf[start + 5]
+    d1 = buf[start + 6]
+    d2 = buf[start + 7]
+    damage_val = (d0 << 16) | (d1 << 8) | d2
+    dmg_flag = buf[start + 15]
+    return damage_val, dmg_flag
+
+
 # ------------------------------------------------------------
 def scan_once():
-    """
-    Returns a list of 4 slot dicts:
-    [
-      {"slot_label":..., "char_name":..., "moves":[{...}, ...]},
-      ...
-    ]
-    each move dict:
-      {
-        "name": str,
-        "addr": int,
-        "meter": int|None,
-        "speed": int|None,
-        "active_start": int|None,
-        "active_end": int|None,
-      }
-    """
     slots_info = read_slots()
     mem = rbytes(MEM2_LO, MEM2_HI - MEM2_LO)
     tails = find_all_tails(mem)
     tails.sort()
     clusters = cluster_tails(tails)
 
-    # your observed mapping
     cluster_to_slot = [0, 2, 1, 3]
 
-    # prepare result, but only 4 entries
     result = []
     max_chars = min(4, len(clusters))
     for _ in range(max_chars):
@@ -257,21 +257,15 @@ def scan_once():
         buf = mem[start_off:end_off]
         base_abs = MEM2_LO + start_off
 
-        # PASS 1: detect moves
+        # PASS 1: moves
         moves = []
         i = 0
         while i < len(buf):
-            # super-ish
             if match_bytes(buf, i, SUPER_END_HDR):
-                moves.append({
-                    "kind": "super",
-                    "abs": base_abs + i,
-                    "id": None,
-                })
+                moves.append({"kind": "super", "abs": base_abs + i, "id": None})
                 i += len(SUPER_END_HDR)
                 continue
 
-            # air
             if match_bytes(buf, i, AIR_HDR):
                 s0 = i + AIR_HDR_LEN
                 s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf))
@@ -279,16 +273,11 @@ def scan_once():
                     if match_bytes(buf, p, ANIM_HDR):
                         aid = get_anim_id_after_hdr(buf, p)
                         kind = "normal" if (aid is not None and aid in NORMAL_IDS) else "special"
-                        moves.append({
-                            "kind": kind,
-                            "abs": base_abs + p,
-                            "id": aid,
-                        })
+                        moves.append({"kind": kind, "abs": base_abs + p, "id": aid})
                         break
                 i += AIR_HDR_LEN
                 continue
 
-            # cmd
             if match_bytes(buf, i, CMD_HDR):
                 s0 = i + CMD_HDR_LEN + 3
                 s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf))
@@ -296,24 +285,15 @@ def scan_once():
                     if match_bytes(buf, p, ANIM_HDR):
                         aid = get_anim_id_after_hdr(buf, p)
                         kind = "normal" if (aid is not None and aid in NORMAL_IDS) else "special"
-                        moves.append({
-                            "kind": kind,
-                            "abs": base_abs + p,
-                            "id": aid,
-                        })
+                        moves.append({"kind": kind, "abs": base_abs + p, "id": aid})
                         break
                 i += CMD_HDR_LEN
                 continue
 
-            # plain anim
             if match_bytes(buf, i, ANIM_HDR):
                 aid = get_anim_id_after_hdr(buf, i)
                 kind = "normal" if (aid is not None and aid in NORMAL_IDS) else "special"
-                moves.append({
-                    "kind": kind,
-                    "abs": base_abs + i,
-                    "id": aid,
-                })
+                moves.append({"kind": kind, "abs": base_abs + i, "id": aid})
                 i += len(ANIM_HDR)
                 continue
 
@@ -331,7 +311,7 @@ def scan_once():
                 continue
             j += 1
 
-        # PASS 3: animation speed blocks
+        # PASS 3: animation speed
         speed_map = {}
         k = 0
         while k < len(buf):
@@ -342,23 +322,34 @@ def scan_once():
                 continue
             k += 1
 
-        # PASS 4: active frames blocks
+        # PASS 4: active frames
         active_blocks = []
         q = 0
         while q < len(buf):
             if match_bytes(buf, q, ACTIVE_HDR):
-                # parse xx, yy
-                start_f, end_f = parse_active_frames(buf, q)
-                if start_f is not None:
-                    active_blocks.append((base_abs + q, start_f, end_f))
+                a_start, a_end = parse_active_frames(buf, q)
+                if a_start is not None:
+                    active_blocks.append((base_abs + q, a_start, a_end))
                 q += ACTIVE_TOTAL_LEN
                 continue
             q += 1
 
-        # PASS 5: assign everything to moves
+        # PASS 5: damage
+        dmg_blocks = []
+        d = 0
+        while d < len(buf):
+            if match_bytes(buf, d, DAMAGE_HDR):
+                dmg_val, dmg_flag = parse_damage(buf, d)
+                if dmg_val is not None:
+                    dmg_blocks.append((base_abs + d, dmg_val, dmg_flag))
+                d += DAMAGE_TOTAL_LEN
+                continue
+            d += 1
+
+        # PASS 6: attach to moves
         for mv in moves:
             aid = mv["id"]
-            # default meter
+            # meter
             if mv["kind"] == "normal":
                 mv["meter"] = DEFAULT_METER.get(aid)
             elif mv["kind"] == "special":
@@ -366,7 +357,7 @@ def scan_once():
             else:
                 mv["meter"] = None
 
-            # override meter by proximity
+            # override meter if near
             best_val = mv["meter"]
             best_dist = None
             mv_abs = mv["abs"]
@@ -378,13 +369,13 @@ def scan_once():
                         best_val = m_val
             mv["meter"] = best_val
 
-            # animation speed by anim-id
+            # anim speed
             if aid is not None and aid in speed_map:
                 mv["speed"] = speed_map[aid]
             else:
                 mv["speed"] = None
 
-            # active frames: nearest after move
+            # active frames
             mv_active_start = None
             mv_active_end = None
             best_dist = None
@@ -398,9 +389,23 @@ def scan_once():
             mv["active_start"] = mv_active_start
             mv["active_end"] = mv_active_end
 
-        # map to slot
+            # damage
+            mv_dmg = None
+            mv_dflag = None
+            best_dist = None
+            for dmg_abs, dmg_val, dmg_flag in dmg_blocks:
+                if dmg_abs >= mv_abs and dmg_abs - mv_abs <= DAMAGE_PAIR_RANGE:
+                    dist = dmg_abs - mv_abs
+                    if best_dist is None or dist < best_dist:
+                        best_dist = dist
+                        mv_dmg = dmg_val
+                        mv_dflag = dmg_flag
+            mv["damage"] = mv_dmg
+            mv["damage_flag"] = mv_dflag
+
+        # assign into result
         slot_idx = cluster_to_slot[c_idx] if c_idx < len(cluster_to_slot) else c_idx
-        slot_label, base, cid, cname = slots_info[slot_idx] if slot_idx < len(slots_info) else (f"slot{slot_idx}", 0, None, "—")
+        slot_label, base_ptr, cid, cname = slots_info[slot_idx] if slot_idx < len(slots_info) else (f"slot{slot_idx}", 0, None, "—")
         result[slot_idx] = {
             "slot_label": slot_label,
             "char_name": cname,
@@ -417,9 +422,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("TvC move viewer")
-        self.geometry("950x520")
+        self.geometry("1100x540")
 
-        # left frame: slots
         left = ttk.Frame(self); left.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=4)
         ttk.Label(left, text="Characters").pack(anchor="w")
 
@@ -430,28 +434,29 @@ class App(tk.Tk):
         self.refresh_btn = ttk.Button(left, text="Refresh", command=self.refresh_data)
         self.refresh_btn.pack(pady=6)
 
-        # right frame: moves
         right = ttk.Frame(self); right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        cols = ("move", "addr", "meter", "speed", "active")
+        cols = ("move", "addr", "meter", "speed", "active", "damage", "dflag")
         self.tree = ttk.Treeview(right, columns=cols, show="headings")
         self.tree.heading("move", text="Move")
         self.tree.heading("addr", text="Addr")
         self.tree.heading("meter", text="Meter")
         self.tree.heading("speed", text="Speed")
         self.tree.heading("active", text="Active (start-end)")
+        self.tree.heading("damage", text="Damage")
+        self.tree.heading("dflag", text="DmgFlag")
 
         self.tree.column("move", width=200)
         self.tree.column("addr", width=120)
         self.tree.column("meter", width=60)
         self.tree.column("speed", width=60)
         self.tree.column("active", width=120)
+        self.tree.column("damage", width=90)
+        self.tree.column("dflag", width=70)
 
         self.tree.pack(fill=tk.BOTH, expand=True)
 
-        # data
         self.slots_data = []
-        # initial load
         self.refresh_data()
 
     def refresh_data(self):
@@ -461,65 +466,90 @@ class App(tk.Tk):
             print("[viewer] scan FAILED:", e)
             return
 
-        # update listbox
         self.slot_list.delete(0, tk.END)
         for idx, sd in enumerate(self.slots_data):
             label = sd.get("slot_label", f"slot{idx}")
             cname = sd.get("char_name", "—")
             self.slot_list.insert(tk.END, f"{label} ({cname})")
 
-        # auto-select first
         if self.slots_data:
             self.slot_list.selection_clear(0, tk.END)
             self.slot_list.selection_set(0)
             self.slot_list.event_generate("<<ListboxSelect>>")
 
     def on_slot_sel(self, event):
+        # which slot did the user click?
         sel = self.slot_list.curselection()
         if not sel:
             return
         idx = sel[0]
         if idx >= len(self.slots_data):
             return
+
         slot = self.slots_data[idx]
         moves = slot.get("moves", [])
 
-        # clear tree
+        # clear the table
         for iid in self.tree.get_children():
             self.tree.delete(iid)
 
-        # sort moves by anim id then addr
+        # sort by anim id, then by address
         moves_sorted = sorted(
             moves,
             key=lambda m: ((m["id"] if m["id"] is not None else 0xFF), m["abs"])
         )
 
         for mv in moves_sorted:
-            aid = mv["id"]
-            addr = mv["abs"]
+            aid = mv.get("id")
+            addr = mv.get("abs", 0)
             meter = mv.get("meter")
             speed = mv.get("speed")
             a_s = mv.get("active_start")
             a_e = mv.get("active_end")
+            dmg = mv.get("damage")
+            dflag = mv.get("damage_flag")
 
+            # move name
             if aid is not None:
                 name = ANIM_MAP.get(aid, f"anim_{aid:02X}")
             else:
                 # distinguish supers vs specials
-                if mv["kind"] == "super":
+                if mv.get("kind") == "super":
                     name = "SUPER?"
                 else:
                     name = "SPECIAL?"
 
+            # address
             addr_txt = f"0x{addr:08X}"
+
+            # meter in hex like before
             meter_txt = f"{meter:02X}" if meter is not None else ""
+
+            # animation speed
             speed_txt = f"{speed:02X}" if speed is not None else ""
+
+            # active frames
             if a_s is not None and a_e is not None:
                 active_txt = f"{a_s}-{a_e}"
             else:
                 active_txt = ""
 
-            self.tree.insert("", tk.END, values=(name, addr_txt, meter_txt, speed_txt, active_txt))
+            # damage: show as decimal, human readable
+            if dmg is not None:
+                # dmg is already an int we built from 3 bytes
+                dmg_txt = f"{dmg:,d}"   # e.g. 2,720
+            else:
+                dmg_txt = ""
+
+            # damage flag stays hex so you can see 04 / 08 / 0C
+            dflag_txt = f"{dflag:02X}" if dflag is not None else ""
+
+            # insert row
+            self.tree.insert(
+                "",
+                tk.END,
+                values=(name, addr_txt, meter_txt, speed_txt, active_txt, dmg_txt, dflag_txt),
+            )
 
 
 if __name__ == "__main__":
