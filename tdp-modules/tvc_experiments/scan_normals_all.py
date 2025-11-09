@@ -10,9 +10,10 @@
 #     * animation speed
 #     * active frames
 #     * attack damage
-#     * attack property (high/low/mid/unblock)
-#     * hit reaction (KD / launcher / stagger / etc.)
-#     * knockback distance (XX XX + trajectory byte)
+#     * attack property
+#     * hit reaction
+#     * knockback distance
+#     * stuns (hitstun / blockstun / hitstop)
 #
 # requires: dolphin_io.py, constants.py
 
@@ -76,13 +77,11 @@ METER_TOTAL_LEN = len(METER_HDR) + 5
 METER_PAIR_RANGE = 0x400
 
 # animation speed block
-# 04 01 02 3F 00 00 01 XX 01 3C ... 33 35 20 3F 00 00 00 ZZ
 ANIM_SPEED_HDR = [
     0x04, 0x01, 0x02, 0x3F, 0x00, 0x00, 0x01,
 ]
 
 # active frames block
-# 20 35 01 20 3F 00 00 00 XX 00 00 00 3F 00 00 00 YY 07 01 60
 ACTIVE_HDR = [
     0x20, 0x35, 0x01, 0x20, 0x3F, 0x00, 0x00, 0x00,
 ]
@@ -90,15 +89,13 @@ ACTIVE_TOTAL_LEN = 20
 ACTIVE_PAIR_RANGE = 0x400
 
 # attack damage block
-# 35 10 20 3F 00 XX XX XX 00 00 00 3F 00 00 00 YY
 DAMAGE_HDR = [
     0x35, 0x10, 0x20, 0x3F, 0x00,
 ]
 DAMAGE_TOTAL_LEN = 16
 DAMAGE_PAIR_RANGE = 0x400
 
-# attack property
-# 04 01 60 00 00 00 02 40 3F 00 00 00 00 00 00 XX 04 01 60
+# attack property block
 ATKPROP_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -106,8 +103,7 @@ ATKPROP_HDR = [
 ATKPROP_TOTAL_LEN = 17
 ATKPROP_PAIR_RANGE = 0x400
 
-# hit reaction
-# 04 17 60 ... 80 04 2F 00 04 15 60 ... XX YY ZZ 00 35
+# hit reaction block
 HITREACTION_HDR = [
     0x04, 0x17, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x80, 0x04, 0x2F, 0x00,
@@ -118,7 +114,6 @@ HITREACTION_TOTAL_LEN = 33
 HITREACTION_PAIR_RANGE = 0x400
 
 # knockback distance
-# 35 XX XX 20 00 00 00 00 00 00 00 00 BD 23 D7 0A 3D 75 C2 8F
 KNOCKBACK_HDR = [
     0x35, None, None, 0x20, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
@@ -132,6 +127,21 @@ KNOCKBACK_TRAJ_MEANING = {
     0xBC: "up KB",
     0xC4: "pop",
 }
+
+# stun block
+# 04 01 60 ... 02 54 ... XX
+# 04 01 60 ... 02 58 ... YY
+# 33 32 00 20 00 00 00 ZZ 04 15 60
+STUN_HDR = [
+    0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x54,
+    0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, None,
+    0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x58,
+    0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, None,
+    0x33, 0x32, 0x00, 0x20, 0x00, 0x00, 0x00, None,
+    0x04, 0x15, 0x60,
+]
+STUN_TOTAL_LEN = 43
+STUN_PAIR_RANGE = 0x400
 
 # meaning tables
 ATKPROP_MEANING = {
@@ -363,6 +373,16 @@ def parse_knockback(buf: bytes, start: int):
     return kb0, kb1, traj
 
 
+def parse_stun(buf: bytes, start: int):
+    # we already matched STUN_HDR
+    if start + STUN_TOTAL_LEN > len(buf):
+        return None
+    hitstun = buf[start + 15]
+    blockstun = buf[start + 31]
+    hitstop = buf[start + 38]
+    return hitstun, blockstun, hitstop
+
+
 # ------------------------------------------------------------
 def scan_once():
     slots_info = read_slots()
@@ -371,7 +391,7 @@ def scan_once():
     tails.sort()
     clusters = cluster_tails(tails)
 
-    # empiric remap you found
+    # empiric remap
     cluster_to_slot = [0, 2, 1, 3]
 
     result = []
@@ -519,7 +539,19 @@ def scan_once():
                 continue
             kbpos += 1
 
-        # PASS 9: attach to moves
+        # PASS 9: stuns
+        stun_blocks = []
+        sb = 0
+        while sb < len(buf):
+            if match_bytes(buf, sb, STUN_HDR):
+                stun_data = parse_stun(buf, sb)
+                if stun_data is not None:
+                    stun_blocks.append((base_abs + sb, stun_data))
+                sb += STUN_TOTAL_LEN
+                continue
+            sb += 1
+
+        # PASS 10: attach to moves
         for mv in moves:
             aid = mv["id"]
             mv_abs = mv["abs"]
@@ -614,6 +646,23 @@ def scan_once():
             mv["kb1"] = mv_kb1
             mv["kb_traj"] = mv_kb_traj
 
+            # stuns
+            mv_hitstun = None
+            mv_blockstun = None
+            mv_hitstop = None
+            best_dist = None
+            for stun_abs, (hs, bs, hsop) in stun_blocks:
+                if stun_abs >= mv_abs and stun_abs - mv_abs <= STUN_PAIR_RANGE:
+                    dist = stun_abs - mv_abs
+                    if best_dist is None or dist < best_dist:
+                        best_dist = dist
+                        mv_hitstun = hs
+                        mv_blockstun = bs
+                        mv_hitstop = hsop
+            mv["hitstun"] = mv_hitstun
+            mv["blockstun"] = mv_blockstun
+            mv["hitstop"] = mv_hitstop
+
         # assign to actual slot
         slot_idx = cluster_to_slot[c_idx] if c_idx < len(cluster_to_slot) else c_idx
         slot_label, base_ptr, cid, cname = (
@@ -635,7 +684,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("TvC move viewer")
-        self.geometry("1650x600")
+        self.geometry("1800x600")
 
         left = ttk.Frame(self); left.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=4)
         ttk.Label(left, text="Characters").pack(anchor="w")
@@ -651,7 +700,8 @@ class App(tk.Tk):
 
         cols = (
             "move", "addr", "meter", "speed", "active",
-            "damage", "dflag", "atkprop", "hitreact", "knockback"
+            "damage", "dflag", "atkprop", "hitreact",
+            "knockback", "stun"
         )
         self.tree = ttk.Treeview(right, columns=cols, show="headings")
         self.tree.heading("move", text="Move")
@@ -664,6 +714,7 @@ class App(tk.Tk):
         self.tree.heading("atkprop", text="AtkProp")
         self.tree.heading("hitreact", text="HitReact")
         self.tree.heading("knockback", text="KB")
+        self.tree.heading("stun", text="Stun")
 
         self.tree.column("move", width=200)
         self.tree.column("addr", width=120)
@@ -675,6 +726,7 @@ class App(tk.Tk):
         self.tree.column("atkprop", width=110)
         self.tree.column("hitreact", width=150)
         self.tree.column("knockback", width=140)
+        self.tree.column("stun", width=140)
 
         self.tree.pack(fill=tk.BOTH, expand=True)
 
@@ -710,9 +762,11 @@ class App(tk.Tk):
         slot = self.slots_data[idx]
         moves = slot.get("moves", [])
 
+        # clear table
         for iid in self.tree.get_children():
             self.tree.delete(iid)
 
+        # sort by anim id and address
         moves_sorted = sorted(
             moves,
             key=lambda m: ((m["id"] if m["id"] is not None else 0xFF), m["abs"])
@@ -732,8 +786,11 @@ class App(tk.Tk):
             kb0 = mv.get("kb0")
             kb1 = mv.get("kb1")
             kb_traj = mv.get("kb_traj")
+            hs = mv.get("hitstun")
+            bs = mv.get("blockstun")
+            hstop = mv.get("hitstop")
 
-            # move name
+            # ---- Move name ----
             if aid is not None:
                 name = ANIM_MAP.get(aid, f"anim_{aid:02X}")
             else:
@@ -741,7 +798,7 @@ class App(tk.Tk):
 
             addr_txt = f"0x{addr:08X}"
 
-            # meter text
+            # ---- Meter ----
             if meter is not None:
                 label = METER_LABELS.get(meter)
                 if label:
@@ -751,13 +808,16 @@ class App(tk.Tk):
             else:
                 meter_txt = ""
 
+            # ---- Speed ----
             speed_txt = f"{speed:02X}" if speed is not None else ""
 
+            # ---- Active Frames ----
             if a_s is not None and a_e is not None:
                 active_txt = f"{a_s}-{a_e}"
             else:
                 active_txt = ""
 
+            # ---- Damage ----
             if dmg is not None:
                 dmg_txt = f"{dmg:,d}"
             else:
@@ -765,12 +825,14 @@ class App(tk.Tk):
 
             dflag_txt = f"{dflag:02X}" if dflag is not None else ""
 
+            # ---- Attack Property ----
             if atkprop is not None:
                 short = ATKPROP_MEANING.get(atkprop)
                 atkprop_txt = f"{atkprop:02X}" + (f" ({short})" if short else "")
             else:
                 atkprop_txt = ""
 
+            # ---- Hit Reaction ----
             if hitreact is not None:
                 b0 = (hitreact >> 16) & 0xFF
                 b1 = (hitreact >> 8) & 0xFF
@@ -783,7 +845,7 @@ class App(tk.Tk):
             else:
                 hitreact_txt = ""
 
-            # knockback text
+            # ---- Knockback ----
             if kb0 is not None and kb1 is not None:
                 kb_txt = f"{kb0:02X} {kb1:02X}"
             else:
@@ -795,6 +857,34 @@ class App(tk.Tk):
                 else:
                     kb_txt = (kb_txt + f" {kb_traj:02X}").strip()
 
+            # ---- Stuns → cleaner display ----
+            def stun_to_text(label, val):
+                if val is None:
+                    return None
+                # default to numeric conversion
+                frame_guess = val
+                # adjust for known measured values
+                if val == 0x0C:
+                    frame_guess = 10
+                elif val == 0x0F:
+                    frame_guess = 15
+                elif val == 0x11:
+                    frame_guess = 17
+                elif val == 0x15:
+                    frame_guess = 21
+                return f"{label}:{frame_guess}f"
+
+            stun_parts = []
+            if hs is not None:
+                stun_parts.append(stun_to_text("HS", hs))
+            if bs is not None:
+                stun_parts.append(stun_to_text("BS", bs))
+            if hstop is not None:
+                stun_parts.append(f"Stop:{hstop}")
+
+            stun_txt = " ".join(p for p in stun_parts if p)
+
+            # ---- Insert into Treeview ----
             self.tree.insert(
                 "",
                 tk.END,
@@ -809,9 +899,9 @@ class App(tk.Tk):
                     atkprop_txt,
                     hitreact_txt,
                     kb_txt,
+                    stun_txt,
                 ),
             )
-
 
 if __name__ == "__main__":
     print("[viewer] hooking dolphin…")
