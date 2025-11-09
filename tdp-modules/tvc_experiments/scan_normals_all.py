@@ -1,6 +1,6 @@
 # scan_normals_all.py
 #
-# noisy version – prints every step so we know where it dies
+# noisy version + animation speed detection
 
 import sys
 
@@ -42,6 +42,7 @@ SUPER_END_HDR = [
 ANIM_ID_PATTERN = [0x01, None, 0x01, 0x3C]
 LOOKAHEAD_AFTER_HDR = 0x80
 
+# Meter block
 METER_HDR = [
     0x34, 0x04, 0x00, 0x20, 0x00, 0x00, 0x00, 0x03,
     0x00, 0x00, 0x00, 0x00,
@@ -50,6 +51,14 @@ METER_HDR = [
 ]
 METER_TOTAL_LEN = len(METER_HDR) + 5
 METER_PAIR_RANGE = 0x400
+
+# Animation speed block (your pattern)
+ANIM_SPEED_HDR = [
+    0x04, 0x01, 0x02, 0x3F, 0x00, 0x00,  # header
+    0x01,                                # start of "01 XX 01 3C"
+]
+# after this: XX, 0x01, 0x3C, 0x00 0x00 0x00 0x00, YY YY, 0x33 0x35 0x20 0x3F 0x00 0x00 0x00, ZZ
+# we'll parse flexibly
 
 ANIM_MAP = {
     0x00: "5A / light",
@@ -68,6 +77,7 @@ ANIM_MAP = {
 }
 NORMAL_IDS = set(ANIM_MAP.keys())
 
+# default meter per anim
 DEFAULT_METER = {
     0x00: 0x32,
     0x03: 0x32,
@@ -149,6 +159,40 @@ def read_slots():
     return out
 
 
+def parse_anim_speed(buf: bytes, start: int):
+    """
+    We expect:
+    04 01 02 3F 00 00 01 XX 01 3C 00 00 00 00 YY YY 33 35 20 3F 00 00 00 ZZ
+    Return (anim_id, speed) or (None, None)
+    """
+    # need at least header + 2 (XX, 0x01,0x3C) + trailing
+    if start + 24 > len(buf):
+        return None, None
+    # header
+    for i, b in enumerate(ANIM_SPEED_HDR):
+        if buf[start + i] != b:
+            return None, None
+    anim_id = buf[start + len(ANIM_SPEED_HDR)]  # this is XX
+    # check next two bytes are 0x01 0x3C
+    if buf[start + len(ANIM_SPEED_HDR) + 1] != 0x01 or buf[start + len(ANIM_SPEED_HDR) + 2] != 0x3C:
+        # pattern not exact, bail
+        return None, None
+
+    # the last byte (ZZ) is at the very end of the pattern your doc shows
+    # we'll search forward a little for the tail "33 35 20 3F 00 00 00"
+    tail_pattern = [0x33, 0x35, 0x20, 0x3F, 0x00, 0x00, 0x00]
+    search_from = start + 16  # after the 00 00 00 00 YY YY
+    search_to = min(start + 64, len(buf))
+    for p in range(search_from, search_to - len(tail_pattern) + 1):
+        if match_bytes(buf, p, tail_pattern):
+            # speed is right after tail
+            speed_pos = p + len(tail_pattern)
+            if speed_pos < len(buf):
+                speed_val = buf[speed_pos]
+                return anim_id, speed_val
+    return None, None
+
+
 # ------------------------------------------------------------
 def main():
     print("[scan] hooking dolphin…")
@@ -175,7 +219,6 @@ def main():
     clusters = cluster_tails(tail_offs)
     print(f"[scan] grouped into {len(clusters)} clusters")
 
-    # your observed order
     cluster_to_slot = [0, 2, 1, 3]
 
     slot_normals = {i: [] for i in range(len(slots))}
@@ -250,9 +293,22 @@ def main():
                 continue
             j += 1
 
-        # pass 3: assign defaults + override
+        # pass 3: animation speed blocks
+        speed_map = {}  # anim_id -> speed
+        k = 0
+        while k < len(buf):
+            anim_id, speed_val = parse_anim_speed(buf, k)
+            if anim_id is not None:
+                speed_map[anim_id] = speed_val
+                # advance a bit so we don't re-hit the same one
+                k += 24
+                continue
+            k += 1
+
+        # pass 4: assign defaults, override with meter and speed
         for mv in moves:
             aid = mv["id"]
+            # defaults
             if mv["kind"] == "normal":
                 mv["meter"] = DEFAULT_METER.get(aid)
             elif mv["kind"] == "special":
@@ -260,6 +316,7 @@ def main():
             else:
                 mv["meter"] = None
 
+            # override meter if nearby
             best_val = mv["meter"]
             best_dist = None
             mv_abs = mv["abs"]
@@ -270,6 +327,12 @@ def main():
                         best_dist = dist
                         best_val = m_val
             mv["meter"] = best_val
+
+            # assign animation speed if we have anim_id in speed_map
+            if aid is not None and aid in speed_map:
+                mv["anim_speed"] = speed_map[aid]
+            else:
+                mv["anim_speed"] = None
 
         # map to slot
         if c_idx < len(cluster_to_slot):
@@ -283,7 +346,7 @@ def main():
                     slot_supers[slot_idx].append(mv)
 
     # print
-    print("=== per-slot moves (with meter) ===")
+    print("=== per-slot moves (with meter + anim speed if found) ===")
     for idx, (slot_label, base, cid, cname) in enumerate(slots):
         print(f"{slot_label} ({cname})")
         normals_sorted = sorted(
@@ -294,18 +357,28 @@ def main():
             aid = mv["id"]
             addr = mv["abs"]
             meter_val = mv.get("meter")
+            spd_val = mv.get("anim_speed")
             name = ANIM_MAP.get(aid, f"anim_{(aid if aid is not None else 0xFF):02X}")
+            extra = []
             if meter_val is not None:
-                print(f"   {cname} {name:15s} @ 0x{addr:08X}  meter {meter_val:02X}")
-            else:
-                print(f"   {cname} {name:15s} @ 0x{addr:08X}")
+                extra.append(f"meter {meter_val:02X}")
+            if spd_val is not None:
+                extra.append(f"speed {spd_val:02X}")
+            extra_txt = ("  " + "  ".join(extra)) if extra else ""
+            print(f"   {cname} {name:15s} @ 0x{addr:08X}{extra_txt}")
+
         for mv in slot_specials[idx]:
             addr = mv["abs"]
             meter_val = mv.get("meter")
+            spd_val = mv.get("anim_speed")
+            extra = []
             if meter_val is not None:
-                print(f"   {cname} SPECIAL?       @ 0x{addr:08X}  meter {meter_val:02X}")
-            else:
-                print(f"   {cname} SPECIAL?       @ 0x{addr:08X}")
+                extra.append(f"meter {meter_val:02X}")
+            if spd_val is not None:
+                extra.append(f"speed {spd_val:02X}")
+            extra_txt = ("  " + "  ".join(extra)) if extra else ""
+            print(f"   {cname} SPECIAL?       @ 0x{addr:08X}{extra_txt}")
+
         for mv in slot_supers[idx]:
             print(f"   {cname} SUPER?         @ 0x{mv['abs']:08X}")
 
