@@ -1,13 +1,20 @@
 # tvc_move_viewer.py
 #
 # GUI viewer for TvC move tables
-# now with:
-# - meter
-# - animation speed
-# - active frames
-# - attack damage
-# - attack property
-# - hit reaction
+# features:
+# - auto-detect 4 loaded character tables (by tail clusters)
+# - per-slot move listing (P1-C1, P2-C1, etc. via remap)
+# - for each move:
+#     * anim id → name
+#     * meter block
+#     * animation speed
+#     * active frames
+#     * attack damage
+#     * attack property (high/low/mid/unblock)
+#     * hit reaction (KD / launcher / stagger / etc.)
+#     * knockback distance (XX XX + trajectory byte)
+#
+# requires: dolphin_io.py, constants.py
 
 import sys
 import tkinter as tk
@@ -29,29 +36,36 @@ except Exception as e:
 TAIL_PATTERN = b"\x00\x00\x00\x38\x01\x33\x00\x00"
 CLUSTER_GAP = 0x4000
 
+# base animation header
 ANIM_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x01, 0xE8,
     0x3F, 0x00, 0x00, 0x00,
 ]
+
+# "button can be altered w/ directional input"
 CMD_HDR = [
     0x04, 0x03, 0x60, 0x00, 0x00, 0x00, 0x13, 0xCC,
     0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
     0x01, 0x34, 0x00, 0x00, 0x00,
 ]
 CMD_HDR_LEN = len(CMD_HDR)
+
+# air variant block
 AIR_HDR = [
     0x33, 0x33, 0x20, 0x00, 0x01, 0x34, 0x00, 0x00, 0x00,
 ]
 AIR_HDR_LEN = len(AIR_HDR)
 
+# end-of-attack / super-ish header
 SUPER_END_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x12, 0x18, 0x3F,
 ]
 
+# inside the header, later, we look for 01 ?? 01 3C
 ANIM_ID_PATTERN = [0x01, None, 0x01, 0x3C]
 LOOKAHEAD_AFTER_HDR = 0x80
 
-# meter block
+# meter gain block
 METER_HDR = [
     0x34, 0x04, 0x00, 0x20, 0x00, 0x00, 0x00, 0x03,
     0x00, 0x00, 0x00, 0x00,
@@ -62,11 +76,13 @@ METER_TOTAL_LEN = len(METER_HDR) + 5
 METER_PAIR_RANGE = 0x400
 
 # animation speed block
+# 04 01 02 3F 00 00 01 XX 01 3C ... 33 35 20 3F 00 00 00 ZZ
 ANIM_SPEED_HDR = [
     0x04, 0x01, 0x02, 0x3F, 0x00, 0x00, 0x01,
 ]
 
 # active frames block
+# 20 35 01 20 3F 00 00 00 XX 00 00 00 3F 00 00 00 YY 07 01 60
 ACTIVE_HDR = [
     0x20, 0x35, 0x01, 0x20, 0x3F, 0x00, 0x00, 0x00,
 ]
@@ -74,13 +90,15 @@ ACTIVE_TOTAL_LEN = 20
 ACTIVE_PAIR_RANGE = 0x400
 
 # attack damage block
+# 35 10 20 3F 00 XX XX XX 00 00 00 3F 00 00 00 YY
 DAMAGE_HDR = [
     0x35, 0x10, 0x20, 0x3F, 0x00,
 ]
 DAMAGE_TOTAL_LEN = 16
 DAMAGE_PAIR_RANGE = 0x400
 
-# attack property block
+# attack property
+# 04 01 60 00 00 00 02 40 3F 00 00 00 00 00 00 XX 04 01 60
 ATKPROP_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -88,9 +106,8 @@ ATKPROP_HDR = [
 ATKPROP_TOTAL_LEN = 17
 ATKPROP_PAIR_RANGE = 0x400
 
-# hit reaction block
-# 04 17 60 00 00 00 02 40 3F 00 00 00 80 04 2F 00
-# 04 15 60 00 00 00 02 40 3F 00 00 00 XX YY ZZ 00 35
+# hit reaction
+# 04 17 60 ... 80 04 2F 00 04 15 60 ... XX YY ZZ 00 35
 HITREACTION_HDR = [
     0x04, 0x17, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x80, 0x04, 0x2F, 0x00,
@@ -100,36 +117,23 @@ HITREACTION_HDR = [
 HITREACTION_TOTAL_LEN = 33
 HITREACTION_PAIR_RANGE = 0x400
 
-# human meaning for reaction codes we know
-HITREACTION_MEANING = {
-    0x000000: "Stay on ground",
-    0x000001: "KB",
-    0x000002: "KD",
-    0x000003: "Spiral KD",
-    0x000004: "Sweep",
-    0x000008: "Stagger",
-    0x000010: "G stay, A KB",
-    0x000040: "G stay, A KB, OTG stay",
-    0x000041: "KB, OTG stay",
-    0x000042: "KD, OTG stay",
-    0x000080: "G stay, A KB (alt)",
-    0x000082: "KD (alt)",
-    0x000083: "Spiral KD (alt)",
-    0x000400: "Launcher",
-    0x000800: "Soft KD",
-    0x000848: "Stagger/soft KD",
-    0x002010: "G stay, A KB (2)",
-    0x003010: "G stay, A KB (3)",
-    0x004200: "KD (3)",
-    0x800000: "Crumple, A KB",
-    0x800002: "KD, wallbounce",
-    0x800008: "Alex chop",
-    0x800020: "Snapback",
-    0x800082: "KD, wallbounce (2)",
-    0x001001: "Wonky grab",
-    0x001003: "Wonky grab 2",
+# knockback distance
+# 35 XX XX 20 00 00 00 00 00 00 00 00 BD 23 D7 0A 3D 75 C2 8F
+KNOCKBACK_HDR = [
+    0x35, None, None, 0x20, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00,
+]
+KNOCKBACK_TOTAL_LEN = 20
+KNOCKBACK_PAIR_RANGE = 0x400
+
+KNOCKBACK_TRAJ_MEANING = {
+    0xBD: "up-fwd KB",
+    0xBE: "down-fwd KB",
+    0xBC: "up KB",
+    0xC4: "pop",
 }
 
+# meaning tables
 ATKPROP_MEANING = {
     0x04: "Unblockable",
     0x09: "Mid L",
@@ -143,6 +147,36 @@ ATKPROP_MEANING = {
     0x24: "Low H",
 }
 
+HITREACTION_MEANING = {
+    0x000000: "Stay on ground",
+    0x000001: "KB",
+    0x000002: "KD",
+    0x000003: "Spiral KD",
+    0x000004: "Sweep",
+    0x000008: "Stagger",
+    0x000010: "G stay, A KB",
+    0x000040: "G stay, A KB, OTG stay",
+    0x000041: "KB, OTG stay",
+    0x000042: "KD, OTG stay",
+    0x000080: "G stay, A KB",
+    0x000082: "KD",
+    0x000083: "Spiral KD",
+    0x000400: "Launcher",
+    0x000800: "G stay, A soft KD",
+    0x000848: "Stagger / soft KD",
+    0x002010: "G stay, A KB",
+    0x003010: "G stay, A KB",
+    0x004200: "KD",
+    0x800000: "Crumple, A KB",
+    0x800002: "KD, wallbounce",
+    0x800008: "Flash Chop",
+    0x800020: "Snapback",
+    0x800082: "KD, wallbounce",
+    0x001001: "Weird grab",
+    0x001003: "Weird grab 2",
+}
+
+# Ryu-based animation names
 ANIM_MAP = {
     0x00: "5A / light",
     0x01: "5B / medium",
@@ -160,14 +194,15 @@ ANIM_MAP = {
 }
 NORMAL_IDS = set(ANIM_MAP.keys())
 
+# default meter per normal
 DEFAULT_METER = {
-    0x00: 0x32,
+    0x00: 0x32,  # light
     0x03: 0x32,
     0x09: 0x32,
-    0x01: 0x64,
+    0x01: 0x64,  # medium
     0x04: 0x64,
     0x0A: 0x64,
-    0x02: 0x96,
+    0x02: 0x96,  # heavy
     0x05: 0x96,
     0x0B: 0x96,
     0x06: 0x96,
@@ -175,9 +210,18 @@ DEFAULT_METER = {
     0x0E: 0x96,
     0x14: 0x96,
 }
-SPECIAL_DEFAULT_METER = 0xC8
+SPECIAL_DEFAULT_METER = 0xC8  # special/super-ish
+
+METER_LABELS = {
+    0x32: "L",
+    0x64: "M",
+    0x96: "H",
+    0xC8: "S",
+}
 
 
+# ------------------------------------------------------------
+# helpers
 # ------------------------------------------------------------
 def match_bytes(buf, pos, pat):
     L = len(pat)
@@ -310,6 +354,15 @@ def parse_hitreaction(buf: bytes, start: int):
     return code
 
 
+def parse_knockback(buf: bytes, start: int):
+    if start + KNOCKBACK_TOTAL_LEN > len(buf):
+        return None
+    kb0 = buf[start + 1]
+    kb1 = buf[start + 2]
+    traj = buf[start + 12]
+    return kb0, kb1, traj
+
+
 # ------------------------------------------------------------
 def scan_once():
     slots_info = read_slots()
@@ -318,7 +371,7 @@ def scan_once():
     tails.sort()
     clusters = cluster_tails(tails)
 
-    # your slot remap
+    # empiric remap you found
     cluster_to_slot = [0, 2, 1, 3]
 
     result = []
@@ -383,7 +436,7 @@ def scan_once():
 
             i += 1
 
-        # PASS 2: meter blocks
+        # PASS 2: meter
         meters = []
         j = 0
         while j < len(buf):
@@ -454,7 +507,19 @@ def scan_once():
                 continue
             hr += 1
 
-        # PASS 8: attach to moves
+        # PASS 8: knockback
+        kb_blocks = []
+        kbpos = 0
+        while kbpos < len(buf):
+            if match_bytes(buf, kbpos, KNOCKBACK_HDR):
+                kb_data = parse_knockback(buf, kbpos)
+                if kb_data is not None:
+                    kb_blocks.append((base_abs + kbpos, kb_data))
+                kbpos += KNOCKBACK_TOTAL_LEN
+                continue
+            kbpos += 1
+
+        # PASS 9: attach to moves
         for mv in moves:
             aid = mv["id"]
             mv_abs = mv["abs"]
@@ -466,7 +531,6 @@ def scan_once():
                 mv["meter"] = SPECIAL_DEFAULT_METER
             else:
                 mv["meter"] = None
-
             best_val = mv["meter"]
             best_dist = None
             for m_abs, m_val in meters:
@@ -533,9 +597,28 @@ def scan_once():
                         mv_react = code
             mv["hit_reaction"] = mv_react
 
-        # assign to real slot
+            # knockback
+            mv_kb0 = None
+            mv_kb1 = None
+            mv_kb_traj = None
+            best_dist = None
+            for kb_abs, (kb0, kb1, traj) in kb_blocks:
+                if kb_abs >= mv_abs and kb_abs - mv_abs <= KNOCKBACK_PAIR_RANGE:
+                    dist = kb_abs - mv_abs
+                    if best_dist is None or dist < best_dist:
+                        best_dist = dist
+                        mv_kb0 = kb0
+                        mv_kb1 = kb1
+                        mv_kb_traj = traj
+            mv["kb0"] = mv_kb0
+            mv["kb1"] = mv_kb1
+            mv["kb_traj"] = mv_kb_traj
+
+        # assign to actual slot
         slot_idx = cluster_to_slot[c_idx] if c_idx < len(cluster_to_slot) else c_idx
-        slot_label, base_ptr, cid, cname = slots_info[slot_idx] if slot_idx < len(slots_info) else (f"slot{slot_idx}", 0, None, "—")
+        slot_label, base_ptr, cid, cname = (
+            slots_info[slot_idx] if slot_idx < len(slots_info) else (f"slot{slot_idx}", 0, None, "—")
+        )
         result[slot_idx] = {
             "slot_label": slot_label,
             "char_name": cname,
@@ -552,7 +635,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("TvC move viewer")
-        self.geometry("1500x580")
+        self.geometry("1650x600")
 
         left = ttk.Frame(self); left.pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=4)
         ttk.Label(left, text="Characters").pack(anchor="w")
@@ -566,7 +649,10 @@ class App(tk.Tk):
 
         right = ttk.Frame(self); right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        cols = ("move", "addr", "meter", "speed", "active", "damage", "dflag", "atkprop", "hitreact")
+        cols = (
+            "move", "addr", "meter", "speed", "active",
+            "damage", "dflag", "atkprop", "hitreact", "knockback"
+        )
         self.tree = ttk.Treeview(right, columns=cols, show="headings")
         self.tree.heading("move", text="Move")
         self.tree.heading("addr", text="Addr")
@@ -577,16 +663,18 @@ class App(tk.Tk):
         self.tree.heading("dflag", text="DmgFlag")
         self.tree.heading("atkprop", text="AtkProp")
         self.tree.heading("hitreact", text="HitReact")
+        self.tree.heading("knockback", text="KB")
 
         self.tree.column("move", width=200)
         self.tree.column("addr", width=120)
-        self.tree.column("meter", width=60)
+        self.tree.column("meter", width=80)
         self.tree.column("speed", width=60)
-        self.tree.column("active", width=110)
+        self.tree.column("active", width=100)
         self.tree.column("damage", width=90)
         self.tree.column("dflag", width=70)
         self.tree.column("atkprop", width=110)
         self.tree.column("hitreact", width=150)
+        self.tree.column("knockback", width=140)
 
         self.tree.pack(fill=tk.BOTH, expand=True)
 
@@ -641,14 +729,28 @@ class App(tk.Tk):
             dflag = mv.get("damage_flag")
             atkprop = mv.get("attack_property")
             hitreact = mv.get("hit_reaction")
+            kb0 = mv.get("kb0")
+            kb1 = mv.get("kb1")
+            kb_traj = mv.get("kb_traj")
 
+            # move name
             if aid is not None:
                 name = ANIM_MAP.get(aid, f"anim_{aid:02X}")
             else:
                 name = "SUPER?" if mv.get("kind") == "super" else "SPECIAL?"
 
             addr_txt = f"0x{addr:08X}"
-            meter_txt = f"{meter:02X}" if meter is not None else ""
+
+            # meter text
+            if meter is not None:
+                label = METER_LABELS.get(meter)
+                if label:
+                    meter_txt = f"{meter:02X} ({label})"
+                else:
+                    meter_txt = f"{meter:02X}"
+            else:
+                meter_txt = ""
+
             speed_txt = f"{speed:02X}" if speed is not None else ""
 
             if a_s is not None and a_e is not None:
@@ -670,7 +772,6 @@ class App(tk.Tk):
                 atkprop_txt = ""
 
             if hitreact is not None:
-                # show as 00 00 02 style and name if known
                 b0 = (hitreact >> 16) & 0xFF
                 b1 = (hitreact >> 8) & 0xFF
                 b2 = hitreact & 0xFF
@@ -681,6 +782,18 @@ class App(tk.Tk):
                     hitreact_txt = f"{b0:02X} {b1:02X} {b2:02X}"
             else:
                 hitreact_txt = ""
+
+            # knockback text
+            if kb0 is not None and kb1 is not None:
+                kb_txt = f"{kb0:02X} {kb1:02X}"
+            else:
+                kb_txt = ""
+            if kb_traj is not None:
+                traj_name = KNOCKBACK_TRAJ_MEANING.get(kb_traj)
+                if traj_name:
+                    kb_txt = (kb_txt + f" {kb_traj:02X} ({traj_name})").strip()
+                else:
+                    kb_txt = (kb_txt + f" {kb_traj:02X}").strip()
 
             self.tree.insert(
                 "",
@@ -695,6 +808,7 @@ class App(tk.Tk):
                     dflag_txt,
                     atkprop_txt,
                     hitreact_txt,
+                    kb_txt,
                 ),
             )
 
