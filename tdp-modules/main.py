@@ -60,7 +60,7 @@ SCAN_MIN_INTERVAL_SEC = 180.0  # 3 min
 def init_pygame():
     pygame.init()
     try:
-        font = pygame.font.SysSysFont("consolas", FONT_MAIN_SIZE)
+        font = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
     except Exception:
         font = pygame.font.Font(None, FONT_MAIN_SIZE)
     try:
@@ -130,7 +130,8 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         "startup", "active", "hitstun", "blockstun",
         "advH", "advB", "abs"
     )
-    frame = ttk.Frame(root); frame.pack(fill="both", expand=True)
+    frame = ttk.Frame(root)
+    frame.pack(fill="both", expand=True)
     tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
     vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=vsb.set)
@@ -172,7 +173,8 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     for mv in moves_sorted:
         aid = mv.get("id")
         if aid is None:
-            deduped.append(mv); continue
+            deduped.append(mv)
+            continue
         name = SCAN_ANIM_MAP_LOCAL.get(aid, f"anim_{aid:02X}")
         if not name.startswith("anim_") and "?" not in name:
             if aid in seen_named:
@@ -181,19 +183,31 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         deduped.append(mv)
 
     def _fmt_stun(v):
-        if v is None: return ""
-        if v == 0x0C: return "10"
-        if v == 0x0F: return "15"
-        if v == 0x11: return "17"
-        if v == 0x15: return "21"
+        if v is None:
+            return ""
+        if v == 0x0C:
+            return "10"
+        if v == 0x0F:
+            return "15"
+        if v == 0x11:
+            return "17"
+        if v == 0x15:
+            return "21"
         return str(v)
 
     for mv in deduped:
         aid = mv.get("id")
-        move_name = SCAN_ANIM_MAP_LOCAL.get(aid, f"anim_{aid:02X}") if aid is not None else "anim_--"
+        move_name = (
+            SCAN_ANIM_MAP_LOCAL.get(aid, f"anim_{aid:02X}")
+            if aid is not None else "anim_--"
+        )
         a_s = mv.get("active_start")
         a_e = mv.get("active_end")
-        active_txt = f"{a_s}-{a_e}" if (a_s is not None and a_e is not None) else (str(a_e) if a_e is not None else "")
+        active_txt = (
+            f"{a_s}-{a_e}"
+            if (a_s is not None and a_e is not None)
+            else (str(a_e) if a_e is not None else "")
+        )
 
         sane_adv_h, sane_adv_b, _ = sanitize_scan_adv(mv)
 
@@ -224,7 +238,8 @@ def open_frame_data_window(slot_label, scan_data):
     target = None
     for s in scan_data:
         if s.get("slot_label") == slot_label:
-            target = s; break
+            target = s
+            break
     if not target:
         return
     t = threading.Thread(
@@ -326,16 +341,25 @@ def main():
     local_scan = RedHealthScanner()
     global_scan = GlobalRedScanner()
 
-    last_adv_display = ""
+    # scan normals immediately on load so HUD has data even before F5
     last_scan_normals = None
     last_scan_time = 0.0
-    manual_scan_requested = False
     cached_lookup = {}
+    if HAVE_SCAN_NORMALS:
+        try:
+            last_scan_normals = scan_normals_all.scan_once()
+            last_scan_time = time.time()
+            cached_lookup = build_move_lookup(last_scan_normals)
+            print("initial scan_normals: OK")
+        except Exception as e:
+            print("initial scan_normals failed:", e)
 
+    manual_scan_requested = False
+
+    last_adv_display = ""
     pending_hits = []
     frame_idx = 0
     running = True
-
     last_real_adv_frame = -99999
 
     while running:
@@ -351,11 +375,16 @@ def main():
             elif ev.type == pygame.VIDEORESIZE:
                 screen = pygame.display.set_mode(ev.size, pygame.RESIZABLE)
             elif ev.type == pygame.KEYDOWN:
-                if ev.key == pygame.K_F1: snapshot_p1c1_local = True
-                elif ev.key == pygame.K_F2: run_local_analysis = True
-                elif ev.key == pygame.K_F3: snapshot_global_full = True
-                elif ev.key == pygame.K_F4: run_global_analysis = True
-                elif ev.key == pygame.K_F5: manual_scan_requested = True
+                if ev.key == pygame.K_F1:
+                    snapshot_p1c1_local = True
+                elif ev.key == pygame.K_F2:
+                    run_local_analysis = True
+                elif ev.key == pygame.K_F3:
+                    snapshot_global_full = True
+                elif ev.key == pygame.K_F4:
+                    run_global_analysis = True
+                elif ev.key == pygame.K_F5:
+                    manual_scan_requested = True
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
                 mouse_clicked_pos = ev.pos
 
@@ -369,7 +398,7 @@ def main():
                 y_off_by_base[base] = pick_posy_off_no_jump(base)
             resolved_slots.append((slotname, teamtag, base))
 
-        # meter read
+        # meter reads
         p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
         p2c1_base = next((b for n, t, b in resolved_slots if n == "P2-C1" and b), None)
         meter_p1 = read_meter(p1c1_base)
@@ -441,7 +470,7 @@ def main():
 
             snaps[slotname] = snap
 
-        # scan hotkeys
+        # redscan hotkeys
         if snapshot_p1c1_local:
             targ = snaps.get("P1-C1")
             if targ:
@@ -543,13 +572,14 @@ def main():
                 atk_snap = snaps.get(atk_slot)
                 vic_snap = snaps.get(vic_slot)
                 if atk_snap and vic_snap:
-                    ADV_TRACK.update_pair(atk_snap, vic_snap, dist2(atk_snap, vic_snap), frame_idx)
+                    ADV_TRACK.update_pair(
+                        atk_snap, vic_snap, dist2(atk_snap, vic_snap), frame_idx
+                    )
 
             freshest = ADV_TRACK.get_freshest_final_info()
             if freshest:
                 atk_b, vic_b, plusf, fin_frame = freshest
 
-                # relaxed gate: allow up to 64f, just block the truly bogus stuff
                 if abs(plusf) <= 64:
                     if frame_idx - last_real_adv_frame > 20:
                         atk_slot = next((s for s in snaps.values() if s["base"] == atk_b), None)
@@ -601,18 +631,22 @@ def main():
 
             if layout["btn_p1c1"].collidepoint(mx, my):
                 data = ensure_scan()
-                if data: open_frame_data_window("P1-C1", data)
+                if data:
+                    open_frame_data_window("P1-C1", data)
             elif layout["btn_p2c1"].collidepoint(mx, my):
                 data = ensure_scan()
-                if data: open_frame_data_window("P2-C1", data)
+                if data:
+                    open_frame_data_window("P2-C1", data)
             elif layout["btn_p1c2"].collidepoint(mx, my):
                 data = ensure_scan()
-                if data: open_frame_data_window("P1-C2", data)
+                if data:
+                    open_frame_data_window("P1-C2", data)
             elif layout["btn_p2c2"].collidepoint(mx, my):
                 data = ensure_scan()
-                if data: open_frame_data_window("P2-C2", data)
+                if data:
+                    open_frame_data_window("P2-C2", data)
 
-        # slow auto-scan
+        # slow auto-scan / manual scan
         now = time.time()
         should_auto_scan = (
             HAVE_SCAN_NORMALS
@@ -635,6 +669,7 @@ def main():
             except Exception as e:
                 print("auto scan failed:", e)
 
+        # CSV header init if you ever push pending_hits here
         if pending_hits and (frame_idx % 30 == 0):
             newcsv = not os.path.exists(HIT_CSV)
             with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
@@ -642,14 +677,14 @@ def main():
                 if newcsv:
                     wcsv.writerow([
                         "t",
-                        "victim_label","victim_char","dmg",
-                        "hp_before","hp_after",
-                        "attacker_label","attacker_char","attacker_char_id",
-                        "attacker_id_dec","attacker_id_hex","attacker_move",
+                        "victim_label", "victim_char", "dmg",
+                        "hp_before", "hp_after",
+                        "attacker_label", "attacker_char", "attacker_char_id",
+                        "attacker_id_dec", "attacker_id_hex", "attacker_move",
                         "dist2",
-                        "atk_flag062","atk_flag063",
-                        "vic_flag062","vic_flag063",
-                        "atk_ctrl","vic_ctrl",
+                        "atk_flag062", "atk_flag063",
+                        "vic_flag062", "vic_flag063",
+                        "atk_ctrl", "vic_ctrl",
                     ])
             pending_hits.clear()
 
