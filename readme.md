@@ -1,6 +1,6 @@
 # Tatsunoko vs. Capcom – Live HUD & Memory Scanner
 
-A modernized continuation of the TvC HUD project — a Python-based live memory overlay for Tatsunoko vs. Capcom: Ultimate All-Stars (Wii), running on Dolphin Emulator.  
+a Python-based live memory overlay for Tatsunoko vs. Capcom: Ultimate All-Stars (Wii), running on Dolphin Emulator.  
 This suite connects directly to Dolphin’s RAM and provides:
 
 - A real-time training HUD with health, meter, and frame advantage tracking  
