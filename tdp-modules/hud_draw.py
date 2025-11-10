@@ -8,10 +8,61 @@ except Exception:
     SCAN_ANIM_MAP = {}
 
 
+def _pct_color(pct: float):
+    if pct is None:
+        return COL_TEXT
+    if pct > 50.0:
+        return (0, 200, 0)
+    elif pct > 30.0:
+        return (220, 200, 0)
+    else:
+        return (220, 60, 60)
+
+
+def _hp_color(cur_hp, max_hp):
+    if not max_hp or max_hp <= 0:
+        return COL_TEXT
+    pct = (cur_hp / max_hp) * 100.0
+    return _pct_color(pct)
+
+
+def _pool_color(pool_pct_val):
+    if pool_pct_val is None:
+        return COL_TEXT
+    return _pct_color(pool_pct_val)
+
+
+def _draw_rainbow_text(surface, text, font, pos):
+    txt_surf = font.render(text, True, (255, 255, 255))
+    w, h = txt_surf.get_size()
+    grad = pygame.Surface((w, h), pygame.SRCALPHA)
+
+    colors = [
+        (255, 0, 0),
+        (255, 128, 0),
+        (255, 255, 0),
+        (0, 255, 0),
+        (0, 255, 255),
+        (0, 0, 255),
+        (255, 0, 255),
+    ]
+    n = len(colors)
+    for x in range(w):
+        t = x / max(1, w - 1)
+        idx = int(t * (n - 1))
+        c1 = colors[idx]
+        c2 = colors[min(idx + 1, n - 1)]
+        local_t = (t * (n - 1)) - idx
+        r = int(c1[0] + (c2[0] - c1[0]) * local_t)
+        g = int(c1[1] + (c2[1] - c1[1]) * local_t)
+        b = int(c1[2] + (c2[2] - c1[2]) * local_t)
+        pygame.draw.line(grad, (r, g, b, 255), (x, 0), (x, h))
+
+    grad.blit(txt_surf, (0, 0), None, pygame.BLEND_RGBA_MULT)
+    surface.blit(grad, pos)
+
+
 def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, header_label):
-    """
-    Generic fighter panel with optional portrait.
-    """
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
@@ -39,8 +90,9 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     cur_hp = snap["cur"]
     max_hp = snap["max"]
     meter_str = snap.get("meter_str", "--")
+    hp_col = _hp_color(cur_hp, max_hp)
     surface.blit(
-        font.render(f"HP {cur_hp}/{max_hp}    Meter:{meter_str}", True, COL_TEXT),
+        font.render(f"HP {cur_hp}/{max_hp}    Meter:{meter_str}", True, hp_col),
         (text_x0, y0 + 24),
     )
 
@@ -48,37 +100,29 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     pool_pct_str = f"{pool_pct_val:.1f}%" if pool_pct_val is not None else "--"
     pool_raw = snap.get("hp_pool_byte")
     m2b_raw = snap.get("mystery_2B")
+    pool_col = _pool_color(pool_pct_val)
     surface.blit(
         font.render(
             f"POOL(02A): {pool_pct_str} raw:{pool_raw}   2B:{m2b_raw}",
             True,
-            COL_TEXT,
+            pool_col,
         ),
         (text_x0, y0 + 44),
     )
 
-    ready_txt = "YES" if snap.get("baroque_ready") else "no"
+    ready = bool(snap.get("baroque_ready"))
     active_txt = "ON" if snap.get("baroque_active") else "off"
     r0, r1 = snap.get("baroque_ready_raw", (0, 0))
     f0, f1 = snap.get("baroque_active_dbg", (0, 0))
-    surface.blit(
-        font.render(
-            f"BAROQUE ready:{ready_txt} [{r0:02X},{r1:02X}] active:{active_txt} [{f0:02X},{f1:02X}]",
-            True,
-            COL_TEXT,
-        ),
-        (text_x0, y0 + 64),
-    )
 
-    inputs_struct = snap.get("inputs", {})
-    surface.blit(
-        font.render(
-            f"INPUT A0:{inputs_struct.get('A0',0):02X} A1:{inputs_struct.get('A1',0):02X} A2:{inputs_struct.get('A2',0):02X}",
-            True,
-            COL_TEXT,
-        ),
-        (text_x0, y0 + 84),
-    )
+    baroque_line = f"BAROQUE ready:{'YES' if ready else 'no'} [{r0:02X},{r1:02X}] active:{active_txt} [{f0:02X},{f1:02X}]"
+    if ready:
+        _draw_rainbow_text(surface, baroque_line, smallfont, (text_x0, y0 + 64))
+    else:
+        surface.blit(
+            smallfont.render(baroque_line, True, COL_TEXT),
+            (text_x0, y0 + 64),
+        )
 
     lastdmg = snap["last"] if snap["last"] is not None else 0
     surface.blit(
@@ -87,7 +131,7 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
             True,
             COL_TEXT,
         ),
-        (text_x0, y0 + 104),
+        (text_x0, y0 + 84),
     )
 
     shown_id = snap.get("mv_id_display", snap.get("attB", snap.get("attA")))
@@ -95,21 +139,7 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     sub_id = snap.get("attB")
     surface.blit(
         font.render(f"MoveID:{shown_id} {shown_name}   sub:{sub_id}", True, COL_TEXT),
-        (text_x0, y0 + 124),
-    )
-
-    f062 = snap["f062"]
-    f063 = snap["f063"]
-    f064 = snap["f064"] or 0
-    f072 = snap["f072"] or 0
-    ctrl_hex = f"0x{(snap['ctrl'] or 0):08X}"
-    surface.blit(
-        font.render(f"062:{f062}   063:{f063}   064:{f064}", True, COL_TEXT),
-        (text_x0, y0 + 144),
-    )
-    surface.blit(
-        font.render(f"072:{f072}   ctrl:{ctrl_hex}", True, COL_TEXT),
-        (text_x0, y0 + 164),
+        (text_x0, y0 + 104),
     )
 
 
@@ -153,6 +183,12 @@ def _fmt_stun(val):
 
 
 def draw_scan_normals(surface, rect, font, smallfont, scan_data):
+    """
+    Preview that mirrors the frame-data GUI ordering:
+    - sort by id/abs
+    - dedupe by resolved name
+    - show first ~5 per slot
+    """
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
@@ -181,21 +217,41 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         surface.blit(smallfont.render(f"{lab} ({cname})", True, COL_TEXT), (col_x, col_y))
         col_y += 14
 
-        for mv in slot.get("moves", [])[:4]:
-            anim_id = mv.get("id")
-            if anim_id is None:
+        moves = slot.get("moves", [])
+        # same kind of ordering/dedup as GUI, but smaller
+        moves_sorted = sorted(
+            moves,
+            key=lambda m: (
+                m.get("id") is None,
+                m.get("id", 0xFFFF),
+                m.get("abs", 0xFFFFFFFF),
+            ),
+        )
+        seen_names = set()
+        shown = 0
+        for mv in moves_sorted:
+            if shown >= 5:
+                break
+            aid = mv.get("id")
+            if aid is None:
                 name = "anim_--"
             else:
-                name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
+                name = SCAN_ANIM_MAP.get(aid, f"anim_{aid:02X}")
+            # dedupe by name
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+
             hs = _fmt_stun(mv.get("hitstun"))
             bs = _fmt_stun(mv.get("blockstun"))
             adv_h = mv.get("adv_hit")
             adv_b = mv.get("adv_block")
             adv_h_txt = "" if adv_h is None else f"{adv_h:+d}"
             adv_b_txt = "" if adv_b is None else f"{adv_b:+d}"
-            line = f"{name}: H{hs} B{bs} {adv_h_txt}/{adv_b_txt}"
+            line = f"{name} H:{hs} B:{bs} {adv_h_txt}/{adv_b_txt}"
             surface.blit(smallfont.render(line, True, COL_TEXT), (col_x, col_y))
             col_y += 12
+            shown += 1
 
 
 def draw_slot_button(surface, rect, font, label):
