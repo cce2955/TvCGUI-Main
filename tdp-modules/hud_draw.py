@@ -200,3 +200,64 @@ def draw_inspector(surface, rect, font, smallfont, snaps, baroque_blob):
             (x0, y)
         )
         y += 16
+
+
+def draw_scan_normals(surface, rect, font, smallfont, scan_data):
+    """
+    scan_data is the list returned by scan_normals_all.scan_once():
+    [
+      {"slot_label": "P1-C1", "char_name": "...", "moves": [ {...}, ... ] },
+      ...
+    ]
+    We'll just show 4 slots max, and for each show 4 normals with stun.
+    """
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
+
+    x = rect.x + 6
+    y = rect.y + 4
+    surface.blit(font.render("Scan normals", True, COL_TEXT), (x, y))
+    y += 20
+
+    if not scan_data:
+        surface.blit(smallfont.render("no scan", True, COL_TEXT), (x, y))
+        return
+
+    # Limit height: 4 slots, each up to 4 normals
+    for slot in scan_data[:4]:
+        slot_label = slot.get("slot_label", "?")
+        cname      = slot.get("char_name", "—")
+        surface.blit(smallfont.render(f"{slot_label} ({cname})", True, COL_TEXT), (x, y))
+        y += 16
+
+        moves = slot.get("moves", [])
+        # Prefer normals: kind == "normal"
+        normals = [m for m in moves if m.get("kind") == "normal"]
+        normals = sorted(normals, key=lambda m: (m.get("id") is None, m.get("id", 0xFF)))
+        normals = normals[:4]
+
+        for mv in normals:
+            aid  = mv.get("id")
+            name = mv.get("id")
+            # scan_normals_all already uses ANIM_MAP internally to name, but not exposed;
+            # so at HUD level we'll show anim id + stuns
+            hs = mv.get("hitstun")
+            bs = mv.get("blockstun")
+            # make them human-ish
+            def hs_to_frames(val):
+                if val is None:
+                    return ""
+                if val == 0x0C:
+                    return "10f"
+                if val == 0x0F:
+                    return "15f"
+                if val == 0x11:
+                    return "17f"
+                if val == 0x15:
+                    return "21f"
+                return f"{val:02X}"
+            line = f"  anim {aid if aid is not None else '--'}  HS:{hs_to_frames(hs)}  BS:{hs_to_frames(bs)}"
+            surface.blit(smallfont.render(line, True, COL_TEXT), (x, y))
+            y += 14
+
+        y += 4  # spacing between slots
