@@ -80,35 +80,122 @@ def init_pygame():
 
 
 
+import threading
+from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
+
 def _open_frame_data_window_thread(slot_label, target_slot):
     try:
         import tkinter as tk
+        from tkinter import ttk
     except Exception:
         print("tkinter not available")
         return
 
     root = tk.Tk()
-    root.title(f"Frame data: {slot_label}")
-    txt = tk.Text(root, width=70, height=35)
-    txt.pack(fill="both", expand=True)
-
     cname = target_slot.get("char_name", "—")
-    txt.insert("end", f"{slot_label} ({cname})\n\n")
+    root.title(f"Frame data: {slot_label} ({cname})")
 
+    # frame + tree + scrollbar
+    frame = ttk.Frame(root)
+    frame.pack(fill="both", expand=True)
+
+    cols = ("move", "kind", "damage", "meter", "startup", "active", "hitstun", "blockstun", "abs")
+    tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
+    vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+    tree.configure(yscrollcommand=vsb.set)
+
+    tree.grid(row=0, column=0, sticky="nsew")
+    vsb.grid(row=0, column=1, sticky="ns")
+    frame.rowconfigure(0, weight=1)
+    frame.columnconfigure(0, weight=1)
+
+    # set headings
+    tree.heading("move", text="Move")
+    tree.heading("kind", text="Kind")
+    tree.heading("damage", text="Dmg")
+    tree.heading("meter", text="Meter")
+    tree.heading("startup", text="Start")
+    tree.heading("active", text="Active")
+    tree.heading("hitstun", text="Hitstun")
+    tree.heading("blockstun", text="Blockstun")
+    tree.heading("abs", text="ABS")
+
+    # widths (tweak if you like)
+    tree.column("move", width=150, anchor="w")
+    tree.column("kind", width=70, anchor="w")
+    tree.column("damage", width=60, anchor="center")
+    tree.column("meter", width=60, anchor="center")
+    tree.column("startup", width=55, anchor="center")
+    tree.column("active", width=55, anchor="center")
+    tree.column("hitstun", width=65, anchor="center")
+    tree.column("blockstun", width=75, anchor="center")
+    tree.column("abs", width=110, anchor="w")
+
+    # helper to stringify maybe-None
+    def _s(v):
+        return "" if v is None else str(v)
+
+    # fill rows
     for mv in target_slot.get("moves", []):
         anim_id = mv.get("id")
         if anim_id is None:
-            name = "anim_--"
+            move_name = "anim_--"
         else:
-            name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
+            move_name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
 
-        txt.insert("end", f"{name} (id:{anim_id})\n")
-        # dump whole dict so you see damage/meter/etc.
-        txt.insert("end", pformat(mv, sort_dicts=False))
-        txt.insert("end", "\n\n")
+        kind = mv.get("kind", "")
+        dmg = mv.get("damage")
+        meter = mv.get("meter")
+        startup = mv.get("active_start")  # you had this in your dict
+        active_end = mv.get("active_end")
+        # show "8-10" if we have both
+        if startup is not None and active_end is not None:
+            active_txt = f"{startup}-{active_end}"
+        else:
+            active_txt = _s(active_end)
 
-    txt.config(state="disabled")
+        hitstun = mv.get("hitstun")
+        blockstun = mv.get("blockstun")
+        abs_addr = mv.get("abs")
+
+        tree.insert(
+            "",
+            "end",
+            values=(
+                move_name,
+                kind,
+                _s(dmg),
+                _s(meter),
+                _s(startup),
+                active_txt,
+                _s(hitstun),
+                _s(blockstun),
+                f"0x{abs_addr:08X}" if abs_addr else "",
+            ),
+        )
+
     root.mainloop()
+
+
+def open_frame_data_window(slot_label, scan_data):
+    if not scan_data:
+        return
+
+    target = None
+    for s in scan_data:
+        if s.get("slot_label") == slot_label:
+            target = s
+            break
+    if not target:
+        return
+
+    # run tk in separate thread so pygame keeps updating
+    t = threading.Thread(
+        target=_open_frame_data_window_thread,
+        args=(slot_label, target),
+        daemon=True,
+    )
+    t.start()
 
 
 def open_frame_data_window(slot_label, scan_data):
