@@ -484,25 +484,27 @@ def main():
         if run_global_analysis:
             global_scan.analyze()
 
-        # DAMAGE DETECT (live-corrected adv)
+
+
+        # REACTION STATE DETECT - track when defender enters hitstun/blockstun
+        # This works for both hits AND blocks
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
-            if last_scan_normals:
-                cached_lookup = build_move_lookup(last_scan_normals)
-
-            for slotname, vic_snap in snaps.items():
-                base = vic_snap["base"]
-                hp_now = vic_snap["cur"]
-                hp_prev = prev_hp.get(base, hp_now)
-                prev_hp[base] = hp_now
-
-                dmg = hp_prev - hp_now
-                if dmg < MIN_HIT_DAMAGE:
+            # Reaction states from your CSV (hitstun, blockstun, etc)
+            REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
+            
+            for vic_slot, vic_snap in snaps.items():
+                vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
+                
+                # Only trigger when victim enters a reaction state
+                if vic_move_id not in REACTION_STATES:
                     continue
-
+                
+                # Find nearest attacker
                 vic_team = vic_snap["teamtag"]
                 attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
                 if not attackers:
                     continue
+                
                 best_d2 = None
                 atk_snap = None
                 for cand in attackers:
@@ -510,88 +512,79 @@ def main():
                     if best_d2 is None or d2v < best_d2:
                         best_d2 = d2v
                         atk_snap = cand
+                
                 if not atk_snap:
                     continue
+                
+                atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
+                
+                # Start tracking from this reaction state
+                ADV_TRACK.start_contact(
+                    atk_snap["base"],
+                    vic_snap["base"],
+                    frame_idx,
+                    atk_move_id,
+                    vic_move_id
+                )
+                
+                # Check if it was a hit (HP dropped)
+                base = vic_snap["base"]
+                hp_now = vic_snap["cur"]
+                hp_prev = prev_hp.get(base, hp_now)
+                prev_hp[base] = hp_now
+                dmg = hp_prev - hp_now
+                
+                if dmg >= MIN_HIT_DAMAGE:
+                    log_engaged(atk_snap, vic_snap, frame_idx)
+                    log_hit(atk_snap, vic_snap, dmg, frame_idx)
 
-                ADV_TRACK.start_contact(atk_snap["base"], vic_snap["base"], frame_idx)
-
-                live_adv_str = ""
-                atk_base = atk_snap["base"]
-                atk_slotname = atk_snap["slotname"]
-                atk_move_id = last_move_anim_id.get(atk_base)
-                atk_move_start = last_move_start_frame.get(atk_base)
-
-                if atk_move_id is not None and atk_move_start is not None:
-                    hit_offset = frame_idx - atk_move_start
-                    if hit_offset < 0:
-                        hit_offset = 0
-
-                    mvinfo = None
-                    slot_moves = cached_lookup.get(atk_slotname)
-                    if slot_moves:
-                        mvinfo = slot_moves.get(atk_move_id)
-
-                    if mvinfo:
-                        base_adv_hit, base_adv_block, active_end = sanitize_scan_adv(mvinfo)
-
-                        real_adv_hit = None
-                        real_adv_block = None
-                        if active_end is not None:
-                            delta = active_end - hit_offset
-                            if delta < 0:
-                                delta = 0
-                            if base_adv_hit is not None:
-                                real_adv_hit = base_adv_hit - delta
-                            if base_adv_block is not None:
-                                real_adv_block = base_adv_block - delta
-
-                        if real_adv_hit is not None or real_adv_block is not None:
-                            name = SCAN_ANIM_MAP.get(atk_move_id, f"anim_{atk_move_id:02X}")
-                            h_txt = f"H:{real_adv_hit:+d}" if real_adv_hit is not None else "H:?"
-                            b_txt = f"B:{real_adv_block:+d}" if real_adv_block is not None else "B:?"
-                            live_adv_str = f"{atk_slotname} {name} {h_txt} {b_txt}"
-                            if real_adv_hit is not None:
-                                log_frame_advantage(atk_snap, vic_snap, real_adv_hit)
-
-                log_engaged(atk_snap, vic_snap, frame_idx)
-                log_hit(atk_snap, vic_snap, dmg, frame_idx)
-
-                if live_adv_str:
-                    last_adv_display = live_adv_str
-                    last_real_adv_frame = frame_idx
-
-        # periodic tracker (lower priority)
+        # UPDATE ALL ACTIVE ADVANTAGE TRACKERS
         if frame_idx % ADV_EVERY_FRAMES == 0:
+            # Update all possible attacker -> victim pairs
             pairs = [
                 ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
                 ("P1-C2", "P2-C1"), ("P1-C2", "P2-C2"),
                 ("P2-C1", "P1-C1"), ("P2-C1", "P1-C2"),
                 ("P2-C2", "P1-C1"), ("P2-C2", "P1-C2"),
             ]
+            
             for atk_slot, vic_slot in pairs:
                 atk_snap = snaps.get(atk_slot)
                 vic_snap = snaps.get(vic_slot)
+                
                 if atk_snap and vic_snap:
+                    atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
+                    vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
+                    
                     ADV_TRACK.update_pair(
-                        atk_snap, vic_snap, dist2(atk_snap, vic_snap), frame_idx
+                        atk_snap["base"],
+                        vic_snap["base"],
+                        frame_idx,
+                        atk_move_id,
+                        vic_move_id
                     )
 
+            # Check for finalized advantage calculations
             freshest = ADV_TRACK.get_freshest_final_info()
             if freshest:
                 atk_b, vic_b, plusf, fin_frame = freshest
-
+                
+                # Only show reasonable advantages
                 if abs(plusf) <= 64:
-                    if frame_idx - last_real_adv_frame > 20:
-                        atk_slot = next((s for s in snaps.values() if s["base"] == atk_b), None)
-                        vic_slot = next((s for s in snaps.values() if s["base"] == vic_b), None)
-                        if atk_slot and vic_slot:
-                            last_adv_display = (
-                                f"{atk_slot['slotname']}({atk_slot['name']}) vs "
-                                f"{vic_slot['slotname']}({vic_slot['name']}): {plusf:+.1f}f"
-                            )
-                        else:
-                            last_adv_display = f"Frame adv {plusf:+.1f}f"
+                    atk_slot = next((s for s in snaps.values() if s["base"] == atk_b), None)
+                    vic_slot = next((s for s in snaps.values() if s["base"] == vic_b), None)
+                    
+                    if atk_slot and vic_slot:
+                        last_adv_display = (
+                            f"{atk_slot['slotname']}({atk_slot['name']}) vs "
+                            f"{vic_slot['slotname']}({vic_slot['name']}): {plusf:+.1f}f"
+                        )
                         log_frame_advantage(atk_slot, vic_slot, plusf)
+                    else:
+                        last_adv_display = f"Frame adv: {plusf:+.1f}f"
+
+
+
 
         # DRAW
         screen.fill(COL_BG)
