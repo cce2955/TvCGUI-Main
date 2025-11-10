@@ -18,27 +18,27 @@ It supports all four character slots (P1-C1, P1-C2, P2-C1, P2-C2) and provides d
 
 ## Features
 
-### 🧠 Real-Time HUD
+### Real-Time HUD
 - 4-panel live display for both teams (HP, meter, position, current move)
 - Color-coded health and pooled HP (red-life style)
 - Baroque readiness and activation flags
 - Real-time frame advantage computation based on live hits
 - Event feed for hits and inferred attacker/victim pairs
 
-### 📊 Frame Data Scanner
+### Frame Data Scanner
 - Deep MEM2 analysis via `scan_normals_all.py`:
   - Extracts startup, active, recovery, hitstun, blockstun, damage, knockback, and meter values
   - Computes estimated frame advantage on hit/block
 - Interactive Tkinter move-table window per slot (F1–F4)
 - Supports auto-scan or manual F5 triggers
 
-### 🔍 Memory Tools
+### Memory Tools
 - `redscan.py` and `global_redscan.py`: detect HP-correlated bytes (red-life/mystery bytes)
 - `memscan.py`: scans MEM1/MEM2 for ASCII strings and backreferences
 - `resolver.py`: automatically resolves and validates fighter base pointers
 - `tvc_fill_bacluster.py`: read/fill/restore fighter float clusters (BA40–BA9F)
 
-### 🎮 HUD Hotkeys
+### HUD Hotkeys
 
 | Key | Action |
 |-----|--------|
