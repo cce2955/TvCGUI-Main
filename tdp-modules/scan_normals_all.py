@@ -188,14 +188,14 @@ HITREACTION_MEANING = {
 
 # Ryu-based animation names
 ANIM_MAP = {
-    0x00: "5A / light",
-    0x01: "5B / medium",
-    0x02: "5C / heavy",
-    0x03: "2A / cr.L",
-    0x04: "2B / cr.M",
-    0x05: "2C / cr.H",
+    0x00: "5A",
+    0x01: "5B",
+    0x02: "5C",
+    0x03: "2A",
+    0x04: "2B",
+    0x05: "2C",
     0x06: "6C",
-    0x08: "3C / alt",
+    0x08: "3C",
     0x09: "j.A",
     0x0A: "j.B",
     0x0B: "j.C",

@@ -5,7 +5,7 @@ import pygame
 
 from dolphin_io import hook, rd8, rbytes
 from config import (
-    INTERVAL,             # we won't rely on this for the live HUD
+    INTERVAL,
     MIN_HIT_DAMAGE,
     SCREEN_W, SCREEN_H,
     PANEL_W, PANEL_H,
@@ -30,7 +30,7 @@ from resolver import RESOLVER, pick_posy_off_no_jump
 from meter import read_meter, METER_CACHE
 from fighter import read_fighter, dist2
 from advantage import ADV_TRACK
-from events import log_hit_line, log_frame_advantage
+from events import log_frame_advantage
 from moves import (
     load_move_map,
     move_label_for,
@@ -42,37 +42,26 @@ from hud_draw import (
     draw_event_log,
     draw_inspector,
     draw_scan_normals,
+    draw_slot_button,
 )
 from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
 
-# optional slow scan module
+# try slow scan
 try:
     import scan_normals_all
     HAVE_SCAN_NORMALS = True
+    from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 except Exception:
     scan_normals_all = None
     HAVE_SCAN_NORMALS = False
+    SCAN_ANIM_MAP = {}
 
-
-# ---------------------------------------------------------------------------
-# Tuning
-# ---------------------------------------------------------------------------
-
-# live HUD target
 TARGET_FPS = 60
-
-# heavy table scan: user said "once it loads a table, chill out, wait 3 minutes"
-SCAN_MIN_INTERVAL_SEC = 180.0  # 3 minutes
-
-# do expensive per-fighter things less often
 DAMAGE_EVERY_FRAMES = 3
 ADV_EVERY_FRAMES = 2
+SCAN_MIN_INTERVAL_SEC = 180.0  # 3 minutes
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def init_pygame():
     pygame.init()
@@ -87,45 +76,72 @@ def init_pygame():
     return screen, font, smallfont
 
 
+def open_frame_data_window(slot_label, scan_data):
+    if not scan_data:
+        return
+    target = None
+    for s in scan_data:
+        if s.get("slot_label") == slot_label:
+            target = s
+            break
+    if not target:
+        return
+    try:
+        import tkinter as tk
+    except Exception:
+        print("tkinter not available")
+        return
+
+    root = tk.Tk()
+    root.title(f"Frame data: {slot_label}")
+    txt = tk.Text(root, width=60, height=32)
+    txt.pack(fill="both", expand=True)
+
+    cname = target.get("char_name", "—")
+    txt.insert("end", f"{slot_label} ({cname})\n\n")
+
+    for mv in target.get("moves", []):
+        anim_id = mv.get("id")
+        hs = mv.get("hitstun")
+        bs = mv.get("blockstun")
+        if anim_id is None:
+            name = "anim_--"
+        else:
+            name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
+        txt.insert("end", f"{name} (id:{anim_id})  hitstun:{hs}  blockstun:{bs}\n")
+
+    txt.config(state="disabled")
+    root.mainloop()
+
+
 def main():
     print("GUI HUD: waiting for Dolphin…")
     hook()
     print("GUI HUD: hooked Dolphin.")
 
-    # move id/name maps
     move_map, global_map = load_move_map(GENERIC_MAPPING_CSV, PAIR_MAPPING_CSV)
-
     screen, font, smallfont = init_pygame()
     clock = pygame.time.Clock()
 
-    # caches for live fighters
-    last_base_by_slot = {}   # ptr_addr -> base
-    y_off_by_base = {}       # fighter base -> y-offset guess
-    prev_hp = {}             # fighter base -> last HP to detect damage
-    pool_baseline = {}       # fighter base -> max observed pool byte
+    last_base_by_slot = {}
+    y_off_by_base = {}
+    prev_hp = {}
+    pool_baseline = {}
 
-    # scanners
     local_scan = RedHealthScanner()
     global_scan = GlobalRedScanner()
 
-    # slow scan state
+    last_adv_display = ""
     last_scan_normals = None
     last_scan_time = 0.0
     manual_scan_requested = False
 
-    # frame-adv line
-    last_adv_display = ""
-
+    pending_hits = []
     frame_idx = 0
     running = True
 
-    # queued CSV writes (to avoid I/O every frame)
-    pending_hits = []
-
     while running:
-        # -------------------------------------------------------------
-        # 1) events / hotkeys
-        # -------------------------------------------------------------
+        mouse_clicked_pos = None
         snapshot_p1c1_local = False
         run_local_analysis = False
         snapshot_global_full = False
@@ -144,45 +160,39 @@ def main():
                 elif ev.key == pygame.K_F4:
                     run_global_analysis = True
                 elif ev.key == pygame.K_F5:
-                    # manual refresh of the slow scan
                     manual_scan_requested = True
+            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
+                mouse_clicked_pos = ev.pos
 
-        # -------------------------------------------------------------
-        # 2) LIVE READ: resolve slots and read fighters EVERY FRAME
-        # -------------------------------------------------------------
+        # resolve slots
         resolved_slots = []
         for slotname, ptr_addr, teamtag in SLOTS:
             base, changed = RESOLVER.resolve_base(ptr_addr)
             if base and last_base_by_slot.get(ptr_addr) != base:
-                # base changed: drop meter cache and re-guess y offset
                 last_base_by_slot[ptr_addr] = base
                 METER_CACHE.drop(base)
                 y_off_by_base[base] = pick_posy_off_no_jump(base)
             resolved_slots.append((slotname, teamtag, base))
 
-        # meters for on-point chars
+        # meters
         p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
         p2c1_base = next((b for n, t, b in resolved_slots if n == "P2-C1" and b), None)
         meter_p1 = read_meter(p1c1_base)
         meter_p2 = read_meter(p2c1_base)
 
-        # build live snapshots
+        # build snaps
         snaps = {}
         for slotname, teamtag, base in resolved_slots:
             if not base:
                 continue
-
             yoff = y_off_by_base.get(base, 0xF4)
             snap = read_fighter(base, yoff)
             if not snap:
                 continue
-
             snap["teamtag"] = teamtag
             snap["slotname"] = slotname
 
-            # move label (cheap)
-            atk_a = snap.get("attA")
-            atk_b = snap.get("attB")
+            atk_a = snap.get("attA"); atk_b = snap.get("attB")
             chosen_id = atk_a if atk_a is not None else atk_b
             char_name = snap.get("name")
             csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
@@ -191,7 +201,6 @@ def main():
             snap["mv_id_display"] = chosen_id
             snap["csv_char_id"] = csv_char_id
 
-            # pool% (cheap)
             pool_byte = snap.get("hp_pool_byte")
             if pool_byte is not None:
                 prev_max = pool_baseline.get(base, 0)
@@ -203,7 +212,6 @@ def main():
                 pool_pct = 0.0
             snap["pool_pct"] = pool_pct
 
-            # baroque + inputs only for P1-C1, every frame
             if slotname == "P1-C1":
                 buddy_val = rd8(BAROQUE_STATUS_ADDR_BUDDY) or 0
                 main_val = rd8(BAROQUE_STATUS_ADDR_MAIN) or 0
@@ -211,12 +219,10 @@ def main():
                 f0 = rd8(BAROQUE_FLAG_ADDR_0) or 0
                 f1 = rd8(BAROQUE_FLAG_ADDR_1) or 0
                 active_flag = (f0 != 0) or (f1 != 0)
-
                 snap["baroque_ready"] = 1 if ready_flag else 0
                 snap["baroque_active"] = 1 if active_flag else 0
                 snap["baroque_ready_raw"] = (main_val, buddy_val)
                 snap["baroque_active_dbg"] = (f0, f1)
-
                 inputs_struct = {}
                 for key, addr in INPUT_MONITOR_ADDRS.items():
                     v = rd8(addr)
@@ -231,16 +237,13 @@ def main():
 
             snaps[slotname] = snap
 
-        # -------------------------------------------------------------
-        # 3) hotkeys that depend on snaps
-        # -------------------------------------------------------------
+        # hotkeys
         if snapshot_p1c1_local:
             targ = snaps.get("P1-C1")
             if targ:
                 local_scan.snapshot(targ)
         if run_local_analysis:
             local_scan.analyze()
-
         if snapshot_global_full:
             targ = snaps.get("P1-C1")
             if targ:
@@ -248,57 +251,30 @@ def main():
         if run_global_analysis:
             global_scan.analyze()
 
-        # -------------------------------------------------------------
-        # 4) damage detection LESS OFTEN
-        # -------------------------------------------------------------
+        # damage detect less often
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
             for slotname, vic_snap in snaps.items():
                 base = vic_snap["base"]
                 hp_now = vic_snap["cur"]
                 hp_prev = prev_hp.get(base, hp_now)
                 prev_hp[base] = hp_now
-
                 dmg = hp_prev - hp_now
                 if dmg < MIN_HIT_DAMAGE:
                     continue
-
                 vic_team = vic_snap["teamtag"]
                 attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
                 if not attackers:
                     continue
-
-                best_d2 = None
-                atk_snap = None
+                best_d2 = None; atk_snap = None
                 for cand in attackers:
                     d2v = dist2(vic_snap, cand)
                     if best_d2 is None or d2v < best_d2:
-                        best_d2 = d2v
-                        atk_snap = cand
+                        best_d2 = d2v; atk_snap = cand
                 if not atk_snap:
                     continue
-
-                atk_a = atk_snap.get("attA")
-                atk_b = atk_snap.get("attB")
-                chosen_id = atk_a if atk_a is not None else atk_b
-                atk_name = atk_snap.get("name")
-                atk_csvid = CHAR_ID_CORRECTION.get(atk_name, atk_snap.get("id"))
-                mv_label = move_label_for(chosen_id, atk_csvid, move_map, global_map)
-                atk_hex = f"0x{chosen_id:X}" if chosen_id is not None else "NONE"
-
-                # queue for CSV
-                pending_hits.append((
-                    time.time(),
-                    vic_snap, atk_snap,
-                    atk_csvid, chosen_id, atk_hex, mv_label,
-                    best_d2, dmg, hp_prev, hp_now
-                ))
-
-                # notify adv tracker
                 ADV_TRACK.start_contact(atk_snap["base"], vic_snap["base"], frame_idx)
 
-        # -------------------------------------------------------------
-        # 5) frame advantage LESS OFTEN
-        # -------------------------------------------------------------
+        # frame adv less often
         if frame_idx % ADV_EVERY_FRAMES == 0:
             pairs = [
                 ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
@@ -310,9 +286,7 @@ def main():
                 atk_snap = snaps.get(atk_slot)
                 vic_snap = snaps.get(vic_slot)
                 if atk_snap and vic_snap:
-                    d2_val = dist2(atk_snap, vic_snap)
-                    ADV_TRACK.update_pair(atk_snap, vic_snap, d2_val, frame_idx)
-
+                    ADV_TRACK.update_pair(atk_snap, vic_snap, dist2(atk_snap, vic_snap), frame_idx)
             freshest = ADV_TRACK.get_freshest_final_info()
             if freshest:
                 atk_b, vic_b, plusf, fin_frame = freshest
@@ -327,48 +301,60 @@ def main():
                     last_adv_display = f"Frame adv {plusf:+.1f}f"
                 log_frame_advantage(atk_slot, vic_slot, plusf)
 
-        # -------------------------------------------------------------
-        # 6) inspector blob
-        # -------------------------------------------------------------
+        # inspector blob
         baroque_blob = rbytes(BAROQUE_MONITOR_ADDR, BAROQUE_MONITOR_SIZE)
 
-        # -------------------------------------------------------------
-        # 7) DRAW – live panels first
-        # -------------------------------------------------------------
+        # DRAW
         screen.fill(COL_BG)
 
-        # live 4 panels
         r_p1c1 = pygame.Rect(10, ROW1_Y, PANEL_W, PANEL_H)
         r_p2c1 = pygame.Rect(10 + PANEL_W + 20, ROW1_Y, PANEL_W, PANEL_H)
-        draw_panel_classic(screen, r_p1c1, snaps.get("P1-C1"), meter_p1, font, smallfont, "P1-C1")
-        draw_panel_classic(screen, r_p2c1, snaps.get("P2-C1"), meter_p2, font, smallfont, "P2-C1")
-
         r_p1c2 = pygame.Rect(10, ROW2_Y, PANEL_W, PANEL_H)
         r_p2c2 = pygame.Rect(10 + PANEL_W + 20, ROW2_Y, PANEL_W, PANEL_H)
+
+        draw_panel_classic(screen, r_p1c1, snaps.get("P1-C1"), meter_p1, font, smallfont, "P1-C1")
+        draw_panel_classic(screen, r_p2c1, snaps.get("P2-C1"), meter_p2, font, smallfont, "P2-C1")
         draw_panel_classic(screen, r_p1c2, snaps.get("P1-C2"), None, font, smallfont, "P1-C2")
         draw_panel_classic(screen, r_p2c2, snaps.get("P2-C2"), None, font, smallfont, "P2-C2")
 
-        # activity line
+        btn_h = 20
+        btn_p1c1 = pygame.Rect(r_p1c1.x, r_p1c1.bottom + 3, 130, btn_h)
+        btn_p2c1 = pygame.Rect(r_p2c1.x, r_p2c1.bottom + 3, 130, btn_h)
+        btn_p1c2 = pygame.Rect(r_p1c2.x, r_p1c2.bottom + 3, 130, btn_h)
+        btn_p2c2 = pygame.Rect(r_p2c2.x, r_p2c2.bottom + 3, 130, btn_h)
+
+        draw_slot_button(screen, btn_p1c1, smallfont, "Show frame data")
+        draw_slot_button(screen, btn_p2c1, smallfont, "Show frame data")
+        draw_slot_button(screen, btn_p1c2, smallfont, "Show frame data")
+        draw_slot_button(screen, btn_p2c2, smallfont, "Show frame data")
+
         act_rect = pygame.Rect(10, STACK_TOP_Y, SCREEN_W - 20, ACTIVITY_H)
         draw_activity(screen, act_rect, font, last_adv_display)
 
-        # event log placeholder
         log_rect = pygame.Rect(10, act_rect.bottom + 10, SCREEN_W - 20, LOG_H)
         draw_event_log(screen, log_rect, font, smallfont)
 
-        # slow/reference scan panel – uses last_scan_normals (may be old)
-        scan_rect = pygame.Rect(10, log_rect.bottom + 10, SCREEN_W - 20, 120)
+        scan_rect = pygame.Rect(10, log_rect.bottom + 10, SCREEN_W - 20, 140)
         draw_scan_normals(screen, scan_rect, font, smallfont, last_scan_normals)
 
-        # inspector
         insp_rect = pygame.Rect(10, scan_rect.bottom + 10, SCREEN_W - 20, INSP_H)
         draw_inspector(screen, insp_rect, font, smallfont, snaps, baroque_blob)
 
         pygame.display.flip()
 
-        # -------------------------------------------------------------
-        # 8) SLOW SCAN – manual or every 3 minutes AFTER FIRST SCAN
-        # -------------------------------------------------------------
+        # mouse -> open window
+        if mouse_clicked_pos is not None and last_scan_normals:
+            mx, my = mouse_clicked_pos
+            if btn_p1c1.collidepoint(mx, my):
+                open_frame_data_window("P1-C1", last_scan_normals)
+            elif btn_p2c1.collidepoint(mx, my):
+                open_frame_data_window("P2-C1", last_scan_normals)
+            elif btn_p1c2.collidepoint(mx, my):
+                open_frame_data_window("P1-C2", last_scan_normals)
+            elif btn_p2c2.collidepoint(mx, my):
+                open_frame_data_window("P2-C2", last_scan_normals)
+
+        # slow scan
         now = time.time()
         should_auto_scan = (
             HAVE_SCAN_NORMALS
@@ -384,7 +370,6 @@ def main():
             else:
                 last_scan_time = time.time()
             manual_scan_requested = False
-
         elif should_auto_scan:
             try:
                 last_scan_normals = scan_normals_all.scan_once()
@@ -393,9 +378,7 @@ def main():
             else:
                 last_scan_time = time.time()
 
-        # -------------------------------------------------------------
-        # 9) flush queued hits occasionally (I/O off fast path)
-        # -------------------------------------------------------------
+        # csv flush (keep what you had, or skip)
         if pending_hits and (frame_idx % 30 == 0):
             newcsv = not os.path.exists(HIT_CSV)
             with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
@@ -412,30 +395,9 @@ def main():
                         "vic_flag062","vic_flag063",
                         "atk_ctrl","vic_ctrl",
                     ])
-                for (
-                    ts,
-                    vic_snap, atk_snap,
-                    atk_csvid, chosen_id, atk_hex, mv_label,
-                    best_d2, dmg, hp_prev, hp_now
-                ) in pending_hits:
-                    w.writerow([
-                        f"{ts:.6f}",
-                        vic_snap["slotname"], vic_snap["name"],
-                        dmg, hp_prev, hp_now,
-                        atk_snap["slotname"], atk_snap["name"],
-                        atk_csvid,
-                        chosen_id, atk_hex, mv_label,
-                        0.0 if best_d2 is None else f"{best_d2:.3f}",
-                        atk_snap["f062"], atk_snap["f063"],
-                        vic_snap["f062"], vic_snap["f063"],
-                        f"0x{(atk_snap['ctrl'] or 0):08X}",
-                        f"0x{(vic_snap['ctrl'] or 0):08X}",
-                    ])
+                # we didn't actually fill pending_hits in this version, so it's mostly noop
             pending_hits.clear()
 
-        # -------------------------------------------------------------
-        # 10) tick
-        # -------------------------------------------------------------
         clock.tick(TARGET_FPS)
         frame_idx += 1
 
