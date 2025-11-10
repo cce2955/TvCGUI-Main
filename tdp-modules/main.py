@@ -2,7 +2,9 @@ import time
 import os
 import csv
 import pygame
-
+import threading
+from pprint import pformat
+from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 from dolphin_io import hook, rd8, rbytes
 from config import (
     INTERVAL,
@@ -76,6 +78,39 @@ def init_pygame():
     return screen, font, smallfont
 
 
+
+
+def _open_frame_data_window_thread(slot_label, target_slot):
+    try:
+        import tkinter as tk
+    except Exception:
+        print("tkinter not available")
+        return
+
+    root = tk.Tk()
+    root.title(f"Frame data: {slot_label}")
+    txt = tk.Text(root, width=70, height=35)
+    txt.pack(fill="both", expand=True)
+
+    cname = target_slot.get("char_name", "—")
+    txt.insert("end", f"{slot_label} ({cname})\n\n")
+
+    for mv in target_slot.get("moves", []):
+        anim_id = mv.get("id")
+        if anim_id is None:
+            name = "anim_--"
+        else:
+            name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
+
+        txt.insert("end", f"{name} (id:{anim_id})\n")
+        # dump whole dict so you see damage/meter/etc.
+        txt.insert("end", pformat(mv, sort_dicts=False))
+        txt.insert("end", "\n\n")
+
+    txt.config(state="disabled")
+    root.mainloop()
+
+
 def open_frame_data_window(slot_label, scan_data):
     if not scan_data:
         return
@@ -86,32 +121,14 @@ def open_frame_data_window(slot_label, scan_data):
             break
     if not target:
         return
-    try:
-        import tkinter as tk
-    except Exception:
-        print("tkinter not available")
-        return
 
-    root = tk.Tk()
-    root.title(f"Frame data: {slot_label}")
-    txt = tk.Text(root, width=60, height=32)
-    txt.pack(fill="both", expand=True)
-
-    cname = target.get("char_name", "—")
-    txt.insert("end", f"{slot_label} ({cname})\n\n")
-
-    for mv in target.get("moves", []):
-        anim_id = mv.get("id")
-        hs = mv.get("hitstun")
-        bs = mv.get("blockstun")
-        if anim_id is None:
-            name = "anim_--"
-        else:
-            name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
-        txt.insert("end", f"{name} (id:{anim_id})  hitstun:{hs}  blockstun:{bs}\n")
-
-    txt.config(state="disabled")
-    root.mainloop()
+    # run tk in a separate thread so pygame keeps updating
+    t = threading.Thread(
+        target=_open_frame_data_window_thread,
+        args=(slot_label, target),
+        daemon=True,
+    )
+    t.start()
 
 
 def main():

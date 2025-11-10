@@ -201,7 +201,40 @@ ANIM_MAP = {
     0x0B: "j.C",
     0x0E: "6B",
     0x14: "donkey/dash-ish",
+
+    # everything below here is from your poke list — we’re inventing IDs
+    0x15: "Tatsu L",
+    0x16: "Tatsu M (first hit)",
+    0x17: "Tatsu M (second/third hit)",
+    0x18: "Tatsu H (first hit)",
+    0x19: "Tatsu H (last three hits)",
+
+    0x1A: "Tatsu L (air)",
+    0x1B: "Tatsu L (air, second hit)",
+    0x1C: "Tatsu M (air, first hit)",
+    0x1D: "Tatsu M (air, second/third hit)",
+    0x1E: "Tatsu H (air, first)",
+    0x1F: "Tatsu H (air, rest)",
+
+    0x20: "Shoryu L",
+    0x21: "Shoryu M (second hit)",
+    0x22: "Shoryu M (first hit)",
+    0x23: "Shoryu H (first hit)",
+    0x24: "Shoryu H (second hit)",
+
+    0x25: "Donkey L",
+    0x26: "Donkey M",
+    0x27: "Donkey H",
+
+    0x28: "Tatsu Super",
+
+    # your extra ones:
+    0x29: "ShinSho (hit 1)",
+    0x2A: "ShinSho (hit 2)",
+    0x2B: "ShinSho (hit 3/4?)",
+    0x2C: "ShinSho (last?)",
 }
+
 NORMAL_IDS = set(ANIM_MAP.keys())
 
 # default meter per normal

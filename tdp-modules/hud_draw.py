@@ -4,7 +4,8 @@ from config import (
     hp_color,
     BAROQUE_MONITOR_ADDR,
 )
-
+# in hud_draw.py
+from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 # try to use the nice names from your scanner
 try:
     from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
@@ -171,10 +172,9 @@ def _fmt_stun(val):
     return f"{val:02X}"
 
 
+
+
 def draw_scan_normals(surface, rect, font, smallfont, scan_data):
-    """
-    4 columns: P1-C1, P1-C2, P2-C1, P2-C2 with real names from scan_normals_all.ANIM_MAP
-    """
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
@@ -199,19 +199,22 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         if not slot:
             surface.blit(smallfont.render(lab, True, COL_TEXT), (col_x, col_y))
             continue
+
         cname = slot.get("char_name", "—")
         surface.blit(smallfont.render(f"{lab} ({cname})", True, COL_TEXT), (col_x, col_y))
         col_y += 14
 
-        moves = slot.get("moves", [])[:4]
-        for mv in moves:
+        # show first 4 moves for this slot
+        for mv in slot.get("moves", [])[:4]:
             anim_id = mv.get("id")
-            hs = _fmt_stun(mv.get("hitstun"))
-            bs = _fmt_stun(mv.get("blockstun"))
+            hs = mv.get("hitstun")
+            bs = mv.get("blockstun")
             if anim_id is None:
                 name = "anim_--"
             else:
                 name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
-            line = f"{name}: H{hs} B{bs}"
+            hs_txt = "?" if hs is None else str(hs)
+            bs_txt = "?" if bs is None else str(bs)
+            line = f"{name}: H{hs_txt} B{bs_txt}"
             surface.blit(smallfont.render(line, True, COL_TEXT), (col_x, col_y))
             col_y += 12
