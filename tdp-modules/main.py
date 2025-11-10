@@ -35,7 +35,6 @@ from hud_draw import (
     draw_activity,
     draw_event_log,
     draw_scan_normals,
-    draw_slot_button,
 )
 from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
@@ -54,9 +53,8 @@ except Exception:
 TARGET_FPS = 60
 DAMAGE_EVERY_FRAMES = 3
 ADV_EVERY_FRAMES = 2
-SCAN_MIN_INTERVAL_SEC = 180.0  # 3 min
+SCAN_MIN_INTERVAL_SEC = 180.0
 
-# how long our slide/fade takes
 PANEL_SLIDE_DURATION = 0.35  # seconds
 
 
@@ -68,7 +66,7 @@ def _normalize_char_key(s: str) -> str:
 
 
 PORTRAIT_ALIASES = {
-    # add weird internal names here
+    # add weird names here if needed
 }
 
 
@@ -337,21 +335,7 @@ def compute_layout(w, h):
     r_p1c2 = pygame.Rect(pad, row2_y, panel_w, panel_h)
     r_p2c2 = pygame.Rect(pad + panel_w + gap_x, row2_y, panel_w, panel_h)
 
-    btn_h = 22
-    btn_w = 130
-
-    btn_p1c1 = pygame.Rect(r_p1c1.x, r_p1c1.bottom + 3, btn_w, btn_h)
-    btn_p2c1 = pygame.Rect(r_p2c1.x, r_p2c1.bottom + 3, btn_w, btn_h)
-    btn_p1c2 = pygame.Rect(r_p1c2.x, r_p1c2.bottom + 3, btn_w, btn_h)
-    btn_p2c2 = pygame.Rect(r_p2c2.x, r_p2c2.bottom + 3, btn_w, btn_h)
-
-    lowest_btn_bottom = max(
-        btn_p1c1.bottom,
-        btn_p2c1.bottom,
-        btn_p1c2.bottom,
-        btn_p2c2.bottom,
-    )
-    act_rect = pygame.Rect(pad, lowest_btn_bottom + 5, w - pad * 2, 32)
+    act_rect = pygame.Rect(pad, r_p1c2.bottom + 30, w - pad * 2, 32)
 
     events_y = act_rect.bottom + 8
     events_h = 150
@@ -366,10 +350,6 @@ def compute_layout(w, h):
         "p2c1": r_p2c1,
         "p1c2": r_p1c2,
         "p2c2": r_p2c2,
-        "btn_p1c1": btn_p1c1,
-        "btn_p2c1": btn_p2c1,
-        "btn_p1c2": btn_p1c2,
-        "btn_p2c2": btn_p2c2,
         "act": act_rect,
         "events": events_rect,
         "scan": scan_rect,
@@ -401,9 +381,7 @@ def main():
     render_snap_by_slot = {}
     render_portrait_by_slot = {}
 
-    # live animations
-    panel_anim = {}  # slot -> {start, dur, from_y, to_y, from_a, to_a}
-    # animations we want to start, but only after scan completes
+    panel_anim = {}
     anim_queue_after_scan = set()
 
     local_scan = RedHealthScanner()
@@ -466,7 +444,6 @@ def main():
                 y_off_by_base[base] = pick_posy_off_no_jump(base)
             resolved_slots.append((slotname, teamtag, base))
 
-        # meter
         p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
         p2c1_base = next((b for n, t, b in resolved_slots if n == "P2-C1" and b), None)
         meter_p1 = read_meter(p1c1_base)
@@ -475,13 +452,10 @@ def main():
         snaps = {}
         for slotname, teamtag, base in resolved_slots:
             if not base:
-                # empty now
                 if last_char_by_slot.get(slotname):
-                    # queue fade-out AFTER scan
                     anim_queue_after_scan.add((slotname, "fadeout"))
                     last_char_by_slot[slotname] = None
                     need_rescan_normals = True
-                # still keep last drawn snap so we can show something until anim finishes
                 continue
 
             yoff = y_off_by_base.get(base, 0xF4)
@@ -516,7 +490,6 @@ def main():
             else:
                 last_move_anim_id[base] = cur_anim
 
-            # pool
             pool_byte = snap.get("hp_pool_byte")
             if pool_byte is not None:
                 prev_max = pool_baseline.get(base, 0)
@@ -539,7 +512,6 @@ def main():
                 snap["baroque_active"] = 1 if active_flag else 0
                 snap["baroque_ready_raw"] = (main_val, buddy_val)
                 snap["baroque_active_dbg"] = (f0, f1)
-                # we still read inputs, just not displaying
                 inputs_struct = {}
                 for key, addr in INPUT_MONITOR_ADDRS.items():
                     v = rd8(addr)
@@ -554,7 +526,6 @@ def main():
 
             snaps[slotname] = snap
 
-            # detect char change
             prev_char = last_char_by_slot.get(slotname)
             cur_char = snap.get("name")
             if cur_char and cur_char != prev_char:
@@ -562,11 +533,9 @@ def main():
                 anim_queue_after_scan.add((slotname, "fadein"))
                 need_rescan_normals = True
 
-            # update render copy
             render_snap_by_slot[slotname] = snap
             render_portrait_by_slot[slotname] = get_portrait_for_snap(snap, portraits, placeholder_portrait)
 
-        # redscan hotkeys
         if snapshot_p1c1_local:
             targ = snaps.get("P1-C1")
             if targ:
@@ -580,7 +549,6 @@ def main():
         if run_global_analysis:
             global_scan.analyze()
 
-        # hit tracking
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
             REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
 
@@ -625,7 +593,6 @@ def main():
                     log_engaged(atk_snap, vic_snap, frame_idx)
                     log_hit(atk_snap, vic_snap, dmg, frame_idx)
 
-        # advantage
         if frame_idx % ADV_EVERY_FRAMES == 0:
             pairs = [
                 ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
@@ -662,12 +629,10 @@ def main():
                     else:
                         last_adv_display = f"Frame adv: {plusf:+.1f}f"
 
-        # DRAW
         screen.fill(COL_BG)
         w, h = screen.get_size()
         layout = compute_layout(w, h)
 
-        # helper to animate (only for slots actually in panel_anim)
         def anim_rect_and_alpha(slot_label, base_rect):
             anim = panel_anim.get(slot_label)
             if not anim:
@@ -687,9 +652,7 @@ def main():
             y = anim["from_y"] + (anim["to_y"] - anim["from_y"]) * frac
             alpha = int(anim["from_a"] + (anim["to_a"] - anim["from_a"]) * frac)
             if frac >= 1.0:
-                # finished
                 if anim["to_a"] == 0:
-                    # fade-out done -> forget render data
                     render_snap_by_slot.pop(slot_label, None)
                     render_portrait_by_slot.pop(slot_label, None)
                 panel_anim.pop(slot_label, None)
@@ -697,33 +660,38 @@ def main():
             r.y = int(y)
             return r, max(0, min(255, alpha))
 
-        # P1-C1
         r_p1c1, a_p1c1 = anim_rect_and_alpha("P1-C1", layout["p1c1"])
         r_p2c1, a_p2c1 = anim_rect_and_alpha("P2-C1", layout["p2c1"])
         r_p1c2, a_p1c2 = anim_rect_and_alpha("P1-C2", layout["p1c2"])
         r_p2c2, a_p2c2 = anim_rect_and_alpha("P2-C2", layout["p2c2"])
 
-        def blit_panel(panel_rect, slot_label, alpha, header):
+        def blit_panel_with_button(panel_rect, slot_label, alpha, header):
             snap = render_snap_by_slot.get(slot_label)
             portrait = render_portrait_by_slot.get(slot_label, placeholder_portrait)
-
-            # if this slot is waiting on scan, don't do fancy alpha — just show it fully
             waiting = any((slot_label == s and kind in ("fadein", "fadeout")) for (s, kind) in anim_queue_after_scan)
 
             panel_surf = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
             draw_panel_classic(panel_surf, panel_surf.get_rect(), snap, portrait, font, smallfont, header)
+
+            # button inside panel
+            btn_w, btn_h = 110, 20
+            btn_x = panel_rect.width - btn_w - 6
+            btn_y = panel_rect.height - btn_h - 6
+            btn_rect_local = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+            pygame.draw.rect(panel_surf, (40, 40, 40), btn_rect_local, border_radius=3)
+            pygame.draw.rect(panel_surf, (180, 180, 180), btn_rect_local, 1, border_radius=3)
+            label_surf = smallfont.render("Show frame data", True, (220, 220, 220))
+            panel_surf.blit(label_surf, (btn_x + 6, btn_y + 2))
+
             panel_surf.set_alpha(255 if waiting else alpha)
             screen.blit(panel_surf, (panel_rect.x, panel_rect.y))
 
-        blit_panel(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
-        blit_panel(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
-        blit_panel(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
-        blit_panel(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
+            return pygame.Rect(panel_rect.x + btn_x, panel_rect.y + btn_y, btn_w, btn_h)
 
-        draw_slot_button(screen, layout["btn_p1c1"], smallfont, "Show frame data")
-        draw_slot_button(screen, layout["btn_p2c1"], smallfont, "Show frame data")
-        draw_slot_button(screen, layout["btn_p1c2"], smallfont, "Show frame data")
-        draw_slot_button(screen, layout["btn_p2c2"], smallfont, "Show frame data")
+        btn_p1c1_rect = blit_panel_with_button(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
+        btn_p2c1_rect = blit_panel_with_button(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
+        btn_p1c2_rect = blit_panel_with_button(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
+        btn_p2c2_rect = blit_panel_with_button(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
 
         draw_activity(screen, layout["act"], font, last_adv_display)
         draw_event_log(screen, layout["events"], font, smallfont)
@@ -731,7 +699,6 @@ def main():
 
         pygame.display.flip()
 
-        # click → open frame data (forces fresh scan for accuracy)
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
 
@@ -746,24 +713,23 @@ def main():
                         print("scan failed:", e)
                 return last_scan_normals
 
-            if layout["btn_p1c1"].collidepoint(mx, my):
+            if btn_p1c1_rect.collidepoint(mx, my):
                 data = ensure_scan()
                 if data:
                     open_frame_data_window("P1-C1", data)
-            elif layout["btn_p2c1"].collidepoint(mx, my):
+            elif btn_p2c1_rect.collidepoint(mx, my):
                 data = ensure_scan()
                 if data:
                     open_frame_data_window("P2-C1", data)
-            elif layout["btn_p1c2"].collidepoint(mx, my):
+            elif btn_p1c2_rect.collidepoint(mx, my):
                 data = ensure_scan()
                 if data:
                     open_frame_data_window("P1-C2", data)
-            elif layout["btn_p2c2"].collidepoint(mx, my):
+            elif btn_p2c2_rect.collidepoint(mx, my):
                 data = ensure_scan()
                 if data:
                     open_frame_data_window("P2-C2", data)
 
-        # priority: if we flagged "need_rescan_normals" because of char change/unload
         if HAVE_SCAN_NORMALS and need_rescan_normals:
             try:
                 last_scan_normals = scan_normals_all.scan_once()
@@ -771,7 +737,7 @@ def main():
                 cached_lookup = build_move_lookup(last_scan_normals)
             except Exception as e:
                 print("rescan on change failed:", e)
-            # now that scan is done, start queued animations
+
             for slot_label, kind in list(anim_queue_after_scan):
                 if kind == "fadein":
                     panel_anim[slot_label] = {
@@ -782,26 +748,25 @@ def main():
                         "from_a": 0,
                         "to_a": 255,
                     }
-                elif kind == "fadeout":
-                    # fade out from current pos
+                else:  # fadeout
                     panel_anim[slot_label] = {
                         "start": time.time(),
                         "dur": PANEL_SLIDE_DURATION,
-                        "from_y": None,  # will get filled to current
+                        "from_y": None,
                         "to_y": None,
                         "from_a": 255,
                         "to_a": 0,
                     }
                 anim_queue_after_scan.remove((slot_label, kind))
+
             need_rescan_normals = False
 
-        # periodic/manual scans still ok
         now2 = time.time()
         should_auto_scan = (
             HAVE_SCAN_NORMALS
             and (last_scan_normals is not None)
             and (now2 - last_scan_time) >= SCAN_MIN_INTERVAL_SEC
-            and not need_rescan_normals  # don't stack scans
+            and not need_rescan_normals
         )
         if HAVE_SCAN_NORMALS and manual_scan_requested and not need_rescan_normals:
             try:

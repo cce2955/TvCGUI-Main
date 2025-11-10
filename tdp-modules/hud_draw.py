@@ -183,12 +183,6 @@ def _fmt_stun(val):
 
 
 def draw_scan_normals(surface, rect, font, smallfont, scan_data):
-    """
-    Preview that mirrors the frame-data GUI ordering:
-    - sort by id/abs
-    - dedupe by resolved name
-    - show first ~5 per slot
-    """
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
@@ -218,7 +212,6 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         col_y += 14
 
         moves = slot.get("moves", [])
-        # same kind of ordering/dedup as GUI, but smaller
         moves_sorted = sorted(
             moves,
             key=lambda m: (
@@ -237,7 +230,6 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
                 name = "anim_--"
             else:
                 name = SCAN_ANIM_MAP.get(aid, f"anim_{aid:02X}")
-            # dedupe by name
             if name in seen_names:
                 continue
             seen_names.add(name)
