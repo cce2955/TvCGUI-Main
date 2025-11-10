@@ -13,7 +13,7 @@
 #
 import argparse, struct, csv, sys
 
-# ----- PDME hook (same pattern as your old files) -----
+
 _dme = None
 try:
     import dolphin_memory_engine as _dme
@@ -58,7 +58,7 @@ HITLIKE_U32 = {
     0x3F800000,  # 1.0
     0x41200000,  # 10.0
     0x41A00000,  # 20.0
-    0x00000000,  # a lot of your blocks had 0.0 spacers
+    0x00000000,  
 }
 
 def is_hitlike_u32(u):

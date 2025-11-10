@@ -18,7 +18,7 @@
 # Requires:
 #   - dolphin_memory_engine installed
 #   - tvc_experiments/dolphin_io.py present with: hook(), addr_in_ram(), rbytes(), rd8(), rd32(), rdf32()
-#   - constants.py defining MEM1/MEM2 ranges (already in your repo)
+#   - constants.py defining MEM1/MEM2 ranges 
 
 import argparse
 import time
@@ -27,7 +27,7 @@ import struct
 
 import dolphin_io as dio
 
-# Per-slot "manager" statics you already confirmed
+# Per-slot "manager" statics 
 MAN = {
     "P1C1": 0x803C9FCC,  # P1 active
     "P1C2": 0x803C9FDC,  # P1 partner

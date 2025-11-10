@@ -4,7 +4,7 @@
 
 import time, struct, math, sys
 
-# --- try dolphin_io first (your experiment copy), else fall back to dolphin_memory_engine directly
+# --- try dolphin_io first, else fall back to dolphin_memory_engine directly
 try:
     import dolphin_io as dio
     HAVE_DIO = True

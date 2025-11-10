@@ -92,10 +92,6 @@ WIRE_OFFSETS = [
 # Baroque / input monitor
 # ------------------------------
 #
-# Your Dolphin dump showed:
-#   0x9246CB9C -> a small value (ex: 03)
-#   0x9246CB9D -> a byte that constantly increments ONLY while Baroque is available,
-#                 and goes 00 when Baroque is not available / spent.
 #
 # Rule:
 #   if (0x9246CB9D == 0x00): "Baroque not ready"
@@ -107,14 +103,14 @@ WIRE_OFFSETS = [
 BAROQUE_STATUS_ADDR_MAIN  = 0x9246CBab  # authoritative gate byte
 BAROQUE_STATUS_ADDR_BUDDY = 0x9246CB9C  # neighbor / buddy byte
 
-# We *think* these addresses twitch when Baroque is actually ACTIVATED
-# (on superflash). We'll continue showing them and you'll tell us if we
-# need to move them.
+# 
+# 
+# 
 BAROQUE_FLAG_ADDR_0 = 0x9246CC48
 BAROQUE_FLAG_ADDR_1 = 0x9246CC50
 
 # Controller / input monitor for P1:
-# From your captures:
+# From the captures:
 #   0x9246CC40 region: heavy, assist style codes showed up here
 #   0x9246CC50 region: light / medium press bytes
 #   0x9246CC60 region: taunt, etc

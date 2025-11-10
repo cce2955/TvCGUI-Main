@@ -154,10 +154,6 @@ def move_label_for(aid, cid, move_map, global_map):
       1. If we know cid (the character), try that character's table: move_map[cid][aid]
       2. Else try global_map[aid] (shared/system flags / throws / movement states)
       3. Else fall back to FLAG_<aid>
-
-    This matches what you just said:
-    "if I have flag_266, get my character ID, find 266 in their section.
-     If it's not there, use the shared/global flags."
     """
     if aid is None:
         return "FLAG_NONE"

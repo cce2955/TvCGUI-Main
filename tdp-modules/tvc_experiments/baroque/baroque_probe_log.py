@@ -21,7 +21,7 @@ MANAGERS = {
 
 DEFAULT_WATCH_ABS = 0x9246CBAB
 DEFAULT_RANGES = [(0x000,0x400), (0xB800,0xCC00)]  # health/control + late “B*/CBA*” blocks
-DEFAULT_PANEL_ROW = 0x9246CBA0  # the 32-byte row you like to eyeball
+DEFAULT_PANEL_ROW = 0x9246CBA0  
 
 def hook_block():
     while not dme.is_hooked():

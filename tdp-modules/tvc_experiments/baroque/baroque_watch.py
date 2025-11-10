@@ -1,5 +1,5 @@
 # tvc_experiments/bbq_watch.py
-# Monitors two fields you called out under fighter base @ 0x9246B9E0:
+# Monitors two fields called out under fighter base @ 0x9246B9E0:
 #   +0x34/0x36 (pair A) and +0x48/0x50 (pair B).
 # Prints multiple interpretations and (optional) CSV log.
 

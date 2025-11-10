@@ -40,7 +40,7 @@ def main():
     ap.add_argument("--hp_max_addr", type=parse_hex, default=0x9246B9C0+0x14, help="u32 max HP addr (best-known tap)")
     args = ap.parse_args()
 
-    # The four u16s we’re watching (exact bytes you asked for):
+    # The four u16s we’re watching 
     A_hi_addr = args.row + 0x0B  # index 11
     A_lo_addr = args.row + 0x0C  # index 12
     B_hi_addr = args.row + 0x0F  # index 15

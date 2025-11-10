@@ -90,14 +90,14 @@ def maybe_clear(enable=True):
 def main():
     ap = argparse.ArgumentParser(description="Watch Baroque gate + nearby serials (HP, combo, timer, scale).")
     ap.add_argument("--base", type=lambda x:int(x,0), required=True, help="fighter base (e.g. 0x9246B9C0)")
-    # Absolute addresses with your discovered defaults:
+    # Absolute addresses with discovered defaults:
     ap.add_argument("--flag_addr", type=lambda x:int(x,0), default=0x9246CBAB, help="Baroque gate byte (!=0 is ready)")
     ap.add_argument("--timer_u16", type=lambda x:int(x,0), default=0x9246CB97, help="u16 timer @ row 0x9246CB90 idx 7..8")
     ap.add_argument("--scale_f32", type=lambda x:int(x,0), default=0x9246CB99, help="scaling float @ row 0x9246CB90 idx 9..11")
     # Relative offsets (from fighter base):
     ap.add_argument("--hp_off",   type=lambda x:int(x,0), default=0x28,   help="current HP offset (word)")
     ap.add_argument("--cc_off",   type=lambda x:int(x,0), default=0xB9F0, help="internal combo counter offset (word)")
-    # Edge snapshot row (your Baroque row area):
+    # Edge snapshot row (Baroque row area):
     ap.add_argument("--row_addr", type=lambda x:int(x,0), default=0x9246CBA0, help="row to snapshot (0x20 bytes) on edge")
     ap.add_argument("--interval", type=float, default=1/30, help="poll seconds (default ~30Hz)")
     ap.add_argument("--clear", action="store_true", help="clear screen and redraw header each tick")

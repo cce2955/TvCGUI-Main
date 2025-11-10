@@ -10,10 +10,6 @@ def read_mem(addr, size):
     raise NotImplementedError
 
 def get_current_attack_id_for_p1():
-    """
-    You said you already have attack IDs.
-    So here you just read the RAM location where you’re already showing that in your HUD.
-    """
     raise NotImplementedError
 
 def get_current_char_id_for_p1():

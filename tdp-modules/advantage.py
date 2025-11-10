@@ -1,41 +1,4 @@
 # advantage.py
-# Frame advantage tracker with real-world recovery logic.
-#
-# Goal: show how plus/minus a pressure string was.
-#
-# Process:
-# 1. We "arm" a window when we see true offense vs defense:
-#      attacker is actually attacking,
-#      victim is actually locked / in blockstun / getting hit.
-#
-# 2. Once armed, we watch both fighters to see when they each
-#    first become actionable again.
-#
-#    Attacker actionable frame priority:
-#       SPECIAL_END (128 for specials),
-#       MOVEMENT (normal end; TODO fill in actual code),
-#       ENGAGED (168),
-#       IDLE_BASE (160) as last fallback.
-#
-#    Victim actionable frame priority:
-#       ENGAGED (168) (blockstun over / can act),
-#       MOVEMENT (same movement/free state),
-#       IDLE_BASE (160) fallback.
-#
-#    We only accept a state's timestamp after that fighter has actually
-#    been "busy" (i.e. not idle). This prevents counting ENGAGED/MOVEMENT
-#    that was there at startup/neutral.
-#
-# 3. When both sides have an actionable frame, we finalize:
-#       plus_frames = victim_free - attacker_free
-#    Positive => attacker is +N.
-#    Negative => attacker is -N.
-#
-# 4. We remember finalized_frame so HUD can hold it and log it.
-#
-# We DO NOT try to wait for full idle, and we DO NOT try to measure beyond
-# the first actionable frame. That avoids wild -40f junk.
-
 from config import MAX_DIST2
 
 # Known / inferred states on f062

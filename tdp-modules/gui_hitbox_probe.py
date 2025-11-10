@@ -1,24 +1,6 @@
 # gui_hitbox_probe.py
 #
-# Multi-character version
-# - looks in ./tables/ for *.bin
-# - for the first one that matches MEM2, we latch its tail
-# - then we load ./tables/<name>.moves and show those offsets
-# - if anchor breaks (table moved), we rescan and may match a different character
-#
-# Assumptions:
-# - all captured bins start at (tail - 0x10), like your ryu.bin and chun.bin
-# - moves file lives next to bin, same base name, with .moves extension
-#   e.g. tables/ryu.bin -> tables/ryu.moves
-#        tables/chun.bin -> tables/chun.moves
-#
-# You already have a layout like:
-#   tvc_experiments/
-#     tables/
-#       ryu.bin
-#       chun.bin
-#       ryu.moves
-#       ...
+
 #
 # This script expects to be run from that root (or adjust TABLE_DIR).
 
