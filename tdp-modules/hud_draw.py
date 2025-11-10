@@ -1,4 +1,3 @@
-# hud_draw.py
 import pygame
 from config import COL_PANEL, COL_BORDER, COL_TEXT
 from events import event_log
@@ -9,26 +8,40 @@ except Exception:
     SCAN_ANIM_MAP = {}
 
 
-def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_label):
+def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, header_label):
+    """
+    Generic fighter panel with optional portrait.
+    """
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
-    x0 = rect.x + 6
+    portrait_size = 64
+    pad = 6
+
+    if portrait_surf is not None:
+        surface.blit(
+            pygame.transform.smoothscale(portrait_surf, (portrait_size, portrait_size)),
+            (rect.x + pad, rect.y + pad),
+        )
+        text_x0 = rect.x + pad + portrait_size + 6
+    else:
+        text_x0 = rect.x + pad
+
     y0 = rect.y
 
     if not snap:
-        surface.blit(font.render(f"{header_label} ---", True, COL_TEXT), (x0, y0 + 4))
+        surface.blit(font.render(f"{header_label} ---", True, COL_TEXT), (text_x0, y0 + 4))
         return
 
     hdr = f"{header_label} {snap['name']} @{snap['base']:08X}"
-    surface.blit(font.render(hdr, True, COL_TEXT), (x0, y0 + 4))
+    surface.blit(font.render(hdr, True, COL_TEXT), (text_x0, y0 + 4))
 
     cur_hp = snap["cur"]
     max_hp = snap["max"]
-    meter_str = str(meter_val) if meter_val is not None else "--"
+    meter_str = snap.get("meter_str", "--")
     surface.blit(
         font.render(f"HP {cur_hp}/{max_hp}    Meter:{meter_str}", True, COL_TEXT),
-        (x0, y0 + 24),
+        (text_x0, y0 + 24),
     )
 
     pool_pct_val = snap.get("pool_pct")
@@ -36,8 +49,12 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
     pool_raw = snap.get("hp_pool_byte")
     m2b_raw = snap.get("mystery_2B")
     surface.blit(
-        font.render(f"POOL(02A): {pool_pct_str} raw:{pool_raw}   2B:{m2b_raw}", True, COL_TEXT),
-        (x0, y0 + 44),
+        font.render(
+            f"POOL(02A): {pool_pct_str} raw:{pool_raw}   2B:{m2b_raw}",
+            True,
+            COL_TEXT,
+        ),
+        (text_x0, y0 + 44),
     )
 
     ready_txt = "YES" if snap.get("baroque_ready") else "no"
@@ -50,7 +67,7 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
             True,
             COL_TEXT,
         ),
-        (x0, y0 + 64),
+        (text_x0, y0 + 64),
     )
 
     inputs_struct = snap.get("inputs", {})
@@ -60,7 +77,7 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
             True,
             COL_TEXT,
         ),
-        (x0, y0 + 84),
+        (text_x0, y0 + 84),
     )
 
     lastdmg = snap["last"] if snap["last"] is not None else 0
@@ -70,7 +87,7 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
             True,
             COL_TEXT,
         ),
-        (x0, y0 + 104),
+        (text_x0, y0 + 104),
     )
 
     shown_id = snap.get("mv_id_display", snap.get("attB", snap.get("attA")))
@@ -78,7 +95,7 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
     sub_id = snap.get("attB")
     surface.blit(
         font.render(f"MoveID:{shown_id} {shown_name}   sub:{sub_id}", True, COL_TEXT),
-        (x0, y0 + 124),
+        (text_x0, y0 + 124),
     )
 
     f062 = snap["f062"]
@@ -88,11 +105,11 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
     ctrl_hex = f"0x{(snap['ctrl'] or 0):08X}"
     surface.blit(
         font.render(f"062:{f062}   063:{f063}   064:{f064}", True, COL_TEXT),
-        (x0, y0 + 144),
+        (text_x0, y0 + 144),
     )
     surface.blit(
         font.render(f"072:{f072}   ctrl:{ctrl_hex}", True, COL_TEXT),
-        (x0, y0 + 164),
+        (text_x0, y0 + 164),
     )
 
 
@@ -124,10 +141,14 @@ def draw_event_log(surface, rect, font, smallfont):
 def _fmt_stun(val):
     if val is None:
         return "?"
-    if val == 0x0C: return "10"
-    if val == 0x0F: return "15"
-    if val == 0x11: return "17"
-    if val == 0x15: return "21"
+    if val == 0x0C:
+        return "10"
+    if val == 0x0F:
+        return "15"
+    if val == 0x11:
+        return "17"
+    if val == 0x15:
+        return "21"
     return str(val)
 
 
@@ -144,7 +165,6 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         surface.blit(smallfont.render("no scan / press F5", True, COL_TEXT), (x, y))
         return
 
-    # 4 columns max, but make it adapt to rect width
     by_label = {s.get("slot_label"): s for s in scan_data}
     labels_order = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
     col_w = (rect.width - 12) // 4

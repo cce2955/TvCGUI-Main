@@ -57,6 +57,65 @@ ADV_EVERY_FRAMES = 2
 SCAN_MIN_INTERVAL_SEC = 180.0  # 3 min
 
 
+# ----------------- PORTRAITS -----------------
+def _normalize_char_key(s: str) -> str:
+    s = s.strip().lower()
+    for ch in (" ", "-", "_", "."):
+        s = s.replace(ch, "")
+    return s
+
+
+# if in-game names are weird, map them here
+PORTRAIT_ALIASES = {
+    # example:
+    # "chunli(p1)": "chunli",
+    # "ryu(p1)": "ryu",
+}
+
+
+def load_portrait_placeholder():
+    path = os.path.join("assets", "portraits", "placeholder.png")
+    if os.path.exists(path):
+        try:
+            return pygame.image.load(path).convert_alpha()
+        except Exception:
+            pass
+    surf = pygame.Surface((64, 64), pygame.SRCALPHA)
+    surf.fill((80, 80, 80, 255))
+    pygame.draw.rect(surf, (140, 140, 140, 255), surf.get_rect(), 2)
+    return surf
+
+
+def load_portraits_from_dir(dirpath: str):
+    portraits = {}
+    if not os.path.isdir(dirpath):
+        return portraits
+    for fname in os.listdir(dirpath):
+        if not fname.lower().endswith(".png"):
+            continue
+        full = os.path.join(dirpath, fname)
+        stem = os.path.splitext(fname)[0]
+        key = _normalize_char_key(stem)
+        try:
+            img = pygame.image.load(full).convert_alpha()
+            portraits[key] = img
+        except Exception as e:
+            print("portrait load failed for", full, e)
+    return portraits
+
+
+def get_portrait_for_snap(snap, portraits, placeholder):
+    if not snap:
+        return None
+    cname = snap.get("name")
+    if not cname:
+        return placeholder
+    norm = _normalize_char_key(cname)
+    norm = PORTRAIT_ALIASES.get(norm, norm)
+    return portraits.get(norm, placeholder)
+
+
+# ----------------- UTIL -----------------
 def init_pygame():
     pygame.init()
     try:
@@ -72,7 +131,6 @@ def init_pygame():
     return screen, font, smallfont
 
 
-# --------- helper to fix bogus scan advantages ---------
 def sanitize_scan_adv(mvinfo):
     base_adv_hit = mvinfo.get("adv_hit")
     base_adv_block = mvinfo.get("adv_block")
@@ -110,7 +168,6 @@ def sanitize_scan_adv(mvinfo):
     return base_adv_hit, base_adv_block, active_end
 
 
-# ------------------ frame-data popup ------------------ #
 def _open_frame_data_window_thread(slot_label, target_slot):
     try:
         import tkinter as tk
@@ -330,6 +387,11 @@ def main():
     screen, font, smallfont = init_pygame()
     clock = pygame.time.Clock()
 
+    # portraits
+    placeholder_portrait = load_portrait_placeholder()
+    portraits = load_portraits_from_dir(os.path.join("assets", "portraits"))
+    print(f"HUD: loaded {len(portraits)} portraits.")
+
     last_base_by_slot = {}
     y_off_by_base = {}
     prev_hp = {}
@@ -341,7 +403,6 @@ def main():
     local_scan = RedHealthScanner()
     global_scan = GlobalRedScanner()
 
-    # scan normals immediately on load so HUD has data even before F5
     last_scan_normals = None
     last_scan_time = 0.0
     cached_lookup = {}
@@ -360,7 +421,6 @@ def main():
     pending_hits = []
     frame_idx = 0
     running = True
-    last_real_adv_frame = -99999
 
     while running:
         mouse_clicked_pos = None
@@ -404,7 +464,6 @@ def main():
         meter_p1 = read_meter(p1c1_base)
         meter_p2 = read_meter(p2c1_base)
 
-        # fighter snapshots
         snaps = {}
         for slotname, teamtag, base in resolved_slots:
             if not base:
@@ -415,6 +474,13 @@ def main():
                 continue
             snap["teamtag"] = teamtag
             snap["slotname"] = slotname
+
+            if slotname == "P1-C1":
+                snap["meter_str"] = str(meter_p1) if meter_p1 is not None else "--"
+            elif slotname == "P2-C1":
+                snap["meter_str"] = str(meter_p2) if meter_p2 is not None else "--"
+            else:
+                snap["meter_str"] = "--"
 
             atk_a = snap.get("attA")
             atk_b = snap.get("attB")
@@ -484,27 +550,20 @@ def main():
         if run_global_analysis:
             global_scan.analyze()
 
-
-
-        # REACTION STATE DETECT - track when defender enters hitstun/blockstun
-        # This works for both hits AND blocks
+        # hit/block reaction detection
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
-            # Reaction states from your CSV (hitstun, blockstun, etc)
             REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
-            
+
             for vic_slot, vic_snap in snaps.items():
                 vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
-                
-                # Only trigger when victim enters a reaction state
                 if vic_move_id not in REACTION_STATES:
                     continue
-                
-                # Find nearest attacker
+
                 vic_team = vic_snap["teamtag"]
                 attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
                 if not attackers:
                     continue
-                
+
                 best_d2 = None
                 atk_snap = None
                 for cand in attackers:
@@ -512,13 +571,12 @@ def main():
                     if best_d2 is None or d2v < best_d2:
                         best_d2 = d2v
                         atk_snap = cand
-                
+
                 if not atk_snap:
                     continue
-                
+
                 atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
-                
-                # Start tracking from this reaction state
+
                 ADV_TRACK.start_contact(
                     atk_snap["base"],
                     vic_snap["base"],
@@ -526,36 +584,31 @@ def main():
                     atk_move_id,
                     vic_move_id
                 )
-                
-                # Check if it was a hit (HP dropped)
+
                 base = vic_snap["base"]
                 hp_now = vic_snap["cur"]
                 hp_prev = prev_hp.get(base, hp_now)
                 prev_hp[base] = hp_now
                 dmg = hp_prev - hp_now
-                
+
                 if dmg >= MIN_HIT_DAMAGE:
                     log_engaged(atk_snap, vic_snap, frame_idx)
                     log_hit(atk_snap, vic_snap, dmg, frame_idx)
 
-        # UPDATE ALL ACTIVE ADVANTAGE TRACKERS
+        # update frame advantage
         if frame_idx % ADV_EVERY_FRAMES == 0:
-            # Update all possible attacker -> victim pairs
             pairs = [
                 ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
                 ("P1-C2", "P2-C1"), ("P1-C2", "P2-C2"),
                 ("P2-C1", "P1-C1"), ("P2-C1", "P1-C2"),
                 ("P2-C2", "P1-C1"), ("P2-C2", "P1-C2"),
             ]
-            
             for atk_slot, vic_slot in pairs:
                 atk_snap = snaps.get(atk_slot)
                 vic_snap = snaps.get(vic_slot)
-                
                 if atk_snap and vic_snap:
                     atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
                     vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
-                    
                     ADV_TRACK.update_pair(
                         atk_snap["base"],
                         vic_snap["base"],
@@ -564,16 +617,12 @@ def main():
                         vic_move_id
                     )
 
-            # Check for finalized advantage calculations
             freshest = ADV_TRACK.get_freshest_final_info()
             if freshest:
                 atk_b, vic_b, plusf, fin_frame = freshest
-                
-                # Only show reasonable advantages
                 if abs(plusf) <= 64:
                     atk_slot = next((s for s in snaps.values() if s["base"] == atk_b), None)
                     vic_slot = next((s for s in snaps.values() if s["base"] == vic_b), None)
-                    
                     if atk_slot and vic_slot:
                         last_adv_display = (
                             f"{atk_slot['slotname']}({atk_slot['name']}) vs "
@@ -583,18 +632,25 @@ def main():
                     else:
                         last_adv_display = f"Frame adv: {plusf:+.1f}f"
 
-
-
-
         # DRAW
         screen.fill(COL_BG)
         w, h = screen.get_size()
         layout = compute_layout(w, h)
 
-        draw_panel_classic(screen, layout["p1c1"], snaps.get("P1-C1"), meter_p1, font, smallfont, "P1-C1")
-        draw_panel_classic(screen, layout["p2c1"], snaps.get("P2-C1"), meter_p2, font, smallfont, "P2-C1")
-        draw_panel_classic(screen, layout["p1c2"], snaps.get("P1-C2"), None, font, smallfont, "P1-C2")
-        draw_panel_classic(screen, layout["p2c2"], snaps.get("P2-C2"), None, font, smallfont, "P2-C2")
+        p1c1_snap = snaps.get("P1-C1")
+        p2c1_snap = snaps.get("P2-C1")
+        p1c2_snap = snaps.get("P1-C2")
+        p2c2_snap = snaps.get("P2-C2")
+
+        p1c1_portrait = get_portrait_for_snap(p1c1_snap, portraits, placeholder_portrait)
+        p2c1_portrait = get_portrait_for_snap(p2c1_snap, portraits, placeholder_portrait)
+        p1c2_portrait = get_portrait_for_snap(p1c2_snap, portraits, placeholder_portrait)
+        p2c2_portrait = get_portrait_for_snap(p2c2_snap, portraits, placeholder_portrait)
+
+        draw_panel_classic(screen, layout["p1c1"], p1c1_snap, p1c1_portrait, font, smallfont, "P1-C1")
+        draw_panel_classic(screen, layout["p2c1"], p2c1_snap, p2c1_portrait, font, smallfont, "P2-C1")
+        draw_panel_classic(screen, layout["p1c2"], p1c2_snap, p1c2_portrait, font, smallfont, "P1-C2")
+        draw_panel_classic(screen, layout["p2c2"], p2c2_snap, p2c2_portrait, font, smallfont, "P2-C2")
 
         draw_slot_button(screen, layout["btn_p1c1"], smallfont, "Show frame data")
         draw_slot_button(screen, layout["btn_p2c1"], smallfont, "Show frame data")
@@ -607,7 +663,6 @@ def main():
 
         pygame.display.flip()
 
-        # mouse → popup
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
 
@@ -639,7 +694,6 @@ def main():
                 if data:
                     open_frame_data_window("P2-C2", data)
 
-        # slow auto-scan / manual scan
         now = time.time()
         should_auto_scan = (
             HAVE_SCAN_NORMALS
@@ -662,7 +716,6 @@ def main():
             except Exception as e:
                 print("auto scan failed:", e)
 
-        # CSV header init if you ever push pending_hits here
         if pending_hits and (frame_idx % 30 == 0):
             newcsv = not os.path.exists(HIT_CSV)
             with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
