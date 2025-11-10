@@ -4,9 +4,7 @@ from config import (
     hp_color,
     BAROQUE_MONITOR_ADDR,
 )
-# in hud_draw.py
-from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
-# try to use the nice names from your scanner
+
 try:
     from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 except Exception:
@@ -38,13 +36,11 @@ def draw_panel_classic(surface, rect, snap, meter_val, font, smallfont, header_l
     hp_line = f"HP {cur_hp}/{max_hp}    Meter:{meter_str}"
     surface.blit(font.render(hp_line, True, hp_color(pct)), (x0, y0 + 24))
 
-    pool_raw = snap.get("hp_pool_byte")
-    pool_dec = str(pool_raw) if pool_raw is not None else "--"
     pool_pct_val = snap.get("pool_pct")
     pool_pct_str = f"{pool_pct_val:.1f}%" if pool_pct_val is not None else "--"
+    pool_raw = snap.get("hp_pool_byte")
     m2b_raw = snap.get("mystery_2B")
-    m2b_dec = str(m2b_raw) if m2b_raw is not None else "--"
-    pool_line = f"POOL(02A): {pool_pct_str} raw:{pool_dec}   2B:{m2b_dec}"
+    pool_line = f"POOL(02A): {pool_pct_str} raw:{pool_raw}   2B:{m2b_raw}"
     surface.blit(font.render(pool_line, True, COL_TEXT), (x0, y0 + 44))
 
     ready_txt = "YES" if snap.get("baroque_ready") else "no"
@@ -164,14 +160,16 @@ def draw_slot_button(surface, rect, font, label):
 
 def _fmt_stun(val):
     if val is None:
-        return "--"
-    if val == 0x0C: return "10f"
-    if val == 0x0F: return "15f"
-    if val == 0x11: return "17f"
-    if val == 0x15: return "21f"
-    return f"{val:02X}"
-
-
+        return "?"
+    if val == 0x0C:
+        return "10"
+    if val == 0x0F:
+        return "15"
+    if val == 0x11:
+        return "17"
+    if val == 0x15:
+        return "21"
+    return str(val)
 
 
 def draw_scan_normals(surface, rect, font, smallfont, scan_data):
@@ -199,22 +197,20 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         if not slot:
             surface.blit(smallfont.render(lab, True, COL_TEXT), (col_x, col_y))
             continue
-
         cname = slot.get("char_name", "—")
         surface.blit(smallfont.render(f"{lab} ({cname})", True, COL_TEXT), (col_x, col_y))
         col_y += 14
 
-        # show first 4 moves for this slot
+        # show first 4 moves
         for mv in slot.get("moves", [])[:4]:
             anim_id = mv.get("id")
-            hs = mv.get("hitstun")
-            bs = mv.get("blockstun")
             if anim_id is None:
                 name = "anim_--"
             else:
                 name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
-            hs_txt = "?" if hs is None else str(hs)
-            bs_txt = "?" if bs is None else str(bs)
-            line = f"{name}: H{hs_txt} B{bs_txt}"
+
+            hs = _fmt_stun(mv.get("hitstun"))
+            bs = _fmt_stun(mv.get("blockstun"))
+            line = f"{name}: H{hs} B{bs}"
             surface.blit(smallfont.render(line, True, COL_TEXT), (col_x, col_y))
             col_y += 12

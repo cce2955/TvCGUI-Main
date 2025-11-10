@@ -1,13 +1,13 @@
-import time
+# main.py
 import os
 import csv
-import pygame
+import time
 import threading
-from pprint import pformat
-from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
+
+import pygame
+
 from dolphin_io import hook, rd8, rbytes
 from config import (
-    INTERVAL,
     MIN_HIT_DAMAGE,
     SCREEN_W, SCREEN_H,
     PANEL_W, PANEL_H,
@@ -49,7 +49,12 @@ from hud_draw import (
 from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
 
-# try slow scan
+TARGET_FPS = 60
+DAMAGE_EVERY_FRAMES = 3
+ADV_EVERY_FRAMES = 2
+SCAN_MIN_INTERVAL_SEC = 180.0  # 3 min
+
+# slow scanner
 try:
     import scan_normals_all
     HAVE_SCAN_NORMALS = True
@@ -58,11 +63,6 @@ except Exception:
     scan_normals_all = None
     HAVE_SCAN_NORMALS = False
     SCAN_ANIM_MAP = {}
-
-TARGET_FPS = 60
-DAMAGE_EVERY_FRAMES = 3
-ADV_EVERY_FRAMES = 2
-SCAN_MIN_INTERVAL_SEC = 180.0  # 3 minutes
 
 
 def init_pygame():
@@ -78,24 +78,32 @@ def init_pygame():
     return screen, font, smallfont
 
 
+def _fmt_stun_popup(v):
+    if v is None:
+        return ""
+    if v == 0x0C:
+        return "10"
+    if v == 0x0F:
+        return "15"
+    if v == 0x11:
+        return "17"
+    if v == 0x15:
+        return "21"
+    return str(v)
 
-
-import threading
-from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 
 def _open_frame_data_window_thread(slot_label, target_slot):
     try:
         import tkinter as tk
         from tkinter import ttk
     except Exception:
-        print("tkinter not available")
+        print("tkinter not available for frame-data window")
         return
 
-    root = tk.Tk()
     cname = target_slot.get("char_name", "—")
+    root = tk.Tk()
     root.title(f"Frame data: {slot_label} ({cname})")
 
-    # frame + tree + scrollbar
     frame = ttk.Frame(root)
     frame.pack(fill="both", expand=True)
 
@@ -103,40 +111,58 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
     vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=vsb.set)
-
     tree.grid(row=0, column=0, sticky="nsew")
     vsb.grid(row=0, column=1, sticky="ns")
     frame.rowconfigure(0, weight=1)
     frame.columnconfigure(0, weight=1)
 
-    # set headings
     tree.heading("move", text="Move")
     tree.heading("kind", text="Kind")
     tree.heading("damage", text="Dmg")
     tree.heading("meter", text="Meter")
     tree.heading("startup", text="Start")
     tree.heading("active", text="Active")
-    tree.heading("hitstun", text="Hitstun")
-    tree.heading("blockstun", text="Blockstun")
+    tree.heading("hitstun", text="HS")
+    tree.heading("blockstun", text="BS")
     tree.heading("abs", text="ABS")
 
-    # widths (tweak if you like)
-    tree.column("move", width=150, anchor="w")
-    tree.column("kind", width=70, anchor="w")
+    tree.column("move", width=160, anchor="w")
+    tree.column("kind", width=60, anchor="w")
     tree.column("damage", width=60, anchor="center")
-    tree.column("meter", width=60, anchor="center")
+    tree.column("meter", width=55, anchor="center")
     tree.column("startup", width=55, anchor="center")
-    tree.column("active", width=55, anchor="center")
-    tree.column("hitstun", width=65, anchor="center")
-    tree.column("blockstun", width=75, anchor="center")
+    tree.column("active", width=65, anchor="center")
+    tree.column("hitstun", width=45, anchor="center")
+    tree.column("blockstun", width=45, anchor="center")
     tree.column("abs", width=110, anchor="w")
 
-    # helper to stringify maybe-None
-    def _s(v):
-        return "" if v is None else str(v)
+    # sort
+    moves_sorted = sorted(
+        target_slot.get("moves", []),
+        key=lambda m: (
+            m.get("id") is None,
+            m.get("id", 0xFFFF),
+            m.get("abs", 0xFFFFFFFF),
+        ),
+    )
 
-    # fill rows
-    for mv in target_slot.get("moves", []):
+    # dedupe named moves
+    seen_named = set()
+    deduped = []
+    for mv in moves_sorted:
+        anim_id = mv.get("id")
+        if anim_id is None:
+            deduped.append(mv)
+            continue
+        name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
+        is_unknown = name.startswith("anim_") or "?" in name
+        if not is_unknown:
+            if anim_id in seen_named:
+                continue
+            seen_named.add(anim_id)
+        deduped.append(mv)
+
+    for mv in deduped:
         anim_id = mv.get("id")
         if anim_id is None:
             move_name = "anim_--"
@@ -144,18 +170,17 @@ def _open_frame_data_window_thread(slot_label, target_slot):
             move_name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
 
         kind = mv.get("kind", "")
-        dmg = mv.get("damage")
-        meter = mv.get("meter")
-        startup = mv.get("active_start")  # you had this in your dict
-        active_end = mv.get("active_end")
-        # show "8-10" if we have both
-        if startup is not None and active_end is not None:
-            active_txt = f"{startup}-{active_end}"
+        dmg = "" if mv.get("damage") is None else str(mv.get("damage"))
+        meter = "" if mv.get("meter") is None else str(mv.get("meter"))
+        startup = "" if mv.get("active_start") is None else str(mv.get("active_start"))
+        a_s = mv.get("active_start")
+        a_e = mv.get("active_end")
+        if a_s is not None and a_e is not None:
+            active_txt = f"{a_s}-{a_e}"
         else:
-            active_txt = _s(active_end)
-
-        hitstun = mv.get("hitstun")
-        blockstun = mv.get("blockstun")
+            active_txt = "" if a_e is None else str(a_e)
+        hs = _fmt_stun_popup(mv.get("hitstun"))
+        bs = _fmt_stun_popup(mv.get("blockstun"))
         abs_addr = mv.get("abs")
 
         tree.insert(
@@ -164,12 +189,12 @@ def _open_frame_data_window_thread(slot_label, target_slot):
             values=(
                 move_name,
                 kind,
-                _s(dmg),
-                _s(meter),
-                _s(startup),
+                dmg,
+                meter,
+                startup,
                 active_txt,
-                _s(hitstun),
-                _s(blockstun),
+                hs,
+                bs,
                 f"0x{abs_addr:08X}" if abs_addr else "",
             ),
         )
@@ -180,7 +205,6 @@ def _open_frame_data_window_thread(slot_label, target_slot):
 def open_frame_data_window(slot_label, scan_data):
     if not scan_data:
         return
-
     target = None
     for s in scan_data:
         if s.get("slot_label") == slot_label:
@@ -189,39 +213,14 @@ def open_frame_data_window(slot_label, scan_data):
     if not target:
         return
 
-    # run tk in separate thread so pygame keeps updating
-    t = threading.Thread(
-        target=_open_frame_data_window_thread,
-        args=(slot_label, target),
-        daemon=True,
-    )
-    t.start()
-
-
-def open_frame_data_window(slot_label, scan_data):
-    if not scan_data:
-        return
-    target = None
-    for s in scan_data:
-        if s.get("slot_label") == slot_label:
-            target = s
-            break
-    if not target:
-        return
-
-    # run tk in a separate thread so pygame keeps updating
-    t = threading.Thread(
-        target=_open_frame_data_window_thread,
-        args=(slot_label, target),
-        daemon=True,
-    )
+    t = threading.Thread(target=_open_frame_data_window_thread, args=(slot_label, target), daemon=True)
     t.start()
 
 
 def main():
-    print("GUI HUD: waiting for Dolphin…")
+    print("HUD: waiting for Dolphin…")
     hook()
-    print("GUI HUD: hooked Dolphin.")
+    print("HUD: hooked Dolphin.")
 
     move_map, global_map = load_move_map(GENERIC_MAPPING_CSV, PAIR_MAPPING_CSV)
     screen, font, smallfont = init_pygame()
@@ -268,7 +267,7 @@ def main():
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
                 mouse_clicked_pos = ev.pos
 
-        # resolve slots
+        # resolve 4 slots
         resolved_slots = []
         for slotname, ptr_addr, teamtag in SLOTS:
             base, changed = RESOLVER.resolve_base(ptr_addr)
@@ -296,7 +295,8 @@ def main():
             snap["teamtag"] = teamtag
             snap["slotname"] = slotname
 
-            atk_a = snap.get("attA"); atk_b = snap.get("attB")
+            atk_a = snap.get("attA")
+            atk_b = snap.get("attB")
             chosen_id = atk_a if atk_a is not None else atk_b
             char_name = snap.get("name")
             csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
@@ -355,7 +355,7 @@ def main():
         if run_global_analysis:
             global_scan.analyze()
 
-        # damage detect less often
+        # damage detect
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
             for slotname, vic_snap in snaps.items():
                 base = vic_snap["base"]
@@ -369,16 +369,18 @@ def main():
                 attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
                 if not attackers:
                     continue
-                best_d2 = None; atk_snap = None
+                best_d2 = None
+                atk_snap = None
                 for cand in attackers:
                     d2v = dist2(vic_snap, cand)
                     if best_d2 is None or d2v < best_d2:
-                        best_d2 = d2v; atk_snap = cand
+                        best_d2 = d2v
+                        atk_snap = cand
                 if not atk_snap:
                     continue
                 ADV_TRACK.start_contact(atk_snap["base"], vic_snap["base"], frame_idx)
 
-        # frame adv less often
+        # frame adv tracking
         if frame_idx % ADV_EVERY_FRAMES == 0:
             pairs = [
                 ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
@@ -446,43 +448,59 @@ def main():
 
         pygame.display.flip()
 
-        # mouse -> open window
-        if mouse_clicked_pos is not None and last_scan_normals:
+        # clicks → run scan if needed → open popup
+        if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
-            if btn_p1c1.collidepoint(mx, my):
-                open_frame_data_window("P1-C1", last_scan_normals)
-            elif btn_p2c1.collidepoint(mx, my):
-                open_frame_data_window("P2-C1", last_scan_normals)
-            elif btn_p1c2.collidepoint(mx, my):
-                open_frame_data_window("P1-C2", last_scan_normals)
-            elif btn_p2c2.collidepoint(mx, my):
-                open_frame_data_window("P2-C2", last_scan_normals)
 
-        # slow scan
+            def ensure_scan():
+                nonlocal last_scan_normals, last_scan_time
+                if last_scan_normals is None and HAVE_SCAN_NORMALS:
+                    try:
+                        last_scan_normals = scan_normals_all.scan_once()
+                        last_scan_time = time.time()
+                    except Exception as e:
+                        print("scan failed:", e)
+                return last_scan_normals
+
+            if btn_p1c1.collidepoint(mx, my):
+                data = ensure_scan()
+                if data:
+                    open_frame_data_window("P1-C1", data)
+            elif btn_p2c1.collidepoint(mx, my):
+                data = ensure_scan()
+                if data:
+                    open_frame_data_window("P2-C1", data)
+            elif btn_p1c2.collidepoint(mx, my):
+                data = ensure_scan()
+                if data:
+                    open_frame_data_window("P1-C2", data)
+            elif btn_p2c2.collidepoint(mx, my):
+                data = ensure_scan()
+                if data:
+                    open_frame_data_window("P2-C2", data)
+
+        # slow auto-scan
         now = time.time()
         should_auto_scan = (
             HAVE_SCAN_NORMALS
             and (last_scan_normals is not None)
             and (now - last_scan_time) >= SCAN_MIN_INTERVAL_SEC
         )
-
         if HAVE_SCAN_NORMALS and manual_scan_requested:
             try:
                 last_scan_normals = scan_normals_all.scan_once()
-            except Exception:
-                pass
-            else:
                 last_scan_time = time.time()
+            except Exception as e:
+                print("manual scan failed:", e)
             manual_scan_requested = False
         elif should_auto_scan:
             try:
                 last_scan_normals = scan_normals_all.scan_once()
-            except Exception:
-                pass
-            else:
                 last_scan_time = time.time()
+            except Exception as e:
+                print("auto scan failed:", e)
 
-        # csv flush (keep what you had, or skip)
+        # csv flush (optional)
         if pending_hits and (frame_idx % 30 == 0):
             newcsv = not os.path.exists(HIT_CSV)
             with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
@@ -499,7 +517,6 @@ def main():
                         "vic_flag062","vic_flag063",
                         "atk_ctrl","vic_ctrl",
                     ])
-                # we didn't actually fill pending_hits in this version, so it's mostly noop
             pending_hits.clear()
 
         clock.tick(TARGET_FPS)
