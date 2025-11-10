@@ -1,45 +1,32 @@
 # scan_normals_all.py
 #
-# Scans MEM2 for 4 TvC character move tables and extracts:
-# - anim id
-# - meter
-# - speed
-# - active frames
-# - damage
-# - attack property
-# - hit reaction
-# - knockback
-# - stuns (hitstun, blockstun, hitstop)
+# Scans MEM2 for TvC move tables (up to 4 characters),
+# extracts move info, and now also computes *estimated* frame
+# advantage on hit/block using the memory values we found:
 #
-# returns a list of up to 4 dicts:
-# [
-#   {"slot_label": "P1-C1", "char_name": "Ryu", "moves": [ {...}, ... ]},
-#   ...
-# ]
+#   total_frames = anim_speed (fallback 60)
+#   recovery     = max(0, total_frames - active_end)
+#   adv_hit      = (hitstun or 0) - recovery
+#   adv_block    = (blockstun or 0) - recovery
 #
-# used by main.py to show "scan normals (preview)" and full popout
+# main.py will call scan_once() and show it.
 
 from dolphin_io import hook, rbytes, rd32
 from constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 
 # ------------------------------------------------------------
-# constants and patterns
+# patterns / tables
 # ------------------------------------------------------------
 
-# tail marker that ends a character block
 TAIL_PATTERN = b"\x00\x00\x00\x38\x01\x33\x00\x00"
 CLUSTER_GAP = 0x4000
+CLUSTER_PAD_BACK = 0x200  # back up so 5A doesn’t get chopped off
 
-# we back up a bit because 5A sometimes sits *before* the first tail
-CLUSTER_PAD_BACK = 0x200  # 512 bytes
-
-# base animation header
 ANIM_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x01, 0xE8,
     0x3F, 0x00, 0x00, 0x00,
 ]
 
-# "command" header (directional altered buttons)
 CMD_HDR = [
     0x04, 0x03, 0x60, 0x00, 0x00, 0x00, 0x13, 0xCC,
     0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
@@ -47,22 +34,19 @@ CMD_HDR = [
 ]
 CMD_HDR_LEN = len(CMD_HDR)
 
-# air variant header
 AIR_HDR = [
     0x33, 0x33, 0x20, 0x00, 0x01, 0x34, 0x00, 0x00, 0x00,
 ]
 AIR_HDR_LEN = len(AIR_HDR)
 
-# super-ish ending header
 SUPER_END_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x12, 0x18, 0x3F,
 ]
 
-# inside anim header we look for 01 ?? 01 3C
 ANIM_ID_PATTERN = [0x01, None, 0x01, 0x3C]
 LOOKAHEAD_AFTER_HDR = 0x80
 
-# meter block
+# meter
 METER_HDR = [
     0x34, 0x04, 0x00, 0x20, 0x00, 0x00, 0x00, 0x03,
     0x00, 0x00, 0x00, 0x00,
@@ -71,31 +55,31 @@ METER_HDR = [
 ]
 METER_TOTAL_LEN = len(METER_HDR) + 5
 
-# animation speed block
+# anim speed
 ANIM_SPEED_HDR = [
     0x04, 0x01, 0x02, 0x3F, 0x00, 0x00, 0x01,
 ]
 
-# active frames block
+# active
 ACTIVE_HDR = [
     0x20, 0x35, 0x01, 0x20, 0x3F, 0x00, 0x00, 0x00,
 ]
 ACTIVE_TOTAL_LEN = 20
 
-# damage block
+# damage
 DAMAGE_HDR = [
     0x35, 0x10, 0x20, 0x3F, 0x00,
 ]
 DAMAGE_TOTAL_LEN = 16
 
-# attack property block
+# attack property
 ATKPROP_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ]
 ATKPROP_TOTAL_LEN = 17
 
-# hit reaction block
+# hit reaction
 HITREACTION_HDR = [
     0x04, 0x17, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x80, 0x04, 0x2F, 0x00,
@@ -122,9 +106,8 @@ STUN_HDR = [
 ]
 STUN_TOTAL_LEN = 43
 
-# we padded 0x200 earlier, so pair ranges need to be wider than the old 0x400
+# we padded 0x200 earlier, so widen all pair ranges
 PAIR_RANGE = 0x600
-
 METER_PAIR_RANGE = PAIR_RANGE
 ACTIVE_PAIR_RANGE = PAIR_RANGE
 DAMAGE_PAIR_RANGE = PAIR_RANGE
@@ -152,7 +135,7 @@ ANIM_MAP = {
     0x0E: "6B",
     0x14: "donkey/dash-ish",
 
-    # from your poke list — invented IDs so HUD can label them
+    # invent IDs for your specials/supers so we can label them
     0x15: "Tatsu L",
     0x16: "Tatsu M (first hit)",
     0x17: "Tatsu M (second/third hit)",
@@ -187,19 +170,10 @@ ANIM_MAP = {
 NORMAL_IDS = set(ANIM_MAP.keys())
 
 DEFAULT_METER = {
-    0x00: 0x32,
-    0x03: 0x32,
-    0x09: 0x32,
-    0x01: 0x64,
-    0x04: 0x64,
-    0x0A: 0x64,
-    0x02: 0x96,
-    0x05: 0x96,
-    0x0B: 0x96,
-    0x06: 0x96,
-    0x08: 0x96,
-    0x0E: 0x96,
-    0x14: 0x96,
+    0x00: 0x32, 0x03: 0x32, 0x09: 0x32,  # lights
+    0x01: 0x64, 0x04: 0x64, 0x0A: 0x64,  # mids
+    0x02: 0x96, 0x05: 0x96, 0x0B: 0x96,  # heavies
+    0x06: 0x96, 0x08: 0x96, 0x0E: 0x96, 0x14: 0x96,
 }
 SPECIAL_DEFAULT_METER = 0xC8
 
@@ -277,14 +251,14 @@ def parse_anim_speed(buf: bytes, start: int):
         if buf[start + i] != b:
             return None, None
     aid = buf[start + len(ANIM_SPEED_HDR)]
-    # expect 01 3C right after
+    # expect 01 3C just after to mark the 60f
     if buf[start + len(ANIM_SPEED_HDR) + 1] != 0x01 or buf[start + len(ANIM_SPEED_HDR) + 2] != 0x3C:
         return None, None
-    # look for tail to get speed byte
+    # in this pattern, the actual speed is a byte after a tail-ish pattern
     tail_pat = [0x33, 0x35, 0x20, 0x3F, 0x00, 0x00, 0x00]
-    search_from = start + 16
-    search_to = min(start + 64, len(buf))
-    for p in range(search_from, search_to - len(tail_pat) + 1):
+    s_from = start + 16
+    s_to = min(start + 64, len(buf))
+    for p in range(s_from, s_to - len(tail_pat) + 1):
         if match_bytes(buf, p, tail_pat):
             spd = buf[p + len(tail_pat)]
             return aid, spd
@@ -308,9 +282,7 @@ def parse_damage(buf: bytes, start: int):
     for i, b in enumerate(DAMAGE_HDR):
         if buf[start + i] != b:
             return None, None
-    d0 = buf[start + 5]
-    d1 = buf[start + 6]
-    d2 = buf[start + 7]
+    d0 = buf[start + 5]; d1 = buf[start + 6]; d2 = buf[start + 7]
     dmg_val = (d0 << 16) | (d1 << 8) | d2
     dmg_flag = buf[start + 15]
     return dmg_val, dmg_flag
@@ -331,9 +303,7 @@ def parse_hitreaction(buf: bytes, start: int):
     for i, b in enumerate(HITREACTION_HDR):
         if buf[start + i] != b:
             return None
-    xx = buf[start + 28]
-    yy = buf[start + 29]
-    zz = buf[start + 30]
+    xx = buf[start + 28]; yy = buf[start + 29]; zz = buf[start + 30]
     return (xx << 16) | (yy << 8) | zz
 
 
@@ -349,16 +319,15 @@ def parse_knockback(buf: bytes, start: int):
 def parse_stun(buf: bytes, start: int):
     if start + STUN_TOTAL_LEN > len(buf):
         return None
-    hs = buf[start + 15]
-    bs = buf[start + 31]
-    hsop = buf[start + 38]
-    return hs, bs, hsop
+    hitstun = buf[start + 15]
+    blockstun = buf[start + 31]
+    hitstop = buf[start + 38]
+    return hitstun, blockstun, hitstop
 
 
 # ------------------------------------------------------------
 def scan_once():
-    # user can call this directly
-    hook()  # safe if already hooked
+    hook()
 
     slots_info = read_slots()
     mem = rbytes(MEM2_LO, MEM2_HI - MEM2_LO)
@@ -379,7 +348,6 @@ def scan_once():
 
         start_off = tails_in_cluster[0]
         start_off = max(0, start_off - CLUSTER_PAD_BACK)
-
         if c_idx + 1 < len(clusters):
             end_off = clusters[c_idx + 1][0]
         else:
@@ -388,17 +356,15 @@ def scan_once():
         buf = mem[start_off:end_off]
         base_abs = MEM2_LO + start_off
 
-        # PASS 1: find move headers
+        # PASS 1: detect moves
         moves = []
         i = 0
         while i < len(buf):
-            # super-ish
             if match_bytes(buf, i, SUPER_END_HDR):
                 moves.append({"kind": "super", "abs": base_abs + i, "id": None})
                 i += len(SUPER_END_HDR)
                 continue
 
-            # air
             if match_bytes(buf, i, AIR_HDR):
                 s0 = i + AIR_HDR_LEN
                 s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf))
@@ -411,7 +377,6 @@ def scan_once():
                 i += AIR_HDR_LEN
                 continue
 
-            # command
             if match_bytes(buf, i, CMD_HDR):
                 s0 = i + CMD_HDR_LEN + 3
                 s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf))
@@ -424,7 +389,6 @@ def scan_once():
                 i += CMD_HDR_LEN
                 continue
 
-            # plain anim
             if match_bytes(buf, i, ANIM_HDR):
                 aid = get_anim_id_after_hdr(buf, i)
                 kind = "normal" if (aid is not None and aid in NORMAL_IDS) else "special"
@@ -446,7 +410,7 @@ def scan_once():
                 continue
             j += 1
 
-        # PASS 3: anim speed
+        # PASS 3: animation speeds
         speed_map = {}
         k = 0
         while k < len(buf):
@@ -529,12 +493,12 @@ def scan_once():
                 continue
             sb += 1
 
-        # PASS 10: attach
+        # PASS 10: attach to moves and compute advantage
         for mv in moves:
             aid = mv["id"]
             mv_abs = mv["abs"]
 
-            # meter
+            # meter (with pairing)
             if mv["kind"] == "normal":
                 mv["meter"] = DEFAULT_METER.get(aid)
             elif mv["kind"] == "special":
@@ -550,7 +514,7 @@ def scan_once():
                     best_val = m_val
             mv["meter"] = best_val
 
-            # speed
+            # anim speed
             if aid is not None and aid in speed_map:
                 mv["speed"] = speed_map[aid]
             else:
@@ -582,7 +546,7 @@ def scan_once():
             mv["damage"] = mv_dmg
             mv["damage_flag"] = mv_dflag
 
-            # atk prop
+            # atkprop
             mv_prop = None
             best_dist = None
             for ap_abs, prop in atkprop_blocks:
@@ -618,7 +582,7 @@ def scan_once():
             mv["kb1"] = mv_kb1
             mv["kb_traj"] = mv_kb_traj
 
-            # stuns — THIS was the one hurting 5A
+            # stuns
             mv_hitstun = None
             mv_blockstun = None
             mv_hitstop = None
@@ -634,20 +598,35 @@ def scan_once():
             mv["blockstun"] = mv_blockstun
             mv["hitstop"] = mv_hitstop
 
-        # map cluster → slot
+            # ------------------------------------------------
+            # ADVANTAGE (estimated)
+            # ------------------------------------------------
+            # total frames: try speed, fallback to 60
+            total_frames = mv.get("speed") or 0x3C  # 0x3C = 60
+            a_end = mv.get("active_end")
+            if a_end is not None:
+                recovery = total_frames - a_end
+                if recovery < 0:
+                    recovery = 0
+            else:
+                # if we don't know active, assume middling recovery
+                recovery = 12
+
+            hs = mv.get("hitstun") or 0
+            bs = mv.get("blockstun") or 0
+            mv["adv_hit"] = hs - recovery
+            mv["adv_block"] = bs - recovery
+
+        # map cluster to actual slot
         slot_idx = cluster_to_slot[c_idx] if c_idx < len(cluster_to_slot) else c_idx
         slot_label, base_ptr, cid, cname = (
             slots_info[slot_idx] if slot_idx < len(slots_info) else (f"slot{slot_idx}", 0, None, "—")
         )
 
-        # sort moves so ID 0 (5A) is always on top
+        # sort moves by id for nicer display
         moves_sorted = sorted(
             moves,
-            key=lambda m: (
-                m.get("id") is None,
-                m.get("id", 0xFFFF),
-                m.get("abs", 0xFFFFFFFF),
-            ),
+            key=lambda m: ((m["id"] is None), m.get("id", 0xFFFF), m.get("abs", 0xFFFFFFFF))
         )
 
         result[slot_idx] = {

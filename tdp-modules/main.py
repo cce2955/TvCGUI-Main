@@ -32,7 +32,6 @@ from resolver import RESOLVER, pick_posy_off_no_jump
 from meter import read_meter, METER_CACHE
 from fighter import read_fighter, dist2
 from advantage import ADV_TRACK
-from events import log_frame_advantage
 from moves import (
     load_move_map,
     move_label_for,
@@ -48,13 +47,9 @@ from hud_draw import (
 )
 from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
+from events import log_engaged, log_hit, log_frame_advantage
 
-TARGET_FPS = 60
-DAMAGE_EVERY_FRAMES = 3
-ADV_EVERY_FRAMES = 2
-SCAN_MIN_INTERVAL_SEC = 180.0  # 3 min
-
-# slow scanner
+# optional scanner with stuns/actives/etc.
 try:
     import scan_normals_all
     HAVE_SCAN_NORMALS = True
@@ -63,6 +58,11 @@ except Exception:
     scan_normals_all = None
     HAVE_SCAN_NORMALS = False
     SCAN_ANIM_MAP = {}
+
+TARGET_FPS = 60
+DAMAGE_EVERY_FRAMES = 3
+ADV_EVERY_FRAMES = 2
+SCAN_MIN_INTERVAL_SEC = 180.0  # 3 minutes
 
 
 def init_pygame():
@@ -81,14 +81,10 @@ def init_pygame():
 def _fmt_stun_popup(v):
     if v is None:
         return ""
-    if v == 0x0C:
-        return "10"
-    if v == 0x0F:
-        return "15"
-    if v == 0x11:
-        return "17"
-    if v == 0x15:
-        return "21"
+    if v == 0x0C: return "10"
+    if v == 0x0F: return "15"
+    if v == 0x11: return "17"
+    if v == 0x15: return "21"
     return str(v)
 
 
@@ -97,17 +93,21 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         import tkinter as tk
         from tkinter import ttk
     except Exception:
-        print("tkinter not available for frame-data window")
+        print("tkinter not available")
         return
 
     cname = target_slot.get("char_name", "—")
     root = tk.Tk()
     root.title(f"Frame data: {slot_label} ({cname})")
 
+    cols = (
+        "move", "kind", "damage", "meter",
+        "startup", "active", "hitstun", "blockstun",
+        "advH", "advB", "abs"
+    )
     frame = ttk.Frame(root)
     frame.pack(fill="both", expand=True)
 
-    cols = ("move", "kind", "damage", "meter", "startup", "active", "hitstun", "blockstun", "abs")
     tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
     vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=vsb.set)
@@ -116,15 +116,12 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     frame.rowconfigure(0, weight=1)
     frame.columnconfigure(0, weight=1)
 
-    tree.heading("move", text="Move")
-    tree.heading("kind", text="Kind")
-    tree.heading("damage", text="Dmg")
-    tree.heading("meter", text="Meter")
-    tree.heading("startup", text="Start")
-    tree.heading("active", text="Active")
-    tree.heading("hitstun", text="HS")
-    tree.heading("blockstun", text="BS")
-    tree.heading("abs", text="ABS")
+    for c, txt in [
+        ("move", "Move"), ("kind", "Kind"), ("damage", "Dmg"), ("meter", "Meter"),
+        ("startup", "Start"), ("active", "Active"), ("hitstun", "HS"), ("blockstun", "BS"),
+        ("advH", "advH"), ("advB", "advB"), ("abs", "ABS")
+    ]:
+        tree.heading(c, text=txt)
 
     tree.column("move", width=160, anchor="w")
     tree.column("kind", width=60, anchor="w")
@@ -134,9 +131,11 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     tree.column("active", width=65, anchor="center")
     tree.column("hitstun", width=45, anchor="center")
     tree.column("blockstun", width=45, anchor="center")
+    tree.column("advH", width=55, anchor="center")
+    tree.column("advB", width=55, anchor="center")
     tree.column("abs", width=110, anchor="w")
 
-    # sort
+    # sort & dedupe
     moves_sorted = sorted(
         target_slot.get("moves", []),
         key=lambda m: (
@@ -145,58 +144,50 @@ def _open_frame_data_window_thread(slot_label, target_slot):
             m.get("abs", 0xFFFFFFFF),
         ),
     )
-
-    # dedupe named moves
     seen_named = set()
     deduped = []
     for mv in moves_sorted:
-        anim_id = mv.get("id")
-        if anim_id is None:
-            deduped.append(mv)
-            continue
-        name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
-        is_unknown = name.startswith("anim_") or "?" in name
-        if not is_unknown:
-            if anim_id in seen_named:
+        aid = mv.get("id")
+        if aid is None:
+            deduped.append(mv); continue
+        name = SCAN_ANIM_MAP.get(aid, f"anim_{aid:02X}")
+        unknownish = name.startswith("anim_") or "?" in name
+        if not unknownish:
+            if aid in seen_named:
                 continue
-            seen_named.add(anim_id)
+            seen_named.add(aid)
         deduped.append(mv)
 
     for mv in deduped:
-        anim_id = mv.get("id")
-        if anim_id is None:
+        aid = mv.get("id")
+        if aid is None:
             move_name = "anim_--"
         else:
-            move_name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
+            move_name = SCAN_ANIM_MAP.get(aid, f"anim_{aid:02X}")
 
-        kind = mv.get("kind", "")
-        dmg = "" if mv.get("damage") is None else str(mv.get("damage"))
-        meter = "" if mv.get("meter") is None else str(mv.get("meter"))
-        startup = "" if mv.get("active_start") is None else str(mv.get("active_start"))
         a_s = mv.get("active_start")
         a_e = mv.get("active_end")
         if a_s is not None and a_e is not None:
             active_txt = f"{a_s}-{a_e}"
         else:
             active_txt = "" if a_e is None else str(a_e)
-        hs = _fmt_stun_popup(mv.get("hitstun"))
-        bs = _fmt_stun_popup(mv.get("blockstun"))
-        abs_addr = mv.get("abs")
 
         tree.insert(
             "",
             "end",
             values=(
                 move_name,
-                kind,
-                dmg,
-                meter,
-                startup,
+                mv.get("kind", ""),
+                "" if mv.get("damage") is None else str(mv.get("damage")),
+                "" if mv.get("meter") is None else str(mv.get("meter")),
+                "" if mv.get("active_start") is None else str(mv.get("active_start")),
                 active_txt,
-                hs,
-                bs,
-                f"0x{abs_addr:08X}" if abs_addr else "",
-            ),
+                _fmt_stun_popup(mv.get("hitstun")),
+                _fmt_stun_popup(mv.get("blockstun")),
+                "" if mv.get("adv_hit") is None else f"{mv['adv_hit']:+d}",
+                "" if mv.get("adv_block") is None else f"{mv['adv_block']:+d}",
+                f"0x{mv.get('abs',0):08X}" if mv.get("abs") else "",
+            )
         )
 
     root.mainloop()
@@ -212,9 +203,32 @@ def open_frame_data_window(slot_label, scan_data):
             break
     if not target:
         return
-
-    t = threading.Thread(target=_open_frame_data_window_thread, args=(slot_label, target), daemon=True)
+    t = threading.Thread(
+        target=_open_frame_data_window_thread,
+        args=(slot_label, target),
+        daemon=True,
+    )
     t.start()
+
+
+def build_move_lookup(scan_data):
+    """
+    slot_label -> { anim_id: move_dict }
+    """
+    if not scan_data:
+        return {}
+    out = {}
+    for slot in scan_data:
+        sl = slot.get("slot_label")
+        moves = slot.get("moves", [])
+        d = {}
+        for mv in moves:
+            aid = mv.get("id")
+            if aid is None:
+                continue
+            d[aid] = mv
+        out[sl] = d
+    return out
 
 
 def main():
@@ -231,6 +245,10 @@ def main():
     prev_hp = {}
     pool_baseline = {}
 
+    # track move starts
+    last_move_start_frame = {}   # base -> frame_idx
+    last_move_anim_id = {}       # base -> anim_id
+
     local_scan = RedHealthScanner()
     global_scan = GlobalRedScanner()
 
@@ -238,6 +256,7 @@ def main():
     last_scan_normals = None
     last_scan_time = 0.0
     manual_scan_requested = False
+    cached_lookup = {}
 
     pending_hits = []
     frame_idx = 0
@@ -267,7 +286,7 @@ def main():
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
                 mouse_clicked_pos = ev.pos
 
-        # resolve 4 slots
+        # resolve slots
         resolved_slots = []
         for slotname, ptr_addr, teamtag in SLOTS:
             base, changed = RESOLVER.resolve_base(ptr_addr)
@@ -283,7 +302,7 @@ def main():
         meter_p1 = read_meter(p1c1_base)
         meter_p2 = read_meter(p2c1_base)
 
-        # build snaps
+        # fighter snapshots
         snaps = {}
         for slotname, teamtag, base in resolved_slots:
             if not base:
@@ -295,16 +314,28 @@ def main():
             snap["teamtag"] = teamtag
             snap["slotname"] = slotname
 
+            # anim / move detection
             atk_a = snap.get("attA")
             atk_b = snap.get("attB")
-            chosen_id = atk_a if atk_a is not None else atk_b
+            cur_anim = atk_a if atk_a is not None else atk_b
+
             char_name = snap.get("name")
             csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
-            mv_label = move_label_for(chosen_id, csv_char_id, move_map, global_map)
+            mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
             snap["mv_label"] = mv_label
-            snap["mv_id_display"] = chosen_id
+            snap["mv_id_display"] = cur_anim
             snap["csv_char_id"] = csv_char_id
 
+            # detect move start
+            prev_anim = last_move_anim_id.get(base)
+            if cur_anim is not None and cur_anim != 0 and cur_anim != prev_anim:
+                last_move_start_frame[base] = frame_idx
+                last_move_anim_id[base] = cur_anim
+            else:
+                # keep anim id (might be 0)
+                last_move_anim_id[base] = cur_anim
+
+            # pool %
             pool_byte = snap.get("hp_pool_byte")
             if pool_byte is not None:
                 prev_max = pool_baseline.get(base, 0)
@@ -316,6 +347,7 @@ def main():
                 pool_pct = 0.0
             snap["pool_pct"] = pool_pct
 
+            # baroque + inputs
             if slotname == "P1-C1":
                 buddy_val = rd8(BAROQUE_STATUS_ADDR_BUDDY) or 0
                 main_val = rd8(BAROQUE_STATUS_ADDR_MAIN) or 0
@@ -341,7 +373,7 @@ def main():
 
             snaps[slotname] = snap
 
-        # hotkeys
+        # scanner hotkeys
         if snapshot_p1c1_local:
             targ = snaps.get("P1-C1")
             if targ:
@@ -355,16 +387,22 @@ def main():
         if run_global_analysis:
             global_scan.analyze()
 
-        # damage detect
+        # DAMAGE DETECTION (live-corrected adv)
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
+            if last_scan_normals:
+                cached_lookup = build_move_lookup(last_scan_normals)
+
             for slotname, vic_snap in snaps.items():
                 base = vic_snap["base"]
                 hp_now = vic_snap["cur"]
                 hp_prev = prev_hp.get(base, hp_now)
                 prev_hp[base] = hp_now
+
                 dmg = hp_prev - hp_now
                 if dmg < MIN_HIT_DAMAGE:
                     continue
+
+                # pick attacker from other team, closest
                 vic_team = vic_snap["teamtag"]
                 attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
                 if not attackers:
@@ -378,9 +416,61 @@ def main():
                         atk_snap = cand
                 if not atk_snap:
                     continue
+
+                # feed old tracker too
                 ADV_TRACK.start_contact(atk_snap["base"], vic_snap["base"], frame_idx)
 
-        # frame adv tracking
+                # --- live-corrected advantage using scan baseline ---
+                live_adv_str = ""
+                atk_base = atk_snap["base"]
+                atk_slotname = atk_snap["slotname"]
+                atk_move_id = last_move_anim_id.get(atk_base)
+                atk_move_start = last_move_start_frame.get(atk_base)
+
+                if atk_move_id is not None and atk_move_start is not None:
+                    hit_offset = frame_idx - atk_move_start
+                    if hit_offset < 0:
+                        hit_offset = 0
+
+                    mvinfo = None
+                    slot_moves = cached_lookup.get(atk_slotname)
+                    if slot_moves:
+                        mvinfo = slot_moves.get(atk_move_id)
+
+                    if mvinfo:
+                        base_adv_hit = mvinfo.get("adv_hit")
+                        base_adv_block = mvinfo.get("adv_block")
+                        active_end = mvinfo.get("active_end")
+
+                        # scan assumed: hit at active_end
+                        # we actually hit at hit_offset
+                        # so we lose (active_end - hit_offset) frames
+                        real_adv_hit = None
+                        real_adv_block = None
+                        if active_end is not None:
+                            delta = active_end - hit_offset
+                            if delta < 0:
+                                delta = 0
+                            if base_adv_hit is not None:
+                                real_adv_hit = base_adv_hit - delta
+                            if base_adv_block is not None:
+                                real_adv_block = base_adv_block - delta
+
+                        if real_adv_hit is not None or real_adv_block is not None:
+                            h_txt = f"H:{real_adv_hit:+d}" if real_adv_hit is not None else "H:?"
+                            b_txt = f"B:{real_adv_block:+d}" if real_adv_block is not None else "B:?"
+                            live_adv_str = f"{atk_slotname} {SCAN_ANIM_MAP.get(atk_move_id, f'anim_{atk_move_id:02X}')} {h_txt} {b_txt}"
+                            if real_adv_hit is not None:
+                                log_frame_advantage(atk_snap, vic_snap, real_adv_hit)
+
+                # log general stuff
+                log_engaged(atk_snap, vic_snap, frame_idx)
+                log_hit(atk_snap, vic_snap, dmg, frame_idx)
+
+                if live_adv_str:
+                    last_adv_display = live_adv_str
+
+        # periodic advantage from old tracker
         if frame_idx % ADV_EVERY_FRAMES == 0:
             pairs = [
                 ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
@@ -423,6 +513,7 @@ def main():
         draw_panel_classic(screen, r_p1c2, snaps.get("P1-C2"), None, font, smallfont, "P1-C2")
         draw_panel_classic(screen, r_p2c2, snaps.get("P2-C2"), None, font, smallfont, "P2-C2")
 
+        # buttons
         btn_h = 20
         btn_p1c1 = pygame.Rect(r_p1c1.x, r_p1c1.bottom + 3, 130, btn_h)
         btn_p2c1 = pygame.Rect(r_p2c1.x, r_p2c1.bottom + 3, 130, btn_h)
@@ -448,16 +539,17 @@ def main():
 
         pygame.display.flip()
 
-        # clicks → run scan if needed → open popup
+        # mouse → popup
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
 
             def ensure_scan():
-                nonlocal last_scan_normals, last_scan_time
+                nonlocal last_scan_normals, last_scan_time, cached_lookup
                 if last_scan_normals is None and HAVE_SCAN_NORMALS:
                     try:
                         last_scan_normals = scan_normals_all.scan_once()
                         last_scan_time = time.time()
+                        cached_lookup = build_move_lookup(last_scan_normals)
                     except Exception as e:
                         print("scan failed:", e)
                 return last_scan_normals
@@ -490,6 +582,7 @@ def main():
             try:
                 last_scan_normals = scan_normals_all.scan_once()
                 last_scan_time = time.time()
+                cached_lookup = build_move_lookup(last_scan_normals)
             except Exception as e:
                 print("manual scan failed:", e)
             manual_scan_requested = False
@@ -497,10 +590,11 @@ def main():
             try:
                 last_scan_normals = scan_normals_all.scan_once()
                 last_scan_time = time.time()
+                cached_lookup = build_move_lookup(last_scan_normals)
             except Exception as e:
                 print("auto scan failed:", e)
 
-        # csv flush (optional)
+        # optional CSV dump (kept from earlier)
         if pending_hits and (frame_idx % 30 == 0):
             newcsv = not os.path.exists(HIT_CSV)
             with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:

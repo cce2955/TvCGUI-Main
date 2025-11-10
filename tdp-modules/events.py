@@ -1,34 +1,70 @@
 # events.py
-import time
+#
+# Shared event log for HUD
 
-event_log = []
-MAX_LOG_LINES = 100
+event_log: list[str] = []
 
-def _trim():
-    if len(event_log) > 300:
-        del event_log[0:len(event_log)-300]
+_MAX_LOG = 200
 
-def log_hit_line(data):
-    s = (
-        f"HIT {data['victim_label']}({data['victim_char']}) "
-        f"dmg={data['dmg']} hp:{data['hp_before']}->{data['hp_after']} "
-        f"from {data['attacker_label']} "
-        f"moveID={data['attacker_id_dec']} '{data['attacker_move']}' "
-        f"d2={data['dist2']:.3f}"
-    )
-    event_log.append(s)
-    _trim()
+_last_engagement: tuple[int, int] | None = None
+_last_engagement_frame: int = -9999
+_ENGAGE_COOLDOWN = 15  # frames
 
-def log_frame_advantage(atk_snap, vic_snap, plusf):
-    ts = time.time()
-    if atk_snap and vic_snap:
-        s = (
-            f"[ADV {ts:.2f}] "
-            f"{atk_snap['slotname']}({atk_snap['name']}) "
-            f"vs {vic_snap['slotname']}({vic_snap['name']}): "
-            f"{plusf:+.1f}f"
-        )
+
+def _push(line: str):
+    event_log.append(line)
+    if len(event_log) > _MAX_LOG:
+        del event_log[:-_MAX_LOG]
+
+
+def log_text(line: str):
+    _push(line)
+
+
+def log_engaged(attacker_snap: dict, victim_snap: dict, frame_idx: int):
+    global _last_engagement, _last_engagement_frame
+
+    atk_base = attacker_snap["base"]
+    vic_base = victim_snap["base"]
+    key = (atk_base, vic_base)
+
+    if _last_engagement == key and (frame_idx - _last_engagement_frame) < _ENGAGE_COOLDOWN:
+        return
+
+    _last_engagement = key
+    _last_engagement_frame = frame_idx
+
+    atk_slot = attacker_snap.get("slotname", "???")
+    atk_name = attacker_snap.get("name", "???")
+    vic_slot = victim_snap.get("slotname", "???")
+    vic_name = victim_snap.get("name", "???")
+
+    _push(f"[{frame_idx:05d}] ENGAGED {atk_slot}({atk_name}) -> {vic_slot}({vic_name})")
+
+
+def log_hit(attacker_snap: dict, victim_snap: dict, damage: int, frame_idx: int):
+    atk_slot = attacker_snap.get("slotname", "???")
+    atk_name = attacker_snap.get("name", "???")
+    vic_slot = victim_snap.get("slotname", "???")
+    vic_name = victim_snap.get("name", "???")
+    _push(f"[{frame_idx:05d}] HIT {atk_slot}({atk_name}) -> {vic_slot}({vic_name}) dmg:{damage}")
+
+
+def log_frame_advantage(attacker_snap: dict | None,
+                        victim_snap: dict | None,
+                        plus_frames: float):
+    if attacker_snap is not None:
+        atk_slot = attacker_snap.get("slotname", "???")
+        atk_name = attacker_snap.get("name", "???")
     else:
-        s = f"[ADV {ts:.2f}] Frame adv {plusf:+.1f}f"
-    event_log.append(s)
-    _trim()
+        atk_slot = "???"
+        atk_name = "???"
+
+    if victim_snap is not None:
+        vic_slot = victim_snap.get("slotname", "???")
+        vic_name = victim_snap.get("name", "???")
+    else:
+        vic_slot = "???"
+        vic_name = "???"
+
+    _push(f"ADV {atk_slot}({atk_name}) vs {vic_slot}({vic_name}): {plus_frames:+.1f}f")
