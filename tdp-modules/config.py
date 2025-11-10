@@ -10,7 +10,7 @@ INTERVAL = 1 / 30.0           # seconds per HUD update tick
 MIN_HIT_DAMAGE = 10           # min HP delta to consider "a hit" for logging
 
 SCREEN_W = 1280
-SCREEN_H = 1080
+SCREEN_H = 800
 
 PANEL_W  = 300
 PANEL_H  = 200
