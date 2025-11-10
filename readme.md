@@ -42,10 +42,6 @@ It supports all four character slots (P1-C1, P1-C2, P2-C1, P2-C2) and provides d
 
 | Key | Action |
 |-----|--------|
-| **F1** | Snapshot P1-C1 fighter struct |
-| **F2** | Analyze red-life correlation (local) |
-| **F3** | Snapshot global fighters |
-| **F4** | Analyze red-life correlation (global) |
 | **F5** | Manual move-table re-scan |
 | **Mouse click on frame-data button** | Opens Tkinter move list |
 
