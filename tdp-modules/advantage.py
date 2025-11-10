@@ -57,7 +57,7 @@ class AdvantageTracker:
             "finalized_frame": None,
             "reported": False,  # has this result been shown to user?
         }
-        print(f"[ADV] Started tracking at frame {frame_idx}: atk_move={atk_move_id}, vic_move={vic_move_id}")
+        #print(f"[ADV] Started tracking at frame {frame_idx}: atk_move={atk_move_id}, vic_move={vic_move_id}")
 
     def update_pair(self, atk_base, vic_base, frame_idx, atk_move_id, vic_move_id):
         """
@@ -85,13 +85,13 @@ class AdvantageTracker:
         if state["atk_recover_frame"] is None:
             if atk_move_id is not None and atk_move_id != state["atk_move_id"]:
                 state["atk_recover_frame"] = frame_idx
-                print(f"[ADV] Attacker recovered at frame {frame_idx}: {state['atk_move_id']} -> {atk_move_id}")
+                #print(f"[ADV] Attacker recovered at frame {frame_idx}: {state['atk_move_id']} -> {atk_move_id}")
         
         # Check if victim recovered (move_id changed from original)
         if state["vic_recover_frame"] is None:
             if vic_move_id is not None and vic_move_id != state["vic_move_id"]:
                 state["vic_recover_frame"] = frame_idx
-                print(f"[ADV] Victim recovered at frame {frame_idx}: {state['vic_move_id']} -> {vic_move_id}")
+                #print(f"[ADV] Victim recovered at frame {frame_idx}: {state['vic_move_id']} -> {vic_move_id}")
         
         # Finalize if both recovered
         if state["atk_recover_frame"] is not None and state["vic_recover_frame"] is not None:
@@ -99,7 +99,7 @@ class AdvantageTracker:
             state["done"] = True
             state["finalized_frame"] = frame_idx
             state["active"] = False
-            print(f"[ADV] Finalized at frame {frame_idx}: {state['plus_frames']:+.1f}f advantage")
+            #print(f"[ADV] Finalized at frame {frame_idx}: {state['plus_frames']:+.1f}f advantage")
         
         # Timeout if taking too long
         if frame_idx - state["contact_frame"] > CONTACT_TIMEOUT_FRAMES:
