@@ -211,8 +211,25 @@
 307,0x133,SBK L,SBK L,SBK L,yes,13
 308,0x134,SBK M,SBK M,SBK M,yes,13
 309,0x135,SBK H,SBK H,SBK H,yes,13
+310,0x135,Tensho A,SBK H,SBK H,yes,13
+311,0x135,Tensho B,SBK H,SBK H,yes,13
+312,0x135,Tensho C,SBK H,SBK H,yes,13
+313,0x135,Legs A,SBK H,SBK H,yes,13
+314,0x135,Legs B,SBK H,SBK H,yes,13
+315,0x135,Legs C,SBK H,SBK H,yes,13
+320,0x135,Air SBK A,SBK H,SBK H,yes,13
+321,0x135,Air SBK B,SBK H,SBK H,yes,13
+322,0x135,Air SBK C,SBK H,SBK H,yes,13
+323,0x135,Air Tensho A,SBK H,SBK H,yes,13
+324,0x135,Air Tensho B,SBK H,SBK H,yes,13
+325,0x135,Air Tensho C,SBK H,SBK H,yes,13
+326,0x135,Air Legs A,SBK H,SBK H,yes,13
+327,0x135,Air Legs B,SBK H,SBK H,yes,13
+328,0x135,Air Legs C,SBK H,SBK H,yes,13
 352,0x160,Kikosho,Kikosho,Kikosho,yes,13
 353,0x161,Hoyo,Hoyo,Hoyo,yes,13
+368,0x161,Shichei Startup,Hoyo,Hoyo,yes,13
+512,0x161,Shichei,Hoyo,Hoyo,yes,13
 417,0x1a1,flag?,flag?,flag?,yes,13
 
 # Batsu (ID: 14)
@@ -227,24 +244,48 @@
 310,0x136,Guts Upper A,Guts Upper A,Guts Upper A,yes,14
 311,0x137,Guts Upper B,Guts Upper B,Guts Upper B,yes,14
 312,0x138,Guts Upper C,Guts Upper C,Guts Upper C,yes,14
+320,0x138,Air Guts Bullet A,Guts Upper C,Guts Upper C,yes,14
+321,0x138,Air Guts Bullet B,Guts Upper C,Guts Upper C,yes,14
+322,0x138,Air Guts Bullet C,Guts Upper C,Guts Upper C,yes,14
+323,0x138,Air Divekick A,Guts Upper C,Guts Upper C,yes,14
+324,0x138,Air Divekick B,Guts Upper C,Guts Upper C,yes,14
+325,0x138,Air Divekick C,Guts Upper C,Guts Upper C,yes,14
 352,0x160,Super Guts Bullet,Super Guts Bullet,Super Guts Bullet,yes,14
+354,0x160,Air Super Guts Bullet,Super Guts Bullet,Super Guts Bullet,yes,14
 353,0x161,Super Guts Upper,Super Guts Upper,Super Guts Upper,yes,14
+368,0x161,United by fate startup,Super Guts Upper,Super Guts Upper,yes,14
+513,0x204,United by Fate: Bullet,United by Fate: Upper,United by Fate: Upper,yes,14
 516,0x204,United by Fate: Upper,United by Fate: Upper,United by Fate: Upper,yes,14
+519,0x204,United by Fate: Kicks,United by Fate: Upper,United by Fate: Upper,yes,14
+522,0x204,United by Fall,United by Fate: Upper,United by Fate: Upper,yes,14
 
 # Morrigan (ID: 15)
 304,0x130,Soul Fist L,Soul Fist L,Soul Fist L,yes,15
 305,0x131,Soul Fist M,Soul Fist M,Soul Fist M,yes,15
 306,0x132,Soul Fist H,Soul Fist H,Soul Fist H,yes,15
+307,0x132,Vector Drain A,Soul Fist H,Soul Fist H,yes,15
+308,0x132,Vector Drain B,Soul Fist H,Soul Fist H,yes,15
+309,0x132,Vector Drain C,Soul Fist H,Soul Fist H,yes,15
 310,0x136,Shoryu L,Shoryu L,Shoryu L,yes,15
 311,0x137,Shoryu M,Shoryu M,Shoryu M,yes,15
 312,0x138,Shoryu H,Shoryu H,Shoryu H,yes,15
-325,0x138,Air Tatsu H,Air Tatsu H,Air Tatsu H,yes,15
+320,0x138,Air Soul Fist A,Shoryu H,Shoryu H,yes,15
+321,0x138,Air Soul Fist B,Shoryu H,Shoryu H,yes,15
+322,0x138,Air Soul Fist C,Shoryu H,Shoryu H,yes,15
+325,0x138,Shell Kick,Air Tatsu H,Air Tatsu H,yes
+326,0x138,Air Shoryu A,Air Tatsu H,Air Tatsu H,yes,15
+327,0x138,Air Shoryu B,Air Tatsu H,Air Tatsu H,yes,15
+328,0x138,Air Shoryu C,Air Tatsu H,Air Tatsu H,yes,15
 352,0x160,Finishing Shower,Finishing Shower,Finishing Shower,yes,15
+353,0x160,Valkyrie Turn,Finishing Shower,Finishing Shower,yes,15
+355,0x160,Finishing Shower Air,Finishing Shower,Finishing Shower,yes,15
+368,0x160,Darkness Illusion Start,Finishing Shower,Finishing Shower,yes,15
+369,0x160, Air Darkness Illusion Start,Finishing Shower,Finishing Shower,yes,15
 465,0x1d1,Forward Throw,Forward Throw,Forward Throw,yes,15
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,15
 512,0x200,Vector Drain,Vector Drain,Vector Drain,yes,15
 514,0x202,Darkness Illusion,Darkness Illusion,Darkness Illusion,yes,15
-4294967295,0xffffffff,Versus Screen load (assist Priming?),Versus Screen load (assist Priming?),Versus Screen load (assist Priming?),yes,15
+
 
 # Alex (ID: 16)
 304,0x130,Flash Chop A,Flash Chop A,Flash Chop A,yes,16
@@ -256,15 +297,24 @@
 310,0x136,Flash Elbow L,Flash Elbow L,Flash Elbow L,yes,16
 311,0x137,Flash Elbow M,Flash Elbow M,Flash Elbow M,yes,16
 312,0x138,Slash Elbow H,Slash Elbow H,Slash Elbow H,yes,16
-318,0x13e,assist?,assist?,assist?,yes,16
+313,0x138,Knee Drop A,Slash Elbow H,Slash Elbow H,yes,16
+314,0x138,Knee Drop B,Slash Elbow H,Slash Elbow H,yes,16
+315,0x138,Knee Drop C,Slash Elbow H,Slash Elbow H,yes,16
+316,0x138,Powerbomb Start/Whiff,Slash Elbow H,Slash Elbow H,yes,16
+323,0x138,Powerbomb Start/Whiff,Slash Elbow H,Slash Elbow H,yes,16
 352,0x160,Boomerang Raid,Boomerang Raid,Boomerang Raid,yes,16
+353,0x160,Stungun Near,Boomerang Raid,Boomerang Raid,yes,16
+354,0x160,Stungun Mid,Boomerang Raid,Boomerang Raid,yes,16
+355,0x160,Stungun Far,Boomerang Raid,Boomerang Raid,yes,16
 465,0x1d1,Forward Throw,Forward Throw,Forward Throw,yes,16
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,16
 512,0x200,Knee H,Knee H,Knee H,yes,16
 514,0x202,Powerbomb,Powerbomb,Powerbomb,yes,16
+518,0x202,Air Powerbomb,Powerbomb,Powerbomb,yes,16
 520,0x208,Machine Gun Chop,Machine Gun Chop,Machine Gun Chop,yes,16
 528,0x210,Stungun,Stungun,Stungun,yes,16
 534,0x216,Hyperbomb,Hyperbomb,Hyperbomb,yes,16
+368,0x216,Hyperbomb Startup,Hyperbomb,Hyperbomb,yes,16
 
 # Viewtiful Joe (ID: 17)
 11,0xb,??,??,??,yes,17
@@ -412,6 +462,7 @@
 9,0x1,rising,rising,rising,yes,100
 10,0x1,couching,couching,couching,yes,100
 11,0x1,crouched,crouched,crouched,yes,100
+18,0x1,Jump Cancel,crouched,crouched,yes,100
 19,0x1,pre jump,pre jump,pre jump,yes,100
 20,0x1,jump,jump,jump,yes,100
 21,0x1,jump forward,jump forward,jump forward,yes,100
@@ -447,12 +498,16 @@
 416,0x1,Tag Out,Tag Out,Tag Out,yes,100
 417,0x1,assist leave,assist leave,assist leave,yes,100
 418,0x1,Tag In,Tag In,Tag In,yes,100
+421,0x1,VAR,Tag In Taunt,Tag In Taunt,yes,100
 424,0x1,assist taunt,assist taunt,assist taunt,yes,100
 425,0x1,Tag In Taunt,Tag In Taunt,Tag In Taunt,yes,100
 426,0x1,assist attack,assist attack,assist attack,yes,100
 430,0x1,assist standby,assist standby,assist standby,yes,100
+432,0x1,DHC Tag out,assist standby,assist standby,yes,100
+433,0x1,DHC Tag in,assist standby,assist standby,yes,100
 444,0x1,Match Start Point,Match Start Point,Match Start Point,yes,100
 444,0x1,Match Start Anchor,Match Start Anchor,Match Start Anchor,yes,100
+575,0x1,Taunt,Match Start Anchor,Match Start Anchor,yes,100
 4562,0x1,forward throw,forward throw,forward throw,yes,100
 4565,0x1,back throw,back throw,back throw,yes,100
 4610,0x1,Friender Bite,Friender Bite,Friender Bite,yes,100
