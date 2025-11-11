@@ -2,7 +2,7 @@
 #
 # Scans MEM2 for TvC move tables (up to 4 characters),
 # extracts move info, and computes *estimated* frame advantage.
-# Now also reads hitbox sizes from the move body (+0x40/+0x48).
+# Now also stores the ADDRESSES of each data block for editing.
 #
 # main.py will call scan_once() and show it.
 
@@ -10,9 +10,8 @@ import struct
 from dolphin_io import hook, rbytes, rd32
 from constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 
-# ------------------------------------------------------------
-# patterns / tables
-# ------------------------------------------------------------
+# ... [Keep all your existing pattern definitions: TAIL_PATTERN, ANIM_HDR, etc.] ...
+# I'll include them for completeness:
 
 TAIL_PATTERN = b"\x00\x00\x00\x38\x01\x33\x00\x00"
 CLUSTER_GAP = 0x4000
@@ -42,7 +41,6 @@ SUPER_END_HDR = [
 ANIM_ID_PATTERN = [0x01, None, 0x01, 0x3C]
 LOOKAHEAD_AFTER_HDR = 0x80
 
-# meter
 METER_HDR = [
     0x34, 0x04, 0x00, 0x20, 0x00, 0x00, 0x00, 0x03,
     0x00, 0x00, 0x00, 0x00,
@@ -51,31 +49,26 @@ METER_HDR = [
 ]
 METER_TOTAL_LEN = len(METER_HDR) + 5
 
-# anim speed
 ANIM_SPEED_HDR = [
     0x04, 0x01, 0x02, 0x3F, 0x00, 0x00, 0x01,
 ]
 
-# active
 ACTIVE_HDR = [
     0x20, 0x35, 0x01, 0x20, 0x3F, 0x00, 0x00, 0x00,
 ]
 ACTIVE_TOTAL_LEN = 20
 
-# damage
 DAMAGE_HDR = [
     0x35, 0x10, 0x20, 0x3F, 0x00,
 ]
 DAMAGE_TOTAL_LEN = 16
 
-# attack property
 ATKPROP_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ]
 ATKPROP_TOTAL_LEN = 17
 
-# hit reaction
 HITREACTION_HDR = [
     0x04, 0x17, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
     0x3F, 0x00, 0x00, 0x00, 0x80, 0x04, 0x2F, 0x00,
@@ -84,14 +77,12 @@ HITREACTION_HDR = [
 ]
 HITREACTION_TOTAL_LEN = 33
 
-# knockback
 KNOCKBACK_HDR = [
     0x35, None, None, 0x20, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00,
 ]
 KNOCKBACK_TOTAL_LEN = 20
 
-# stuns
 STUN_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x54,
     0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, None,
@@ -102,7 +93,6 @@ STUN_HDR = [
 ]
 STUN_TOTAL_LEN = 43
 
-# widen pair ranges
 PAIR_RANGE = 0x600
 METER_PAIR_RANGE = PAIR_RANGE
 ACTIVE_PAIR_RANGE = PAIR_RANGE
@@ -112,51 +102,22 @@ HITREACTION_PAIR_RANGE = PAIR_RANGE
 KNOCKBACK_PAIR_RANGE = PAIR_RANGE
 STUN_PAIR_RANGE = PAIR_RANGE
 
-# hitbox floats in the move body
 HITBOX_OFF_X = 0x40
 HITBOX_OFF_Y = 0x48
 
-# ------------------------------------------------------------
-# name tables
-# ------------------------------------------------------------
 ANIM_MAP = {
-    0x00: "5A",
-    0x01: "5B",
-    0x02: "5C",
-    0x03: "2A",
-    0x04: "2B",
-    0x05: "2C",
-    0x06: "6C",
-    0x08: "3C",
-    0x09: "j.A",
-    0x0A: "j.B",
-    0x0B: "j.C",
-    0x0E: "6B",
-    0x14: "donkey/dash-ish",
-    0x15: "Tatsu L",
-    0x16: "Tatsu M (first hit)",
-    0x17: "Tatsu M (second/third hit)",
-    0x18: "Tatsu H (first hit)",
-    0x19: "Tatsu H (last three hits)",
-    0x1A: "Tatsu L (air)",
-    0x1B: "Tatsu L (air, second hit)",
-    0x1C: "Tatsu M (air, first hit)",
-    0x1D: "Tatsu M (air, second/third hit)",
-    0x1E: "Tatsu H (air, first)",
-    0x1F: "Tatsu H (air, rest)",
-    0x20: "Shoryu L",
-    0x21: "Shoryu M (second hit)",
-    0x22: "Shoryu M (first hit)",
-    0x23: "Shoryu H (first hit)",
-    0x24: "Shoryu H (second hit)",
-    0x25: "Donkey L",
-    0x26: "Donkey M",
-    0x27: "Donkey H",
-    0x28: "Tatsu Super",
-    0x29: "ShinSho (hit 1)",
-    0x2A: "ShinSho (hit 2)",
-    0x2B: "ShinSho (hit 3/4?)",
-    0x2C: "ShinSho (last?)",
+    0x00: "5A", 0x01: "5B", 0x02: "5C", 0x03: "2A", 0x04: "2B", 0x05: "2C",
+    0x06: "6C", 0x08: "3C", 0x09: "j.A", 0x0A: "j.B", 0x0B: "j.C", 0x0E: "6B",
+    0x14: "donkey/dash-ish", 0x15: "Tatsu L", 0x16: "Tatsu M (first hit)",
+    0x17: "Tatsu M (second/third hit)", 0x18: "Tatsu H (first hit)",
+    0x19: "Tatsu H (last three hits)", 0x1A: "Tatsu L (air)",
+    0x1B: "Tatsu L (air, second hit)", 0x1C: "Tatsu M (air, first hit)",
+    0x1D: "Tatsu M (air, second/third hit)", 0x1E: "Tatsu H (air, first)",
+    0x1F: "Tatsu H (air, rest)", 0x20: "Shoryu L", 0x21: "Shoryu M (second hit)",
+    0x22: "Shoryu M (first hit)", 0x23: "Shoryu H (first hit)",
+    0x24: "Shoryu H (second hit)", 0x25: "Donkey L", 0x26: "Donkey M",
+    0x27: "Donkey H", 0x28: "Tatsu Super", 0x29: "ShinSho (hit 1)",
+    0x2A: "ShinSho (hit 2)", 0x2B: "ShinSho (hit 3/4?)", 0x2C: "ShinSho (last?)",
 }
 NORMAL_IDS = set(ANIM_MAP.keys())
 
@@ -168,10 +129,7 @@ DEFAULT_METER = {
 }
 SPECIAL_DEFAULT_METER = 0xC8
 
-# ------------------------------------------------------------
-# helpers
-# ------------------------------------------------------------
-
+# Helper functions
 def rd_f32_be(buf: bytes, off: int):
     return struct.unpack(">f", buf[off:off+4])[0]
 
@@ -308,7 +266,6 @@ def parse_stun(buf: bytes, start: int):
 def pick_best_block(mv_abs, blocks, pair_range):
     best = None
     best_dist = None
-    # forward-first
     for b_abs, data in blocks:
         if b_abs >= mv_abs:
             dist = b_abs - mv_abs
@@ -317,7 +274,6 @@ def pick_best_block(mv_abs, blocks, pair_range):
                 best_dist = dist
     if best is not None:
         return best
-    # fallback
     for b_abs, data in blocks:
         dist = abs(b_abs - mv_abs)
         if dist <= pair_range and (best is None or dist < best_dist):
@@ -325,18 +281,13 @@ def pick_best_block(mv_abs, blocks, pair_range):
             best_dist = dist
     return best
 
-# ------------------------------------------------------------
 def scan_once():
     hook()
-
     slots_info = read_slots()
     mem = rbytes(MEM2_LO, MEM2_HI - MEM2_LO)
-
     tails = find_all_tails(mem)
     clusters = cluster_tails(tails)
-
     cluster_to_slot = [0, 2, 1, 3]
-
     result = []
     max_chars = min(4, len(clusters))
     for _ in range(max_chars):
@@ -344,7 +295,6 @@ def scan_once():
 
     for c_idx in range(max_chars):
         tails_in_cluster = clusters[c_idx]
-
         start_off = tails_in_cluster[0]
         start_off = max(0, start_off - CLUSTER_PAD_BACK)
         if c_idx + 1 < len(clusters):
@@ -363,7 +313,6 @@ def scan_once():
                 moves.append({"kind": "super", "abs": base_abs + i, "id": None})
                 i += len(SUPER_END_HDR)
                 continue
-
             if match_bytes(buf, i, AIR_HDR):
                 s0 = i + AIR_HDR_LEN
                 s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf))
@@ -375,7 +324,6 @@ def scan_once():
                         break
                 i += AIR_HDR_LEN
                 continue
-
             if match_bytes(buf, i, CMD_HDR):
                 s0 = i + CMD_HDR_LEN + 3
                 s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf))
@@ -387,14 +335,12 @@ def scan_once():
                         break
                 i += CMD_HDR_LEN
                 continue
-
             if match_bytes(buf, i, ANIM_HDR):
                 aid = get_anim_id_after_hdr(buf, i)
                 kind = "normal" if (aid is not None and aid in NORMAL_IDS) else "special"
                 moves.append({"kind": kind, "abs": base_abs + i, "id": aid})
                 i += len(ANIM_HDR)
                 continue
-
             i += 1
 
         # PASS 2: meter blocks
@@ -492,7 +438,7 @@ def scan_once():
                 continue
             sb += 1
 
-        # PASS 10: attach + advantage + HB
+        # PASS 10: attach + advantage + HB + STORE ADDRESSES
         for mv in moves:
             aid = mv["id"]
             mv_abs = mv["abs"]
@@ -504,9 +450,11 @@ def scan_once():
                 mv["meter"] = SPECIAL_DEFAULT_METER
             else:
                 mv["meter"] = None
+            mv["meter_addr"] = None  # <-- NEW: store address
             mblk = pick_best_block(mv_abs, meters, METER_PAIR_RANGE)
             if mblk:
                 mv["meter"] = mblk[1]
+                mv["meter_addr"] = mblk[0]  # <-- NEW
 
             # animation speed
             mv["speed"] = None
@@ -518,26 +466,32 @@ def scan_once():
             # active
             mv["active_start"] = None
             mv["active_end"] = None
+            mv["active_addr"] = None  # <-- NEW
             ablk = pick_best_block(mv_abs, active_blocks, ACTIVE_PAIR_RANGE)
             if ablk:
                 a_s, a_e = ablk[1]
                 mv["active_start"] = a_s
                 mv["active_end"] = a_e
+                mv["active_addr"] = ablk[0]  # <-- NEW
 
             # damage
             mv["damage"] = None
             mv["damage_flag"] = None
+            mv["damage_addr"] = None  # <-- NEW
             dblk = pick_best_block(mv_abs, dmg_blocks, DAMAGE_PAIR_RANGE)
             if dblk:
                 dmg_val, dmg_flag = dblk[1]
                 mv["damage"] = dmg_val
                 mv["damage_flag"] = dmg_flag
+                mv["damage_addr"] = dblk[0]  # <-- NEW
 
             # attack property
             mv["attack_property"] = None
+            mv["atkprop_addr"] = None  # <-- NEW
             apblk = pick_best_block(mv_abs, atkprop_blocks, ATKPROP_PAIR_RANGE)
             if apblk:
                 mv["attack_property"] = apblk[1]
+                mv["atkprop_addr"] = apblk[0]  # <-- NEW
 
             # hit reaction
             mv["hit_reaction"] = None
@@ -549,25 +503,29 @@ def scan_once():
             mv["kb0"] = None
             mv["kb1"] = None
             mv["kb_traj"] = None
+            mv["knockback_addr"] = None  # <-- NEW
             kbblk = pick_best_block(mv_abs, kb_blocks, KNOCKBACK_PAIR_RANGE)
             if kbblk:
                 kb0, kb1, traj = kbblk[1]
                 mv["kb0"] = kb0
                 mv["kb1"] = kb1
                 mv["kb_traj"] = traj
+                mv["knockback_addr"] = kbblk[0]  # <-- NEW
 
             # stuns
             mv["hitstun"] = None
             mv["blockstun"] = None
             mv["hitstop"] = None
+            mv["stun_addr"] = None  # <-- NEW
             sblk = pick_best_block(mv_abs, stun_blocks, STUN_PAIR_RANGE)
             if sblk:
                 hs, bs, hstop = sblk[1]
                 mv["hitstun"] = hs
                 mv["blockstun"] = bs
                 mv["hitstop"] = hstop
+                mv["stun_addr"] = sblk[0]  # <-- NEW
 
-            # hitbox sizes (NEW)
+            # hitbox sizes
             mv["hb_x"] = None
             mv["hb_y"] = None
             rel = mv_abs - base_abs

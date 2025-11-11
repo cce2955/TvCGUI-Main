@@ -1,7 +1,7 @@
 # dolphin_io.py
 #
 # Thin wrapper around dolphin_memory_engine so we can safely
-# read Dolphin's emulated Wii memory (MEM1 + MEM2).
+# read AND WRITE Dolphin's emulated Wii memory (MEM1 + MEM2).
 #
 # Exposes:
 #   hook()               - block until Dolphin is hooked
@@ -10,6 +10,10 @@
 #   rd8(addr)            - read 8-bit unsigned, returns int 0..255 or None
 #   rd32(addr)           - read 32-bit BE unsigned
 #   rdf32(addr)          - read 32-bit BE float
+#   wd8(addr, val)       - write 8-bit unsigned
+#   wd32(addr, val)      - write 32-bit BE unsigned
+#   wdf32(addr, val)     - write 32-bit BE float
+#   wbytes(addr, data)   - write bytes
 
 import time
 import math
@@ -54,6 +58,10 @@ def _clamp_read_range(addr, size):
 
     return False, addr, 0
 
+
+# ============================================================
+# READ FUNCTIONS
+# ============================================================
 
 def rbytes(addr, size):
     """
@@ -117,3 +125,77 @@ def rdf32(addr):
         return f
     except Exception:
         return None
+
+
+# ============================================================
+# WRITE FUNCTIONS
+# ============================================================
+
+def wbytes(addr, data):
+    """
+    Write bytes to 'addr'.
+    Returns True on success, False on failure.
+    """
+    if not addr_in_ram(addr):
+        return False
+    if not data:
+        return False
+    
+    try:
+        dme.write_bytes(addr, data)
+        return True
+    except Exception as e:
+        print(f"wbytes failed at {addr:08X}: {e}")
+        return False
+
+
+def wd8(addr, value):
+    """
+    Write 1 byte to 'addr'.
+    Returns True on success, False on failure.
+    """
+    if not addr_in_ram(addr):
+        return False
+    try:
+        val = int(value) & 0xFF
+        dme.write_bytes(addr, bytes([val]))
+        return True
+    except Exception as e:
+        print(f"wd8 failed at {addr:08X}: {e}")
+        return False
+
+
+def wd32(addr, value):
+    """
+    Write big-endian u32 to 'addr'.
+    Returns True on success, False on failure.
+    """
+    if not addr_in_ram(addr):
+        return False
+    try:
+        val = int(value) & 0xFFFFFFFF
+        data = struct.pack(">I", val)
+        dme.write_bytes(addr, data)
+        return True
+    except Exception as e:
+        print(f"wd32 failed at {addr:08X}: {e}")
+        return False
+
+
+def wdf32(addr, value):
+    """
+    Write big-endian float32 to 'addr'.
+    Returns True on success, False on failure.
+    """
+    if not addr_in_ram(addr):
+        return False
+    try:
+        fval = float(value)
+        if not math.isfinite(fval):
+            return False
+        data = struct.pack(">f", fval)
+        dme.write_bytes(addr, data)
+        return True
+    except Exception as e:
+        print(f"wdf32 failed at {addr:08X}: {e}")
+        return False

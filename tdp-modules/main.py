@@ -47,6 +47,14 @@ except Exception:
     HAVE_SCAN_NORMALS = False
     SCAN_ANIM_MAP = {}
 
+# NEW: Import the editable frame data window
+try:
+    from editable_frame_data_gui import open_editable_frame_data_window
+    HAVE_EDITABLE_GUI = True
+except ImportError:
+    HAVE_EDITABLE_GUI = False
+    print("WARNING: editable_frame_data_gui not available")
+
 TARGET_FPS = 60
 DAMAGE_EVERY_FRAMES = 3
 ADV_EVERY_FRAMES = 2
@@ -317,8 +325,13 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         )
 
     root.mainloop()
-
-
+def open_frame_data_window(slot_label, scan_data):
+    """Open frame data window (now editable!)"""
+    if HAVE_EDITABLE_GUI:
+        open_editable_frame_data_window(slot_label, scan_data)
+    else:
+        print(f"Editable GUI not available for {slot_label}")
+'''
 def open_frame_data_window(slot_label, scan_data):
     if not scan_data:
         return
@@ -335,7 +348,7 @@ def open_frame_data_window(slot_label, scan_data):
         daemon=True,
     )
     t.start()
-
+'''
 
 def compute_layout(w, h):
     pad = 10
