@@ -56,85 +56,61 @@ except Exception:
 # ------------------------------------------------------------
 
 
-# how far from the move base we’re willing to look for the anchor
-HB_SCAN_MAX = 0x200       # bytes
-# how far after the anchor we’ll look for the real radius
-HB_AFTER_ANCHOR_SCAN = 0x120  # bytes
-# fallback if we never find the anchor (Ryu 5A proved this)
-FALLBACK_HB_OFFSET = 0x21C
+HB_SCAN_MAX = 0x600          # how far from move base to look for anchors
+HB_AFTER_ANCHOR_SCAN = 0x200  # how far after each anchor to look
+FALLBACK_HB_OFFSET = 0x21C    # Ryu 5A proven
+
+# we decided this together: anything below this is probably bones
+MIN_REAL_RADIUS = 5.0
 
 def _probe_hitbox_radius(move_abs: int):
     """
-    Pattern-based probe for TvC hitbox radius.
-
-    Memory pattern you showed:
-      ... ff ff ff fe  (anchor)
-      ... a bunch of 3f 00 00 00
-      ... later: 41 a0 00 00 (20.0) or similar 41 xx 00 00
-
-    rdf32(move_abs + off) == None  → very likely the ff ff ff fe dword
-    Then we scan forward for a 'good' float.
+    Find the real hitbox radius, skipping bone floats (~1.0, ~3.x).
     """
     if rdf32 is None or not move_abs:
         return None, None
 
-    # 1) find the anchor (the ff ff ff fe, which our rdf32 gives as None)
-    anchor_off = None
+    anchors: list[int] = []
+
+    # 1) collect ALL anchors (the ff ff ff fe that shows up as None)
     for off in range(0, HB_SCAN_MAX, 4):
         try:
             f = rdf32(move_abs + off)
         except Exception:
-            # bad read, keep going
-            continue
-
-        # this is the important trick: your dump shows ff ff ff fe everywhere here,
-        # and earlier our code blew up exactly on that, so treat "None" as the anchor.
-        if f is None:
-            anchor_off = off
-            break
-
-    # no anchor? fall back to the known-good Ryu offset
-    if anchor_off is None:
-        return FALLBACK_HB_OFFSET, None
-
-    # 2) from just after the anchor, walk forward and grab the first 'hitboxy' float
-    start_after = anchor_off + 4
-    end_after = anchor_off + HB_AFTER_ANCHOR_SCAN
-
-    best_off = None
-    best_val = None
-
-    for off in range(start_after, end_after, 4):
-        addr = move_abs + off
-        try:
-            f = rdf32(addr)
-        except Exception:
             continue
         if f is None:
-            # sometimes there are more markers, skip
-            continue
-        if not isinstance(f, (int, float)):
-            continue
-        if not math.isfinite(f):
-            continue
+            anchors.append(off)
 
-        # 1) if you poked it to something big (43 FF 00 00 → big float) grab it immediately
-        if f >= 400.0:
-            return off, float(f)
+    # 2) for each anchor, look forward for something that looks like the radius
+    for anchor_off in anchors:
+        start_after = anchor_off + 4
+        end_after = anchor_off + HB_AFTER_ANCHOR_SCAN
 
-        # 2) normal hitbox range — your normals are around 20.0–21.0, so let’s be generous
-        if 1.5 <= f <= 200.0:
-            best_off = off
-            best_val = float(f)
-            break
+        for off in range(start_after, end_after, 4):
+            try:
+                f = rdf32(move_abs + off)
+            except Exception:
+                continue
+            if f is None:
+                continue
+            if not isinstance(f, (int, float)):
+                continue
+            if not math.isfinite(f):
+                continue
 
-        # ignore 0.5 / 0.0 / tiny alignment floats
+            # user-poked BIG radius → take it immediately
+            if f >= 400.0:
+                return off, float(f)
 
-    if best_off is not None:
-        return best_off, best_val
+            # real radius: must be >= 5.0 to dodge bone scales
+            if MIN_REAL_RADIUS <= f <= 300.0:
+                return off, float(f)
 
-    # if we got here, we found the anchor but not the radius — fall back
+            # everything < 5 is ignored on purpose
+
+    # 3) couldn’t find anything good → fall back to known offset
     return FALLBACK_HB_OFFSET, None
+
 
 
 def _fmt_stun(v):
