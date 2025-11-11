@@ -27,7 +27,41 @@ def _hp_color(cur_hp, max_hp):
     return _pct_color(pct)
 
 
-def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, header_label):
+def _rainbow_color(t_ms: int, step: int = 0):
+    # simple cycling hsv-ish fake
+    # t_ms is pygame.time.get_ticks()
+    # step offsets the color so multiple lines look animated
+    base = (t_ms // 80 + step * 20) % 360
+    # tiny hsv→rgb
+    h = base / 60.0
+    c = 255
+    x = int((1 - abs((h % 2) - 1)) * c)
+    if 0 <= h < 1:
+        r, g, b = c, x, 0
+    elif 1 <= h < 2:
+        r, g, b = x, c, 0
+    elif 2 <= h < 3:
+        r, g, b = 0, c, x
+    elif 3 <= h < 4:
+        r, g, b = 0, x, c
+    elif 4 <= h < 5:
+        r, g, b = x, 0, c
+    else:
+        r, g, b = c, 0, x
+    return (r, g, b)
+
+
+def _blit_rainbow_text(surface, text, pos, font, t_ms):
+    # draw character-by-character with shifting color
+    x, y = pos
+    for i, ch in enumerate(text):
+        col = _rainbow_color(t_ms, i)
+        img = font.render(ch, True, col)
+        surface.blit(img, (x, y))
+        x += img.get_width()
+
+
+def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, header_label, t_ms=0):
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
@@ -61,7 +95,7 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
         (text_x0, y0 + 24),
     )
 
-    # keep your older byte-based pool read (02A) in case it’s useful
+    # old small pool byte still shown
     pool_pct_val = snap.get("pool_pct")
     pool_pct_str = f"{pool_pct_val:.1f}%" if pool_pct_val is not None else "--"
     pool_raw = snap.get("hp_pool_byte")
@@ -70,7 +104,7 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
         (text_x0, y0 + 44),
     )
 
-    # new local baroque based only on base+0x28 / +0x2C
+    # NEW: real baroque
     hp32 = snap.get("baroque_local_hp32", 0)
     pool32 = snap.get("baroque_local_pool32", 0)
     red_amt = snap.get("baroque_red_amt", 0)
@@ -78,11 +112,11 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     ready_local = snap.get("baroque_ready_local", False)
 
     if ready_local:
-        line = f"Baroque: READY   red:{red_amt} ({red_pct:.1f}%)   HP32:{hp32} POOL32:{pool32}"
+        txt = f"Baroque: READY  red:{red_amt} ({red_pct:.1f}%)  HP32:{hp32} POOL32:{pool32}"
+        _blit_rainbow_text(surface, txt, (text_x0, y0 + 62), smallfont, t_ms)
     else:
-        line = f"Baroque: off      HP32:{hp32} POOL32:{pool32}"
-
-    surface.blit(smallfont.render(line, True, COL_TEXT), (text_x0, y0 + 62))
+        txt = f"Baroque: off     HP32:{hp32} POOL32:{pool32}"
+        surface.blit(smallfont.render(txt, True, COL_TEXT), (text_x0, y0 + 62))
 
 
 def draw_activity(surface, rect, font, text):
