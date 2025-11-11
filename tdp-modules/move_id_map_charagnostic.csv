@@ -230,7 +230,7 @@
 353,0x161,Hoyo,Hoyo,Hoyo,yes,13
 368,0x161,Shichei Startup,Hoyo,Hoyo,yes,13
 512,0x161,Shichei,Hoyo,Hoyo,yes,13
-417,0x1a1,flag?,flag?,flag?,yes,13
+
 
 # Batsu (ID: 14)
 259,0x103,2B,2B,2B,yes,14
@@ -506,7 +506,9 @@
 432,0x1,DHC Tag out,assist standby,assist standby,yes,100
 433,0x1,DHC Tag in,assist standby,assist standby,yes,100
 444,0x1,Match Start Point,Match Start Point,Match Start Point,yes,100
-444,0x1,Match Start Anchor,Match Start Anchor,Match Start Anchor,yes,100
+444,0x1,Match Start Point,Match Start Anchor,Match Start Anchor,yes,100
+447,0x1,Match Start Anchor,Match Start Anchor,Match Start Anchor,yes,100
+
 575,0x1,Taunt,Match Start Anchor,Match Start Anchor,yes,100
 4562,0x1,forward throw,forward throw,forward throw,yes,100
 4565,0x1,back throw,back throw,back throw,yes,100
