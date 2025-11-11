@@ -3,6 +3,7 @@ import pygame
 from config import COL_PANEL, COL_BORDER, COL_TEXT
 from events import event_log
 
+# we may or may not have the anim map, but try:
 try:
     from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 except Exception:
@@ -28,11 +29,8 @@ def _hp_color(cur_hp, max_hp):
 
 
 def _rainbow_color(t_ms: int, step: int = 0):
-    # simple cycling hsv-ish fake
-    # t_ms is pygame.time.get_ticks()
-    # step offsets the color so multiple lines look animated
+    # quick HSV-ish spinner
     base = (t_ms // 80 + step * 20) % 360
-    # tiny hsv→rgb
     h = base / 60.0
     c = 255
     x = int((1 - abs((h % 2) - 1)) * c)
@@ -52,21 +50,21 @@ def _rainbow_color(t_ms: int, step: int = 0):
 
 
 def _blit_rainbow_text(surface, text, pos, font, t_ms):
-    # draw character-by-character with shifting color
     x, y = pos
     for i, ch in enumerate(text):
         col = _rainbow_color(t_ms, i)
-        img = font.render(ch, True, col)
-        surface.blit(img, (x, y))
-        x += img.get_width()
+        glyph = font.render(ch, True, col)
+        surface.blit(glyph, (x, y))
+        x += glyph.get_width()
 
 
 def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, header_label, t_ms=0):
+    # bg
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
-    portrait_size = 64
     pad = 6
+    portrait_size = 64
 
     if portrait_surf is not None:
         surface.blit(
@@ -83,9 +81,11 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
         surface.blit(font.render(f"{header_label} ---", True, COL_TEXT), (text_x0, y0 + 4))
         return
 
+    # header line
     hdr = f"{header_label} {snap['name']} @{snap['base']:08X}"
     surface.blit(font.render(hdr, True, COL_TEXT), (text_x0, y0 + 4))
 
+    # HP / meter
     cur_hp = snap["cur"]
     max_hp = snap["max"]
     meter_str = snap.get("meter_str", "--")
@@ -95,7 +95,7 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
         (text_x0, y0 + 24),
     )
 
-    # old small pool byte still shown
+    # old pool byte display
     pool_pct_val = snap.get("pool_pct")
     pool_pct_str = f"{pool_pct_val:.1f}%" if pool_pct_val is not None else "--"
     pool_raw = snap.get("hp_pool_byte")
@@ -104,7 +104,7 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
         (text_x0, y0 + 44),
     )
 
-    # NEW: real baroque
+    # new local baroque based on 0x28/0x2C
     hp32 = snap.get("baroque_local_hp32", 0)
     pool32 = snap.get("baroque_local_pool32", 0)
     red_amt = snap.get("baroque_red_amt", 0)
@@ -112,11 +112,20 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     ready_local = snap.get("baroque_ready_local", False)
 
     if ready_local:
-        txt = f"Baroque: READY  red:{red_amt} ({red_pct:.1f}%)  HP32:{hp32} POOL32:{pool32}"
+        txt = f"Baroque: READY red:{red_amt} ({red_pct:.1f}%)"
         _blit_rainbow_text(surface, txt, (text_x0, y0 + 62), smallfont, t_ms)
     else:
-        txt = f"Baroque: off     HP32:{hp32} POOL32:{pool32}"
+        txt = f"Baroque: off  HP32:{hp32} POOL32:{pool32}"
         surface.blit(smallfont.render(txt, True, COL_TEXT), (text_x0, y0 + 62))
+
+    # MOVE WATCHER (this is the one you said is missing)
+    mv_label = snap.get("mv_label", "—")
+    mv_id = snap.get("mv_id_display")
+    if mv_id is not None:
+        mv_text = f"Move: {mv_label} ({mv_id})"
+    else:
+        mv_text = f"Move: {mv_label}"
+    surface.blit(smallfont.render(mv_text, True, COL_TEXT), (text_x0, y0 + 80))
 
 
 def draw_activity(surface, rect, font, text):
@@ -145,32 +154,51 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=3)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=3)
 
-    x = rect.x + 6
-    y = rect.y + 4
-
-    surface.blit(font.render("Scan: normals (preview)", True, COL_TEXT), (x, y))
-    y += 18
+    x0 = rect.x + 4
+    y0 = rect.y + 4
+    surface.blit(font.render("Scan: normals (preview)", True, COL_TEXT), (x0, y0))
+    y0 += 18
 
     if not scan_data:
-        surface.blit(smallfont.render("No scan data", True, COL_TEXT), (x, y))
+        surface.blit(smallfont.render("No scan data", True, COL_TEXT), (x0, y0))
         return
 
-    for slot in scan_data:
+    # horizontal: 1 column per slot
+    n_slots = len(scan_data)
+    col_w = max(120, rect.width // max(1, n_slots))
+
+    for col, slot in enumerate(scan_data):
+        col_x = rect.x + 4 + col * col_w
+        y = y0
         label = slot.get("slot_label", "?")
         cname = slot.get("char_name", "—")
-        surface.blit(smallfont.render(f"{label} ({cname})", True, COL_TEXT), (x, y))
+        surface.blit(smallfont.render(f"{label} ({cname})", True, COL_TEXT), (col_x, y))
         y += 14
-        moves = slot.get("moves", [])
-        for mv in moves[:4]:
+
+        # dedupe
+        seen_ids = set()
+        moves = []
+        for mv in slot.get("moves", []):
+            aid = mv.get("id")
+            if aid is not None:
+                if aid in seen_ids:
+                    continue
+                seen_ids.add(aid)
+            moves.append(mv)
+
+        # show key fields
+        for mv in moves[:7]:
             aid = mv.get("id")
             name = SCAN_ANIM_MAP.get(aid, f"anim_{aid:02X}" if aid is not None else "???")
+
+            s = mv.get("active_start")
+            e = mv.get("active_end")
+            active_txt = f"{s}-{e}" if (s is not None and e is not None) else ""
             hs = mv.get("hitstun")
             bs = mv.get("blockstun")
-            surface.blit(
-                smallfont.render(f"{name} H:{hs} B:{bs}", True, COL_TEXT),
-                (x + 12, y),
-            )
+
+            line = f"{name} S:{s or ''} A:{active_txt} H:{hs or ''} B:{bs or ''}"
+            surface.blit(smallfont.render(line, True, COL_TEXT), (col_x + 10, y))
             y += 14
-        y += 4
-        if y > rect.bottom - 14:
-            break
+            if y > rect.bottom - 14:
+                break
