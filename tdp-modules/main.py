@@ -37,7 +37,7 @@ from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
 from events import log_engaged, log_hit, log_frame_advantage
 
-# optional deep scan
+# optional deep scan (the hitbox-augmented one)
 try:
     import scan_normals_all
     HAVE_SCAN_NORMALS = True
@@ -158,6 +158,9 @@ def init_pygame():
     return screen, font, smallfont
 
 
+# ------------------------------------------------------------
+# Frame-data GUI (Tk) — now with HB column
+# ------------------------------------------------------------
 def _open_frame_data_window_thread(slot_label, target_slot):
     # tkinter window that lists the scanned moves
     try:
@@ -174,8 +177,11 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     cols = (
         "move", "kind", "damage", "meter",
         "startup", "active", "hitstun", "blockstun", "hitstop",
-        "advH", "advB", "abs"
+        "advH", "advB",
+        "hb",
+        "abs",
     )
+
     frame = ttk.Frame(root)
     frame.pack(fill="both", expand=True)
     tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
@@ -187,29 +193,39 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     frame.columnconfigure(0, weight=1)
 
     headers = [
-        ("move", "Move"), ("kind", "Kind"), ("damage", "Dmg"), ("meter", "Meter"),
-        ("startup", "Start"), ("active", "Active"),
-        ("hitstun", "HS"), ("blockstun", "BS"), ("hitstop", "Stop"),
-        ("advH", "advH"), ("advB", "advB"), ("abs", "ABS"),
+        ("move", "Move"),
+        ("kind", "Kind"),
+        ("damage", "Dmg"),
+        ("meter", "Meter"),
+        ("startup", "Start"),
+        ("active", "Active"),
+        ("hitstun", "HS"),
+        ("blockstun", "BS"),
+        ("hitstop", "Stop"),
+        ("advH", "advH"),
+        ("advB", "advB"),
+        ("hb", "HB"),
+        ("abs", "ABS"),
     ]
     for c, txt in headers:
         tree.heading(c, text=txt)
 
     # widths
-    tree.column("move", width=160, anchor="w")
+    tree.column("move", width=180, anchor="w")
     tree.column("kind", width=60, anchor="w")
-    tree.column("damage", width=60, anchor="center")
+    tree.column("damage", width=65, anchor="center")
     tree.column("meter", width=55, anchor="center")
     tree.column("startup", width=55, anchor="center")
-    tree.column("active", width=65, anchor="center")
+    tree.column("active", width=70, anchor="center")
     tree.column("hitstun", width=45, anchor="center")
     tree.column("blockstun", width=45, anchor="center")
     tree.column("hitstop", width=50, anchor="center")
     tree.column("advH", width=55, anchor="center")
     tree.column("advB", width=55, anchor="center")
+    tree.column("hb", width=95, anchor="center")
     tree.column("abs", width=110, anchor="w")
 
-    # sort and dedupe like HUD
+    # sort + dedupe like HUD
     moves_sorted = sorted(
         target_slot.get("moves", []),
         key=lambda m: (
@@ -218,6 +234,12 @@ def _open_frame_data_window_thread(slot_label, target_slot):
             m.get("abs", 0xFFFFFFFF),
         ),
     )
+
+    try:
+        from scan_normals_all import ANIM_MAP as _ANIM_MAP_FOR_GUI
+    except Exception:
+        _ANIM_MAP_FOR_GUI = {}
+
     seen_named = set()
     deduped = []
     for mv in moves_sorted:
@@ -225,7 +247,7 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         if aid is None:
             deduped.append(mv)
             continue
-        name = SCAN_ANIM_MAP.get(aid, f"anim_{aid:02X}")
+        name = _ANIM_MAP_FOR_GUI.get(aid, f"anim_{aid:02X}")
         if not name.startswith("anim_") and "?" not in name:
             if aid in seen_named:
                 continue
@@ -235,25 +257,44 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     def _fmt_stun(v):
         if v is None:
             return ""
-        if v == 0x0C: return "10"
-        if v == 0x0F: return "15"
-        if v == 0x11: return "17"
-        if v == 0x15: return "21"
+        if v == 0x0C:
+            return "10"
+        if v == 0x0F:
+            return "15"
+        if v == 0x11:
+            return "17"
+        if v == 0x15:
+            return "21"
         return str(v)
 
     for mv in deduped:
         aid = mv.get("id")
         move_name = (
-            SCAN_ANIM_MAP.get(aid, f"anim_{aid:02X}")
+            _ANIM_MAP_FOR_GUI.get(aid, f"anim_{aid:02X}")
             if aid is not None else "anim_--"
         )
+
         a_s = mv.get("active_start")
         a_e = mv.get("active_end")
-        active_txt = (
-            f"{a_s}-{a_e}"
-            if (a_s is not None and a_e is not None)
-            else (str(a_e) if a_e is not None else "")
-        )
+        if a_s is not None and a_e is not None:
+            active_txt = f"{a_s}-{a_e}"
+        elif a_e is not None:
+            active_txt = str(a_e)
+        else:
+            active_txt = ""
+
+        # format HB
+        hb_x = mv.get("hb_x")
+        hb_y = mv.get("hb_y")
+        if hb_x is not None or hb_y is not None:
+            if hb_x is None:
+                hb_txt = f"-x{hb_y:.1f}"
+            elif hb_y is None:
+                hb_txt = f"{hb_x:.1f}x-"
+            else:
+                hb_txt = f"{hb_x:.1f}x{hb_y:.1f}"
+        else:
+            hb_txt = ""
 
         tree.insert(
             "",
@@ -270,6 +311,7 @@ def _open_frame_data_window_thread(slot_label, target_slot):
                 "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
                 "" if mv.get("adv_hit") is None else f"{mv.get('adv_hit'):+d}",
                 "" if mv.get("adv_block") is None else f"{mv.get('adv_block'):+d}",
+                hb_txt,
                 f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
             )
         )
@@ -337,7 +379,9 @@ def main():
     hook()
     print("HUD: hooked Dolphin.")
 
+    # <-- IMPORTANT: this now matches our moves.py
     move_map, global_map = load_move_map(GENERIC_MAPPING_CSV, PAIR_MAPPING_CSV)
+
     screen, font, smallfont = init_pygame()
     clock = pygame.time.Clock()
 
@@ -447,7 +491,10 @@ def main():
             cur_anim = snap.get("attA") or snap.get("attB")
             char_name = snap.get("name")
             csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
+
+            
             mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
+
             snap["mv_label"] = mv_label
             snap["mv_id_display"] = cur_anim
             snap["csv_char_id"] = csv_char_id
@@ -459,7 +506,7 @@ def main():
             else:
                 last_move_anim_id[base] = cur_anim
 
-            # legacy pool byte %
+            # legacy pool byte %   (unchanged from your version)
             pool_byte = snap.get("hp_pool_byte")
             if pool_byte is not None:
                 prev_max = pool_baseline.get(base, 0)
@@ -489,7 +536,7 @@ def main():
             snap["baroque_red_amt"] = red_amt
             snap["baroque_red_pct"] = red_pct
 
-            # inputs just for P1
+            # inputs: now taken from config.INPUT_MONITOR_ADDRS
             if slotname == "P1-C1":
                 inputs_struct = {}
                 for key, addr in INPUT_MONITOR_ADDRS.items():
@@ -550,7 +597,6 @@ def main():
                 dmg = hp_prev - hp_now
                 if dmg >= MIN_HIT_DAMAGE:
                     log_engaged(atk_snap, vic_snap, frame_idx)
-                    # include move label/id
                     log_hit(atk_snap, vic_snap, dmg, frame_idx, atk_move_label, atk_move_id)
 
         # frame advantage
@@ -737,7 +783,7 @@ def main():
             if time.time() - last_scan_time >= SCAN_MIN_INTERVAL_SEC:
                 scan_worker.request()
 
-        # csv flush
+        # csv flush placeholder
         if pending_hits and (frame_idx % 30 == 0):
             newcsv = not os.path.exists(HIT_CSV)
             with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:

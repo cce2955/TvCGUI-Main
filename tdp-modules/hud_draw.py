@@ -3,7 +3,6 @@ import pygame
 from config import COL_PANEL, COL_BORDER, COL_TEXT
 from events import event_log
 
-# we may or may not have the anim map, but try:
 try:
     from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 except Exception:
@@ -187,13 +186,20 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
             hs = mv.get("hitstun")
             bs = mv.get("blockstun")
 
+            line = f"{name} S:{s or ''} A:{active_txt} H:{hs or ''} B:{bs or ''}"
+
+            # show hitbox sizes from the scan
+            hb_x = mv.get("hb_x")
+            hb_y = mv.get("hb_y")
+            if hb_x is not None or hb_y is not None:
+                hx = f"{hb_x:.1f}" if hb_x is not None else "-"
+                hy = f"{hb_y:.1f}" if hb_y is not None else "-"
+                line += f" HB:{hx}x{hy}"
+
+            # also show knockback
             kb0 = mv.get("kb0")
             kb1 = mv.get("kb1")
             kb_traj = mv.get("kb_traj")
-
-            line = f"{name} S:{s or ''} A:{active_txt} H:{hs or ''} B:{bs or ''}"
-
-            # this is the piece you were missing in the GUI
             if kb0 is not None or kb1 is not None or kb_traj is not None:
                 kb0_s = "" if kb0 is None else str(kb0)
                 kb1_s = "" if kb1 is None else str(kb1)

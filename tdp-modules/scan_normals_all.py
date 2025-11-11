@@ -1,16 +1,12 @@
 # scan_normals_all.py
 #
 # Scans MEM2 for TvC move tables (up to 4 characters),
-# extracts move info, and now also computes *estimated* frame
-# advantage on hit/block using the memory values we found:
-#
-#   total_frames = anim_speed (fallback 60)
-#   recovery     = max(0, total_frames - active_end)
-#   adv_hit      = (hitstun or 0) - recovery
-#   adv_block    = (blockstun or 0) - recovery
+# extracts move info, and computes *estimated* frame advantage.
+# Now also reads hitbox sizes from the move body (+0x40/+0x48).
 #
 # main.py will call scan_once() and show it.
 
+import struct
 from dolphin_io import hook, rbytes, rd32
 from constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 
@@ -20,7 +16,7 @@ from constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 
 TAIL_PATTERN = b"\x00\x00\x00\x38\x01\x33\x00\x00"
 CLUSTER_GAP = 0x4000
-CLUSTER_PAD_BACK = 0x400  
+CLUSTER_PAD_BACK = 0x400
 
 ANIM_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x01, 0xE8,
@@ -106,7 +102,7 @@ STUN_HDR = [
 ]
 STUN_TOTAL_LEN = 43
 
-# we padded 0x200 earlier, so widen all pair ranges
+# widen pair ranges
 PAIR_RANGE = 0x600
 METER_PAIR_RANGE = PAIR_RANGE
 ACTIVE_PAIR_RANGE = PAIR_RANGE
@@ -116,10 +112,13 @@ HITREACTION_PAIR_RANGE = PAIR_RANGE
 KNOCKBACK_PAIR_RANGE = PAIR_RANGE
 STUN_PAIR_RANGE = PAIR_RANGE
 
+# hitbox floats in the move body
+HITBOX_OFF_X = 0x40
+HITBOX_OFF_Y = 0x48
+
 # ------------------------------------------------------------
 # name tables
 # ------------------------------------------------------------
-
 ANIM_MAP = {
     0x00: "5A",
     0x01: "5B",
@@ -134,45 +133,37 @@ ANIM_MAP = {
     0x0B: "j.C",
     0x0E: "6B",
     0x14: "donkey/dash-ish",
-
-    # invent IDs for your specials/supers so we can label them
     0x15: "Tatsu L",
     0x16: "Tatsu M (first hit)",
     0x17: "Tatsu M (second/third hit)",
     0x18: "Tatsu H (first hit)",
     0x19: "Tatsu H (last three hits)",
-
     0x1A: "Tatsu L (air)",
     0x1B: "Tatsu L (air, second hit)",
     0x1C: "Tatsu M (air, first hit)",
     0x1D: "Tatsu M (air, second/third hit)",
     0x1E: "Tatsu H (air, first)",
     0x1F: "Tatsu H (air, rest)",
-
     0x20: "Shoryu L",
     0x21: "Shoryu M (second hit)",
     0x22: "Shoryu M (first hit)",
     0x23: "Shoryu H (first hit)",
     0x24: "Shoryu H (second hit)",
-
     0x25: "Donkey L",
     0x26: "Donkey M",
     0x27: "Donkey H",
-
     0x28: "Tatsu Super",
-
     0x29: "ShinSho (hit 1)",
     0x2A: "ShinSho (hit 2)",
     0x2B: "ShinSho (hit 3/4?)",
     0x2C: "ShinSho (last?)",
 }
-
 NORMAL_IDS = set(ANIM_MAP.keys())
 
 DEFAULT_METER = {
-    0x00: 0x32, 0x03: 0x32, 0x09: 0x32,  # lights
-    0x01: 0x64, 0x04: 0x64, 0x0A: 0x64,  # mids
-    0x02: 0x96, 0x05: 0x96, 0x0B: 0x96,  # heavies
+    0x00: 0x32, 0x03: 0x32, 0x09: 0x32,
+    0x01: 0x64, 0x04: 0x64, 0x0A: 0x64,
+    0x02: 0x96, 0x05: 0x96, 0x0B: 0x96,
     0x06: 0x96, 0x08: 0x96, 0x0E: 0x96, 0x14: 0x96,
 }
 SPECIAL_DEFAULT_METER = 0xC8
@@ -180,6 +171,9 @@ SPECIAL_DEFAULT_METER = 0xC8
 # ------------------------------------------------------------
 # helpers
 # ------------------------------------------------------------
+
+def rd_f32_be(buf: bytes, off: int):
+    return struct.unpack(">f", buf[off:off+4])[0]
 
 def match_bytes(buf, pos, pat):
     L = len(pat)
@@ -192,7 +186,6 @@ def match_bytes(buf, pos, pat):
             return False
     return True
 
-
 def get_anim_id_after_hdr(buf, hdr_pos):
     start = hdr_pos + len(ANIM_HDR)
     end = min(start + LOOKAHEAD_AFTER_HDR, len(buf))
@@ -200,7 +193,6 @@ def get_anim_id_after_hdr(buf, hdr_pos):
         if match_bytes(buf, p, ANIM_ID_PATTERN):
             return buf[p + 1]
     return None
-
 
 def find_all_tails(mem):
     offs = []
@@ -212,7 +204,6 @@ def find_all_tails(mem):
         offs.append(i)
         off = i + 1
     return offs
-
 
 def cluster_tails(tail_offs):
     if not tail_offs:
@@ -229,7 +220,6 @@ def cluster_tails(tail_offs):
     clusters.append(cur)
     return clusters
 
-
 def read_slots():
     out = []
     for slot_label, ptr_addr, teamtag in SLOTS:
@@ -242,7 +232,6 @@ def read_slots():
                 cname = CHAR_NAMES.get(cid, f"ID_{cid}")
         out.append((slot_label, base, cid, cname))
     return out
-
 
 def parse_anim_speed(buf: bytes, start: int):
     if start + 24 > len(buf):
@@ -262,7 +251,6 @@ def parse_anim_speed(buf: bytes, start: int):
             return aid, spd
     return None, None
 
-
 def parse_active_frames(buf: bytes, start: int):
     if start + 20 > len(buf):
         return None, None
@@ -272,7 +260,6 @@ def parse_active_frames(buf: bytes, start: int):
     xx = buf[start + 8]
     yy = buf[start + 16]
     return (xx + 1, yy + 1)
-
 
 def parse_damage(buf: bytes, start: int):
     if start + 16 > len(buf):
@@ -285,7 +272,6 @@ def parse_damage(buf: bytes, start: int):
     dmg_flag = buf[start + 15]
     return dmg_val, dmg_flag
 
-
 def parse_atkprop(buf: bytes, start: int):
     if start + 17 > len(buf):
         return None
@@ -293,7 +279,6 @@ def parse_atkprop(buf: bytes, start: int):
         if buf[start + i] != b:
             return None
     return buf[start + len(ATKPROP_HDR)]
-
 
 def parse_hitreaction(buf: bytes, start: int):
     if start + HITREACTION_TOTAL_LEN > len(buf):
@@ -304,7 +289,6 @@ def parse_hitreaction(buf: bytes, start: int):
     xx = buf[start + 28]; yy = buf[start + 29]; zz = buf[start + 30]
     return (xx << 16) | (yy << 8) | zz
 
-
 def parse_knockback(buf: bytes, start: int):
     if start + KNOCKBACK_TOTAL_LEN > len(buf):
         return None
@@ -312,7 +296,6 @@ def parse_knockback(buf: bytes, start: int):
     kb1 = buf[start + 2]
     traj = buf[start + 12]
     return kb0, kb1, traj
-
 
 def parse_stun(buf: bytes, start: int):
     if start + STUN_TOTAL_LEN > len(buf):
@@ -322,14 +305,9 @@ def parse_stun(buf: bytes, start: int):
     hitstop = buf[start + 38]
     return hitstun, blockstun, hitstop
 
-
-# viewer-like pairing:
-# 1) prefer blocks that come AFTER the move within range
-# 2) if none, fall back to nearest within range
 def pick_best_block(mv_abs, blocks, pair_range):
     best = None
     best_dist = None
-
     # forward-first
     for b_abs, data in blocks:
         if b_abs >= mv_abs:
@@ -337,19 +315,15 @@ def pick_best_block(mv_abs, blocks, pair_range):
             if dist <= pair_range and (best is None or dist < best_dist):
                 best = (b_abs, data)
                 best_dist = dist
-
     if best is not None:
         return best
-
-    # fallback: nearest
+    # fallback
     for b_abs, data in blocks:
         dist = abs(b_abs - mv_abs)
         if dist <= pair_range and (best is None or dist < best_dist):
             best = (b_abs, data)
             best_dist = dist
-
     return best
-
 
 # ------------------------------------------------------------
 def scan_once():
@@ -518,7 +492,7 @@ def scan_once():
                 continue
             sb += 1
 
-        # PASS 10: attach + advantage
+        # PASS 10: attach + advantage + HB
         for mv in moves:
             aid = mv["id"]
             mv_abs = mv["abs"]
@@ -534,7 +508,7 @@ def scan_once():
             if mblk:
                 mv["meter"] = mblk[1]
 
-            # animation speed (these are per anim id, so map them)
+            # animation speed
             mv["speed"] = None
             for b_abs, (sa_id, sa_spd) in speed_blocks:
                 if sa_id == aid:
@@ -582,7 +556,7 @@ def scan_once():
                 mv["kb1"] = kb1
                 mv["kb_traj"] = traj
 
-            # stuns (with hitstop re-added)
+            # stuns
             mv["hitstun"] = None
             mv["blockstun"] = None
             mv["hitstop"] = None
@@ -593,8 +567,25 @@ def scan_once():
                 mv["blockstun"] = bs
                 mv["hitstop"] = hstop
 
+            # hitbox sizes (NEW)
+            mv["hb_x"] = None
+            mv["hb_y"] = None
+            rel = mv_abs - base_abs
+            off_x = rel + HITBOX_OFF_X
+            off_y = rel + HITBOX_OFF_Y
+            if off_x + 4 <= len(buf):
+                try:
+                    mv["hb_x"] = rd_f32_be(buf, off_x)
+                except Exception:
+                    pass
+            if off_y + 4 <= len(buf):
+                try:
+                    mv["hb_y"] = rd_f32_be(buf, off_y)
+                except Exception:
+                    pass
+
             # advantage calc
-            total_frames = mv.get("speed") or 0x3C  # fallback 60
+            total_frames = mv.get("speed") or 0x3C
             a_end = mv.get("active_end")
             if a_end is not None:
                 recovery = total_frames - a_end
