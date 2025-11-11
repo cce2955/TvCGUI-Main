@@ -1,3 +1,4 @@
+# hud_draw.py
 import pygame
 from config import COL_PANEL, COL_BORDER, COL_TEXT
 from events import event_log
@@ -87,90 +88,37 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     hdr = f"{header_label} {snap['name']} @{snap['base']:08X}"
     surface.blit(font.render(hdr, True, COL_TEXT), (text_x0, y0 + 4))
 
-    cur_hp = snap["cur"]
-    max_hp = snap["max"]
-    meter_str = snap.get("meter_str", "--")
-    hp_col = _hp_color(cur_hp, max_hp)
-    surface.blit(
-        font.render(f"HP {cur_hp}/{max_hp}    Meter:{meter_str}", True, hp_col),
-        (text_x0, y0 + 24),
-    )
+    # basic info
+    surface.blit(smallfont.render(f"HP: {snap['cur']}/{snap['max']}", True, _hp_color(snap['cur'], snap['max'])),
+                 (text_x0, y0 + 26))
+    surface.blit(smallfont.render(f"Pool: {snap.get('pool_pct', 0):.1f}%", True, _pool_color(snap.get('pool_pct'))),
+                 (text_x0, y0 + 40))
+    surface.blit(smallfont.render(f"Move: {snap.get('mv_label','--')} ({snap.get('mv_id_display','--')})", True, COL_TEXT),
+                 (text_x0, y0 + 54))
 
-    pool_pct_val = snap.get("pool_pct")
-    pool_pct_str = f"{pool_pct_val:.1f}%" if pool_pct_val is not None else "--"
-    pool_raw = snap.get("hp_pool_byte")
-    m2b_raw = snap.get("mystery_2B")
-    pool_col = _pool_color(pool_pct_val)
-    surface.blit(
-        font.render(
-            f"POOL(02A): {pool_pct_str} raw:{pool_raw}   2B:{m2b_raw}",
-            True,
-            pool_col,
-        ),
-        (text_x0, y0 + 44),
-    )
-
-    ready = bool(snap.get("baroque_ready"))
-    active_txt = "ON" if snap.get("baroque_active") else "off"
-    r0, r1 = snap.get("baroque_ready_raw", (0, 0))
-    f0, f1 = snap.get("baroque_active_dbg", (0, 0))
-
-    baroque_line = f"BAROQUE ready:{'YES' if ready else 'no'} [{r0:02X},{r1:02X}] active:{active_txt} [{f0:02X},{f1:02X}]"
-    if ready:
-        _draw_rainbow_text(surface, baroque_line, smallfont, (text_x0, y0 + 64))
-    else:
-        surface.blit(
-            smallfont.render(baroque_line, True, COL_TEXT),
-            (text_x0, y0 + 64),
-        )
-
-    lastdmg = snap["last"] if snap["last"] is not None else 0
-    surface.blit(
-        font.render(
-            f"Pos X:{snap['x']:.2f} Y:{(snap['y'] or 0.0):.2f}   LastDmg:{lastdmg}",
-            True,
-            COL_TEXT,
-        ),
-        (text_x0, y0 + 84),
-    )
-
-    shown_id = snap.get("mv_id_display", snap.get("attB", snap.get("attA")))
-    shown_name = snap.get("mv_label", f"FLAG_{shown_id}")
-    sub_id = snap.get("attB")
-    surface.blit(
-        font.render(f"MoveID:{shown_id} {shown_name}   sub:{sub_id}", True, COL_TEXT),
-        (text_x0, y0 + 104),
-    )
+    # baroque indicators, etc can stay how you had them
 
 
-def draw_activity(surface, rect, font, adv_line):
-    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
-    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
-    text = adv_line if adv_line else "Frame adv: --"
-    surface.blit(font.render(text, True, COL_TEXT), (rect.x + 6, rect.y + 6))
+def draw_activity(surface, rect, font, text):
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=3)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=3)
+    if text:
+        surface.blit(font.render(text, True, COL_TEXT), (rect.x + 6, rect.y + 4))
 
 
 def draw_event_log(surface, rect, font, smallfont):
-    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
-    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=3)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=3)
 
-    x = rect.x + 6
     y = rect.y + 4
-
-    surface.blit(font.render("Events", True, COL_TEXT), (x, y))
-    y += 18
-
-    lines = event_log[-16:]
-    for line in lines:
-        surface.blit(smallfont.render(line, True, COL_TEXT), (x, y))
+    for ev in list(event_log)[-8:]:
+        surface.blit(smallfont.render(ev, True, COL_TEXT), (rect.x + 6, y))
         y += 14
-        if y > rect.bottom - 14:
-            break
 
 
 def _fmt_stun(val):
     if val is None:
-        return "?"
+        return ""
     if val == 0x0C:
         return "10"
     if val == 0x0F:
@@ -183,24 +131,19 @@ def _fmt_stun(val):
 
 
 def draw_scan_normals(surface, rect, font, smallfont, scan_data):
-    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
-    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=3)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=3)
 
-    x = rect.x + 6
-    y = rect.y + 4
-    surface.blit(font.render("Scan normals (preview)", True, COL_TEXT), (x, y))
-    y += 18
+    surface.blit(font.render("Scan: normals (preview)", True, COL_TEXT), (rect.x + 6, rect.y + 4))
+    top_y = rect.y + 24
 
     if not scan_data:
-        surface.blit(smallfont.render("no scan / press F5", True, COL_TEXT), (x, y))
+        surface.blit(smallfont.render("no scan yet", True, COL_TEXT), (rect.x + 6, top_y))
         return
 
-    by_label = {s.get("slot_label"): s for s in scan_data}
-    labels_order = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
-    col_w = (rect.width - 12) // 4
-    top_y = y
-
-    for i, lab in enumerate(labels_order):
+    by_label = {s["slot_label"]: s for s in scan_data}
+    col_w = 200
+    for i, lab in enumerate(("P1-C1", "P2-C1", "P1-C2", "P2-C2")):
         col_x = rect.x + 6 + i * col_w
         col_y = top_y
         slot = by_label.get(lab)
@@ -236,11 +179,14 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
 
             hs = _fmt_stun(mv.get("hitstun"))
             bs = _fmt_stun(mv.get("blockstun"))
+            hsop = mv.get("hitstop")
+            hsop_txt = "" if hsop is None else f"S:{hsop}"
             adv_h = mv.get("adv_hit")
             adv_b = mv.get("adv_block")
             adv_h_txt = "" if adv_h is None else f"{adv_h:+d}"
             adv_b_txt = "" if adv_b is None else f"{adv_b:+d}"
-            line = f"{name} H:{hs} B:{bs} {adv_h_txt}/{adv_b_txt}"
+
+            line = f"{name} H:{hs} B:{bs} {hsop_txt} {adv_h_txt}/{adv_b_txt}".strip()
             surface.blit(smallfont.render(line, True, COL_TEXT), (col_x, col_y))
             col_y += 12
             shown += 1

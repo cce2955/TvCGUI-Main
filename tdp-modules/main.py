@@ -23,7 +23,7 @@ from config import (
 from constants import SLOTS
 from resolver import RESOLVER, pick_posy_off_no_jump
 from meter import read_meter, METER_CACHE
-from fighter import read_fighter, dist2
+from fighter import read_fighter, dist2  # <- dist2 back in
 from advantage import ADV_TRACK
 from moves import (
     load_move_map,
@@ -38,7 +38,11 @@ from hud_draw import (
 )
 from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
-from events import log_engaged, log_hit, log_frame_advantage
+from events import (
+    log_frame_advantage,
+    log_engaged,          # <- back in
+    log_hit,              # <- back in
+)
 
 # optional deep scan
 try:
@@ -51,11 +55,11 @@ except Exception:
     SCAN_ANIM_MAP = {}
 
 TARGET_FPS = 60
-DAMAGE_EVERY_FRAMES = 3
 ADV_EVERY_FRAMES = 2
+HIT_EVERY_FRAMES = 3      # how often we try to detect hits
 SCAN_MIN_INTERVAL_SEC = 180.0
-
-PANEL_SLIDE_DURATION = 0.35  # seconds
+PANEL_SLIDE_DURATION = 0.35
+PANEL_FLASH_FRAMES = 12
 
 
 def _normalize_char_key(s: str) -> str:
@@ -65,9 +69,7 @@ def _normalize_char_key(s: str) -> str:
     return s
 
 
-PORTRAIT_ALIASES = {
-    # add weird names here if needed
-}
+PORTRAIT_ALIASES = {}
 
 
 def load_portrait_placeholder():
@@ -134,32 +136,19 @@ def sanitize_scan_adv(mvinfo):
     hs = mvinfo.get("hitstun")
     bs = mvinfo.get("blockstun")
 
-    rec_hit = None
-    rec_blk = None
-    if hs is not None and base_adv_hit is not None:
-        rec_hit = hs - base_adv_hit
-    if bs is not None and base_adv_block is not None:
-        rec_blk = bs - base_adv_block
+    rec_hit = hs - base_adv_hit if (hs is not None and base_adv_hit is not None) else None
+    rec_blk = bs - base_adv_block if (bs is not None and base_adv_block is not None) else None
 
-    def is_suspicious(r):
-        return r is not None and r >= 40
+    def bad(r): return r is not None and r >= 40
 
-    if is_suspicious(rec_hit) or is_suspicious(rec_blk):
+    if bad(rec_hit) or bad(rec_blk):
         assumed_total = 20
         if active_end is not None:
             recovery = max(0, assumed_total - active_end)
         else:
             recovery = 6
-
-        if hs is not None:
-            base_adv_hit = hs - recovery
-        else:
-            base_adv_hit = None
-
-        if bs is not None:
-            base_adv_block = bs - recovery
-        else:
-            base_adv_block = None
+        base_adv_hit = (hs - recovery) if hs is not None else None
+        base_adv_block = (bs - recovery) if bs is not None else None
 
     return base_adv_hit, base_adv_block, active_end
 
@@ -180,9 +169,10 @@ def _open_frame_data_window_thread(slot_label, target_slot):
 
     cols = (
         "move", "kind", "damage", "meter",
-        "startup", "active", "hitstun", "blockstun",
+        "startup", "active", "hitstun", "blockstun", "hitstop",
         "advH", "advB", "abs"
     )
+
     frame = ttk.Frame(root)
     frame.pack(fill="both", expand=True)
     tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
@@ -195,7 +185,8 @@ def _open_frame_data_window_thread(slot_label, target_slot):
 
     headers = [
         ("move", "Move"), ("kind", "Kind"), ("damage", "Dmg"), ("meter", "Meter"),
-        ("startup", "Start"), ("active", "Active"), ("hitstun", "HS"), ("blockstun", "BS"),
+        ("startup", "Start"), ("active", "Active"),
+        ("hitstun", "HS"), ("blockstun", "BS"), ("hitstop", "Stop"),
         ("advH", "advH"), ("advB", "advB"), ("abs", "ABS")
     ]
     for c, txt in headers:
@@ -209,6 +200,7 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     tree.column("active", width=65, anchor="center")
     tree.column("hitstun", width=45, anchor="center")
     tree.column("blockstun", width=45, anchor="center")
+    tree.column("hitstop", width=50, anchor="center")
     tree.column("advH", width=55, anchor="center")
     tree.column("advB", width=55, anchor="center")
     tree.column("abs", width=110, anchor="w")
@@ -221,34 +213,26 @@ def _open_frame_data_window_thread(slot_label, target_slot):
             m.get("abs", 0xFFFFFFFF),
         ),
     )
-    seen_named = set()
-    deduped = []
+    seen_ids = set()
+    final_moves = []
     for mv in moves_sorted:
         aid = mv.get("id")
-        if aid is None:
-            deduped.append(mv)
-            continue
-        name = SCAN_ANIM_MAP_LOCAL.get(aid, f"anim_{aid:02X}")
-        if not name.startswith("anim_") and "?" not in name:
-            if aid in seen_named:
+        if aid is not None:
+            if aid in seen_ids:
                 continue
-            seen_named.add(aid)
-        deduped.append(mv)
+            seen_ids.add(aid)
+        final_moves.append(mv)
 
     def _fmt_stun(v):
         if v is None:
             return ""
-        if v == 0x0C:
-            return "10"
-        if v == 0x0F:
-            return "15"
-        if v == 0x11:
-            return "17"
-        if v == 0x15:
-            return "21"
+        if v == 0x0C: return "10"
+        if v == 0x0F: return "15"
+        if v == 0x11: return "17"
+        if v == 0x15: return "21"
         return str(v)
 
-    for mv in deduped:
+    for mv in final_moves:
         aid = mv.get("id")
         move_name = (
             SCAN_ANIM_MAP_LOCAL.get(aid, f"anim_{aid:02X}")
@@ -256,11 +240,7 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         )
         a_s = mv.get("active_start")
         a_e = mv.get("active_end")
-        active_txt = (
-            f"{a_s}-{a_e}"
-            if (a_s is not None and a_e is not None)
-            else (str(a_e) if a_e is not None else "")
-        )
+        active_txt = f"{a_s}-{a_e}" if (a_s is not None and a_e is not None) else (str(a_e) if a_e is not None else "")
 
         sane_adv_h, sane_adv_b, _ = sanitize_scan_adv(mv)
 
@@ -276,6 +256,7 @@ def _open_frame_data_window_thread(slot_label, target_slot):
                 active_txt,
                 _fmt_stun(mv.get("hitstun")),
                 _fmt_stun(mv.get("blockstun")),
+                "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
                 "" if sane_adv_h is None else f"{sane_adv_h:+d}",
                 "" if sane_adv_b is None else f"{sane_adv_b:+d}",
                 f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
@@ -288,11 +269,7 @@ def _open_frame_data_window_thread(slot_label, target_slot):
 def open_frame_data_window(slot_label, scan_data):
     if not scan_data:
         return
-    target = None
-    for s in scan_data:
-        if s.get("slot_label") == slot_label:
-            target = s
-            break
+    target = next((s for s in scan_data if s.get("slot_label") == slot_label), None)
     if not target:
         return
     t = threading.Thread(
@@ -304,18 +281,17 @@ def open_frame_data_window(slot_label, scan_data):
 
 
 def build_move_lookup(scan_data):
-    if not scan_data:
-        return {}
     out = {}
+    if not scan_data:
+        return out
     for slot in scan_data:
         sl = slot.get("slot_label")
-        d = {}
+        moves_by_id = {}
         for mv in slot.get("moves", []):
             aid = mv.get("id")
-            if aid is None:
-                continue
-            d[aid] = mv
-        out[sl] = d
+            if aid is not None:
+                moves_by_id[aid] = mv
+        out[sl] = moves_by_id
     return out
 
 
@@ -336,7 +312,6 @@ def compute_layout(w, h):
     r_p2c2 = pygame.Rect(pad + panel_w + gap_x, row2_y, panel_w, panel_h)
 
     act_rect = pygame.Rect(pad, r_p1c2.bottom + 30, w - pad * 2, 32)
-
     events_y = act_rect.bottom + 8
     events_h = 150
     events_rect = pygame.Rect(pad, events_y, w - pad * 2, events_h)
@@ -371,18 +346,17 @@ def main():
 
     last_base_by_slot = {}
     y_off_by_base = {}
-    prev_hp = {}
     pool_baseline = {}
-
-    last_move_start_frame = {}
     last_move_anim_id = {}
-
     last_char_by_slot = {}
     render_snap_by_slot = {}
     render_portrait_by_slot = {}
-
     panel_anim = {}
     anim_queue_after_scan = set()
+    panel_btn_flash = {sl: 0 for sl, _, _ in SLOTS}
+
+    # NEW: we need previous HP again for hit detection
+    prev_hp = {}
 
     local_scan = RedHealthScanner()
     global_scan = GlobalRedScanner()
@@ -390,6 +364,7 @@ def main():
     last_scan_normals = None
     last_scan_time = 0.0
     cached_lookup = {}
+
     if HAVE_SCAN_NORMALS:
         try:
             last_scan_normals = scan_normals_all.scan_once()
@@ -403,18 +378,13 @@ def main():
     need_rescan_normals = False
 
     last_adv_display = ""
-    pending_hits = []
     frame_idx = 0
     running = True
 
     while running:
         now = time.time()
-
         mouse_clicked_pos = None
-        snapshot_p1c1_local = False
-        run_local_analysis = False
-        snapshot_global_full = False
-        run_global_analysis = False
+        manual_scan_key = False
 
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
@@ -422,19 +392,15 @@ def main():
             elif ev.type == pygame.VIDEORESIZE:
                 screen = pygame.display.set_mode(ev.size, pygame.RESIZABLE)
             elif ev.type == pygame.KEYDOWN:
-                if ev.key == pygame.K_F1:
-                    snapshot_p1c1_local = True
-                elif ev.key == pygame.K_F2:
-                    run_local_analysis = True
-                elif ev.key == pygame.K_F3:
-                    snapshot_global_full = True
-                elif ev.key == pygame.K_F4:
-                    run_global_analysis = True
-                elif ev.key == pygame.K_F5:
-                    manual_scan_requested = True
+                if ev.key == pygame.K_F5:
+                    manual_scan_key = True
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
                 mouse_clicked_pos = ev.pos
 
+        if manual_scan_key:
+            manual_scan_requested = True
+
+        # resolve slots
         resolved_slots = []
         for slotname, ptr_addr, teamtag in SLOTS:
             base, changed = RESOLVER.resolve_base(ptr_addr)
@@ -449,6 +415,7 @@ def main():
         meter_p1 = read_meter(p1c1_base)
         meter_p2 = read_meter(p2c1_base)
 
+        # build fighter snaps
         snaps = {}
         for slotname, teamtag, base in resolved_slots:
             if not base:
@@ -462,6 +429,7 @@ def main():
             snap = read_fighter(base, yoff)
             if not snap:
                 continue
+
             snap["teamtag"] = teamtag
             snap["slotname"] = slotname
 
@@ -472,10 +440,7 @@ def main():
             else:
                 snap["meter_str"] = "--"
 
-            atk_a = snap.get("attA")
-            atk_b = snap.get("attB")
-            cur_anim = atk_a if atk_a is not None else atk_b
-
+            cur_anim = snap.get("attA") or snap.get("attB")
             char_name = snap.get("name")
             csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
             mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
@@ -484,8 +449,7 @@ def main():
             snap["csv_char_id"] = csv_char_id
 
             prev_anim = last_move_anim_id.get(base)
-            if cur_anim is not None and cur_anim != 0 and cur_anim != prev_anim:
-                last_move_start_frame[base] = frame_idx
+            if cur_anim and cur_anim != prev_anim:
                 last_move_anim_id[base] = cur_anim
             else:
                 last_move_anim_id[base] = cur_anim
@@ -514,54 +478,36 @@ def main():
                 snap["baroque_active_dbg"] = (f0, f1)
                 inputs_struct = {}
                 for key, addr in INPUT_MONITOR_ADDRS.items():
-                    v = rd8(addr)
-                    inputs_struct[key] = 0 if v is None else v
+                    inputs_struct[key] = rd8(addr) or 0
                 snap["inputs"] = inputs_struct
-            else:
-                snap["baroque_ready"] = 0
-                snap["baroque_active"] = 0
-                snap["baroque_ready_raw"] = (0, 0)
-                snap["baroque_active_dbg"] = (0, 0)
-                snap["inputs"] = {}
 
             snaps[slotname] = snap
-
-            prev_char = last_char_by_slot.get(slotname)
-            cur_char = snap.get("name")
-            if cur_char and cur_char != prev_char:
-                last_char_by_slot[slotname] = cur_char
-                anim_queue_after_scan.add((slotname, "fadein"))
-                need_rescan_normals = True
 
             render_snap_by_slot[slotname] = snap
             render_portrait_by_slot[slotname] = get_portrait_for_snap(snap, portraits, placeholder_portrait)
 
-        if snapshot_p1c1_local:
-            targ = snaps.get("P1-C1")
-            if targ:
-                local_scan.snapshot(targ)
-        if run_local_analysis:
-            local_scan.analyze()
-        if snapshot_global_full:
-            targ = snaps.get("P1-C1")
-            if targ:
-                global_scan.snapshot(targ)
-        if run_global_analysis:
-            global_scan.analyze()
+            if last_char_by_slot.get(slotname) != snap.get("name"):
+                anim_queue_after_scan.add((slotname, "fadein"))
+                last_char_by_slot[slotname] = snap.get("name")
+                need_rescan_normals = True
 
-        if frame_idx % DAMAGE_EVERY_FRAMES == 0:
+        # ------------------------------------------------------------------
+        # HIT DETECTION (this is what feeds the event log)
+        # ------------------------------------------------------------------
+        if frame_idx % HIT_EVERY_FRAMES == 0 and snaps:
+            # same rough reaction set you used before
             REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
-
             for vic_slot, vic_snap in snaps.items():
                 vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
                 if vic_move_id not in REACTION_STATES:
+                    # not in hit / reel / kd -> skip
                     continue
 
                 vic_team = vic_snap["teamtag"]
+                # pick nearest opponent as attacker
                 attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
                 if not attackers:
                     continue
-
                 best_d2 = None
                 atk_snap = None
                 for cand in attackers:
@@ -569,30 +515,37 @@ def main():
                     if best_d2 is None or d2v < best_d2:
                         best_d2 = d2v
                         atk_snap = cand
-
                 if not atk_snap:
                     continue
 
                 atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
 
+                # start adv tracking now
                 ADV_TRACK.start_contact(
                     atk_snap["base"],
                     vic_snap["base"],
                     frame_idx,
                     atk_move_id,
-                    vic_move_id
+                    vic_move_id,
                 )
 
+                # HP delta logging
                 base = vic_snap["base"]
-                hp_now = vic_snap["cur"]
+                hp_now = vic_snap.get("cur")
                 hp_prev = prev_hp.get(base, hp_now)
                 prev_hp[base] = hp_now
-                dmg = hp_prev - hp_now
+                if hp_now is not None and hp_prev is not None:
+                    dmg = hp_prev - hp_now
+                else:
+                    dmg = 0
 
                 if dmg >= MIN_HIT_DAMAGE:
                     log_engaged(atk_snap, vic_snap, frame_idx)
                     log_hit(atk_snap, vic_snap, dmg, frame_idx)
 
+        # ------------------------------------------------------------------
+        # frame advantage tracking (unchanged)
+        # ------------------------------------------------------------------
         if frame_idx % ADV_EVERY_FRAMES == 0:
             pairs = [
                 ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
@@ -603,16 +556,17 @@ def main():
             for atk_slot, vic_slot in pairs:
                 atk_snap = snaps.get(atk_slot)
                 vic_snap = snaps.get(vic_slot)
-                if atk_snap and vic_snap:
-                    atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
-                    vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
-                    ADV_TRACK.update_pair(
-                        atk_snap["base"],
-                        vic_snap["base"],
-                        frame_idx,
-                        atk_move_id,
-                        vic_move_id
-                    )
+                if not (atk_snap and vic_snap):
+                    continue
+                atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
+                vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
+                ADV_TRACK.update_pair(
+                    atk_snap["base"],
+                    vic_snap["base"],
+                    frame_idx,
+                    atk_move_id,
+                    vic_move_id,
+                )
 
             freshest = ADV_TRACK.get_freshest_final_info()
             if freshest:
@@ -629,6 +583,9 @@ def main():
                     else:
                         last_adv_display = f"Frame adv: {plusf:+.1f}f"
 
+        # --------------------------------------------------------
+        # drawing
+        # --------------------------------------------------------
         screen.fill(COL_BG)
         w, h = screen.get_size()
         layout = compute_layout(w, h)
@@ -643,12 +600,7 @@ def main():
                 anim["from_y"] = base_rect.y
             t = now - anim["start"]
             dur = anim["dur"]
-            if t <= 0:
-                frac = 0.0
-            elif t >= dur:
-                frac = 1.0
-            else:
-                frac = t / dur
+            frac = 0.0 if t <= 0 else (1.0 if t >= dur else t / dur)
             y = anim["from_y"] + (anim["to_y"] - anim["from_y"]) * frac
             alpha = int(anim["from_a"] + (anim["to_a"] - anim["from_a"]) * frac)
             if frac >= 1.0:
@@ -670,21 +622,28 @@ def main():
             portrait = render_portrait_by_slot.get(slot_label, placeholder_portrait)
             waiting = any((slot_label == s and kind in ("fadein", "fadeout")) for (s, kind) in anim_queue_after_scan)
 
-            panel_surf = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
-            draw_panel_classic(panel_surf, panel_surf.get_rect(), snap, portrait, font, smallfont, header)
+            pane = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
+            draw_panel_classic(pane, pane.get_rect(), snap, portrait, font, smallfont, header)
 
-            # button inside panel
             btn_w, btn_h = 110, 20
             btn_x = panel_rect.width - btn_w - 6
             btn_y = panel_rect.height - btn_h - 6
             btn_rect_local = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
-            pygame.draw.rect(panel_surf, (40, 40, 40), btn_rect_local, border_radius=3)
-            pygame.draw.rect(panel_surf, (180, 180, 180), btn_rect_local, 1, border_radius=3)
-            label_surf = smallfont.render("Show frame data", True, (220, 220, 220))
-            panel_surf.blit(label_surf, (btn_x + 6, btn_y + 2))
 
-            panel_surf.set_alpha(255 if waiting else alpha)
-            screen.blit(panel_surf, (panel_rect.x, panel_rect.y))
+            flash_left = panel_btn_flash.get(slot_label, 0)
+            if flash_left > 0:
+                base_col = (70, 130, 230)
+                border_col = (255, 255, 255)
+            else:
+                base_col = (40, 40, 40)
+                border_col = (180, 180, 180)
+
+            pygame.draw.rect(pane, base_col, btn_rect_local, border_radius=3)
+            pygame.draw.rect(pane, border_col, btn_rect_local, 1, border_radius=3)
+            pane.blit(smallfont.render("Show frame data", True, (220, 220, 220)), (btn_x + 6, btn_y + 2))
+
+            pane.set_alpha(255 if waiting else alpha)
+            screen.blit(pane, (panel_rect.x, panel_rect.y))
 
             return pygame.Rect(panel_rect.x + btn_x, panel_rect.y + btn_y, btn_w, btn_h)
 
@@ -704,32 +663,42 @@ def main():
 
             def ensure_scan():
                 nonlocal last_scan_normals, last_scan_time, cached_lookup
-                if HAVE_SCAN_NORMALS:
-                    try:
-                        last_scan_normals = scan_normals_all.scan_once()
-                        last_scan_time = time.time()
-                        cached_lookup = build_move_lookup(last_scan_normals)
-                    except Exception as e:
-                        print("scan failed:", e)
+                if not HAVE_SCAN_NORMALS:
+                    return None
+                try:
+                    last_scan_normals = scan_normals_all.scan_once()
+                    last_scan_time = time.time()
+                    cached_lookup = build_move_lookup(last_scan_normals)
+                except Exception as e:
+                    print("scan failed:", e)
                 return last_scan_normals
 
             if btn_p1c1_rect.collidepoint(mx, my):
                 data = ensure_scan()
                 if data:
                     open_frame_data_window("P1-C1", data)
+                panel_btn_flash["P1-C1"] = PANEL_FLASH_FRAMES
             elif btn_p2c1_rect.collidepoint(mx, my):
                 data = ensure_scan()
                 if data:
                     open_frame_data_window("P2-C1", data)
+                panel_btn_flash["P2-C1"] = PANEL_FLASH_FRAMES
             elif btn_p1c2_rect.collidepoint(mx, my):
                 data = ensure_scan()
                 if data:
                     open_frame_data_window("P1-C2", data)
+                panel_btn_flash["P1-C2"] = PANEL_FLASH_FRAMES
             elif btn_p2c2_rect.collidepoint(mx, my):
                 data = ensure_scan()
                 if data:
                     open_frame_data_window("P2-C2", data)
+                panel_btn_flash["P2-C2"] = PANEL_FLASH_FRAMES
 
+        for k in panel_btn_flash:
+            if panel_btn_flash[k] > 0:
+                panel_btn_flash[k] -= 1
+
+        # rescan on character change
         if HAVE_SCAN_NORMALS and need_rescan_normals:
             try:
                 last_scan_normals = scan_normals_all.scan_once()
@@ -748,7 +717,7 @@ def main():
                         "from_a": 0,
                         "to_a": 255,
                     }
-                else:  # fadeout
+                else:
                     panel_anim[slot_label] = {
                         "start": time.time(),
                         "dur": PANEL_SLIDE_DURATION,
@@ -766,9 +735,8 @@ def main():
             HAVE_SCAN_NORMALS
             and (last_scan_normals is not None)
             and (now2 - last_scan_time) >= SCAN_MIN_INTERVAL_SEC
-            and not need_rescan_normals
         )
-        if HAVE_SCAN_NORMALS and manual_scan_requested and not need_rescan_normals:
+        if HAVE_SCAN_NORMALS and manual_scan_requested:
             try:
                 last_scan_normals = scan_normals_all.scan_once()
                 last_scan_time = time.time()
@@ -783,24 +751,6 @@ def main():
                 cached_lookup = build_move_lookup(last_scan_normals)
             except Exception as e:
                 print("auto scan failed:", e)
-
-        if pending_hits and (frame_idx % 30 == 0):
-            newcsv = not os.path.exists(HIT_CSV)
-            with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
-                wcsv = csv.writer(fh)
-                if newcsv:
-                    wcsv.writerow([
-                        "t",
-                        "victim_label", "victim_char", "dmg",
-                        "hp_before", "hp_after",
-                        "attacker_label", "attacker_char", "attacker_char_id",
-                        "attacker_id_dec", "attacker_id_hex", "attacker_move",
-                        "dist2",
-                        "atk_flag062", "atk_flag063",
-                        "vic_flag062", "vic_flag063",
-                        "atk_ctrl", "vic_ctrl",
-                    ])
-            pending_hits.clear()
 
         clock.tick(TARGET_FPS)
         frame_idx += 1

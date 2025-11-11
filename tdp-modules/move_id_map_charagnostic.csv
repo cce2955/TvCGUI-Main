@@ -157,7 +157,7 @@
 522,0x20a,Swan Dance A,Swan Dance A,Swan Dance A,yes,8
 524,0x20c,Swan Dance B,Swan Dance B,Swan Dance B,yes,8
 526,0x20e,Swan Dance C,Swan Dance C,Swan Dance C,yes,8
-430,0x1ae,Phoenix,Phoenix,Phoenix,yes,8
+
 
 # Karas (ID: 10)
 304,0x130,236A,236A,236A,yes,10
@@ -194,6 +194,9 @@
 320,0x140,Air Hado L,Air Hado L,Air Hado L,yes,12
 321,0x141,Air Hado M,Air Hado M,Air Hado M,yes,12
 322,0x142,Air Hado H,Air Hado H,Air Hado H,yes,12
+323,0x142,Air Tatsu L,Air Hado H,Air Hado H,yes,12
+324,0x142,Air Tatsu M,Air Hado H,Air Hado H,yes,12
+325,0x142,Air Tatsu H,Air Hado H,Air Hado H,yes,12
 352,0x160,Shinkuu,Shinkuu,Shinkuu,yes,12
 353,0x161,Tatsu Super,Tatsu Super,Tatsu Super,yes,12
 362,0x161,Shin Sho Startup,Tatsu Super,Tatsu Super,yes,12
@@ -415,7 +418,8 @@
 22,0x1,jump back,jump back,jump back,yes,100
 29,0x1,Super Jump,Super Jump,Super Jump,yes,100
 30,0x1,landing,landing,landing,yes,100
-30,0x1,Air Dash Forward,landing,landing,yes,100
+35,0x1,Air Dash Forward,landing,landing,yes,100
+31,0x1,Pre Super Jump,landing,landing,yes,100
 36,0x1,Air Dash Back,landing,landing,yes,100
 40,0x1,Intro Pose Point,Intro Pose Point,Intro Pose Point,yes,100
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
@@ -425,8 +429,8 @@
 73,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
 73,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
 80,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
-81,0x1,W100 Bounce Launched,W100 Bounce Launched,W100 Bounce Launched,yes,100
-82,0x1,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
+81,0x1,Bounce Launched,W100 Bounce Launched,W100 Bounce Launched,yes,100
+82,0x1,Bounce Bounce off,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 90,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 92,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 95,0x1,Forced Roll,Soft Knockdown,Soft Knockdown,yes,100
