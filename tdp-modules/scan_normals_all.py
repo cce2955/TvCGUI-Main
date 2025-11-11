@@ -20,7 +20,7 @@ from constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 
 TAIL_PATTERN = b"\x00\x00\x00\x38\x01\x33\x00\x00"
 CLUSTER_GAP = 0x4000
-CLUSTER_PAD_BACK = 0x200  # back up so 5A doesn’t get chopped off
+CLUSTER_PAD_BACK = 0x400  
 
 ANIM_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x01, 0xE8,
@@ -251,10 +251,8 @@ def parse_anim_speed(buf: bytes, start: int):
         if buf[start + i] != b:
             return None, None
     aid = buf[start + len(ANIM_SPEED_HDR)]
-    # expect 01 3C just after to mark the 60f
     if buf[start + len(ANIM_SPEED_HDR) + 1] != 0x01 or buf[start + len(ANIM_SPEED_HDR) + 2] != 0x3C:
         return None, None
-    # in this pattern, the actual speed is a byte after a tail-ish pattern
     tail_pat = [0x33, 0x35, 0x20, 0x3F, 0x00, 0x00, 0x00]
     s_from = start + 16
     s_to = min(start + 64, len(buf))
@@ -325,6 +323,34 @@ def parse_stun(buf: bytes, start: int):
     return hitstun, blockstun, hitstop
 
 
+# viewer-like pairing:
+# 1) prefer blocks that come AFTER the move within range
+# 2) if none, fall back to nearest within range
+def pick_best_block(mv_abs, blocks, pair_range):
+    best = None
+    best_dist = None
+
+    # forward-first
+    for b_abs, data in blocks:
+        if b_abs >= mv_abs:
+            dist = b_abs - mv_abs
+            if dist <= pair_range and (best is None or dist < best_dist):
+                best = (b_abs, data)
+                best_dist = dist
+
+    if best is not None:
+        return best
+
+    # fallback: nearest
+    for b_abs, data in blocks:
+        dist = abs(b_abs - mv_abs)
+        if dist <= pair_range and (best is None or dist < best_dist):
+            best = (b_abs, data)
+            best_dist = dist
+
+    return best
+
+
 # ------------------------------------------------------------
 def scan_once():
     hook()
@@ -335,7 +361,6 @@ def scan_once():
     tails = find_all_tails(mem)
     clusters = cluster_tails(tails)
 
-    # empiric remap from your original
     cluster_to_slot = [0, 2, 1, 3]
 
     result = []
@@ -411,12 +436,12 @@ def scan_once():
             j += 1
 
         # PASS 3: animation speeds
-        speed_map = {}
+        speed_blocks = []
         k = 0
         while k < len(buf):
             aid, spd = parse_anim_speed(buf, k)
             if aid is not None:
-                speed_map[aid] = spd
+                speed_blocks.append((base_abs + k, (aid, spd)))
                 k += 24
                 continue
             k += 1
@@ -428,7 +453,7 @@ def scan_once():
             if match_bytes(buf, q, ACTIVE_HDR):
                 a_s, a_e = parse_active_frames(buf, q)
                 if a_s is not None:
-                    active_blocks.append((base_abs + q, a_s, a_e))
+                    active_blocks.append((base_abs + q, (a_s, a_e)))
                 q += ACTIVE_TOTAL_LEN
                 continue
             q += 1
@@ -440,7 +465,7 @@ def scan_once():
             if match_bytes(buf, d, DAMAGE_HDR):
                 dmg_val, dmg_flag = parse_damage(buf, d)
                 if dmg_val is not None:
-                    dmg_blocks.append((base_abs + d, dmg_val, dmg_flag))
+                    dmg_blocks.append((base_abs + d, (dmg_val, dmg_flag)))
                 d += DAMAGE_TOTAL_LEN
                 continue
             d += 1
@@ -493,125 +518,90 @@ def scan_once():
                 continue
             sb += 1
 
-        # PASS 10: attach to moves and compute advantage
+        # PASS 10: attach + advantage
         for mv in moves:
             aid = mv["id"]
             mv_abs = mv["abs"]
 
-            # meter (with pairing)
+            # meter
             if mv["kind"] == "normal":
                 mv["meter"] = DEFAULT_METER.get(aid)
             elif mv["kind"] == "special":
                 mv["meter"] = SPECIAL_DEFAULT_METER
             else:
                 mv["meter"] = None
-            best_val = mv["meter"]
-            best_dist = None
-            for m_abs, m_val in meters:
-                dist = abs(m_abs - mv_abs)
-                if dist <= METER_PAIR_RANGE and (best_dist is None or dist < best_dist):
-                    best_dist = dist
-                    best_val = m_val
-            mv["meter"] = best_val
+            mblk = pick_best_block(mv_abs, meters, METER_PAIR_RANGE)
+            if mblk:
+                mv["meter"] = mblk[1]
 
-            # anim speed
-            if aid is not None and aid in speed_map:
-                mv["speed"] = speed_map[aid]
-            else:
-                mv["speed"] = None
+            # animation speed (these are per anim id, so map them)
+            mv["speed"] = None
+            for b_abs, (sa_id, sa_spd) in speed_blocks:
+                if sa_id == aid:
+                    mv["speed"] = sa_spd
+                    break
 
             # active
-            mv_active_start = None
-            mv_active_end = None
-            best_dist = None
-            for a_abs, a_s, a_e in active_blocks:
-                dist = abs(a_abs - mv_abs)
-                if dist <= ACTIVE_PAIR_RANGE and (best_dist is None or dist < best_dist):
-                    best_dist = dist
-                    mv_active_start = a_s
-                    mv_active_end = a_e
-            mv["active_start"] = mv_active_start
-            mv["active_end"] = mv_active_end
+            mv["active_start"] = None
+            mv["active_end"] = None
+            ablk = pick_best_block(mv_abs, active_blocks, ACTIVE_PAIR_RANGE)
+            if ablk:
+                a_s, a_e = ablk[1]
+                mv["active_start"] = a_s
+                mv["active_end"] = a_e
 
             # damage
-            mv_dmg = None
-            mv_dflag = None
-            best_dist = None
-            for dmg_abs, dmg_val, dmg_flag in dmg_blocks:
-                dist = abs(dmg_abs - mv_abs)
-                if dist <= DAMAGE_PAIR_RANGE and (best_dist is None or dist < best_dist):
-                    best_dist = dist
-                    mv_dmg = dmg_val
-                    mv_dflag = dmg_flag
-            mv["damage"] = mv_dmg
-            mv["damage_flag"] = mv_dflag
+            mv["damage"] = None
+            mv["damage_flag"] = None
+            dblk = pick_best_block(mv_abs, dmg_blocks, DAMAGE_PAIR_RANGE)
+            if dblk:
+                dmg_val, dmg_flag = dblk[1]
+                mv["damage"] = dmg_val
+                mv["damage_flag"] = dmg_flag
 
-            # atkprop
-            mv_prop = None
-            best_dist = None
-            for ap_abs, prop in atkprop_blocks:
-                dist = abs(ap_abs - mv_abs)
-                if dist <= ATKPROP_PAIR_RANGE and (best_dist is None or dist < best_dist):
-                    best_dist = dist
-                    mv_prop = prop
-            mv["attack_property"] = mv_prop
+            # attack property
+            mv["attack_property"] = None
+            apblk = pick_best_block(mv_abs, atkprop_blocks, ATKPROP_PAIR_RANGE)
+            if apblk:
+                mv["attack_property"] = apblk[1]
 
             # hit reaction
-            mv_react = None
-            best_dist = None
-            for hr_abs, code in hitreact_blocks:
-                dist = abs(hr_abs - mv_abs)
-                if dist <= HITREACTION_PAIR_RANGE and (best_dist is None or dist < best_dist):
-                    best_dist = dist
-                    mv_react = code
-            mv["hit_reaction"] = mv_react
+            mv["hit_reaction"] = None
+            hrblk = pick_best_block(mv_abs, hitreact_blocks, HITREACTION_PAIR_RANGE)
+            if hrblk:
+                mv["hit_reaction"] = hrblk[1]
 
             # knockback
-            mv_kb0 = None
-            mv_kb1 = None
-            mv_kb_traj = None
-            best_dist = None
-            for kb_abs, (kb0, kb1, traj) in kb_blocks:
-                dist = abs(kb_abs - mv_abs)
-                if dist <= KNOCKBACK_PAIR_RANGE and (best_dist is None or dist < best_dist):
-                    best_dist = dist
-                    mv_kb0 = kb0
-                    mv_kb1 = kb1
-                    mv_kb_traj = traj
-            mv["kb0"] = mv_kb0
-            mv["kb1"] = mv_kb1
-            mv["kb_traj"] = mv_kb_traj
+            mv["kb0"] = None
+            mv["kb1"] = None
+            mv["kb_traj"] = None
+            kbblk = pick_best_block(mv_abs, kb_blocks, KNOCKBACK_PAIR_RANGE)
+            if kbblk:
+                kb0, kb1, traj = kbblk[1]
+                mv["kb0"] = kb0
+                mv["kb1"] = kb1
+                mv["kb_traj"] = traj
 
-            # stuns
-            mv_hitstun = None
-            mv_blockstun = None
-            mv_hitstop = None
-            best_dist = None
-            for stun_abs, (hs, bs, hsop) in stun_blocks:
-                dist = abs(stun_abs - mv_abs)
-                if dist <= STUN_PAIR_RANGE and (best_dist is None or dist < best_dist):
-                    best_dist = dist
-                    mv_hitstun = hs
-                    mv_blockstun = bs
-                    mv_hitstop = hsop
-            mv["hitstun"] = mv_hitstun
-            mv["blockstun"] = mv_blockstun
-            mv["hitstop"] = mv_hitstop
+            # stuns (with hitstop re-added)
+            mv["hitstun"] = None
+            mv["blockstun"] = None
+            mv["hitstop"] = None
+            sblk = pick_best_block(mv_abs, stun_blocks, STUN_PAIR_RANGE)
+            if sblk:
+                hs, bs, hstop = sblk[1]
+                mv["hitstun"] = hs
+                mv["blockstun"] = bs
+                mv["hitstop"] = hstop
 
-            # ------------------------------------------------
-            # ADVANTAGE (estimated)
-            # ------------------------------------------------
-            # total frames: try speed, fallback to 60
-            total_frames = mv.get("speed") or 0x3C  # 0x3C = 60
+            # advantage calc
+            total_frames = mv.get("speed") or 0x3C  # fallback 60
             a_end = mv.get("active_end")
             if a_end is not None:
                 recovery = total_frames - a_end
                 if recovery < 0:
                     recovery = 0
             else:
-                # if we don't know active, assume middling recovery
                 recovery = 12
-
             hs = mv.get("hitstun") or 0
             bs = mv.get("blockstun") or 0
             mv["adv_hit"] = hs - recovery
@@ -623,7 +613,6 @@ def scan_once():
             slots_info[slot_idx] if slot_idx < len(slots_info) else (f"slot{slot_idx}", 0, None, "—")
         )
 
-        # sort moves by id for nicer display
         moves_sorted = sorted(
             moves,
             key=lambda m: ((m["id"] is None), m.get("id", 0xFFFF), m.get("abs", 0xFFFFFFFF))

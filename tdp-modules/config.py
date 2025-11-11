@@ -73,7 +73,7 @@ HEALTH_WIRE_OFFSETS = [
 ]
 
 WIRE_OFFSETS = [
-    # Various status / flags we already cared about
+    # Various status / flags already cared about
     0x062,
     0x063,
     0x064,
@@ -123,7 +123,7 @@ INPUT_MONITOR_ADDRS = {
     "A2": 0x9246CC60,
 }
 
-# We'll dump a big slab of that CC40 range each frame in the inspector so
+# dump a big slab of that CC40 range each frame in the inspector so
 # you can watch all those 05 01 sequences live.
 BAROQUE_MONITOR_ADDR = 0x9246CC40
 BAROQUE_MONITOR_SIZE = 0x80  # 128 bytes to cover CC40..CCBF-ish
