@@ -142,7 +142,42 @@ def draw_event_log(surface, rect, font, smallfont):
             break
 
 
+# ------------------------------------------------------------
+# REFACTORED: scan normals preview
+# ------------------------------------------------------------
+# moves we actually care about in the crowded bottom box
+PREVIEW_MOVES_ORDERED = [
+    "5A", "5B", "5C",
+    "2A", "2B", "2C",
+    "3C",
+    "j.A", "j.B", "j.C",
+]
+
+
+def _normalize_move_name(aid, mv_dict):
+    """
+    Try to get a human name for this move.
+    1) use scan_normals_all map if aid is present
+    2) fallback to mv['name'] if present
+    3) fallback to "anim_XX"
+    """
+    if aid is not None and aid in SCAN_ANIM_MAP:
+        return SCAN_ANIM_MAP[aid]
+    # some scanners store name / move_name / anim_name
+    for key in ("name", "move_name", "anim_name"):
+        if key in mv_dict and mv_dict[key]:
+            return mv_dict[key]
+    if aid is not None:
+        return f"anim_{aid:02X}"
+    return "???"
+
+
 def draw_scan_normals(surface, rect, font, smallfont, scan_data):
+    """
+    Draws a compact, filtered normals preview:
+    only S, A, H, B
+    only these moves: 5A 5B 5C 2A 2B 2C 3C j.A j.B j.C
+    """
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=3)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=3)
 
@@ -156,7 +191,7 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         return
 
     n_slots = len(scan_data)
-    col_w = max(120, rect.width // max(1, n_slots))
+    col_w = max(130, rect.width // max(1, n_slots))
 
     for col, slot in enumerate(scan_data):
         col_x = rect.x + 4 + col * col_w
@@ -166,45 +201,56 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         surface.blit(smallfont.render(f"{label} ({cname})", True, COL_TEXT), (col_x, y))
         y += 14
 
+        # build a dict of {normalized_name: move_dict} for quick lookup
+        # while keeping the first occurrence only (like you did before)
+        name_to_mv = {}
         seen_ids = set()
-        moves = []
         for mv in slot.get("moves", []):
             aid = mv.get("id")
             if aid is not None:
                 if aid in seen_ids:
                     continue
                 seen_ids.add(aid)
-            moves.append(mv)
+            nice = _normalize_move_name(aid, mv)
+            # only keep the first occurrence
+            if nice not in name_to_mv:
+                name_to_mv[nice] = mv
 
-        for mv in moves[:7]:
+        # now render exactly in PREVIEW_MOVES_ORDERED
+        for wanted in PREVIEW_MOVES_ORDERED:
+            mv = name_to_mv.get(wanted)
+            if not mv:
+                # sometimes you have "jA" or "j.A" mismatch, so try a tiny fallback
+                if wanted.startswith("j.") and wanted[2:] in name_to_mv:
+                    mv = name_to_mv[wanted[2:]]
+                elif wanted.startswith("j") and ("j." + wanted[1:]) in name_to_mv:
+                    mv = name_to_mv["j." + wanted[1:]]
+            if not mv:
+                continue
+
             aid = mv.get("id")
-            name = SCAN_ANIM_MAP.get(aid, f"anim_{aid:02X}" if aid is not None else "???")
+            name = wanted  # we already know what we asked for
 
-            s = mv.get("active_start")
-            e = mv.get("active_end")
-            active_txt = f"{s}-{e}" if (s is not None and e is not None) else ""
+            s = mv.get("active_start") or mv.get("startup")  # some scans store it differently
+            a0 = mv.get("active_start")
+            a1 = mv.get("active_end")
+            if a0 is not None and a1 is not None:
+                a_txt = f"{a0}-{a1}"
+            elif a1 is not None:
+                a_txt = str(a1)
+            else:
+                a_txt = "-"
+
             hs = mv.get("hitstun")
             bs = mv.get("blockstun")
 
-            line = f"{name} S:{s or ''} A:{active_txt} H:{hs or ''} B:{bs or ''}"
-
-            # show hitbox sizes from the scan
-            hb_x = mv.get("hb_x")
-            hb_y = mv.get("hb_y")
-            if hb_x is not None or hb_y is not None:
-                hx = f"{hb_x:.1f}" if hb_x is not None else "-"
-                hy = f"{hb_y:.1f}" if hb_y is not None else "-"
-                line += f" HB:{hx}x{hy}"
-
-            # also show knockback
-            kb0 = mv.get("kb0")
-            kb1 = mv.get("kb1")
-            kb_traj = mv.get("kb_traj")
-            if kb0 is not None or kb1 is not None or kb_traj is not None:
-                kb0_s = "" if kb0 is None else str(kb0)
-                kb1_s = "" if kb1 is None else str(kb1)
-                traj_s = "" if kb_traj is None else str(kb_traj)
-                line += f" KB:{kb0_s},{kb1_s} T:{traj_s}"
+            line = (
+                f"{name} "
+                f"S:{s if s is not None else '-'} "
+                f"A:{a_txt} "
+                f"H:{hs if hs is not None else '-'} "
+                f"B:{bs if bs is not None else '-'}"
+            )
 
             surface.blit(smallfont.render(line, True, COL_TEXT), (col_x + 10, y))
             y += 14
