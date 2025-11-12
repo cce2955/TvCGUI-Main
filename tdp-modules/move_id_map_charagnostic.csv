@@ -25,7 +25,7 @@
 353,0x161,Bird Smash,Bird Smash,Bird Smash,yes,1
 430,0x1ae,Phoenix,Phoenix,Phoenix,yes,1
 514,0x202,Lightning Strike,Lightning Strike,Lightning Strike,yes,1
--1,NONE,Bird Shoot B,Bird Shoot B,Bird Shoot B,yes,1
+
 
 # Casshan (ID: 2)
 304,0x130,Denko A,Denko A,Denko A,yes,2
@@ -170,7 +170,7 @@
 311,0x137,Kasha B,Kasha B,Kasha B,yes,10
 312,0x138,Kasha C,Kasha C,Kasha C,yes,10
 314,0x13a,Kasha followup,Kasha followup,Kasha followup,yes,10
-319,0x13f,2B?,2B?,2B?,yes,10
+
 321,0x141,Kasha Overhead,Kasha Overhead,Kasha Overhead,yes,10
 352,0x160,Vergil Super,Vergil Super,Vergil Super,yes,10
 512,0x200,chain hit,chain hit,chain hit,yes,10

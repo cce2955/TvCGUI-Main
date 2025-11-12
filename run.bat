@@ -1,32 +1,37 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 
-rem Folder containing this .bat (with trailing backslash)
+rem === paths ===
 set "ROOT=%~dp0"
-
-rem App directory where main.py, portraits, CSVs live
+set "PYEXE=%ROOT%.venv\Scripts\python.exe"
 set "APPDIR=%ROOT%tdp-modules"
 
-rem Use the venv we created in project root
-set "VENV=%ROOT%.venv\Scripts\python.exe"
-
-if not exist "%VENV%" (
-  echo Virtual environment not found. Run setup.ps1 first.
-  pause
+if not exist "%PYEXE%" (
+  echo ERROR: Missing venv interpreter: "%PYEXE%"
+  echo Run setup.ps1 first.
   exit /b 1
 )
 
-rem Ensure relative paths resolve like when you run python manually inside tdp-modules
+if not exist "%APPDIR%\main.py" (
+  echo ERROR: Can't find main.py at "%APPDIR%\main.py"
+  exit /b 1
+)
+
+rem === keep CWD in app dir so relative assets (portraits/csv) resolve ===
 pushd "%APPDIR%"
 
-rem Optional: help Python find your modules if you import local packages
+rem === optional helpers ===
 set "PYTHONPATH=%APPDIR%"
-
-rem Optional: better default encoding
 set "PYTHONUTF8=1"
 
-"%VENV%" "%APPDIR%\main.py" %*
-set ERR=%ERRORLEVEL%
+echo Using interpreter:
+"%PYEXE%" -c "import sys; print(sys.executable)"
+echo Import check:
+"%PYEXE%" -c "import pygame,sys; print('pygame', pygame.__version__)"
+
+echo.
+"%PYEXE%" "%APPDIR%\main.py" %*
+set "ERR=%ERRORLEVEL%"
 
 popd
 exit /b %ERR%
