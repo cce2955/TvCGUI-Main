@@ -350,10 +350,15 @@ class EditableFrameDataWindow:
         self.tree.bind("<Button-3>", self._on_right_click)
 
     # -------------------------------------------------------- reset
+    # -------------------------------------------------------- reset
+# -------------------------------------------------------- reset
     def _reset_all_moves(self):
         if not WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
             return
+
+        reset_count = 0
+        failed_writes = []
 
         for item_id, mv in self.move_to_tree_item.items():
             abs_addr = mv.get("abs")
@@ -363,64 +368,110 @@ class EditableFrameDataWindow:
             if not orig:
                 continue
 
-            # same as before...
-            if orig["damage"] is not None and write_damage(mv, orig["damage"]):
-                self.tree.set(item_id, "damage", str(orig["damage"]))
-                mv["damage"] = orig["damage"]
+            # damage
+            if orig["damage"] is not None:
+                success = write_damage(mv, orig["damage"])
+                if success:
+                    self.tree.set(item_id, "damage", str(orig["damage"]))
+                    mv["damage"] = orig["damage"]
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"damage @ 0x{abs_addr:08X}: {mv.get('damage_addr')}")
 
-            if orig["meter"] is not None and write_meter(mv, orig["meter"]):
-                self.tree.set(item_id, "meter", str(orig["meter"]))
-                mv["meter"] = orig["meter"]
+            # meter
+            if orig["meter"] is not None:
+                success = write_meter(mv, orig["meter"])
+                if success:
+                    self.tree.set(item_id, "meter", str(orig["meter"]))
+                    mv["meter"] = orig["meter"]
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"meter @ 0x{abs_addr:08X}")
 
+            # active frames
             if orig["active_start"] is not None and orig["active_end"] is not None:
-                if write_active_frames(mv, orig["active_start"], orig["active_end"]):
+                success = write_active_frames(mv, orig["active_start"], orig["active_end"])
+                if success:
                     self.tree.set(item_id, "startup", str(orig["active_start"]))
                     self.tree.set(item_id, "active", f"{orig['active_start']}-{orig['active_end']}")
                     mv["active_start"] = orig["active_start"]
                     mv["active_end"] = orig["active_end"]
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"active @ 0x{abs_addr:08X}")
 
-            if orig["hitstun"] is not None and write_hitstun(mv, orig["hitstun"]):
-                self.tree.set(item_id, "hitstun", _fmt_stun(orig["hitstun"]))
-                mv["hitstun"] = orig["hitstun"]
+            # hitstun
+            if orig["hitstun"] is not None:
+                success = write_hitstun(mv, orig["hitstun"])
+                if success:
+                    self.tree.set(item_id, "hitstun", _fmt_stun(orig["hitstun"]))
+                    mv["hitstun"] = orig["hitstun"]
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"hitstun @ 0x{abs_addr:08X}")
 
-            if orig["blockstun"] is not None and write_blockstun(mv, orig["blockstun"]):
-                self.tree.set(item_id, "blockstun", _fmt_stun(orig["blockstun"]))
-                mv["blockstun"] = orig["blockstun"]
+            # blockstun
+            if orig["blockstun"] is not None:
+                success = write_blockstun(mv, orig["blockstun"])
+                if success:
+                    self.tree.set(item_id, "blockstun", _fmt_stun(orig["blockstun"]))
+                    mv["blockstun"] = orig["blockstun"]
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"blockstun @ 0x{abs_addr:08X}")
 
-            if orig["hitstop"] is not None and write_hitstop(mv, orig["hitstop"]):
-                self.tree.set(item_id, "hitstop", str(orig["hitstop"]))
-                mv["hitstop"] = orig["hitstop"]
+            # hitstop
+            if orig["hitstop"] is not None:
+                success = write_hitstop(mv, orig["hitstop"])
+                if success:
+                    self.tree.set(item_id, "hitstop", str(orig["hitstop"]))
+                    mv["hitstop"] = orig["hitstop"]
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"hitstop @ 0x{abs_addr:08X}")
 
+            # knockback
             if (orig["kb0"] is not None) or (orig["kb1"] is not None) or (orig["kb_traj"] is not None):
-                if write_knockback(mv, orig["kb0"], orig["kb1"], orig["kb_traj"]):
+                success = write_knockback(mv, orig["kb0"], orig["kb1"], orig["kb_traj"])
+                if success:
                     parts = []
-                    if orig["kb0"] is not None: parts.append(f"K0:{orig['kb0']}")
-                    if orig["kb1"] is not None: parts.append(f"K1:{orig['kb1']}")
-                    if orig["kb_traj"] is not None: parts.append(f"T:{orig['kb_traj']}")
+                    if orig["kb0"] is not None: 
+                        parts.append(f"K0:{orig['kb0']}")
+                    if orig["kb1"] is not None: 
+                        parts.append(f"K1:{orig['kb1']}")
+                    if orig["kb_traj"] is not None: 
+                        parts.append(f"T:{orig['kb_traj']}")
                     self.tree.set(item_id, "kb", " ".join(parts))
                     mv["kb0"] = orig["kb0"]
                     mv["kb1"] = orig["kb1"]
                     mv["kb_traj"] = orig["kb_traj"]
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"knockback @ 0x{abs_addr:08X}")
 
-            # hitbox
-            orig_cands = orig.get("hb_candidates") or []
-            orig_off = orig.get("hb_off")
+            # hitbox - set offset BEFORE writing
             orig_val = orig.get("hb_r")
+            orig_off = orig.get("hb_off")
+            orig_cands = orig.get("hb_candidates") or []
 
-            if orig_off is not None:
+            if orig_val is not None and orig_off is not None:
                 mv["hb_off"] = orig_off
+                mv["hb_r"] = orig_val
+                success = write_hitbox_radius(mv, orig_val)
+                if success:
+                    self.tree.set(item_id, "hb_main", f"{orig_val:.1f}")
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"hitbox @ 0x{abs_addr:08X} (off=0x{orig_off:X})")
+            
+            # Restore candidate list for display
             mv["hb_candidates"] = orig_cands
-            mv["hb_r"] = orig_val
-
-            # tree cells
-            if orig_val is not None:
-                self.tree.set(item_id, "hb_main", f"{orig_val:.1f}")
-            else:
-                self.tree.set(item_id, "hb_main", "")
             self.tree.set(item_id, "hb", _format_candidate_list(orig_cands))
 
-        messagebox.showinfo("Reset", "All moves restored.")
-
+        msg = f"Reset complete: {reset_count} writes successful"
+        if failed_writes:
+            msg += f"\n\nFailed writes:\n" + "\n".join(failed_writes[:10])
+        messagebox.showinfo("Reset", msg)
     # -------------------------------------------------------- tree events
     def _on_double_click(self, event):
         if not WRITER_AVAILABLE:
