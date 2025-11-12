@@ -1,24 +1,17 @@
 # editable_frame_data_gui.py
 #
 # Frame Data Editor window for TvC HUD
-# - discovers per-move hitbox radius by scanning the move block
-# - lets you edit damage, meter, startup/active, stuns, knockback, radius
-# - auto-fixes active so end >= start
-# - has a "Reset to original" button that replays all original values
-# - can be launched from main.py via open_editable_frame_data_window(...)
-#
-# requires:
-#   - dolphin_io with rdf32 (read float) available
-#   - move_writer.py in the same folder
+# - scans each move's memory block to collect ALL nonzero float-like hitbox values in the "house"
+# - shows a single "likely" hitbox value
+# - shows all candidates in a second column
+# - lets you edit EVERY one of those values
+# - supports reset-to-original
 
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 import threading
 import math
 
-# ------------------------------------------------------------
-# imports from writer (we just bail to read-only if missing)
-# ------------------------------------------------------------
 WRITER_AVAILABLE = False
 try:
     from move_writer import (
@@ -36,86 +29,92 @@ try:
 except ImportError:
     print("WARNING: move_writer not found, editor will be read-only")
 
-# ------------------------------------------------------------
-# dolphin float reader
-# ------------------------------------------------------------
 try:
     from dolphin_io import rdf32
 except ImportError:
     rdf32 = None
 
-# optional anim map (nice names)
 try:
     from scan_normals_all import ANIM_MAP as _ANIM_MAP_FOR_GUI
 except Exception:
     _ANIM_MAP_FOR_GUI = {}
 
+HB_SCAN_MAX = 0x600
+HB_AFTER_ANCHOR_SCAN = 0x200
+FALLBACK_HB_OFFSET = 0x21C
+MIN_REAL_RADIUS = 5.0
+
+
 # ------------------------------------------------------------
-# hitbox scan settings
+# hitbox scan
 # ------------------------------------------------------------
-HB_SCAN_MAX = 0x600          # how far to look from move base for anchors
-HB_AFTER_ANCHOR_SCAN = 0x200  # how far after each anchor to look for a real float
-FALLBACK_HB_OFFSET = 0x21C    # Ryu 5A proved this
-MIN_REAL_RADIUS = 5.0         # we decided anything smaller is probably bone scale
-
-
-def _probe_hitbox_radius(move_abs: int):
-    """
-    Pattern-based hitbox radius finder.
-
-    layout you showed:
-        ... ff ff ff fe (shows up as None in rdf32)
-        ... bunch of 3F 00 00 00
-        ... later: 41 A0 00 00 (20.0) or similar
-
-    we:
-      - collect ALL anchors (places where rdf32(...) is None)
-      - for each anchor, scan forward and pick the first float >= MIN_REAL_RADIUS
-      - allow >= 400.0 to win immediately (for your poke tests)
-      - if everything fails, fall back to 0x21C and no value
-    """
+def _scan_hitbox_house(move_abs: int):
+    """Scan move block for all valid floats."""
     if rdf32 is None or not move_abs:
-        return None, None
+        return []
 
-    anchors: list[int] = []
+    candidates: list[tuple[int, float]] = []
 
-    # 1) collect anchors
     for off in range(0, HB_SCAN_MAX, 4):
         try:
             f = rdf32(move_abs + off)
         except Exception:
             continue
-        if f is None:
-            anchors.append(off)
+        if f is None or not isinstance(f, (int, float)) or not math.isfinite(f):
+            continue
+        if abs(f) < 1e-6:  # Skip near-zero
+            continue
+        candidates.append((off, float(f)))
 
-    # 2) try each anchor
-    for anchor_off in anchors:
-        start_after = anchor_off + 4
-        end_after = anchor_off + HB_AFTER_ANCHOR_SCAN
-        for off in range(start_after, end_after, 4):
-            try:
-                f = rdf32(move_abs + off)
-            except Exception:
-                continue
-            if f is None:
-                continue
-            if not isinstance(f, (int, float)):
-                continue
-            if not math.isfinite(f):
-                continue
+    return candidates
 
-            # you poked it to a huge value
-            if f >= 400.0:
-                return off, float(f)
 
-            # real-looking radius: we ignore bone-size floats (<5.0)
-            if MIN_REAL_RADIUS <= f <= 300.0:
-                return off, float(f)
+def _select_primary_from_candidates(cands: list[tuple[int, float]]):
+    """
+    Extract radius from candidates.
+    
+    Heuristics (in order):
+    1. Single large poke (>=400) = radius
+    2. Largest value in realistic range [5.0, 300.0] = radius
+       (bones cluster around 0.5-3.0, so bigger = hitbox)
+    3. Last float in valid range as fallback
+    """
+    if not cands:
+        return None, None
 
-            # else ignore and keep scanning
+    # Check for big poke
+    for off, val in cands:
+        if val >= 400.0:
+            return off, val
 
-    # 3) no good hitboxes found: fallback
-    return FALLBACK_HB_OFFSET, None
+    # Find largest value in realistic hitbox range
+    # Bone data stays small (<5.0), real hitboxes are 5-42
+    MAX_REAL_RADIUS = 42.0
+    best_off, best_val = None, -1
+    for off, val in cands:
+        if MIN_REAL_RADIUS <= val <= MAX_REAL_RADIUS:
+            if val > best_val:
+                best_off, best_val = off, val
+    
+    if best_off is not None:
+        return best_off, best_val
+    
+    # Last resort: find last float in valid range
+    for off, val in reversed(cands):
+        if MIN_REAL_RADIUS <= val <= MAX_REAL_RADIUS:
+            return off, val
+    
+    # Absolute fallback
+    return cands[-1] if cands else (None, None)
+
+
+def _format_candidate_list(cands: list[tuple[int, float]], max_show: int = 4) -> str:
+    parts = []
+    for idx, (_off, val) in enumerate(cands[:max_show]):
+        parts.append(f"r{idx}={val:.1f}")
+    if len(cands) > max_show:
+        parts.append("…")
+    return " ".join(parts)
 
 
 # ------------------------------------------------------------
@@ -162,7 +161,6 @@ class EditableFrameDataWindow:
         self.slot_label = slot_label
         self.target_slot = target_slot
 
-        # sort+dedupe like your HUD
         moves_sorted = sorted(
             target_slot.get("moves", []),
             key=lambda m: (
@@ -187,27 +185,7 @@ class EditableFrameDataWindow:
 
         self.moves = deduped
         self.move_to_tree_item: dict[str, dict] = {}
-
-        # stash originals for reset
         self.original_moves: dict[int, dict] = {}
-        for mv in self.moves:
-            key = mv.get("abs")
-            if not key:
-                continue
-            self.original_moves[key] = {
-                "damage": mv.get("damage"),
-                "meter": mv.get("meter"),
-                "active_start": mv.get("active_start"),
-                "active_end": mv.get("active_end"),
-                "hitstun": mv.get("hitstun"),
-                "blockstun": mv.get("blockstun"),
-                "hitstop": mv.get("hitstop"),
-                "kb0": mv.get("kb0"),
-                "kb1": mv.get("kb1"),
-                "kb_traj": mv.get("kb_traj"),
-                "hb_off": mv.get("hb_off"),
-                "hb_r": mv.get("hb_r"),
-            }
 
         self._build()
 
@@ -215,7 +193,7 @@ class EditableFrameDataWindow:
         cname = self.target_slot.get("char_name", "—")
         self.root = tk.Tk()
         self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
-        self.root.geometry("1200x700")
+        self.root.geometry("1250x700")
 
         top = tk.Frame(self.root)
         top.pack(side="top", fill="x", padx=5, pady=5)
@@ -225,17 +203,19 @@ class EditableFrameDataWindow:
         else:
             tk.Label(top, text="WARNING: move_writer not found. Editing disabled!", fg="red").pack(side="left")
 
-        # reset button
-        reset_btn = tk.Button(top, text="Reset to original", command=self._reset_all_moves)
-        reset_btn.pack(side="right", padx=4)
+        tk.Button(top, text="Reset to original", command=self._reset_all_moves).pack(side="right", padx=4)
 
         frame = ttk.Frame(self.root)
         frame.pack(fill="both", expand=True, padx=5, pady=5)
 
+        # NOTE: we now have hb_main and hb_cands
         cols = (
             "move", "kind", "damage", "meter",
             "startup", "active", "hitstun", "blockstun", "hitstop",
-            "advH", "advB", "hb", "kb", "abs",
+            "advH", "advB",
+            "hb_main",         # <- likely
+            "hb",              # <- candidates
+            "kb", "abs",
         )
         self.tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
         vsb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
@@ -257,7 +237,8 @@ class EditableFrameDataWindow:
             ("hitstop", "Stop"),
             ("advH", "advH"),
             ("advB", "advB"),
-            ("hb", "Hitbox"),
+            ("hb_main", "Hitbox"),          # single
+            ("hb", "Hitbox cand."),         # list
             ("kb", "Knockback"),
             ("abs", "Address"),
         ]
@@ -275,7 +256,8 @@ class EditableFrameDataWindow:
         self.tree.column("hitstop", width=50, anchor="center")
         self.tree.column("advH", width=55, anchor="center")
         self.tree.column("advB", width=55, anchor="center")
-        self.tree.column("hb", width=95, anchor="center")
+        self.tree.column("hb_main", width=70, anchor="center")
+        self.tree.column("hb", width=200, anchor="w")
         self.tree.column("kb", width=110, anchor="center")
         self.tree.column("abs", width=90, anchor="w")
 
@@ -293,26 +275,24 @@ class EditableFrameDataWindow:
             else:
                 active_txt = ""
 
-            # hitbox discovery
-            hb_txt = ""
             move_abs = mv.get("abs")
+            hb_cands = []
+            hb_off = None
+            hb_val = None
+            hb_txt = ""
+            hb_main_txt = ""
             if move_abs:
-                try:
-                    off, val = _probe_hitbox_radius(move_abs)
-                except Exception:
-                    off, val = (None, None)
+                hb_cands = _scan_hitbox_house(move_abs)
+                hb_off, hb_val = _select_primary_from_candidates(hb_cands)
+                if hb_val is not None:
+                    hb_main_txt = f"{hb_val:.1f}"
+                if hb_cands:
+                    hb_txt = _format_candidate_list(hb_cands)
 
-                if off is not None:
-                    mv["hb_off"] = off
-                    mv["hb_r"] = val
-                    if val is not None:
-                        hb_txt = f"r={val:.1f}"
-                    else:
-                        hb_txt = ""
-            else:
-                hb_txt = ""
+            mv["hb_candidates"] = hb_cands
+            mv["hb_off"] = hb_off
+            mv["hb_r"] = hb_val
 
-            # knockback text
             kb0 = mv.get("kb0")
             kb1 = mv.get("kb1")
             kb_traj = mv.get("kb_traj")
@@ -340,6 +320,7 @@ class EditableFrameDataWindow:
                     "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
                     "" if mv.get("adv_hit") is None else f"{mv.get('adv_hit'):+d}",
                     "" if mv.get("adv_block") is None else f"{mv.get('adv_block'):+d}",
+                    hb_main_txt,
                     hb_txt,
                     kb_txt,
                     f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
@@ -347,13 +328,28 @@ class EditableFrameDataWindow:
             )
             self.move_to_tree_item[item_id] = mv
 
-        # bindings
+            abs_key = mv.get("abs")
+            if abs_key:
+                self.original_moves[abs_key] = {
+                    "damage": mv.get("damage"),
+                    "meter": mv.get("meter"),
+                    "active_start": mv.get("active_start"),
+                    "active_end": mv.get("active_end"),
+                    "hitstun": mv.get("hitstun"),
+                    "blockstun": mv.get("blockstun"),
+                    "hitstop": mv.get("hitstop"),
+                    "kb0": mv.get("kb0"),
+                    "kb1": mv.get("kb1"),
+                    "kb_traj": mv.get("kb_traj"),
+                    "hb_off": hb_off,
+                    "hb_r": hb_val,
+                    "hb_candidates": hb_cands,
+                }
+
         self.tree.bind("<Double-Button-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
 
-    # --------------------------------------------------------
-    # Reset logic
-    # --------------------------------------------------------
+    # -------------------------------------------------------- reset
     def _reset_all_moves(self):
         if not WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
@@ -367,19 +363,15 @@ class EditableFrameDataWindow:
             if not orig:
                 continue
 
-            # damage
-            if orig["damage"] is not None:
-                if write_damage(mv, orig["damage"]):
-                    self.tree.set(item_id, "damage", str(orig["damage"]))
-                    mv["damage"] = orig["damage"]
+            # same as before...
+            if orig["damage"] is not None and write_damage(mv, orig["damage"]):
+                self.tree.set(item_id, "damage", str(orig["damage"]))
+                mv["damage"] = orig["damage"]
 
-            # meter
-            if orig["meter"] is not None:
-                if write_meter(mv, orig["meter"]):
-                    self.tree.set(item_id, "meter", str(orig["meter"]))
-                    mv["meter"] = orig["meter"]
+            if orig["meter"] is not None and write_meter(mv, orig["meter"]):
+                self.tree.set(item_id, "meter", str(orig["meter"]))
+                mv["meter"] = orig["meter"]
 
-            # active / startup
             if orig["active_start"] is not None and orig["active_end"] is not None:
                 if write_active_frames(mv, orig["active_start"], orig["active_end"]):
                     self.tree.set(item_id, "startup", str(orig["active_start"]))
@@ -387,23 +379,18 @@ class EditableFrameDataWindow:
                     mv["active_start"] = orig["active_start"]
                     mv["active_end"] = orig["active_end"]
 
-            # stuns
-            if orig["hitstun"] is not None:
-                if write_hitstun(mv, orig["hitstun"]):
-                    self.tree.set(item_id, "hitstun", _fmt_stun(orig["hitstun"]))
-                    mv["hitstun"] = orig["hitstun"]
+            if orig["hitstun"] is not None and write_hitstun(mv, orig["hitstun"]):
+                self.tree.set(item_id, "hitstun", _fmt_stun(orig["hitstun"]))
+                mv["hitstun"] = orig["hitstun"]
 
-            if orig["blockstun"] is not None:
-                if write_blockstun(mv, orig["blockstun"]):
-                    self.tree.set(item_id, "blockstun", _fmt_stun(orig["blockstun"]))
-                    mv["blockstun"] = orig["blockstun"]
+            if orig["blockstun"] is not None and write_blockstun(mv, orig["blockstun"]):
+                self.tree.set(item_id, "blockstun", _fmt_stun(orig["blockstun"]))
+                mv["blockstun"] = orig["blockstun"]
 
-            if orig["hitstop"] is not None:
-                if write_hitstop(mv, orig["hitstop"]):
-                    self.tree.set(item_id, "hitstop", str(orig["hitstop"]))
-                    mv["hitstop"] = orig["hitstop"]
+            if orig["hitstop"] is not None and write_hitstop(mv, orig["hitstop"]):
+                self.tree.set(item_id, "hitstop", str(orig["hitstop"]))
+                mv["hitstop"] = orig["hitstop"]
 
-            # knockback
             if (orig["kb0"] is not None) or (orig["kb1"] is not None) or (orig["kb_traj"] is not None):
                 if write_knockback(mv, orig["kb0"], orig["kb1"], orig["kb_traj"]):
                     parts = []
@@ -415,18 +402,26 @@ class EditableFrameDataWindow:
                     mv["kb1"] = orig["kb1"]
                     mv["kb_traj"] = orig["kb_traj"]
 
-            # hitbox radius
-            if orig["hb_off"] is not None and orig["hb_r"] is not None:
-                mv["hb_off"] = orig["hb_off"]
-                if write_hitbox_radius(mv, orig["hb_r"]):
-                    self.tree.set(item_id, "hb", f"r={orig['hb_r']:.1f}")
-                    mv["hb_r"] = orig["hb_r"]
+            # hitbox
+            orig_cands = orig.get("hb_candidates") or []
+            orig_off = orig.get("hb_off")
+            orig_val = orig.get("hb_r")
 
-        messagebox.showinfo("Reset", "All moves restored to the values from when you opened this window.")
+            if orig_off is not None:
+                mv["hb_off"] = orig_off
+            mv["hb_candidates"] = orig_cands
+            mv["hb_r"] = orig_val
 
-    # --------------------------------------------------------
-    # Cell editing
-    # --------------------------------------------------------
+            # tree cells
+            if orig_val is not None:
+                self.tree.set(item_id, "hb_main", f"{orig_val:.1f}")
+            else:
+                self.tree.set(item_id, "hb_main", "")
+            self.tree.set(item_id, "hb", _format_candidate_list(orig_cands))
+
+        messagebox.showinfo("Reset", "All moves restored.")
+
+    # -------------------------------------------------------- tree events
     def _on_double_click(self, event):
         if not WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
@@ -463,10 +458,170 @@ class EditableFrameDataWindow:
             self._edit_blockstun(item, mv, current_val)
         elif col_name == "hitstop":
             self._edit_hitstop(item, mv, current_val)
+        elif col_name == "hb_main":
+            self._edit_hitbox_main(item, mv, current_val)
         elif col_name == "hb":
             self._edit_hitbox(item, mv, current_val)
         elif col_name == "kb":
             self._edit_knockback(item, mv, current_val)
+
+    # -------------------------------------------------------- editors
+    def _edit_hitbox_main(self, item, mv, current):
+        # edit just the primary
+        cur_r = mv.get("hb_r")
+        if cur_r is None:
+            # fall back to first candidate
+            cands = mv.get("hb_candidates") or []
+            if cands:
+                cur_r = cands[0][1]
+                mv["hb_off"] = cands[0][0]
+        if cur_r is None:
+            cur_r = 0.0
+
+        new_val = simpledialog.askfloat("Edit Hitbox", "New radius:", initialvalue=cur_r, minvalue=0.0)
+        if new_val is None:
+            return
+
+        # write at stored offset
+        if mv.get("hb_off") is None:
+            mv["hb_off"] = FALLBACK_HB_OFFSET
+        if WRITER_AVAILABLE:
+            write_hitbox_radius(mv, new_val)
+
+        mv["hb_r"] = new_val
+        # also update candidate list's first element if we have one
+        cands = mv.get("hb_candidates") or []
+        if cands:
+            # replace the one whose offset == mv["hb_off"]
+            off0 = mv["hb_off"]
+            new_cands = []
+            replaced = False
+            for off, val in cands:
+                if off == off0 and not replaced:
+                    new_cands.append((off, float(new_val)))
+                    replaced = True
+                else:
+                    new_cands.append((off, val))
+            mv["hb_candidates"] = new_cands
+        else:
+            mv["hb_candidates"] = [(mv["hb_off"], float(new_val))]
+
+        self.tree.set(item, "hb_main", f"{new_val:.1f}")
+        self.tree.set(item, "hb", _format_candidate_list(mv["hb_candidates"]))
+
+    def _edit_hitbox(self, item, mv, current):
+        cands = mv.get("hb_candidates") or []
+
+        if not cands:
+            return self._edit_hitbox_main(item, mv, current)
+
+        if len(cands) <= 6:
+            return self._edit_hitbox_simple(item, mv, cands)
+        else:
+            return self._edit_hitbox_scrollable(item, mv, cands)
+
+    def _edit_hitbox_simple(self, item, mv, cands):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Hitbox Values")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Edit each radius below. r0 is usually the main one.").grid(
+            row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w"
+        )
+
+        entries = []
+        row = 1
+        for idx, (off, val) in enumerate(cands):
+            tk.Label(dlg, text=f"r{idx}:").grid(row=row, column=0, padx=6, pady=2, sticky="e")
+            e = tk.Entry(dlg, width=10)
+            e.insert(0, f"{val:.1f}")
+            e.grid(row=row, column=1, padx=4, pady=2, sticky="w")
+            tk.Label(dlg, text=f"off=0x{off:04X}").grid(row=row, column=2, padx=4, pady=2, sticky="w")
+            entries.append((idx, off, e))
+            row += 1
+
+        def on_ok():
+            new_cands = []
+            for idx2, off2, entry in entries:
+                txt = entry.get().strip()
+                try:
+                    fval = float(txt)
+                except ValueError:
+                    fval = cands[idx2][1]
+
+                mv["hb_off"] = off2
+                if WRITER_AVAILABLE:
+                    write_hitbox_radius(mv, fval)
+                new_cands.append((off2, float(fval)))
+
+            mv["hb_candidates"] = new_cands
+            sel_off, sel_val = _select_primary_from_candidates(new_cands)
+            mv["hb_off"] = sel_off
+            mv["hb_r"] = sel_val
+
+            self.tree.set(item, "hb_main", f"{sel_val:.1f}" if sel_val is not None else "")
+            self.tree.set(item, "hb", _format_candidate_list(new_cands))
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok).grid(row=row, column=0, columnspan=3, pady=6)
+
+    def _edit_hitbox_scrollable(self, item, mv, cands):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Hitbox Values")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.geometry("400x500")
+
+        canvas = tk.Canvas(dlg)
+        vsb = tk.Scrollbar(dlg, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas)
+
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        tk.Label(inner, text="Edit each radius below. r0 is usually the main one.",
+                 anchor="w", justify="left").grid(row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w")
+
+        entries = []
+        row = 1
+        for idx, (off, val) in enumerate(cands):
+            tk.Label(inner, text=f"r{idx}:").grid(row=row, column=0, padx=6, pady=2, sticky="e")
+            e = tk.Entry(inner, width=10)
+            e.insert(0, f"{val:.1f}")
+            e.grid(row=row, column=1, padx=4, pady=2, sticky="w")
+            tk.Label(inner, text=f"off=0x{off:04X}").grid(row=row, column=2, padx=4, pady=2, sticky="w")
+            entries.append((idx, off, e))
+            row += 1
+
+        def on_ok():
+            new_cands = []
+            for idx2, off2, entry in entries:
+                txt = entry.get().strip()
+                try:
+                    fval = float(txt)
+                except ValueError:
+                    fval = cands[idx2][1]
+
+                mv["hb_off"] = off2
+                if WRITER_AVAILABLE:
+                    write_hitbox_radius(mv, fval)
+                new_cands.append((off2, float(fval)))
+
+            mv["hb_candidates"] = new_cands
+            sel_off, sel_val = _select_primary_from_candidates(new_cands)
+            mv["hb_off"] = sel_off
+            mv["hb_r"] = sel_val
+
+            self.tree.set(item, "hb_main", f"{sel_val:.1f}" if sel_val is not None else "")
+            self.tree.set(item, "hb", _format_candidate_list(new_cands))
+            dlg.destroy()
+
+        tk.Button(inner, text="OK", command=on_ok).grid(row=row, column=0, columnspan=3, pady=8)
 
     def _edit_damage(self, item, mv, current):
         try:
@@ -493,7 +648,8 @@ class EditableFrameDataWindow:
             cur = int(current) if current else 1
         except ValueError:
             cur = 1
-        new_val = simpledialog.askinteger("Edit Startup", "New startup frame:", initialvalue=cur, minvalue=1, maxvalue=255)
+        new_val = simpledialog.askinteger("Edit Startup", "New startup frame:",
+                                          initialvalue=cur, minvalue=1, maxvalue=255)
         if new_val is not None:
             end = mv.get("active_end", new_val)
             if end < new_val:
@@ -567,25 +723,10 @@ class EditableFrameDataWindow:
             self.tree.set(item, "hitstop", str(new_val))
             mv["hitstop"] = new_val
 
-    def _edit_hitbox(self, item, mv, current):
-        current = current.strip()
-        if current.startswith("r="):
-            try:
-                cur_r = float(current[2:])
-            except ValueError:
-                cur_r = mv.get("hb_r", 0.0) or 0.0
-        else:
-            cur_r = mv.get("hb_r", 0.0) or 0.0
-
-        new_val = simpledialog.askfloat("Edit Hitbox Radius", "New radius:", initialvalue=cur_r, minvalue=0.0)
-        if new_val is not None and write_hitbox_radius(mv, new_val):
-            self.tree.set(item, "hb", f"r={new_val:.1f}")
-            mv["hb_r"] = new_val
-
     def _edit_knockback(self, item, mv, current):
         cur_k0 = mv.get("kb0", 0) or 0
         cur_k1 = mv.get("kb1", 0) or 0
-        cur_t  = mv.get("kb_traj", 0) or 0
+        cur_t = mv.get("kb_traj", 0) or 0
 
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Knockback")
@@ -623,10 +764,15 @@ class EditableFrameDataWindow:
         mv = self.move_to_tree_item.get(item)
         if not mv:
             return
+
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(
             label=f"Copy Address (0x{mv.get('abs', 0):08X})",
             command=lambda: self._copy_address(mv),
+        )
+        menu.add_command(
+            label="Edit Hitboxes…",
+            command=lambda m=mv, i=item: self._edit_hitbox(i, m, self.tree.set(i, "hb")),
         )
         menu.add_command(
             label="View Raw Data",
@@ -657,7 +803,7 @@ class EditableFrameDataWindow:
 
 
 # ------------------------------------------------------------
-# entrypoint for main.py
+# entry point
 # ------------------------------------------------------------
 def open_editable_frame_data_window(slot_label, scan_data):
     if not scan_data:
