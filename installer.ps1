@@ -34,12 +34,7 @@ if (-not $python) {
 }
 
 # 3. Check python version
-$verOut = & $pythonCmd - <<#PYCODE#
-import sys
-v = sys.version_info
-print(f"{v.major}.{v.minor}.{v.micro}")
-#PYCODE#
-
+$verOut = & $pythonCmd -c "import sys; v=sys.version_info; print(f'{v.major}.{v.minor}.{v.micro}')"
 if (-not $verOut) {
     Fail "Unable to detect Python version."
 }

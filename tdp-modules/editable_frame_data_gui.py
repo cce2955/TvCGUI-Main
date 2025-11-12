@@ -350,8 +350,6 @@ class EditableFrameDataWindow:
         self.tree.bind("<Button-3>", self._on_right_click)
 
     # -------------------------------------------------------- reset
-    # -------------------------------------------------------- reset
-# -------------------------------------------------------- reset
     def _reset_all_moves(self):
         if not WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")

@@ -1,0 +1,44 @@
+Run Setup
+
+Right-click setup.ps1 and choose “Run with PowerShell.”
+
+This will:
+
+Check for Python 3.10 or newer
+
+Create a virtual environment (.venv)
+
+Install all required packages from requirements.txt
+
+Create a starter config.ini if missing
+
+Run the Tool
+
+After setup finishes, double-click run.bat
+
+The tool will start automatically using the virtual environment.
+
+If Python is missing
+
+Download and install Python 3.10+ (64-bit) from https://www.python.org/downloads/
+
+Be sure to check “Add Python to PATH” during installation.
+
+Then rerun setup.ps1.
+
+
+After that, use run.bat and launch dolphin, or launch dolphin and then run.bat
+
+Quick bugs and notes:
+
+No giants at the moment, looking into it
+
+I don't know how this works over netplay, my assumption is that either host controls the fun or you'll just get a desync for damage and hitbox adjustments, but for monitoring frame data and other goodies it should be perfectly fine
+
+sometimes it'll lose track after a while, I need to readjust how I search for characters or build something to "re"search for characters, a savestate or dolphin restart usually fixes it, if it loads and everything is blank, chances are high it's lost the game
+
+there's also a freeze on start, it's scraping through Dolphin to find character tables and get the data, I've tried everything to make it smoother, this is the best compromise
+
+don't trust the frame adv tracker 100%, I did a lot of math to make it "mostly" accurate but there is some wacky things that come out of it
+
+hitbox editor might not catch "all" hitboxes but I managed to whittle down what it probably is, if your character suffers let me know so I can investigate but everyone should mostly be good to go. Anyone with projectiles (sorry saki) will suffer more as that seems to have it's own table I have to find
