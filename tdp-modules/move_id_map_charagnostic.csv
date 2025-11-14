@@ -558,16 +558,26 @@
 307,0x132,Savage Shot Ground A,shuriken C,shuriken C,yes,27
 308,0x132,Savage Shot Ground B,shuriken C,shuriken C,yes,27
 309,0x132,Savage Shot Ground C,shuriken C,shuriken C,yes,27
-310,0x136,236A,236A,236A,yes,27
-311,0x137,236B,236B,236B,yes,27
-312,0x138,236C,236C,236C,yes,27
-313,0x139,counter A,counter A,counter A,yes,27
-314,0x13a,Counter,Counter,Counter,yes,27
-315,0x13b,counter C,counter C,counter C,yes,27
+310,0x136,Battering Ram A,236A,236A,yes,27
+311,0x137,Battering Ram B,236B,236B,yes,27
+312,0x138,Battering Ram C,236C,236C,yes,27
+313,0x139,Cactus Bunker A,counter A,counter A,yes,27
+314,0x13a,Cactus Bunker B,Counter,Counter,yes,27
+315,0x13b,Cactus Bunker C,counter C,counter C,yes,27
+316,0x13b,Wild Lasso A,counter C,counter C,yes,27
+317,0x13b,Wild Lasso B,counter C,counter C,yes,27
+318,0x13b,Wild Lasso C,counter C,counter C,yes,27
+320,0x13b,Air Savage Shot A,counter C,counter C,yes,27
+321,0x13b,Air Savage Shot B,counter C,counter C,yes,27
+322,0x13b,Air Savage Shot C,counter C,counter C,yes,27
+353,0x162,Air Condor Magnum,Bird Missle Bullets,Bird Missle Bullets,yes,27
+354,0x162,Condor Magnum,Bird Missle Bullets,Bird Missle Bullets,yes,27
 354,0x162,Bird Missle Bullets,Bird Missle Bullets,Bird Missle Bullets,yes,27
+363,0x206,Science Ninpo,Science Ninpo,Science Ninpo,yes,27
 465,0x1d1,Front Throw,Front Throw,Front Throw,yes,27
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,27
-514,0x202,Wild Lasso A,Wild Lasso A,Wild Lasso A,yes,27
+514,0x202,Wild Lasso,Wild Lasso A,Wild Lasso A,yes,27
+517,0x162,Condor Magnum,Bird Missle Bullets,Bird Missle Bullets,yes,27
 518,0x206,Science Ninpo,Science Ninpo,Science Ninpo,yes,27
 
 
@@ -624,7 +634,7 @@
 # Frank West (ID: 30)
 304,0x131,Zombie Grab A,Zombie Grab,Zombie Grab,yes,30
 305,0x131,Zombie Grab B,Zombie Grab,Zombie Grab,yes,30
-305,0x131,Zombie Grab C,Zombie Grab,Zombie Grab,yes,30
+306,0x131,Zombie Grab C,Zombie Grab,Zombie Grab,yes,30
 307,0x131,Zombie Spree A,Zombie Grab,Zombie Grab,yes,30
 308,0x131,Zombie Spree B,Zombie Grab,Zombie Grab,yes,30
 309,0x131,Zombie Spree C,Zombie Grab,Zombie Grab,yes,30
@@ -632,10 +642,12 @@
 314,0x13a,Roundhouse B,Roundhouse B,Roundhouse B,yes,30
 315,0x13b,Roundhouse C,Roundhouse C,Roundhouse C,yes,30
 316,0x13b,Giant Swing A,Roundhouse C,Roundhouse C,yes,30
-316,0x13b,Giant Swing B,Roundhouse C,Roundhouse C,yes,30
-317,0x13b,Giant Swing C,Roundhouse C,Roundhouse C,yes,30
+317,0x13b,Giant Swing B,Roundhouse C,Roundhouse C,yes,30
+318,0x13b,Giant Swing C,Roundhouse C,Roundhouse C,yes,30
+353,0x202,Dead Rising,Dead Rising,Dead Rising,yes,30
 359,0x160,Real Megabuster,Real Megabuster,Real Megabuster,yes,30
-512,0x200,Funny Face crusher,Funny Face crusher,Funny Face crusher,yes,30
+368,0x200,Zombie Charge,Funny Face crusher,Funny Face crusher,yes,30
+512,0x200,Zombie Charge,Funny Face crusher,Funny Face crusher,yes,30
 514,0x202,Dead Rising,Dead Rising,Dead Rising,yes,30
 516,0x204,Giant Swing,Giant Swing,Giant Swing,yes,30
 
@@ -664,7 +676,7 @@
 40,0x1,Intro Pose Point,Intro Pose Point,Intro Pose Point,yes,100
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
 42,0x1,Win Pose,Intro Pose Anchor,Intro Pose Anchor,yes,100
-49,0x1,Shocking Pink Block?,Intro Pose Anchor,Intro Pose Anchor,yes,100
+49,0x1,Explosion Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
 66,0x1,Hit Low,Hit Low,Hit Low,yes,100
