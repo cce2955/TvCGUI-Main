@@ -638,12 +638,18 @@
 307,0x131,Zombie Spree A,Zombie Grab,Zombie Grab,yes,30
 308,0x131,Zombie Spree B,Zombie Grab,Zombie Grab,yes,30
 309,0x131,Zombie Spree C,Zombie Grab,Zombie Grab,yes,30
+310,0x131,Grand Slam A,Zombie Grab,Zombie Grab,yes,30
+311,0x131,Grand Slam B,Zombie Grab,Zombie Grab,yes,30
+312,0x131,Grand Slam C,Zombie Grab,Zombie Grab,yes,30
 313,0x13a,Roundhouse A,Roundhouse B,Roundhouse B,yes,30
 314,0x13a,Roundhouse B,Roundhouse B,Roundhouse B,yes,30
 315,0x13b,Roundhouse C,Roundhouse C,Roundhouse C,yes,30
 316,0x13b,Giant Swing A,Roundhouse C,Roundhouse C,yes,30
 317,0x13b,Giant Swing B,Roundhouse C,Roundhouse C,yes,30
 318,0x13b,Giant Swing C,Roundhouse C,Roundhouse C,yes,30
+320,0x13b,Air Grand Slam A,Roundhouse C,Roundhouse C,yes,30
+321,0x13b,Air Grand Slam B,Roundhouse C,Roundhouse C,yes,30
+322,0x13b,Air Grand Slam C,Roundhouse C,Roundhouse C,yes,30
 353,0x202,Dead Rising,Dead Rising,Dead Rising,yes,30
 359,0x160,Real Megabuster,Real Megabuster,Real Megabuster,yes,30
 368,0x200,Zombie Charge,Funny Face crusher,Funny Face crusher,yes,30
