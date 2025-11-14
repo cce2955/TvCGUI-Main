@@ -11,9 +11,7 @@
 266,0x138,j.B,j.B,j.B,yes,100
 267,0x138,j.C,j.C,j.C,yes,100
 270,0x10e,6B,6B,6B,yes,100
-270,0x10e,6M,6M,6M,yes,100
-271,0x10f,3B,3B,3B,yes,100
-272,0x138,j.2C,j.2C,j.2C,yes,100
+271,0x10f,j.2C,3B,3B,yes,100
 288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,100
 289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,100
 
@@ -22,7 +20,28 @@
 305,0x131,Bird Run B,Bird Run B,Bird Run B,yes,1
 306,0x132,Bird Run C,Bird Run C,Bird Run C,yes,1
 307,0x133,Bird Shoot A,Bird Shoot A,Bird Shoot A,yes,1
+308,0x133,Bird Shoot B,Bird Shoot A,Bird Shoot A,yes,1
+309,0x133,Bird Shoot C,Bird Shoot A,Bird Shoot A,yes,1
+310,0x133,Random Flight A,Bird Shoot A,Bird Shoot A,yes,1
+311,0x133,Random Flight A,Bird Shoot A,Bird Shoot A,yes,1
+312,0x133,Random Flight A,Bird Shoot A,Bird Shoot A,yes,1
+320,0x133,Eagle Rush A,Bird Shoot A,Bird Shoot A,yes,1
+321,0x133,Eagle Rush B,Bird Shoot A,Bird Shoot A,yes,1
+322,0x133,Eagle Rush C,Bird Shoot A,Bird Shoot A,yes,1
+323,0x133,Air Bird Run A,Bird Shoot A,Bird Shoot A,yes,1
+324,0x133,Air Bird Run B,Bird Shoot A,Bird Shoot A,yes,1
+325,0x133,Air Bird Run C,Bird Shoot A,Bird Shoot A,yes,1
+326,0x133,Air Bird Shoot A,Bird Shoot A,Bird Shoot A,yes,1
+327,0x133,Air Bird Shoot B,Bird Shoot A,Bird Shoot A,yes,1
+328,0x133,Air Bird Shoot C,Bird Shoot A,Bird Shoot A,yes,1
+329,0x133,Air Random Flight A,Bird Shoot A,Bird Shoot A,yes,1
+330,0x133,Air Random Flight B,Bird Shoot A,Bird Shoot A,yes,1
+331,0x133,Air Random Flight C,Bird Shoot A,Bird Shoot A,yes,1
+352,0x161,Lightning Strike,Bird Smash,Bird Smash,yes,1
 353,0x161,Bird Smash,Bird Smash,Bird Smash,yes,1
+354,0x161,Air Bird Smash,Bird Smash,Bird Smash,yes,1
+368,0x1ae,Phoenix,Phoenix,Phoenix,yes,1
+512,0x1ae,Phoenix,Phoenix,Phoenix,yes,1
 430,0x1ae,Phoenix,Phoenix,Phoenix,yes,1
 514,0x202,Lightning Strike,Lightning Strike,Lightning Strike,yes,1
 
@@ -31,27 +50,39 @@
 304,0x130,Denko A,Denko A,Denko A,yes,2
 305,0x131,Denko B,Denko B,Denko B,yes,2
 306,0x132,Denko C,Denko C,Denko C,yes,2
+306,0x132,Boulder Chop A,Denko C,Denko C,yes,2
+307,0x132,Boulder Chop A,Denko C,Denko C,yes,2
+308,0x132,Boulder Chop A,Denko C,Denko C,yes,2
 310,0x136,Knee A,Knee A,Knee A,yes,2
 311,0x137,Knee B,Knee B,Knee B,yes,2
 312,0x138,Knee C,Knee C,Knee C,yes,2
 313,0x139,Friender A,Friender A,Friender A,yes,2
 314,0x13a,Friender B,Friender B,Friender B,yes,2
+314,0x13a,Friender C,Friender B,Friender B,yes,2
+320,0x13a,Shooting Star Kick A,Friender B,Friender B,yes,2
+321,0x13a,Shooting Star Kick B,Friender B,Friender B,yes,2
+323,0x13a,Shooting Star Kick C,Friender B,Friender B,yes,2
 352,0x160,Brutal Axe,Brutal Axe,Brutal Axe,yes,2
 353,0x161,Scrap Android,Scrap Android,Scrap Android,yes,2
+368,0x204,Super Destruction Beam,Super Destruction Beam,Super Destruction Beam,yes,2
 512,0x200,Denko C Charge,Denko C Charge,Denko C Charge,yes,2
+520,0x161,Scrap Android,Scrap Android,Scrap Android,yes,2
 516,0x204,Super Destruction Beam,Super Destruction Beam,Super Destruction Beam,yes,2
+518,0x13a,Shooting Star Kick C,Friender B,Friender B,yes,2
 
 # Tekkaman (ID: 3)
 304,0x130,Gatling A,Gatling A,Gatling A,yes,3
 305,0x131,Gatling B,Gatling B,Gatling B,yes,3
-306,0x132,Gatling C?,Gatling C?,Gatling C?,yes,3
+306,0x132,Gatling C,Gatling C?,Gatling C?,yes,3
 307,0x133,TekLancer A,TekLancer A,TekLancer A,yes,3
 308,0x134,Tek Lancer B,Tek Lancer B,Tek Lancer B,yes,3
 309,0x135,Tek Lancer C,Tek Lancer C,Tek Lancer C,yes,3
 310,0x136,Windmill A,Windmill A,Windmill A,yes,3
 311,0x137,Windmill B,Windmill B,Windmill B,yes,3
 312,0x138,Windmill C,Windmill C,Windmill C,yes,3
-313,0x138,Tek Win A Unarmed,Tek Win A Unarmed,Tek Win A Unarmed,yes,3
+313,0x138,Tek Win A,Tek Win A Unarmed,Tek Win A Unarmed,yes,3
+314,0x138,Tek Win B,Tek Win A Unarmed,Tek Win A Unarmed,yes,3
+315,0x138,Tek Win C,Tek Win A Unarmed,Tek Win A Unarmed,yes,3
 320,0x130,Gatling A Air,Gatling A Air,Gatling A Air,yes,3
 321,0x130,Gatling B Air,Gatling B Air,Gatling B Air,yes,3
 322,0x130,Gatling C Air,Gatling C Air,Gatling C Air,yes,3
@@ -61,23 +92,39 @@
 352,0x160,voltekka,voltekka,voltekka,yes,3
 353,0x161,Spinning Tek Lancer,Spinning Tek Lancer,Spinning Tek Lancer,yes,3
 368,0x161,Space Knights Formation Activation,Space Knights Formation Activation,Space Knights Formation Activation,yes,3
-512,0x200,Tek Win A,Tek Win A,Tek Win A,yes,3
-514,0x202,?? check again,?? check again,?? check again,yes,3
+512,0x200,Tek Win Yank,Tek Win A,Tek Win A,yes,3
+514,0x200,Tek Win Air Yank,Tek Win A,Tek Win A,yes,3
 516,0x204,Space Knights Formation Stab,Space Knights Formation Stab,Space Knights Formation Stab,yes,3
 520,0x204,Space Knights Formation,Space Knights Formation,Space Knights Formation,yes,3
 354,0x160,voltekka air,voltekka air,voltekka air,yes,3
 
 # Polimar (ID: 4)
-313,0x139,Storm B?,Storm B?,Storm B?,yes,4
+304,0x139,Hurrican Destruction Fist A,Storm B?,Storm B?,yes,4
+305,0x139,Hurrican Destruction Fist B,Storm B?,Storm B?,yes,4
+306,0x139,Hurrican Destruction Fist C,Storm B?,Storm B?,yes,4
+313,0x139,Kanae Storm,Storm B?,Storm B?,yes,4
 314,0x13a,Storm Low,Storm Low,Storm Low,yes,4
-315,0x13b,Storm B,Storm B,Storm B,yes,4
+315,0x13b,Storm Overhead,Storm B,Storm B,yes,4
+316,0x13b,Storm Grab,Storm B,Storm B,yes,4
+310,0x13b,3 Stage Reaction Kick A,Storm B,Storm B,yes,4
+318,0x13b,3 Stage Reaction Kick the sequel A,Storm B,Storm B,yes,4
+322,0x13b,3 Stage Reaction Kick the revenge A,Storm B,Storm B,yes,4
+311,0x13b,3 Stage Reaction Kick B,Storm B,Storm B,yes,4
+319,0x13b,3 Stage Reaction Kick the sequel B,Storm B,Storm B,yes,4
+323,0x13b,3 Stage Reaction Kick the revenge B,Storm B,Storm B,yes,4
+312,0x13b,3 Stage Reaction Kick B,Storm B,Storm B,yes,4
+320,0x13b,3 Stage Reaction Kick the sequel B,Storm B,Storm B,yes,4
+324,0x13b,3 Stage Reaction Kick the revenge B,Storm B,Storm B,yes,4
 323,0x143,Razor A,Razor A,Razor A,yes,4
 324,0x144,Razor B,Razor B,Razor B,yes,4
 325,0x145,Razor C,Razor C,Razor C,yes,4
+352,0x161,One Handed Vacuum Spin,Tenshin Drill,Tenshin Drill,yes,4
 353,0x161,Tenshin Drill,Tenshin Drill,Tenshin Drill,yes,4
 465,0x1d1,Forward Throw,Forward Throw,Forward Throw,yes,4
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,4
+368,0x200,Illusion Fist,Illusion Fist,Illusion Fist,yes,4
 512,0x200,Illusion Fist,Illusion Fist,Illusion Fist,yes,4
+514,0x161,One Handed Vacuum Spin,Tenshin Drill,Tenshin Drill,yes,4
 
 # Yatterman-1 (ID: 5)
 304,0x130,Kendamagic A,Kendamagic A,Kendamagic A,yes,5
@@ -86,11 +133,21 @@
 307,0x133,yatter shock A,yatter shock A,yatter shock A,yes,5
 308,0x134,yatter shock B,yatter shock B,yatter shock B,yes,5
 309,0x135,yatter shock C,yatter shock C,yatter shock C,yes,5
-313,0x139,yatter run slide,yatter run slide,yatter run slide,yes,5
+310,0x135,yatter Medium Attack A,yatter shock C,yatter shock C,yes,5
+311,0x135,yatter Medium Attack A,yatter shock C,yatter shock C,yes,5
+312,0x135,yatter Medium Attack A,yatter shock C,yatter shock C,yes,5
+313,0x139,yatter run,yatter run slide,yatter run slide,yes,5
+320,0x135,air Kendamagic A,yatter shock C,yatter shock C,yes,5
+321,0x135,air Kendamagic B,yatter shock C,yatter shock C,yes,5
+322,0x135,air Kendamagic C,yatter shock C,yatter shock C,yes,5
+323,0x135,air yatter Medium Attack A,yatter shock C,yatter shock C,yes,5
+324,0x135,air yatter Medium Attack B,yatter shock C,yatter shock C,yes,5
+325,0x135,air yatter Medium Attack C,yatter shock C,yatter shock C,yes,5
 352,0x160,yatter wan special attack,yatter wan special attack,yatter wan special attack,yes,5
-353,0x161,yatter wan special attack,yatter wan special attack,yatter wan special attack,yes,5
+353,0x161,yatter wan flame,yatter wan special attack,yatter wan special attack,yes,5
+368,0x205,today's special robots,today's special robots,today's special robots,yes,5
 517,0x205,today's special robots,today's special robots,today's special robots,yes,5
--1,NONE,yatter run C,yatter run C,yatter run C,yes,5
+
 
 # Doronjo (ID: 6)
 304,0x150,Pummel A,Comfy Taunt,Comfy Taunt,yes,6
@@ -122,21 +179,27 @@
 575,0x23f,Taunt,Taunt,Taunt,yes,6
 
 # Ippatsuman (ID: 7)
-304,0x130,rainb100 A,rainb100 A,rainb100 A,yes,7
-305,0x131,Rainb100 B,Rainb100 B,Rainb100 B,yes,7
-306,0x132,Rainb100 C,Rainb100 C,Rainb100 C,yes,7
+304,0x130,Rainball A,rainb100 A,rainb100 A,yes,7
+305,0x131,Rainball B,Rainb100 B,Rainb100 B,yes,7
+306,0x132,Rainball C,Rainb100 C,Rainb100 C,yes,7
 307,0x133,Mound A,Mound A,Mound A,yes,7
 308,0x134,Mound B,Mound B,Mound B,yes,7
 309,0x135,Mound C,Mound C,Mound C,yes,7
 310,0x136,Psycho A,Psycho A,Psycho A,yes,7
 311,0x137,Psycho B,Psycho B,Psycho B,yes,7
 312,0x138,Psycho C,Psycho C,Psycho C,yes,7
+313,0x13a,DP A,DP B,DP B,yes,7
 314,0x13a,DP B,DP B,DP B,yes,7
+315,0x13a,DP C,DP B,DP B,yes,7
 316,0x13c,Dash DP,Dash DP,Dash DP,yes,7
 317,0x13d,Dash DP B,Dash DP B,Dash DP B,yes,7
 318,0x13e,Dash DP C,Dash DP C,Dash DP C,yes,7
+320,0x130,Air Rainball A,rainb100 A,rainb100 A,yes,7
+321,0x130,Air Rainball B,rainb100 A,rainb100 A,yes,7
+322,0x130,Air Rainball C,rainb100 A,rainb100 A,yes,7
 352,0x160,Homerun super,Homerun super,Homerun super,yes,7
-368,0x170,Robot Punch A,Robot Punch A,Robot Punch A,yes,7
+353,0x160,Final Reversal Breaker,Homerun super,Homerun super,yes,7
+368,0x170,Robot Summon,Robot Punch A,Robot Punch A,yes,7
 512,0x200,Back Breaker,Back Breaker,Back Breaker,yes,7
 465,0x1d1,Front Throw,Front Throw,Front Throw,yes,7
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,7
@@ -149,34 +212,61 @@
 308,0x134,Lightning Kick B,Lightning Kick B,Lightning Kick B,yes,8
 309,0x135,Lightning Kick C,Lightning Kick C,Lightning Kick C,yes,8
 313,0x139,Bingo,Bingo,Bingo,yes,8
-324,0x139,Swan Dance A,Swan Dance A,Swan Dance A,yes,8
-325,0x139,Swan Dance B,Swan Dance B,Swan Dance B,yes,8
-326,0x139,Swan Dance C,Swan Dance C,Swan Dance C,yes,8
+314,0x139,Dancing Swan A,Bingo,Bingo,yes,8
+315,0x139,Dancing Swan A,Bingo,Bingo,yes,8
+316,0x139,Dancing Swan A,Bingo,Bingo,yes,8
+320,0x139,Air Yoyo A,Bingo,Bingo,yes,8
+321,0x139,Air Yoyo B,Bingo,Bingo,yes,8
+322,0x139,Air Yoyo C,Bingo,Bingo,yes,8
+323,0x139,Air Bingo,Bingo,Bingo,yes,8
+324,0x139,Swan Rush A,Swan Dance A,Swan Dance A,yes,8
+325,0x139,Swan Rush B,Swan Dance B,Swan Dance B,yes,8
+326,0x139,Swan Rush C,Swan Dance C,Swan Dance C,yes,8
 352,0x160,Talon Burst,Talon Burst,Talon Burst,yes,8
+368,0x210,Phoenix,Mirage Swan,Mirage Swan,yes,8
+369,0x210,Air Phoenix,Mirage Swan,Mirage Swan,yes,8
 370,0x210,Mirage Swan,Mirage Swan,Mirage Swan,yes,8
+520,0x210,Phoenix,Mirage Swan,Mirage Swan,yes,8
 522,0x20a,Swan Dance A,Swan Dance A,Swan Dance A,yes,8
 524,0x20c,Swan Dance B,Swan Dance B,Swan Dance B,yes,8
 526,0x20e,Swan Dance C,Swan Dance C,Swan Dance C,yes,8
-
+528,0x210,Mirage Swan,Mirage Swan,Mirage Swan,yes,8
 
 # Karas (ID: 10)
-304,0x130,236A,236A,236A,yes,10
-305,0x131,236B,236B,236B,yes,10
-306,0x132,236C,236C,236C,yes,10
-307,0x133,623A,623A,623A,yes,10
-308,0x134,623B,623B,623B,yes,10
-309,0x135,623C,623C,623C,yes,10
+304,0x130,Ungaikyo A,236A,236A,yes,10
+305,0x130,Ungaikyo B,236A,236A,yes,10
+306,0x130,Ungaikyo C,236A,236A,yes,10
+307,0x133,Narukami A,623A,623A,yes,10
+308,0x134,Narukami B,623B,623B,yes,10
+309,0x135,Narukami C,623C,623C,yes,10
 310,0x136,kasha A,kasha A,kasha A,yes,10
 311,0x137,Kasha B,Kasha B,Kasha B,yes,10
 312,0x138,Kasha C,Kasha C,Kasha C,yes,10
-314,0x13a,Kasha followup,Kasha followup,Kasha followup,yes,10
+313,0x13a,Yoinagi,Kasha followup,Kasha followup,yes,10
+314,0x13a,Yoinagi,Kasha followup,Kasha followup,yes,10
+315,0x13a,Yoinagi,Kasha followup,Kasha followup,yes,10
+316,0x13a,Yashaguruma,Kasha followup,Kasha followup,yes,10
+317,0x13a,Yato,Kasha followup,Kasha followup,yes,10
+319,0x13a,Tobimizuchi,Kasha followup,Kasha followup,yes,10
 
 321,0x141,Kasha Overhead,Kasha Overhead,Kasha Overhead,yes,10
-352,0x160,Vergil Super,Vergil Super,Vergil Super,yes,10
+336,0x141,Air Narukami A,Kasha Overhead,Kasha Overhead,yes,10
+337,0x141,Air Narukami B,Kasha Overhead,Kasha Overhead,yes,10
+338,0x141,Air Narukami C,Kasha Overhead,Kasha Overhead,yes,10
+352,0x160,Zan Ei Jin,Vergil Super,Vergil Super,yes,10
+353,0x160,Shiranui,Vergil Super,Vergil Super,yes,10
+368,0x160,Hiei Zangetsu,Vergil Super,Vergil Super,yes,10
 512,0x200,chain hit,chain hit,chain hit,yes,10
-526,0x20e,moon super thingie,moon super thingie,moon super thingie,yes,10
+524,0x160,Shiranui,Vergil Super,Vergil Super,yes,10
+526,0x160,Hiei Zangetsu,Vergil Super,Vergil Super,yes,10
 465,0x1d1,Front Throw,Front Throw,Front Throw,yes,10
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,10
+514,0x13a,Tsurigitsune A,Kasha followup,Kasha followup,yes,10
+516,0x13a,Tsurigitsune B,Kasha followup,Kasha followup,yes,10
+518,0x13a,Tsurigitsune C,Kasha followup,Kasha followup,yes,10
+520,0x13a,Ukifune,Kasha followup,Kasha followup,yes,10
+522,0x13a,Ukifune,Kasha followup,Kasha followup,yes,10
+
 
 # Ryu (ID: 12)
 304,0x130,Hado L,Hado L,Hado L,yes,12
@@ -317,22 +407,51 @@
 368,0x216,Hyperbomb Startup,Hyperbomb,Hyperbomb,yes,16
 
 # Viewtiful Joe (ID: 17)
-11,0xb,??,??,??,yes,17
-89,0x59,Shocking Pink B,Shocking Pink B,Shocking Pink B,yes,17
+
+271,0x130,Hero Taunt,Voomerang A,Voomerang A,yes,17
 304,0x130,Voomerang A,Voomerang A,Voomerang A,yes,17
 305,0x131,Voomerang B,Voomerang B,Voomerang B,yes,17
 306,0x132,Voomerang C,Voomerang C,Voomerang C,yes,17
+307,0x132,Shocking Pink A,Voomerang C,Voomerang C,yes,17
+308,0x132,Shocking Pink B,Voomerang C,Voomerang C,yes,17
+309,0x132,Shocking Pink C,Voomerang C,Voomerang C,yes,17
+320,0x132,Air Voomerang A,Voomerang C,Voomerang C,yes,17
+321,0x132,Air Voomerang B,Voomerang C,Voomerang C,yes,17
+322,0x132,Air Voomerang C,Voomerang C,Voomerang C,yes,17
+323,0x132,Red Hot Kick A,Voomerang C,Voomerang C,yes,17
+324,0x132,Red Hot Kick B,Voomerang C,Voomerang C,yes,17
+325,0x132,Red Hot Kick C,Voomerang C,Voomerang C,yes,17
 352,0x160,Desperado,Desperado,Desperado,yes,17
 353,0x161,Mach Speed,Mach Speed,Mach Speed,yes,17
 368,0x170,Slow and Zoom,Slow and Zoom,Slow and Zoom,yes,17
-512,0x200,??,??,??,yes,17
--1,NONE,Red Hot Kick B,Red Hot Kick B,Red Hot Kick B,yes,17
+512,0x170,Slow and Zoom,Slow and Zoom,Slow and Zoom,yes,17
+
+
 
 # Volnutt (ID: 18)
-270,0x10e,6B Fist,6B Fist,6B Fist,yes,18
+270,0x10e,6B,6B Fist,6B Fist,yes,18
 271,0x10f,3B,3B,3B,yes,18
-282,0x11a,C level 3?,C level 3?,C level 3?,yes,18
+272,0x138,j.6B,j.2C,j.2C,yes,18
+273,0x138,Air 3B,j.2C,j.2C,yes,18
+282,0x11a,Charged C,C level 3?,C level 3?,yes,18
+284,0x11a,Charged j.C,C level 3?,C level 3?,yes,18
+304,0x160,Weapon Switch Neutral A,machine gun super,machine gun super,yes,18
+305,0x160,Weapon Switch Neutral B,machine gun super,machine gun super,yes,18
+306,0x160,Weapon Switch Neutral C,machine gun super,machine gun super,yes,18
+307,0x160,Weapon Switch Forwards A,machine gun super,machine gun super,yes,18
+308,0x160,Weapon Switch Forwards B,machine gun super,machine gun super,yes,18
+309,0x160,Weapon Switch Forwards C,machine gun super,machine gun super,yes,18
+310,0x160,Weapon Switch Backwards A,machine gun super,machine gun super,yes,18
+311,0x160,Weapon Switch Backwards B,machine gun super,machine gun super,yes,18
+312,0x160,Weapon Switch Backwards C,machine gun super,machine gun super,yes,18
+323,0x160,Air Weapon Switch Forward A,machine gun super,machine gun super,yes,18
+324,0x160,Air Weapon Switch Forward B,machine gun super,machine gun super,yes,18
+325,0x160,Air Weapon Switch Forward C,machine gun super,machine gun super,yes,18
+326,0x160,Air Weapon Switch Backwards A,machine gun super,machine gun super,yes,18
+327,0x160,Air Weapon Switch Backwards B,machine gun super,machine gun super,yes,18
+328,0x160,Air Weapon Switch Backwards C,machine gun super,machine gun super,yes,18
 352,0x160,machine gun super,machine gun super,machine gun super,yes,18
+368,0x171,Shining Laser,max drill upper,max drill upper,yes,18
 369,0x171,max drill upper,max drill upper,max drill upper,yes,18
 512,0x200,Shining Laser,Shining Laser,Shining Laser,yes,18
 
@@ -356,15 +475,31 @@
 319,0x13f,Mop up charge A,Mop up charge A,Mop up charge A,yes,19
 320,0x140,Mop up Charge B,Mop up Charge B,Mop up Charge B,yes,19
 321,0x141,Mop Up Charge C,Mop Up Charge C,Mop Up Charge C,yes,19
+322,0x141,Charge up!,Mop Up Charge C,Mop Up Charge C,yes,19
+352,0x161,Healing,Mop up Turbo,Mop up Turbo,yes,19
 353,0x161,Mop up Turbo,Mop up Turbo,Mop up Turbo,yes,19
 368,0x170,Oh no  you didn't,Oh no  you didn't,Oh no  you didn't,yes,19
+514,0x170,Oh no  you didn't,Oh no  you didn't,Oh no  you didn't,yes,19
 
 # Saki (ID: 20)
 304,0x130,Positron A,Positron A,Positron A,yes,20
 305,0x131,Positron B,Positron B,Positron B,yes,20
 306,0x132,Positron C,Positron C,Positron C,yes,20
+307,0x132,Grenade A,Positron C,Positron C,yes,20
+308,0x132,Grenade B,Positron C,Positron C,yes,20
+309,0x132,Grenade C,Positron C,Positron C,yes,20
+310,0x132,Load Ammo A,Positron C,Positron C,yes,20
+311,0x132,Load Ammo B,Positron C,Positron C,yes,20
+312,0x132,Load Ammo C,Positron C,Positron C,yes,20
+320,0x132,Air Grenade A,Positron C,Positron C,yes,20
+321,0x132,Air Grenade B,Positron C,Positron C,yes,20
+322,0x132,Air Grenade C,Positron C,Positron C,yes,20
 352,0x160,Positron Storm,Positron Storm,Positron Storm,yes,20
+313,0x200,Headbutt,Headbutt,Headbutt,yes,20
+353,0x200,LOAD SUPER ARMOR PIERCING SHELL,Headbutt,Headbutt,yes,20
+368,0x200,World's Greatest Attack,Headbutt,Headbutt,yes,20
 512,0x200,Headbutt,Headbutt,Headbutt,yes,20
+5141,0x200,World's Greatest Attack,Headbutt,Headbutt,yes,20
 
 # Soki (ID: 21)
 304,0x130,Slam A,Slam A,Slam A,yes,21
@@ -373,37 +508,56 @@
 307,0x133,Overhead Splitter,Overhead Splitter,Overhead Splitter,yes,21
 308,0x134,over head splitter b,over head splitter b,over head splitter b,yes,21
 309,0x135,over head splitter C,over head splitter C,over head splitter C,yes,21
+310,0x135,Counter A,over head splitter C,over head splitter C,yes,21
+311,0x135,Counter B,over head splitter C,over head splitter C,yes,21
+312,0x135,Counter C,over head splitter C,over head splitter C,yes,21
 313,0x139,Counter,Counter,Counter,yes,21
 314,0x13a,Issen,Issen,Issen,yes,21
 315,0x13b,overhead splitter issen,overhead splitter issen,overhead splitter issen,yes,21
 316,0x13c,Finisher,Finisher,Finisher,yes,21
+317,0x13c,Absorb,Finisher,Finisher,yes,21
 352,0x160,Purification,Purification,Purification,yes,21
 353,0x161,Oni Tactics,Oni Tactics,Oni Tactics,yes,21
+368,0x161,Oni Mode!!!,Oni Tactics,Oni Tactics,yes,21
+369,0x161,Oni Cutter,Oni Tactics,Oni Tactics,yes,21
 465,0x1d1,Front Throw,Front Throw,Front Throw,yes,21
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,21
 512,0x200,Oni Cutter,Oni Cutter,Oni Cutter,yes,21
--1,NONE,??,??,??,yes,21
+
 
 # Tekkaman Blade (ID: 26)
-270,0x10e,6M,6M,6M,yes,26
-304,0x130,Baselard A,Baselard A,Baselard A,yes,26
+263,0x10e,4C,6M,6M,yes,26
+272,0x10e,j.2C,6M,6M,yes,26
+307,0x130,Baselard A,Baselard A,Baselard A,yes,26
+308,0x130,Baselard B,Baselard A,Baselard A,yes,26
+309,0x130,Baselard C,Baselard A,Baselard A,yes,26
 310,0x136,Blitz A,Blitz A,Blitz A,yes,26
 311,0x137,Blitz B,Blitz B,Blitz B,yes,26
+312,0x137,Blitz C,Blitz B,Blitz B,yes,26
 313,0x139,Falchion A,Falchion A,Falchion A,yes,26
 314,0x13a,Falchion B,Falchion B,Falchion B,yes,26
 315,0x13b,Falchion C,Falchion C,Falchion C,yes,26
+326,0x13b,Air Baselard A,Falchion C,Falchion C,yes,26
+327,0x13b,Air Baselard B,Falchion C,Falchion C,yes,26
+328,0x13b,Air Baselard C,Falchion C,Falchion C,yes,26
 352,0x160,Voltekka,Voltekka,Voltekka,yes,26
+353,0x160,Crash Intrude,Voltekka,Voltekka,yes,26
+354,0x160,Air Crash Intrude,Voltekka,Voltekka,yes,26
+368,0x206,Omnidirectional Voltekka,Omnidirectional Voltekka,Omnidirectional Voltekka,yes,26
 465,0x1d1,Front Throw,Front Throw,Front Throw,yes,26
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,26
-512,0x200,Baselard B,Baselard B,Baselard B,yes,26
-512,0x200,Baselard C,Baselard C,Baselard C,yes,26
+512,0x200,Baselard Grab,Baselard C,Baselard C,yes,26
+516,0x160,Crash Intrude,Voltekka,Voltekka,yes,26
 518,0x206,Omnidirectional Voltekka,Omnidirectional Voltekka,Omnidirectional Voltekka,yes,26
 
 # Joe the Condor (ID: 27)
-260,0x104,3B,3B,3B,yes,27
+
 304,0x130,shuriken A,shuriken A,shuriken A,yes,27
 305,0x131,shuriken B,shuriken B,shuriken B,yes,27
 306,0x132,shuriken C,shuriken C,shuriken C,yes,27
+307,0x132,Savage Shot Ground A,shuriken C,shuriken C,yes,27
+308,0x132,Savage Shot Ground B,shuriken C,shuriken C,yes,27
+309,0x132,Savage Shot Ground C,shuriken C,shuriken C,yes,27
 310,0x136,236A,236A,236A,yes,27
 311,0x137,236B,236B,236B,yes,27
 312,0x138,236C,236C,236C,yes,27
@@ -415,39 +569,72 @@
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,27
 514,0x202,Wild Lasso A,Wild Lasso A,Wild Lasso A,yes,27
 518,0x206,Science Ninpo,Science Ninpo,Science Ninpo,yes,27
--1,NONE,Savage Shot Air,Savage Shot Air,Savage Shot Air,yes,27
+
 
 # Yatterman-2 (ID: 28)
 258,0x102,charge C,charge C,charge C,yes,28
 261,0x105,charge 2C,charge 2C,charge 2C,yes,28
-270,0x10e,6M,6M,6M,yes,28
+270,0x10e,3M,6M,6M,yes,28
 304,0x130,yatter shield,yatter shield,yatter shield,yes,28
 305,0x131,yatter shield b,yatter shield b,yatter shield b,yes,28
 306,0x132,yatter shield C,yatter shield C,yatter shield C,yes,28
+306,0x132,yatter step,yatter shield C,yatter shield C,yes,28
+307,0x132,yatter step,yatter shield C,yatter shield C,yes,28
+308,0x132,yatter step,yatter shield C,yatter shield C,yes,28
 310,0x136,yatter step A,yatter step A,yatter step A,yes,28
 311,0x137,Yatter Step B,Yatter Step B,Yatter Step B,yes,28
 312,0x138,Yatter Step C,Yatter Step C,Yatter Step C,yes,28
 316,0x13c,yatter shock A,yatter shock A,yatter shock A,yes,28
 317,0x13d,yatter shock B,yatter shock B,yatter shock B,yes,28
+318,0x13d,yatter shock C,yatter shock B,yatter shock B,yes,28
+320,0x13d,Air yatter shock A,yatter shock B,yatter shock B,yes,28
+321,0x13d,Air yatter shock A,yatter shock B,yatter shock B,yes,28
+322,0x13d,Air yatter shock A,yatter shock B,yatter shock B,yes,28
 336,0x150,yattersplash A,yattersplash A,yattersplash A,yes,28
-337,0x151,yattersplash B?,yattersplash B?,yattersplash B?,yes,28
+337,0x151,yattersplash B,yattersplash B?,yattersplash B?,yes,28
 338,0x152,yatter splash C,yatter splash C,yatter splash C,yes,28
-468,0x1d4,back throw,back throw,back throw,yes,28
+352,0x152,yatter Passion,yatter splash C,yatter splash C,yes,28
+353,0x152,Summon the demon,yatter splash C,yatter splash C,yes,28
+368,0x152,This Week's special robots,yatter splash C,yatter splash C,yes,28
+512,0x152,This Week's special robots,yatter splash C,yatter splash C,yes,28
 
 # Zero (ID: 29)
+304,0x131,Hadengeki A,Hadengeki B,Hadengeki B,yes,29
 305,0x131,Hadengeki B,Hadengeki B,Hadengeki B,yes,29
 306,0x132,Hadengeki C,Hadengeki C,Hadengeki C,yes,29
-311,0x137,DP A,DP A,DP A,yes,29
+315,0x13b,Dash A,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+316,0x13b,Dash B,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+317,0x13b,Dash C,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+310,0x137,DP A,DP A,DP A,yes,29
+311,0x137,DP B,DP A,DP A,yes,29
 312,0x138,DP C,DP C,DP C,yes,29
 315,0x13b,Hyper Zero Blaster,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+323,0x13b,Air Dash A,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+324,0x13b,Air Dash B,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+325,0x13b,Air Dash C,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+326,0x13b,Air DP A,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+327,0x13b,Air DP B,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+328,0x13b,Air DP C,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+331,0x13b,Air Hyper Zero Blaster,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
 352,0x160,Rekkoha,Rekkoha,Rekkoha,yes,29
+353,0x160,Sougenmu,Rekkoha,Rekkoha,yes,29
+368,0x160,Dark Hold,Rekkoha,Rekkoha,yes,29
 512,0x200,Dark Hold,Dark Hold,Dark Hold,yes,29
 
 # Frank West (ID: 30)
-305,0x131,Zombie Grab,Zombie Grab,Zombie Grab,yes,30
+304,0x131,Zombie Grab A,Zombie Grab,Zombie Grab,yes,30
+305,0x131,Zombie Grab B,Zombie Grab,Zombie Grab,yes,30
+305,0x131,Zombie Grab C,Zombie Grab,Zombie Grab,yes,30
+307,0x131,Zombie Spree A,Zombie Grab,Zombie Grab,yes,30
+308,0x131,Zombie Spree B,Zombie Grab,Zombie Grab,yes,30
+309,0x131,Zombie Spree C,Zombie Grab,Zombie Grab,yes,30
+313,0x13a,Roundhouse A,Roundhouse B,Roundhouse B,yes,30
 314,0x13a,Roundhouse B,Roundhouse B,Roundhouse B,yes,30
 315,0x13b,Roundhouse C,Roundhouse C,Roundhouse C,yes,30
-352,0x160,Real Megabuster,Real Megabuster,Real Megabuster,yes,30
+316,0x13b,Giant Swing A,Roundhouse C,Roundhouse C,yes,30
+316,0x13b,Giant Swing B,Roundhouse C,Roundhouse C,yes,30
+317,0x13b,Giant Swing C,Roundhouse C,Roundhouse C,yes,30
+359,0x160,Real Megabuster,Real Megabuster,Real Megabuster,yes,30
 512,0x200,Funny Face crusher,Funny Face crusher,Funny Face crusher,yes,30
 514,0x202,Dead Rising,Dead Rising,Dead Rising,yes,30
 516,0x204,Giant Swing,Giant Swing,Giant Swing,yes,30
@@ -469,20 +656,27 @@
 22,0x1,jump back,jump back,jump back,yes,100
 29,0x1,Super Jump,Super Jump,Super Jump,yes,100
 30,0x1,landing,landing,landing,yes,100
+32,0x1,Turn Around,landing,landing,yes,100
+33,0x1,Turn Around,landing,landing,yes,100
 35,0x1,Air Dash Forward,landing,landing,yes,100
 31,0x1,Pre Super Jump,landing,landing,yes,100
 36,0x1,Air Dash Back,landing,landing,yes,100
 40,0x1,Intro Pose Point,Intro Pose Point,Intro Pose Point,yes,100
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
+42,0x1,Win Pose,Intro Pose Anchor,Intro Pose Anchor,yes,100
+49,0x1,Shocking Pink Block?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
 66,0x1,Hit Low,Hit Low,Hit Low,yes,100
 73,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
 73,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
+79,0x1,Stagger,knocked down (face down),knocked down (face down),yes,100
 80,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 81,0x1,Bounce Launched,W100 Bounce Launched,W100 Bounce Launched,yes,100
 82,0x1,Bounce Bounce off,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
+89,0x1,Spiral Knockdown,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 90,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
+91,0x1,Soft Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 92,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 95,0x1,Forced Roll,Soft Knockdown,Soft Knockdown,yes,100
 96,0x1,Soft Knockdown,Soft Knockdown,Soft Knockdown,yes,100
@@ -493,14 +687,21 @@
 105,0x1,OTG Hit (Face up),OTG Hit (Face up),OTG Hit (Face up),yes,100
 106,0x1,OTG Hit (Face Down),OTG Hit (Face Down),OTG Hit (Face Down),yes,100
 113,0x1,get up (face up),get up (face up),get up (face up),yes,100
+115,01x1,Roll Forwards,get up (face up),get up (face up),yes,100
+116,01x1,Roll Backwards,get up (face up),get up (face up),yes,100
 119,0x1,get up (face down),get up (face down),get up (face down),yes,100
+154,0x1,KO'd,Air Recovery,Air Recovery,yes,100
 160,0x1,Air Recovery,Air Recovery,Air Recovery,yes,100
 416,0x1,Tag Out,Tag Out,Tag Out,yes,100
 417,0x1,assist leave,assist leave,assist leave,yes,100
 418,0x1,Tag In,Tag In,Tag In,yes,100
+420,0x1,Cross Counter Tag out,assist attack,assist attack,yes,100
 421,0x1,VAR,Tag In Taunt,Tag In Taunt,yes,100
+421,0x1,VAR Tag In,Tag In Taunt,Tag In Taunt,yes,100
 424,0x1,assist taunt,assist taunt,assist taunt,yes,100
 425,0x1,Tag In Taunt,Tag In Taunt,Tag In Taunt,yes,100
+426,0x1,assist attack,assist attack,assist attack,yes,100
+427,0x1,Cross Counter Tag in,assist attack,assist attack,yes,100
 426,0x1,assist attack,assist attack,assist attack,yes,100
 430,0x1,assist standby,assist standby,assist standby,yes,100
 432,0x1,DHC Tag out,assist standby,assist standby,yes,100
@@ -508,12 +709,29 @@
 444,0x1,Match Start Point,Match Start Point,Match Start Point,yes,100
 444,0x1,Match Start Point,Match Start Anchor,Match Start Anchor,yes,100
 447,0x1,Match Start Anchor,Match Start Anchor,Match Start Anchor,yes,100
-
+449,0x1,Crumple,Match Start Anchor,Match Start Anchor,yes,100
+465,0x1,Forward Throw,Match Start Anchor,Match Start Anchor,yes,100
+468,0x1,Back Throw,Match Start Anchor,Match Start Anchor,yes,100
 575,0x1,Taunt,Match Start Anchor,Match Start Anchor,yes,100
 4562,0x1,forward throw,forward throw,forward throw,yes,100
 4565,0x1,back throw,back throw,back throw,yes,100
 4610,0x1,Friender Bite,Friender Bite,Friender Bite,yes,100
 4615,0x1,Hitgrab,Hitgrab,Hitgrab,yes,100
 4609,0x1,Captured,Captured,Captured,yes,100
+4611,0x1,Captured,Captured,Captured,yes,100
+4613,0x1,Captured,Captured,Captured,yes,100
+4614,0x1,Captured,Captured,Captured,yes,100
+4615,0x1,Captured,Captured,Captured,yes,100
+4616,0x1,Captured,Captured,Captured,yes,100
+4617,0x1,Captured,Captured,Captured,yes,100
+4618,0x1,Captured,Captured,Captured,yes,100
 4619,0x1,Captured,Captured,Captured,yes,100
+4620,0x1,Captured,Captured,Captured,yes,100
+4621,0x1,Captured,Captured,Captured,yes,100
+4622,0x1,Captured,Captured,Captured,yes,100
+4623,0x1,Captured,Captured,Captured,yes,100
 4294967295,0xffffffff,versus screen loading flag,versus screen loading flag,versus screen loading flag,yes,12
+
+
+
+
