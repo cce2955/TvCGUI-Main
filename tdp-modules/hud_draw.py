@@ -101,15 +101,17 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     hp32 = snap.get("baroque_local_hp32", 0)
     pool32 = snap.get("baroque_local_pool32", 0)
     red_amt = snap.get("baroque_red_amt", 0)
-    red_pct = snap.get("baroque_red_pct", 0.0)
+    red_pct_max = snap.get("baroque_red_pct_max", 0.0)
     ready_local = snap.get("baroque_ready_local", False)
 
     if ready_local:
-        txt = f"Baroque: READY red:{red_amt} ({red_pct:.1f}%)"
+        txt = f"Baroque: READY red:{red_amt} ({red_pct_max:.1f}%)"
         _blit_rainbow_text(surface, txt, (text_x0, y0 + 62), smallfont, t_ms)
     else:
         txt = f"Baroque: off  HP32:{hp32} POOL32:{pool32}"
         surface.blit(smallfont.render(txt, True, COL_TEXT), (text_x0, y0 + 62))
+
+
 
     mv_label = snap.get("mv_label", "—")
     mv_id = snap.get("mv_id_display")

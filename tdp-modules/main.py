@@ -531,23 +531,30 @@ def main():
                 snap["pool_pct"] = 0.0
 
             # REAL baroque: hp32 vs pool32
+            max_hp_stat = snap.get("max") or 0
             hp32 = rd32(base + HP32_OFF) or 0
             pool32 = rd32(base + POOL32_OFF) or 0
             ready_local = False
             red_amt = 0
-            red_pct = 0.0
+            red_pct_max = 0.0    # ONLY % vs max HP, current removed
+
             if hp32 and pool32 and hp32 != pool32:
                 ready_local = True
                 bigger = max(hp32, pool32)
                 smaller = min(hp32, pool32)
                 red_amt = bigger - smaller
-                red_pct = (red_amt / float(bigger)) * 100.0 if bigger else 0.0
+
+                # new behavior only: percent of character max HP
+                if max_hp_stat:
+                    red_pct_max = (red_amt / float(max_hp_stat)) * 100.0
 
             snap["baroque_local_hp32"] = hp32
             snap["baroque_local_pool32"] = pool32
             snap["baroque_ready_local"] = ready_local
             snap["baroque_red_amt"] = red_amt
-            snap["baroque_red_pct"] = red_pct
+            snap["baroque_red_pct_max"] = red_pct_max
+
+
 
             # inputs: now taken from config.INPUT_MONITOR_ADDRS
             if slotname == "P1-C1":
