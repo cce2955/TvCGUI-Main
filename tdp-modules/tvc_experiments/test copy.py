@@ -59,49 +59,28 @@ def save_label_db(db, path=LABELS_JSON):
 
 def find_control_pattern(base, window_size=0x40):
     """
-    Scan the first window_size bytes at 'base' for control patterns.
+    Scan the first window_size bytes at 'base' for pattern:
 
-    Pass 1 (strict, ground normals):
         00 00 00 00 01 XX 01 3C
 
-    Pass 2 (fallback, air normals etc.):
-        01 XX 01 YY   (YY can be anything)
-
-    We always return (pat_off, id0_byte) such that the ID byte lives at
-        base + pat_off + 5
-    to keep the existing +5 write logic working.
+    Return (offset, id0_byte) or (None, None) if not found.
     """
     data = rbytes(base, window_size) or b""
-    n = len(data)
-    if n < 8:
+    if len(data) < 8:
         return None, None
 
-    # ----- Pass 1: original strict pattern -----
-    for i in range(n - 7):
-        if (data[i]     == 0x00 and
-            data[i + 1] == 0x00 and
-            data[i + 2] == 0x00 and
-            data[i + 3] == 0x00 and
-            data[i + 4] == 0x01 and
-            data[i + 6] == 0x01 and
-            data[i + 7] == 0x3C):
+    for i in range(len(data) - 7):
+        if (
+            data[i] == 0x00
+            and data[i + 1] == 0x00
+            and data[i + 2] == 0x00
+            and data[i + 3] == 0x00
+            and data[i + 4] == 0x01
+            and data[i + 6] == 0x01
+            and data[i + 7] == 0x3C
+        ):
             id0 = data[i + 5]
-            return i, id0  # pat_off = start of 00s, ID at +5
-
-    # ----- Pass 2: looser 01 XX 01 YY pattern (for air normals etc.) -----
-    if n < 4:
-        return None, None
-
-    for i in range(n - 3):
-        if data[i] == 0x01 and data[i + 2] == 0x01:
-            id0 = data[i + 1]
-            # keep it in a sane range
-            if 0x00 <= id0 <= 0xBE:
-                # We want: (pat_off + 5) == i + 1  ->  pat_off = i - 4
-                pat_off = i - 4
-                if pat_off < 0:
-                    pat_off = 0
-                return pat_off, id0
+            return i, id0
 
     return None, None
 
@@ -109,13 +88,13 @@ def find_control_pattern(base, window_size=0x40):
 def control_window_bytes(base, pat_off, radius=8):
     """
     Return a small window of bytes around base+pat_off for display.
-    Here pat_off is the offset of the first 00 in the pattern.
     """
     if pat_off is None:
         return b""
     start = max(0, pat_off - radius)
-    size = radius * 2 + 8  # enough to show the whole pattern
+    size = radius * 2 + 8
     return rbytes(base + start, size) or b""
+
 
 # ---------------------------------------------------------------------
 # Collect moves from scan_normals_all (with grouping)
@@ -377,9 +356,9 @@ class MoveControlGUI:
                 if not addr_in_ram(base):
                     raise RuntimeError(f"ABS 0x{base:08X} not in MEM1/MEM2.")
 
-            id0_addr = base + pat_off + 5
-            if not wd8(id0_addr, new_id0):
-                raise RuntimeError(f"wd8 failed at 0x{id0_addr:08X}")
+                id0_addr = base + pat_off + 5
+                if not wd8(id0_addr, new_id0):
+                    raise RuntimeError(f"wd8 failed at 0x{id0_addr:08X}")
         except Exception as e:
             messagebox.showerror("Write error", str(e))
             return
