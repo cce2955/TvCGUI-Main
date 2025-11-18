@@ -1,0 +1,31 @@
+{
+  "_generic": {
+    "00": "5A",
+    "01": "5B",
+    "02": "5C",
+    "03": "2A",
+    "04": "2B",
+    "05": "2C",
+    "06": "6C",
+    "07": "5C",
+    "08": "3C",
+    "09": "j.A",
+    "0A": "j.B",
+    "0B": "j.C",
+    "11": "j.A Second",
+    "60": "Super 1",
+    "61": "Super 2",
+    "70": "Level 3",
+    "A1": "",
+    "A8": "Match Start Assist Leave",
+    "A9": "Match Start Taunt",
+    "AE": "",
+    "BD": "DHC Tag Out?",
+    "BE": "Match Start Swap Hop"
+  },
+  "ryu": {    
+    "60": "Shinkuu Hadouken",
+    "61": "Tatsu Super",
+    "70": "Shinkuu"
+  }
+}
