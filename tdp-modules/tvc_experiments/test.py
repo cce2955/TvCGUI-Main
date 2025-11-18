@@ -1,37 +1,37 @@
 #!/usr/bin/env python
 
-#
-# TvC move-control explorer (grouped clones version):
-# - Uses scan_normals_all.scan_once() to get hitbox records.
-# - For each move record, looks for control pattern near the front.
-# - Treats XX as "ID0" (control ID).
-# - Groups all clones of the same logical move (slot+char+anim_id+ID0).
-# - Shows Slot, Move, ABS (all candidate addresses), ID0, Label, and
-#   bytes around the pattern for the first clone.
-# - Editing ID0 writes to *all* ABSs in that group.
-# - Labels are stored in move_labels.json, with optional "_generic"
-#   section plus per-character sections.
-#
-
+import os
 import sys
 import json
-import os
-import tkinter as tk
-from tkinter import ttk, messagebox
+import struct
+
+# Force Python to use the real dolphin_io in tdp-modules, not the local one
+ROOT = os.path.dirname(os.path.dirname(__file__))  # ...\tdp-modules
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from dolphin_io import hook, rbytes, rd8, rd32, addr_in_ram
+import scan_normals_all
+
+# ---------------------------------------------------------------------
+# Struct / house info
+# ---------------------------------------------------------------------
+
+BASE_BACK  = 0x14               # offset from 04 01 60 block back to struct base
+MAGIC      = b"\x04\x01\x60"    # start of the house control header
+TAIL_RANGE = 0x40               # how far we read for display window
 
 LABELS_JSON = "move_labels.json"
 
-try:
-    from dolphin_io import hook, rbytes, rd8, wd8, addr_in_ram
-    import scan_normals_all
-    from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
-except Exception as e:
-    print("Import failure:", e)
-    sys.exit(1)
-
+# These are the ID0s you just added for Ryu (plus supers)
+INTERESTING_ID0 = {
+    0x14, 0x20, 0x25, 0x28, 0x29, 0x30, 0x31,
+    0x33, 0x35, 0x36, 0x39, 0x3A, 0x40, 0x41,
+    0x60, 0x61, 0x70,
+}
 
 # ---------------------------------------------------------------------
-# Label persistence / helpers
+# Label helpers (same format as your move-control GUI)
 # ---------------------------------------------------------------------
 
 def load_label_db(path: str = LABELS_JSON):
@@ -40,19 +40,9 @@ def load_label_db(path: str = LABELS_JSON):
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        if not isinstance(data, dict):
-            return {}
-        return data
+        return data if isinstance(data, dict) else {}
     except Exception:
         return {}
-
-
-def save_label_db(db, path: str = LABELS_JSON):
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(db, f, indent=2, sort_keys=True)
-    except Exception as e:
-        print("Failed to save label db:", e)
 
 
 def _norm_char_key(name: str) -> str:
@@ -63,14 +53,6 @@ def _norm_char_key(name: str) -> str:
 
 
 def get_move_label(label_db, char_name: str, id0_hex: str) -> str:
-    """
-    Look up label with per-character override, then _generic.
-    label_db format example:
-      {
-        "_generic": {"00": "5A", ...},
-        "ryu": {"60": "Shinkuu Hadouken", ...}
-      }
-    """
     generic = label_db.get("_generic", {})
     per_char_raw = {k: v for k, v in label_db.items() if k != "_generic"}
 
@@ -78,14 +60,13 @@ def get_move_label(label_db, char_name: str, id0_hex: str) -> str:
     per_char = per_char_raw.get(ckey, {}) if ckey else {}
     return per_char.get(id0_hex) or generic.get(id0_hex, "")
 
-
 # ---------------------------------------------------------------------
-# Pattern helpers
+# Control pattern helpers (ID0 / XX in the front of the move)
 # ---------------------------------------------------------------------
 
-def find_control_pattern(base: int, window_size: int = 0x80):
+def find_control_pattern_bytes(data: bytes):
     """
-    Scan the first window_size bytes at 'base' for control patterns.
+    Scan a small window of bytes for the control pattern and return (offset, id0).
 
     Pass 1 (strict, grounded normals):
         00 00 00 00 01 XX 01 3C
@@ -93,11 +74,7 @@ def find_control_pattern(base: int, window_size: int = 0x80):
     Pass 2 (air / variants):
         01 XX 01 3C
         01 XX 01 3F
-
-    Returns (id_off, id0_byte) where id_off is the offset (from base)
-    of the ID byte itself. If not found, returns (None, None).
     """
-    data = rbytes(base, window_size) or b""
     n = len(data)
     if n < 4:
         return None, None
@@ -115,356 +92,138 @@ def find_control_pattern(base: int, window_size: int = 0x80):
                 data[i + 7] == 0x3C
             ):
                 id0 = data[i + 5]
-                if 0x00 <= id0 <= 0xBE:
-                    id_off = i + 5  # ID byte position
-                    return id_off, id0
+                if 0x00 <= id0 <= 0xFF:
+                    return i + 5, id0
 
-    # Pass 2: looser 01 XX 01 3C/3F (air normals etc.)
+    # Pass 2: looser 01 XX 01 3C/3F
     for i in range(n - 3):
         if data[i] == 0x01 and data[i + 2] == 0x01 and data[i + 3] in (0x3C, 0x3F):
             id0 = data[i + 1]
-            if 0x00 <= id0 <= 0xBE:
-                id_off = i + 1  # ID byte position
-                return id_off, id0
+            if 0x00 <= id0 <= 0xFF:
+                return i + 1, id0
 
     return None, None
 
 
-def control_window_bytes(base: int, id_off: int, radius: int = 8):
-    """
-    Return a small window of bytes around the ID byte at base+id_off.
-    """
-    if id_off is None:
-        return b""
-    start = max(0, id_off - radius)
-    size = radius * 2 + 1  # ID byte roughly in the middle
-    return rbytes(base + start, size) or b""
-
+def classify_anim(anim):
+    if 0x60 <= anim <= 0x7F:
+        return "ground"
+    if 0xA0 <= anim <= 0xBF:
+        return "air"
+    return "other"
 
 # ---------------------------------------------------------------------
-# Collect moves from scan_normals_all (with grouping)
+# Main scanner
 # ---------------------------------------------------------------------
 
-def collect_moves_from_scan(scan_data, label_db):
+def scan_live(label_db, min_radius=0x18, filter_id0=None):
     """
-    Flatten scan_normals_all.scan_once() output into a list of grouped moves:
-
-      {
-        'slot', 'move_name', 'char_name',
-        'anim_id', 'id0',
-        'records': [
-            {'base', 'pat_off', 'ctrl_window'},
-            ...
-        ],
-        'label'
-      }
-
-    We group by (slot_label, char_name, anim_id, id0) so duplicates
-    (like Chun's four 5A entries) become one row with multiple ABSes.
+    Scan each ABS from scan_normals_all and interpret houses directly from RAM.
+    Additionally:
+      - find ID0 in the move header
+      - look up label via move_labels.json
+      - optionally filter to a set of ID0 values (e.g. your Ryu 5A IDs)
     """
-    grouped = {}
+    scan = scan_normals_all.scan_once()
+    results = []
 
-    for slot_info in scan_data:
-        slot_label = slot_info.get("slot_label", "?")
-        char_name = slot_info.get("char_name", "").strip()
+    for slot in scan:
+        slot_label = slot.get("slot_label", "?")
+        char_name  = slot.get("char_name", "").strip()
 
-        for mv in slot_info.get("moves", []):
-            base = mv.get("abs")
-            if base is None:
-                continue
-            anim_id = mv.get("id")
-            if anim_id is None:
+        for mv in slot["moves"]:
+            base = mv["abs"]
+            if not addr_in_ram(base):
                 continue
 
-            id_off, id0 = find_control_pattern(base)
+            # read ~0x80 bytes from the ABS start (for control pattern + house)
+            block = rbytes(base, 0x80)
+            if not block or len(block) < 0x20:
+                continue
+
+            # find ID0 / control pattern in the front of the move
+            id_off, id0 = find_control_pattern_bytes(block)
             if id_off is None:
                 continue
 
-            win_bytes = control_window_bytes(base, id_off, radius=8)
-            move_name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
+            if filter_id0 is not None and id0 not in filter_id0:
+                # not one of the interesting ID0s you care about
+                continue
 
-            key = (slot_label, char_name, anim_id, id0)
+            id0_hex = f"{id0:02X}"
+            label   = get_move_label(label_db, char_name, id0_hex)
 
-            if key not in grouped:
-                id0_hex = f"{id0:02X}"
-                label = get_move_label(label_db, char_name, id0_hex)
+            # search for the FIRST 04 01 60 block inside this ABS
+            idx = block.find(MAGIC)
+            if idx == -1 or idx < BASE_BACK:
+                continue
 
-                grouped[key] = {
-                    "slot": slot_label,
-                    "move_name": move_name,
-                    "char_name": char_name,
-                    "anim_id": anim_id,
-                    "id0": id0,
-                    "records": [],
-                    "label": label,
-                }
+            struct_base = base + idx - BASE_BACK
+            if struct_base < 0:
+                continue
 
-            grouped[key]["records"].append(
-                {
-                    "base": base,
-                    "pat_off": id_off,      # offset of ID byte
-                    "ctrl_window": win_bytes,
-                }
-            )
+            # re-read clean from struct_base for the house header
+            hdr = rbytes(struct_base, TAIL_RANGE)
+            if not hdr or len(hdr) < 0x20:
+                continue
 
-    # Flatten into list and sort
-    moves = []
-    for g in grouped.values():
-        first_rec = g["records"][0]
-        g["ctrl_window"] = first_rec["ctrl_window"]
-        moves.append(g)
+            # parse struct fields (these are still a bit janky, but we keep them)
+            radius   = struct.unpack(">I", hdr[0x00:0x04])[0]
+            x_offset = struct.unpack(">f", hdr[0x04:0x08])[0]
+            y_const  = struct.unpack(">I", hdr[0x08:0x0C])[0]
+            flags    = struct.unpack(">I", hdr[0x10:0x14])[0]
 
-    moves.sort(
-        key=lambda m: (
-            m["slot"],
-            m["move_name"],
-            min(rec["base"] for rec in m["records"]),
-        )
-    )
-    return moves
+            # animation ID sits 15 bytes AFTER the 04 01 60 in the original block
+            anim_off = idx + 15
+            if anim_off >= len(block):
+                continue
+            anim_id = block[anim_off]
 
+            if radius < min_radius:
+                continue
 
-# ---------------------------------------------------------------------
-# GUI
-# ---------------------------------------------------------------------
+            results.append({
+                "slot":   slot_label,
+                "char":   char_name,
+                "abs":    base,
+                "anim":   anim_id,
+                "kind":   classify_anim(anim_id),
+                "id0":    id0,
+                "label":  label,
+                "radius": radius,
+                "x":      x_offset,
+                "y":      y_const,
+                "flags":  flags,
+                "window": " ".join(f"{b:02X}" for b in hdr[:0x30]),
+            })
 
-class MoveControlGUI:
-    def __init__(self, root, moves, label_db):
-        self.root = root
-        self.root.title("TvC Move Control / Label Editor (grouped clones)")
+    return results
 
-        self.moves = moves
-        self.label_db = label_db  # {char_key/_generic: {id0_hex: label}}
-
-        main = ttk.Frame(root, padding=8)
-        main.pack(fill="both", expand=True)
-
-        top = ttk.Frame(main)
-        top.grid(row=0, column=0, sticky="ew")
-        ttk.Label(
-            top,
-            text=(
-                "All moves from scan_normals_all, grouped by slot/char/anim/ID0. "
-                "ABS lists every matching record; editing ID0 writes to all of them."
-            ),
-        ).grid(row=0, column=0, sticky="w")
-
-        cols = ("slot", "move", "abs", "id0", "label", "ctrl")
-        self.tree = ttk.Treeview(main, columns=cols, show="headings", height=24)
-        self.tree.grid(row=1, column=0, sticky="nsew", pady=(4, 4))
-
-        vsb = ttk.Scrollbar(main, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-        vsb.grid(row=1, column=1, sticky="ns", pady=(4, 4))
-
-        self.tree.heading("slot", text="Slot")
-        self.tree.heading("move", text="Move")
-        self.tree.heading("abs", text="ABS (all clones)")
-        self.tree.heading("id0", text="ID0 (XX)")
-        self.tree.heading("label", text="Label")
-        self.tree.heading("ctrl", text="control window (bytes around pattern)")
-
-        self.tree.column("slot", width=60, anchor="w")
-        self.tree.column("move", width=140, anchor="w")
-        self.tree.column("abs", width=260, anchor="w")
-        self.tree.column("id0", width=60, anchor="center")
-        self.tree.column("label", width=260, anchor="w")
-        self.tree.column("ctrl", width=400, anchor="w")
-
-        bottom = ttk.Frame(main, padding=(0, 4, 0, 0))
-        bottom.grid(row=2, column=0, columnspan=2, sticky="ew")
-
-        ttk.Label(bottom, text="Selected ABS:").grid(row=0, column=0, sticky="e")
-        self.sel_abs_var = tk.StringVar(value="(none)")
-        ttk.Label(bottom, textvariable=self.sel_abs_var, width=40).grid(
-            row=0, column=1, sticky="w", padx=(4, 12)
-        )
-
-        ttk.Label(bottom, text="Char:").grid(row=0, column=2, sticky="e")
-        self.sel_char_var = tk.StringVar(value="")
-        ttk.Label(bottom, textvariable=self.sel_char_var, width=14).grid(
-            row=0, column=3, sticky="w", padx=(4, 12)
-        )
-
-        ttk.Label(bottom, text="ID0 (hex):").grid(row=0, column=4, sticky="e")
-        self.id0_entry = ttk.Entry(bottom, width=4)
-        self.id0_entry.grid(row=0, column=5, sticky="w", padx=(2, 12))
-
-        ttk.Label(bottom, text="Label:").grid(row=0, column=6, sticky="e")
-        self.label_entry = ttk.Entry(bottom, width=40)
-        self.label_entry.grid(row=0, column=7, sticky="w", padx=(2, 8))
-
-        self.write_btn = ttk.Button(
-            bottom,
-            text="Write ID0 to all clones + Save Label",
-            command=self.on_write,
-        )
-        self.write_btn.grid(row=0, column=8, padx=(8, 4))
-
-        self.reload_btn = ttk.Button(bottom, text="Reload scan", command=self.on_reload_scan)
-        self.reload_btn.grid(row=0, column=9, padx=(4, 0))
-
-        main.rowconfigure(1, weight=1)
-        main.columnconfigure(0, weight=1)
-
-        self._populate_tree()
-        self.tree.bind("<<TreeviewSelect>>", self.on_select)
-
-    # ------------------------------------------------------
-
-    def _populate_tree(self):
-        self.tree.delete(*self.tree.get_children())
-        for mv in self.moves:
-            slot = mv["slot"]
-            move_name = mv["move_name"]
-            id0 = mv["id0"]
-            label = mv.get("label", "") or ""
-
-            bases = [rec["base"] for rec in mv["records"]]
-            abs_str = ", ".join(f"0x{b:08X}" for b in bases)
-
-            win = mv.get("ctrl_window") or b""
-            ctrl_hex = " ".join(f"{b:02X}" for b in win)
-
-            id0_str = "--" if id0 is None else f"{id0:02X}"
-
-            self.tree.insert(
-                "",
-                "end",
-                values=(slot, move_name, abs_str, id0_str, label, ctrl_hex),
-            )
-
-    def _get_selected_index(self):
-        sel = self.tree.selection()
-        if not sel:
-            return None
-        iid = sel[0]
-        return self.tree.index(iid)
-
-    def _get_selected_move(self):
-        idx = self._get_selected_index()
-        if idx is None or idx < 0 or idx >= len(self.moves):
-            return None
-        return self.moves[idx]
-
-    def on_select(self, event):
-        mv = self._get_selected_move()
-        if not mv:
-            self.sel_abs_var.set("(none)")
-            self.sel_char_var.set("")
-            self.id0_entry.delete(0, tk.END)
-            self.label_entry.delete(0, tk.END)
-            return
-
-        bases = [rec["base"] for rec in mv["records"]]
-        abs_str = ", ".join(f"0x{b:08X}" for b in bases)
-        self.sel_abs_var.set(abs_str)
-
-        char = mv.get("char_name", "")
-        self.sel_char_var.set(char or "")
-
-        id0 = mv.get("id0", 0)
-        self.id0_entry.delete(0, tk.END)
-        self.id0_entry.insert(0, f"{id0:02X}")
-
-        label = mv.get("label", "") or ""
-        self.label_entry.delete(0, tk.END)
-        self.label_entry.insert(0, label)
-
-    def on_write(self):
-        mv = self._get_selected_move()
-        if not mv:
-            messagebox.showerror("No selection", "Select a move first.")
-            return
-
-        char_name = (mv.get("char_name") or "").strip()
-        records = mv["records"]
-
-        id0_txt = self.id0_entry.get().strip()
-        label_txt = self.label_entry.get().strip()
-
-        try:
-            new_id0 = int(id0_txt, 16) & 0xFF
-        except ValueError:
-            messagebox.showerror("Parse error", "ID0 must be a hex byte (00..FF).")
-            return
-
-        # fan-out write: update every clone record
-        try:
-            for rec in records:
-                base = rec["base"]
-                id_off = rec["pat_off"]  # offset of ID byte
-
-                if not addr_in_ram(base):
-                    raise RuntimeError(f"ABS 0x{base:08X} not in MEM1/MEM2.")
-
-                id0_addr = base + id_off
-                if not wd8(id0_addr, new_id0):
-                    raise RuntimeError(f"wd8 failed at 0x{id0_addr:08X}")
-        except Exception as e:
-            messagebox.showerror("Write error", str(e))
-            return
-
-        # update in-memory record
-        mv["id0"] = new_id0
-        mv["label"] = label_txt
-
-        # store label if we have a char name (per-char entry, not _generic)
-        if char_name:
-            ckey = _norm_char_key(char_name)
-            self.label_db.setdefault(ckey, {})
-            self.label_db[ckey][f"{new_id0:02X}"] = label_txt
-            save_label_db(self.label_db)
-
-        # refresh tree
-        idx = self._get_selected_index()
-        if idx is not None:
-            self.tree.delete(*self.tree.get_children())
-            self._populate_tree()
-            children = self.tree.get_children()
-            if 0 <= idx < len(children):
-                self.tree.selection_set(children[idx])
-                self.tree.see(children[idx])
-
-        bases = [rec["base"] for rec in records]
-        abs_str = ", ".join(f"0x{b:08X}" for b in bases)
-        messagebox.showinfo(
-            "Done",
-            f"Wrote ID0={new_id0:02X} to {len(records)} clone(s): {abs_str}\n"
-            f"and saved label.",
-        )
-
-    def on_reload_scan(self):
-        messagebox.showinfo(
-            "Reload",
-            "Close and re-run this script to rescan. (Keeps move_labels.json.)",
-        )
-
-
-# ---------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------
 
 def main():
-    print("Hooking Dolphin...")
+    print("Hooking Dolphin…")
     hook()
-    print("Hooked. Running scan_normals_all.scan_once()...")
-    try:
-        scan_data = scan_normals_all.scan_once()
-    except Exception as e:
-        print("scan_once failed:", e)
-        sys.exit(1)
+    print("Scanning live RAM…")
 
     label_db = load_label_db()
-    moves = collect_moves_from_scan(scan_data, label_db)
-    print(f"Found {len(moves)} grouped moves with control pattern.")
+    results = scan_live(label_db, min_radius=0x18, filter_id0=INTERESTING_ID0)
 
-    root = tk.Tk()
-    MoveControlGUI(root, moves, label_db)
-    root.mainloop()
+    print(f"Found {len(results)} interesting houses.\n")
+    print("Slot Char        ABS         anim kind   ID0 label      radius   x_off     y  flags     window")
+    print("------------------------------------------------------------------------------------------------------")
+    for r in results:
+        slot  = r["slot"]
+        char  = (r["char"] or "")[:10]
+        anim  = f"{r['anim']:02X}"
+        kind  = r["kind"]
+        id0   = f"{r['id0']:02X}"
+        label = (r["label"] or "")[:8]
+        print(
+            f"{slot:4s} {char:10s} 0x{r['abs']:08X}  {anim:2s}  {kind:<6s}  "
+            f"{id0:2s} {label:8s}  {r['radius']:6d}  {r['x']:+.3f}  {r['y']:6d}  "
+            f"{r['flags']:08X}  {r['window']}"
+        )
 
 
 if __name__ == "__main__":
     main()
-
-# 0b f0
