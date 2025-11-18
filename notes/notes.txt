@@ -562,7 +562,7 @@ sanity:
 
 [base+0xF0]/[base+0xF4] world X/Y floats
 
-Known fighter bases from your notes:
+Known fighter bases from notes:
 
 P1C1 → 0x9246B9C0
 
@@ -594,7 +594,7 @@ Fighter struct key offsets (relative to fighter_base)
 
 +0x1EC u32 sub-ID/follow-up
 
-“Hot zone” bytes you mapped (relative to fighter_base):
+“Hot zone” bytes mapped (relative to fighter_base):
 
 +0x052–0x05B: startup/active/hit tells
 
@@ -628,7 +628,7 @@ Fighter struct key offsets (relative to fighter_base)
 
 +0x072: move gate
 
-Absolute/runtime addresses you called out
+Absolute/runtime addresses  called out
 
 Training toggles: 0x803F5650–0x803F5680
 
@@ -636,10 +636,10 @@ Pause/match director: ~0x805610F0+
 
 Baroque/input monitor (P1): 0x9246CB80+ (hit counter etc.)
 
-Throw-related cluster you probed: 0x9246DA90–0x9246DAE0 area
+Throw-related cluster : 0x9246DA90–0x9246DAE0 area
 
-Animation/move-control cluster you poked (908AEE10+ etc.)
-You mapped that 0x908AEE10/0x908AEE20/... region as the current move/animation driver:
+Animation/move-control cluster poked (908AEE10+ etc.)
+0x908AEE10/0x908AEE20/... region as the current move/animation driver:
 
 These below are Ryu P1 Point, investigating offsets and slot references
 
@@ -649,7 +649,7 @@ These below are Ryu P1 Point, investigating offsets and slot references
 
 0x908AEF60 index 0/15/16 affects hitbox presence and weird super BG
 
-0x908AEFB0 index 13 (the one you cranked) makes hitbox “attach” everywhere
+0x908AEFB0 index 13 makes hitbox “attach” everywhere
 
 python tvc_sigtool.py poke --addr 0x908af004 --bytes "43 FF 00 00"   
 # 5A
