@@ -12,7 +12,10 @@
     "09": "j.A",
     "0A": "j.B",
     "0B": "j.C",
+    "0C": "j.C",
+    "0E": "6B",
     "11": "j.A Second",
+    "3C": "Landing",
     "60": "Super 1",
     "61": "Super 2",
     "70": "Level 3",
@@ -22,6 +25,10 @@
     "AE": "",
     "BD": "DHC Tag Out?",
     "BE": "Match Start Swap Hop"
+  },
+  "chunli": {
+    "00": "j.C",
+    "05": "j.C"
   },
   "ryu": {
     "60": "Shinkuu Hadouken",

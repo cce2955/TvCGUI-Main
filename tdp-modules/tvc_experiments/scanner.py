@@ -1,21 +1,21 @@
 #!/usr/bin/env python
 
 #
-# TvC move-control explorer (grouped clones version):
+# TvC move-control explorer (grouped clones version + house info):
 # - Uses scan_normals_all.scan_once() to get hitbox records.
-# - For each move record, looks for control pattern near the front.
-# - Treats XX as "ID0" (control ID).
+# - For each move record, looks for control pattern near the front (ID0).
+# - Also decodes the "house" struct (04 01 60 ...) like scanner.py.
 # - Groups all clones of the same logical move (slot+char+anim_id+ID0).
-# - Shows Slot, Move, ABS (all candidate addresses), ID0, Label, and
-#   bytes around the pattern for the first clone.
-# - Editing ID0 writes to *all* ABSs in that group.
-# - Labels are stored in move_labels.json, with optional "_generic"
-#   section plus per-character sections.
+# - Shows Slot, Move, Anim (hex), ABS (all candidate addresses), ID0, Label,
+#   control pattern window, and house window (0B F0 / 33 35 20 3F etc).
+# - Editing ID0 still writes to *all* ABSs in that group.
+# - Labels are stored in move_labels.json, keyed by ID0 (with _generic + per-char).
 #
 
 import sys
 import json
 import os
+import struct
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -80,10 +80,10 @@ def get_move_label(label_db, char_name: str, id0_hex: str) -> str:
 
 
 # ---------------------------------------------------------------------
-# Pattern helpers
+# Pattern helpers (ID0)
 # ---------------------------------------------------------------------
 
-def find_control_pattern(base: int, window_size: int = 0x80):
+def find_control_pattern(base: int, window_size: int = 0x120):
     """
     Scan the first window_size bytes at 'base' for control patterns.
 
@@ -142,7 +142,61 @@ def control_window_bytes(base: int, id_off: int, radius: int = 8):
 
 
 # ---------------------------------------------------------------------
-# Collect moves from scan_normals_all (with grouping)
+# House struct helpers (04 01 60 ... like scanner.py)
+# ---------------------------------------------------------------------
+
+MAGIC_HOUSE = b"\x04\x01\x60"
+BASE_BACK = 0x14       # offset from 04 01 60 block back to struct base
+TAIL_RANGE = 0x40      # bytes we pull for the 'house' window
+
+
+def decode_house(base: int):
+    """
+    Try to interpret a 'house' struct for this ABS, similar to scanner.py.
+
+    Returns:
+      {
+        "radius": int,
+        "x": float,
+        "y": int,
+        "flags": int,
+        "window": "hex bytes..."
+      }
+    or None if no valid house is found.
+    """
+    block = rbytes(base, 0x80) or b""
+    if len(block) < 0x20:
+        return None
+
+    idx = block.find(MAGIC_HOUSE)
+    if idx == -1 or idx < BASE_BACK:
+        return None
+
+    struct_base = base + idx - BASE_BACK
+    hdr = rbytes(struct_base, TAIL_RANGE) or b""
+    if len(hdr) < 0x20:
+        return None
+
+    try:
+        radius = struct.unpack(">I", hdr[0x00:0x04])[0]
+        x_offset = struct.unpack(">f", hdr[0x04:0x08])[0]
+        y_const = struct.unpack(">I", hdr[0x08:0x0C])[0]
+        flags = struct.unpack(">I", hdr[0x10:0x14])[0]
+    except Exception:
+        return None
+
+    window_hex = " ".join(f"{b:02X}" for b in hdr[:0x30])
+    return {
+        "radius": radius,
+        "x": x_offset,
+        "y": y_const,
+        "flags": flags,
+        "window": window_hex,
+    }
+
+
+# ---------------------------------------------------------------------
+# Collect moves from scan_normals_all (with grouping + house info)
 # ---------------------------------------------------------------------
 
 def collect_moves_from_scan(scan_data, label_db):
@@ -153,14 +207,25 @@ def collect_moves_from_scan(scan_data, label_db):
         'slot', 'move_name', 'char_name',
         'anim_id', 'id0',
         'records': [
-            {'base', 'pat_off', 'ctrl_window'},
+            {
+              'base', 'pat_off',
+              'ctrl_window',   # around ID0 pattern, if any
+              'house_window',  # house header window, if any
+            },
             ...
         ],
-        'label'
+        'label',
+        'house_window'  # canonical for the group (first non-empty)
       }
 
     We group by (slot_label, char_name, anim_id, id0) so duplicates
     (like Chun's four 5A entries) become one row with multiple ABSes.
+
+    IMPORTANT CHANGE:
+    - A move is included if it has *either*:
+        - an ID0 control pattern, or
+        - a house struct (04 01 60 ...).
+    So your scanner-style house hits now appear in this list.
     """
     grouped = {}
 
@@ -176,19 +241,35 @@ def collect_moves_from_scan(scan_data, label_db):
             if anim_id is None:
                 continue
 
+            # ID0 pattern (control)
             id_off, id0 = find_control_pattern(base)
-            if id_off is None:
+
+            # House struct (same logic as scanner.py)
+            house = decode_house(base)
+
+            # If we find neither, skip this move; nothing interesting.
+            if id_off is None and house is None:
                 continue
 
-            win_bytes = control_window_bytes(base, id_off, radius=8)
+            # Control window (for ID0 pattern)
+            ctrl_bytes = control_window_bytes(base, id_off, radius=8) if id_off is not None else b""
+            ctrl_hex = " ".join(f"{b:02X}" for b in ctrl_bytes) if ctrl_bytes else ""
+
+            # House window
+            house_hex = house["window"] if house is not None else ""
+
+            # Label keyed by ID0 (if present)
+            if id0 is not None:
+                id0_hex = f"{id0:02X}"
+                label = get_move_label(label_db, char_name, id0_hex)
+            else:
+                label = ""
+
             move_name = SCAN_ANIM_MAP.get(anim_id, f"anim_{anim_id:02X}")
 
             key = (slot_label, char_name, anim_id, id0)
 
             if key not in grouped:
-                id0_hex = f"{id0:02X}"
-                label = get_move_label(label_db, char_name, id0_hex)
-
                 grouped[key] = {
                     "slot": slot_label,
                     "move_name": move_name,
@@ -197,21 +278,27 @@ def collect_moves_from_scan(scan_data, label_db):
                     "id0": id0,
                     "records": [],
                     "label": label,
+                    "ctrl_window": "",   # filled from first record with data
+                    "house_window": "",  # filled from first record with data
                 }
 
-            grouped[key]["records"].append(
-                {
-                    "base": base,
-                    "pat_off": id_off,      # offset of ID byte
-                    "ctrl_window": win_bytes,
-                }
-            )
+            rec = {
+                "base": base,
+                "pat_off": id_off,
+                "ctrl_window": ctrl_hex,
+                "house_window": house_hex,
+            }
+            grouped[key]["records"].append(rec)
+
+            # Only set these if we don't already have a non-empty one
+            if ctrl_hex and not grouped[key]["ctrl_window"]:
+                grouped[key]["ctrl_window"] = ctrl_hex
+            if house_hex and not grouped[key]["house_window"]:
+                grouped[key]["house_window"] = house_hex
 
     # Flatten into list and sort
     moves = []
     for g in grouped.values():
-        first_rec = g["records"][0]
-        g["ctrl_window"] = first_rec["ctrl_window"]
         moves.append(g)
 
     moves.sort(
@@ -231,7 +318,7 @@ def collect_moves_from_scan(scan_data, label_db):
 class MoveControlGUI:
     def __init__(self, root, moves, label_db):
         self.root = root
-        self.root.title("TvC Move Control / Label Editor (grouped clones)")
+        self.root.title("TvC Move Control / Label Editor (grouped clones + house)")
 
         self.moves = moves
         self.label_db = label_db  # {char_key/_generic: {id0_hex: label}}
@@ -245,11 +332,12 @@ class MoveControlGUI:
             top,
             text=(
                 "All moves from scan_normals_all, grouped by slot/char/anim/ID0. "
-                "ABS lists every matching record; editing ID0 writes to all of them."
+                "ABS lists every matching record; editing ID0 writes to all of them. "
+                "House column shows 04 01 60 blocks (0B F0 33 35 20 3F etc)."
             ),
         ).grid(row=0, column=0, sticky="w")
 
-        cols = ("slot", "move", "abs", "id0", "label", "ctrl")
+        cols = ("slot", "move", "anim", "abs", "id0", "label", "ctrl", "house")
         self.tree = ttk.Treeview(main, columns=cols, show="headings", height=24)
         self.tree.grid(row=1, column=0, sticky="nsew", pady=(4, 4))
 
@@ -259,17 +347,21 @@ class MoveControlGUI:
 
         self.tree.heading("slot", text="Slot")
         self.tree.heading("move", text="Move")
+        self.tree.heading("anim", text="Anim")
         self.tree.heading("abs", text="ABS (all clones)")
         self.tree.heading("id0", text="ID0 (XX)")
         self.tree.heading("label", text="Label")
-        self.tree.heading("ctrl", text="control window (bytes around pattern)")
+        self.tree.heading("ctrl", text="control window (ID0)")
+        self.tree.heading("house", text="house window (04 01 60)")
 
         self.tree.column("slot", width=60, anchor="w")
         self.tree.column("move", width=140, anchor="w")
+        self.tree.column("anim", width=60, anchor="center")
         self.tree.column("abs", width=260, anchor="w")
         self.tree.column("id0", width=60, anchor="center")
         self.tree.column("label", width=260, anchor="w")
-        self.tree.column("ctrl", width=400, anchor="w")
+        self.tree.column("ctrl", width=320, anchor="w")
+        self.tree.column("house", width=320, anchor="w")
 
         bottom = ttk.Frame(main, padding=(0, 4, 0, 0))
         bottom.grid(row=2, column=0, columnspan=2, sticky="ew")
@@ -319,19 +411,21 @@ class MoveControlGUI:
             move_name = mv["move_name"]
             id0 = mv["id0"]
             label = mv.get("label", "") or ""
+            anim_id = mv.get("anim_id", 0)
 
             bases = [rec["base"] for rec in mv["records"]]
             abs_str = ", ".join(f"0x{b:08X}" for b in bases)
 
-            win = mv.get("ctrl_window") or b""
-            ctrl_hex = " ".join(f"{b:02X}" for b in win)
+            ctrl_hex = mv.get("ctrl_window", "") or ""
+            house_hex = mv.get("house_window", "") or ""
 
             id0_str = "--" if id0 is None else f"{id0:02X}"
+            anim_str = f"{anim_id:02X}"
 
             self.tree.insert(
                 "",
                 "end",
-                values=(slot, move_name, abs_str, id0_str, label, ctrl_hex),
+                values=(slot, move_name, anim_str, abs_str, id0_str, label, ctrl_hex, house_hex),
             )
 
     def _get_selected_index(self):
@@ -363,9 +457,12 @@ class MoveControlGUI:
         char = mv.get("char_name", "")
         self.sel_char_var.set(char or "")
 
-        id0 = mv.get("id0", 0)
+        id0 = mv.get("id0")
         self.id0_entry.delete(0, tk.END)
-        self.id0_entry.insert(0, f"{id0:02X}")
+        if id0 is not None:
+            self.id0_entry.insert(0, f"{id0:02X}")
+        else:
+            self.id0_entry.insert(0, "")
 
         label = mv.get("label", "") or ""
         self.label_entry.delete(0, tk.END)
@@ -383,6 +480,10 @@ class MoveControlGUI:
         id0_txt = self.id0_entry.get().strip()
         label_txt = self.label_entry.get().strip()
 
+        if not id0_txt:
+            messagebox.showerror("ID0 empty", "ID0 must be a hex byte (00..FF).")
+            return
+
         try:
             new_id0 = int(id0_txt, 16) & 0xFF
         except ValueError:
@@ -393,7 +494,11 @@ class MoveControlGUI:
         try:
             for rec in records:
                 base = rec["base"]
-                id_off = rec["pat_off"]  # offset of ID byte
+                id_off = rec["pat_off"]  # offset of ID byte (may be None if no control pattern)
+
+                if id_off is None:
+                    # no control pattern for this clone; skip writing ID0
+                    continue
 
                 if not addr_in_ram(base):
                     raise RuntimeError(f"ABS 0x{base:08X} not in MEM1/MEM2.")
@@ -430,8 +535,10 @@ class MoveControlGUI:
         abs_str = ", ".join(f"0x{b:08X}" for b in bases)
         messagebox.showinfo(
             "Done",
-            f"Wrote ID0={new_id0:02X} to {len(records)} clone(s): {abs_str}\n"
-            f"and saved label.",
+            f"Wrote ID0={new_id0:02X} to clones with control patterns ({len(records)} entries; "
+            f"some clones may be house-only and skipped).\n"
+            f"ABS list: {abs_str}\n"
+            f"Label saved.",
         )
 
     def on_reload_scan(self):
@@ -457,7 +564,7 @@ def main():
 
     label_db = load_label_db()
     moves = collect_moves_from_scan(scan_data, label_db)
-    print(f"Found {len(moves)} grouped moves with control pattern.")
+    print(f"Found {len(moves)} grouped moves with control and/or house patterns.")
 
     root = tk.Tk()
     MoveControlGUI(root, moves, label_db)
@@ -466,5 +573,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# 0b f0
