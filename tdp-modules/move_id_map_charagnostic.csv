@@ -682,7 +682,7 @@
 40,0x1,Intro Pose Point,Intro Pose Point,Intro Pose Point,yes,100
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
 42,0x1,Win Pose,Intro Pose Anchor,Intro Pose Anchor,yes,100
-49,0x1,Explosion Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
+49,0x1,CrouchingBlock,Intro Pose Anchor,Intro Pose Anchor,yes,100
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
 66,0x1,Hit Low,Hit Low,Hit Low,yes,100
