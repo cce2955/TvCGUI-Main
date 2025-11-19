@@ -31,7 +31,7 @@ except Exception as e:
 CALLER_LABELS_JSON = os.path.join(ROOT, "caller_labels.json")
 CALLER_CLASSES_JSON = os.path.join(ROOT, "caller_classes.json")
 
-PATTERN_LEN = 4  # 01 XX 01 3C
+PATTERN_LEN = 4  # 01 XX 01 3C base length we chunk with
 
 
 # ------------------------------------------------------------
@@ -67,13 +67,7 @@ def _norm_char_key(name: str) -> str:
 def get_caller_label(label_db, char_name: str, id0_hex: str, class_suffix: str = "") -> str:
     """
     Per-character label, then _generic fallback.
-    Now supports class suffix for Anim/Full variants.
-    
-    label_db format:
-      {
-        "_generic": {"0D": "Light Shoryu", "0D|Anim": "Light Shoryu Anim", "0D|Full": "Light Shoryu Full"},
-        "ryu":      {"0D": "Light Shoryu", "0D|Anim": "...", "0D|Full": "..."}
-      }
+    Supports class suffix for Anim/Full variants.
     """
     if not label_db:
         return ""
@@ -82,11 +76,10 @@ def get_caller_label(label_db, char_name: str, id0_hex: str, class_suffix: str =
     ckey = _norm_char_key(char_name)
     per_char = label_db.get(ckey, {}) if ckey else {}
 
-    # Try with class suffix first
     if class_suffix:
         key_with_class_up = f"{id0_hex.upper()}|{class_suffix}"
         key_with_class_lo = f"{id0_hex.lower()}|{class_suffix}"
-        
+
         result = (
             per_char.get(key_with_class_up)
             or per_char.get(key_with_class_lo)
@@ -95,8 +88,7 @@ def get_caller_label(label_db, char_name: str, id0_hex: str, class_suffix: str =
         )
         if result:
             return result
-    
-    # Fall back to base key without class
+
     key_up = id0_hex.upper()
     key_lo = id0_hex.lower()
 
@@ -155,7 +147,6 @@ def resolve_class(counts: dict) -> str:
     """
     anim = counts.get("Anim", 0)
     full = counts.get("Full", 0)
-    # ignore '?' for decision
     if anim == 0 and full == 0:
         return "?"
     if anim > 0 and full == 0:
@@ -171,17 +162,10 @@ def resolve_class(counts: dict) -> str:
 
 def build_slot_ranges(scan_data, padding: int = 0x4000):
     """
-    Build approximate address ranges per slot from scan_normals_all.scan_once():
-
-      {
-        "P1-C1": {"char": "Ryu", "lo": 0x908AAC30, "hi": 0x90908CEC},
-        ...
-      }
-
-    We just use min/max of the 'abs' fields per slot, padded a bit.
+    Build approximate address ranges per slot from scan_normals_all.scan_once().
     """
-    per_slot_addrs = {}   # slot_label -> [abs, ...]
-    per_slot_char = {}    # slot_label -> char_name
+    per_slot_addrs = {}
+    per_slot_char = {}
 
     for slot_info in scan_data:
         slot_label = slot_info.get("slot_label", "?")
@@ -214,10 +198,10 @@ def build_slot_ranges(scan_data, padding: int = 0x4000):
 
 
 # ------------------------------------------------------------
-# Shared pattern matcher + classifier
+# Shared pattern matchers + classifier
 # ------------------------------------------------------------
 
-def _pattern_match(buf: bytes, i: int) -> bool:
+def _pattern_match_anim(buf: bytes, i: int) -> bool:
     # 01 XX 01 3C
     return (
         buf[i] == 0x01 and
@@ -226,90 +210,72 @@ def _pattern_match(buf: bytes, i: int) -> bool:
     )
 
 
+def _pattern_match_fulltrip(buf: bytes, i: int) -> bool:
+    # 01 XX 04 (3-byte header used by jump normals / full variants)
+    return (
+        buf[i] == 0x01 and
+        buf[i + 2] == 0x04
+    )
+
+
 def classify_caller_addr(addr: int) -> str:
     """
-    Heuristic Anim/Full classifier for a single hit address.
+    Heuristic Anim/Full classifier for a single 01 XX 01 3C hit.
 
     We look at bytes near the 01 XX 01 3C pattern:
 
-    - If we see the "helper tail" like:
-          0B F0 33 35 20 3F
-      in the bytes shortly after the pattern, we treat it as a Full-type
-      "full caller" (anim + house/hitbox).
+    - If we see the "helper tail"   0B F0 33 35 20 3F   shortly after,
+      treat as Full.
 
-    - If we see nearby 04 01 60 (house marker) close to the pattern,
-      also nudge toward Full.
+    - If we see nearby 04 01 60 (house marker), treat as Full.
 
-    - Otherwise we default to Anim = "anim-only" style table entry.
+    - If we see FF FF FF FE just before, treat as Full.
 
-    This is a heuristic; you can override per (slot,char,ID0) in the GUI.
+    Otherwise default to Anim.
+
+    (The separate 01 XX 04 scanner runs in the main loops and
+     directly tags those hits as Full.)
     """
-    # We expect to read a window around the hit: [addr-0x10, addr+0x30)
     start = addr - 0x10
     size = 0x40
     ctx = rbytes(start, size) or b""
     if len(ctx) < 20:
         return "?"
 
-    # Where is the pattern relative to ctx?
     pattern_idx = addr - start
     if pattern_idx < 0 or pattern_idx + PATTERN_LEN > len(ctx):
-        # Weird boundary; just treat as unknown
         return "?"
 
-    # Bytes after pattern
-    after = ctx[pattern_idx + PATTERN_LEN : pattern_idx + PATTERN_LEN + 24]
-    # Bytes before pattern
-    before = ctx[max(0, pattern_idx - 16) : pattern_idx]
+    after = ctx[pattern_idx + PATTERN_LEN: pattern_idx + PATTERN_LEN + 24]
+    before = ctx[max(0, pattern_idx - 16): pattern_idx]
 
-    # Signature tail you showed: 0B F0 33 35 20 3F
     if b"\x0B\xF0\x33\x35\x20\x3F" in after:
         return "Full"
 
-    # If the house marker (04 01 60) shows up very close, lean Full.
-    # We only care if it's within this small window.
     if b"\x04\x01\x60" in ctx:
         return "Full"
 
-    # If we see 0xFF 0xFF 0xFF 0xFE just before, also lean Full.
     if b"\xFF\xFF\xFF\xFE" in before:
         return "Full"
 
-    # Default guess: Anim-type (anim selector / table)
     return "Anim"
 
 
 # ------------------------------------------------------------
-# Scan per-slot ranges for 01 XX 01 3C (managed groups)
+# Scan per-slot ranges (managed groups)
 # ------------------------------------------------------------
 
 def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
     """
-    Scan each slot's [lo, hi) range for the pattern:
+    Scan each slot's [lo, hi) range for:
 
-        01 XX 01 3C
+        01 XX 01 3C  (Anim stub)
+        01 XX 04     (Full variant header)
 
-    where XX is the byte we treat as the caller ID.
-
-    Returns:
-      groups_list: list of dicts, each:
-        {
-          "slot": "P1-C1",
-          "char": "Ryu",
-          "id0":  0x0D,
-          "addresses": [0x..., 0x..., ...],
-          "addr_classes": ['Anim', 'Full', ...],
-          "class_counts": {"Anim": nA, "Full": nF, "?": nQ},
-          "class_hint": "Anim"/"Full"/"Mixed"/"?",
-          "class_override": <str or None>,
-          "class": <effective class string>,
-          "label": "Light Shoryu",
-          "bytes": "hex context sample",
-        }
-      total_hits: total raw pattern hits before grouping
+    Returns grouped entries per (slot,char,ID0).
     """
     groups = {}
-    total_hits = 0
+    total_hits = 0  # only counting 01 XX 01 3C here; 01 XX 04 is extra
 
     for slot_label, info in slot_ranges.items():
         char_name = info.get("char", "")
@@ -319,8 +285,10 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
         if lo is None or hi is None or lo >= hi:
             continue
 
-        print(f"Scanning {slot_label} ({char_name}) range "
-              f"[0x{lo:08X}, 0x{hi:08X}) for 01 XX 01 3C...")
+        print(
+            f"Scanning {slot_label} ({char_name}) range "
+            f"[0x{lo:08X}, 0x{hi:08X}) for 01 XX 01 3C + 01 XX 04..."
+        )
 
         addr = lo
         tail = b""
@@ -344,7 +312,10 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
             i = 0
 
             while i <= n - PATTERN_LEN:
-                if _pattern_match(buf, i):
+                handled = False
+
+                # 01 XX 01 3C
+                if _pattern_match_anim(buf, i):
                     id0 = buf[i + 1]
                     hit_addr = base_for_buf + i
                     total_hits += 1
@@ -369,7 +340,6 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
                         }
                         groups[key] = g
 
-                    # Classify this specific hit
                     cls_hit = classify_caller_addr(hit_addr)
                     if cls_hit not in ("Anim", "Full", "?"):
                         cls_hit = "?"
@@ -384,9 +354,46 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
                         ctx = rbytes(ctx_start, ctx_size) or b""
                         g["bytes"] = " ".join(f"{b:02X}" for b in ctx)
 
-                    i += 1
-                else:
-                    i += 1
+                    handled = True
+
+                # 01 XX 04 (full variant header; used by jump normals etc.)
+                if _pattern_match_fulltrip(buf, i):
+                    id0_full = buf[i + 1]
+                    hit_addr_full = base_for_buf + i
+
+                    key_full = (slot_label, char_name, id0_full)
+                    g_full = groups.get(key_full)
+                    if g_full is None:
+                        id0_hex_full = f"{id0_full:02X}"
+                        label_full = get_caller_label(label_db, char_name, id0_hex_full)
+                        g_full = {
+                            "slot": slot_label,
+                            "char": char_name,
+                            "id0": id0_full,
+                            "addresses": [],
+                            "addr_classes": [],
+                            "class_counts": {},
+                            "class_hint": None,
+                            "class_override": None,
+                            "class": None,
+                            "label": label_full,
+                            "bytes": None,
+                        }
+                        groups[key_full] = g_full
+
+                    g_full["addresses"].append(hit_addr_full)
+                    g_full["addr_classes"].append("Full")
+                    g_full["class_counts"]["Full"] = g_full["class_counts"].get("Full", 0) + 1
+
+                    if g_full["bytes"] is None:
+                        ctx_start = hit_addr_full - 8
+                        ctx_size = 32
+                        ctx = rbytes(ctx_start, ctx_size) or b""
+                        g_full["bytes"] = " ".join(f"{b:02X}" for b in ctx)
+
+                    handled = True
+
+                i += 1 if handled else 1
 
             if len(buf) >= PATTERN_LEN - 1:
                 tail = buf[-(PATTERN_LEN - 1):]
@@ -395,7 +402,6 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
 
             addr += size
 
-    # Resolve class hints + overrides
     groups_list = list(groups.values())
     for g in groups_list:
         g["class_hint"] = resolve_class(g.get("class_counts", {}))
@@ -415,18 +421,14 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
 
 
 # ------------------------------------------------------------
-# Scan full MEM1+MEM2 for unmanaged 01 XX 01 3C hits
+# Scan full MEM1+MEM2 for unmanaged hits
 # ------------------------------------------------------------
 
 def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
     """
-    Global scan over MEM1 and MEM2 for 01 XX 01 3C, excluding any hit
-    that lies inside a known slot range.
-
-    Returns:
-      groups_list: same structure as scan_slot_ranges_for_callers, but with
-        slot="UNMANAGED", char="".
-      total_hits: raw unmatched hits
+    Global scan over MEM1 and MEM2 for:
+      01 XX 01 3C and 01 XX 04,
+    excluding any hit that lies inside a known slot range.
     """
     managed_ranges = []
     for info in slot_ranges.values():
@@ -447,7 +449,7 @@ def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
     ]
 
     groups = {}
-    total_hits = 0
+    total_hits = 0  # only counting 01 XX 01 3C here
 
     print("Global unmanaged scan over MEM1+MEM2 (skipping slot ranges)...")
 
@@ -474,7 +476,10 @@ def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
             i = 0
 
             while i <= n - PATTERN_LEN:
-                if _pattern_match(buf, i):
+                handled = False
+
+                # 01 XX 01 3C
+                if _pattern_match_anim(buf, i):
                     id0 = buf[i + 1]
                     hit_addr = base_for_buf + i
 
@@ -518,9 +523,50 @@ def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
                         ctx = rbytes(ctx_start, ctx_size) or b""
                         g["bytes"] = " ".join(f"{b:02X}" for b in ctx)
 
-                    i += 1
-                else:
-                    i += 1
+                    handled = True
+
+                # 01 XX 04
+                if _pattern_match_fulltrip(buf, i):
+                    id0_full = buf[i + 1]
+                    hit_addr_full = base_for_buf + i
+
+                    if in_managed(hit_addr_full):
+                        i += 1
+                        continue
+
+                    key_full = ("UNMANAGED", "", id0_full)
+                    g_full = groups.get(key_full)
+                    if g_full is None:
+                        id0_hex_full = f"{id0_full:02X}"
+                        label_full = get_caller_label(label_db, "", id0_hex_full)
+                        g_full = {
+                            "slot": "UNMANAGED",
+                            "char": "",
+                            "id0": id0_full,
+                            "addresses": [],
+                            "addr_classes": [],
+                            "class_counts": {},
+                            "class_hint": None,
+                            "class_override": None,
+                            "class": None,
+                            "label": label_full,
+                            "bytes": None,
+                        }
+                        groups[key_full] = g_full
+
+                    g_full["addresses"].append(hit_addr_full)
+                    g_full["addr_classes"].append("Full")
+                    g_full["class_counts"]["Full"] = g_full["class_counts"].get("Full", 0) + 1
+
+                    if g_full["bytes"] is None:
+                        ctx_start = hit_addr_full - 8
+                        ctx_size = 32
+                        ctx = rbytes(ctx_start, ctx_size) or b""
+                        g_full["bytes"] = " ".join(f"{b:02X}" for b in ctx)
+
+                    handled = True
+
+                i += 1 if handled else 1
 
             if len(buf) >= PATTERN_LEN - 1:
                 tail = buf[-(PATTERN_LEN - 1):]
@@ -555,12 +601,11 @@ class CallerLabelGUI:
         self.root = root
         self.root.title("TvC Caller Pattern Labeler (Split Anim/Full)")
 
-        self.groups = groups          # managed + (later) unmanaged
+        self.groups = groups
         self.label_db = label_db
         self.class_db = class_db
         self.slot_ranges = slot_ranges
-        
-        # Split display items: each is a dict with group reference + class filter
+
         self.display_items = []
 
         main = ttk.Frame(root, padding=8)
@@ -572,9 +617,8 @@ class CallerLabelGUI:
         ttk.Label(
             top,
             text=(
-                "Animation caller blocks (01 XX 01 3C). Anim and Full are now separate rows.\n"
-                "Anim = animation-only selector | Full = complete caller with hitboxes\n"
-                "Only first address of each class shown. Label and override independently."
+                "Only first address of each class shown. "
+                "Label and override independently."
             ),
         ).grid(row=0, column=0, sticky="w")
 
@@ -605,14 +649,12 @@ class CallerLabelGUI:
         bottom = ttk.Frame(main, padding=(0, 4, 0, 0))
         bottom.grid(row=2, column=0, columnspan=2, sticky="ew")
 
-        # Row 0: basic info
         ttk.Label(bottom, text="Selected:").grid(row=0, column=0, sticky="e")
         self.sel_info_var = tk.StringVar(value="")
         ttk.Label(bottom, textvariable=self.sel_info_var, width=60).grid(
             row=0, column=1, columnspan=4, sticky="w", padx=(4, 12)
         )
 
-        # Row 1: Label editing
         ttk.Label(bottom, text="Label:").grid(row=1, column=0, sticky="e")
         self.label_entry = ttk.Entry(bottom, width=50)
         self.label_entry.grid(row=1, column=1, columnspan=3, sticky="w", padx=(4, 12))
@@ -620,7 +662,6 @@ class CallerLabelGUI:
         self.save_label_btn = ttk.Button(bottom, text="Save Label", command=self.on_save_label)
         self.save_label_btn.grid(row=1, column=4, padx=(4, 4))
 
-        # Row 2: Class override
         ttk.Label(bottom, text="Override Class:").grid(row=2, column=0, sticky="e")
         self.class_entry = ttk.Entry(bottom, width=10)
         self.class_entry.grid(row=2, column=1, sticky="w", padx=(4, 4))
@@ -628,7 +669,6 @@ class CallerLabelGUI:
         self.save_class_btn = ttk.Button(bottom, text="Save Class Override", command=self.on_save_class)
         self.save_class_btn.grid(row=2, column=2, padx=(4, 4))
 
-        # Row 3: scan buttons
         self.rescan_btn = ttk.Button(bottom, text="Rescan slots", command=self.on_rescan_slots)
         self.rescan_btn.grid(row=3, column=0, padx=(4, 4), pady=(4, 0), sticky="w")
 
@@ -645,40 +685,31 @@ class CallerLabelGUI:
         self._populate_tree()
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
-    # --------------------------------------------------------
-
     def _populate_tree(self):
-        """
-        Create separate tree rows for Anim and Full classes.
-        Only show first address of each class type.
-        """
         self.tree.delete(*self.tree.get_children())
         self.display_items = []
-        
+
         for g in self.groups:
             slot = g["slot"]
             char = g["char"]
             id0 = g["id0"]
             id0_str = f"{id0:02X}"
             bytes_str = g.get("bytes", "") or ""
-            
-            # Get addresses by class
+
             addresses = g["addresses"]
             addr_classes = g.get("addr_classes", [])
-            
-            # Find first Anim and first Full
+
             first_anim = None
             first_full = None
-            
+
             for addr, cls in zip(addresses, addr_classes):
-                if cls == 'Anim' and first_anim is None:
+                if cls == "Anim" and first_anim is None:
                     first_anim = addr
-                if cls == 'Full' and first_full is None:
+                if cls == "Full" and first_full is None:
                     first_full = addr
                 if first_anim and first_full:
                     break
-            
-            # Create row for Anim if exists
+
             if first_anim is not None:
                 label_anim = get_caller_label(self.label_db, char, id0_str, "Anim")
                 self.tree.insert(
@@ -686,13 +717,10 @@ class CallerLabelGUI:
                     "end",
                     values=(slot, char, id0_str, "Anim", f"0x{first_anim:08X}", label_anim, bytes_str),
                 )
-                self.display_items.append({
-                    "group": g,
-                    "class": "Anim",
-                    "address": first_anim
-                })
-            
-            # Create row for Full if exists
+                self.display_items.append(
+                    {"group": g, "class": "Anim", "address": first_anim}
+                )
+
             if first_full is not None:
                 label_full = get_caller_label(self.label_db, char, id0_str, "Full")
                 self.tree.insert(
@@ -700,11 +728,9 @@ class CallerLabelGUI:
                     "end",
                     values=(slot, char, id0_str, "Full", f"0x{first_full:08X}", label_full, bytes_str),
                 )
-                self.display_items.append({
-                    "group": g,
-                    "class": "Full",
-                    "address": first_full
-                })
+                self.display_items.append(
+                    {"group": g, "class": "Full", "address": first_full}
+                )
 
     def _get_selected_display_item(self):
         sel = self.tree.selection()
@@ -716,8 +742,6 @@ class CallerLabelGUI:
             return None
         return self.display_items[idx]
 
-    # --------------------------------------------------------
-
     def on_select(self, event):
         item = self._get_selected_display_item()
         if not item:
@@ -725,21 +749,22 @@ class CallerLabelGUI:
             self.label_entry.delete(0, tk.END)
             self.class_entry.delete(0, tk.END)
             return
-        
+
         g = item["group"]
         cls = item["class"]
         addr = item["address"]
-        
-        info_str = f"{g['slot']} | {g['char']} | ID0={g['id0']:02X} | Class={cls} | Addr=0x{addr:08X}"
+
+        info_str = (
+            f"{g['slot']} | {g['char']} | ID0={g['id0']:02X} | "
+            f"Class={cls} | Addr=0x{addr:08X}"
+        )
         self.sel_info_var.set(info_str)
-        
-        # Load label for this specific class variant
+
         id0_str = f"{g['id0']:02X}"
         label = get_caller_label(self.label_db, g["char"], id0_str, cls)
         self.label_entry.delete(0, tk.END)
         self.label_entry.insert(0, label)
-        
-        # Load class override for this specific variant
+
         key = make_class_key(g["slot"], g["char"], g["id0"], cls)
         override = self.class_db.get(key)
         self.class_entry.delete(0, tk.END)
@@ -760,7 +785,6 @@ class CallerLabelGUI:
         label_txt = self.label_entry.get().strip()
         id0_hex = f"{g['id0']:02X}"
 
-        # Save with class suffix
         if char_name:
             ckey = _norm_char_key(char_name)
         else:
@@ -786,14 +810,13 @@ class CallerLabelGUI:
 
         g = item["group"]
         cls = item["class"]
-        
+
         raw_cls = self.class_entry.get().strip()
         if not raw_cls:
             messagebox.showerror("Class empty", "Enter a class override: Anim, Full, or ?.")
             return
 
-        # Normalize input
-        new_cls_lower = raw_cls.strip().lower()
+        new_cls_lower = raw_cls.lower()
         if new_cls_lower == "anim":
             new_cls = "Anim"
         elif new_cls_lower == "full":
@@ -811,7 +834,6 @@ class CallerLabelGUI:
         save_class_db(self.class_db)
 
         self._populate_tree()
-        
         messagebox.showinfo(
             "Saved class override",
             f"Saved class override for "
@@ -852,9 +874,7 @@ class CallerLabelGUI:
                 self.slot_ranges, self.label_db, self.class_db
             )
 
-            # Merge unmanaged groups in
             self.groups.extend(unmanaged_groups)
-            # Re-sort global list for display
             self.groups.sort(
                 key=lambda g: (g["slot"], _norm_char_key(g["char"]), g["id0"])
             )
@@ -899,7 +919,7 @@ def main():
     label_db = load_label_db()
     class_db = load_class_db()
 
-    print("Scanning per-slot ranges for caller blocks (01 XX 01 3C)...")
+    print("Scanning per-slot ranges for caller blocks...")
     groups, total_hits = scan_slot_ranges_for_callers(slot_ranges, label_db, class_db)
 
     print(f"Total raw 01 XX 01 3C hits in slot ranges: {total_hits}")
