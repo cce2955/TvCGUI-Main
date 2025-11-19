@@ -1,32 +1,9 @@
 #!/usr/bin/env python
 
 #
-# TvC Caller Pattern Labeler + Unmanaged Scanner + A/B Classifier
-#
-# Stage 1:
-#   - Uses scan_normals_all.scan_once() to discover which slots/chars are active.
-#   - Builds address ranges per slot (P1-C1, P1-C2, P2-C1, P2-C2).
-#   - Scans only those ranges for 01 XX 01 3C, grouping by (slot, char, ID0).
-#
-# Stage 2 (optional, button in GUI):
-#   - Scans full MEM1 + MEM2 for the same pattern.
-#   - Skips any hit that falls inside a slot range.
-#   - Groups remaining hits under slot="UNMANAGED", char="", by ID0.
-#
-# Labels:
-#   - caller_labels.json  : text labels per (char, ID0) or _generic
-#   - caller_classes.json : A/B/? class per (slot, char, ID0)
-#
-# For each caller group we store:
-#   - slot, char, id0
-#   - addresses           : list of hit addresses
-#   - addr_classes        : per-hit class ('A', 'B', or '?')
-#   - class_counts        : counts of each class
-#   - class_hint          : resolved from counts: 'A', 'B', 'Mixed', or '?'
-#   - class_override      : persisted override from caller_classes.json
-#   - class               : current effective class (override or hint)
-#   - label               : text label from caller_labels.json
-#   - bytes               : one context sample (hex) around the first hit
+# TvC Caller Pattern Labeler + Unmanaged Scanner + Anim/Full Classifier
+# MODIFIED: Anim and Full classes are now independent entries in the GUI
+# Only the first address of each class is shown per group
 #
 
 import os
@@ -87,14 +64,15 @@ def _norm_char_key(name: str) -> str:
     return name
 
 
-def get_caller_label(label_db, char_name: str, id0_hex: str) -> str:
+def get_caller_label(label_db, char_name: str, id0_hex: str, class_suffix: str = "") -> str:
     """
     Per-character label, then _generic fallback.
-
+    Now supports class suffix for Anim/Full variants.
+    
     label_db format:
       {
-        "_generic": {"0D": "Light Shoryu", ...},
-        "ryu":      {"0D": "Light Shoryu", ...}
+        "_generic": {"0D": "Light Shoryu", "0D|Anim": "Light Shoryu Anim", "0D|Full": "Light Shoryu Full"},
+        "ryu":      {"0D": "Light Shoryu", "0D|Anim": "...", "0D|Full": "..."}
       }
     """
     if not label_db:
@@ -104,6 +82,21 @@ def get_caller_label(label_db, char_name: str, id0_hex: str) -> str:
     ckey = _norm_char_key(char_name)
     per_char = label_db.get(ckey, {}) if ckey else {}
 
+    # Try with class suffix first
+    if class_suffix:
+        key_with_class_up = f"{id0_hex.upper()}|{class_suffix}"
+        key_with_class_lo = f"{id0_hex.lower()}|{class_suffix}"
+        
+        result = (
+            per_char.get(key_with_class_up)
+            or per_char.get(key_with_class_lo)
+            or generic.get(key_with_class_up)
+            or generic.get(key_with_class_lo)
+        )
+        if result:
+            return result
+    
+    # Fall back to base key without class
     key_up = id0_hex.upper()
     key_lo = id0_hex.lower()
 
@@ -117,7 +110,7 @@ def get_caller_label(label_db, char_name: str, id0_hex: str) -> str:
 
 
 # ------------------------------------------------------------
-# Class DB helpers (A/B/?)
+# Class DB helpers (Anim/Full/?)
 # ------------------------------------------------------------
 
 def load_class_db(path: str = CALLER_CLASSES_JSON):
@@ -139,33 +132,36 @@ def save_class_db(db, path: str = CALLER_CLASSES_JSON):
         print("Failed to save caller class db:", e)
 
 
-def make_class_key(slot: str, char_name: str, id0: int) -> str:
+def make_class_key(slot: str, char_name: str, id0: int, class_suffix: str = "") -> str:
     """
-    Key format: "<slot>|<normalized_char>|<ID0_hex>".
-    Example: "P1-C1|ryu|0D"
+    Key format: "<slot>|<normalized_char>|<ID0_hex>|<class>".
+    Example: "P1-C1|ryu|0D|Anim" or "P1-C1|ryu|0D|Full"
     For UNMANAGED, char_name can be "".
     """
     ckey = _norm_char_key(char_name)
-    return f"{slot}|{ckey}|{id0:02X}"
+    base = f"{slot}|{ckey}|{id0:02X}"
+    if class_suffix:
+        return f"{base}|{class_suffix}"
+    return base
 
 
 def resolve_class(counts: dict) -> str:
     """
     Resolve group-level class from per-hit counts.
-    - If only As -> 'A'
-    - If only Bs -> 'B'
+    - If only Anims -> 'Anim'
+    - If only Fulls -> 'Full'
     - If mixture -> 'Mixed'
-    - If no A/B info -> '?'
+    - If no Anim/Full info -> '?'
     """
-    a = counts.get("A", 0)
-    b = counts.get("B", 0)
+    anim = counts.get("Anim", 0)
+    full = counts.get("Full", 0)
     # ignore '?' for decision
-    if a == 0 and b == 0:
+    if anim == 0 and full == 0:
         return "?"
-    if a > 0 and b == 0:
-        return "A"
-    if b > 0 and a == 0:
-        return "B"
+    if anim > 0 and full == 0:
+        return "Anim"
+    if full > 0 and anim == 0:
+        return "Full"
     return "Mixed"
 
 
@@ -232,19 +228,19 @@ def _pattern_match(buf: bytes, i: int) -> bool:
 
 def classify_caller_addr(addr: int) -> str:
     """
-    Heuristic A/B classifier for a single hit address.
+    Heuristic Anim/Full classifier for a single hit address.
 
     We look at bytes near the 01 XX 01 3C pattern:
 
     - If we see the "helper tail" like:
           0B F0 33 35 20 3F
-      in the bytes shortly after the pattern, we treat it as a B-type
+      in the bytes shortly after the pattern, we treat it as a Full-type
       "full caller" (anim + house/hitbox).
 
     - If we see nearby 04 01 60 (house marker) close to the pattern,
-      also nudge toward B.
+      also nudge toward Full.
 
-    - Otherwise we default to A = "anim-only" style table entry.
+    - Otherwise we default to Anim = "anim-only" style table entry.
 
     This is a heuristic; you can override per (slot,char,ID0) in the GUI.
     """
@@ -268,19 +264,19 @@ def classify_caller_addr(addr: int) -> str:
 
     # Signature tail you showed: 0B F0 33 35 20 3F
     if b"\x0B\xF0\x33\x35\x20\x3F" in after:
-        return "B"
+        return "Full"
 
-    # If the house marker (04 01 60) shows up very close, lean B.
+    # If the house marker (04 01 60) shows up very close, lean Full.
     # We only care if it's within this small window.
     if b"\x04\x01\x60" in ctx:
-        return "B"
+        return "Full"
 
-    # If we see 0xFF 0xFF 0xFF 0xFE just before, also lean B.
+    # If we see 0xFF 0xFF 0xFF 0xFE just before, also lean Full.
     if b"\xFF\xFF\xFF\xFE" in before:
-        return "B"
+        return "Full"
 
-    # Default guess: A-type (anim selector / table)
-    return "A"
+    # Default guess: Anim-type (anim selector / table)
+    return "Anim"
 
 
 # ------------------------------------------------------------
@@ -302,9 +298,9 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
           "char": "Ryu",
           "id0":  0x0D,
           "addresses": [0x..., 0x..., ...],
-          "addr_classes": ['A', 'B', ...],
-          "class_counts": {"A": nA, "B": nB, "?": nQ},
-          "class_hint": "A"/"B"/"Mixed"/"?",
+          "addr_classes": ['Anim', 'Full', ...],
+          "class_counts": {"Anim": nA, "Full": nF, "?": nQ},
+          "class_hint": "Anim"/"Full"/"Mixed"/"?",
           "class_override": <str or None>,
           "class": <effective class string>,
           "label": "Light Shoryu",
@@ -375,7 +371,7 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
 
                     # Classify this specific hit
                     cls_hit = classify_caller_addr(hit_addr)
-                    if cls_hit not in ("A", "B", "?"):
+                    if cls_hit not in ("Anim", "Full", "?"):
                         cls_hit = "?"
 
                     g["addresses"].append(hit_addr)
@@ -509,7 +505,7 @@ def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
                         groups[key] = g
 
                     cls_hit = classify_caller_addr(hit_addr)
-                    if cls_hit not in ("A", "B", "?"):
+                    if cls_hit not in ("Anim", "Full", "?"):
                         cls_hit = "?"
 
                     g["addresses"].append(hit_addr)
@@ -551,18 +547,21 @@ def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
 
 
 # ------------------------------------------------------------
-# GUI
+# GUI with split Anim/Full display
 # ------------------------------------------------------------
 
 class CallerLabelGUI:
     def __init__(self, root, groups, label_db, class_db, slot_ranges):
         self.root = root
-        self.root.title("TvC Caller Pattern Labeler (01 XX 01 3C by slot/char/ID0 + A/B)")
+        self.root.title("TvC Caller Pattern Labeler (Split Anim/Full)")
 
         self.groups = groups          # managed + (later) unmanaged
         self.label_db = label_db
         self.class_db = class_db
         self.slot_ranges = slot_ranges
+        
+        # Split display items: each is a dict with group reference + class filter
+        self.display_items = []
 
         main = ttk.Frame(root, padding=8)
         main.pack(fill="both", expand=True)
@@ -573,14 +572,13 @@ class CallerLabelGUI:
         ttk.Label(
             top,
             text=(
-                "Animation caller blocks found via 01 XX 01 3C pattern.\n"
-                "Class column = heuristic A/B (anim-only vs full caller). "
-                "Override per group as needed.\n"
-                "Use 'Scan unmanaged (global)' to sweep remaining RAM and group hits as UNMANAGED."
+                "Animation caller blocks (01 XX 01 3C). Anim and Full are now separate rows.\n"
+                "Anim = animation-only selector | Full = complete caller with hitboxes\n"
+                "Only first address of each class shown. Label and override independently."
             ),
         ).grid(row=0, column=0, sticky="w")
 
-        cols = ("slot", "char", "id0", "cls", "count", "addrs", "label", "bytes")
+        cols = ("slot", "char", "id0", "cls", "addr", "label", "bytes")
         self.tree = ttk.Treeview(main, columns=cols, show="headings", height=26)
         self.tree.grid(row=1, column=0, sticky="nsew", pady=(4, 4))
 
@@ -590,71 +588,45 @@ class CallerLabelGUI:
 
         self.tree.heading("slot", text="Slot")
         self.tree.heading("char", text="Char")
-        self.tree.heading("id0", text="ID0 (hex)")
+        self.tree.heading("id0", text="ID0")
         self.tree.heading("cls", text="Class")
-        self.tree.heading("count", text="#Hits")
-        self.tree.heading("addrs", text="Addresses (caller pattern)")
+        self.tree.heading("addr", text="Address (first)")
         self.tree.heading("label", text="Label")
-        self.tree.heading("bytes", text="Context bytes (sample)")
+        self.tree.heading("bytes", text="Context bytes")
 
         self.tree.column("slot", width=80, anchor="w")
         self.tree.column("char", width=140, anchor="w")
         self.tree.column("id0", width=70, anchor="center")
-        self.tree.column("cls", width=70, anchor="center")
-        self.tree.column("count", width=60, anchor="center")
-        self.tree.column("addrs", width=260, anchor="w")
-        self.tree.column("label", width=260, anchor="w")
+        self.tree.column("cls", width=60, anchor="center")
+        self.tree.column("addr", width=100, anchor="w")
+        self.tree.column("label", width=280, anchor="w")
         self.tree.column("bytes", width=420, anchor="w")
 
         bottom = ttk.Frame(main, padding=(0, 4, 0, 0))
         bottom.grid(row=2, column=0, columnspan=2, sticky="ew")
 
         # Row 0: basic info
-        ttk.Label(bottom, text="Selected Char:").grid(row=0, column=0, sticky="e")
-        self.sel_char_var = tk.StringVar(value="")
-        ttk.Label(bottom, textvariable=self.sel_char_var, width=16).grid(
-            row=0, column=1, sticky="w", padx=(4, 12)
+        ttk.Label(bottom, text="Selected:").grid(row=0, column=0, sticky="e")
+        self.sel_info_var = tk.StringVar(value="")
+        ttk.Label(bottom, textvariable=self.sel_info_var, width=60).grid(
+            row=0, column=1, columnspan=4, sticky="w", padx=(4, 12)
         )
 
-        ttk.Label(bottom, text="ID0 (hex):").grid(row=0, column=2, sticky="e")
-        self.sel_id0_var = tk.StringVar(value="")
-        ttk.Label(bottom, textvariable=self.sel_id0_var, width=6).grid(
-            row=0, column=3, sticky="w", padx=(4, 12)
-        )
-
-        ttk.Label(bottom, text="Hits:").grid(row=0, column=4, sticky="e")
-        self.sel_count_var = tk.StringVar(value="")
-        ttk.Label(bottom, textvariable=self.sel_count_var, width=6).grid(
-            row=0, column=5, sticky="w", padx=(4, 12)
-        )
-
-        ttk.Label(bottom, text="Class (eff/hint):").grid(row=0, column=6, sticky="e")
-        self.sel_class_info = tk.StringVar(value="")
-        ttk.Label(bottom, textvariable=self.sel_class_info, width=10).grid(
-            row=0, column=7, sticky="w", padx=(4, 12)
-        )
-
-        # Row 1: addresses
-        ttk.Label(bottom, text="Addresses:").grid(row=1, column=0, sticky="e")
-        self.sel_addrs_var = tk.StringVar(value="")
-        ttk.Label(bottom, textvariable=self.sel_addrs_var, width=80).grid(
-            row=1, column=1, columnspan=7, sticky="w", padx=(4, 12)
-        )
-
-        # Row 2: Label + Class editing, plus buttons
-        ttk.Label(bottom, text="Label:").grid(row=2, column=0, sticky="e")
-        self.label_entry = ttk.Entry(bottom, width=40)
-        self.label_entry.grid(row=2, column=1, columnspan=3, sticky="w", padx=(4, 12))
+        # Row 1: Label editing
+        ttk.Label(bottom, text="Label:").grid(row=1, column=0, sticky="e")
+        self.label_entry = ttk.Entry(bottom, width=50)
+        self.label_entry.grid(row=1, column=1, columnspan=3, sticky="w", padx=(4, 12))
 
         self.save_label_btn = ttk.Button(bottom, text="Save Label", command=self.on_save_label)
-        self.save_label_btn.grid(row=2, column=4, padx=(4, 4))
+        self.save_label_btn.grid(row=1, column=4, padx=(4, 4))
 
-        ttk.Label(bottom, text="Class (A/B/Mixed/?):").grid(row=2, column=5, sticky="e")
+        # Row 2: Class override
+        ttk.Label(bottom, text="Override Class:").grid(row=2, column=0, sticky="e")
         self.class_entry = ttk.Entry(bottom, width=10)
-        self.class_entry.grid(row=2, column=6, sticky="w", padx=(4, 4))
+        self.class_entry.grid(row=2, column=1, sticky="w", padx=(4, 4))
 
-        self.save_class_btn = ttk.Button(bottom, text="Save Class", command=self.on_save_class)
-        self.save_class_btn.grid(row=2, column=7, padx=(4, 4))
+        self.save_class_btn = ttk.Button(bottom, text="Save Class Override", command=self.on_save_class)
+        self.save_class_btn.grid(row=2, column=2, padx=(4, 4))
 
         # Row 3: scan buttons
         self.rescan_btn = ttk.Button(bottom, text="Rescan slots", command=self.on_rescan_slots)
@@ -676,165 +648,175 @@ class CallerLabelGUI:
     # --------------------------------------------------------
 
     def _populate_tree(self):
+        """
+        Create separate tree rows for Anim and Full classes.
+        Only show first address of each class type.
+        """
         self.tree.delete(*self.tree.get_children())
+        self.display_items = []
+        
         for g in self.groups:
             slot = g["slot"]
             char = g["char"]
             id0 = g["id0"]
             id0_str = f"{id0:02X}"
-            count = len(g["addresses"])
-            label = g.get("label", "") or ""
             bytes_str = g.get("bytes", "") or ""
-
-            # Show address list with per-hit A/B suffix
-            addrs_display = []
+            
+            # Get addresses by class
+            addresses = g["addresses"]
             addr_classes = g.get("addr_classes", [])
-            for a, cls in zip(g["addresses"], addr_classes):
-                addrs_display.append(f"0x{a:08X}({cls})")
-            addr_str = ", ".join(addrs_display)
+            
+            # Find first Anim and first Full
+            first_anim = None
+            first_full = None
+            
+            for addr, cls in zip(addresses, addr_classes):
+                if cls == 'Anim' and first_anim is None:
+                    first_anim = addr
+                if cls == 'Full' and first_full is None:
+                    first_full = addr
+                if first_anim and first_full:
+                    break
+            
+            # Create row for Anim if exists
+            if first_anim is not None:
+                label_anim = get_caller_label(self.label_db, char, id0_str, "Anim")
+                self.tree.insert(
+                    "",
+                    "end",
+                    values=(slot, char, id0_str, "Anim", f"0x{first_anim:08X}", label_anim, bytes_str),
+                )
+                self.display_items.append({
+                    "group": g,
+                    "class": "Anim",
+                    "address": first_anim
+                })
+            
+            # Create row for Full if exists
+            if first_full is not None:
+                label_full = get_caller_label(self.label_db, char, id0_str, "Full")
+                self.tree.insert(
+                    "",
+                    "end",
+                    values=(slot, char, id0_str, "Full", f"0x{first_full:08X}", label_full, bytes_str),
+                )
+                self.display_items.append({
+                    "group": g,
+                    "class": "Full",
+                    "address": first_full
+                })
 
-            cls_eff = g.get("class", "?")
-            self.tree.insert(
-                "",
-                "end",
-                values=(slot, char, id0_str, cls_eff, count, addr_str, label, bytes_str),
-            )
-
-    def _get_selected_index(self):
+    def _get_selected_display_item(self):
         sel = self.tree.selection()
         if not sel:
             return None
         iid = sel[0]
-        return self.tree.index(iid)
-
-    def _get_selected_group(self):
-        idx = self._get_selected_index()
-        if idx is None or idx < 0 or idx >= len(self.groups):
+        idx = self.tree.index(iid)
+        if idx < 0 or idx >= len(self.display_items):
             return None
-        return self.groups[idx]
+        return self.display_items[idx]
 
     # --------------------------------------------------------
 
     def on_select(self, event):
-        g = self._get_selected_group()
-        if not g:
-            self.sel_char_var.set("")
-            self.sel_id0_var.set("")
-            self.sel_count_var.set("")
-            self.sel_addrs_var.set("")
-            self.sel_class_info.set("")
+        item = self._get_selected_display_item()
+        if not item:
+            self.sel_info_var.set("")
             self.label_entry.delete(0, tk.END)
             self.class_entry.delete(0, tk.END)
             return
-
-        self.sel_char_var.set(g["char"])
-        self.sel_id0_var.set(f"{g['id0']:02X}")
-        self.sel_count_var.set(str(len(g["addresses"])))
-
-        addr_str = ", ".join(
-            f"0x{a:08X}({cls})"
-            for a, cls in zip(g["addresses"], g.get("addr_classes", []))
-        )
-        self.sel_addrs_var.set(addr_str)
-
-        cls_eff = g.get("class", "?")
-        cls_hint = g.get("class_hint", "?")
-        self.sel_class_info.set(f"{cls_eff}/{cls_hint}")
-
+        
+        g = item["group"]
+        cls = item["class"]
+        addr = item["address"]
+        
+        info_str = f"{g['slot']} | {g['char']} | ID0={g['id0']:02X} | Class={cls} | Addr=0x{addr:08X}"
+        self.sel_info_var.set(info_str)
+        
+        # Load label for this specific class variant
+        id0_str = f"{g['id0']:02X}"
+        label = get_caller_label(self.label_db, g["char"], id0_str, cls)
         self.label_entry.delete(0, tk.END)
-        self.label_entry.insert(0, g.get("label", "") or "")
-
+        self.label_entry.insert(0, label)
+        
+        # Load class override for this specific variant
+        key = make_class_key(g["slot"], g["char"], g["id0"], cls)
+        override = self.class_db.get(key)
         self.class_entry.delete(0, tk.END)
-        if g.get("class_override"):
-            self.class_entry.insert(0, g["class_override"])
+        if override:
+            self.class_entry.insert(0, override)
         else:
-            self.class_entry.insert(0, cls_eff)
+            self.class_entry.insert(0, cls)
 
     def on_save_label(self):
-        g = self._get_selected_group()
-        if not g:
-            messagebox.showerror("No selection", "Select a caller group first.")
+        item = self._get_selected_display_item()
+        if not item:
+            messagebox.showerror("No selection", "Select a caller entry first.")
             return
 
+        g = item["group"]
+        cls = item["class"]
         char_name = (g["char"] or "").strip()
         label_txt = self.label_entry.get().strip()
         id0_hex = f"{g['id0']:02X}"
 
-        g["label"] = label_txt
-
+        # Save with class suffix
         if char_name:
             ckey = _norm_char_key(char_name)
         else:
             ckey = "_generic"
 
         self.label_db.setdefault(ckey, {})
-        self.label_db[ckey][id0_hex] = label_txt
+        label_key = f"{id0_hex}|{cls}"
+        self.label_db[ckey][label_key] = label_txt
         save_label_db(self.label_db)
 
-        idx = self._get_selected_index()
-        if idx is not None:
-            self._populate_tree()
-            children = self.tree.get_children()
-            if 0 <= idx < len(children):
-                self.tree.selection_set(children[idx])
-                self.tree.see(children[idx])
-
+        self._populate_tree()
         messagebox.showinfo(
             "Saved label",
-            f"Saved label for "
-            f"{char_name if char_name else '(generic/UNMANAGED)'} "
-            f"ID0={id0_hex}: \"{label_txt}\"",
+            f"Saved label for {char_name if char_name else '(generic)'} "
+            f"ID0={id0_hex} Class={cls}: \"{label_txt}\"",
         )
 
     def on_save_class(self):
-        g = self._get_selected_group()
-        if not g:
-            messagebox.showerror("No selection", "Select a caller group first.")
+        item = self._get_selected_display_item()
+        if not item:
+            messagebox.showerror("No selection", "Select a caller entry first.")
             return
 
+        g = item["group"]
+        cls = item["class"]
+        
         raw_cls = self.class_entry.get().strip()
         if not raw_cls:
-            messagebox.showerror(
-                "Class empty",
-                "Enter a class value: A, B, Mixed, or ?.",
-            )
+            messagebox.showerror("Class empty", "Enter a class override: Anim, Full, or ?.")
             return
 
-        cls = raw_cls.strip()
-        # Normalize a bit
-        if cls.upper() in ("A", "B", "?"):
-            cls = cls.upper()
-        elif cls.lower() == "mixed":
-            cls = "Mixed"
-
-        # Accept only A, B, Mixed, or ?
-        if cls not in ("A", "B", "Mixed", "?"):
-            messagebox.showerror(
-                "Bad class",
-                "Class must be one of: A, B, Mixed, ? (case-insensitive).",
-            )
+        # Normalize input
+        new_cls_lower = raw_cls.strip().lower()
+        if new_cls_lower == "anim":
+            new_cls = "Anim"
+        elif new_cls_lower == "full":
+            new_cls = "Full"
+        elif new_cls_lower == "?":
+            new_cls = "?"
+        elif new_cls_lower == "mixed":
+            new_cls = "Mixed"
+        else:
+            messagebox.showerror("Bad class", "Class must be: Anim, Full, Mixed, or ?")
             return
 
-        g["class_override"] = cls
-        g["class"] = cls
-
-        key = make_class_key(g["slot"], g["char"], g["id0"])
-        self.class_db[key] = cls
+        key = make_class_key(g["slot"], g["char"], g["id0"], cls)
+        self.class_db[key] = new_cls
         save_class_db(self.class_db)
 
-        idx = self._get_selected_index()
-        if idx is not None:
-            self._populate_tree()
-            children = self.tree.get_children()
-            if 0 <= idx < len(children):
-                self.tree.selection_set(children[idx])
-                self.tree.see(children[idx])
-
+        self._populate_tree()
+        
         messagebox.showinfo(
-            "Saved class",
+            "Saved class override",
             f"Saved class override for "
             f"{g['slot']} {g['char'] or '(UNMANAGED)'} "
-            f"ID0={g['id0']:02X}: \"{cls}\"",
+            f"ID0={g['id0']:02X} Class={cls}: \"{new_cls}\"",
         )
 
     def on_rescan_slots(self):
