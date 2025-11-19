@@ -1,12 +1,41 @@
 #!/usr/bin/env python
 
+#
+# TvC Caller Pattern Labeler
+#
+# - Uses scan_normals_all.scan_once() to discover which slots/chars are active
+#   and to build approximate address ranges per slot (P1-C1, P1-C2, etc.).
+# - Within each slot range, scans RAM for the animation-call pattern:
+#
+#       01 XX 01 3C
+#
+#   where XX is the “ID” byte you care about.
+#
+# - Groups hits by (slot, character, ID0) = C-choice grouping:
+#       ( "P1-C1", "Ryu", 0x0D ) -> list of hit addresses
+#
+# - Shows them in a Tk GUI:
+#       Slot | Char | ID0 | Count | Addresses | Label | Bytes
+#
+# - Labels are stored in caller_labels.json at the tdp-modules root:
+#       {
+#         "_generic": { "0D": "Light Shoryu" },
+#         "ryu":      { "0D": "Light Shoryu" }
+#       }
+#
+#   You edit the Label column via a text box; it persists across runs.
+#
+
 import os
 import sys
-import struct
+import json
 import tkinter as tk
 from tkinter import ttk, messagebox
 
-# Allow imports from project root
+# ------------------------------------------------------------
+# Import from tdp-modules root
+# ------------------------------------------------------------
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -15,305 +44,492 @@ try:
     from dolphin_io import hook, rbytes, addr_in_ram
     import scan_normals_all
 except Exception as e:
-    print("Import failure:", e)
+    print("Import failure in caller pattern labeler:", e)
     sys.exit(1)
 
+CALLER_LABELS_JSON = os.path.join(ROOT, "caller_labels.json")
 
-# ================================================================
-# Memory Constants
-# ================================================================
-MEM1_START = 0x80000000
-MEM1_END   = 0x81800000
-
-MEM2_START = 0x90000000
-MEM2_END   = 0x94000000
-
-CHUNK_SIZE = 0x4000  # 16 KB chunks for scanning; good balance of speed / safety
+PATTERN_LEN = 4  # 01 XX 01 3C
 
 
-# ================================================================
-# Slot Range Builder
-# ================================================================
-def build_slot_ranges(scan_data):
+# ------------------------------------------------------------
+# Label DB helpers
+# ------------------------------------------------------------
+
+def load_label_db(path: str = CALLER_LABELS_JSON):
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_label_db(db, path: str = CALLER_LABELS_JSON):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(db, f, indent=2, sort_keys=True)
+    except Exception as e:
+        print("Failed to save caller label db:", e)
+
+
+def _norm_char_key(name: str) -> str:
+    name = (name or "").strip().lower()
+    for ch in (" ", "-", "_", "."):
+        name = name.replace(ch, "")
+    return name
+
+
+def get_caller_label(label_db, char_name: str, id0_hex: str) -> str:
     """
-    Uses scan_normals_all output to infer memory region per slot.
-    Each slot gets: (char_name, lo, hi) with ±0x4000 padding.
-    We clamp to MEM1/MEM2 bounds.
+    Per-character label, then _generic fallback.
+
+    label_db format:
+      {
+        "_generic": {"0D": "Light Shoryu", ...},
+        "ryu":      {"0D": "Light Shoryu", ...}
+      }
     """
-    ranges = {}
+    if not label_db:
+        return ""
+
+    generic = label_db.get("_generic", {})
+    ckey = _norm_char_key(char_name)
+    per_char = label_db.get(ckey, {}) if ckey else {}
+
+    # Try uppercase then lowercase
+    key_up = id0_hex.upper()
+    key_lo = id0_hex.lower()
+
+    return (
+        per_char.get(key_up)
+        or per_char.get(key_lo)
+        or generic.get(key_up)
+        or generic.get(key_lo)
+        or ""
+    )
+
+
+# ------------------------------------------------------------
+# Slot range builder (from scan_normals_all)
+# ------------------------------------------------------------
+
+def build_slot_ranges(scan_data, padding: int = 0x4000):
+    """
+    Build approximate address ranges per slot from scan_normals_all.scan_once():
+
+      {
+        "P1-C1": {"char": "Ryu", "lo": 0x908AAC30, "hi": 0x90908CEC},
+        ...
+      }
+
+    We just use min/max of the 'abs' fields per slot, padded a bit.
+    """
+    per_slot_addrs = {}   # slot_label -> [abs, abs, ...]
+    per_slot_char = {}    # slot_label -> char_name
+
     for slot_info in scan_data:
-        slot = slot_info.get("slot_label", "?")
-        char = slot_info.get("char_name", "")
-        bases = [mv.get("abs") for mv in slot_info.get("moves", []) if mv.get("abs")]
-        if not bases:
+        slot_label = slot_info.get("slot_label", "?")
+        char_name = (slot_info.get("char_name") or "").strip()
+
+        if slot_label not in per_slot_char:
+            per_slot_char[slot_label] = char_name
+
+        for mv in slot_info.get("moves", []):
+            base = mv.get("abs")
+            if base is None:
+                continue
+            if not addr_in_ram(base):
+                continue
+            per_slot_addrs.setdefault(slot_label, []).append(base)
+
+    slot_ranges = {}
+    for slot_label, addrs in per_slot_addrs.items():
+        if not addrs:
             continue
-        lo = min(bases) - 0x4000
-        hi = max(bases) + 0x4000
-
-        # Clamp into MEM1/MEM2 overall region
-        if lo < MEM1_START:
-            lo = MEM1_START
-        if hi > MEM2_END:
-            hi = MEM2_END
-
-        ranges[slot] = (char, lo, hi)
-    return ranges
-
-
-# ================================================================
-# Pattern Matching: Caller Pattern 01 XX 01 3C
-# ================================================================
-def scan_slots_for_callers(slot_ranges):
-    """
-    For each slot range (per-character region), scan for:
-        01 ?? 01 3C
-
-    slot_ranges: dict:
-        slot -> (char_name, lo, hi)
-
-    Returns dict:
-        {
-          slot_label: [
-              {
-                "slot": slot_label,
-                "char": char_name,
-                "abs": absolute address of match,
-                "id0": the XX byte,
-                "bytes": hex window around match
-              },
-              ...
-          ],
+        lo = min(addrs) - padding
+        hi = max(addrs) + padding
+        # We rely on dolphin_io.rbytes clamping to MEM1/MEM2 for edges.
+        slot_ranges[slot_label] = {
+            "char": per_slot_char.get(slot_label, ""),
+            "lo": lo,
+            "hi": hi,
         }
 
-    Sort order: Slot -> Char -> ID0 -> ABS
+    return slot_ranges
+
+
+# ------------------------------------------------------------
+# Scan per-slot ranges for 01 XX 01 3C
+# ------------------------------------------------------------
+
+def scan_slot_ranges_for_callers(slot_ranges, label_db):
     """
-    results = {slot_label: [] for slot_label in slot_ranges.keys()}
+    Scan each slot's [lo, hi) range for the pattern:
 
-    for slot_label, (char_name, lo, hi) in slot_ranges.items():
-        print(f"Scanning callers in {slot_label} [{lo:08X}, {hi:08X})...")
+        01 XX 01 3C
+
+    where XX is the byte we treat as the caller ID.
+
+    Returns:
+      groups: list of dicts, each:
+        {
+          "slot": "P1-C1",
+          "char": "Ryu",
+          "id0":  0x0D,
+          "addresses": [0x..., 0x..., ...],
+          "label": "Light Shoryu",   # from caller_labels.json, may be ""
+          "bytes": "hex context sample",
+        }
+      total_hits: total raw pattern hits before grouping
+    """
+    groups = {}
+    total_hits = 0
+
+    # pattern: 01 XX 01 3C with wildcard at index 1
+    def is_match(buf, i):
+        return (
+            buf[i] == 0x01 and
+            buf[i + 2] == 0x01 and
+            buf[i + 3] == 0x3C
+        )
+
+    for slot_label, info in slot_ranges.items():
+        char_name = info.get("char", "")
+        lo = info.get("lo")
+        hi = info.get("hi")
+
+        if lo is None or hi is None or lo >= hi:
+            continue
+
+        print(f"Scanning {slot_label} ({char_name}) range "
+              f"[0x{lo:08X}, 0x{hi:08X}) for 01 XX 01 3C...")
+
         addr = lo
-        # We overlap chunks by 3 bytes so a 4-byte pattern can't straddle the boundary undetected
-        while addr < hi:
-            size = min(CHUNK_SIZE, hi - addr)
-            chunk = rbytes(addr, size) or b""
-            n = len(chunk)
-            if n >= 4:
-                for i in range(n - 3):
-                    if (
-                        chunk[i] == 0x01 and
-                        chunk[i + 2] == 0x01 and
-                        chunk[i + 3] == 0x3C
-                    ):
-                        id_byte = chunk[i + 1]
-                        hit_addr = addr + i
-                        # Pull a context window around the match
-                        ctx_start = max(hit_addr - 8, lo)
-                        ctx_size = 32
-                        ctx = rbytes(ctx_start, ctx_size) or b""
-                        hexw = " ".join(f"{b:02X}" for b in ctx)
+        tail = b""
 
-                        results[slot_label].append({
+        while addr < hi:
+            # Small-ish chunk for responsiveness
+            chunk_size = 0x400
+            remaining = hi - addr
+            size = chunk_size if remaining > chunk_size else remaining
+            if size <= 0:
+                break
+
+            data = rbytes(addr, size)
+            if not data:
+                # If rbytes fails, move on
+                addr += size
+                tail = b""
+                continue
+
+            buf = tail + data
+            base_for_buf = addr - len(tail)
+
+            i = 0
+            n = len(buf)
+            # Need at least 4 bytes for the pattern
+            while i <= n - PATTERN_LEN:
+                if is_match(buf, i):
+                    id0 = buf[i + 1]
+                    hit_addr = base_for_buf + i
+                    total_hits += 1
+
+                    key = (slot_label, char_name, id0)
+                    g = groups.get(key)
+                    if g is None:
+                        id0_hex = f"{id0:02X}"
+                        label = get_caller_label(label_db, char_name, id0_hex)
+                        g = {
                             "slot": slot_label,
                             "char": char_name,
-                            "abs": hit_addr,
-                            "id0": id_byte,
-                            "bytes": hexw,
-                        })
+                            "id0": id0,
+                            "addresses": [],
+                            "label": label,
+                            "bytes": None,
+                        }
+                        groups[key] = g
 
-            # overlap by 3 bytes for safety
-            addr += max(1, CHUNK_SIZE - 3)
+                    g["addresses"].append(hit_addr)
 
-    # Sort each slot's list by Slot -> Char -> ID0 -> ABS
-    for slot_label, lst in results.items():
-        lst.sort(key=lambda x: (x["slot"], x["char"], x["id0"], x["abs"]))
+                    # Capture a context sample (first time for this group)
+                    if g["bytes"] is None:
+                        # try to grab a little before and after
+                        ctx_start = hit_addr - 8
+                        ctx_size = 32
+                        ctx = rbytes(ctx_start, ctx_size) or b""
+                        g["bytes"] = " ".join(f"{b:02X}" for b in ctx)
 
-    return results
+                    # Advance by 1 byte; overlapping matches are unlikely but cheap to allow
+                    i += 1
+                else:
+                    i += 1
 
+            # Preserve last 3 bytes as tail to catch patterns across chunk boundaries
+            if len(buf) >= PATTERN_LEN - 1:
+                tail = buf[-(PATTERN_LEN - 1):]
+            else:
+                tail = buf
 
-# ================================================================
-# House Blocks: 04 01 60
-# ================================================================
-MAGIC_HOUSE = b"\x04\x01\x60"
+            addr += size
 
-def scan_house_blocks(slot_ranges):
-    """
-    Scans, per slot range, for 04 01 60 blocks (house patterns).
+    # Flatten and sort
+    groups_list = list(groups.values())
+    groups_list.sort(
+        key=lambda g: (g["slot"], _norm_char_key(g["char"]), g["id0"])
+    )
 
-    Returns list of:
-    {
-      "slot": slot_label,
-      "char": char_name,
-      "abs": addr,
-      "bytes": hex string
-    }
-    """
-    results = []
-
-    for slot_label, (char_name, lo, hi) in slot_ranges.items():
-        print(f"Scanning house blocks in {slot_label} [{lo:08X}, {hi:08X})...")
-        addr = lo
-        # Overlap chunks a bit in case 04 01 60 is near boundary
-        while addr < hi:
-            size = min(CHUNK_SIZE, hi - addr)
-            chunk = rbytes(addr, size) or b""
-            n = len(chunk)
-            if n >= 3:
-                idx = 0
-                while True:
-                    pos = chunk.find(MAGIC_HOUSE, idx)
-                    if pos == -1:
-                        break
-                    hit_addr = addr + pos
-                    ctx = rbytes(hit_addr, 0x30) or b""
-                    hexw = " ".join(f"{b:02X}" for b in ctx)
-                    results.append({
-                        "slot": slot_label,
-                        "char": char_name,
-                        "abs": hit_addr,
-                        "bytes": hexw,
-                    })
-                    idx = pos + 1
-            addr += max(1, CHUNK_SIZE - 3)
-
-    results.sort(key=lambda h: (h["slot"], h["char"], h["abs"]))
-    return results
+    return groups_list, total_hits
 
 
-# ================================================================
+# ------------------------------------------------------------
 # GUI
-# ================================================================
-class MultiTabGUI:
-    def __init__(self, root, callers, scan_data, houses):
+# ------------------------------------------------------------
+
+class CallerLabelGUI:
+    def __init__(self, root, groups, label_db):
         self.root = root
-        self.root.title("TvC Multi Analyzer - Caller Blocks / scan_normals_all / House Blocks")
+        self.root.title("TvC Caller Pattern Labeler (01 XX 01 3C by slot/char/ID0)")
 
-        nb = ttk.Notebook(root)
-        nb.pack(fill="both", expand=True)
+        self.groups = groups  # list of group dicts
+        self.label_db = label_db
 
-        tab_callers = ttk.Frame(nb)
-        tab_scan    = ttk.Frame(nb)
-        tab_house   = ttk.Frame(nb)
+        main = ttk.Frame(root, padding=8)
+        main.pack(fill="both", expand=True)
 
-        nb.add(tab_callers, text="Caller Blocks (01 XX 01 3C)")
-        nb.add(tab_scan,    text="scan_normals_all")
-        nb.add(tab_house,   text="House Blocks (04 01 60)")
+        top = ttk.Frame(main)
+        top.grid(row=0, column=0, sticky="ew")
 
-        # --------------------------------
-        # TAB 1: Caller Blocks
-        # --------------------------------
-        cols = ("slot", "char", "abs", "id0", "bytes")
-        tr = ttk.Treeview(tab_callers, columns=cols, show="headings", height=28)
-        tr.pack(fill="both", expand=True)
+        ttk.Label(
+            top,
+            text=(
+                "Animation caller blocks found via 01 XX 01 3C pattern, grouped by (Slot, Char, ID0).\n"
+                "Edit labels per character + ID0; labels are stored in caller_labels.json at the tdp-modules root."
+            ),
+        ).grid(row=0, column=0, sticky="w")
 
-        for c in cols:
-            tr.heading(c, text=c)
-        tr.column("slot",  width=80)
-        tr.column("char",  width=140)
-        tr.column("abs",   width=120)
-        tr.column("id0",   width=50)
-        tr.column("bytes", width=800)
+        cols = ("slot", "char", "id0", "count", "addrs", "label", "bytes")
+        self.tree = ttk.Treeview(main, columns=cols, show="headings", height=26)
+        self.tree.grid(row=1, column=0, sticky="nsew", pady=(4, 4))
 
-        for slot_label, entries in callers.items():
-            for e in entries:
-                tr.insert(
-                    "",
-                    "end",
-                    values=(
-                        e["slot"],
-                        e["char"],
-                        f"0x{e['abs']:08X}",
-                        f"{e['id0']:02X}",
-                        e["bytes"],
-                    ),
-                )
+        vsb = ttk.Scrollbar(main, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=vsb.set)
+        vsb.grid(row=1, column=1, sticky="ns", pady=(4, 4))
 
-        # --------------------------------
-        # TAB 2: scan_normals_all
-        # --------------------------------
-        cols2 = ("slot", "char", "anim", "abs")
-        tr2 = ttk.Treeview(tab_scan, columns=cols2, show="headings", height=28)
-        tr2.pack(fill="both", expand=True)
+        self.tree.heading("slot", text="Slot")
+        self.tree.heading("char", text="Char")
+        self.tree.heading("id0", text="ID0 (hex)")
+        self.tree.heading("count", text="#Hits")
+        self.tree.heading("addrs", text="Addresses (caller pattern)")
+        self.tree.heading("label", text="Label")
+        self.tree.heading("bytes", text="Context bytes (sample)")
 
-        for c in cols2:
-            tr2.heading(c, text=c)
-        tr2.column("slot", width=80)
-        tr2.column("char", width=140)
-        tr2.column("anim", width=60)
-        tr2.column("abs",  width=120)
+        self.tree.column("slot", width=70, anchor="w")
+        self.tree.column("char", width=140, anchor="w")
+        self.tree.column("id0", width=70, anchor="center")
+        self.tree.column("count", width=60, anchor="center")
+        self.tree.column("addrs", width=260, anchor="w")
+        self.tree.column("label", width=260, anchor="w")
+        self.tree.column("bytes", width=420, anchor="w")
 
-        for slot_info in scan_data:
-            slot = slot_info.get("slot_label", "?")
-            char = slot_info.get("char_name", "")
-            for mv in slot_info.get("moves", []):
-                base = mv.get("abs")
-                anim = mv.get("id")
-                if base is None or anim is None:
-                    continue
-                tr2.insert(
-                    "",
-                    "end",
-                    values=(
-                        slot,
-                        char,
-                        f"{anim:02X}",
-                        f"0x{base:08X}",
-                    ),
-                )
+        bottom = ttk.Frame(main, padding=(0, 4, 0, 0))
+        bottom.grid(row=2, column=0, columnspan=2, sticky="ew")
 
-        # --------------------------------
-        # TAB 3: House Blocks
-        # --------------------------------
-        cols3 = ("slot", "char", "abs", "bytes")
-        tr3 = ttk.Treeview(tab_house, columns=cols3, show="headings", height=28)
-        tr3.pack(fill="both", expand=True)
+        ttk.Label(bottom, text="Selected Char:").grid(row=0, column=0, sticky="e")
+        self.sel_char_var = tk.StringVar(value="")
+        ttk.Label(bottom, textvariable=self.sel_char_var, width=16).grid(
+            row=0, column=1, sticky="w", padx=(4, 12)
+        )
 
-        for c in cols3:
-            tr3.heading(c, text=c)
-        tr3.column("slot",  width=80)
-        tr3.column("char",  width=140)
-        tr3.column("abs",   width=120)
-        tr3.column("bytes", width=800)
+        ttk.Label(bottom, text="ID0 (hex):").grid(row=0, column=2, sticky="e")
+        self.sel_id0_var = tk.StringVar(value="")
+        ttk.Label(bottom, textvariable=self.sel_id0_var, width=6).grid(
+            row=0, column=3, sticky="w", padx=(4, 12)
+        )
 
-        for h in houses:
-            tr3.insert(
+        ttk.Label(bottom, text="Hits:").grid(row=0, column=4, sticky="e")
+        self.sel_count_var = tk.StringVar(value="")
+        ttk.Label(bottom, textvariable=self.sel_count_var, width=6).grid(
+            row=0, column=5, sticky="w", padx=(4, 12)
+        )
+
+        ttk.Label(bottom, text="Addresses:").grid(row=1, column=0, sticky="e")
+        self.sel_addrs_var = tk.StringVar(value="")
+        ttk.Label(bottom, textvariable=self.sel_addrs_var, width=80).grid(
+            row=1, column=1, columnspan=5, sticky="w", padx=(4, 12)
+        )
+
+        ttk.Label(bottom, text="Label:").grid(row=2, column=0, sticky="e")
+        self.label_entry = ttk.Entry(bottom, width=60)
+        self.label_entry.grid(row=2, column=1, columnspan=4, sticky="w", padx=(4, 12))
+
+        self.save_btn = ttk.Button(bottom, text="Save Label", command=self.on_save_label)
+        self.save_btn.grid(row=2, column=5, padx=(4, 4))
+
+        self.rescan_btn = ttk.Button(bottom, text="Rescan", command=self.on_rescan)
+        self.rescan_btn.grid(row=2, column=6, padx=(4, 0))
+
+        main.rowconfigure(1, weight=1)
+        main.columnconfigure(0, weight=1)
+
+        self._populate_tree()
+        self.tree.bind("<<TreeviewSelect>>", self.on_select)
+
+    # ---------------- internal helpers ----------------
+
+    def _populate_tree(self):
+        self.tree.delete(*self.tree.get_children())
+        for g in self.groups:
+            slot = g["slot"]
+            char = g["char"]
+            id0 = g["id0"]
+            id0_str = f"{id0:02X}"
+            count = len(g["addresses"])
+            label = g.get("label", "") or ""
+            bytes_str = g.get("bytes", "") or ""
+
+            # Show up to a few addresses; you can still scroll the full string
+            addr_str = ", ".join(f"0x{a:08X}" for a in g["addresses"])
+
+            self.tree.insert(
                 "",
                 "end",
-                values=(
-                    h["slot"],
-                    h["char"],
-                    f"0x{h['abs']:08X}",
-                    h["bytes"],
-                ),
+                values=(slot, char, id0_str, count, addr_str, label, bytes_str),
             )
 
+    def _get_selected_index(self):
+        sel = self.tree.selection()
+        if not sel:
+            return None
+        iid = sel[0]
+        return self.tree.index(iid)
 
-# ================================================================
+    def _get_selected_group(self):
+        idx = self._get_selected_index()
+        if idx is None or idx < 0 or idx >= len(self.groups):
+            return None
+        return self.groups[idx]
+
+    # ---------------- event handlers ----------------
+
+    def on_select(self, event):
+        g = self._get_selected_group()
+        if not g:
+            self.sel_char_var.set("")
+            self.sel_id0_var.set("")
+            self.sel_count_var.set("")
+            self.sel_addrs_var.set("")
+            self.label_entry.delete(0, tk.END)
+            return
+
+        self.sel_char_var.set(g["char"])
+        self.sel_id0_var.set(f"{g['id0']:02X}")
+        self.sel_count_var.set(str(len(g["addresses"])))
+        self.sel_addrs_var.set(
+            ", ".join(f"0x{a:08X}" for a in g["addresses"])
+        )
+
+        self.label_entry.delete(0, tk.END)
+        self.label_entry.insert(0, g.get("label", "") or "")
+
+    def on_save_label(self):
+        g = self._get_selected_group()
+        if not g:
+            messagebox.showerror("No selection", "Select a caller group first.")
+            return
+
+        char_name = (g["char"] or "").strip()
+        if not char_name:
+            messagebox.showerror("No character", "Selected entry has no character name.")
+            return
+
+        label_txt = self.label_entry.get().strip()
+        id0_hex = f"{g['id0']:02X}"
+
+        # Update in-memory group
+        g["label"] = label_txt
+
+        # Update label DB
+        ckey = _norm_char_key(char_name)
+        self.label_db.setdefault(ckey, {})
+        self.label_db[ckey][id0_hex] = label_txt
+        save_label_db(self.label_db)
+
+        # Refresh tree row to show updated label
+        idx = self._get_selected_index()
+        if idx is not None:
+            self._populate_tree()
+            children = self.tree.get_children()
+            if 0 <= idx < len(children):
+                self.tree.selection_set(children[idx])
+                self.tree.see(children[idx])
+
+        messagebox.showinfo(
+            "Saved",
+            f"Saved label for {char_name}, ID0={id0_hex}: \"{label_txt}\"",
+        )
+
+    def on_rescan(self):
+        try:
+            print("Rescanning caller patterns...")
+            hook()
+            scan_data = scan_normals_all.scan_once()
+            slot_ranges = build_slot_ranges(scan_data)
+            new_label_db = load_label_db()
+            new_groups, total_hits = scan_slot_ranges_for_callers(slot_ranges, new_label_db)
+
+            self.groups = new_groups
+            self.label_db = new_label_db
+            self._populate_tree()
+
+            messagebox.showinfo(
+                "Rescan complete",
+                f"Total raw 01 XX 01 3C hits: {total_hits}\n"
+                f"Grouped entries: {len(self.groups)}",
+            )
+        except Exception as e:
+            messagebox.showerror("Rescan failed", str(e))
+
+
+# ------------------------------------------------------------
 # Main
-# ================================================================
+# ------------------------------------------------------------
+
 def main():
     print("Hooking Dolphin...")
     hook()
-    print("Hooked. Running scan_normals_all.scan_once()...")
+    print("Hooked. Running scan_normals_all.scan_once() to build slot ranges...")
 
     try:
         scan_data = scan_normals_all.scan_once()
     except Exception as e:
-        print("scan_once failed:", e)
+        print("scan_normals_all.scan_once() failed:", e)
         sys.exit(1)
 
     slot_ranges = build_slot_ranges(scan_data)
+    if not slot_ranges:
+        print("No slot ranges found; are you in a match?")
+        sys.exit(1)
+
     print("Slot ranges built:")
-    for s, (ch, lo, hi) in slot_ranges.items():
-        print(f"  {s}: {ch}  [{lo:08X}, {hi:08X})")
+    for slot_label, info in slot_ranges.items():
+        char_name = info.get("char", "")
+        lo = info.get("lo")
+        hi = info.get("hi")
+        print(f"  {slot_label}: {char_name}  [0x{lo:08X}, 0x{hi:08X})")
 
-    print("Scanning for caller blocks (01 XX 01 3C) within slot ranges...")
-    callers = scan_slots_for_callers(slot_ranges)
+    label_db = load_label_db()
 
-    print("Scanning for house blocks (04 01 60) within slot ranges...")
-    houses = scan_house_blocks(slot_ranges)
+    print("Scanning per-slot ranges for caller blocks (01 XX 01 3C)...")
+    groups, total_hits = scan_slot_ranges_for_callers(slot_ranges, label_db)
+
+    print(f"Total raw 01 XX 01 3C hits: {total_hits}")
+    print(f"Grouped caller entries (slot,char,ID0): {len(groups)}")
 
     root = tk.Tk()
-    MultiTabGUI(root, callers, scan_data, houses)
+    CallerLabelGUI(root, groups, label_db)
     root.mainloop()
 
 
