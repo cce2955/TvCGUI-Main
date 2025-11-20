@@ -211,11 +211,29 @@ def _pattern_match_anim(buf: bytes, i: int) -> bool:
 
 
 def _pattern_match_fulltrip(buf: bytes, i: int) -> bool:
-    # 01 XX 04 (3-byte header used by jump normals / full variants)
-    return (
-        buf[i] == 0x01 and
-        buf[i + 2] == 0x04
-    )
+    """
+    Full caller header:
+
+      Form A (no padding):  01 XX 04 ...
+      Form B (padded):      00 01 XX 04 ...
+
+    We match either one here; the scan loops will inspect the bytes to
+    decide where the opcode lives and which byte is the ID.
+    """
+    # Form A: 01 XX 04
+    if buf[i] == 0x01 and i + 2 < len(buf) and buf[i + 2] == 0x04:
+        return True
+
+    # Form B: 00 01 XX 04
+    if (
+        buf[i] == 0x00
+        and i + 3 < len(buf)
+        and buf[i + 1] == 0x01
+        and buf[i + 3] == 0x04
+    ):
+        return True
+
+    return False
 
 
 def classify_caller_addr(addr: int) -> str:
@@ -357,9 +375,18 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
                     handled = True
 
                 # 01 XX 04 (full variant header; used by jump normals etc.)
+                # 00 01 XX 04 (full variant header; used by jump normals etc.)
+               # Full variant header; used by jump normals etc.
                 if _pattern_match_fulltrip(buf, i):
-                    id0_full = buf[i + 1]
-                    hit_addr_full = base_for_buf + i
+                    # Decide which form we hit:
+                    if buf[i] == 0x01:
+                        # Form A: 01 XX 04 ...
+                        id0_full = buf[i + 1]
+                        hit_addr_full = base_for_buf + i        # opcode at i
+                    else:
+                        # Form B: 00 01 XX 04 ...
+                        id0_full = buf[i + 2]
+                        hit_addr_full = base_for_buf + i + 1    # opcode at i+1
 
                     key_full = (slot_label, char_name, id0_full)
                     g_full = groups.get(key_full)
@@ -392,6 +419,7 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
                         g_full["bytes"] = " ".join(f"{b:02X}" for b in ctx)
 
                     handled = True
+
 
                 i += 1 if handled else 1
 
@@ -427,7 +455,7 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
 def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
     """
     Global scan over MEM1 and MEM2 for:
-      01 XX 01 3C and 01 XX 04,
+      01 XX 01 3C and 01 XX 04 / 00 01 XX 04,
     excluding any hit that lies inside a known slot range.
     """
     managed_ranges = []
@@ -525,10 +553,16 @@ def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
 
                     handled = True
 
-                # 01 XX 04
+                # 01 XX 04 or 00 01 XX 04
                 if _pattern_match_fulltrip(buf, i):
-                    id0_full = buf[i + 1]
-                    hit_addr_full = base_for_buf + i
+                    if buf[i] == 0x01:
+                        # Form A: 01 XX 04 ...
+                        id0_full = buf[i + 1]
+                        hit_addr_full = base_for_buf + i
+                    else:
+                        # Form B: 00 01 XX 04 ...
+                        id0_full = buf[i + 2]
+                        hit_addr_full = base_for_buf + i + 1
 
                     if in_managed(hit_addr_full):
                         i += 1
@@ -686,8 +720,12 @@ class CallerLabelGUI:
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
     def _populate_tree(self):
+        # Clear existing rows
         self.tree.delete(*self.tree.get_children())
         self.display_items = []
+
+        # Build a flat list of rows: one for Anim, one for Full (if present)
+        rows = []
 
         for g in self.groups:
             slot = g["slot"]
@@ -705,32 +743,82 @@ class CallerLabelGUI:
             for addr, cls in zip(addresses, addr_classes):
                 if cls == "Anim" and first_anim is None:
                     first_anim = addr
-                if cls == "Full" and first_full is None:
+                elif cls == "Full" and first_full is None:
                     first_full = addr
-                if first_anim and first_full:
+
+                if first_anim is not None and first_full is not None:
                     break
 
             if first_anim is not None:
-                label_anim = get_caller_label(self.label_db, char, id0_str, "Anim")
-                self.tree.insert(
-                    "",
-                    "end",
-                    values=(slot, char, id0_str, "Anim", f"0x{first_anim:08X}", label_anim, bytes_str),
-                )
-                self.display_items.append(
-                    {"group": g, "class": "Anim", "address": first_anim}
-                )
+                rows.append({
+                    "slot": slot,
+                    "char": char,
+                    "id0": id0,
+                    "id0_str": id0_str,
+                    "cls": "Anim",
+                    "addr": first_anim,
+                    "bytes": bytes_str,
+                    "group": g,
+                })
 
             if first_full is not None:
-                label_full = get_caller_label(self.label_db, char, id0_str, "Full")
-                self.tree.insert(
-                    "",
-                    "end",
-                    values=(slot, char, id0_str, "Full", f"0x{first_full:08X}", label_full, bytes_str),
-                )
-                self.display_items.append(
-                    {"group": g, "class": "Full", "address": first_full}
-                )
+                rows.append({
+                    "slot": slot,
+                    "char": char,
+                    "id0": id0,
+                    "id0_str": id0_str,
+                    "cls": "Full",
+                    "addr": first_full,
+                    "bytes": bytes_str,
+                    "group": g,
+                })
+
+        # Sort: by slot, then Anim before Full, then char, then ID0
+        def cls_order(c):
+            if c == "Anim":
+                return 0
+            if c == "Full":
+                return 1
+            return 2
+
+        rows.sort(
+            key=lambda r: (
+                r["slot"],
+                cls_order(r["cls"]),
+                _norm_char_key(r["char"]),
+                r["id0"],
+            )
+        )
+
+        # Insert sorted rows into the tree and rebuild display_items
+        for r in rows:
+            slot = r["slot"]
+            char = r["char"]
+            id0_str = r["id0_str"]
+            cls = r["cls"]
+            addr = r["addr"]
+            bytes_str = r["bytes"]
+            g = r["group"]
+
+            label = get_caller_label(self.label_db, char, id0_str, cls)
+
+            self.tree.insert(
+                "",
+                "end",
+                values=(
+                    slot,
+                    char,
+                    id0_str,
+                    cls,
+                    f"0x{addr:08X}",
+                    label,
+                    bytes_str,
+                ),
+            )
+
+            self.display_items.append(
+                {"group": g, "class": cls, "address": addr}
+            )
 
     def _get_selected_display_item(self):
         sel = self.tree.selection()
