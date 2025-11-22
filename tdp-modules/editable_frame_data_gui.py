@@ -113,29 +113,26 @@ def _write_hit_reaction(mv, val) -> bool:
     if not WRITER_AVAILABLE:
         return False
 
-    # 1. If attack_property_addr exists, use normal writer
-    addr = mv.get("attack_property_addr")
-    if addr:
-        try:
-            from move_writer import write_hit_reaction
-            if write_hit_reaction(mv, val):
-                return True
-        except:
-            pass  # fall through to inline writer
+    # 1. If move_writer has a helper, let it try first
+    try:
+        from move_writer import write_hit_reaction
+        if write_hit_reaction(mv, val):
+            return True
+    except Exception:
+        pass  # fall through to direct write
 
-    # 2. Inline hit reaction write (pattern inside move block)
-    base = mv.get("abs")
-    if not base:
+    # 2. Direct write using the address found by scan_normals_all
+    addr = mv.get("hit_reaction_addr")
+    if not addr:
+        # Nothing tagged for this move
         return False
 
     try:
         from dolphin_io import wd8
-        # Hit reaction is 3 bytes sequential:
-        # 00 00 00
-        # Write little endian 00 00 01 etc
-        wd8(base + 0x24, (val >> 16) & 0xFF)
-        wd8(base + 0x25, (val >> 8) & 0xFF)
-        wd8(base + 0x26, val & 0xFF)
+        # Hit reaction is three sequential bytes: XX YY ZZ
+        wd8(addr + 0, (val >> 16) & 0xFF)
+        wd8(addr + 1, (val >> 8) & 0xFF)
+        wd8(addr + 2, val & 0xFF)
         return True
     except Exception as e:
         print(f"Inline hit reaction write failed: {e}")

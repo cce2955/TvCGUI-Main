@@ -13,6 +13,14 @@ from constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 TAIL_PATTERN = b"\x00\x00\x00\x38\x01\x33\x00\x00"
 CLUSTER_GAP = 0x4000
 CLUSTER_PAD_BACK = 0x400
+HITREACTION_HDR = [
+    0x04, 0x17, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
+    0x3F, 0x00, 0x00, 0x00, 0x80, 0x04, 0x2F, 0x00,
+    0x04, 0x15, 0x60, 0x00, 0x00, 0x00, 0x02, 0x40,
+    0x3F, 0x00, 0x00, 0x00,
+]
+HITREACTION_TOTAL_LEN = 33
+HITREACTION_CODE_OFF = len(HITREACTION_HDR)  # 28
 
 ANIM_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x01, 0xE8,
@@ -631,9 +639,15 @@ def scan_once():
 
             # hit reaction
             mv["hit_reaction"] = None
+            mv["hit_reaction_addr"] = None
             hrblk = pick_best_block(mv_abs, hitreact_blocks, HITREACTION_PAIR_RANGE)
             if hrblk:
                 mv["hit_reaction"] = hrblk[1]
+                # hrblk[0] = start of 04 17 60 ... header
+                # XX YY ZZ live immediately after that header
+                mv["hit_reaction_addr"] = hrblk[0] + HITREACTION_CODE_OFF
+
+
 
             # knockback
             mv["kb0"] = None
