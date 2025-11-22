@@ -1,6 +1,0 @@
-0x908B49C4  # Tatsu L
-0x908B5E48  # Shoryu L
-0x908B76A4  # Donkey L
-0x908B8194  # Donkey H
-0x908BD260  # Tatsu Super
-0x908C11B4  # ShinSho hitbox
