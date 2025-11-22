@@ -267,6 +267,7 @@
 520,0x13a,Ukifune,Kasha followup,Kasha followup,yes,10
 522,0x13a,Ukifune,Kasha followup,Kasha followup,yes,10
 
+013904
 
 # Ryu (ID: 12)
 304,0x130,Hado L,Hado L,Hado L,yes,12
@@ -658,7 +659,6 @@
 516,0x204,Giant Swing,Giant Swing,Giant Swing,yes,30
 
 # Global/System Flags
-161,0x1,j.C Ender,idle,idle,yes,100
 1,0x1,idle,idle,idle,yes,100
 2,0x1,Forward,Forward,Forward,yes,100
 3,0x1,backward,backward,backward,yes,100
@@ -686,12 +686,14 @@
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
 66,0x1,Hit Low,Hit Low,Hit Low,yes,100
+
 73,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
 73,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
 79,0x1,Stagger,knocked down (face down),knocked down (face down),yes,100
 80,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 81,0x1,Bounce Launched,W100 Bounce Launched,W100 Bounce Launched,yes,100
 82,0x1,Bounce Bounce off,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
+84,0x1,Stun (Giants),W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 89,0x1,Spiral Knockdown,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 90,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 91,0x1,Soft Knockdown,Hard Knockdown,Hard Knockdown,yes,100
@@ -701,6 +703,7 @@
 97,0x1,Launched,Launched,Launched,yes,100
 100,0x1,super jump,super jump,super jump,yes,100
 102,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
+103,0x1,Wakeup?,Hit Low,Hit Low,yes,100
 104,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
 105,0x1,OTG Hit (Face up),OTG Hit (Face up),OTG Hit (Face up),yes,100
 106,0x1,OTG Hit (Face Down),OTG Hit (Face Down),OTG Hit (Face Down),yes,100
@@ -709,9 +712,12 @@
 116,01x1,Roll Backwards,get up (face up),get up (face up),yes,100
 119,0x1,get up (face down),get up (face down),get up (face down),yes,100
 154,0x1,KO'd,Air Recovery,Air Recovery,yes,100
+155,0x1,KO in slow motion,Air Recovery,Air Recovery,yes,100
+158,0x1,KO in slow motion (Forward),Air Recovery,Air Recovery,yes,100
+159,0x1,Go invsible,Air Recovery,Air Recovery,yes,100
 160,0x1,Air Recovery,Air Recovery,Air Recovery,yes,100
 162,0x1,Baroque cancel?,Air Recovery,Air Recovery,yes,100
-
+167,0x1,Parry? wtf is this?,Air Recovery,Air Recovery,yes,100
 416,0x1,Tag Out,Tag Out,Tag Out,yes,100
 417,0x1,assist leave,assist leave,assist leave,yes,100
 418,0x1,Tag In,Tag In,Tag In,yes,100

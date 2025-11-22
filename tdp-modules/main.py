@@ -27,12 +27,15 @@ from moves import (
     move_label_for,
     CHAR_ID_CORRECTION,
 )
+from move_id_map import lookup_move_name 
+
 from hud_draw import (
     draw_panel_classic,
     draw_activity,
     draw_event_log,
     draw_scan_normals,
 )
+
 from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
 from events import log_engaged, log_hit, log_frame_advantage
@@ -500,17 +503,21 @@ def main():
             else:
                 snap["meter_str"] = "--"
 
-            # current anim / move label
             cur_anim = snap.get("attA") or snap.get("attB")
             char_name = snap.get("name")
             csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
 
-            
-            mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
+            # First try the new ID map CSV (decimal ID -> name, char-aware)
+            mv_label = lookup_move_name(cur_anim, csv_char_id)
+
+            # Fallback to your existing move_map / global_map system
+            if not mv_label:
+                mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
 
             snap["mv_label"] = mv_label
             snap["mv_id_display"] = cur_anim
             snap["csv_char_id"] = csv_char_id
+
 
             # track change
             prev_anim = last_move_anim_id.get(base)

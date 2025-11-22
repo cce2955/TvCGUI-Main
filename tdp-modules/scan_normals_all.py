@@ -38,7 +38,9 @@ SUPER_END_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x12, 0x18, 0x3F,
 ]
 
-ANIM_ID_PATTERN = [0x01, None, 0x01, 0x3C]
+
+ANIM_ID_PATTERN = [None, None, 0x01, 0x3C]
+
 LOOKAHEAD_AFTER_HDR = 0x80
 
 METER_HDR = [
@@ -145,11 +147,30 @@ def match_bytes(buf, pos, pat):
     return True
 
 def get_anim_id_after_hdr(buf, hdr_pos):
+    """
+    NEW: Extract 16-bit animation ID from pattern:
+        hi  lo  01  3C
+    """
     start = hdr_pos + len(ANIM_HDR)
     end = min(start + LOOKAHEAD_AFTER_HDR, len(buf))
-    for p in range(start, end - len(ANIM_ID_PATTERN) + 1):
+    pat_len = 4
+
+    for p in range(start, end - pat_len + 1):
         if match_bytes(buf, p, ANIM_ID_PATTERN):
-            return buf[p + 1]
+            hi = buf[p]
+            lo = buf[p + 1]
+            anim_id = (hi << 8) | lo
+
+            # Reject impossible IDs
+            if anim_id == 0:
+                continue
+            if anim_id < 0x0001:
+                continue
+            if anim_id > 0x0500: 
+                continue
+
+            return anim_id
+
     return None
 
 def find_all_tails(mem):

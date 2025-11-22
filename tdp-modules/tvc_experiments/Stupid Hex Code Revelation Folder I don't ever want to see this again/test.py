@@ -202,12 +202,16 @@ def build_slot_ranges(scan_data, padding: int = 0x4000):
 # ------------------------------------------------------------
 
 def _pattern_match_anim(buf: bytes, i: int) -> bool:
-    # 01 XX 01 3C
-    return (
-        buf[i] == 0x01 and
-        buf[i + 2] == 0x01 and
-        buf[i + 3] == 0x3C
-    )
+    """
+    Detects XX YY 01 3C pattern (full 16-bit animation ID)
+    but does NOT compute ID here — only returns True/False.
+    """
+    if i + 3 >= len(buf):
+        return False
+
+    # Match generic form: [hi] [lo] 01 3C
+    return buf[i+2] == 0x01 and buf[i+3] == 0x3C
+
 
 
 def _pattern_match_fulltrip(buf: bytes, i: int) -> bool:
@@ -334,7 +338,13 @@ def scan_slot_ranges_for_callers(slot_ranges, label_db, class_db):
 
                 # 01 XX 01 3C
                 if _pattern_match_anim(buf, i):
-                    id0 = buf[i + 1]
+                    hi = buf[i]
+                    lo = buf[i+1]
+                    id0 = (hi << 8) | lo
+                    if id0 == 0 or id0 < 0x0001 or id0 > 0x0500:
+                        i += 1
+                        continue
+
                     hit_addr = base_for_buf + i
                     total_hits += 1
 
@@ -508,7 +518,15 @@ def scan_unmanaged_for_callers(slot_ranges, label_db, class_db):
 
                 # 01 XX 01 3C
                 if _pattern_match_anim(buf, i):
-                    id0 = buf[i + 1]
+                    hi = buf[i]
+                    lo = buf[i+1]
+                    id0 = (hi << 8) | lo
+
+                    # Reject junk
+                    if id0 == 0 or id0 < 0x0001 or id0 > 0x0500:
+                        i += 1
+                        continue
+
                     hit_addr = base_for_buf + i
 
                     if in_managed(hit_addr):

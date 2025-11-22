@@ -1,7 +1,7 @@
-# hud_draw.py
 import pygame
 from config import COL_PANEL, COL_BORDER, COL_TEXT
 from events import event_log
+from move_id_map import lookup_move_name  # NEW
 
 try:
     from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
@@ -159,19 +159,33 @@ PREVIEW_MOVES_ORDERED = [
 def _normalize_move_name(aid, mv_dict):
     """
     Try to get a human name for this move.
-    1) use scan_normals_all map if aid is present
-    2) fallback to mv['name'] if present
-    3) fallback to "anim_XX"
+
+    Priority now:
+      1) move_id_map_charagnostic.csv via move_id_map.lookup_move_name()
+      2) scan_normals_all.ANIM_MAP (if present)
+      3) mv['name'] / mv['move_name'] / mv['anim_name']
+      4) "anim_XXXX" (4-digit hex, so 0x0160 shows as anim_0160)
     """
-    if aid is not None and aid in SCAN_ANIM_MAP:
-        return SCAN_ANIM_MAP[aid]
-    # some scanners store name / move_name / anim_name
+    if aid is not None:
+        # 1) ID map CSV
+        name = lookup_move_name(aid)
+        if name:
+            return name
+
+        # 2) scan_normals_all map
+        if aid in SCAN_ANIM_MAP:
+            return SCAN_ANIM_MAP[aid]
+
+    # 3) any name stored directly on the move record
     for key in ("name", "move_name", "anim_name"):
         if key in mv_dict and mv_dict[key]:
             return mv_dict[key]
+
+    # 4) hex fallback
     if aid is not None:
-        return f"anim_{aid:02X}"
+        return f"anim_{aid:04X}"  # anim_0160 style
     return "???"
+
 
 
 def draw_scan_normals(surface, rect, font, smallfont, scan_data):

@@ -249,12 +249,6 @@ def main():
         label_disp = (label[:25] + "...") if len(label) > 28 else label
         print(f"{slot:5s} {char:11s} {anim_hex:>5s} {id0_hex:>4s} {label_disp:27s} 0x{r['base']:08X}")
 
-        # optional: uncomment if you want to see the raw windows next to each
-        # ctrl_hex  = " ".join(f"{b:02X}" for b in r["ctrl_win"])
-        # house_hex = " ".join(f"{b:02X}" for b in r["house_win"])
-        # print(f"       ctrl : {ctrl_hex}")
-        # print(f"       house: {house_hex}")
-        # print()
-
+  
 if __name__ == "__main__":
     main()

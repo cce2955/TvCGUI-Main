@@ -13,6 +13,8 @@ import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 import threading
 import math
+from move_id_map import lookup_move_name
+from moves import CHAR_ID_CORRECTION
 
 WRITER_AVAILABLE = False
 try:
@@ -234,6 +236,46 @@ def _unfmt_stun(s):
     if val == 21:
         return 0x15
     return val
+def _pretty_move_name(aid, char_name=None):
+    """
+    Resolve a nice label for a move:
+
+      1) Try exact (anim_id, char_id) in move_id_map_charagnostic.csv
+      2) If that fails and id looks truncated (<0x100),
+         try 0x100 + aid, 0x200 + aid, 0x300 + aid for this char
+      3) Fallback to scan_normals_all.ANIM_MAP
+      4) Final fallback: 'anim_XXXX'
+    """
+    if aid is None:
+        return "anim_--"
+
+    # figure out char_id from the name, same way as the HUD
+    char_id = None
+    if char_name:
+        try:
+            char_id = CHAR_ID_CORRECTION.get(char_name, None)
+        except Exception:
+            char_id = None
+
+    # 1) exact ID from CSV
+    name = lookup_move_name(aid, char_id)
+    if name:
+        return name
+
+    # 2) repair truncated 0x60 style IDs → 0x0160, 0x0260, etc.
+    if aid < 0x100:
+        for high in (0x100, 0x200, 0x300):
+            name = lookup_move_name(aid + high, char_id)
+            if name:
+                return name
+
+    # 3) scanner's own map
+    name = _ANIM_MAP_FOR_GUI.get(aid)
+    if name:
+        return name
+
+    # 4) hex fallback
+    return f"anim_{aid:04X}"
 
 # ------------------------------------------------------------
 # main window
@@ -243,14 +285,30 @@ class EditableFrameDataWindow:
         self.slot_label = slot_label
         self.target_slot = target_slot
 
+        cname = self.target_slot.get("char_name")  # NEW
+
+        def _mv_sort_key(m):
+            aid = m.get("id")
+            # Group 0: normals (ID >= 0x100)
+            # Group 1: misc / system (ID < 0x100 but not None)
+            # Group 2: no ID at all
+            if aid is None:
+                group = 2
+                aid_val = 0xFFFF
+            else:
+                aid_val = aid
+                group = 0 if aid >= 0x100 else 1
+            return (
+                group,
+                aid_val,
+                m.get("abs", 0xFFFFFFFF),
+            )
+
         moves_sorted = sorted(
             target_slot.get("moves", []),
-            key=lambda m: (
-                m.get("id") is None,
-                m.get("id", 0xFFFF),
-                m.get("abs", 0xFFFFFFFF),
-            ),
+            key=_mv_sort_key,
         )
+
         seen_named = set()
         deduped = []
         for mv in moves_sorted:
@@ -258,7 +316,9 @@ class EditableFrameDataWindow:
             if aid is None:
                 deduped.append(mv)
                 continue
-            name = _ANIM_MAP_FOR_GUI.get(aid, f"anim_{aid:02X}")
+            name = _pretty_move_name(aid, cname)  # CHANGED
+
+            # treat only non-generic names as "named" for dedupe
             if not name.startswith("anim_") and "?" not in name:
                 if aid in seen_named:
                     continue
@@ -266,6 +326,7 @@ class EditableFrameDataWindow:
             deduped.append(mv)
 
         self.moves = deduped
+
         self.move_to_tree_item: dict[str, dict] = {}
         self.original_moves: dict[int, dict] = {}
 
@@ -341,11 +402,18 @@ class EditableFrameDataWindow:
         self.tree.column("kb", width=160, anchor="center")
         self.tree.column("hit_reaction", width=240, anchor="w")
         self.tree.column("abs", width=100, anchor="w")
-
+        cname = self.target_slot.get("char_name", "—")
+        
         # fill rows
         for mv in self.moves:
             aid = mv.get("id")
-            move_name = _ANIM_MAP_FOR_GUI.get(aid, f"anim_{aid:02X}") if aid is not None else "anim_--"
+            move_name = _pretty_move_name(aid, cname)
+
+            # Append the raw anim ID we are actually using so we can debug mapping.
+            # Example: "5A [0x0100]" or "idle [0x0001]"
+            if aid is not None:
+                move_name = f"{move_name} [0x{aid:04X}]"
+
 
             a_s = mv.get("active_start")
             a_e = mv.get("active_end")
