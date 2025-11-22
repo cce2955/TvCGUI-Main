@@ -270,6 +270,8 @@
 013904
 
 # Ryu (ID: 12)
+276,0x130,Donkey,Hado L,Hado L,yes,12
+277,0x130,Shoryu,Hado L,Hado L,yes,12
 304,0x130,Hado L,Hado L,Hado L,yes,12
 305,0x131,Hado M,Hado M,Hado M,yes,12
 306,0x132,Hado H,Hado H,Hado H,yes,12
@@ -379,6 +381,7 @@
 
 
 # Alex (ID: 16)
+272,0x130,Drop Kick,Flash Chop A,Flash Chop A,yes,16
 304,0x130,Flash Chop A,Flash Chop A,Flash Chop A,yes,16
 305,0x131,Flash Chop B,Flash Chop B,Flash Chop B,yes,16
 306,0x132,Flash Chop C,Flash Chop C,Flash Chop C,yes,16
@@ -683,6 +686,7 @@
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
 42,0x1,Win Pose,Intro Pose Anchor,Intro Pose Anchor,yes,100
 49,0x1,CrouchingBlock,Intro Pose Anchor,Intro Pose Anchor,yes,100
+61,0x1,Stunned,Standing Hitstun,Standing Hitstun,yes,100
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
 66,0x1,Hit Low,Hit Low,Hit Low,yes,100
@@ -717,7 +721,7 @@
 159,0x1,Go invsible,Air Recovery,Air Recovery,yes,100
 160,0x1,Air Recovery,Air Recovery,Air Recovery,yes,100
 162,0x1,Baroque cancel?,Air Recovery,Air Recovery,yes,100
-167,0x1,Parry? wtf is this?,Air Recovery,Air Recovery,yes,100
+167,0x1,Parry? what is this?,Air Recovery,Air Recovery,yes,100
 416,0x1,Tag Out,Tag Out,Tag Out,yes,100
 417,0x1,assist leave,assist leave,assist leave,yes,100
 418,0x1,Tag In,Tag In,Tag In,yes,100

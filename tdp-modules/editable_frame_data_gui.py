@@ -236,6 +236,7 @@ def _unfmt_stun(s):
     if val == 21:
         return 0x15
     return val
+
 def _pretty_move_name(aid, char_name=None):
     """
     Resolve a nice label for a move:
@@ -351,10 +352,11 @@ class EditableFrameDataWindow:
         frame = ttk.Frame(self.root)
         frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # Columns: advH/advB removed
+        # Columns: advH/advB removed, Active 2 added
         cols = (
             "move", "kind", "damage", "meter",
-            "startup", "active", "hitstun", "blockstun", "hitstop",
+            "startup", "active", "active_inline",
+            "hitstun", "blockstun", "hitstop",
             "hb_main",           # likely radius
             "hb",                # candidates summary
             "kb",
@@ -376,6 +378,7 @@ class EditableFrameDataWindow:
             ("meter", "Meter"),
             ("startup", "Start"),
             ("active", "Active"),
+            ("active_inline", "Active 2"),
             ("hitstun", "HS"),
             ("blockstun", "BS"),
             ("hitstop", "Stop"),
@@ -394,6 +397,7 @@ class EditableFrameDataWindow:
         self.tree.column("meter", width=55, anchor="center")
         self.tree.column("startup", width=55, anchor="center")
         self.tree.column("active", width=90, anchor="center")
+        self.tree.column("active_inline", width=90, anchor="center")
         self.tree.column("hitstun", width=45, anchor="center")
         self.tree.column("blockstun", width=45, anchor="center")
         self.tree.column("hitstop", width=50, anchor="center")
@@ -402,27 +406,41 @@ class EditableFrameDataWindow:
         self.tree.column("kb", width=160, anchor="center")
         self.tree.column("hit_reaction", width=240, anchor="w")
         self.tree.column("abs", width=100, anchor="w")
+
         cname = self.target_slot.get("char_name", "—")
-        
+
         # fill rows
         for mv in self.moves:
             aid = mv.get("id")
             move_name = _pretty_move_name(aid, cname)
 
-            # Append the raw anim ID we are actually using so we can debug mapping.
-            # Example: "5A [0x0100]" or "idle [0x0001]"
+            # Append the raw anim ID for debugging, e.g. "5A [0x0100]"
             if aid is not None:
                 move_name = f"{move_name} [0x{aid:04X}]"
 
-
+            # startup/active from main table
             a_s = mv.get("active_start")
             a_e = mv.get("active_end")
+            startup_txt = "" if a_s is None else str(a_s)
             if a_s is not None and a_e is not None:
                 active_txt = f"{a_s}-{a_e}"
-            elif a_e is not None:
-                active_txt = str(a_e)
             else:
                 active_txt = ""
+
+            # Active 2 / inline block: prefer active2_* from scanner,
+            # fall back to the per-move inline scan if present.
+            a2_s = mv.get("active2_start")
+            a2_e = mv.get("active2_end")
+            if a2_s is None and a2_e is None:
+                a2_s = mv.get("active_inline_start")
+                a2_e = mv.get("active_inline_end")
+
+            if a2_s is None and a2_e is None:
+                active2_txt = ""
+            elif a2_e is None:
+                active2_txt = str(a2_s)
+            else:
+                active2_txt = f"{a2_s}-{a2_e}"
 
             move_abs = mv.get("abs")
             hb_cands = []
@@ -464,8 +482,9 @@ class EditableFrameDataWindow:
                     mv.get("kind", ""),
                     "" if mv.get("damage") is None else str(mv.get("damage")),
                     "" if mv.get("meter") is None else str(mv.get("meter")),
-                    "" if a_s is None else str(a_s),
+                    startup_txt,
                     active_txt,
+                    active2_txt,
                     _fmt_stun(mv.get("hitstun")),
                     _fmt_stun(mv.get("blockstun")),
                     "" if mv.get("hitstop") is None else str(mv.get("hitstop")),

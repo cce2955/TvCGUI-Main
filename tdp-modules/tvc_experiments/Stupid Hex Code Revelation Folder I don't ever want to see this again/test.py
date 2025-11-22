@@ -201,16 +201,43 @@ def build_slot_ranges(scan_data, padding: int = 0x4000):
 # Shared pattern matchers + classifier
 # ------------------------------------------------------------
 
+PATTERN_LEN = 4  # still 4 bytes: [hi][lo][opcode][0x3C]
+
 def _pattern_match_anim(buf: bytes, i: int) -> bool:
     """
-    Detects XX YY 01 3C pattern (full 16-bit animation ID)
-    but does NOT compute ID here — only returns True/False.
+    Match XX YY 01 3C or XX YY 04 3C and treat XX YY as the 16-bit anim id.
+
+      buf[i+0] = hi
+      buf[i+1] = lo
+      buf[i+2] = 0x01 or 0x04
+      buf[i+3] = 0x3C
     """
+    # need 4 bytes
     if i + 3 >= len(buf):
         return False
 
-    # Match generic form: [hi] [lo] 01 3C
-    return buf[i+2] == 0x01 and buf[i+3] == 0x3C
+    # last byte must be 0x3C
+    if buf[i + 3] != 0x3C:
+        return False
+
+    # opcode byte must be 0x01 or 0x04
+    if buf[i + 2] not in (0x01, 0x04):
+        return False
+
+    hi = buf[i]
+    lo = buf[i + 1]
+    anim_id = (hi << 8) | lo
+
+    # reject obviously bogus IDs (tweak bounds as needed)
+    if anim_id == 0:
+        return False
+    if anim_id < 0x0001:
+        return False
+    if anim_id > 0x0500:   # nobody goes above 0x04xx in your tables
+        return False
+
+    return True
+
 
 
 
