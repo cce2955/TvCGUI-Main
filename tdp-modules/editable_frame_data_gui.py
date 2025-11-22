@@ -1,13 +1,9 @@
 # editable_frame_data_gui.py
 #
 # Frame Data Editor window for TvC HUD
-# - scans each move's memory block to collect ALL nonzero float-like hitbox values in the "house"
-# - shows a single "likely" hitbox value
-# - shows all candidates in a second column
-# - lets you edit EVERY one of those values
-# - supports reset-to-original
-# - integrates Knockback Trajectory & Hit Reaction helpers
-# - refactor: removed advH/advB columns
+# - Active 2 editing support added
+# - Right-click any column to jump to its address in memory
+# - Context menus for all editable fields
 
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
@@ -27,8 +23,7 @@ try:
         write_hitstop,
         write_knockback,
         write_hitbox_radius,
-        write_attack_property,  # used as fallback for hit reaction
-        # write_hit_reaction may or may not exist; we'll call via helper if present
+        write_attack_property,
     )
     WRITER_AVAILABLE = True
 except ImportError:
@@ -47,10 +42,6 @@ except Exception:
 HB_SCAN_MAX = 0x600
 FALLBACK_HB_OFFSET = 0x21C
 MIN_REAL_RADIUS = 5.0
-
-# ------------------------------------------------------------
-# Knockback trajectory / Hit reaction dictionaries + helpers
-# ------------------------------------------------------------
 
 # Knockback trajectory descriptions
 KB_TRAJ_MAP = {
@@ -106,12 +97,12 @@ def _parse_hit_reaction_input(s: str):
     s = s.strip()
     if not s:
         return None
-    # hex (with or without 0x)
+    # First try hex (with or without 0x)
     try:
         return int(s, 16) if s.lower().startswith("0x") else int(s, 16)
     except ValueError:
         pass
-    # decimal
+    # Then decimal
     try:
         return int(s, 10)
     except ValueError:
@@ -121,21 +112,58 @@ def _parse_hit_reaction_input(s: str):
 def _write_hit_reaction(mv, val) -> bool:
     if not WRITER_AVAILABLE:
         return False
-    # Try direct writer if present
-    try:
-        from move_writer import write_hit_reaction  # type: ignore
-        return bool(write_hit_reaction(mv, val))
-    except Exception:
-        pass
-    # Fallback property writer
-    try:
-        return bool(write_attack_property(mv, "hit_reaction", val))
-    except Exception:
+
+    # 1. If attack_property_addr exists, use normal writer
+    addr = mv.get("attack_property_addr")
+    if addr:
+        try:
+            from move_writer import write_hit_reaction
+            if write_hit_reaction(mv, val):
+                return True
+        except:
+            pass  # fall through to inline writer
+
+    # 2. Inline hit reaction write (pattern inside move block)
+    base = mv.get("abs")
+    if not base:
         return False
 
-# ------------------------------------------------------------
-# hitbox scan
-# ------------------------------------------------------------
+    try:
+        from dolphin_io import wd8
+        # Hit reaction is 3 bytes sequential:
+        # 00 00 00
+        # Write little endian 00 00 01 etc
+        wd8(base + 0x24, (val >> 16) & 0xFF)
+        wd8(base + 0x25, (val >> 8) & 0xFF)
+        wd8(base + 0x26, val & 0xFF)
+        return True
+    except Exception as e:
+        print(f"Inline hit reaction write failed: {e}")
+        return False
+
+
+def _write_active2_frames(mv, start, end) -> bool:
+    """Write Active 2 (inline active) frames to memory"""
+    if not WRITER_AVAILABLE:
+        return False
+    
+    addr = mv.get("active2_addr")
+    if not addr:
+        return False
+    
+    try:
+        from dolphin_io import wd8
+        # Write start frame at offset +4 from pattern start
+        if not wd8(addr + 4, start):
+            return False
+        # Write end frame at offset +16 from pattern start
+        if not wd8(addr + 16, end):
+            return False
+        return True
+    except Exception as e:
+        print(f"Failed to write active2 frames: {e}")
+        return False
+
 def _scan_hitbox_house(move_abs: int):
     """Scan move block for all valid floats."""
     if rdf32 is None or not move_abs:
@@ -150,23 +178,14 @@ def _scan_hitbox_house(move_abs: int):
             continue
         if f is None or not isinstance(f, (int, float)) or not math.isfinite(f):
             continue
-        if abs(f) < 1e-6:  # Skip near-zero
+        if abs(f) < 1e-6:
             continue
         candidates.append((off, float(f)))
 
     return candidates
 
-
 def _select_primary_from_candidates(cands: list[tuple[int, float]]):
-    """
-    Extract radius from candidates.
-
-    Heuristics (in order):
-    1. Single large poke (>=400) = radius
-    2. Largest value in realistic range [5.0, 42.0] = radius
-       (bones cluster around 0.5-3.0, so bigger = hitbox)
-    3. Last float in valid range as fallback
-    """
+    """Extract radius from candidates."""
     if not cands:
         return None, None
 
@@ -191,9 +210,7 @@ def _select_primary_from_candidates(cands: list[tuple[int, float]]):
         if MIN_REAL_RADIUS <= val <= MAX_REAL_RADIUS:
             return off, val
 
-    # Absolute fallback
     return cands[-1] if cands else (None, None)
-
 
 def _format_candidate_list(cands: list[tuple[int, float]], max_show: int = 4) -> str:
     parts = []
@@ -203,9 +220,6 @@ def _format_candidate_list(cands: list[tuple[int, float]], max_show: int = 4) ->
         parts.append("…")
     return " ".join(parts)
 
-# ------------------------------------------------------------
-# stun helpers
-# ------------------------------------------------------------
 def _fmt_stun(v):
     if v is None:
         return ""
@@ -238,19 +252,10 @@ def _unfmt_stun(s):
     return val
 
 def _pretty_move_name(aid, char_name=None):
-    """
-    Resolve a nice label for a move:
-
-      1) Try exact (anim_id, char_id) in move_id_map_charagnostic.csv
-      2) If that fails and id looks truncated (<0x100),
-         try 0x100 + aid, 0x200 + aid, 0x300 + aid for this char
-      3) Fallback to scan_normals_all.ANIM_MAP
-      4) Final fallback: 'anim_XXXX'
-    """
+    """Resolve a nice label for a move"""
     if aid is None:
         return "anim_--"
 
-    # figure out char_id from the name, same way as the HUD
     char_id = None
     if char_name:
         try:
@@ -258,57 +263,43 @@ def _pretty_move_name(aid, char_name=None):
         except Exception:
             char_id = None
 
-    # 1) exact ID from CSV
+    # Try exact ID from CSV
     name = lookup_move_name(aid, char_id)
     if name:
         return name
 
-    # 2) repair truncated 0x60 style IDs → 0x0160, 0x0260, etc.
+    # Repair truncated IDs
     if aid < 0x100:
         for high in (0x100, 0x200, 0x300):
             name = lookup_move_name(aid + high, char_id)
             if name:
                 return name
 
-    # 3) scanner's own map
+    # Scanner's own map
     name = _ANIM_MAP_FOR_GUI.get(aid)
     if name:
         return name
 
-    # 4) hex fallback
     return f"anim_{aid:04X}"
 
-# ------------------------------------------------------------
-# main window
-# ------------------------------------------------------------
 class EditableFrameDataWindow:
     def __init__(self, slot_label, target_slot):
         self.slot_label = slot_label
         self.target_slot = target_slot
 
-        cname = self.target_slot.get("char_name")  # NEW
+        cname = self.target_slot.get("char_name")
 
         def _mv_sort_key(m):
             aid = m.get("id")
-            # Group 0: normals (ID >= 0x100)
-            # Group 1: misc / system (ID < 0x100 but not None)
-            # Group 2: no ID at all
             if aid is None:
                 group = 2
                 aid_val = 0xFFFF
             else:
                 aid_val = aid
                 group = 0 if aid >= 0x100 else 1
-            return (
-                group,
-                aid_val,
-                m.get("abs", 0xFFFFFFFF),
-            )
+            return (group, aid_val, m.get("abs", 0xFFFFFFFF))
 
-        moves_sorted = sorted(
-            target_slot.get("moves", []),
-            key=_mv_sort_key,
-        )
+        moves_sorted = sorted(target_slot.get("moves", []), key=_mv_sort_key)
 
         seen_named = set()
         deduped = []
@@ -317,9 +308,8 @@ class EditableFrameDataWindow:
             if aid is None:
                 deduped.append(mv)
                 continue
-            name = _pretty_move_name(aid, cname)  # CHANGED
+            name = _pretty_move_name(aid, cname)
 
-            # treat only non-generic names as "named" for dedupe
             if not name.startswith("anim_") and "?" not in name:
                 if aid in seen_named:
                     continue
@@ -327,7 +317,6 @@ class EditableFrameDataWindow:
             deduped.append(mv)
 
         self.moves = deduped
-
         self.move_to_tree_item: dict[str, dict] = {}
         self.original_moves: dict[int, dict] = {}
 
@@ -343,7 +332,7 @@ class EditableFrameDataWindow:
         top.pack(side="top", fill="x", padx=5, pady=5)
 
         if WRITER_AVAILABLE:
-            tk.Label(top, text="Double-click to edit. Writes straight to Dolphin.", fg="blue").pack(side="left")
+            tk.Label(top, text="Double-click to edit. Right-click for address. Writes to Dolphin.", fg="blue").pack(side="left")
         else:
             tk.Label(top, text="WARNING: move_writer not found. Editing disabled!", fg="red").pack(side="left")
 
@@ -352,15 +341,12 @@ class EditableFrameDataWindow:
         frame = ttk.Frame(self.root)
         frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        # Columns: advH/advB removed, Active 2 added
         cols = (
             "move", "kind", "damage", "meter",
-            "startup", "active", "active_inline",
+            "startup", "active", "active2",
             "hitstun", "blockstun", "hitstop",
-            "hb_main",           # likely radius
-            "hb",                # candidates summary
-            "kb",
-            "hit_reaction",
+            "hb_main", "hb",
+            "kb", "hit_reaction",
             "abs",
         )
         self.tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
@@ -378,7 +364,7 @@ class EditableFrameDataWindow:
             ("meter", "Meter"),
             ("startup", "Start"),
             ("active", "Active"),
-            ("active_inline", "Active 2"),
+            ("active2", "Active 2"),
             ("hitstun", "HS"),
             ("blockstun", "BS"),
             ("hitstop", "Stop"),
@@ -388,8 +374,8 @@ class EditableFrameDataWindow:
             ("hit_reaction", "Hit Reaction"),
             ("abs", "Address"),
         ]
-        for c, t in headers:
-            self.tree.heading(c, text=t)
+        for c, txt in headers:
+            self.tree.heading(c, text=txt)
 
         self.tree.column("move", width=200, anchor="w")
         self.tree.column("kind", width=60, anchor="w")
@@ -397,7 +383,7 @@ class EditableFrameDataWindow:
         self.tree.column("meter", width=55, anchor="center")
         self.tree.column("startup", width=55, anchor="center")
         self.tree.column("active", width=90, anchor="center")
-        self.tree.column("active_inline", width=90, anchor="center")
+        self.tree.column("active2", width=90, anchor="center")
         self.tree.column("hitstun", width=45, anchor="center")
         self.tree.column("blockstun", width=45, anchor="center")
         self.tree.column("hitstop", width=50, anchor="center")
@@ -409,12 +395,11 @@ class EditableFrameDataWindow:
 
         cname = self.target_slot.get("char_name", "—")
 
-        # fill rows
+        # Fill rows
         for mv in self.moves:
             aid = mv.get("id")
             move_name = _pretty_move_name(aid, cname)
 
-            # Append the raw anim ID for debugging, e.g. "5A [0x0100]"
             if aid is not None:
                 move_name = f"{move_name} [0x{aid:04X}]"
 
@@ -427,14 +412,9 @@ class EditableFrameDataWindow:
             else:
                 active_txt = ""
 
-            # Active 2 / inline block: prefer active2_* from scanner,
-            # fall back to the per-move inline scan if present.
+            # Active 2
             a2_s = mv.get("active2_start")
             a2_e = mv.get("active2_end")
-            if a2_s is None and a2_e is None:
-                a2_s = mv.get("active_inline_start")
-                a2_e = mv.get("active_inline_end")
-
             if a2_s is None and a2_e is None:
                 active2_txt = ""
             elif a2_e is None:
@@ -504,6 +484,8 @@ class EditableFrameDataWindow:
                     "meter": mv.get("meter"),
                     "active_start": mv.get("active_start"),
                     "active_end": mv.get("active_end"),
+                    "active2_start": a2_s,
+                    "active2_end": a2_e,
                     "hitstun": mv.get("hitstun"),
                     "blockstun": mv.get("blockstun"),
                     "hitstop": mv.get("hitstop"),
@@ -519,7 +501,6 @@ class EditableFrameDataWindow:
         self.tree.bind("<Double-Button-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
 
-    # -------------------------------------------------------- reset
     def _reset_all_moves(self):
         if not WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
@@ -544,7 +525,7 @@ class EditableFrameDataWindow:
                     mv["damage"] = orig["damage"]
                     reset_count += 1
                 else:
-                    failed_writes.append(f"damage @ 0x{abs_addr:08X}: {mv.get('damage_addr')}")
+                    failed_writes.append(f"damage @ 0x{abs_addr:08X}")
 
             # meter
             if orig["meter"] is not None:
@@ -567,6 +548,22 @@ class EditableFrameDataWindow:
                     reset_count += 1
                 else:
                     failed_writes.append(f"active @ 0x{abs_addr:08X}")
+
+            # active2 frames
+            if orig["active2_start"] is not None and orig["active2_end"] is not None:
+                success = _write_active2_frames(mv, orig["active2_start"], orig["active2_end"])
+                if success:
+                    self.tree.set(
+                        item_id,
+                        "active2",
+                        f"{orig['active2_start']}-{orig['active2_end']}",
+                    )
+                    mv["active2_start"] = orig["active2_start"]
+                    mv["active2_end"] = orig["active2_end"]
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"active2 @ 0x{abs_addr:08X}")
+
 
             # hitstun
             if orig["hitstun"] is not None:
@@ -626,7 +623,7 @@ class EditableFrameDataWindow:
                 else:
                     failed_writes.append(f"hit_reaction @ 0x{abs_addr:08X}")
 
-            # hitbox - set offset BEFORE writing
+            # hitbox
             orig_val = orig.get("hb_r")
             orig_off = orig.get("hb_off")
             orig_cands = orig.get("hb_candidates") or []
@@ -639,9 +636,8 @@ class EditableFrameDataWindow:
                     self.tree.set(item_id, "hb_main", f"{orig_val:.1f}")
                     reset_count += 1
                 else:
-                    failed_writes.append(f"hitbox @ 0x{abs_addr:08X} (off=0x{orig_off:X})")
+                    failed_writes.append(f"hitbox @ 0x{abs_addr:08X}")
 
-            # Restore candidate list for display
             mv["hb_candidates"] = orig_cands
             self.tree.set(item_id, "hb", _format_candidate_list(orig_cands))
 
@@ -650,7 +646,6 @@ class EditableFrameDataWindow:
             msg += f"\n\nFailed writes:\n" + "\n".join(failed_writes[:10])
         messagebox.showinfo("Reset", msg)
 
-    # -------------------------------------------------------- tree events
     def _on_double_click(self, event):
         if not WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
@@ -681,6 +676,8 @@ class EditableFrameDataWindow:
             self._edit_startup(item, mv, current_val)
         elif col_name == "active":
             self._edit_active(item, mv, current_val)
+        elif col_name == "active2":
+            self._edit_active2(item, mv, current_val)
         elif col_name == "hitstun":
             self._edit_hitstun(item, mv, current_val)
         elif col_name == "blockstun":
@@ -696,12 +693,425 @@ class EditableFrameDataWindow:
         elif col_name == "hit_reaction":
             self._edit_hit_reaction(item, mv, current_val)
 
-    # -------------------------------------------------------- editors
+    def _on_right_click(self, event):
+        item = self.tree.identify_row(event.y)
+        column = self.tree.identify_column(event.x)
+        if not item or not column:
+            return
+        
+        mv = self.move_to_tree_item.get(item)
+        if not mv:
+            return
+
+        col_idx = int(column[1:]) - 1
+        col_name = self.tree["columns"][col_idx]
+
+        menu = tk.Menu(self.root, tearoff=0)
+
+        # Map columns to their address keys
+        addr_map = {
+            "damage": ("damage_addr", "Damage"),
+            "meter": ("meter_addr", "Meter"),
+            "active": ("active_addr", "Active"),
+            "active2": ("active2_addr", "Active 2"),
+            "hitstun": ("stun_addr", "Stun"),
+            "blockstun": ("stun_addr", "Stun"),
+            "hitstop": ("stun_addr", "Stun"),
+            "kb": ("knockback_addr", "Knockback"),
+            "hb_main": ("hb_off", "Hitbox"),
+            "hb": ("hb_off", "Hitbox"),
+            "abs": ("abs", "Move"),
+        }
+
+        if col_name in addr_map:
+            addr_key, label = addr_map[col_name]
+            addr = mv.get(addr_key)
+            
+            if addr_key == "hb_off":
+                # Hitbox offset is relative, need to add move base
+                move_abs = mv.get("abs")
+                if move_abs and addr is not None:
+                    addr = move_abs + addr
+            
+            if addr:
+                menu.add_command(
+                    label=f"Copy {label} Address (0x{addr:08X})",
+                    command=lambda: self._copy_address(addr),
+                )
+                menu.add_command(
+                    label=f"Go to {label} Address",
+                    command=lambda: self._show_address_info(addr, f"{label} @ 0x{addr:08X}"),
+                )
+            else:
+                menu.add_command(label=f"No {label} Address", state="disabled")
+
+        menu.add_separator()
+        menu.add_command(
+            label="View Raw Move Data",
+            command=lambda: self._show_raw_data(mv),
+        )
+
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _copy_address(self, addr):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(f"0x{addr:08X}")
+        messagebox.showinfo("Copied", f"0x{addr:08X} copied to clipboard")
+
+    def _show_address_info(self, addr, title):
+        """Show memory contents at address"""
+        try:
+            from dolphin_io import rbytes
+            data = rbytes(addr, 32)
+            if not data:
+                messagebox.showerror("Error", f"Failed to read memory at 0x{addr:08X}")
+                return
+            
+            dlg = tk.Toplevel(self.root)
+            dlg.title(title)
+            dlg.geometry("500x400")
+            
+            txt = tk.Text(dlg, wrap="none", font=("Courier", 10))
+            txt.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Format as hex dump
+            txt.insert("end", f"Memory at 0x{addr:08X}:\n\n")
+            for i in range(0, len(data), 16):
+                line_addr = addr + i
+                hex_part = " ".join(f"{b:02X}" for b in data[i:i+16])
+                ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in data[i:i+16])
+                txt.insert("end", f"{line_addr:08X}: {hex_part:<48} {ascii_part}\n")
+            
+            txt.config(state="disabled")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to read memory: {e}")
+
+    def _show_raw_data(self, mv):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Raw Move Data")
+        dlg.geometry("600x500")
+        
+        frame = tk.Frame(dlg)
+        frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        txt = tk.Text(frame, wrap="word", font=("Courier", 10))
+        vsb = tk.Scrollbar(frame, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=vsb.set)
+        txt.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+        
+        for k, v in sorted(mv.items()):
+            if k.endswith("_addr") and v:
+                txt.insert("end", f"{k}: 0x{v:08X}\n")
+            else:
+                txt.insert("end", f"{k}: {v}\n")
+        
+        txt.config(state="disabled")
+
+    # ========== EDITORS ==========
+
+    def _edit_active2(self, item, mv, current):
+        """Edit Active 2 (inline active) frames"""
+        current = current.strip()
+        if "-" in current:
+            parts = current.split("-")
+            try:
+                cur_s = int(parts[0])
+                cur_e = int(parts[1])
+            except ValueError:
+                cur_s, cur_e = 1, 1
+        else:
+            cur_s = mv.get("active2_start", 1)
+            cur_e = mv.get("active2_end", cur_s)
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Active 2 Frames")
+        dlg.geometry("320x180")
+
+        tk.Label(dlg, text="Active 2 Start Frame:", font=("Arial", 10)).pack(pady=3)
+        sv = tk.IntVar(value=cur_s)
+        tk.Entry(dlg, textvariable=sv, font=("Arial", 10)).pack()
+
+        tk.Label(dlg, text="Active 2 End Frame:", font=("Arial", 10)).pack(pady=3)
+        ev = tk.IntVar(value=cur_e)
+        tk.Entry(dlg, textvariable=ev, font=("Arial", 10)).pack()
+
+        addr = mv.get("active2_addr")
+        if addr:
+            tk.Label(dlg, text=f"Address: 0x{addr:08X}", fg="gray", font=("Arial", 9)).pack(pady=5)
+        else:
+            tk.Label(dlg, text="No address found", fg="red", font=("Arial", 9)).pack(pady=5)
+
+        def on_ok():
+            s = sv.get()
+            e = ev.get()
+            if e < s:
+                e = s
+            if _write_active2_frames(mv, s, e):
+                self.tree.set(item, "active2", f"{s}-{e}")
+                mv["active2_start"] = s
+                mv["active2_end"] = e
+                messagebox.showinfo("Success", f"Active 2 updated to {s}-{e}")
+            else:
+                messagebox.showerror("Error", "Failed to write Active 2 frames")
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok, font=("Arial", 10)).pack(pady=10)
+
+    def _edit_damage(self, item, mv, current):
+        try:
+            cur = int(current) if current else 0
+        except ValueError:
+            cur = 0
+        new_val = simpledialog.askinteger("Edit Damage", "New damage:", initialvalue=cur, minvalue=0, maxvalue=999999)
+        if new_val is not None and write_damage(mv, new_val):
+            self.tree.set(item, "damage", str(new_val))
+            mv["damage"] = new_val
+
+    def _edit_meter(self, item, mv, current):
+        try:
+            cur = int(current) if current else 0
+        except ValueError:
+            cur = 0
+        new_val = simpledialog.askinteger("Edit Meter", "New meter:", initialvalue=cur, minvalue=0, maxvalue=255)
+        if new_val is not None and write_meter(mv, new_val):
+            self.tree.set(item, "meter", str(new_val))
+            mv["meter"] = new_val
+
+    def _edit_startup(self, item, mv, current):
+        try:
+            cur = int(current) if current else 1
+        except ValueError:
+            cur = 1
+        new_val = simpledialog.askinteger("Edit Startup", "New startup frame:",
+                                          initialvalue=cur, minvalue=1, maxvalue=255)
+        if new_val is not None:
+            end = mv.get("active_end", new_val)
+            if end < new_val:
+                end = new_val
+            if write_active_frames(mv, new_val, end):
+                self.tree.set(item, "startup", str(new_val))
+                self.tree.set(item, "active", f"{new_val}-{end}")
+                mv["active_start"] = new_val
+                mv["active_end"] = end
+
+    def _edit_active(self, item, mv, current):
+        current = current.strip()
+        if "-" in current:
+            parts = current.split("-")
+            try:
+                cur_s = int(parts[0])
+                cur_e = int(parts[1])
+            except ValueError:
+                cur_s, cur_e = 1, 1
+        else:
+            cur_s = mv.get("active_start", 1)
+            cur_e = mv.get("active_end", cur_s)
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Active Frames")
+        dlg.geometry("260x150")
+
+        tk.Label(dlg, text="Active Start:").pack(pady=3)
+        sv = tk.IntVar(value=cur_s)
+        tk.Entry(dlg, textvariable=sv).pack()
+
+        tk.Label(dlg, text="Active End:").pack(pady=3)
+        ev = tk.IntVar(value=cur_e)
+        tk.Entry(dlg, textvariable=ev).pack()
+
+        def on_ok():
+            s = sv.get()
+            e = ev.get()
+            if e < s:
+                e = s
+            if write_active_frames(mv, s, e):
+                self.tree.set(item, "startup", str(s))
+                self.tree.set(item, "active", f"{s}-{e}")
+                mv["active_start"] = s
+                mv["active_end"] = e
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok).pack(pady=8)
+
+    def _edit_hitstun(self, item, mv, current):
+        cur = _unfmt_stun(current) if current else 0
+        new_val = simpledialog.askinteger("Edit Hitstun", "New hitstun:", initialvalue=cur, minvalue=0, maxvalue=255)
+        if new_val is not None and write_hitstun(mv, new_val):
+            self.tree.set(item, "hitstun", _fmt_stun(new_val))
+            mv["hitstun"] = new_val
+
+    def _edit_blockstun(self, item, mv, current):
+        cur = _unfmt_stun(current) if current else 0
+        new_val = simpledialog.askinteger("Edit Blockstun", "New blockstun:", initialvalue=cur, minvalue=0, maxvalue=255)
+        if new_val is not None and write_blockstun(mv, new_val):
+            self.tree.set(item, "blockstun", _fmt_stun(new_val))
+            mv["blockstun"] = new_val
+
+    def _edit_hitstop(self, item, mv, current):
+        try:
+            cur = int(current) if current else 0
+        except ValueError:
+            cur = 0
+        new_val = simpledialog.askinteger("Edit Hitstop", "New hitstop:", initialvalue=cur, minvalue=0, maxvalue=255)
+        if new_val is not None and write_hitstop(mv, new_val):
+            self.tree.set(item, "hitstop", str(new_val))
+            mv["hitstop"] = new_val
+
+    def _edit_knockback(self, item, mv, current):
+        cur_k0 = mv.get("kb0", 0) or 0
+        cur_k1 = mv.get("kb1", 0) or 0
+        cur_t = mv.get("kb_traj", 0) or 0
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Knockback")
+        dlg.geometry("400x300")
+
+        tk.Label(dlg, text="Knockback Editor", font=("Arial", 12, "bold")).pack(pady=5)
+
+        tk.Label(dlg, text="Knockback 0 (Vertical Distance):", justify="left").pack(anchor="w", padx=10)
+        k0v = tk.IntVar(value=cur_k0)
+        tk.Entry(dlg, textvariable=k0v, width=10).pack(anchor="w", padx=10)
+
+        tk.Label(dlg, text="Knockback 1 (Horizontal Distance):", justify="left").pack(anchor="w", padx=10, pady=(10, 0))
+        k1v = tk.IntVar(value=cur_k1)
+        tk.Entry(dlg, textvariable=k1v, width=10).pack(anchor="w", padx=10)
+
+        tk.Label(dlg, text="Trajectory (Angle):", justify="left").pack(anchor="w", padx=10, pady=(10, 0))
+        tk.Label(
+            dlg,
+            text="Common: 0xBD=Up Forward, 0xBE=Down Forward, 0xBC=Up, 0xC4=Pop",
+            font=("Arial", 9),
+            fg="gray",
+            justify="left",
+        ).pack(anchor="w", padx=10)
+        tv = tk.StringVar(value=f"0x{cur_t:02X}")
+        tk.Entry(dlg, textvariable=tv, width=10).pack(anchor="w", padx=10)
+
+        def on_ok():
+            try:
+                k0 = k0v.get()
+                k1 = k1v.get()
+                t_str = tv.get().strip()
+                t = int(t_str, 16) if t_str.lower().startswith("0x") else int(t_str, 16)
+            except (ValueError, AttributeError):
+                messagebox.showerror("Error", "Invalid knockback values")
+                return
+
+            if write_knockback(mv, k0, k1, t):
+                self.tree.set(item, "kb", f"K0:{k0} K1:{k1} {_fmt_kb_traj(t)}")
+                mv["kb0"] = k0
+                mv["kb1"] = k1
+                mv["kb_traj"] = t
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
+
+    def _edit_hit_reaction(self, item, mv, current):
+        cur_hr = mv.get("hit_reaction")
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Hit Reaction")
+        dlg.geometry("520x420")
+
+        tk.Label(dlg, text="Hit Reaction Type", font=("Arial", 12, "bold")).pack(pady=5)
+
+        if cur_hr is not None:
+            tk.Label(
+                dlg,
+                text=f"Current: {_fmt_hit_reaction(cur_hr)}",
+                fg="blue",
+                font=("Arial", 10),
+            ).pack(pady=3)
+
+        tk.Label(dlg, text="Common Reactions:", font=("Arial", 10, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
+
+        frame = tk.Frame(dlg)
+        frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+        scrollbar = tk.Scrollbar(frame)
+        scrollbar.pack(side="right", fill="y")
+
+        listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set)
+        scrollbar.config(command=listbox.yview)
+
+        # Expanded common set: all the ones you listed, in order
+        common_vals = [
+            0x000000,
+            0x000001,
+            0x000002,
+            0x000003,
+            0x000004,
+            0x000008,
+            0x000010,
+            0x000040,
+            0x000041,
+            0x000042,
+            0x000080,
+            0x000082,
+            0x000083,
+            0x000400,
+            0x000800,
+            0x000848,
+            0x002010,
+            0x003010,
+            0x004200,
+            0x800080,
+            0x800002,
+            0x800008,
+            0x800020,
+            0x800082,
+            0x001001,
+            0x001003,
+        ]
+
+        common = []
+        for val in common_vals:
+            desc = HIT_REACTION_MAP.get(val, "Unknown")
+            common.append((val, desc))
+
+        for val, desc in common:
+            listbox.insert("end", f"0x{val:06X}: {desc}")
+
+        listbox.pack(fill="both", expand=True)
+
+        selected_val = tk.IntVar(value=cur_hr or 0)
+
+        tk.Label(dlg, text="Or enter hex/decimal value:", font=("Arial", 10)).pack(anchor="w", padx=10, pady=(10, 0))
+        hex_entry = tk.Entry(dlg, width=20)
+        hex_entry.insert(0, f"0x{cur_hr:06X}" if cur_hr is not None else "0x000000")
+        hex_entry.pack(anchor="w", padx=10)
+
+        def on_select(_evt):
+            sel = listbox.curselection()
+            if sel:
+                val, _ = common[sel[0]]
+                selected_val.set(val)
+                # Also update the text box so pressing OK writes this one
+                hex_entry.delete(0, tk.END)
+                hex_entry.insert(0, f"0x{val:06X}")
+
+        listbox.bind("<<ListboxSelect>>", on_select)
+
+        def on_ok():
+            val = _parse_hit_reaction_input(hex_entry.get())
+            if val is None:
+                val = selected_val.get()
+
+            if _write_hit_reaction(mv, val):
+                self.tree.set(item, "hit_reaction", _fmt_hit_reaction(val))
+                mv["hit_reaction"] = val
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
+
     def _edit_hitbox_main(self, item, mv, current):
-        # edit just the primary
         cur_r = mv.get("hb_r")
         if cur_r is None:
-            # fall back to first candidate
             cands = mv.get("hb_candidates") or []
             if cands:
                 cur_r = cands[0][1]
@@ -713,14 +1123,12 @@ class EditableFrameDataWindow:
         if new_val is None:
             return
 
-        # write at stored offset
         if mv.get("hb_off") is None:
             mv["hb_off"] = FALLBACK_HB_OFFSET
         if WRITER_AVAILABLE:
             write_hitbox_radius(mv, new_val)
 
         mv["hb_r"] = new_val
-        # also update candidate list's matching element if present
         cands = mv.get("hb_candidates") or []
         if cands:
             off0 = mv["hb_off"]
@@ -853,286 +1261,10 @@ class EditableFrameDataWindow:
 
         tk.Button(inner, text="OK", command=on_ok).grid(row=row, column=0, columnspan=3, pady=8)
 
-    def _edit_damage(self, item, mv, current):
-        try:
-            cur = int(current) if current else 0
-        except ValueError:
-            cur = 0
-        new_val = simpledialog.askinteger("Edit Damage", "New damage:", initialvalue=cur, minvalue=0, maxvalue=999999)
-        if new_val is not None and write_damage(mv, new_val):
-            self.tree.set(item, "damage", str(new_val))
-            mv["damage"] = new_val
-
-    def _edit_meter(self, item, mv, current):
-        try:
-            cur = int(current) if current else 0
-        except ValueError:
-            cur = 0
-        new_val = simpledialog.askinteger("Edit Meter", "New meter:", initialvalue=cur, minvalue=0, maxvalue=255)
-        if new_val is not None and write_meter(mv, new_val):
-            self.tree.set(item, "meter", str(new_val))
-            mv["meter"] = new_val
-
-    def _edit_startup(self, item, mv, current):
-        try:
-            cur = int(current) if current else 1
-        except ValueError:
-            cur = 1
-        new_val = simpledialog.askinteger("Edit Startup", "New startup frame:",
-                                          initialvalue=cur, minvalue=1, maxvalue=255)
-        if new_val is not None:
-            end = mv.get("active_end", new_val)
-            if end < new_val:
-                end = new_val
-            if write_active_frames(mv, new_val, end):
-                self.tree.set(item, "startup", str(new_val))
-                self.tree.set(item, "active", f"{new_val}-{end}")
-                mv["active_start"] = new_val
-                mv["active_end"] = end
-
-    def _edit_active(self, item, mv, current):
-        current = current.strip()
-        if "-" in current:
-            parts = current.split("-")
-            try:
-                cur_s = int(parts[0])
-                cur_e = int(parts[1])
-            except ValueError:
-                cur_s, cur_e = 1, 1
-        else:
-            cur_s = mv.get("active_start", 1)
-            cur_e = mv.get("active_end", cur_s)
-
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Edit Active Frames")
-        dlg.geometry("260x150")
-
-        tk.Label(dlg, text="Active Start:").pack(pady=3)
-        sv = tk.IntVar(value=cur_s)
-        tk.Entry(dlg, textvariable=sv).pack()
-
-        tk.Label(dlg, text="Active End:").pack(pady=3)
-        ev = tk.IntVar(value=cur_e)
-        tk.Entry(dlg, textvariable=ev).pack()
-
-        def on_ok():
-            s = sv.get()
-            e = ev.get()
-            if e < s:
-                e = s
-            if write_active_frames(mv, s, e):
-                self.tree.set(item, "startup", str(s))
-                self.tree.set(item, "active", f"{s}-{e}")
-                mv["active_start"] = s
-                mv["active_end"] = e
-            dlg.destroy()
-
-        tk.Button(dlg, text="OK", command=on_ok).pack(pady=8)
-
-    def _edit_hitstun(self, item, mv, current):
-        cur = _unfmt_stun(current) if current else 0
-        new_val = simpledialog.askinteger("Edit Hitstun", "New hitstun:", initialvalue=cur, minvalue=0, maxvalue=255)
-        if new_val is not None and write_hitstun(mv, new_val):
-            self.tree.set(item, "hitstun", _fmt_stun(new_val))
-            mv["hitstun"] = new_val
-
-    def _edit_blockstun(self, item, mv, current):
-        cur = _unfmt_stun(current) if current else 0
-        new_val = simpledialog.askinteger("Edit Blockstun", "New blockstun:", initialvalue=cur, minvalue=0, maxvalue=255)
-        if new_val is not None and write_blockstun(mv, new_val):
-            self.tree.set(item, "blockstun", _fmt_stun(new_val))
-            mv["blockstun"] = new_val
-
-    def _edit_hitstop(self, item, mv, current):
-        try:
-            cur = int(current) if current else 0
-        except ValueError:
-            cur = 0
-        new_val = simpledialog.askinteger("Edit Hitstop", "New hitstop:", initialvalue=cur, minvalue=0, maxvalue=255)
-        if new_val is not None and write_hitstop(mv, new_val):
-            self.tree.set(item, "hitstop", str(new_val))
-            mv["hitstop"] = new_val
-
-    # -------- Knockback editor
-    def _edit_knockback(self, item, mv, current):
-        cur_k0 = mv.get("kb0", 0) or 0
-        cur_k1 = mv.get("kb1", 0) or 0
-        cur_t = mv.get("kb_traj", 0) or 0
-
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Edit Knockback")
-        dlg.geometry("400x300")
-
-        tk.Label(dlg, text="Knockback Editor", font=("Arial", 12, "bold")).pack(pady=5)
-
-        tk.Label(dlg, text="Knockback 0 (Vertical Distance):", justify="left").pack(anchor="w", padx=10)
-        k0v = tk.IntVar(value=cur_k0)
-        tk.Entry(dlg, textvariable=k0v, width=10).pack(anchor="w", padx=10)
-
-        tk.Label(dlg, text="Knockback 1 (Horizontal Distance):", justify="left").pack(anchor="w", padx=10, pady=(10, 0))
-        k1v = tk.IntVar(value=cur_k1)
-        tk.Entry(dlg, textvariable=k1v, width=10).pack(anchor="w", padx=10)
-
-        tk.Label(dlg, text="Trajectory (Angle):", justify="left").pack(anchor="w", padx=10, pady=(10, 0))
-        tk.Label(
-            dlg,
-            text="Common: 0xBD=Up Forward, 0xBE=Down Forward, 0xBC=Up, 0xC4=Pop",
-            font=("Arial", 9),
-            fg="gray",
-            justify="left",
-        ).pack(anchor="w", padx=10)
-        tv = tk.StringVar(value=f"0x{cur_t:02X}")
-        tk.Entry(dlg, textvariable=tv, width=10).pack(anchor="w", padx=10)
-
-        def on_ok():
-            try:
-                k0 = k0v.get()
-                k1 = k1v.get()
-                t_str = tv.get().strip()
-                t = int(t_str, 16) if t_str.lower().startswith("0x") else int(t_str, 16)
-            except (ValueError, AttributeError):
-                messagebox.showerror("Error", "Invalid knockback values")
-                return
-
-            if write_knockback(mv, k0, k1, t):
-                self.tree.set(item, "kb", f"K0:{k0} K1:{k1} {_fmt_kb_traj(t)}")
-                mv["kb0"] = k0
-                mv["kb1"] = k1
-                mv["kb_traj"] = t
-            dlg.destroy()
-
-        tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
-
-    # -------- Hit Reaction editor
-    def _edit_hit_reaction(self, item, mv, current):
-        cur_hr = mv.get("hit_reaction")
-
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Edit Hit Reaction")
-        dlg.geometry("520x420")
-
-        tk.Label(dlg, text="Hit Reaction Type", font=("Arial", 12, "bold")).pack(pady=5)
-
-        if cur_hr is not None:
-            tk.Label(
-                dlg,
-                text=f"Current: {_fmt_hit_reaction(cur_hr)}",
-                fg="blue",
-                font=("Arial", 10),
-            ).pack(pady=3)
-
-        tk.Label(dlg, text="Common Reactions:", font=("Arial", 10, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
-
-        frame = tk.Frame(dlg)
-        frame.pack(fill="both", expand=True, padx=10, pady=5)
-
-        scrollbar = tk.Scrollbar(frame)
-        scrollbar.pack(side="right", fill="y")
-
-        listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set)
-        scrollbar.config(command=listbox.yview)
-
-        common = [
-            (0x000000, "Stay on ground"),
-            (0x000001, "Ground/Air > KB"),
-            (0x000002, "Ground/Air > KD"),
-            (0x000003, "Ground/Air > Spiral KD"),
-            (0x000004, "Sweep"),
-            (0x000008, "Stagger"),
-            (0x000400, "Launcher"),
-            (0x800080, "Ground > Crumple, Air > KB"),
-            (0x800002, "Ground/Air > KD, Wall > Wallbounce"),
-        ]
-        for val, desc in common:
-            listbox.insert("end", f"0x{val:06X}: {desc}")
-
-        listbox.pack(fill="both", expand=True)
-
-        selected_val = tk.IntVar(value=cur_hr or 0)
-
-        def on_select(_evt):
-            sel = listbox.curselection()
-            if sel:
-                val, _ = common[sel[0]]
-                selected_val.set(val)
-
-        listbox.bind("<<ListboxSelect>>", on_select)
-
-        tk.Label(dlg, text="Or enter hex value:", font=("Arial", 10)).pack(anchor="w", padx=10, pady=(10, 0))
-        hex_entry = tk.Entry(dlg, width=15)
-        hex_entry.insert(0, f"0x{cur_hr:06X}" if cur_hr is not None else "0x000000")
-        hex_entry.pack(anchor="w", padx=10)
-
-        def on_ok():
-            val = _parse_hit_reaction_input(hex_entry.get())
-            if val is None:
-                val = selected_val.get()
-
-            if _write_hit_reaction(mv, val):
-                self.tree.set(item, "hit_reaction", _fmt_hit_reaction(val))
-                mv["hit_reaction"] = val
-            dlg.destroy()
-
-        tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
-
-    # --------------------------------------------------------
-    # right click
-    # --------------------------------------------------------
-    def _on_right_click(self, event):
-        item = self.tree.identify_row(event.y)
-        if not item:
-            return
-        mv = self.move_to_tree_item.get(item)
-        if not mv:
-            return
-
-        menu = tk.Menu(self.root, tearoff=0)
-        menu.add_command(
-            label=f"Copy Address (0x{mv.get('abs', 0):08X})",
-            command=lambda: self._copy_address(mv),
-        )
-        menu.add_command(
-            label="Edit Hitboxes…",
-            command=lambda m=mv, i=item: self._edit_hitbox(i, m, self.tree.set(i, "hb")),
-        )
-        menu.add_command(
-            label="Edit Knockback…",
-            command=lambda m=mv, i=item: self._edit_knockback(i, m, self.tree.set(i, "kb")),
-        )
-        menu.add_command(
-            label="Edit Hit Reaction…",
-            command=lambda m=mv, i=item: self._edit_hit_reaction(i, m, self.tree.set(i, "hit_reaction")),
-        )
-        menu.add_command(
-            label="View Raw Data",
-            command=lambda: self._show_raw_data(mv),
-        )
-        try:
-            menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
-
-    def _copy_address(self, mv):
-        addr = mv.get("abs", 0)
-        self.root.clipboard_clear()
-        self.root.clipboard_append(f"0x{addr:08X}")
-        messagebox.showinfo("Copied", f"0x{addr:08X} copied")
-
-    def _show_raw_data(self, mv):
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Raw Move Data")
-        txt = tk.Text(dlg, wrap="word")
-        txt.pack(fill="both", expand=True)
-        for k, v in mv.items():
-            txt.insert("end", f"{k}: {v}\n")
-        txt.config(state="disabled")
-
     def show(self):
         self.root.mainloop()
 
-# ------------------------------------------------------------
-# entry point
-# ------------------------------------------------------------
+
 def open_editable_frame_data_window(slot_label, scan_data):
     if not scan_data:
         return
