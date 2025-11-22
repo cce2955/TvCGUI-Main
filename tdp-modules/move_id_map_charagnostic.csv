@@ -176,7 +176,7 @@
 516,0x204,Doronjo Level 3,Doronjo Level 3,Doronjo Level 3,yes,6
 573,0x23f,Air Taunt,Taunt,Taunt,yes,6
 574,0x23f,Comfy Taunt,Taunt,Taunt,yes,6
-575,0x23f,Taunt,Taunt,Taunt,yes,6
+
 
 # Ippatsuman (ID: 7)
 304,0x130,Rainball A,rainb100 A,rainb100 A,yes,7
@@ -710,6 +710,8 @@
 119,0x1,get up (face down),get up (face down),get up (face down),yes,100
 154,0x1,KO'd,Air Recovery,Air Recovery,yes,100
 160,0x1,Air Recovery,Air Recovery,Air Recovery,yes,100
+162,0x1,Baroque cancel?,Air Recovery,Air Recovery,yes,100
+
 416,0x1,Tag Out,Tag Out,Tag Out,yes,100
 417,0x1,assist leave,assist leave,assist leave,yes,100
 418,0x1,Tag In,Tag In,Tag In,yes,100

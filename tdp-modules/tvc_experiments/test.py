@@ -720,11 +720,9 @@ class CallerLabelGUI:
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
     def _populate_tree(self):
-        # Clear existing rows
         self.tree.delete(*self.tree.get_children())
         self.display_items = []
 
-        # Build a flat list of rows: one for Anim, one for Full (if present)
         rows = []
 
         for g in self.groups:
@@ -743,82 +741,72 @@ class CallerLabelGUI:
             for addr, cls in zip(addresses, addr_classes):
                 if cls == "Anim" and first_anim is None:
                     first_anim = addr
-                elif cls == "Full" and first_full is None:
+                if cls == "Full" and first_full is None:
                     first_full = addr
-
                 if first_anim is not None and first_full is not None:
                     break
 
+            # Build row objects; we'll sort them after the loop
             if first_anim is not None:
-                rows.append({
-                    "slot": slot,
-                    "char": char,
-                    "id0": id0,
-                    "id0_str": id0_str,
-                    "cls": "Anim",
-                    "addr": first_anim,
-                    "bytes": bytes_str,
-                    "group": g,
-                })
+                label_anim = get_caller_label(self.label_db, char, id0_str, "Anim")
+                rows.append(
+                    {
+                        "slot": slot,
+                        "char": char,
+                        "id0": id0,
+                        "cls": "Anim",
+                        "addr": first_anim,
+                        "label": label_anim,
+                        "bytes": bytes_str,
+                    }
+                )
 
             if first_full is not None:
-                rows.append({
-                    "slot": slot,
-                    "char": char,
-                    "id0": id0,
-                    "id0_str": id0_str,
-                    "cls": "Full",
-                    "addr": first_full,
-                    "bytes": bytes_str,
-                    "group": g,
-                })
+                label_full = get_caller_label(self.label_db, char, id0_str, "Full")
+                rows.append(
+                    {
+                        "slot": slot,
+                        "char": char,
+                        "id0": id0,
+                        "cls": "Full",
+                        "addr": first_full,
+                        "label": label_full,
+                        "bytes": bytes_str,
+                    }
+                )
 
-        # Sort: by slot, then Anim before Full, then char, then ID0
-        def cls_order(c):
-            if c == "Anim":
+        # Class order: Anim first (0), then Full (1)
+        def _class_rank(cls: str) -> int:
+            if cls == "Anim":
                 return 0
-            if c == "Full":
+            if cls == "Full":
                 return 1
             return 2
 
-        rows.sort(
-            key=lambda r: (
-                r["slot"],
-                cls_order(r["cls"]),
-                _norm_char_key(r["char"]),
-                r["id0"],
-            )
-        )
+        rows.sort(key=lambda r: (r["slot"], _norm_char_key(r["char"]), _class_rank(r["cls"]), r["id0"]))
 
-        # Insert sorted rows into the tree and rebuild display_items
+        # Insert into tree and mirror in display_items for selection logic
         for r in rows:
-            slot = r["slot"]
-            char = r["char"]
-            id0_str = r["id0_str"]
-            cls = r["cls"]
-            addr = r["addr"]
-            bytes_str = r["bytes"]
-            g = r["group"]
-
-            label = get_caller_label(self.label_db, char, id0_str, cls)
-
-            self.tree.insert(
-                "",
-                "end",
-                values=(
-                    slot,
-                    char,
-                    id0_str,
-                    cls,
-                    f"0x{addr:08X}",
-                    label,
-                    bytes_str,
-                ),
+            values = (
+                r["slot"],
+                r["char"],
+                f"{r['id0']:02X}",
+                r["cls"],
+                f"0x{r['addr']:08X}",
+                r["label"],
+                r["bytes"],
             )
+            self.tree.insert("", "end", values=values)
+            # link back to the original group + class + address
+            # find the group object we came from by slot/char/id0
+            # (groups is small, so a simple scan is fine)
+            for g in self.groups:
+                if g["slot"] == r["slot"] and g["char"] == r["char"] and g["id0"] == r["id0"]:
+                    self.display_items.append(
+                        {"group": g, "class": r["cls"], "address": r["addr"]}
+                    )
+                    break
 
-            self.display_items.append(
-                {"group": g, "class": cls, "address": addr}
-            )
 
     def _get_selected_display_item(self):
         sel = self.tree.selection()
