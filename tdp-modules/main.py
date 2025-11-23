@@ -6,7 +6,7 @@ import threading
 
 import pygame
 
-from dolphin_io import hook, rd8, rd32
+from dolphin_io import hook, rd8, rd32, wd8
 from config import (
     MIN_HIT_DAMAGE,
     SCREEN_W, SCREEN_H,
@@ -16,7 +16,9 @@ from config import (
     PAIR_MAPPING_CSV,
     COL_BG,
     INPUT_MONITOR_ADDRS,
+    DEBUG_FLAG_ADDRS,
 )
+
 from constants import SLOTS
 from resolver import RESOLVER, pick_posy_off_no_jump
 from meter import read_meter, METER_CACHE
@@ -27,7 +29,7 @@ from moves import (
     move_label_for,
     CHAR_ID_CORRECTION,
 )
-from move_id_map import lookup_move_name 
+from move_id_map import lookup_move_name
 
 from hud_draw import (
     draw_panel_classic,
@@ -328,13 +330,17 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         )
 
     root.mainloop()
+
+
 def open_frame_data_window(slot_label, scan_data):
     """Open frame data window (now editable!)"""
     if HAVE_EDITABLE_GUI:
         open_editable_frame_data_window(slot_label, scan_data)
     else:
         print(f"Editable GUI not available for {slot_label}")
-'''
+"""
+Legacy version for reference:
+
 def open_frame_data_window(slot_label, scan_data):
     if not scan_data:
         return
@@ -351,7 +357,8 @@ def open_frame_data_window(slot_label, scan_data):
         daemon=True,
     )
     t.start()
-'''
+"""
+
 
 def compute_layout(w, h):
     pad = 10
@@ -373,7 +380,13 @@ def compute_layout(w, h):
 
     events_y = act_rect.bottom + 8
     events_h = 150
-    events_rect = pygame.Rect(pad, events_y, w - pad * 2, events_h)
+
+    # split row into left (events) and right (debug) halves
+    row_w = w - pad * 2
+    half_w = (row_w - gap_x) // 2
+
+    events_rect = pygame.Rect(pad, events_y, half_w, events_h)
+    debug_rect = pygame.Rect(pad + half_w + gap_x, events_y, half_w, events_h)
 
     scan_y = events_rect.bottom + 8
     scan_h = max(90, h - scan_y - pad)
@@ -386,8 +399,92 @@ def compute_layout(w, h):
         "p2c2": r_p2c2,
         "act": act_rect,
         "events": events_rect,
+        "debug": debug_rect,
         "scan": scan_rect,
     }
+
+
+def read_debug_flags():
+    """
+    Returns list of (label, addr, value) for the debug panel.
+    Using exact addresses discovered in memory:
+      - HypeTrigger @ 0x803FB9D9
+      - ComboStore[1] @ 0x803FB949
+      - SpecialPopup @ 0x803FBA69
+    """
+    out = []
+
+    # PauseOverlay
+    for label, addr in DEBUG_FLAG_ADDRS:
+        try:
+            val = rd8(addr)
+        except Exception:
+            val = None
+        out.append((label, addr, val))
+
+    # EXACT addresses you discovered
+    hype_addr = 0x803FB9D9
+    try:
+        hype_val = rd8(hype_addr)
+    except Exception:
+        hype_val = None
+    out.append(("HypeTrigger", hype_addr, hype_val))
+
+    combo1_addr = 0x803FB949
+    try:
+        combo1_val = rd8(combo1_addr)
+    except Exception:
+        combo1_val = None
+    out.append(("ComboStore[1]", combo1_addr, combo1_val))
+
+    sp_addr = 0x803FBA69
+    try:
+        sp_val = rd8(sp_addr)
+    except Exception:
+        sp_val = None
+    out.append(("SpecialPopup", sp_addr, sp_val))
+
+    return out
+
+def draw_debug_overlay(surface, rect, font, values):
+    """
+    Render the debug flag list inside a dedicated panel rectangle.
+    Returns a dict mapping label -> (pygame.Rect, addr)
+    (used for clickable 'debug actions').
+    """
+    # panel background + border
+    pygame.draw.rect(surface, COL_BG, rect, border_radius=4)
+    pygame.draw.rect(surface, (120, 120, 160), rect, 1, border_radius=4)
+
+    click_areas = {}
+
+    if not values:
+        return click_areas
+
+    x = rect.x + 8
+    y = rect.y + 32  # leave room for the button row
+
+    header = "Debug flags (rd8)"
+    surface.blit(font.render(header, True, (220, 220, 220)), (x, y))
+    y += 16
+
+    for label, addr, val in values:
+        if y > rect.bottom - 10:
+            break
+        if val is None:
+            vtxt = "--"
+        else:
+            vtxt = f"{val:02X}"
+        line = f"{label}: {vtxt} @0x{addr:08X}"
+        text_surf = font.render(line, True, (200, 200, 200))
+        surface.blit(text_surf, (x, y))
+
+        text_rect = text_surf.get_rect(topleft=(x, y))
+        click_areas[label] = (text_rect, addr)
+
+        y += 14
+
+    return click_areas
 
 
 def main():
@@ -438,6 +535,22 @@ def main():
     pending_hits = []
     frame_idx = 0
     running = True
+
+    # Debug overlay state
+    debug_overlay = False
+    debug_btn_rect = pygame.Rect(0, 0, 0, 0)
+    debug_click_areas = {}
+
+    # HypeTrigger timed restore state
+    hype_restore_addr = None
+    hype_restore_ts = 0.0
+    hype_restore_orig = 0
+
+    # SpecialPopup timed restore state
+    special_restore_addr = None
+    special_restore_ts = 0.0
+    special_restore_orig = 0
+
 
     while running:
         now = time.time()
@@ -518,7 +631,6 @@ def main():
             snap["mv_id_display"] = cur_anim
             snap["csv_char_id"] = csv_char_id
 
-
             # track change
             prev_anim = last_move_anim_id.get(base)
             if cur_anim and cur_anim != prev_anim:
@@ -561,8 +673,6 @@ def main():
             snap["baroque_red_amt"] = red_amt
             snap["baroque_red_pct_max"] = red_pct_max
 
-
-
             # inputs: now taken from config.INPUT_MONITOR_ADDRS
             if slotname == "P1-C1":
                 inputs_struct = {}
@@ -582,7 +692,9 @@ def main():
                 need_rescan_normals = True
 
             render_snap_by_slot[slotname] = snap
-            render_portrait_by_slot[slotname] = get_portrait_for_snap(snap, portraits, placeholder_portrait)
+            render_portrait_by_slot[slotname] = get_portrait_for_snap(
+                snap, portraits, placeholder_portrait
+            )
 
         # hit detection / event log (with move name)
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
@@ -624,7 +736,14 @@ def main():
                 dmg = hp_prev - hp_now
                 if dmg >= MIN_HIT_DAMAGE:
                     log_engaged(atk_snap, vic_snap, frame_idx)
-                    log_hit(atk_snap, vic_snap, dmg, frame_idx, atk_move_label, atk_move_id)
+                    log_hit(
+                        atk_snap,
+                        vic_snap,
+                        dmg,
+                        frame_idx,
+                        atk_move_label,
+                        atk_move_id,
+                    )
 
         # frame advantage
         if frame_idx % ADV_EVERY_FRAMES == 0:
@@ -651,8 +770,12 @@ def main():
             if freshest:
                 atk_b, vic_b, plusf, fin_frame = freshest
                 if abs(plusf) <= 64:
-                    atk_slot = next((s for s in snaps.values() if s["base"] == atk_b), None)
-                    vic_slot = next((s for s in snaps.values() if s["base"] == vic_b), None)
+                    atk_slot = next(
+                        (s for s in snaps.values() if s["base"] == atk_b), None
+                    )
+                    vic_slot = next(
+                        (s for s in snaps.values() if s["base"] == vic_b), None
+                    )
                     if atk_slot and vic_slot:
                         last_adv_display = (
                             f"{atk_slot['slotname']}({atk_slot['name']}) vs "
@@ -701,11 +824,27 @@ def main():
 
         def blit_panel_with_button(panel_rect, slot_label, alpha, header):
             snap = render_snap_by_slot.get(slot_label)
-            portrait = render_portrait_by_slot.get(slot_label, placeholder_portrait)
-            waiting = any((slot_label == s and kind in ("fadein", "fadeout")) for (s, kind) in anim_queue_after_scan)
+            portrait = render_portrait_by_slot.get(
+                slot_label, placeholder_portrait
+            )
+            waiting = any(
+                (slot_label == s and kind in ("fadein", "fadeout"))
+                for (s, kind) in anim_queue_after_scan
+            )
 
-            surf = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
-            draw_panel_classic(surf, surf.get_rect(), snap, portrait, font, smallfont, header, t_ms)
+            surf = pygame.Surface(
+                (panel_rect.width, panel_rect.height), pygame.SRCALPHA
+            )
+            draw_panel_classic(
+                surf,
+                surf.get_rect(),
+                snap,
+                portrait,
+                font,
+                smallfont,
+                header,
+                t_ms,
+            )
 
             # button
             btn_w, btn_h = 110, 20
@@ -722,17 +861,29 @@ def main():
                 border_col = (180, 180, 180)
 
             pygame.draw.rect(surf, base_col, btn_rect_local, border_radius=3)
-            pygame.draw.rect(surf, border_col, btn_rect_local, 1, border_radius=3)
-            label_surf = smallfont.render("Show frame data", True, (220, 220, 220))
+            pygame.draw.rect(
+                surf, border_col, btn_rect_local, 1, border_radius=3
+            )
+            label_surf = smallfont.render(
+                "Show frame data", True, (220, 220, 220)
+            )
             surf.blit(label_surf, (btn_x + 6, btn_y + 2))
 
             if flash_left > 0:
-                pygame.draw.rect(surf, (255, 255, 255), btn_rect_local.inflate(4, 4), 2, border_radius=4)
+                pygame.draw.rect(
+                    surf,
+                    (255, 255, 255),
+                    btn_rect_local.inflate(4, 4),
+                    2,
+                    border_radius=4,
+                )
 
             surf.set_alpha(255 if waiting else alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))
 
-            return pygame.Rect(panel_rect.x + btn_x, panel_rect.y + btn_y, btn_w, btn_h)
+            return pygame.Rect(
+                panel_rect.x + btn_x, panel_rect.y + btn_y, btn_w, btn_h
+            )
 
         btn_p1c1 = blit_panel_with_button(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
         btn_p2c1 = blit_panel_with_button(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
@@ -740,7 +891,38 @@ def main():
         btn_p2c2 = blit_panel_with_button(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
 
         draw_activity(screen, layout["act"], font, last_adv_display)
+
+        # left half: events
         draw_event_log(screen, layout["events"], font, smallfont)
+
+        # right half: debug panel
+        debug_rect = layout["debug"]
+
+        if debug_overlay:
+            dbg_values = read_debug_flags()
+        else:
+            dbg_values = []
+
+        debug_click_areas = draw_debug_overlay(
+            screen, debug_rect, smallfont, dbg_values
+        )
+
+        # draw the Debug ON/OFF button at top-left of debug panel
+        dbg_btn_w, dbg_btn_h = 120, 24
+        dbg_btn_x = debug_rect.x + 8
+        dbg_btn_y = debug_rect.y + 4
+        debug_btn_rect = pygame.Rect(dbg_btn_x, dbg_btn_y, dbg_btn_w, dbg_btn_h)
+
+        pygame.draw.rect(screen, (40, 40, 70), debug_btn_rect, border_radius=4)
+        pygame.draw.rect(
+            screen, (180, 180, 220), debug_btn_rect, 1, border_radius=4
+        )
+
+        btn_label = "Debug: ON" if debug_overlay else "Debug: OFF"
+        label_surf = smallfont.render(btn_label, True, (230, 230, 230))
+        screen.blit(label_surf, (dbg_btn_x + 6, dbg_btn_y + 4))
+
+        # scan panel at the bottom
         draw_scan_normals(screen, layout["scan"], font, smallfont, last_scan_normals)
 
         pygame.display.flip()
@@ -785,6 +967,69 @@ def main():
                 if data:
                     open_frame_data_window("P2-C2", data)
                 panel_btn_flash["P2-C2"] = PANEL_FLASH_FRAMES
+            elif debug_btn_rect and debug_btn_rect.collidepoint(mx, my):
+                # Toggle debug overlay on/off
+                debug_overlay = not debug_overlay
+            else:
+                # Clicks on individual debug flag lines
+
+                # PauseOverlay toggle: 00 <-> 01
+                entry = debug_click_areas.get("PauseOverlay")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        wd8(addr, 0x01 if cur == 0 else 0x00)
+
+                # HypeTrigger: write 0x40 then restore to default 0x45 after 2 seconds
+                entry = debug_click_areas.get("HypeTrigger")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        orig = rd8(addr)
+                        if orig == 0 or orig is None:
+                            orig = 0x45
+                        wd8(addr, 0x40)
+                        hype_restore_addr = addr
+                        hype_restore_orig = orig
+                        hype_restore_ts = now + 0.5
+
+                # ComboStore[1]: write 0x41 to pop the combo counter
+                entry = debug_click_areas.get("ComboStore[1]")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        wd8(addr, 0x41)
+
+                # SpecialPopup: write 0x40, then restore to original (default 0x45) after 0.5s
+                entry = debug_click_areas.get("SpecialPopup")
+                if entry:
+                    sp_rect, sp_addr = entry
+                    if sp_rect.collidepoint(mx, my):
+                        cur = rd8(sp_addr)
+                        if cur is None or cur == 0:
+                            cur = 0x45  # default "normal" value if we read 0
+                        special_restore_orig = cur
+                        wd8(sp_addr, 0x40)
+                        special_restore_addr = sp_addr
+                        special_restore_ts = now + 0.5
+
+
+        # HypeTrigger restore timer
+        if hype_restore_addr is not None and now >= hype_restore_ts:
+            try:
+                wd8(hype_restore_addr, hype_restore_orig)
+            except Exception:
+                pass
+            hype_restore_addr = None
+                # SpecialPopup restore timer
+        if special_restore_addr is not None and now >= special_restore_ts:
+            try:
+                wd8(special_restore_addr, special_restore_orig)
+            except Exception:
+                pass
+            special_restore_addr = None
+    
 
         # tick down flash
         for k in panel_btn_flash:

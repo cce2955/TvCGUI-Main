@@ -30,6 +30,27 @@ FONT_SMALL_SIZE = 14
 HIT_CSV             = "collisions.csv"
 GENERIC_MAPPING_CSV = "move_id_map_charagnostic.csv"
 PAIR_MAPPING_CSV    = "move_id_map_charpair.csv"
+# ------------------------------
+# Debug / presentation flags
+# ------------------------------
+# These are global UI / presentation toggles we want to watch live.
+# For now we only READ one byte from each and display it in the HUD.
+#
+# Notes from lab work:
+#   0x805610F0: pause controller (zeroing 0x18–0x24 disables pause)
+#   0x80561100: pause darken overlay (0x24 dims)
+#   0x805C78B0..0x805FAB70: big match/camera/announcer "director" blob
+#   0x803FB940..: combo popup store/trigger
+#   0x803FB950..: counter formatting/visibility
+#   0x803FB9E0..: hype word trigger
+#   0x803FBA70..: Baroque popup trigger
+#   0x803FBB80/0x803FBB90: super UI glow/superflash
+
+DEBUG_FLAG_ADDRS = [
+    ("PauseOverlay", 0x805610F0 + 0x1B),
+    ("PauseCtrl",    0x80561100 + 0x24),
+    ("Director",     0x805C78B0),
+]
 
 # ------------------------------
 # Colors / HUD helpers
