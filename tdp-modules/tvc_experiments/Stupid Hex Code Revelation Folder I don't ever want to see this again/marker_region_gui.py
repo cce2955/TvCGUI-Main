@@ -86,7 +86,7 @@ class RyuGroundScanGUI:
         ttk.Label(frm, text="Base address (hex):").grid(row=0, column=0, sticky="e")
         self.base_entry = ttk.Entry(frm, width=12)
         self.base_entry.grid(row=0, column=1, sticky="w")
-        # your observed Ryu region
+        
         self.base_entry.insert(0, "0x908AEDE8")
 
         ttk.Label(frm, text="Size (hex):").grid(row=1, column=0, sticky="e")

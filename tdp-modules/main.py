@@ -237,6 +237,7 @@ def safe_read_fighter(base, yoff):
         "hp_pool_byte": None,
     }
 
+
 class ScanNormalsWorker(threading.Thread):
     """Background worker so big MEM2 scans don't lag pygame."""
     def __init__(self):
@@ -547,9 +548,10 @@ def open_frame_data_window(slot_label, scan_data):
         t.start()
 
 
-def compute_layout(w, h):
+def compute_layout(w, h, snaps):
     """
     Compute all main HUD rects (panels, activity bar, events, debug, scan).
+    Adjusts layout when giants are detected (they have no partners).
     """
     pad = 10
     gap_x = 20
@@ -561,10 +563,26 @@ def compute_layout(w, h):
     row1_y = pad
     row2_y = row1_y + panel_h + gap_y
 
+    # Check for giants (IDs 11 = Gold Lightan, 22 = PTX-40A)
+    GIANT_IDS = {11, 22}
+    p1_is_giant = snaps.get("P1-C1", {}).get("id") in GIANT_IDS
+    p2_is_giant = snaps.get("P2-C1", {}).get("id") in GIANT_IDS
+
+    # Default positions
     r_p1c1 = pygame.Rect(pad, row1_y, panel_w, panel_h)
     r_p2c1 = pygame.Rect(pad + panel_w + gap_x, row1_y, panel_w, panel_h)
     r_p1c2 = pygame.Rect(pad, row2_y, panel_w, panel_h)
     r_p2c2 = pygame.Rect(pad + panel_w + gap_x, row2_y, panel_w, panel_h)
+
+    # If P1 is a giant, move P2-C1 down to row 2 (where P2-C2 would be)
+    if p1_is_giant:
+        r_p2c1 = pygame.Rect(pad + panel_w + gap_x, row2_y, panel_w, panel_h)
+        # P1-C2 stays in row 2 left but will be hidden/empty
+    
+    # If P2 is a giant, move P1-C1 stays top left, but adjust P1-C2 if needed
+    if p2_is_giant:
+        # P2-C1 stays top right, P2-C2 will be hidden/empty
+        pass
 
     act_rect = pygame.Rect(pad, r_p1c2.bottom + 30, w - pad * 2, 32)
 
@@ -591,9 +609,9 @@ def compute_layout(w, h):
         "events": events_rect,
         "debug": debug_rect,
         "scan": scan_rect,
+        "p1_is_giant": p1_is_giant,
+        "p2_is_giant": p2_is_giant,
     }
-
-
 def read_debug_flags():
     """
     Returns list of (label, addr, value) for the debug panel.
@@ -702,7 +720,89 @@ def draw_debug_overlay(surface, rect, font, values, scroll_offset):
 
     return click_areas, max_scroll
 
-
+def reassign_slots_for_giants(snaps):
+    """
+    When giants are present, the game loads 3 character tables instead of 4.
+    This function reassigns them to the correct logical slots.
+    
+    Rules:
+    - If P1-C1 is giant (11/22): other 2 chars go to P2-C1, P2-C2
+    - If P2-C1 is giant (11/22): other 2 chars go to P1-C1, P1-C2
+    - If both P1-C1 and P2-C1 are giants: just P1-C1, P2-C1
+    """
+    GIANT_IDS = {11, 22}
+    
+    # Get current slot assignments
+    p1c1 = snaps.get("P1-C1")
+    p1c2 = snaps.get("P1-C2")
+    p2c1 = snaps.get("P2-C1")
+    p2c2 = snaps.get("P2-C2")
+    
+    # Check which slots have giants
+    p1c1_is_giant = p1c1 and p1c1.get("id") in GIANT_IDS
+    p2c1_is_giant = p2c1 and p2c1.get("id") in GIANT_IDS
+    
+    # Case 1: Both are giants - no reassignment needed
+    if p1c1_is_giant and p2c1_is_giant:
+        # Remove any partner data
+        snaps.pop("P1-C2", None)
+        snaps.pop("P2-C2", None)
+        return snaps
+    
+    # Case 2: P1 is giant, P2 has a team
+    if p1c1_is_giant:
+        # P1-C2 should be empty, other slots should be P2 team
+        reassigned = {
+            "P1-C1": p1c1,
+        }
+        
+        # The other 2 non-giant characters go to P2-C1 and P2-C2
+        non_giant_chars = []
+        if p1c2 and p1c2.get("id") not in GIANT_IDS:
+            non_giant_chars.append(p1c2)
+        if p2c1 and p2c1.get("id") not in GIANT_IDS:
+            non_giant_chars.append(p2c1)
+        if p2c2 and p2c2.get("id") not in GIANT_IDS:
+            non_giant_chars.append(p2c2)
+        
+        # Assign them to P2 slots
+        if len(non_giant_chars) >= 1:
+            reassigned["P2-C1"] = non_giant_chars[0]
+            reassigned["P2-C1"]["slotname"] = "P2-C1"
+        if len(non_giant_chars) >= 2:
+            reassigned["P2-C2"] = non_giant_chars[1]
+            reassigned["P2-C2"]["slotname"] = "P2-C2"
+        
+        return reassigned
+    
+    # Case 3: P2 is giant, P1 has a team
+    if p2c1_is_giant:
+        # P2-C2 should be empty, other slots should be P1 team
+        reassigned = {
+            "P2-C1": p2c1,
+        }
+        
+        # The other 2 non-giant characters go to P1-C1 and P1-C2
+        non_giant_chars = []
+        if p1c1 and p1c1.get("id") not in GIANT_IDS:
+            non_giant_chars.append(p1c1)
+        if p1c2 and p1c2.get("id") not in GIANT_IDS:
+            non_giant_chars.append(p1c2)
+        if p2c2 and p2c2.get("id") not in GIANT_IDS:
+            non_giant_chars.append(p2c2)
+        
+        # Assign them to P1 slots
+        if len(non_giant_chars) >= 1:
+            reassigned["P1-C1"] = non_giant_chars[0]
+            reassigned["P1-C1"]["slotname"] = "P1-C1"
+        if len(non_giant_chars) >= 2:
+            reassigned["P1-C2"] = non_giant_chars[1]
+            reassigned["P1-C2"]["slotname"] = "P1-C2"
+        
+        return reassigned
+    
+    # Case 4: No giants - return as-is
+    return snaps
 def main():
     print("HUD: waiting for Dolphin…")
     hook()
@@ -950,8 +1050,8 @@ def main():
             render_portrait_by_slot[slotname] = get_portrait_for_snap(
                 snap, portraits, placeholder_portrait
             )
-
-        # hit detection / event log (with move name)
+        # Reassign slots when giants are present
+        snaps = reassign_slots_for_giants(snaps)  
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
             REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
             for vic_slot, vic_snap in snaps.items():
@@ -1045,7 +1145,8 @@ def main():
         # draw
         screen.fill(COL_BG)
         w, h = screen.get_size()
-        layout = compute_layout(w, h)
+        layout = compute_layout(w, h, snaps)
+
 
         def anim_rect_and_alpha(slot_label, base_rect):
             anim = panel_anim.get(slot_label)
@@ -1148,11 +1249,25 @@ def main():
                 panel_rect.x + btn_x, panel_rect.y + btn_y, btn_w, btn_h
             )
 
+
+
+
+
+        # Only draw panels that should be visible (skip giant partners)
         btn_p1c1 = blit_panel_with_button(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
         btn_p2c1 = blit_panel_with_button(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
-        btn_p1c2 = blit_panel_with_button(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
-        btn_p2c2 = blit_panel_with_button(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
-
+        
+        # Hide P1-C2 if P1 is a giant (check if P1-C2 slot has valid current data in snaps)
+        if not layout.get("p1_is_giant") and "P1-C2" in snaps:
+            btn_p1c2 = blit_panel_with_button(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
+        else:
+            btn_p1c2 = pygame.Rect(0, 0, 0, 0)
+        
+        # Hide P2-C2 if P2 is a giant (check if P2-C2 slot has valid current data in snaps)
+        if not layout.get("p2_is_giant") and "P2-C2" in snaps:
+            btn_p2c2 = blit_panel_with_button(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
+        else:
+            btn_p2c2 = pygame.Rect(0, 0, 0, 0)
         draw_activity(screen, layout["act"], font, last_adv_display)
 
         # left half: events

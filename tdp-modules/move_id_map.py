@@ -3,7 +3,7 @@
 # Loads move_id_map_charagnostic.csv and exposes a simple lookup:
 #   lookup_move_name(anim_id, char_id=None) -> "5A" / "j.C" / etc.
 #
-# CSV format (per your description):
+# CSV format :
 #   0: decimal move ID (canonical)
 #   1: hex move ID (often wrong; ignored)
 #   2: move name

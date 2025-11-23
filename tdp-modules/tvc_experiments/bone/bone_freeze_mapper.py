@@ -11,7 +11,7 @@
 #   python tvc_experiments/bone_freeze_mapper.py --start 0x92477400 --len 0x60 --value 1.0
 #
 # Notes:
-# - Requires dolphin_io.py in PYTHONPATH (same one you used for the other experiments).
+# - Requires dolphin_io.py in PYTHONPATH
 # - Writes are big-endian. We back up 4 bytes at each offset and restore after each hold.
 
 import argparse

@@ -55,7 +55,7 @@ def get_move_label(label_db, char_name: str, id0_hex: str) -> str:
     return per_char.get(id0_hex) or generic.get(id0_hex, "")
 
 # ---------------------------------------------------------------------
-# Control / house pattern helpers (copied from your scripts)
+# Control / house pattern helpers 
 # ---------------------------------------------------------------------
 
 def find_control_pattern(base: int, window_size: int = 0x80):
@@ -135,7 +135,7 @@ NORMAL_LABELS = {
 
 # ID0s that are almost always special/super/assist-ish.
 SPECIAL_ID0_HINTS = {
-    0x14,       # donkey / dash-ish you already marked
+    0x14,       # donkey / dash-ish 
     0x60, 0x61, # supers
     0x70,       # level 3
     0xA1, 0xA8, 0xA9, 0xAE, 0xBD, 0xBE,

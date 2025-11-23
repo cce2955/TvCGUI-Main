@@ -1,7 +1,7 @@
 # live_hp_probe.py
 import time
 from dolphin_io import hook, rd32
-from constants import SLOTS  # same SLOTS you use in the HUD
+from constants import SLOTS 
 
 OFF_CUR_HP = 0x28  # this is the field we think is live
 

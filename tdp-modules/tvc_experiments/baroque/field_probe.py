@@ -69,7 +69,7 @@ def main():
     ap = argparse.ArgumentParser(description="Field probe with multi-interpret decode")
     ap.add_argument("--base", required=True, type=lambda x:int(x,16), help="fighter_base (hex), e.g. 0x9246B9E0")
     ap.add_argument("--fields", default="+0x34:2,+0x36:2,+0x48:2,+0x50:2,+0x34:4,+0x48:4",
-                    help="comma list of +offset:size (hex ok). Defaults target your noted slots and their 4B pairs.")
+                    help="comma list of +offset:size (hex ok). Defaults target slots and their 4B pairs.")
     ap.add_argument("--hz", type=float, default=30.0, help="poll rate (default 30Hz)")
     ap.add_argument("--out", default=None, help="CSV path (auto if omitted)")
     args = ap.parse_args()

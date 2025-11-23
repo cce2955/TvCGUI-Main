@@ -218,7 +218,7 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         y += 14
 
         # build a dict of {normalized_name: move_dict} for quick lookup
-        # while keeping the first occurrence only (like you did before)
+        # while keeping the first occurrence only 
         name_to_mv = {}
         seen_ids = set()
         for mv in slot.get("moves", []):

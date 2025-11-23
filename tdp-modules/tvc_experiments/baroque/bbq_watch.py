@@ -82,7 +82,7 @@ def main():
             B_hi = ru16(B_hi_addr)
             B_lo = ru16(B_lo_addr)
 
-            # Treat each pair as a single u16 per your findings (A and B are per-index u16 “mirrors”)
+            # Treat each pair as a single u16  (A and B are per-index u16 “mirrors”)
             # We’ll read the HI slots (idx 11 and 15) as the primary values; LO slots printed for context.
             A = A_hi if A_hi is not None else 0
             B = B_hi if B_hi is not None else 0
@@ -100,7 +100,6 @@ def main():
             if isinstance(hp_cur, int) and isinstance(hp_max, int) and hp_max > 0:
                 hp_missing = max(0, hp_max - hp_cur)
                 # Many TvC builds use raw HP with different scaling; this stays raw as a comparable gauge.
-                # If you later confirm scaling (e.g., /256), apply it in HUD, not here.
                 red_est_hp = hp_missing
             else:
                 hp_missing = None

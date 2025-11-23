@@ -233,7 +233,7 @@ def _pattern_match_anim(buf: bytes, i: int) -> bool:
         return False
     if anim_id < 0x0001:
         return False
-    if anim_id > 0x0500:   # nobody goes above 0x04xx in your tables
+    if anim_id > 0x0500:   # nobody goes above 0x04xx 
         return False
 
     return True
