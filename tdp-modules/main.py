@@ -18,7 +18,22 @@ from config import (
     INPUT_MONITOR_ADDRS,
     DEBUG_FLAG_ADDRS,
 )
-from constants import SLOTS
+from constants import (
+    SLOTS,
+    CHAR_NAMES,
+    OFF_MAX_HP,
+    OFF_CUR_HP,
+    OFF_AUX_HP,
+    POSX_OFF,
+    OFF_CHAR_ID,
+    ATT_ID_OFF_PRIMARY,
+    ATT_ID_OFF_SECOND,
+    CTRL_WORD_OFF,
+    FLAG_062,
+    FLAG_063,
+    FLAG_072,
+)
+
 from resolver import RESOLVER, pick_posy_off_no_jump
 from meter import read_meter, METER_CACHE
 from fighter import read_fighter, dist2
@@ -146,6 +161,81 @@ def read_training_flags():
         out.append((label, addr, val))
     return out
 
+def safe_read_fighter(base, yoff):
+    """
+    Wrap read_fighter(base, yoff) but fall back to a generic reader when
+    read_fighter() returns None (e.g., giants like Gold Lightan / PTX).
+
+    Returns a fighter snapshot dict or None if the base is really bad.
+    """
+    # First try the original implementation.
+    snap = read_fighter(base, yoff)
+    if snap:
+        return snap
+
+    # DEBUG: If we got here, read_fighter failed
+    print(f"[safe_read_fighter] read_fighter failed for base=0x{base:08X}, trying fallback")
+
+    # Fallback path: read key fields directly by offsets.
+    try:
+        max_hp = rd32(base + OFF_MAX_HP)
+        cur_hp = rd32(base + OFF_CUR_HP)
+        aux_hp = rd32(base + OFF_AUX_HP)
+
+        pos_x = rd32(base + POSX_OFF)
+        pos_y = rd32(base + yoff)
+
+        attA = rd8(base + ATT_ID_OFF_PRIMARY)
+        attB = rd8(base + ATT_ID_OFF_SECOND)
+
+        ctrl = rd32(base + CTRL_WORD_OFF)
+
+        flag062 = rd8(base + FLAG_062)
+        flag063 = rd8(base + FLAG_063)
+        flag072 = rd8(base + FLAG_072)
+    except Exception as e:
+        print(f"[safe_read_fighter] Exception reading fields: {e}")
+        return None
+
+    # DEBUG: Print what we read
+    print(f"[safe_read_fighter] max_hp={max_hp} cur_hp={cur_hp}")
+
+    # Basic sanity: non-zero, not totally insane.
+    # Allow very large HP so giants don't get filtered out.
+    if max_hp <= 0 or max_hp > 1000000:
+        print(f"[safe_read_fighter] HP sanity check failed: max_hp={max_hp}")
+        return None
+
+    # Try to get character ID and name now (THIS IS THE FIX)
+    # Character ID is 32-bit, not 8-bit! (same as scan_normals_all.py)
+    try:
+        char_id = rd32(base + OFF_CHAR_ID)
+    except Exception:
+        char_id = None
+    
+    print(f"[safe_read_fighter] char_id={char_id}, name={CHAR_NAMES.get(char_id)}")
+    
+    char_name = "Unknown"
+    if char_id is not None and char_id != 0:
+        char_name = CHAR_NAMES.get(char_id, f"ID_{char_id}")
+    
+    return {
+        "max": max_hp,
+        "cur": cur_hp,
+        "aux": aux_hp,
+        "pos_x": pos_x,
+        "pos_y": pos_y,
+        "attA": attA,
+        "attB": attB,
+        "ctrl": ctrl,
+        "flag062": flag062,
+        "flag063": flag063,
+        "flag072": flag072,
+        "id": char_id,
+        "name": char_name,
+        # old HUD expects this key; we can leave it None for giants.
+        "hp_pool_byte": None,
+    }
 
 class ScanNormalsWorker(threading.Thread):
     """Background worker so big MEM2 scans don't lag pygame."""
@@ -746,12 +836,30 @@ def main():
                 continue
 
             yoff = y_off_by_base.get(base, 0xF4)
-            snap = read_fighter(base, yoff)
+            snap = safe_read_fighter(base, yoff)
             if not snap:
                 continue
 
+            # Always store base for downstream systems
+            snap["base"] = base
             snap["teamtag"] = teamtag
             snap["slotname"] = slotname
+
+            # True character ID from the fighter struct:
+            # base + OFF_CHAR_ID = 1-byte ID (Ryu=0x0C, Chun=0x0D, Lightan=0x0B, etc.)
+            try:
+                true_id = rd32(base + OFF_CHAR_ID)
+            except Exception:
+                true_id = None
+
+            if true_id not in (None, 0):
+                snap["id"] = true_id
+
+                # If we have a name for this ID, override whatever read_fighter gave us.
+                name_from_id = CHAR_NAMES.get(true_id)
+                print(f"[main] slot={slotname} base=0x{base:08X} true_id={true_id} name_from_id={name_from_id} current_name={snap.get('name')}")
+                if name_from_id:
+                    snap["name"] = name_from_id
 
             # meter display string
             if slotname == "P1-C1":
@@ -762,6 +870,8 @@ def main():
                 snap["meter_str"] = "--"
 
             cur_anim = snap.get("attA") or snap.get("attB")
+
+            # Use possibly updated name + ID now that we forced true_id in
             char_name = snap.get("name")
             csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
 
