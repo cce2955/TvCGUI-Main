@@ -5,6 +5,8 @@ import time
 import threading
 
 import pygame
+from training_flags import read_training_flags
+from debug_panel import read_debug_flags, draw_debug_overlay
 
 from dolphin_io import hook, rd8, rd32, wd8
 from config import (
@@ -84,82 +86,8 @@ PANEL_FLASH_FRAMES = 12
 HP32_OFF = 0x28
 POOL32_OFF = 0x2C
 
-# Training-mode / dummy control bytes (MEM1).
-# These constants are useful for any external GUI or scripts.
-TR_PAUSE_ADDR          = 0x803F562B
-TR_CPU_DIFFICULTY_ADDR = 0x803F5640
-TR_CPU_ACTION_ADDR     = 0x803F5643
-TR_GUARD_MODE_ADDR     = 0x803F564B
-TR_PUSHBLOCK_ADDR      = 0x803F564F
-TR_BAROQUE_PCT_ADDR    = 0x803F565B
-TR_ATTACK_DATA_ADDR    = 0x803F565F
-TR_THROW_TECH_ADDR     = 0x803F5663
-TR_DUMMY_METER_ADDR    = 0x803F566F
-TR_DAMAGE_OUTPUT_ADDR  = 0x803F5677
-TR_INPUT_DISPLAY_ADDR  = 0x803F567F
-TR_PLAYER_LIFE_ADDR    = 0x803F5683
-TR_PLAYER_METER_ADDR   = 0x803F5687
-TR_BAROQUE_MODE_ADDR   = 0x803F568B
 
 # Same addresses as a mapping used by the debug overlay
-TRAINING_FLAGS = {
-    # Global pause (training pause)
-    "TrPause":       TR_PAUSE_ADDR,          # 00 normal, 01 paused
-
-    # Dummy meter (CPU side)
-    "DummyMeter":    TR_DUMMY_METER_ADDR,    # 00 normal, 01 recovery, 02 infinite
-
-    # CPU action / behavior
-    "CpuAction":     TR_CPU_ACTION_ADDR,     # 00 stand, 01 crouch, 02 jump, 03 super jump, 04 CPU, 05 player
-
-    # CPU guard settings
-    "CpuGuard":      TR_GUARD_MODE_ADDR,     # 00 none, 01 auto guard, 02 guard all
-
-    # CPU pushblock
-    "CpuPushblock":  TR_PUSHBLOCK_ADDR,      # 00 off, 01 pushblock enabled
-
-    # CPU throw tech
-    "CpuThrowTech":  TR_THROW_TECH_ADDR,     # 00 off, 01 always tech
-
-    # Player meter (P1)
-    "P1Meter":       TR_PLAYER_METER_ADDR,   # 00 normal, 01 recovery, 02 infinite
-
-    # Player life
-    "P1Life":        TR_PLAYER_LIFE_ADDR,    # 00 normal, 01 infinite
-
-    # Free Baroque
-    "FreeBaroque":   TR_BAROQUE_MODE_ADDR,   # 00 normal, 01 free baroque
-
-    # Baroque percent (0x00..0x0A => 0..100% in 10% steps)
-    "BaroquePct":    TR_BAROQUE_PCT_ADDR,
-
-    # Attack data overlay
-    "AttackData":    TR_ATTACK_DATA_ADDR,    # 00 off, 01 on
-
-    # Input display overlay
-    "InputDisplay":  TR_INPUT_DISPLAY_ADDR,  # 00 off, 01 on
-
-    # CPU difficulty (8 levels, 0x00,0x20,...,0xE0)
-    "CpuDifficulty": TR_CPU_DIFFICULTY_ADDR, # default 0x20
-
-    # Damage scaling
-    "DamageOutput":  TR_DAMAGE_OUTPUT_ADDR,  # 00..03, default 01
-}
-
-
-def read_training_flags():
-    """
-    Read one byte from each training / dummy / display flag address.
-    Returns list of (label, addr, value).
-    """
-    out = []
-    for label, addr in TRAINING_FLAGS.items():
-        try:
-            val = rd8(addr)
-        except Exception:
-            val = None
-        out.append((label, addr, val))
-    return out
 
 def safe_read_fighter(base, yoff):
     """
@@ -612,113 +540,7 @@ def compute_layout(w, h, snaps):
         "p1_is_giant": p1_is_giant,
         "p2_is_giant": p2_is_giant,
     }
-def read_debug_flags():
-    """
-    Returns list of (label, addr, value) for the debug panel.
 
-    Uses config.DEBUG_FLAG_ADDRS plus the exact addresses:
-      - HypeTrigger   @ 0x803FB9D9
-      - ComboStore[1] @ 0x803FB949
-      - SpecialPopup  @ 0x803FBA69
-    """
-    out = []
-
-    # Base debug flags from config (PauseOverlay, PauseCtrl, Director, etc.)
-    for label, addr in DEBUG_FLAG_ADDRS:
-        try:
-            val = rd8(addr)
-        except Exception:
-            val = None
-        out.append((label, addr, val))
-
-    # Exact addresses you found in MEM1/MEM2
-    hype_addr = 0x803FB9D9
-    try:
-        hype_val = rd8(hype_addr)
-    except Exception:
-        hype_val = None
-    out.append(("HypeTrigger", hype_addr, hype_val))
-
-    combo1_addr = 0x803FB949
-    try:
-        combo1_val = rd8(combo1_addr)
-    except Exception:
-        combo1_val = None
-    out.append(("ComboStore[1]", combo1_addr, combo1_val))
-
-    sp_addr = 0x803FBA69
-    try:
-        sp_val = rd8(sp_addr)
-    except Exception:
-        sp_val = None
-    out.append(("SpecialPopup", sp_addr, sp_val))
-
-    return out
-
-
-def draw_debug_overlay(surface, rect, font, values, scroll_offset):
-    """
-    Render the debug flag list inside a dedicated panel rectangle.
-
-    scroll_offset: how many entries from 'values' to skip (for scrolling).
-
-    Returns:
-        click_areas: dict[label] -> (pygame.Rect, addr)
-        max_scroll: maximum allowed scroll_offset for current rect/values.
-    """
-    # panel background + border
-    pygame.draw.rect(surface, COL_BG, rect, border_radius=4)
-    pygame.draw.rect(surface, (120, 120, 160), rect, 1, border_radius=4)
-
-    click_areas = {}
-
-    # Header position
-    x = rect.x + 8
-    y = rect.y + 32  # leave room for the Debug ON/OFF button row
-
-    header = "Debug flags (rd8)"
-    surface.blit(font.render(header, True, (220, 220, 220)), (x, y))
-    y += 16
-
-    # No values -> no scrolling needed
-    if not values:
-        return click_areas, 0
-
-    line_height = 14
-    y_start = y
-    visible_px = (rect.bottom - 10) - y_start
-    max_visible = max(0, visible_px // line_height)
-
-    # Clamp scroll_offset to safe range
-    total = len(values)
-    max_scroll = max(0, total - max_visible)
-    if scroll_offset < 0:
-        scroll_offset = 0
-    elif scroll_offset > max_scroll:
-        scroll_offset = max_scroll
-
-    # Slice the list by scroll offset
-    visible_values = values[scroll_offset:scroll_offset + max_visible]
-
-    for label, addr, val in visible_values:
-        if y > rect.bottom - 10:
-            break
-
-        if val is None:
-            vtxt = "--"
-        else:
-            vtxt = f"{val:02X}"
-
-        line = f"{label}: {vtxt} @0x{addr:08X}"
-        text_surf = font.render(line, True, (200, 200, 200))
-        surface.blit(text_surf, (x, y))
-
-        text_rect = text_surf.get_rect(topleft=(x, y))
-        click_areas[label] = (text_rect, addr)
-
-        y += line_height
-
-    return click_areas, max_scroll
 
 def reassign_slots_for_giants(snaps):
     """
