@@ -18,7 +18,6 @@ from config import (
     INPUT_MONITOR_ADDRS,
     DEBUG_FLAG_ADDRS,
 )
-
 from constants import SLOTS
 from resolver import RESOLVER, pick_posy_off_no_jump
 from meter import read_meter, METER_CACHE
@@ -30,14 +29,12 @@ from moves import (
     CHAR_ID_CORRECTION,
 )
 from move_id_map import lookup_move_name
-
 from hud_draw import (
     draw_panel_classic,
     draw_activity,
     draw_event_log,
     draw_scan_normals,
 )
-
 from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
 from events import log_engaged, log_hit, log_frame_advantage
@@ -68,13 +65,90 @@ SCAN_MIN_INTERVAL_SEC = 180.0
 PANEL_SLIDE_DURATION = 0.35
 PANEL_FLASH_FRAMES = 12
 
-# offsets for "real" baroque
-HP32_OFF = 0x28   # your observed hp
-POOL32_OFF = 0x2C  # your observed pool
+# offsets for "real" baroque (relative to fighter base)
+HP32_OFF = 0x28
+POOL32_OFF = 0x2C
+
+# Training-mode / dummy control bytes (MEM1).
+# These constants are useful for any external GUI or scripts.
+TR_PAUSE_ADDR          = 0x803F562B
+TR_CPU_DIFFICULTY_ADDR = 0x803F5640
+TR_CPU_ACTION_ADDR     = 0x803F5643
+TR_GUARD_MODE_ADDR     = 0x803F564B
+TR_PUSHBLOCK_ADDR      = 0x803F564F
+TR_BAROQUE_PCT_ADDR    = 0x803F565B
+TR_ATTACK_DATA_ADDR    = 0x803F565F
+TR_THROW_TECH_ADDR     = 0x803F5663
+TR_DUMMY_METER_ADDR    = 0x803F566F
+TR_DAMAGE_OUTPUT_ADDR  = 0x803F5677
+TR_INPUT_DISPLAY_ADDR  = 0x803F567F
+TR_PLAYER_LIFE_ADDR    = 0x803F5683
+TR_PLAYER_METER_ADDR   = 0x803F5687
+TR_BAROQUE_MODE_ADDR   = 0x803F568B
+
+# Same addresses as a mapping used by the debug overlay
+TRAINING_FLAGS = {
+    # Global pause (training pause)
+    "TrPause":       TR_PAUSE_ADDR,          # 00 normal, 01 paused
+
+    # Dummy meter (CPU side)
+    "DummyMeter":    TR_DUMMY_METER_ADDR,    # 00 normal, 01 recovery, 02 infinite
+
+    # CPU action / behavior
+    "CpuAction":     TR_CPU_ACTION_ADDR,     # 00 stand, 01 crouch, 02 jump, 03 super jump, 04 CPU, 05 player
+
+    # CPU guard settings
+    "CpuGuard":      TR_GUARD_MODE_ADDR,     # 00 none, 01 auto guard, 02 guard all
+
+    # CPU pushblock
+    "CpuPushblock":  TR_PUSHBLOCK_ADDR,      # 00 off, 01 pushblock enabled
+
+    # CPU throw tech
+    "CpuThrowTech":  TR_THROW_TECH_ADDR,     # 00 off, 01 always tech
+
+    # Player meter (P1)
+    "P1Meter":       TR_PLAYER_METER_ADDR,   # 00 normal, 01 recovery, 02 infinite
+
+    # Player life
+    "P1Life":        TR_PLAYER_LIFE_ADDR,    # 00 normal, 01 infinite
+
+    # Free Baroque
+    "FreeBaroque":   TR_BAROQUE_MODE_ADDR,   # 00 normal, 01 free baroque
+
+    # Baroque percent (0x00..0x0A => 0..100% in 10% steps)
+    "BaroquePct":    TR_BAROQUE_PCT_ADDR,
+
+    # Attack data overlay
+    "AttackData":    TR_ATTACK_DATA_ADDR,    # 00 off, 01 on
+
+    # Input display overlay
+    "InputDisplay":  TR_INPUT_DISPLAY_ADDR,  # 00 off, 01 on
+
+    # CPU difficulty (8 levels, 0x00,0x20,...,0xE0)
+    "CpuDifficulty": TR_CPU_DIFFICULTY_ADDR, # default 0x20
+
+    # Damage scaling
+    "DamageOutput":  TR_DAMAGE_OUTPUT_ADDR,  # 00..03, default 01
+}
+
+
+def read_training_flags():
+    """
+    Read one byte from each training / dummy / display flag address.
+    Returns list of (label, addr, value).
+    """
+    out = []
+    for label, addr in TRAINING_FLAGS.items():
+        try:
+            val = rd8(addr)
+        except Exception:
+            val = None
+        out.append((label, addr, val))
+    return out
 
 
 class ScanNormalsWorker(threading.Thread):
-    """background worker so big MEM2 scans don't lag pygame"""
+    """Background worker so big MEM2 scans don't lag pygame."""
     def __init__(self):
         super().__init__(daemon=True)
         self._want = threading.Event()
@@ -97,9 +171,11 @@ class ScanNormalsWorker(threading.Thread):
                 print("scan worker failed:", e)
 
     def request(self):
+        """Signal the worker to perform a scan."""
         self._want.set()
 
     def get_latest(self):
+        """Return (result, timestamp) of the last completed scan."""
         with self._lock:
             return self._last, self._last_ts
 
@@ -115,12 +191,16 @@ PORTRAIT_ALIASES = {}
 
 
 def load_portrait_placeholder():
+    """
+    Fallback portrait if a character portrait is missing.
+    """
     path = os.path.join("assets", "portraits", "placeholder.png")
     if os.path.exists(path):
         try:
             return pygame.image.load(path).convert_alpha()
         except Exception:
             pass
+
     surf = pygame.Surface((64, 64), pygame.SRCALPHA)
     surf.fill((80, 80, 80, 255))
     pygame.draw.rect(surf, (140, 140, 140, 255), surf.get_rect(), 2)
@@ -128,9 +208,14 @@ def load_portrait_placeholder():
 
 
 def load_portraits_from_dir(dirpath: str):
+    """
+    Load all PNG portraits from a directory into a dict keyed by a
+    normalized, alias-resolved character name.
+    """
     portraits = {}
     if not os.path.isdir(dirpath):
         return portraits
+
     for fname in os.listdir(dirpath):
         if not fname.lower().endswith(".png"):
             continue
@@ -146,6 +231,9 @@ def load_portraits_from_dir(dirpath: str):
 
 
 def get_portrait_for_snap(snap, portraits, placeholder):
+    """
+    Resolve the correct portrait Surface for a fighter snapshot.
+    """
     if not snap:
         return None
     cname = snap.get("name")
@@ -166,16 +254,21 @@ def init_pygame():
         smallfont = pygame.font.SysFont("consolas", FONT_SMALL_SIZE)
     except Exception:
         smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
+
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
     pygame.display.set_caption("TvC Live HUD / Frame Probe")
     return screen, font, smallfont
 
 
 # ------------------------------------------------------------
-# Frame-data GUI (Tk) — now with HB column
+# Frame-data GUI (Tk) — legacy viewer with HB column
 # ------------------------------------------------------------
 def _open_frame_data_window_thread(slot_label, target_slot):
-    # tkinter window that lists the scanned moves
+    """
+    Legacy Tk-based frame data viewer.
+    The editable version lives in editable_frame_data_gui and is used
+    by open_frame_data_window when available.
+    """
     try:
         import tkinter as tk
         from tkinter import ttk
@@ -197,11 +290,14 @@ def _open_frame_data_window_thread(slot_label, target_slot):
 
     frame = ttk.Frame(root)
     frame.pack(fill="both", expand=True)
+
     tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
     vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
     tree.configure(yscrollcommand=vsb.set)
+
     tree.grid(row=0, column=0, sticky="nsew")
     vsb.grid(row=0, column=1, sticky="ns")
+
     frame.rowconfigure(0, weight=1)
     frame.columnconfigure(0, weight=1)
 
@@ -220,8 +316,8 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         ("hb", "HB"),
         ("abs", "ABS"),
     ]
-    for c, txt in headers:
-        tree.heading(c, text=txt)
+    for col_id, txt in headers:
+        tree.heading(col_id, text=txt)
 
     # widths
     tree.column("move", width=180, anchor="w")
@@ -255,11 +351,13 @@ def _open_frame_data_window_thread(slot_label, target_slot):
 
     seen_named = set()
     deduped = []
+
     for mv in moves_sorted:
         aid = mv.get("id")
         if aid is None:
             deduped.append(mv)
             continue
+
         name = _ANIM_MAP_FOR_GUI.get(aid, f"anim_{aid:02X}")
         if not name.startswith("anim_") and "?" not in name:
             if aid in seen_named:
@@ -326,41 +424,43 @@ def _open_frame_data_window_thread(slot_label, target_slot):
                 "" if mv.get("adv_block") is None else f"{mv.get('adv_block'):+d}",
                 hb_txt,
                 f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
-            )
+            ),
         )
 
     root.mainloop()
 
 
 def open_frame_data_window(slot_label, scan_data):
-    """Open frame data window (now editable!)"""
+    """
+    Open frame data window (editable when available, otherwise legacy Tk).
+    """
     if HAVE_EDITABLE_GUI:
         open_editable_frame_data_window(slot_label, scan_data)
     else:
         print(f"Editable GUI not available for {slot_label}")
-"""
-Legacy version for reference:
+        if not scan_data:
+            return
 
-def open_frame_data_window(slot_label, scan_data):
-    if not scan_data:
-        return
-    target = None
-    for s in scan_data:
-        if s.get("slot_label") == slot_label:
-            target = s
-            break
-    if not target:
-        return
-    t = threading.Thread(
-        target=_open_frame_data_window_thread,
-        args=(slot_label, target),
-        daemon=True,
-    )
-    t.start()
-"""
+        target = None
+        for s in scan_data:
+            if s.get("slot_label") == slot_label:
+                target = s
+                break
+        if not target:
+            return
+
+        t = threading.Thread(
+            target=_open_frame_data_window_thread,
+            args=(slot_label, target),
+            daemon=True,
+        )
+        t.start()
 
 
 def compute_layout(w, h):
+    """
+    Compute all main HUD rects (panels, activity bar, events, debug, scan).
+    """
     pad = 10
     gap_x = 20
     gap_y = 10
@@ -407,14 +507,15 @@ def compute_layout(w, h):
 def read_debug_flags():
     """
     Returns list of (label, addr, value) for the debug panel.
-    Using exact addresses discovered in memory:
-      - HypeTrigger @ 0x803FB9D9
+
+    Uses config.DEBUG_FLAG_ADDRS plus the exact addresses:
+      - HypeTrigger   @ 0x803FB9D9
       - ComboStore[1] @ 0x803FB949
-      - SpecialPopup @ 0x803FBA69
+      - SpecialPopup  @ 0x803FBA69
     """
     out = []
 
-    # PauseOverlay
+    # Base debug flags from config (PauseOverlay, PauseCtrl, Director, etc.)
     for label, addr in DEBUG_FLAG_ADDRS:
         try:
             val = rd8(addr)
@@ -422,7 +523,7 @@ def read_debug_flags():
             val = None
         out.append((label, addr, val))
 
-    # EXACT addresses you discovered
+    # Exact addresses you found in MEM1/MEM2
     hype_addr = 0x803FB9D9
     try:
         hype_val = rd8(hype_addr)
@@ -446,11 +547,16 @@ def read_debug_flags():
 
     return out
 
-def draw_debug_overlay(surface, rect, font, values):
+
+def draw_debug_overlay(surface, rect, font, values, scroll_offset):
     """
     Render the debug flag list inside a dedicated panel rectangle.
-    Returns a dict mapping label -> (pygame.Rect, addr)
-    (used for clickable 'debug actions').
+
+    scroll_offset: how many entries from 'values' to skip (for scrolling).
+
+    Returns:
+        click_areas: dict[label] -> (pygame.Rect, addr)
+        max_scroll: maximum allowed scroll_offset for current rect/values.
     """
     # panel background + border
     pygame.draw.rect(surface, COL_BG, rect, border_radius=4)
@@ -458,23 +564,43 @@ def draw_debug_overlay(surface, rect, font, values):
 
     click_areas = {}
 
-    if not values:
-        return click_areas
-
+    # Header position
     x = rect.x + 8
-    y = rect.y + 32  # leave room for the button row
+    y = rect.y + 32  # leave room for the Debug ON/OFF button row
 
     header = "Debug flags (rd8)"
     surface.blit(font.render(header, True, (220, 220, 220)), (x, y))
     y += 16
 
-    for label, addr, val in values:
+    # No values -> no scrolling needed
+    if not values:
+        return click_areas, 0
+
+    line_height = 14
+    y_start = y
+    visible_px = (rect.bottom - 10) - y_start
+    max_visible = max(0, visible_px // line_height)
+
+    # Clamp scroll_offset to safe range
+    total = len(values)
+    max_scroll = max(0, total - max_visible)
+    if scroll_offset < 0:
+        scroll_offset = 0
+    elif scroll_offset > max_scroll:
+        scroll_offset = max_scroll
+
+    # Slice the list by scroll offset
+    visible_values = values[scroll_offset:scroll_offset + max_visible]
+
+    for label, addr, val in visible_values:
         if y > rect.bottom - 10:
             break
+
         if val is None:
             vtxt = "--"
         else:
             vtxt = f"{val:02X}"
+
         line = f"{label}: {vtxt} @0x{addr:08X}"
         text_surf = font.render(line, True, (200, 200, 200))
         surface.blit(text_surf, (x, y))
@@ -482,9 +608,9 @@ def draw_debug_overlay(surface, rect, font, values):
         text_rect = text_surf.get_rect(topleft=(x, y))
         click_areas[label] = (text_rect, addr)
 
-        y += 14
+        y += line_height
 
-    return click_areas
+    return click_areas, max_scroll
 
 
 def main():
@@ -492,7 +618,7 @@ def main():
     hook()
     print("HUD: hooked Dolphin.")
 
-    # <-- IMPORTANT: this now matches our moves.py
+    # Moves table and global flags map
     move_map, global_map = load_move_map(GENERIC_MAPPING_CSV, PAIR_MAPPING_CSV)
 
     screen, font, smallfont = init_pygame()
@@ -540,6 +666,8 @@ def main():
     debug_overlay = False
     debug_btn_rect = pygame.Rect(0, 0, 0, 0)
     debug_click_areas = {}
+    debug_scroll_offset = 0
+    debug_max_scroll = 0
 
     # HypeTrigger timed restore state
     hype_restore_addr = None
@@ -550,7 +678,6 @@ def main():
     special_restore_addr = None
     special_restore_ts = 0.0
     special_restore_orig = 0
-
 
     while running:
         now = time.time()
@@ -566,8 +693,21 @@ def main():
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_F5:
                     manual_scan_requested = True
-            elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
-                mouse_clicked_pos = ev.pos
+            elif ev.type == pygame.MOUSEBUTTONDOWN:
+                if ev.button == 1:
+                    mouse_clicked_pos = ev.pos
+                # wheel emulation on some backends
+                elif ev.button in (4, 5) and debug_overlay:
+                    if ev.button == 4 and debug_scroll_offset > 0:
+                        debug_scroll_offset -= 1
+                    elif ev.button == 5 and debug_scroll_offset < debug_max_scroll:
+                        debug_scroll_offset += 1
+            elif ev.type == pygame.MOUSEWHEEL and debug_overlay:
+                # pygame 2 MOUSEWHEEL event: ev.y > 0 up, < 0 down
+                if ev.y > 0 and debug_scroll_offset > 0:
+                    debug_scroll_offset -= 1
+                elif ev.y < 0 and debug_scroll_offset < debug_max_scroll:
+                    debug_scroll_offset += 1
 
         # pull latest scan from worker
         if scan_worker:
@@ -587,8 +727,12 @@ def main():
             resolved_slots.append((slotname, teamtag, base))
 
         # read meters
-        p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
-        p2c1_base = next((b for n, t, b in resolved_slots if n == "P2-C1" and b), None)
+        p1c1_base = next(
+            (b for n, t, b in resolved_slots if n == "P1-C1" and b), None
+        )
+        p2c1_base = next(
+            (b for n, t, b in resolved_slots if n == "P2-C1" and b), None
+        )
         meter_p1 = read_meter(p1c1_base)
         meter_p2 = read_meter(p2c1_base)
 
@@ -605,10 +749,11 @@ def main():
             snap = read_fighter(base, yoff)
             if not snap:
                 continue
+
             snap["teamtag"] = teamtag
             snap["slotname"] = slotname
 
-            # meter
+            # meter display string
             if slotname == "P1-C1":
                 snap["meter_str"] = str(meter_p1) if meter_p1 is not None else "--"
             elif slotname == "P2-C1":
@@ -663,7 +808,7 @@ def main():
                 smaller = min(hp32, pool32)
                 red_amt = bigger - smaller
 
-                # new behavior only: percent of character max HP
+                # percent of character max HP
                 if max_hp_stat:
                     red_pct_max = (red_amt / float(max_hp_stat)) * 100.0
 
@@ -707,6 +852,7 @@ def main():
                 attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
                 if not attackers:
                     continue
+
                 # nearest attacker
                 best_d2 = None
                 atk_snap = None
@@ -779,7 +925,8 @@ def main():
                     if atk_slot and vic_slot:
                         last_adv_display = (
                             f"{atk_slot['slotname']}({atk_slot['name']}) vs "
-                            f"{vic_slot['slotname']}({vic_slot['name']}): {plusf:+.1f}f"
+                            f"{vic_slot['slotname']}({vic_slot['name']}): "
+                            f"{plusf:+.1f}f"
                         )
                         log_frame_advantage(atk_slot, vic_slot, plusf)
                     else:
@@ -794,25 +941,31 @@ def main():
             anim = panel_anim.get(slot_label)
             if not anim:
                 return base_rect, 255
+
             if anim["to_y"] is None:
                 anim["to_y"] = base_rect.y
             if anim["from_y"] is None:
                 anim["from_y"] = base_rect.y
+
             t = now - anim["start"]
             dur = anim["dur"]
+
             if t <= 0:
                 frac = 0.0
             elif t >= dur:
                 frac = 1.0
             else:
                 frac = t / dur
+
             y = anim["from_y"] + (anim["to_y"] - anim["from_y"]) * frac
             alpha = int(anim["from_a"] + (anim["to_a"] - anim["from_a"]) * frac)
+
             if frac >= 1.0:
                 if anim["to_a"] == 0:
                     render_snap_by_slot.pop(slot_label, None)
                     render_portrait_by_slot.pop(slot_label, None)
                 panel_anim.pop(slot_label, None)
+
             r = base_rect.copy()
             r.y = int(y)
             return r, max(0, min(255, alpha))
@@ -899,12 +1052,13 @@ def main():
         debug_rect = layout["debug"]
 
         if debug_overlay:
-            dbg_values = read_debug_flags()
+            # Combine normal debug flags + training flags
+            dbg_values = read_debug_flags() + read_training_flags()
         else:
             dbg_values = []
 
-        debug_click_areas = draw_debug_overlay(
-            screen, debug_rect, smallfont, dbg_values
+        debug_click_areas, debug_max_scroll = draw_debug_overlay(
+            screen, debug_rect, smallfont, dbg_values, debug_scroll_offset
         )
 
         # draw the Debug ON/OFF button at top-left of debug panel
@@ -927,7 +1081,7 @@ def main():
 
         pygame.display.flip()
 
-        # clicks
+        # clicks --------------------------------------------------------------
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
 
@@ -952,42 +1106,178 @@ def main():
                 if data:
                     open_frame_data_window("P1-C1", data)
                 panel_btn_flash["P1-C1"] = PANEL_FLASH_FRAMES
+
             elif btn_p2c1.collidepoint(mx, my):
                 data = ensure_scan_now()
                 if data:
                     open_frame_data_window("P2-C1", data)
                 panel_btn_flash["P2-C1"] = PANEL_FLASH_FRAMES
+
             elif btn_p1c2.collidepoint(mx, my):
                 data = ensure_scan_now()
                 if data:
                     open_frame_data_window("P1-C2", data)
                 panel_btn_flash["P1-C2"] = PANEL_FLASH_FRAMES
+
             elif btn_p2c2.collidepoint(mx, my):
                 data = ensure_scan_now()
                 if data:
                     open_frame_data_window("P2-C2", data)
                 panel_btn_flash["P2-C2"] = PANEL_FLASH_FRAMES
+
             elif debug_btn_rect and debug_btn_rect.collidepoint(mx, my):
-                # Toggle debug overlay on/off
+                # Toggle debug overlay on/off and reset scroll
                 debug_overlay = not debug_overlay
+                debug_scroll_offset = 0
+
             else:
                 # Clicks on individual debug flag lines
-
                 # PauseOverlay toggle: 00 <-> 01
                 entry = debug_click_areas.get("PauseOverlay")
                 if entry:
                     r, addr = entry
                     if r.collidepoint(mx, my):
                         cur = rd8(addr) or 0
-                        wd8(addr, 0x01 if cur == 0 else 0x00)
+                        wd8(addr, 0x01 if cur == 0x00 else 0x00)
 
-                # HypeTrigger: write 0x40 then restore to default 0x45 after 2 seconds
+                # Training pause: 00 <-> 01
+                entry = debug_click_areas.get("TrPause")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr, new)
+
+                # Dummy meter: 00 -> 01 -> 02 -> 00 (normal / recovery / infinite)
+                entry = debug_click_areas.get("DummyMeter")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = (cur + 1) % 3  # 0,1,2 cycle
+                        wd8(addr, new)
+
+                # CPU action: cycle 0..5 (stand, crouch, jump, sjump, CPU, player)
+                entry = debug_click_areas.get("CpuAction")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = (cur + 1) % 6
+                        wd8(addr, new)
+
+                # CPU guard: 0->1->2->0 (none / auto / guard)
+                entry = debug_click_areas.get("CpuGuard")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = (cur + 1) % 3
+                        wd8(addr, new)
+
+                # CPU pushblock: 00 <-> 01
+                entry = debug_click_areas.get("CpuPushblock")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr, new)
+
+                # CPU throw tech: 00 <-> 01
+                entry = debug_click_areas.get("CpuThrowTech")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr, new)
+
+                # Player meter (P1): 00 -> 01 -> 02 -> 00
+                entry = debug_click_areas.get("P1Meter")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = (cur + 1) % 3
+                        wd8(addr, new)
+
+                # Player life: 00 <-> 01 (normal / infinite)
+                entry = debug_click_areas.get("P1Life")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr, new)
+
+                # Free Baroque: 00 <-> 01
+                entry = debug_click_areas.get("FreeBaroque")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr, new)
+
+                # Baroque percent: 0x00..0x0A => 0..100% in 10% steps
+                entry = debug_click_areas.get("BaroquePct")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        if cur < 0x0A:
+                            new = cur + 1
+                        else:
+                            new = 0x00
+                        wd8(addr, new)
+
+                # Attack data overlay: 00 <-> 01
+                entry = debug_click_areas.get("AttackData")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr, new)
+
+                # Input display overlay: 00 <-> 01
+                entry = debug_click_areas.get("InputDisplay")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr, new)
+
+                # CPU difficulty: 8 levels, step 0x20, wrap around
+                entry = debug_click_areas.get("CpuDifficulty")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        level = (cur // 0x20) % 8  # 0..7
+                        level = (level + 1) % 8
+                        new = level * 0x20
+                        wd8(addr, new)
+
+                # Damage output: 00..03, wrap around
+                entry = debug_click_areas.get("DamageOutput")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = (cur + 1) & 0x03
+                        wd8(addr, new)
+
+                # HypeTrigger: write 0x40 then restore to default 0x45 after 0.5 seconds
                 entry = debug_click_areas.get("HypeTrigger")
                 if entry:
                     r, addr = entry
                     if r.collidepoint(mx, my):
                         orig = rd8(addr)
-                        if orig == 0 or orig is None:
+                        if orig is None or orig == 0:
                             orig = 0x45
                         wd8(addr, 0x40)
                         hype_restore_addr = addr
@@ -1014,7 +1304,6 @@ def main():
                         special_restore_addr = sp_addr
                         special_restore_ts = now + 0.5
 
-
         # HypeTrigger restore timer
         if hype_restore_addr is not None and now >= hype_restore_ts:
             try:
@@ -1022,16 +1311,16 @@ def main():
             except Exception:
                 pass
             hype_restore_addr = None
-                # SpecialPopup restore timer
+
+        # SpecialPopup restore timer
         if special_restore_addr is not None and now >= special_restore_ts:
             try:
                 wd8(special_restore_addr, special_restore_orig)
             except Exception:
                 pass
             special_restore_addr = None
-    
 
-        # tick down flash
+        # tick down frame-data button flash
         for k in panel_btn_flash:
             if panel_btn_flash[k] > 0:
                 panel_btn_flash[k] -= 1
