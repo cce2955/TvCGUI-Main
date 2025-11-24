@@ -3,6 +3,8 @@ import os
 import csv
 import time
 import threading
+from layout import compute_layout, reassign_slots_for_giants
+from scan_worker import ScanNormalsWorker
 
 import pygame
 from training_flags import read_training_flags
@@ -20,6 +22,12 @@ from config import (
     INPUT_MONITOR_ADDRS,
     DEBUG_FLAG_ADDRS,
 )
+from portraits import (
+    load_portrait_placeholder,
+    load_portraits_from_dir,
+    get_portrait_for_snap,
+)
+
 from constants import (
     SLOTS,
     CHAR_NAMES,
@@ -66,14 +74,8 @@ except Exception:
     HAVE_SCAN_NORMALS = False
     SCAN_ANIM_MAP = {}
 
-# NEW: Import the editable frame data window
-try:
-    from editable_frame_data_gui import open_editable_frame_data_window
-    HAVE_EDITABLE_GUI = True
-except ImportError:
-    HAVE_EDITABLE_GUI = False
-    print("WARNING: editable_frame_data_gui not available")
-
+# Frame data window (editable GUI + legacy Tk)
+from frame_data_window import open_frame_data_window
 TARGET_FPS = 60
 DAMAGE_EVERY_FRAMES = 3
 ADV_EVERY_FRAMES = 2
@@ -166,102 +168,6 @@ def safe_read_fighter(base, yoff):
     }
 
 
-class ScanNormalsWorker(threading.Thread):
-    """Background worker so big MEM2 scans don't lag pygame."""
-    def __init__(self):
-        super().__init__(daemon=True)
-        self._want = threading.Event()
-        self._lock = threading.Lock()
-        self._last = None
-        self._last_ts = 0.0
-
-    def run(self):
-        while True:
-            self._want.wait()
-            self._want.clear()
-            if not HAVE_SCAN_NORMALS:
-                continue
-            try:
-                res = scan_normals_all.scan_once()
-                with self._lock:
-                    self._last = res
-                    self._last_ts = time.time()
-            except Exception as e:
-                print("scan worker failed:", e)
-
-    def request(self):
-        """Signal the worker to perform a scan."""
-        self._want.set()
-
-    def get_latest(self):
-        """Return (result, timestamp) of the last completed scan."""
-        with self._lock:
-            return self._last, self._last_ts
-
-
-def _normalize_char_key(s: str) -> str:
-    s = s.strip().lower()
-    for ch in (" ", "-", "_", "."):
-        s = s.replace(ch, "")
-    return s
-
-
-PORTRAIT_ALIASES = {}
-
-
-def load_portrait_placeholder():
-    """
-    Fallback portrait if a character portrait is missing.
-    """
-    path = os.path.join("assets", "portraits", "placeholder.png")
-    if os.path.exists(path):
-        try:
-            return pygame.image.load(path).convert_alpha()
-        except Exception:
-            pass
-
-    surf = pygame.Surface((64, 64), pygame.SRCALPHA)
-    surf.fill((80, 80, 80, 255))
-    pygame.draw.rect(surf, (140, 140, 140, 255), surf.get_rect(), 2)
-    return surf
-
-
-def load_portraits_from_dir(dirpath: str):
-    """
-    Load all PNG portraits from a directory into a dict keyed by a
-    normalized, alias-resolved character name.
-    """
-    portraits = {}
-    if not os.path.isdir(dirpath):
-        return portraits
-
-    for fname in os.listdir(dirpath):
-        if not fname.lower().endswith(".png"):
-            continue
-        full = os.path.join(dirpath, fname)
-        stem = os.path.splitext(fname)[0]
-        key = _normalize_char_key(stem)
-        try:
-            img = pygame.image.load(full).convert_alpha()
-            portraits[key] = img
-        except Exception as e:
-            print("portrait load failed for", full, e)
-    return portraits
-
-
-def get_portrait_for_snap(snap, portraits, placeholder):
-    """
-    Resolve the correct portrait Surface for a fighter snapshot.
-    """
-    if not snap:
-        return None
-    cname = snap.get("name")
-    if not cname:
-        return placeholder
-    norm = _normalize_char_key(cname)
-    norm = PORTRAIT_ALIASES.get(norm, norm)
-    return portraits.get(norm, placeholder)
-
 
 def init_pygame():
     pygame.init()
@@ -282,349 +188,7 @@ def init_pygame():
 # ------------------------------------------------------------
 # Frame-data GUI (Tk) — legacy viewer with HB column
 # ------------------------------------------------------------
-def _open_frame_data_window_thread(slot_label, target_slot):
-    """
-    Legacy Tk-based frame data viewer.
-    The editable version lives in editable_frame_data_gui and is used
-    by open_frame_data_window when available.
-    """
-    try:
-        import tkinter as tk
-        from tkinter import ttk
-    except Exception:
-        print("tkinter not available")
-        return
 
-    cname = target_slot.get("char_name", "—")
-    root = tk.Tk()
-    root.title(f"Frame data: {slot_label} ({cname})")
-
-    cols = (
-        "move", "kind", "damage", "meter",
-        "startup", "active", "hitstun", "blockstun", "hitstop",
-        "advH", "advB",
-        "hb",
-        "abs",
-    )
-
-    frame = ttk.Frame(root)
-    frame.pack(fill="both", expand=True)
-
-    tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
-    vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
-    tree.configure(yscrollcommand=vsb.set)
-
-    tree.grid(row=0, column=0, sticky="nsew")
-    vsb.grid(row=0, column=1, sticky="ns")
-
-    frame.rowconfigure(0, weight=1)
-    frame.columnconfigure(0, weight=1)
-
-    headers = [
-        ("move", "Move"),
-        ("kind", "Kind"),
-        ("damage", "Dmg"),
-        ("meter", "Meter"),
-        ("startup", "Start"),
-        ("active", "Active"),
-        ("hitstun", "HS"),
-        ("blockstun", "BS"),
-        ("hitstop", "Stop"),
-        ("advH", "advH"),
-        ("advB", "advB"),
-        ("hb", "HB"),
-        ("abs", "ABS"),
-    ]
-    for col_id, txt in headers:
-        tree.heading(col_id, text=txt)
-
-    # widths
-    tree.column("move", width=180, anchor="w")
-    tree.column("kind", width=60, anchor="w")
-    tree.column("damage", width=65, anchor="center")
-    tree.column("meter", width=55, anchor="center")
-    tree.column("startup", width=55, anchor="center")
-    tree.column("active", width=70, anchor="center")
-    tree.column("hitstun", width=45, anchor="center")
-    tree.column("blockstun", width=45, anchor="center")
-    tree.column("hitstop", width=50, anchor="center")
-    tree.column("advH", width=55, anchor="center")
-    tree.column("advB", width=55, anchor="center")
-    tree.column("hb", width=95, anchor="center")
-    tree.column("abs", width=110, anchor="w")
-
-    # sort + dedupe like HUD
-    moves_sorted = sorted(
-        target_slot.get("moves", []),
-        key=lambda m: (
-            m.get("id") is None,
-            m.get("id", 0xFFFF),
-            m.get("abs", 0xFFFFFFFF),
-        ),
-    )
-
-    try:
-        from scan_normals_all import ANIM_MAP as _ANIM_MAP_FOR_GUI
-    except Exception:
-        _ANIM_MAP_FOR_GUI = {}
-
-    seen_named = set()
-    deduped = []
-
-    for mv in moves_sorted:
-        aid = mv.get("id")
-        if aid is None:
-            deduped.append(mv)
-            continue
-
-        name = _ANIM_MAP_FOR_GUI.get(aid, f"anim_{aid:02X}")
-        if not name.startswith("anim_") and "?" not in name:
-            if aid in seen_named:
-                continue
-            seen_named.add(aid)
-        deduped.append(mv)
-
-    def _fmt_stun(v):
-        if v is None:
-            return ""
-        if v == 0x0C:
-            return "10"
-        if v == 0x0F:
-            return "15"
-        if v == 0x11:
-            return "17"
-        if v == 0x15:
-            return "21"
-        return str(v)
-
-    for mv in deduped:
-        aid = mv.get("id")
-        move_name = (
-            _ANIM_MAP_FOR_GUI.get(aid, f"anim_{aid:02X}")
-            if aid is not None else "anim_--"
-        )
-
-        a_s = mv.get("active_start")
-        a_e = mv.get("active_end")
-        if a_s is not None and a_e is not None:
-            active_txt = f"{a_s}-{a_e}"
-        elif a_e is not None:
-            active_txt = str(a_e)
-        else:
-            active_txt = ""
-
-        # format HB
-        hb_x = mv.get("hb_x")
-        hb_y = mv.get("hb_y")
-        if hb_x is not None or hb_y is not None:
-            if hb_x is None:
-                hb_txt = f"-x{hb_y:.1f}"
-            elif hb_y is None:
-                hb_txt = f"{hb_x:.1f}x-"
-            else:
-                hb_txt = f"{hb_x:.1f}x{hb_y:.1f}"
-        else:
-            hb_txt = ""
-
-        tree.insert(
-            "",
-            "end",
-            values=(
-                move_name,
-                mv.get("kind", ""),
-                "" if mv.get("damage") is None else str(mv.get("damage")),
-                "" if mv.get("meter") is None else str(mv.get("meter")),
-                "" if a_s is None else str(a_s),
-                active_txt,
-                _fmt_stun(mv.get("hitstun")),
-                _fmt_stun(mv.get("blockstun")),
-                "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
-                "" if mv.get("adv_hit") is None else f"{mv.get('adv_hit'):+d}",
-                "" if mv.get("adv_block") is None else f"{mv.get('adv_block'):+d}",
-                hb_txt,
-                f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
-            ),
-        )
-
-    root.mainloop()
-
-
-def open_frame_data_window(slot_label, scan_data):
-    """
-    Open frame data window (editable when available, otherwise legacy Tk).
-    """
-    if HAVE_EDITABLE_GUI:
-        open_editable_frame_data_window(slot_label, scan_data)
-    else:
-        print(f"Editable GUI not available for {slot_label}")
-        if not scan_data:
-            return
-
-        target = None
-        for s in scan_data:
-            if s.get("slot_label") == slot_label:
-                target = s
-                break
-        if not target:
-            return
-
-        t = threading.Thread(
-            target=_open_frame_data_window_thread,
-            args=(slot_label, target),
-            daemon=True,
-        )
-        t.start()
-
-
-def compute_layout(w, h, snaps):
-    """
-    Compute all main HUD rects (panels, activity bar, events, debug, scan).
-    Adjusts layout when giants are detected (they have no partners).
-    """
-    pad = 10
-    gap_x = 20
-    gap_y = 10
-
-    panel_w = (w - pad * 2 - gap_x) // 2
-    panel_h = 155
-
-    row1_y = pad
-    row2_y = row1_y + panel_h + gap_y
-
-    # Check for giants (IDs 11 = Gold Lightan, 22 = PTX-40A)
-    GIANT_IDS = {11, 22}
-    p1_is_giant = snaps.get("P1-C1", {}).get("id") in GIANT_IDS
-    p2_is_giant = snaps.get("P2-C1", {}).get("id") in GIANT_IDS
-
-    # Default positions
-    r_p1c1 = pygame.Rect(pad, row1_y, panel_w, panel_h)
-    r_p2c1 = pygame.Rect(pad + panel_w + gap_x, row1_y, panel_w, panel_h)
-    r_p1c2 = pygame.Rect(pad, row2_y, panel_w, panel_h)
-    r_p2c2 = pygame.Rect(pad + panel_w + gap_x, row2_y, panel_w, panel_h)
-
-    # If P1 is a giant, move P2-C1 down to row 2 (where P2-C2 would be)
-    if p1_is_giant:
-        r_p2c1 = pygame.Rect(pad + panel_w + gap_x, row2_y, panel_w, panel_h)
-        # P1-C2 stays in row 2 left but will be hidden/empty
-    
-    # If P2 is a giant, move P1-C1 stays top left, but adjust P1-C2 if needed
-    if p2_is_giant:
-        # P2-C1 stays top right, P2-C2 will be hidden/empty
-        pass
-
-    act_rect = pygame.Rect(pad, r_p1c2.bottom + 30, w - pad * 2, 32)
-
-    events_y = act_rect.bottom + 8
-    events_h = 150
-
-    # split row into left (events) and right (debug) halves
-    row_w = w - pad * 2
-    half_w = (row_w - gap_x) // 2
-
-    events_rect = pygame.Rect(pad, events_y, half_w, events_h)
-    debug_rect = pygame.Rect(pad + half_w + gap_x, events_y, half_w, events_h)
-
-    scan_y = events_rect.bottom + 8
-    scan_h = max(90, h - scan_y - pad)
-    scan_rect = pygame.Rect(pad, scan_y, w - pad * 2, scan_h)
-
-    return {
-        "p1c1": r_p1c1,
-        "p2c1": r_p2c1,
-        "p1c2": r_p1c2,
-        "p2c2": r_p2c2,
-        "act": act_rect,
-        "events": events_rect,
-        "debug": debug_rect,
-        "scan": scan_rect,
-        "p1_is_giant": p1_is_giant,
-        "p2_is_giant": p2_is_giant,
-    }
-
-
-def reassign_slots_for_giants(snaps):
-    """
-    When giants are present, the game loads 3 character tables instead of 4.
-    This function reassigns them to the correct logical slots.
-    
-    Rules:
-    - If P1-C1 is giant (11/22): other 2 chars go to P2-C1, P2-C2
-    - If P2-C1 is giant (11/22): other 2 chars go to P1-C1, P1-C2
-    - If both P1-C1 and P2-C1 are giants: just P1-C1, P2-C1
-    """
-    GIANT_IDS = {11, 22}
-    
-    # Get current slot assignments
-    p1c1 = snaps.get("P1-C1")
-    p1c2 = snaps.get("P1-C2")
-    p2c1 = snaps.get("P2-C1")
-    p2c2 = snaps.get("P2-C2")
-    
-    # Check which slots have giants
-    p1c1_is_giant = p1c1 and p1c1.get("id") in GIANT_IDS
-    p2c1_is_giant = p2c1 and p2c1.get("id") in GIANT_IDS
-    
-    # Case 1: Both are giants - no reassignment needed
-    if p1c1_is_giant and p2c1_is_giant:
-        # Remove any partner data
-        snaps.pop("P1-C2", None)
-        snaps.pop("P2-C2", None)
-        return snaps
-    
-    # Case 2: P1 is giant, P2 has a team
-    if p1c1_is_giant:
-        # P1-C2 should be empty, other slots should be P2 team
-        reassigned = {
-            "P1-C1": p1c1,
-        }
-        
-        # The other 2 non-giant characters go to P2-C1 and P2-C2
-        non_giant_chars = []
-        if p1c2 and p1c2.get("id") not in GIANT_IDS:
-            non_giant_chars.append(p1c2)
-        if p2c1 and p2c1.get("id") not in GIANT_IDS:
-            non_giant_chars.append(p2c1)
-        if p2c2 and p2c2.get("id") not in GIANT_IDS:
-            non_giant_chars.append(p2c2)
-        
-        # Assign them to P2 slots
-        if len(non_giant_chars) >= 1:
-            reassigned["P2-C1"] = non_giant_chars[0]
-            reassigned["P2-C1"]["slotname"] = "P2-C1"
-        if len(non_giant_chars) >= 2:
-            reassigned["P2-C2"] = non_giant_chars[1]
-            reassigned["P2-C2"]["slotname"] = "P2-C2"
-        
-        return reassigned
-    
-    # Case 3: P2 is giant, P1 has a team
-    if p2c1_is_giant:
-        # P2-C2 should be empty, other slots should be P1 team
-        reassigned = {
-            "P2-C1": p2c1,
-        }
-        
-        # The other 2 non-giant characters go to P1-C1 and P1-C2
-        non_giant_chars = []
-        if p1c1 and p1c1.get("id") not in GIANT_IDS:
-            non_giant_chars.append(p1c1)
-        if p1c2 and p1c2.get("id") not in GIANT_IDS:
-            non_giant_chars.append(p1c2)
-        if p2c2 and p2c2.get("id") not in GIANT_IDS:
-            non_giant_chars.append(p2c2)
-        
-        # Assign them to P1 slots
-        if len(non_giant_chars) >= 1:
-            reassigned["P1-C1"] = non_giant_chars[0]
-            reassigned["P1-C1"]["slotname"] = "P1-C1"
-        if len(non_giant_chars) >= 2:
-            reassigned["P1-C2"] = non_giant_chars[1]
-            reassigned["P1-C2"]["slotname"] = "P1-C2"
-        
-        return reassigned
-    
-    # Case 4: No giants - return as-is
-    return snaps
 def main():
     print("HUD: waiting for Dolphin…")
     hook()
@@ -641,9 +205,12 @@ def main():
     print(f"HUD: loaded {len(portraits)} portraits.")
 
     # background scan worker
-    scan_worker = ScanNormalsWorker() if HAVE_SCAN_NORMALS else None
-    if scan_worker:
+    if HAVE_SCAN_NORMALS and scan_normals_all is not None:
+        scan_worker = ScanNormalsWorker(scan_normals_all.scan_once)
         scan_worker.start()
+    else:
+        scan_worker = None
+
 
     last_scan_normals = None
     last_scan_time = 0.0
