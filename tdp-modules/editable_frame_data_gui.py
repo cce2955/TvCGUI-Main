@@ -184,6 +184,57 @@ def _write_active2_frames(mv, start, end) -> bool:
         print(f"Failed to write active2 frames: {e}")
         return False
 
+def _write_anim_id(mv, new_anim_id) -> bool:
+    """
+    Replace this move's 01 XX 01 3C animation chunk with new_anim_id.
+
+    Looks from mv['abs'] forward for the first 01 ?? 01 3C and patches
+    the 16-bit ID in the middle.
+    """
+    if not WRITER_AVAILABLE:
+        return False
+
+    base = mv.get("abs")
+    if not base:
+        return False
+
+    try:
+        from dolphin_io import rbytes, wd8
+    except ImportError:
+        return False
+
+    LOOKAHEAD = 0x80  # bytes to scan from ANIM_HDR forward
+
+    try:
+        buf = rbytes(base, LOOKAHEAD)
+    except Exception as e:
+        print(f"_write_anim_id read failed @0x{base:08X}: {e}")
+        return False
+
+    target_off = None
+    for i in range(0, len(buf) - 4):
+        b0, b1, b2, b3 = buf[i], buf[i + 1], buf[i + 2], buf[i + 3]
+        # 01 XX YY 3C where (XX YY) = anim ID
+        if b0 == 0x01 and b3 == 0x3C and b2 == 0x01:
+            target_off = i
+            break
+
+    if target_off is None:
+        print(f"_write_anim_id: pattern 01 ?? 01 3C not found for move @0x{base:08X}")
+        return False
+
+    addr = base + target_off + 1  # points to high byte of ID
+    new_hi = (new_anim_id >> 8) & 0xFF
+    new_lo = new_anim_id & 0xFF
+
+    try:
+        ok = wd8(addr, new_hi) and wd8(addr + 1, new_lo)
+        if ok:
+            print(f"_write_anim_id: wrote ID 0x{new_anim_id:04X} @0x{addr:08X}")
+        return ok
+    except Exception as e:
+        print(f"_write_anim_id write failed: {e}")
+        return False
 
 def _scan_hitbox_house(move_abs: int):
     """
@@ -341,6 +392,96 @@ def _pretty_move_name(aid, char_name=None):
 
     return f"anim_{aid:04X}"
 
+class ReplaceMoveDialog(tk.Toplevel):
+    """
+    Dialog to select another move and how to replace:
+
+    - mode 'anim'  -> replace animation ID only
+    - mode 'block' -> aggressive block clone (Y2-style)
+    """
+
+    def __init__(self, parent, all_moves, current_mv):
+        super().__init__(parent)
+        self.title("Replace Move")
+        self.result = None
+
+        self.all_moves = [m for m in all_moves if m is not current_mv]
+        self.current_mv = current_mv
+
+        cur_id = current_mv.get("id")
+        cur_name = current_mv.get("move_name") or "?"
+        tk.Label(
+            self,
+            text=f"Current: {cur_name} [0x{(cur_id or 0):04X}]",
+            font=("Arial", 10, "bold"),
+        ).pack(anchor="w", padx=8, pady=(6, 4))
+
+        frame = tk.Frame(self)
+        frame.pack(fill="both", expand=True, padx=8, pady=4)
+
+        self.listbox = tk.Listbox(frame, height=14, exportselection=False, font=("Courier", 9))
+        self.listbox.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(frame, orient="vertical", command=self.listbox.yview)
+        sb.pack(side="right", fill="y")
+        self.listbox.configure(yscrollcommand=sb.set)
+
+        # Build display list
+        self._candidates = []
+        for mv in self.all_moves:
+            aid = mv.get("id")
+            name = mv.get("move_name") or "anim_--"
+            abs_addr = mv.get("abs") or 0
+            label = f"{name:28} [0x{(aid or 0):04X}] @ 0x{abs_addr:08X}"
+            self.listbox.insert("end", label)
+            self._candidates.append(mv)
+
+        if self._candidates:
+            self.listbox.selection_set(0)
+
+        mode_frame = ttk.LabelFrame(self, text="Mode")
+        mode_frame.pack(fill="x", padx=8, pady=4)
+
+        self.mode_var = tk.StringVar(value="anim")
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Replace animation only (01 ?? 01 3C)",
+            variable=self.mode_var,
+            value="anim",
+        ).pack(anchor="w", padx=4, pady=2)
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Replace entire block (aggressive clone)",
+            variable=self.mode_var,
+            value="block",
+        ).pack(anchor="w", padx=4, pady=2)
+
+        btn_frame = tk.Frame(self)
+        btn_frame.pack(fill="x", padx=8, pady=8)
+
+        ttk.Button(btn_frame, text="OK", command=self._on_ok).pack(side="right", padx=4)
+        ttk.Button(btn_frame, text="Cancel", command=self._on_cancel).pack(side="right", padx=4)
+
+        self.bind("<Return>", lambda e: self._on_ok())
+        self.bind("<Escape>", lambda e: self._on_cancel())
+
+        self.transient(parent)
+        self.grab_set()
+        self.listbox.focus_set()
+
+    def _on_ok(self):
+        sel = self.listbox.curselection()
+        if not sel:
+            self.result = None
+        else:
+            mv = self._candidates[sel[0]]
+            self.result = (mv, self.mode_var.get())
+        self.destroy()
+
+    def _on_cancel(self):
+        self.result = None
+        self.destroy()
 
 class EditableFrameDataWindow:
     """
@@ -394,8 +535,116 @@ class EditableFrameDataWindow:
         self.moves = moves_sorted
         self.move_to_tree_item: dict[str, dict] = {}
         self.original_moves: dict[int, dict] = {}
+        # Build a simple abs -> next_abs map for aggressive block cloning (Y2).
+        self.next_abs_map: dict[int, int] = {}
+        abs_list = sorted(
+            {mv.get("abs") for mv in self.moves if mv.get("abs")}
+        )
+        for i in range(len(abs_list) - 1):
+            self.next_abs_map[abs_list[i]] = abs_list[i + 1]
 
         self._build()
+    def _clone_move_block_y2(self, src_mv, dst_mv) -> bool:
+        """
+        Aggressive 'Y2' clone:
+
+        - Source region: [src_abs .. next_src_abs-1] if next exists,
+                         else [src_abs .. src_abs+0x200)
+        - Target region: [dst_abs .. dst_abs+size)
+
+        Writes byte-for-byte using wd8.
+        """
+        if not WRITER_AVAILABLE:
+            return False
+
+        src_abs = src_mv.get("abs")
+        dst_abs = dst_mv.get("abs")
+        if not src_abs or not dst_abs:
+            return False
+
+        try:
+            from dolphin_io import rbytes, wd8
+        except ImportError:
+            return False
+
+        src_next = self.next_abs_map.get(src_abs)
+        if src_next and src_next > src_abs:
+            size = src_next - src_abs
+        else:
+            size = 0x200  # fallback
+
+        # Optional guard: don't overflow into the next dst region by too much.
+        dst_next = self.next_abs_map.get(dst_abs)
+        if dst_next and dst_next > dst_abs:
+            max_size = dst_next - dst_abs
+            size = min(size, max_size)
+
+        if size <= 0:
+            return False
+
+        try:
+            data = rbytes(src_abs, size)
+        except Exception as e:
+            print(f"_clone_move_block_y2: read failed @0x{src_abs:08X}: {e}")
+            return False
+
+        try:
+            ok = True
+            for i, b in enumerate(data):
+                if not wd8(dst_abs + i, b):
+                    ok = False
+                    break
+            if ok:
+                print(
+                    f"_clone_move_block_y2: cloned {size:#x} bytes "
+                    f"from 0x{src_abs:08X} to 0x{dst_abs:08X}"
+                )
+            return ok
+        except Exception as e:
+            print(f"_clone_move_block_y2: write failed @0x{dst_abs:08X}: {e}")
+            return False
+    def _edit_move_replacement(self, item, mv):
+        """Open the Replace Move dialog and perform anim-only or full-block swap."""
+        if not WRITER_AVAILABLE:
+            messagebox.showerror("Error", "Writer unavailable")
+            return
+
+        dlg = ReplaceMoveDialog(self.root, self.moves, mv)
+        self.root.wait_window(dlg)
+        if not dlg.result:
+            return
+
+        new_mv, mode = dlg.result
+        new_id = new_mv.get("id")
+        if new_id is None:
+            messagebox.showerror("Error", "Selected move has no ID")
+            return
+
+        ok = False
+        if mode == "anim":
+            ok = _write_anim_id(mv, new_id)
+        else:
+            ok = self._clone_move_block_y2(new_mv, mv)
+
+        if not ok:
+            messagebox.showerror(
+                "Error",
+                "Failed to write replacement to Dolphin.\nCheck console for details.",
+            )
+            return
+
+        # Update the displayed name so 5A -> Shinkuu Hadouken visually.
+        mv["id"] = new_id
+        mv["move_name"] = new_mv.get("move_name") or mv.get("move_name")
+
+        cname = self.target_slot.get("char_name", "—")
+        pretty = _pretty_move_name(new_id, cname)
+        dup_idx = mv.get("dup_index")
+        if dup_idx is not None:
+            pretty = f"{pretty} (Tier{dup_idx + 1})"
+        pretty = f"{pretty} [0x{new_id:04X}]"
+
+        self.tree.set(item, "move", pretty)
 
     def _build(self):
         """Construct the Tk UI components and populate the move table."""
@@ -434,12 +683,18 @@ class EditableFrameDataWindow:
             "abs",
         )
         self.tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
+
         vsb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
+        hsb = ttk.Scrollbar(frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
         self.tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
+
 
         headers = [
             ("move", "Move"),
@@ -760,6 +1015,11 @@ class EditableFrameDataWindow:
             return
 
         current_val = self.tree.set(item, col_name)
+        # Special: double-click on move name -> replacement dialog
+        if col_name == "move":
+            self._edit_move_replacement(item, mv)
+            return
+
 
         if col_name == "damage":
             self._edit_damage(item, mv, current_val)
@@ -858,35 +1118,62 @@ class EditableFrameDataWindow:
 
     def _show_address_info(self, addr, title):
         """
-        Hex-dump a small window of memory at addr in a modal dialog.
+        Show a contextual hex view around addr:
 
-        Intended mostly for quick inspection while reverse-engineering.
+        - 16 bytes per line
+        - 6 lines before and 6 lines after
+        - '>>' marks the line containing addr
         """
+        LINE_SIZE = 16
+        CONTEXT_LINES = 6
+
         try:
             from dolphin_io import rbytes
-            data = rbytes(addr, 32)
+        except ImportError:
+            messagebox.showerror("Error", "dolphin_io.rbytes not available")
+            return
+
+        try:
+            # Align to 16-byte boundary
+            line_base = addr & ~(LINE_SIZE - 1)
+            start = line_base - CONTEXT_LINES * LINE_SIZE
+            if start < 0:
+                start = 0
+
+            total_lines = CONTEXT_LINES * 2 + 1
+            length = total_lines * LINE_SIZE
+
+            data = rbytes(start, length)
             if not data:
-                messagebox.showerror("Error", f"Failed to read memory at 0x{addr:08X}")
+                messagebox.showerror("Error", f"Failed to read memory around 0x{addr:08X}")
                 return
-
-            dlg = tk.Toplevel(self.root)
-            dlg.title(title)
-            dlg.geometry("500x400")
-
-            txt = tk.Text(dlg, wrap="none", font=("Courier", 10))
-            txt.pack(fill="both", expand=True, padx=5, pady=5)
-
-            txt.insert("end", f"Memory at 0x{addr:08X}:\n\n")
-            for i in range(0, len(data), 16):
-                line_addr = addr + i
-                hex_part = " ".join(f"{b:02X}" for b in data[i:i+16])
-                ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in data[i:i+16])
-                txt.insert("end", f"{line_addr:08X}: {hex_part:<48} {ascii_part}\n")
-
-            txt.config(state="disabled")
-
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to read memory: {e}")
+            messagebox.showerror("Error", f"Failed to read memory around 0x{addr:08X}:\n{e}")
+            return
+
+        current_line_index = (line_base - start) // LINE_SIZE
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title)
+        dlg.geometry("640x420")
+
+        txt = tk.Text(dlg, wrap="none", font=("Courier", 10))
+        txt.pack(fill="both", expand=True, padx=5, pady=5)
+
+        txt.insert("end", "Legend: '>>' = line containing the selected address; 16 bytes per line.\n\n")
+
+        for i in range(total_lines):
+            off = i * LINE_SIZE
+            chunk = data[off:off + LINE_SIZE]
+            line_addr = start + off
+            hex_part = " ".join(f"{b:02X}" for b in chunk)
+            ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+
+            prefix = ">>" if i == current_line_index else "  "
+            line = f"{prefix} 0x{line_addr:08X}: {hex_part:<47} {ascii_part}\n"
+            txt.insert("end", line)
+
+        txt.config(state="disabled")
 
     def _show_raw_data(self, mv):
         """Show the raw move dict (including all *_addr fields) in a scrollable view."""
