@@ -449,7 +449,7 @@ def main():
             if true_id not in (None, 0):
                 snap["id"] = true_id
                 name_from_id = CHAR_NAMES.get(true_id)
-                print(f"[main] slot={slotname} base=0x{base:08X} true_id={true_id} name_from_id={name_from_id} current_name={snap.get('name')}")
+                
                 if name_from_id:
                     snap["name"] = name_from_id
 
