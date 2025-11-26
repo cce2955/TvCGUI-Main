@@ -740,3 +740,44 @@ python tvc_sigtool.py poke --addr 0x908c1d70 --bytes "43 FF 00 00"
 python tvc_sigtool.py poke --addr 0x908c1f60 --bytes "43 FF 00 00" 
 #Shinsho possibly last hit
 
+Projectile behavior in TvC is defined by a three-byte structure found inside the actor-spawn block. The format is:
+
+XX A5 A0
+
+Byte one represents the behavior mode. This determines how the projectile interacts with the world and with fighters. Changing this value alters collision rules, ownership, hit logic, attachment, stun effects, and similar behavior. Tested values show the following patterns:
+
+00 A5 A0 causes an immediate full-health deletion on contact, indicating this selects a debug or raw damage handler that bypasses standard collision and scaling.
+
+01 A5 A0 applies the minimum possible damage, likely a test or stub handler.
+
+02 A5 A0 disables collision entirely. The projectile passes through opponents without interacting.
+
+03 A5 A0 is the normal Hadouken behavior and represents the default behavior table entry.
+
+04 A5 A0 produces a zero-damage hit that still triggers the hit reaction, useful for stun-only or cinematic attacks.
+
+05 A5 A0 reverses ownership so the projectile affects the caller rather than the opponent.
+
+06 A5 A0 attaches the projectile to Ryu instead of projecting forward. This suggests an actor-attachment mode used in looping or charge effects.
+
+07 A5 A0 hits the assist caller instead of the target. This appears to invert team alignment.
+
+08 A5 A0 causes the projectile to spawn underground. This is consistent with a ground-trace or burrow-type behavior mode.
+
+09 A5 A0 creates a knockdown with a persistent shock effect. This seems to activate a status-effect entry.
+
+0A A5 A0 makes the projectile slide across the ground and hit the caller, again altering both spawn behavior and ownership rules.
+
+Values continue to follow the same pattern: each integer for the first byte selects a different entry in the projectile-behavior table. These entries combine collision masks, team rules, ownership, hitboxes, stun types, attachment flags, and environmental alignment.
+
+Byte two identifies the projectile family. For Ryu this is A5. Other characters use different family identifiers. The family determines which hitbox set, graphics group, and script group the projectile belongs to.
+
+Byte three represents the variant for that family. A0 is the default Hadouken variant. Changing this value alters angle logic, collision layers, or target categories. Most alternate values cause the projectile to pass through opponents because the collision mask no longer matches standard hurtboxes. The variant byte therefore controls sub-rules like grounded-only, airborne-only, shield interaction, or arc-based hit checking.
+
+The full block beginning at 908C7960 is a structured actor-definition block. It contains the behavior triple (XX A5 A0), one or more movement definitions, hitbox setup, damage, launch parameters, and lifespan. The engine reads this section as the configuration data for the projectile actor.
+
+In summary, the projectile configuration is organized in a small internal table where:
+
+Byte one selects the behavior entry.
+Byte two selects the projectile family.
+Byte three selects the variant for that family.

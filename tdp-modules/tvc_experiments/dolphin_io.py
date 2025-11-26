@@ -14,42 +14,26 @@
 #   wd32(addr, val)      - write 32-bit BE unsigned
 #   wdf32(addr, val)     - write 32-bit BE float
 #   wbytes(addr, data)   - write bytes
-#
-# The goal is to hide all direct interaction with dolphin_memory_engine
-# behind a small, defensive API. Callers never touch dme.* directly and
-# always go through the range checks and safety filters here.
 
 import time
 import math
 import struct
-
 import dolphin_memory_engine as dme
 from constants import MEM1_LO, MEM1_HI, MEM2_LO, MEM2_HI
 
 
 def hook():
-    """
-    Block until Dolphin is successfully hooked.
-
-    dolphin_memory_engine occasionally throws while the process is starting
-    or no emulator is running; we simply ignore failures and retry.
-    """
+    """Keep trying to hook Dolphin until it succeeds."""
     while not dme.is_hooked():
         try:
             dme.hook()
         except Exception:
-            # Nothing to log here; the loop will try again shortly.
             pass
         time.sleep(0.2)
 
 
 def addr_in_ram(a):
-    """
-    Return True if 'a' is inside MEM1 or MEM2.
-
-    This is the first line of defense against bogus pointers coming from
-    half-initialized structs or stale memory.
-    """
+    """Return True if 'a' is inside MEM1 or MEM2."""
     if a is None:
         return False
     return (MEM1_LO <= a < MEM1_HI) or (MEM2_LO <= a < MEM2_HI)
@@ -57,16 +41,7 @@ def addr_in_ram(a):
 
 def _clamp_read_range(addr, size):
     """
-    Clamp a read request to the valid RAM ranges.
-
-    Args:
-        addr : starting address
-        size : number of bytes requested
-
-    Returns:
-        (ok, clamped_addr, clamped_size)
-
-        ok == False means the address does not fall in MEM1/MEM2.
+    Return (ok, clamped_addr, clamped_size) for a safe read in MEM1 or MEM2.
     """
     if size <= 0:
         return False, addr, 0
@@ -91,9 +66,7 @@ def _clamp_read_range(addr, size):
 def rbytes(addr, size):
     """
     Bulk read 'size' bytes starting at 'addr'.
-
-    Returns:
-        bytes object on success, or b"" on failure/out-of-range.
+    Returns b"" on failure.
     """
     ok, base, span = _clamp_read_range(addr, size)
     if not ok or span <= 0:
@@ -109,12 +82,7 @@ def rbytes(addr, size):
 
 
 def rd8(addr):
-    """
-    Read a single byte from 'addr'.
-
-    Returns:
-        int in [0, 255] on success, or None if out of range or read fails.
-    """
+    """Read 1 byte from 'addr' -> int(0..255) or None."""
     if not addr_in_ram(addr):
         return None
     try:
@@ -127,12 +95,7 @@ def rd8(addr):
 
 
 def rd32(addr):
-    """
-    Read a big-endian unsigned 32-bit integer from 'addr'.
-
-    Returns:
-        int in [0, 2**32-1] on success, or None on failure.
-    """
+    """Read big-endian u32 from 'addr' or None."""
     if not addr_in_ram(addr):
         return None
     try:
@@ -145,12 +108,7 @@ def rd32(addr):
 
 
 def rdf32(addr):
-    """
-    Read a big-endian float32 from 'addr'.
-
-    Applies a simple sanity filter: NaN, inf, or extremely large magnitudes
-    are treated as invalid and return None.
-    """
+    """Read big-endian float32 from 'addr' or None."""
     if not addr_in_ram(addr):
         return None
     try:
@@ -161,6 +119,7 @@ def rdf32(addr):
         raw_u32 = struct.unpack(">I", b)[0]
         f = struct.unpack(">f", struct.pack(">I", raw_u32))[0]
 
+        # sanity filter
         if not math.isfinite(f) or abs(f) > 1e8:
             return None
         return f
@@ -174,16 +133,14 @@ def rdf32(addr):
 
 def wbytes(addr, data):
     """
-    Write a bytes-like object to 'addr'.
-
-    Returns:
-        True on success, False if out of range or write fails.
+    Write bytes to 'addr'.
+    Returns True on success, False on failure.
     """
     if not addr_in_ram(addr):
         return False
     if not data:
         return False
-
+    
     try:
         dme.write_bytes(addr, data)
         return True
@@ -194,13 +151,8 @@ def wbytes(addr, data):
 
 def wd8(addr, value):
     """
-    Write a single byte to 'addr'.
-
-    Args:
-        value will be masked to 0xFF.
-
-    Returns:
-        True on success, False otherwise.
+    Write 1 byte to 'addr'.
+    Returns True on success, False on failure.
     """
     if not addr_in_ram(addr):
         return False
@@ -215,13 +167,8 @@ def wd8(addr, value):
 
 def wd32(addr, value):
     """
-    Write a big-endian unsigned 32-bit integer to 'addr'.
-
-    Args:
-        value will be masked to 0xFFFFFFFF.
-
-    Returns:
-        True on success, False otherwise.
+    Write big-endian u32 to 'addr'.
+    Returns True on success, False on failure.
     """
     if not addr_in_ram(addr):
         return False
@@ -237,10 +184,8 @@ def wd32(addr, value):
 
 def wdf32(addr, value):
     """
-    Write a big-endian float32 to 'addr'.
-
-    Returns:
-        True on success, False if out of range, not finite, or write fails.
+    Write big-endian float32 to 'addr'.
+    Returns True on success, False on failure.
     """
     if not addr_in_ram(addr):
         return False

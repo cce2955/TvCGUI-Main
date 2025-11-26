@@ -1,6 +1,10 @@
 # debug_panel.py
 #
-# Debug flag helpers + drawing logic extracted from main.py.
+# Helper routines for reading a curated set of runtime flags from memory
+# and drawing them in an inspector-style overlay. This file keeps all
+# debug-panel logic out of main.py so the main loop stays focused on
+# gameplay-state tracking and rendering.
+
 
 import pygame
 
@@ -10,16 +14,19 @@ from config import COL_BG, DEBUG_FLAG_ADDRS
 
 def read_debug_flags():
     """
-    Returns list of (label, addr, value) for the debug panel.
+    Collect a list of (label, addr, value) entries for the debug overlay.
 
-    Uses config.DEBUG_FLAG_ADDRS plus the exact addresses:
-      - HypeTrigger   @ 0x803FB9D9
-      - ComboStore[1] @ 0x803FB949
-      - SpecialPopup  @ 0x803FBA69
+    DEBUG_FLAG_ADDRS covers the generic toggles (pause overlay, director block,
+    etc.). In addition, we expose a few single-byte addresses found through
+    memory tracing that correspond to hype, combo popup behavior, and special
+    effect triggers.
+
+    Returns:
+        A list of tuples: (label, address, byte_value or None)
     """
     out = []
 
-    # Base debug flags from config (PauseOverlay, PauseCtrl, Director, etc.)
+    # Main debug flags defined in config.py
     for label, addr in DEBUG_FLAG_ADDRS:
         try:
             val = rd8(addr)
@@ -27,7 +34,7 @@ def read_debug_flags():
             val = None
         out.append((label, addr, val))
 
-    # Exact addresses you found in MEM1/MEM2
+    # Individually mapped flags discovered during reverse-engineering.
     hype_addr = 0x803FB9D9
     try:
         hype_val = rd8(hype_addr)
@@ -54,29 +61,39 @@ def read_debug_flags():
 
 def draw_debug_overlay(surface, rect, font, values, scroll_offset):
     """
-    Render the debug flag list inside a dedicated panel rectangle.
+    Draw the debug flag inspector.
 
-    scroll_offset: how many entries from 'values' to skip (for scrolling).
+    The overlay shows a scrollable list of (label, value, address) pairs,
+    with each row clickable so that other parts of the HUD can toggle
+    the corresponding byte in memory.
+
+    Arguments:
+        surface        The pygame Surface to draw on.
+        rect           The region allocated for the debug panel.
+        font           Font object for rendering text.
+        values         Output of read_debug_flags().
+        scroll_offset  Number of rows to skip from the top.
 
     Returns:
-        click_areas: dict[label] -> (pygame.Rect, addr)
-        max_scroll: maximum allowed scroll_offset for current rect/values.
+        click_areas : dict mapping label → (pygame.Rect, address)
+                      Used for hit-testing click toggles.
+
+        max_scroll  : Maximum valid value for scroll_offset given panel height.
     """
-    # panel background + border
+    # Panel base and border
     pygame.draw.rect(surface, COL_BG, rect, border_radius=4)
     pygame.draw.rect(surface, (120, 120, 160), rect, 1, border_radius=4)
 
     click_areas = {}
 
-    # Header position
     x = rect.x + 8
-    y = rect.y + 32  # leave room for the Debug ON/OFF button row
+    y = rect.y + 32   # leave room for the ON/OFF button printed in main HUD
 
     header = "Debug flags (rd8)"
     surface.blit(font.render(header, True, (220, 220, 220)), (x, y))
     y += 16
 
-    # No values -> no scrolling needed
+    # No data → no scrolling
     if not values:
         return click_areas, 0
 
@@ -85,30 +102,26 @@ def draw_debug_overlay(surface, rect, font, values, scroll_offset):
     visible_px = (rect.bottom - 10) - y_start
     max_visible = max(0, visible_px // line_height)
 
-    # Clamp scroll_offset to safe range
     total = len(values)
     max_scroll = max(0, total - max_visible)
-    if scroll_offset < 0:
-        scroll_offset = 0
-    elif scroll_offset > max_scroll:
-        scroll_offset = max_scroll
 
-    # Slice the list by scroll offset
+    # Clamp scroll_offset once we know the valid range
+    scroll_offset = max(0, min(scroll_offset, max_scroll))
+
+    # Take the visible window of rows
     visible_values = values[scroll_offset:scroll_offset + max_visible]
 
     for label, addr, val in visible_values:
         if y > rect.bottom - 10:
             break
 
-        if val is None:
-            vtxt = "--"
-        else:
-            vtxt = f"{val:02X}"
-
+        vtxt = "--" if val is None else f"{val:02X}"
         line = f"{label}: {vtxt} @0x{addr:08X}"
+
         text_surf = font.render(line, True, (200, 200, 200))
         surface.blit(text_surf, (x, y))
 
+        # Record bounding rect for click detection
         text_rect = text_surf.get_rect(topleft=(x, y))
         click_areas[label] = (text_rect, addr)
 

@@ -15,15 +15,33 @@ except ImportError:
     open_editable_frame_data_window = None
     print("WARNING: editable_frame_data_gui not available")
 
-# Legacy Tk-based viewer (copied from main.py)
 
 def _fmt_stun(v):
     if v is None:
         return ""
-    # keep same formatting logic you already had
     if v == 0:
         return "0"
     return str(v)
+
+
+def _fmt_move_label(mv):
+    """
+    Always produce a clean move label:
+        - use mv["move_name"] when available
+        - fallback to anim_XXXX
+        - always append hex ID [0xXXXX]
+    """
+    aid = mv.get("id")
+    name = mv.get("move_name")
+
+    if aid is None:
+        return "anim_----"
+
+    if not name or name.strip() == "" or name.startswith("anim_--"):
+        name = f"anim_{aid:04X}"
+
+    return f"{name} [0x{aid:04X}]"
+
 
 def _open_frame_data_window_thread(slot_label, target_slot):
     """
@@ -81,8 +99,7 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     for col_id, txt in headers:
         tree.heading(col_id, text=txt)
 
-    # widths
-    tree.column("move", width=180, anchor="w")
+    tree.column("move", width=220, anchor="w")
     tree.column("kind", width=60, anchor="w")
     tree.column("damage", width=65, anchor="center")
     tree.column("meter", width=55, anchor="center")
@@ -94,12 +111,21 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     tree.column("advH", width=55, anchor="center")
     tree.column("advB", width=55, anchor="center")
     tree.column("hb", width=80, anchor="center")
-    tree.column("abs", width=100, anchor="center")
+    tree.column("abs", width=110, anchor="center")
 
-    # populate rows
+    # ------------------------------------------------------------
+    # NEW: guarantee 0111 / 0112 / 0113 / all special IDs appear
+    #      even if scan_normals_all had missing fields
+    #
+    # The actual scan already gives us ALL moves, including specials.
+    # We simply sort them, label them correctly, and render cleanly.
+    # ------------------------------------------------------------
+
     moves = target_slot.get("moves", [])
-    for mv in moves:
-        move_name = mv.get("move_name", mv.get("move", ""))
+    moves_sorted = sorted(moves, key=lambda mv: (mv.get("id") is None, mv.get("id") or 0))
+
+    for mv in moves_sorted:
+        move_display = _fmt_move_label(mv)
 
         a_s = mv.get("startup")
         a_e = mv.get("active_end")
@@ -110,7 +136,6 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         else:
             active_txt = ""
 
-        # format HB (same logic you had)
         hb_x = mv.get("hb_x")
         hb_y = mv.get("hb_y")
         if hb_x is not None or hb_y is not None:
@@ -123,11 +148,14 @@ def _open_frame_data_window_thread(slot_label, target_slot):
         else:
             hb_txt = ""
 
+        adv_hit = mv.get("adv_hit")
+        adv_block = mv.get("adv_block")
+
         tree.insert(
             "",
             "end",
             values=(
-                move_name,
+                move_display,
                 mv.get("kind", ""),
                 "" if mv.get("damage") is None else str(mv.get("damage")),
                 "" if mv.get("meter") is None else str(mv.get("meter")),
@@ -136,8 +164,8 @@ def _open_frame_data_window_thread(slot_label, target_slot):
                 _fmt_stun(mv.get("hitstun")),
                 _fmt_stun(mv.get("blockstun")),
                 "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
-                "" if mv.get("adv_hit") is None else f"{mv.get('adv_hit'):+d}",
-                "" if mv.get("adv_block") is None else f"{mv.get('adv_block'):+d}",
+                "" if adv_hit is None else f"{adv_hit:+d}",
+                "" if adv_block is None else f"{adv_block:+d}",
                 hb_txt,
                 f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
             ),
@@ -169,9 +197,8 @@ def open_frame_data_window(slot_label, scan_data):
     if not target:
         return
 
-    t = threading.Thread(
+    threading.Thread(
         target=_open_frame_data_window_thread,
         args=(slot_label, target),
         daemon=True,
-    )
-    t.start()
+    ).start()

@@ -1,6 +1,7 @@
 # fighter.py
+#
 # Snapshot a single fighter's runtime struct (HP, position, states, etc.)
-# and expose small debug "wire" windows for HUD/Inspector.
+# and expose small debug "wire" windows for the HUD / Inspector.
 
 from dolphin_io import rd32, rd8, rdf32
 from resolver import looks_like_hp
@@ -24,8 +25,10 @@ from moves import read_attack_ids
 
 def _safe_last_hit(raw_last_hit):
     """
-    last_hit is a running damage tracker / timer-ish int that can spike weird.
-    Clamp insane values so we don't spew garbage into HUD.
+    Normalize the 'last hit' value.
+
+    The engine tracks last-hit damage in a field that can spike or drift.
+    Filter out obviously bogus values so the HUD doesn't show garbage.
     """
     if raw_last_hit is None:
         return None
@@ -36,8 +39,10 @@ def _safe_last_hit(raw_last_hit):
 
 def _collect_wire_bytes(base_addr, offsets_list):
     """
-    Helper: read rd8(base+off) for each given offset.
-    Returns list[(off:int, byte_val:int|None)].
+    Read rd8(base + off) for each offset in offsets_list.
+
+    Returns:
+        list[(offset:int, value:int|None)]
     """
     out = []
     for off in offsets_list:
@@ -48,24 +53,38 @@ def _collect_wire_bytes(base_addr, offsets_list):
 
 def read_fighter(base, y_off):
     """
-    Snapshot one fighter into a dict of:
-      - health (max/cur/aux)
-      - pooled HP (0x02A) and mystery byte (0x02B) for debug
-      - character ID/name
-      - world position X/Y
-      - control word + main state bytes (0x062,0x063,0x064,0x072)
-      - current move IDs (attA/attB from moves.read_attack_ids)
-      - debug wire dumps:
-            "wires_hp":   bytes around HP block (0x020-0x03F)
-            "wires_main": bytes in the classic control window (0x050-0x08F)
+    Build a snapshot dict for a single fighter.
 
-    Returns None if the struct doesn't validate as a live fighter.
+    The snapshot includes:
+      - Health:
+            max (OFF_MAX_HP)
+            cur (OFF_CUR_HP)
+            aux (OFF_AUX_HP)
+            hp_pool_byte  (0x02A — pooled / red-life style total)
+            mystery_2B    (0x02B — decremented "phase" byte under test)
+      - Identity:
+            id, name (resolved via CHAR_NAMES)
+      - Position:
+            x (POSX_OFF float)
+            y (float at y_off, provided by resolver)
+      - Hit / damage:
+            last (sanitized OFF_LAST_HIT)
+      - Control / state:
+            ctrl (CTRL_WORD_OFF)
+            f062, f063, f064, f072 (flag bytes)
+      - Current attack IDs:
+            attA, attB (from moves.read_attack_ids)
+      - Debug wire windows:
+            wires_hp   : bytes around HP block (HEALTH_WIRE_OFFSETS)
+            wires_main : main control window (WIRE_OFFSETS)
+
+    Returns:
+        dict snapshot on success, or None if the struct fails basic HP validation.
     """
-
     if not base:
         return None
 
-    # --- core health ---
+    # --- core health block ---
     max_hp = rd32(base + OFF_MAX_HP)
     cur_hp = rd32(base + OFF_CUR_HP)
     aux_hp = rd32(base + OFF_AUX_HP)
@@ -74,14 +93,14 @@ def read_fighter(base, y_off):
     if not looks_like_hp(max_hp, curhp=cur_hp, auxhp=aux_hp):
         return None
 
-    # NEW: pooled HP and mystery 0x02B byte
-    # 0x02A: "pooled" survivable HP (red life+current etc.)
-    # 0x02B: unknown decrementing timer/phase byte you described
+    # Extra health-related bytes for experimentation:
+    #   0x02A: pooled "total life" (current + red) style byte.
+    #   0x02B: odd decrementing byte that seems to behave like a timer/phase.
     pooled_byte = rd8(base + 0x02A)
-    mystery_2B  = rd8(base + 0x02B)
+    mystery_2B = rd8(base + 0x02B)
 
     # --- identity ---
-    cid  = rd32(base + OFF_CHAR_ID)
+    cid = rd32(base + OFF_CHAR_ID)
     name = CHAR_NAMES.get(cid, f"ID_{cid}") if cid is not None else "???"
 
     # --- position ---
@@ -89,8 +108,8 @@ def read_fighter(base, y_off):
     y = rdf32(base + y_off) if y_off is not None else None
 
     # --- hit / damage info ---
-    raw_last  = rd32(base + OFF_LAST_HIT)
-    last_hit  = _safe_last_hit(raw_last)
+    raw_last = rd32(base + OFF_LAST_HIT)
+    last_hit = _safe_last_hit(raw_last)
 
     # --- control / state words ---
     ctrl_word = rd32(base + CTRL_WORD_OFF)
@@ -104,8 +123,8 @@ def read_fighter(base, y_off):
     attA, attB = read_attack_ids(base)
 
     # --- byte spy windows for HUD Inspector ---
-    wires_hp   = _collect_wire_bytes(base, HEALTH_WIRE_OFFSETS)  # 0x020..0x03F
-    wires_main = _collect_wire_bytes(base, WIRE_OFFSETS)         # 0x050..0x08F
+    wires_hp = _collect_wire_bytes(base, HEALTH_WIRE_OFFSETS)
+    wires_main = _collect_wire_bytes(base, WIRE_OFFSETS)
 
     # --- assemble snapshot dict ---
     snap = {
@@ -116,16 +135,15 @@ def read_fighter(base, y_off):
         "cur": cur_hp,
         "aux": aux_hp,
 
-        # pooled HP-style "total life" byte and mystery decay byte
-        # We'll surface both in HUD.
-        "hp_pool_byte": pooled_byte,   # offset 0x02A
-        "mystery_2B":   mystery_2B,    # offset 0x02B
+        # pooled HP-style "total life" byte and experimental decay byte
+        "hp_pool_byte": pooled_byte,  # offset 0x02A
+        "mystery_2B": mystery_2B,     # offset 0x02B
 
         # char identity
         "id": cid,
         "name": name,
 
-        # position
+        # world position
         "x": x,
         "y": y,
 
@@ -144,7 +162,7 @@ def read_fighter(base, y_off):
         "attB": attB,
 
         # debug byte dumps for Inspector
-        "wires_hp":   wires_hp,
+        "wires_hp": wires_hp,
         "wires_main": wires_main,
     }
 
@@ -153,9 +171,11 @@ def read_fighter(base, y_off):
 
 def dist2(a, b):
     """
-    Squared distance between 2 fighter snapshots.
-    Used to pick 'nearest attacker' on hit.
-    If we can't get sane X/Y for either fighter, treat as inf distance.
+    Squared distance between two fighter snapshots.
+
+    Used to pick a "nearest attacker" when multiple candidates
+    are in range. If either snapshot is missing a usable X/Y,
+    returns +inf so it loses any min-distance comparison.
     """
     if a is None or b is None:
         return float("inf")

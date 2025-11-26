@@ -2,7 +2,7 @@ import pygame
 from config import COL_PANEL, COL_BORDER, COL_TEXT
 from events import event_log
 from move_id_map import lookup_move_name  # NEW
-
+from special_runtime_finder import get_special_anims
 try:
     from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 except Exception:
@@ -25,7 +25,45 @@ def _hp_color(cur_hp, max_hp):
         return COL_TEXT
     pct = (cur_hp / max_hp) * 100.0
     return _pct_color(pct)
+def draw_special_anim_calls(surface, font_small, base_x, base_y, max_rows=12, max_sites_per_id=2):
+    """
+    Draws a simple list of 01–1E animation calls and their addresses.
 
+    base_x, base_y: top-left coordinates where this block should start.
+    max_rows: maximum number of distinct IDs to show.
+    max_sites_per_id: limit how many addresses per ID we print so it
+                      does not flood the HUD.
+    """
+    specials = get_special_anims()
+
+    if not specials:
+        text = font_small.render("Specials: (none found)", True, (220, 220, 220))
+        surface.blit(text, (base_x, base_y))
+        return
+
+    label = font_small.render("Special anim calls (01–1E):", True, (220, 220, 220))
+    surface.blit(label, (base_x, base_y))
+    y = base_y + label.get_height() + 2
+
+    # sort by anim ID for stable output
+    anim_ids = sorted(specials.keys())
+    rows_drawn = 0
+
+    for anim_lo in anim_ids:
+        if rows_drawn >= max_rows:
+            break
+
+        addrs = specials[anim_lo]
+        # only show first N addresses per ID for readability
+        shown_addrs = addrs[:max_sites_per_id]
+
+        addr_str = ", ".join(f"0x{a:08X}" for a in shown_addrs)
+        line = f"01 {anim_lo:02X} 01 3C  @ {addr_str}"
+
+        surf = font_small.render(line, True, (200, 200, 200))
+        surface.blit(surf, (base_x, y))
+        y += surf.get_height() + 2
+        rows_drawn += 1
 
 def _rainbow_color(t_ms: int, step: int = 0):
     base = (t_ms // 80 + step * 20) % 360
@@ -115,11 +153,50 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
 
     mv_label = snap.get("mv_label", "—")
     mv_id = snap.get("mv_id_display")
+
+    # Assist display: if this slot is currently acting as an assist, append a tag.
+    assist_phase = snap.get("assist_phase")
+    is_assist = snap.get("is_assist", False)
+    assist_suffix = ""
+    if is_assist:
+        # "flyin", "attack", "recover", or None
+        phase_str = assist_phase or "on"
+        assist_suffix = f"  [ASSIST: {phase_str}]"
+
+    # Move line
     if mv_id is not None:
         mv_text = f"Move: {mv_label} ({mv_id})"
     else:
         mv_text = f"Move: {mv_label}"
     surface.blit(smallfont.render(mv_text, True, COL_TEXT), (text_x0, y0 + 80))
+
+    # Assist line
+    assist_phase = snap.get("assist_phase")
+    is_assist = snap.get("is_assist", False)
+
+    if assist_phase:
+        assist_text = f"Assist: {assist_phase}"
+    elif is_assist:
+        assist_text = "Assist: on"
+    else:
+        assist_text = "Assist: --"
+
+    surface.blit(smallfont.render(assist_text, True, COL_TEXT), (text_x0, y0 + 96))
+
+
+    # --- NEW: dedicated Assist line ---
+    assist_phase = snap.get("assist_phase")
+    is_assist = snap.get("is_assist", False)
+
+    if is_assist:
+        phase_str = assist_phase or "on"
+        assist_text = f"Assist: {phase_str}"
+    else:
+        assist_text = "Assist: --"
+
+    surface.blit(smallfont.render(assist_text, True, COL_TEXT), (text_x0, y0 + 96))
+
+
 
 
 def draw_activity(surface, rect, font, text):

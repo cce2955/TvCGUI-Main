@@ -1,14 +1,21 @@
 # editable_frame_data_gui.py
 #
-# Frame Data Editor window for TvC HUD
-# - Active 2 editing support added
-# - Right-click any column to jump to its address in memory
-# - Context menus for all editable fields
+# Frame Data Editor window for TvC HUD.
+#
+# Features:
+#   - Edits main frame data (damage, meter, startup, active, hitstun, etc.)
+#   - Active 2 (inline active) editing support
+#   - Hitbox radius discovery + editing based on scanned float candidates
+#   - Knockback + hit reaction editors with named presets
+#   - Right-click context menu to copy / inspect relevant memory addresses
+#
+# The editor is read-only if move_writer is not available.
 
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 import threading
 import math
+
 from move_id_map import lookup_move_name
 from moves import CHAR_ID_CORRECTION
 
@@ -27,6 +34,7 @@ try:
     )
     WRITER_AVAILABLE = True
 except ImportError:
+    # Caller still gets a fully functional viewer; only writes are disabled.
     print("WARNING: move_writer not found, editor will be read-only")
 
 try:
@@ -39,11 +47,12 @@ try:
 except Exception:
     _ANIM_MAP_FOR_GUI = {}
 
+# Max scan window (in bytes) when looking for hitbox float values
 HB_SCAN_MAX = 0x600
 FALLBACK_HB_OFFSET = 0x21C
 MIN_REAL_RADIUS = 5.0
 
-# Knockback trajectory descriptions
+# Knockback trajectory descriptions (angle codes → labels)
 KB_TRAJ_MAP = {
     0xBD: "Up Forward KB",
     0xBE: "Down Forward KB",
@@ -51,7 +60,7 @@ KB_TRAJ_MAP = {
     0xC4: "Up Pop (j.L/j.M)",
 }
 
-# Hit reaction type descriptions
+# Hit reaction type descriptions (bitfields → behavior summary)
 HIT_REACTION_MAP = {
     0x000000: "Stay on ground",
     0x000001: "Ground/Air > KB",
@@ -81,55 +90,77 @@ HIT_REACTION_MAP = {
     0x001003: "Wonky variant",
 }
 
+
 def _fmt_kb_traj(val):
+    """Format a knockback trajectory byte as hex plus a short label."""
     if val is None:
         return ""
     desc = KB_TRAJ_MAP.get(val, "Unknown")
     return f"0x{val:02X} ({desc})"
 
+
 def _fmt_hit_reaction(val):
+    """Format a hit reaction bitfield as hex plus a short label."""
     if val is None:
         return ""
     desc = HIT_REACTION_MAP.get(val, "Unknown")
     return f"0x{val:06X} ({desc})"
 
+
 def _parse_hit_reaction_input(s: str):
+    """
+    Parse a hit reaction value from user input.
+
+    Accepts:
+        - Hex with 0x prefix (e.g. "0x800080")
+        - Hex without prefix (e.g. "800080")
+        - Decimal (e.g. "524288")
+    Returns:
+        int or None on failure.
+    """
     s = s.strip()
     if not s:
         return None
-    # First try hex (with or without 0x)
+    # Try hex first
     try:
         return int(s, 16) if s.lower().startswith("0x") else int(s, 16)
     except ValueError:
         pass
-    # Then decimal
+    # Fallback to decimal
     try:
         return int(s, 10)
     except ValueError:
         pass
     return None
 
+
 def _write_hit_reaction(mv, val) -> bool:
+    """
+    Write hit reaction bitfield to memory for a given move.
+
+    Tries a dedicated move_writer helper first if present, falling back to
+    a direct byte write using addresses from scan_normals_all.
+    """
     if not WRITER_AVAILABLE:
         return False
 
-    # 1. If move_writer has a helper, let it try first
+    # 1. Prefer move_writer's helper if available.
     try:
         from move_writer import write_hit_reaction
         if write_hit_reaction(mv, val):
             return True
     except Exception:
-        pass  # fall through to direct write
+        # Helper failed or is missing; use inline write instead.
+        pass
 
-    # 2. Direct write using the address found by scan_normals_all
+    # 2. Direct write from the annotated address.
     addr = mv.get("hit_reaction_addr")
     if not addr:
-        # Nothing tagged for this move
         return False
 
     try:
         from dolphin_io import wd8
-        # Hit reaction is three sequential bytes: XX YY ZZ
+        # Hit reaction is stored as three bytes: XX YY ZZ
         wd8(addr + 0, (val >> 16) & 0xFF)
         wd8(addr + 1, (val >> 8) & 0xFF)
         wd8(addr + 2, val & 0xFF)
@@ -140,20 +171,24 @@ def _write_hit_reaction(mv, val) -> bool:
 
 
 def _write_active2_frames(mv, start, end) -> bool:
-    """Write Active 2 (inline active) frames to memory"""
+    """
+    Write Active 2 (inline active) frame window to memory for a given move.
+
+    start / end are frame indices as integers. The underlying pattern expects:
+        - start at pattern_base + 4
+        - end   at pattern_base + 16
+    """
     if not WRITER_AVAILABLE:
         return False
-    
+
     addr = mv.get("active2_addr")
     if not addr:
         return False
-    
+
     try:
         from dolphin_io import wd8
-        # Write start frame at offset +4 from pattern start
         if not wd8(addr + 4, start):
             return False
-        # Write end frame at offset +16 from pattern start
         if not wd8(addr + 16, end):
             return False
         return True
@@ -161,8 +196,14 @@ def _write_active2_frames(mv, start, end) -> bool:
         print(f"Failed to write active2 frames: {e}")
         return False
 
+
 def _scan_hitbox_house(move_abs: int):
-    """Scan move block for all valid floats."""
+    """
+    Scan a move's data block for plausible hitbox radius floats.
+
+    Returns:
+        List of (offset, float_value) tuples for each candidate radius.
+    """
     if rdf32 is None or not move_abs:
         return []
 
@@ -181,35 +222,48 @@ def _scan_hitbox_house(move_abs: int):
 
     return candidates
 
+
 def _select_primary_from_candidates(cands: list[tuple[int, float]]):
-    """Extract radius from candidates."""
+    """
+    Choose a representative hitbox radius from a list of candidates.
+
+    Priority:
+        1) Very large values (>= 400.0) are assumed to be explicit radius values.
+        2) Otherwise, pick the largest value within a realistic range.
+        3) Fall back to the last candidate in range if nothing stands out.
+    """
     if not cands:
         return None, None
 
-    # Check for big poke
+    # Obvious "long poke" cases.
     for off, val in cands:
         if val >= 400.0:
             return off, val
 
-    # Largest realistic
     MAX_REAL_RADIUS = 42.0
     best_off, best_val = None, -1.0
     for off, val in cands:
-        if MIN_REAL_RADIUS <= val <= MAX_REAL_RADIUS:
-            if val > best_val:
-                best_off, best_val = off, val
+        if MIN_REAL_RADIUS <= val <= MAX_REAL_RADIUS and val > best_val:
+            best_off, best_val = off, val
 
     if best_off is not None:
         return best_off, best_val
 
-    # Last in range
+    # No best candidate; fall back to the last radius in range.
     for off, val in reversed(cands):
         if MIN_REAL_RADIUS <= val <= MAX_REAL_RADIUS:
             return off, val
 
+    # As a last resort, return the last scanned float.
     return cands[-1] if cands else (None, None)
 
+
 def _format_candidate_list(cands: list[tuple[int, float]], max_show: int = 4) -> str:
+    """
+    Compact textual summary of the first few hitbox radius candidates.
+
+    Example: 'r0=12.0 r1=8.0 r2=16.0 …'
+    """
     parts = []
     for idx, (_off, val) in enumerate(cands[:max_show]):
         parts.append(f"r{idx}={val:.1f}")
@@ -217,7 +271,13 @@ def _format_candidate_list(cands: list[tuple[int, float]], max_show: int = 4) ->
         parts.append("…")
     return " ".join(parts)
 
+
 def _fmt_stun(v):
+    """
+    Convert internal stun byte into a more readable value where known.
+
+    Some common values are mapped to their in-game frame equivalents.
+    """
     if v is None:
         return ""
     if v == 0x0C:
@@ -230,7 +290,14 @@ def _fmt_stun(v):
         return "21"
     return str(v)
 
+
 def _unfmt_stun(s):
+    """
+    Inverse of _fmt_stun: map a friendly frame count back to the raw byte.
+
+    Returns:
+        int or None if the input is empty/invalid.
+    """
     s = s.strip()
     if not s:
         return None
@@ -248,8 +315,17 @@ def _unfmt_stun(s):
         return 0x15
     return val
 
+
 def _pretty_move_name(aid, char_name=None):
-    """Resolve a nice label for a move"""
+    """
+    Produce a human-readable label for a move, given an animation ID.
+
+    Resolution order:
+      1) lookup_move_name(aid, char_id)
+      2) Same lookup with repaired high bits (0x100/0x200/0x300)
+      3) Fallback to scanner's ANIM_MAP
+      4) 'anim_XXXX' placeholder
+    """
     if aid is None:
         return "anim_--"
 
@@ -260,32 +336,41 @@ def _pretty_move_name(aid, char_name=None):
         except Exception:
             char_id = None
 
-    # Try exact ID from CSV
     name = lookup_move_name(aid, char_id)
     if name:
         return name
 
-    # Repair truncated IDs
+    # Some data sources truncate IDs. Try reattaching common high bits.
     if aid < 0x100:
         for high in (0x100, 0x200, 0x300):
             name = lookup_move_name(aid + high, char_id)
             if name:
                 return name
 
-    # Scanner's own map
     name = _ANIM_MAP_FOR_GUI.get(aid)
     if name:
         return name
 
     return f"anim_{aid:04X}"
 
+
 class EditableFrameDataWindow:
+    """
+    Tkinter-based frame data editor for a single character slot.
+
+    The window lists all discovered moves for a slot and allows inline
+    editing of frame data where backing addresses are known and the
+    move_writer module is present.
+    """
+
     def __init__(self, slot_label, target_slot):
         self.slot_label = slot_label
         self.target_slot = target_slot
 
         cname = self.target_slot.get("char_name")
 
+        # Sort moves primarily by ID cluster (>=0x100 first), then by ID,
+        # and finally by absolute address as a tie-breaker.
         def _mv_sort_key(m):
             aid = m.get("id")
             if aid is None:
@@ -298,6 +383,7 @@ class EditableFrameDataWindow:
 
         moves_sorted = sorted(target_slot.get("moves", []), key=_mv_sort_key)
 
+        # Deduplicate moves that share the same named animation label.
         seen_named = set()
         deduped = []
         for mv in moves_sorted:
@@ -320,6 +406,7 @@ class EditableFrameDataWindow:
         self._build()
 
     def _build(self):
+        """Construct the Tk UI components and populate the move table."""
         cname = self.target_slot.get("char_name", "—")
         self.root = tk.Tk()
         self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
@@ -329,9 +416,17 @@ class EditableFrameDataWindow:
         top.pack(side="top", fill="x", padx=5, pady=5)
 
         if WRITER_AVAILABLE:
-            tk.Label(top, text="Double-click to edit. Right-click for address. Writes to Dolphin.", fg="blue").pack(side="left")
+            tk.Label(
+                top,
+                text="Double-click to edit. Right-click for address. Writes to Dolphin.",
+                fg="blue",
+            ).pack(side="left")
         else:
-            tk.Label(top, text="WARNING: move_writer not found. Editing disabled!", fg="red").pack(side="left")
+            tk.Label(
+                top,
+                text="WARNING: move_writer not found. Editing disabled!",
+                fg="red",
+            ).pack(side="left")
 
         tk.Button(top, text="Reset to original", command=self._reset_all_moves).pack(side="right", padx=4)
 
@@ -374,6 +469,7 @@ class EditableFrameDataWindow:
         for c, txt in headers:
             self.tree.heading(c, text=txt)
 
+        # Generic column widths; tuned to keep one line per entry on a 720p-ish window.
         self.tree.column("move", width=200, anchor="w")
         self.tree.column("kind", width=60, anchor="w")
         self.tree.column("damage", width=65, anchor="center")
@@ -392,7 +488,7 @@ class EditableFrameDataWindow:
 
         cname = self.target_slot.get("char_name", "—")
 
-        # Fill rows
+        # Populate rows with move data and derived fields.
         for mv in self.moves:
             aid = mv.get("id")
             move_name = _pretty_move_name(aid, cname)
@@ -409,7 +505,7 @@ class EditableFrameDataWindow:
             else:
                 active_txt = ""
 
-            # Active 2
+            # Active 2 (inline)
             a2_s = mv.get("active2_start")
             a2_e = mv.get("active2_end")
             if a2_s is None and a2_e is None:
@@ -419,6 +515,7 @@ class EditableFrameDataWindow:
             else:
                 active2_txt = f"{a2_s}-{a2_e}"
 
+            # Hitbox candidates
             move_abs = mv.get("abs")
             hb_cands = []
             hb_off = None
@@ -437,6 +534,7 @@ class EditableFrameDataWindow:
             mv["hb_off"] = hb_off
             mv["hb_r"] = hb_val
 
+            # Knockback summary
             kb0 = mv.get("kb0")
             kb1 = mv.get("kb1")
             kb_traj = mv.get("kb_traj")
@@ -474,6 +572,7 @@ class EditableFrameDataWindow:
             )
             self.move_to_tree_item[item_id] = mv
 
+            # Capture original values for the "Reset to original" button.
             abs_key = mv.get("abs")
             if abs_key:
                 self.original_moves[abs_key] = {
@@ -499,6 +598,7 @@ class EditableFrameDataWindow:
         self.tree.bind("<Button-3>", self._on_right_click)
 
     def _reset_all_moves(self):
+        """Restore all editable fields to the values captured on window creation."""
         if not WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
             return
@@ -560,7 +660,6 @@ class EditableFrameDataWindow:
                     reset_count += 1
                 else:
                     failed_writes.append(f"active2 @ 0x{abs_addr:08X}")
-
 
             # hitstun
             if orig["hitstun"] is not None:
@@ -644,6 +743,7 @@ class EditableFrameDataWindow:
         messagebox.showinfo("Reset", msg)
 
     def _on_double_click(self, event):
+        """Route double-clicks on table cells to the appropriate editor."""
         if not WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
             return
@@ -691,11 +791,12 @@ class EditableFrameDataWindow:
             self._edit_hit_reaction(item, mv, current_val)
 
     def _on_right_click(self, event):
+        """Show context menu with address helpers and raw data view."""
         item = self.tree.identify_row(event.y)
         column = self.tree.identify_column(event.x)
         if not item or not column:
             return
-        
+
         mv = self.move_to_tree_item.get(item)
         if not mv:
             return
@@ -705,7 +806,7 @@ class EditableFrameDataWindow:
 
         menu = tk.Menu(self.root, tearoff=0)
 
-        # Map columns to their address keys
+        # Map columns to their backing address keys.
         addr_map = {
             "damage": ("damage_addr", "Damage"),
             "meter": ("meter_addr", "Meter"),
@@ -723,13 +824,13 @@ class EditableFrameDataWindow:
         if col_name in addr_map:
             addr_key, label = addr_map[col_name]
             addr = mv.get(addr_key)
-            
+
             if addr_key == "hb_off":
-                # Hitbox offset is relative, need to add move base
+                # Hitbox offset is relative to the move base address.
                 move_abs = mv.get("abs")
                 if move_abs and addr is not None:
                     addr = move_abs + addr
-            
+
             if addr:
                 menu.add_command(
                     label=f"Copy {label} Address (0x{addr:08X})",
@@ -754,65 +855,70 @@ class EditableFrameDataWindow:
             menu.grab_release()
 
     def _copy_address(self, addr):
+        """Copy an address to the clipboard in 0xXXXXXXXX format."""
         self.root.clipboard_clear()
         self.root.clipboard_append(f"0x{addr:08X}")
         messagebox.showinfo("Copied", f"0x{addr:08X} copied to clipboard")
 
     def _show_address_info(self, addr, title):
-        """Show memory contents at address"""
+        """
+        Hex-dump a small window of memory at addr in a modal dialog.
+
+        Intended mostly for quick inspection while reverse-engineering.
+        """
         try:
             from dolphin_io import rbytes
             data = rbytes(addr, 32)
             if not data:
                 messagebox.showerror("Error", f"Failed to read memory at 0x{addr:08X}")
                 return
-            
+
             dlg = tk.Toplevel(self.root)
             dlg.title(title)
             dlg.geometry("500x400")
-            
+
             txt = tk.Text(dlg, wrap="none", font=("Courier", 10))
             txt.pack(fill="both", expand=True, padx=5, pady=5)
-            
-            # Format as hex dump
+
             txt.insert("end", f"Memory at 0x{addr:08X}:\n\n")
             for i in range(0, len(data), 16):
                 line_addr = addr + i
                 hex_part = " ".join(f"{b:02X}" for b in data[i:i+16])
                 ascii_part = "".join(chr(b) if 32 <= b < 127 else "." for b in data[i:i+16])
                 txt.insert("end", f"{line_addr:08X}: {hex_part:<48} {ascii_part}\n")
-            
+
             txt.config(state="disabled")
-            
+
         except Exception as e:
             messagebox.showerror("Error", f"Failed to read memory: {e}")
 
     def _show_raw_data(self, mv):
+        """Show the raw move dict (including all *_addr fields) in a scrollable view."""
         dlg = tk.Toplevel(self.root)
         dlg.title("Raw Move Data")
         dlg.geometry("600x500")
-        
+
         frame = tk.Frame(dlg)
         frame.pack(fill="both", expand=True, padx=5, pady=5)
-        
+
         txt = tk.Text(frame, wrap="word", font=("Courier", 10))
         vsb = tk.Scrollbar(frame, orient="vertical", command=txt.yview)
         txt.configure(yscrollcommand=vsb.set)
         txt.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
-        
+
         for k, v in sorted(mv.items()):
             if k.endswith("_addr") and v:
                 txt.insert("end", f"{k}: 0x{v:08X}\n")
             else:
                 txt.insert("end", f"{k}: {v}\n")
-        
+
         txt.config(state="disabled")
 
     # ========== EDITORS ==========
 
     def _edit_active2(self, item, mv, current):
-        """Edit Active 2 (inline active) frames"""
+        """Dialog editor for Active 2 (inline active) frame window."""
         current = current.strip()
         if "-" in current:
             parts = current.split("-")
@@ -864,7 +970,13 @@ class EditableFrameDataWindow:
             cur = int(current) if current else 0
         except ValueError:
             cur = 0
-        new_val = simpledialog.askinteger("Edit Damage", "New damage:", initialvalue=cur, minvalue=0, maxvalue=999999)
+        new_val = simpledialog.askinteger(
+            "Edit Damage",
+            "New damage:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=999999,
+        )
         if new_val is not None and write_damage(mv, new_val):
             self.tree.set(item, "damage", str(new_val))
             mv["damage"] = new_val
@@ -874,7 +986,13 @@ class EditableFrameDataWindow:
             cur = int(current) if current else 0
         except ValueError:
             cur = 0
-        new_val = simpledialog.askinteger("Edit Meter", "New meter:", initialvalue=cur, minvalue=0, maxvalue=255)
+        new_val = simpledialog.askinteger(
+            "Edit Meter",
+            "New meter:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+        )
         if new_val is not None and write_meter(mv, new_val):
             self.tree.set(item, "meter", str(new_val))
             mv["meter"] = new_val
@@ -884,8 +1002,13 @@ class EditableFrameDataWindow:
             cur = int(current) if current else 1
         except ValueError:
             cur = 1
-        new_val = simpledialog.askinteger("Edit Startup", "New startup frame:",
-                                          initialvalue=cur, minvalue=1, maxvalue=255)
+        new_val = simpledialog.askinteger(
+            "Edit Startup",
+            "New startup frame:",
+            initialvalue=cur,
+            minvalue=1,
+            maxvalue=255,
+        )
         if new_val is not None:
             end = mv.get("active_end", new_val)
             if end < new_val:
@@ -937,14 +1060,26 @@ class EditableFrameDataWindow:
 
     def _edit_hitstun(self, item, mv, current):
         cur = _unfmt_stun(current) if current else 0
-        new_val = simpledialog.askinteger("Edit Hitstun", "New hitstun:", initialvalue=cur, minvalue=0, maxvalue=255)
+        new_val = simpledialog.askinteger(
+            "Edit Hitstun",
+            "New hitstun:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+        )
         if new_val is not None and write_hitstun(mv, new_val):
             self.tree.set(item, "hitstun", _fmt_stun(new_val))
             mv["hitstun"] = new_val
 
     def _edit_blockstun(self, item, mv, current):
         cur = _unfmt_stun(current) if current else 0
-        new_val = simpledialog.askinteger("Edit Blockstun", "New blockstun:", initialvalue=cur, minvalue=0, maxvalue=255)
+        new_val = simpledialog.askinteger(
+            "Edit Blockstun",
+            "New blockstun:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+        )
         if new_val is not None and write_blockstun(mv, new_val):
             self.tree.set(item, "blockstun", _fmt_stun(new_val))
             mv["blockstun"] = new_val
@@ -954,7 +1089,13 @@ class EditableFrameDataWindow:
             cur = int(current) if current else 0
         except ValueError:
             cur = 0
-        new_val = simpledialog.askinteger("Edit Hitstop", "New hitstop:", initialvalue=cur, minvalue=0, maxvalue=255)
+        new_val = simpledialog.askinteger(
+            "Edit Hitstop",
+            "New hitstop:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+        )
         if new_val is not None and write_hitstop(mv, new_val):
             self.tree.set(item, "hitstop", str(new_val))
             mv["hitstop"] = new_val
@@ -1009,6 +1150,7 @@ class EditableFrameDataWindow:
         tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
 
     def _edit_hit_reaction(self, item, mv, current):
+        """Dialog editor for the hit reaction bitfield with a curated preset list."""
         cur_hr = mv.get("hit_reaction")
 
         dlg = tk.Toplevel(self.root)
@@ -1036,7 +1178,7 @@ class EditableFrameDataWindow:
         listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set)
         scrollbar.config(command=listbox.yview)
 
-        # Expanded common set: all the ones you listed, in order
+        # Expanded common set: full list of known reaction codes.
         common_vals = [
             0x000000,
             0x000001,
@@ -1088,7 +1230,6 @@ class EditableFrameDataWindow:
             if sel:
                 val, _ = common[sel[0]]
                 selected_val.set(val)
-                # Also update the text box so pressing OK writes this one
                 hex_entry.delete(0, tk.END)
                 hex_entry.insert(0, f"0x{val:06X}")
 
@@ -1107,6 +1248,12 @@ class EditableFrameDataWindow:
         tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
 
     def _edit_hitbox_main(self, item, mv, current):
+        """
+        Direct editor for a move's primary hitbox radius.
+
+        If no primary exists yet but candidates are present, the first
+        candidate is used as the starting point.
+        """
         cur_r = mv.get("hb_r")
         if cur_r is None:
             cands = mv.get("hb_candidates") or []
@@ -1116,7 +1263,12 @@ class EditableFrameDataWindow:
         if cur_r is None:
             cur_r = 0.0
 
-        new_val = simpledialog.askfloat("Edit Hitbox", "New radius:", initialvalue=cur_r, minvalue=0.0)
+        new_val = simpledialog.askfloat(
+            "Edit Hitbox",
+            "New radius:",
+            initialvalue=cur_r,
+            minvalue=0.0,
+        )
         if new_val is None:
             return
 
@@ -1145,6 +1297,10 @@ class EditableFrameDataWindow:
         self.tree.set(item, "hb", _format_candidate_list(mv["hb_candidates"]))
 
     def _edit_hitbox(self, item, mv, current):
+        """
+        Entry point for hitbox editing. Uses a simple layout for a few candidates
+        and a scrollable layout when the list grows large.
+        """
         cands = mv.get("hb_candidates") or []
 
         if not cands:
@@ -1156,14 +1312,16 @@ class EditableFrameDataWindow:
             return self._edit_hitbox_scrollable(item, mv, cands)
 
     def _edit_hitbox_simple(self, item, mv, cands):
+        """Small fixed-size hitbox editor for up to ~6 radius entries."""
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Hitbox Values")
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text="Edit each radius below. r0 is usually the main one.").grid(
-            row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w"
-        )
+        tk.Label(
+            dlg,
+            text="Edit each radius below. r0 is usually the main one.",
+        ).grid(row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w")
 
         entries = []
         row = 1
@@ -1202,6 +1360,7 @@ class EditableFrameDataWindow:
         tk.Button(dlg, text="OK", command=on_ok).grid(row=row, column=0, columnspan=3, pady=6)
 
     def _edit_hitbox_scrollable(self, item, mv, cands):
+        """Scrollable hitbox editor for moves with many radius candidates."""
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Hitbox Values")
         dlg.transient(self.root)
@@ -1219,8 +1378,12 @@ class EditableFrameDataWindow:
         canvas.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
 
-        tk.Label(inner, text="Edit each radius below. r0 is usually the main one.",
-                 anchor="w", justify="left").grid(row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w")
+        tk.Label(
+            inner,
+            text="Edit each radius below. r0 is usually the main one.",
+            anchor="w",
+            justify="left",
+        ).grid(row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w")
 
         entries = []
         row = 1
@@ -1259,10 +1422,19 @@ class EditableFrameDataWindow:
         tk.Button(inner, text="OK", command=on_ok).grid(row=row, column=0, columnspan=3, pady=8)
 
     def show(self):
+        """Start the Tk mainloop for this editor window."""
         self.root.mainloop()
 
 
 def open_editable_frame_data_window(slot_label, scan_data):
+    """
+    Helper to spawn a frame data editor for a given slot in a background thread.
+
+    slot_label:
+        The HUD slot label, e.g. "P1-C1".
+    scan_data:
+        Full scan_normals_all output; we pick the first matching slot entry.
+    """
     if not scan_data:
         return
     target = None

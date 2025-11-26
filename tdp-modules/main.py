@@ -1,12 +1,21 @@
 # main.py
+#
+# Entry point for the TvC live HUD / frame probe.
+# This script:
+#   - Hooks into Dolphin
+#   - Tracks fighters, health, meter, assists, and frame advantage
+#   - Spawns the background scan worker for normals
+#   - Renders the main HUD, debug overlay, and "Show frame data" buttons
+
 import os
 import csv
 import time
 import threading
-from layout import compute_layout, reassign_slots_for_giants
-from scan_worker import ScanNormalsWorker
 
 import pygame
+
+from layout import compute_layout, reassign_slots_for_giants
+from scan_worker import ScanNormalsWorker
 from training_flags import read_training_flags
 from debug_panel import read_debug_flags, draw_debug_overlay
 
@@ -58,8 +67,9 @@ from hud_draw import (
     draw_panel_classic,
     draw_activity,
     draw_event_log,
-    draw_scan_normals,
+    draw_scan_normals,   # ONLY this used on HUD
 )
+
 from redscan import RedHealthScanner
 from global_redscan import GlobalRedScanner
 from events import log_engaged, log_hit, log_frame_advantage
@@ -70,12 +80,19 @@ try:
     HAVE_SCAN_NORMALS = True
     from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
 except Exception:
+    # It is fine for this import to fail; HUD still works without deep scanning.
     scan_normals_all = None
     HAVE_SCAN_NORMALS = False
     SCAN_ANIM_MAP = {}
 
 # Frame data window (editable GUI + legacy Tk)
 from frame_data_window import open_frame_data_window
+
+
+# ---------------------------------------------------------------------------
+# Tunables / globals for timing and animation
+# ---------------------------------------------------------------------------
+
 TARGET_FPS = 60
 DAMAGE_EVERY_FRAMES = 3
 ADV_EVERY_FRAMES = 2
@@ -89,24 +106,99 @@ HP32_OFF = 0x28
 POOL32_OFF = 0x2C
 
 
-# Same addresses as a mapping used by the debug overlay
+# ---------------------------------------------------------------------------
+# Assist tracking (per slot)
+# ---------------------------------------------------------------------------
+
+class AssistState:
+    """
+    Lightweight per-slot assist tracker.
+
+    We currently infer assists from the primary/secondary attack IDs.
+    Once assist animations are fully mapped, ASSIST_FLYIN_IDS /
+    ASSIST_ATTACK_IDS can be populated per character to refine this.
+    """
+    __slots__ = ("is_assisting", "phase", "last_anim")
+
+    def __init__(self):
+        # True while the character is in any assist-related phase
+        self.is_assisting = False
+        # "flyin", "attack", "recover", or None
+        self.phase = None
+        # Last seen animation / attack ID (attA)
+        self.last_anim = None
+
+
+# These sets are intentionally left empty.
+# They can be overridden by data mining real assist IDs per character.
+ASSIST_FLYIN_IDS = set()
+ASSIST_ATTACK_IDS = set()
+
+# Slot name -> AssistState
+_ASSIST_BY_SLOT = {}
+
+
+def update_assist_for_snap(slotname: str, snap: dict, cur_anim: int | None):
+    """
+    Update the assist state for a given slot based on the current snapshot.
+
+    This is deliberately conservative: if the current animation is not in one
+    of the known assist sets, the state decays over a couple of frames to
+    avoid flickering.
+    """
+    if not slotname or snap is None:
+        return
+
+    state = _ASSIST_BY_SLOT.get(slotname)
+    if state is None:
+        state = AssistState()
+        _ASSIST_BY_SLOT[slotname] = state
+
+    state.last_anim = cur_anim
+
+    # Hard assist classification based on curated sets
+    if cur_anim in ASSIST_FLYIN_IDS:
+        state.is_assisting = True
+        state.phase = "flyin"
+    elif cur_anim in ASSIST_ATTACK_IDS:
+        state.is_assisting = True
+        state.phase = "attack"
+    else:
+        # Soft decay: after an assist animation, mark "recover" for one step,
+        # then return to idle. This gives the HUD a more stable classification.
+        if state.is_assisting and state.phase in ("flyin", "attack"):
+            state.phase = "recover"
+        elif state.phase == "recover":
+            state.is_assisting = False
+            state.phase = None
+
+    snap["assist_phase"] = state.phase
+    snap["is_assist"] = state.is_assisting
+
+
+def get_assist_state(slotname: str) -> AssistState | None:
+    """Return the current AssistState for the given slot, if any."""
+    return _ASSIST_BY_SLOT.get(slotname)
+
 
 def safe_read_fighter(base, yoff):
     """
-    Wrap read_fighter(base, yoff) but fall back to a generic reader when
-    read_fighter() returns None (e.g., giants like Gold Lightan / PTX).
+    Wrapper around read_fighter(base, yoff) with a fallback path for giants.
 
-    Returns a fighter snapshot dict or None if the base is really bad.
+    Some characters (e.g. giants) do not match the standard fighter struct
+    layout used by read_fighter(). If the primary reader fails, we fall back
+    to a generic reader that pulls out only the fields we care about.
+
+    Returns:
+        A snapshot dict compatible with the rest of the HUD, or None if
+        the data looks unreasonable.
     """
-    # First try the original implementation.
     snap = read_fighter(base, yoff)
     if snap:
         return snap
 
-    # DEBUG: If we got here, read_fighter failed
     print(f"[safe_read_fighter] read_fighter failed for base=0x{base:08X}, trying fallback")
 
-    # Fallback path: read key fields directly by offsets.
     try:
         max_hp = rd32(base + OFF_MAX_HP)
         cur_hp = rd32(base + OFF_CUR_HP)
@@ -127,28 +219,24 @@ def safe_read_fighter(base, yoff):
         print(f"[safe_read_fighter] Exception reading fields: {e}")
         return None
 
-    # DEBUG: Print what we read
     print(f"[safe_read_fighter] max_hp={max_hp} cur_hp={cur_hp}")
 
-    # Basic sanity: non-zero, not totally insane.
-    # Allow very large HP so giants don't get filtered out.
+    # Simple sanity guard. If these fail, we treat the struct as invalid.
     if max_hp <= 0 or max_hp > 1000000:
         print(f"[safe_read_fighter] HP sanity check failed: max_hp={max_hp}")
         return None
 
-    # Try to get character ID and name now (THIS IS THE FIX)
-    # Character ID is 32-bit, not 8-bit! (same as scan_normals_all.py)
     try:
         char_id = rd32(base + OFF_CHAR_ID)
     except Exception:
         char_id = None
-    
+
     print(f"[safe_read_fighter] char_id={char_id}, name={CHAR_NAMES.get(char_id)}")
-    
+
     char_name = "Unknown"
     if char_id is not None and char_id != 0:
         char_name = CHAR_NAMES.get(char_id, f"ID_{char_id}")
-    
+
     return {
         "max": max_hp,
         "cur": cur_hp,
@@ -163,13 +251,16 @@ def safe_read_fighter(base, yoff):
         "flag072": flag072,
         "id": char_id,
         "name": char_name,
-        # old HUD expects this key; we can leave it None for giants.
+        # Giants do not use the standard byte pool in the same way
         "hp_pool_byte": None,
     }
 
 
-
 def init_pygame():
+    """
+    Initialize pygame, set up fonts and the main window, and return:
+        (screen_surface, main_font, small_font)
+    """
     pygame.init()
     try:
         font = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
@@ -180,41 +271,52 @@ def init_pygame():
     except Exception:
         smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
 
+    # The HUD is resizable; layout.compute_layout adapts to the current size.
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
     pygame.display.set_caption("TvC Live HUD / Frame Probe")
     return screen, font, smallfont
 
 
-# ------------------------------------------------------------
-# Frame-data GUI (Tk) — legacy viewer with HB column
-# ------------------------------------------------------------
-
 def main():
+    """
+    Main loop for the TvC HUD.
+
+    High-level flow:
+        - Hook Dolphin
+        - Start background normals scanner (if available)
+        - Each frame:
+            * Resolve fighter bases
+            * Build per-slot snapshots
+            * Track assists, meter, baroque, and frame advantage
+            * Render HUD panels, debug tools, and scan results
+            * Handle mouse / keyboard input, including "Show frame data"
+    """
     print("HUD: waiting for Dolphin…")
     hook()
     print("HUD: hooked Dolphin.")
 
-    # Moves table and global flags map
+    # Load move label data from the CSV mapping files.
     move_map, global_map = load_move_map(GENERIC_MAPPING_CSV, PAIR_MAPPING_CSV)
 
     screen, font, smallfont = init_pygame()
     clock = pygame.time.Clock()
 
+    # Portraits are optional but make the HUD easier to read.
     placeholder_portrait = load_portrait_placeholder()
     portraits = load_portraits_from_dir(os.path.join("assets", "portraits"))
     print(f"HUD: loaded {len(portraits)} portraits.")
 
-    # background scan worker
+    # Start the background scan worker if the deep normals scanner is available.
     if HAVE_SCAN_NORMALS and scan_normals_all is not None:
         scan_worker = ScanNormalsWorker(scan_normals_all.scan_once)
         scan_worker.start()
     else:
         scan_worker = None
 
-
     last_scan_normals = None
     last_scan_time = 0.0
 
+    # Per-slot / per-base state caches used to smooth behavior over time.
     last_base_by_slot = {}
     y_off_by_base = {}
     prev_hp = {}
@@ -225,11 +327,12 @@ def main():
     render_snap_by_slot = {}
     render_portrait_by_slot = {}
 
+    # Panel animation and "Show frame data" affordances.
     panel_anim = {}
     anim_queue_after_scan = set()
-
     panel_btn_flash = {s: 0 for (s, _, _) in SLOTS}
 
+    # Hit tracking: local red scan for P1 only and a global scanner.
     local_scan = RedHealthScanner()
     global_scan = GlobalRedScanner()
 
@@ -241,29 +344,31 @@ def main():
     frame_idx = 0
     running = True
 
-    # Debug overlay state
+    # Debug overlay state (per-frame overlay + scrollable list).
     debug_overlay = False
     debug_btn_rect = pygame.Rect(0, 0, 0, 0)
     debug_click_areas = {}
     debug_scroll_offset = 0
     debug_max_scroll = 0
 
-    # HypeTrigger timed restore state
+    # Temporary writebacks for hype and special popup toggles.
     hype_restore_addr = None
     hype_restore_ts = 0.0
     hype_restore_orig = 0
 
-    # SpecialPopup timed restore state
     special_restore_addr = None
     special_restore_ts = 0.0
     special_restore_orig = 0
 
+    # -----------------------------------------------------------------------
+    # Main loop
+    # -----------------------------------------------------------------------
     while running:
         now = time.time()
         t_ms = pygame.time.get_ticks()
-
         mouse_clicked_pos = None
 
+        # Basic event pump: resize, quit, F5 for manual scan, mouse wheel for debug.
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running = False
@@ -275,49 +380,50 @@ def main():
             elif ev.type == pygame.MOUSEBUTTONDOWN:
                 if ev.button == 1:
                     mouse_clicked_pos = ev.pos
-                # wheel emulation on some backends
                 elif ev.button in (4, 5) and debug_overlay:
+                    # Legacy wheel events on some platforms.
                     if ev.button == 4 and debug_scroll_offset > 0:
                         debug_scroll_offset -= 1
                     elif ev.button == 5 and debug_scroll_offset < debug_max_scroll:
                         debug_scroll_offset += 1
             elif ev.type == pygame.MOUSEWHEEL and debug_overlay:
-                # pygame 2 MOUSEWHEEL event: ev.y > 0 up, < 0 down
+                # Newer wheel events (pygame 2).
                 if ev.y > 0 and debug_scroll_offset > 0:
                     debug_scroll_offset -= 1
                 elif ev.y < 0 and debug_scroll_offset < debug_max_scroll:
                     debug_scroll_offset += 1
 
-        # pull latest scan from worker
+        # Pull the latest scan results from the background worker, if any.
         if scan_worker:
             res, ts = scan_worker.get_latest()
             if res is not None and ts >= last_scan_time:
                 last_scan_normals = res
                 last_scan_time = ts
 
-        # resolve bases
+        # Resolve base addresses for each character slot using the resolver.
         resolved_slots = []
         for slotname, ptr_addr, teamtag in SLOTS:
             base, changed = RESOLVER.resolve_base(ptr_addr)
             if base and last_base_by_slot.get(ptr_addr) != base:
                 last_base_by_slot[ptr_addr] = base
+                # Reset cached meter reads when bases move.
                 METER_CACHE.drop(base)
+                # Recompute Y offset heuristics when a new base appears.
                 y_off_by_base[base] = pick_posy_off_no_jump(base)
             resolved_slots.append((slotname, teamtag, base))
 
-        # read meters
-        p1c1_base = next(
-            (b for n, t, b in resolved_slots if n == "P1-C1" and b), None
-        )
-        p2c1_base = next(
-            (b for n, t, b in resolved_slots if n == "P2-C1" and b), None
-        )
+        # Read meter using P1/P2 point characters as canonical.
+        p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
+        p2c1_base = next((b for n, t, b in resolved_slots if n == "P2-C1" and b), None)
         meter_p1 = read_meter(p1c1_base)
         meter_p2 = read_meter(p2c1_base)
 
+        # Build per-slot snapshots that the HUD and logging code consume.
         snaps = {}
         for slotname, teamtag, base in resolved_slots:
             if not base:
+                # Slot was previously occupied but now empty: fade the panel out
+                # and trigger a rescan so normals reflect the new team.
                 if last_char_by_slot.get(slotname):
                     anim_queue_after_scan.add((slotname, "fadeout"))
                     last_char_by_slot[slotname] = None
@@ -329,13 +435,12 @@ def main():
             if not snap:
                 continue
 
-            # Always store base for downstream systems
             snap["base"] = base
             snap["teamtag"] = teamtag
             snap["slotname"] = slotname
 
-            # True character ID from the fighter struct:
-            # base + OFF_CHAR_ID = 1-byte ID (Ryu=0x0C, Chun=0x0D, Lightan=0x0B, etc.)
+            # Some characters report a different ID via the generic reader.
+            # We override with the "true" ID where possible.
             try:
                 true_id = rd32(base + OFF_CHAR_ID)
             except Exception:
@@ -343,14 +448,12 @@ def main():
 
             if true_id not in (None, 0):
                 snap["id"] = true_id
-
-                # If we have a name for this ID, override whatever read_fighter gave us.
                 name_from_id = CHAR_NAMES.get(true_id)
                 print(f"[main] slot={slotname} base=0x{base:08X} true_id={true_id} name_from_id={name_from_id} current_name={snap.get('name')}")
                 if name_from_id:
                     snap["name"] = name_from_id
 
-            # meter display string
+            # Meter text only matters on the point characters.
             if slotname == "P1-C1":
                 snap["meter_str"] = str(meter_p1) if meter_p1 is not None else "--"
             elif slotname == "P2-C1":
@@ -358,16 +461,32 @@ def main():
             else:
                 snap["meter_str"] = "--"
 
+            # Current animation IDs are used for move labeling and assist tracking.
             cur_anim = snap.get("attA") or snap.get("attB")
 
-            # Use possibly updated name + ID now that we forced true_id in
+            assist_phase = None
+            is_assist = False
+
+            # Temporary hardcoded assist move for known cases.
+            if cur_anim == 268:  # 0x010C
+                is_assist = True
+                assist_phase = "attack"
+
+            mv_name_lower = (snap.get("mv_label") or "").lower()
+            if "assist standby" in mv_name_lower:
+                assist_phase = "standby"
+
+            snap["assist_phase"] = assist_phase
+            snap["is_assist"] = is_assist
+
+            # Apply the generic assist state machine on top of the above hints.
+            update_assist_for_snap(slotname, snap, cur_anim)
+
+            # Resolve move label using per-character mapping and global fallback.
             char_name = snap.get("name")
             csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
 
-            # First try the new ID map CSV (decimal ID -> name, char-aware)
             mv_label = lookup_move_name(cur_anim, csv_char_id)
-
-            # Fallback to your existing move_map / global_map system
             if not mv_label:
                 mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
 
@@ -375,14 +494,16 @@ def main():
             snap["mv_id_display"] = cur_anim
             snap["csv_char_id"] = csv_char_id
 
-            # track change
+            # Track last animation ID per base. This allows basic change detection
+            # if needed later.
             prev_anim = last_move_anim_id.get(base)
             if cur_anim and cur_anim != prev_anim:
                 last_move_anim_id[base] = cur_anim
             else:
                 last_move_anim_id[base] = cur_anim
 
-            # legacy pool byte %   (unchanged from your version)
+            # Baroque "pool" is tracked in hp_pool_byte, but we also maintain
+            # a per-base baseline for relative percentage.
             pool_byte = snap.get("hp_pool_byte")
             if pool_byte is not None:
                 prev_max = pool_baseline.get(base, 0)
@@ -393,21 +514,19 @@ def main():
             else:
                 snap["pool_pct"] = 0.0
 
-            # REAL baroque: hp32 vs pool32
+            # Local 32-bit baroque health values for more accurate tracking.
             max_hp_stat = snap.get("max") or 0
             hp32 = rd32(base + HP32_OFF) or 0
             pool32 = rd32(base + POOL32_OFF) or 0
             ready_local = False
             red_amt = 0
-            red_pct_max = 0.0    # ONLY % vs max HP, current removed
+            red_pct_max = 0.0
 
             if hp32 and pool32 and hp32 != pool32:
                 ready_local = True
                 bigger = max(hp32, pool32)
                 smaller = min(hp32, pool32)
                 red_amt = bigger - smaller
-
-                # percent of character max HP
                 if max_hp_stat:
                     red_pct_max = (red_amt / float(max_hp_stat)) * 100.0
 
@@ -417,7 +536,7 @@ def main():
             snap["baroque_red_amt"] = red_amt
             snap["baroque_red_pct_max"] = red_pct_max
 
-            # inputs: now taken from config.INPUT_MONITOR_ADDRS
+            # Input monitoring is only wired up for P1 in this HUD.
             if slotname == "P1-C1":
                 inputs_struct = {}
                 for key, addr in INPUT_MONITOR_ADDRS.items():
@@ -429,19 +548,29 @@ def main():
 
             snaps[slotname] = snap
 
-            # new character? animate + rescan
+            # When a character changes in a slot, animate the panel and
+            # request a normals rescan to rebuild move tables for the new team.
             if last_char_by_slot.get(slotname) != snap.get("name"):
                 last_char_by_slot[slotname] = snap.get("name")
                 anim_queue_after_scan.add((slotname, "fadein"))
                 need_rescan_normals = True
 
+            # Store what we actually render; these are allowed to lag slightly
+            # behind the raw snapshots to decouple animation from raw data.
             render_snap_by_slot[slotname] = snap
             render_portrait_by_slot[slotname] = get_portrait_for_snap(
                 snap, portraits, placeholder_portrait
             )
-        # Reassign slots when giants are present
-        snaps = reassign_slots_for_giants(snaps)  
+
+        # Giants occupy both character panels; we reshuffle the mapping to
+        # keep the HUD consistent.
+        snaps = reassign_slots_for_giants(snaps)
+
+        # -------------------------------------------------------------------
+        # Damage / hit logging and frame advantage tracking
+        # -------------------------------------------------------------------
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
+            # These animation IDs represent "being hit" / hitstun states.
             REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
             for vic_slot, vic_snap in snaps.items():
                 vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
@@ -452,7 +581,7 @@ def main():
                 if not attackers:
                     continue
 
-                # nearest attacker
+                # Pick the closest opponent as the attacker candidate.
                 best_d2 = None
                 atk_snap = None
                 for cand in attackers:
@@ -466,6 +595,7 @@ def main():
                 atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
                 atk_move_label = atk_snap.get("mv_label")
 
+                # Feed into the frame advantage tracker.
                 ADV_TRACK.start_contact(
                     atk_snap["base"],
                     vic_snap["base"],
@@ -474,6 +604,7 @@ def main():
                     vic_move_id,
                 )
 
+                # Compute raw damage from the victim's HP delta.
                 base = vic_snap["base"]
                 hp_now = vic_snap["cur"]
                 hp_prev = prev_hp.get(base, hp_now)
@@ -490,8 +621,8 @@ def main():
                         atk_move_id,
                     )
 
-        # frame advantage
         if frame_idx % ADV_EVERY_FRAMES == 0:
+            # Evaluate frame advantage for all ordered attacker/victim pairs.
             pairs = [
                 ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
                 ("P1-C2", "P2-C1"), ("P1-C2", "P2-C2"),
@@ -514,13 +645,10 @@ def main():
             freshest = ADV_TRACK.get_freshest_final_info()
             if freshest:
                 atk_b, vic_b, plusf, fin_frame = freshest
+                # Guard against obviously bogus values.
                 if abs(plusf) <= 64:
-                    atk_slot = next(
-                        (s for s in snaps.values() if s["base"] == atk_b), None
-                    )
-                    vic_slot = next(
-                        (s for s in snaps.values() if s["base"] == vic_b), None
-                    )
+                    atk_slot = next((s for s in snaps.values() if s["base"] == atk_b), None)
+                    vic_slot = next((s for s in snaps.values() if s["base"] == vic_b), None)
                     if atk_slot and vic_slot:
                         last_adv_display = (
                             f"{atk_slot['slotname']}({atk_slot['name']}) vs "
@@ -531,12 +659,14 @@ def main():
                     else:
                         last_adv_display = f"Frame adv: {plusf:+.1f}f"
 
-        # draw
+        # -------------------------------------------------------------------
+        # Rendering
+        # -------------------------------------------------------------------
         screen.fill(COL_BG)
         w, h = screen.get_size()
         layout = compute_layout(w, h, snaps)
 
-
+        # Small helper to apply slide/alpha animation on panels.
         def anim_rect_and_alpha(slot_label, base_rect):
             anim = panel_anim.get(slot_label)
             if not anim:
@@ -560,6 +690,8 @@ def main():
             y = anim["from_y"] + (anim["to_y"] - anim["from_y"]) * frac
             alpha = int(anim["from_a"] + (anim["to_a"] - anim["from_a"]) * frac)
 
+            # When the animation finishes, clean up the state and, in the case
+            # of fade-outs, drop the render snapshot entirely.
             if frac >= 1.0:
                 if anim["to_a"] == 0:
                     render_snap_by_slot.pop(slot_label, None)
@@ -576,18 +708,21 @@ def main():
         r_p2c2, a_p2c2 = anim_rect_and_alpha("P2-C2", layout["p2c2"])
 
         def blit_panel_with_button(panel_rect, slot_label, alpha, header):
+            """
+            Draw a character panel (portrait + stats) and its "Show frame data"
+            button into an offscreen surface, then blit it into the main screen.
+
+            Returns:
+                The absolute Rect of the button on the main screen.
+            """
             snap = render_snap_by_slot.get(slot_label)
-            portrait = render_portrait_by_slot.get(
-                slot_label, placeholder_portrait
-            )
+            portrait = render_portrait_by_slot.get(slot_label, placeholder_portrait)
             waiting = any(
                 (slot_label == s and kind in ("fadein", "fadeout"))
                 for (s, kind) in anim_queue_after_scan
             )
 
-            surf = pygame.Surface(
-                (panel_rect.width, panel_rect.height), pygame.SRCALPHA
-            )
+            surf = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
             draw_panel_classic(
                 surf,
                 surf.get_rect(),
@@ -599,7 +734,7 @@ def main():
                 t_ms,
             )
 
-            # button
+            # Button positioning is relative to the panel rect.
             btn_w, btn_h = 110, 20
             btn_x = panel_rect.width - btn_w - 6
             btn_y = panel_rect.height - btn_h - 6
@@ -614,12 +749,8 @@ def main():
                 border_col = (180, 180, 180)
 
             pygame.draw.rect(surf, base_col, btn_rect_local, border_radius=3)
-            pygame.draw.rect(
-                surf, border_col, btn_rect_local, 1, border_radius=3
-            )
-            label_surf = smallfont.render(
-                "Show frame data", True, (220, 220, 220)
-            )
+            pygame.draw.rect(surf, border_col, btn_rect_local, 1, border_radius=3)
+            label_surf = smallfont.render("Show frame data", True, (220, 220, 220))
             surf.blit(label_surf, (btn_x + 6, btn_y + 2))
 
             if flash_left > 0:
@@ -631,42 +762,38 @@ def main():
                     border_radius=4,
                 )
 
+            # While a fade-in/out is queued, force full opacity to avoid
+            # awkward partial transparency.
             surf.set_alpha(255 if waiting else alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))
 
+            # Return the absolute screen-space rect for click tests.
             return pygame.Rect(
                 panel_rect.x + btn_x, panel_rect.y + btn_y, btn_w, btn_h
             )
 
-
-
-
-
-        # Only draw panels that should be visible (skip giant partners)
+        # Panels for each slot, with their own button hitboxes exposed.
         btn_p1c1 = blit_panel_with_button(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
         btn_p2c1 = blit_panel_with_button(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
-        
-        # Hide P1-C2 if P1 is a giant (check if P1-C2 slot has valid current data in snaps)
+
         if not layout.get("p1_is_giant") and "P1-C2" in snaps:
             btn_p1c2 = blit_panel_with_button(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
         else:
             btn_p1c2 = pygame.Rect(0, 0, 0, 0)
-        
-        # Hide P2-C2 if P2 is a giant (check if P2-C2 slot has valid current data in snaps)
+
         if not layout.get("p2_is_giant") and "P2-C2" in snaps:
             btn_p2c2 = blit_panel_with_button(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
         else:
             btn_p2c2 = pygame.Rect(0, 0, 0, 0)
-        draw_activity(screen, layout["act"], font, last_adv_display)
 
-        # left half: events
+        # Activity strip + event log.
+        draw_activity(screen, layout["act"], font, last_adv_display)
         draw_event_log(screen, layout["events"], font, smallfont)
 
-        # right half: debug panel
+        # Debug overlay region.
         debug_rect = layout["debug"]
 
         if debug_overlay:
-            # Combine normal debug flags + training flags
             dbg_values = read_debug_flags() + read_training_flags()
         else:
             dbg_values = []
@@ -675,36 +802,40 @@ def main():
             screen, debug_rect, smallfont, dbg_values, debug_scroll_offset
         )
 
-        # draw the Debug ON/OFF button at top-left of debug panel
+        # Small toggle button for the debug overlay itself.
         dbg_btn_w, dbg_btn_h = 120, 24
         dbg_btn_x = debug_rect.x + 8
         dbg_btn_y = debug_rect.y + 4
         debug_btn_rect = pygame.Rect(dbg_btn_x, dbg_btn_y, dbg_btn_w, dbg_btn_h)
 
         pygame.draw.rect(screen, (40, 40, 70), debug_btn_rect, border_radius=4)
-        pygame.draw.rect(
-            screen, (180, 180, 220), debug_btn_rect, 1, border_radius=4
-        )
+        pygame.draw.rect(screen, (180, 180, 220), debug_btn_rect, 1, border_radius=4)
 
         btn_label = "Debug: ON" if debug_overlay else "Debug: OFF"
         label_surf = smallfont.render(btn_label, True, (230, 230, 230))
         screen.blit(label_surf, (dbg_btn_x + 6, dbg_btn_y + 4))
 
-        # scan panel at the bottom
+        # ---- scan panel at the bottom: NORMALS ONLY ----
         draw_scan_normals(screen, layout["scan"], font, smallfont, last_scan_normals)
 
         pygame.display.flip()
 
-        # clicks --------------------------------------------------------------
+        # -------------------------------------------------------------------
+        # Click handling
+        # -------------------------------------------------------------------
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
 
             def ensure_scan_now():
+                """
+                Make sure we have at least one set of normals scan data.
+
+                If the background worker has not produced anything yet,
+                run a synchronous scan as a fallback.
+                """
                 nonlocal last_scan_normals, last_scan_time
-                # try worker result first
                 if last_scan_normals is not None:
                     return last_scan_normals
-                # fallback: do synchronous scan
                 if HAVE_SCAN_NORMALS:
                     try:
                         last_scan_normals = scan_normals_all.scan_once()
@@ -715,6 +846,7 @@ def main():
                         return None
                 return None
 
+            # Frame data buttons
             if btn_p1c1.collidepoint(mx, my):
                 data = ensure_scan_now()
                 if data:
@@ -739,14 +871,15 @@ def main():
                     open_frame_data_window("P2-C2", data)
                 panel_btn_flash["P2-C2"] = PANEL_FLASH_FRAMES
 
+            # Debug toggle button
             elif debug_btn_rect and debug_btn_rect.collidepoint(mx, my):
-                # Toggle debug overlay on/off and reset scroll
                 debug_overlay = not debug_overlay
                 debug_scroll_offset = 0
 
             else:
-                # Clicks on individual debug flag lines
-                # PauseOverlay toggle: 00 <-> 01
+                # All other debug click areas are keyed by name in debug_click_areas.
+                # Each entry is (rect, addr). When clicked, we toggle or cycle the
+                # underlying training/debug flag in memory.
                 entry = debug_click_areas.get("PauseOverlay")
                 if entry:
                     r, addr = entry
@@ -754,7 +887,6 @@ def main():
                         cur = rd8(addr) or 0
                         wd8(addr, 0x01 if cur == 0x00 else 0x00)
 
-                # Training pause: 00 <-> 01
                 entry = debug_click_areas.get("TrPause")
                 if entry:
                     r, addr = entry
@@ -763,16 +895,14 @@ def main():
                         new = 0x01 if cur == 0x00 else 0x00
                         wd8(addr, new)
 
-                # Dummy meter: 00 -> 01 -> 02 -> 00 (normal / recovery / infinite)
                 entry = debug_click_areas.get("DummyMeter")
                 if entry:
                     r, addr = entry
                     if r.collidepoint(mx, my):
                         cur = rd8(addr) or 0
-                        new = (cur + 1) % 3  # 0,1,2 cycle
+                        new = (cur + 1) % 3
                         wd8(addr, new)
 
-                # CPU action: cycle 0..5 (stand, crouch, jump, sjump, CPU, player)
                 entry = debug_click_areas.get("CpuAction")
                 if entry:
                     r, addr = entry
@@ -781,7 +911,6 @@ def main():
                         new = (cur + 1) % 6
                         wd8(addr, new)
 
-                # CPU guard: 0->1->2->0 (none / auto / guard)
                 entry = debug_click_areas.get("CpuGuard")
                 if entry:
                     r, addr = entry
@@ -790,7 +919,6 @@ def main():
                         new = (cur + 1) % 3
                         wd8(addr, new)
 
-                # CPU pushblock: 00 <-> 01
                 entry = debug_click_areas.get("CpuPushblock")
                 if entry:
                     r, addr = entry
@@ -799,7 +927,6 @@ def main():
                         new = 0x01 if cur == 0x00 else 0x00
                         wd8(addr, new)
 
-                # CPU throw tech: 00 <-> 01
                 entry = debug_click_areas.get("CpuThrowTech")
                 if entry:
                     r, addr = entry
@@ -808,7 +935,6 @@ def main():
                         new = 0x01 if cur == 0x00 else 0x00
                         wd8(addr, new)
 
-                # Player meter (P1): 00 -> 01 -> 02 -> 00
                 entry = debug_click_areas.get("P1Meter")
                 if entry:
                     r, addr = entry
@@ -817,7 +943,6 @@ def main():
                         new = (cur + 1) % 3
                         wd8(addr, new)
 
-                # Player life: 00 <-> 01 (normal / infinite)
                 entry = debug_click_areas.get("P1Life")
                 if entry:
                     r, addr = entry
@@ -826,7 +951,6 @@ def main():
                         new = 0x01 if cur == 0x00 else 0x00
                         wd8(addr, new)
 
-                # Free Baroque: 00 <-> 01
                 entry = debug_click_areas.get("FreeBaroque")
                 if entry:
                     r, addr = entry
@@ -835,7 +959,6 @@ def main():
                         new = 0x01 if cur == 0x00 else 0x00
                         wd8(addr, new)
 
-                # Baroque percent: 0x00..0x0A => 0..100% in 10% steps
                 entry = debug_click_areas.get("BaroquePct")
                 if entry:
                     r, addr = entry
@@ -847,7 +970,6 @@ def main():
                             new = 0x00
                         wd8(addr, new)
 
-                # Attack data overlay: 00 <-> 01
                 entry = debug_click_areas.get("AttackData")
                 if entry:
                     r, addr = entry
@@ -856,7 +978,6 @@ def main():
                         new = 0x01 if cur == 0x00 else 0x00
                         wd8(addr, new)
 
-                # Input display overlay: 00 <-> 01
                 entry = debug_click_areas.get("InputDisplay")
                 if entry:
                     r, addr = entry
@@ -865,18 +986,16 @@ def main():
                         new = 0x01 if cur == 0x00 else 0x00
                         wd8(addr, new)
 
-                # CPU difficulty: 8 levels, step 0x20, wrap around
                 entry = debug_click_areas.get("CpuDifficulty")
                 if entry:
                     r, addr = entry
                     if r.collidepoint(mx, my):
                         cur = rd8(addr) or 0
-                        level = (cur // 0x20) % 8  # 0..7
+                        level = (cur // 0x20) % 8
                         level = (level + 1) % 8
                         new = level * 0x20
                         wd8(addr, new)
 
-                # Damage output: 00..03, wrap around
                 entry = debug_click_areas.get("DamageOutput")
                 if entry:
                     r, addr = entry
@@ -885,7 +1004,6 @@ def main():
                         new = (cur + 1) & 0x03
                         wd8(addr, new)
 
-                # HypeTrigger: write 0x40 then restore to default 0x45 after 0.5 seconds
                 entry = debug_click_areas.get("HypeTrigger")
                 if entry:
                     r, addr = entry
@@ -893,32 +1011,32 @@ def main():
                         orig = rd8(addr)
                         if orig is None or orig == 0:
                             orig = 0x45
+                        # Temporarily force the hype trigger, then restore later.
                         wd8(addr, 0x40)
                         hype_restore_addr = addr
                         hype_restore_orig = orig
                         hype_restore_ts = now + 0.5
 
-                # ComboStore[1]: write 0x41 to pop the combo counter
                 entry = debug_click_areas.get("ComboStore[1]")
                 if entry:
                     r, addr = entry
                     if r.collidepoint(mx, my):
                         wd8(addr, 0x41)
 
-                # SpecialPopup: write 0x40, then restore to original (default 0x45) after 0.5s
                 entry = debug_click_areas.get("SpecialPopup")
                 if entry:
                     sp_rect, sp_addr = entry
                     if sp_rect.collidepoint(mx, my):
                         cur = rd8(sp_addr)
                         if cur is None or cur == 0:
-                            cur = 0x45  # default "normal" value if we read 0
+                            cur = 0x45
                         special_restore_orig = cur
                         wd8(sp_addr, 0x40)
                         special_restore_addr = sp_addr
                         special_restore_ts = now + 0.5
 
-        # HypeTrigger restore timer
+        # Restore temporarily overridden hype / special values once the
+        # timer expires.
         if hype_restore_addr is not None and now >= hype_restore_ts:
             try:
                 wd8(hype_restore_addr, hype_restore_orig)
@@ -926,7 +1044,6 @@ def main():
                 pass
             hype_restore_addr = None
 
-        # SpecialPopup restore timer
         if special_restore_addr is not None and now >= special_restore_ts:
             try:
                 wd8(special_restore_addr, special_restore_orig)
@@ -934,12 +1051,13 @@ def main():
                 pass
             special_restore_addr = None
 
-        # tick down frame-data button flash
+        # Step down any outstanding button flash counters.
         for k in panel_btn_flash:
             if panel_btn_flash[k] > 0:
                 panel_btn_flash[k] -= 1
 
-        # schedule rescans
+        # Trigger a background normals rescan whenever the team composition
+        # changes or the periodic timer expires.
         if HAVE_SCAN_NORMALS and need_rescan_normals and scan_worker:
             scan_worker.request()
             need_rescan_normals = False
@@ -948,6 +1066,7 @@ def main():
             if scan_worker:
                 scan_worker.request()
             else:
+                # Synchronous fallback when the worker is not in use.
                 try:
                     last_scan_normals = scan_normals_all.scan_once()
                     last_scan_time = time.time()
@@ -958,7 +1077,7 @@ def main():
             if time.time() - last_scan_time >= SCAN_MIN_INTERVAL_SEC:
                 scan_worker.request()
 
-        # csv flush placeholder
+        # Flush any pending hit log entries to CSV every so often.
         if pending_hits and (frame_idx % 30 == 0):
             newcsv = not os.path.exists(HIT_CSV)
             with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
@@ -977,6 +1096,7 @@ def main():
                     ])
             pending_hits.clear()
 
+        # Frame limiting and loop bookkeeping.
         clock.tick(TARGET_FPS)
         frame_idx += 1
 
