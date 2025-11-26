@@ -1,17 +1,8 @@
-# scan_normals_all.py
-#
-# Scans MEM2 for TvC move tables (up to 4 characters),
-# extracts move info, and computes *estimated* frame advantage.
-# Now also stores the ADDRESSES of each data block for editing.
-#
-# main.py will call scan_once() and show it.
 
 import struct
 from dolphin_io import hook, rbytes, rd32
 from constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 
-# ... [Keep all your existing pattern definitions: TAIL_PATTERN, ANIM_HDR, etc.] ...
-# I'll include them for completeness:
 
 TAIL_PATTERN = b"\x00\x00\x00\x38\x01\x33\x00\x00"
 CLUSTER_GAP = 0x4000

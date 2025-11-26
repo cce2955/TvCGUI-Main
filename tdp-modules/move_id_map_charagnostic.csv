@@ -270,8 +270,21 @@
 013904
 
 # Ryu (ID: 12)
+263,0x130,6c,Hado L,Hado L,yes,12
+268,0x130,Hado,Hado L,Hado L,yes,12
+273,0x130,Tatsu Start,Hado L,Hado L,yes,12
+274,0x130,Tatsu Spin,Hado L,Hado L,yes,12
+275,0x130,Tatsu End,Hado L,Hado L,yes,12
 276,0x130,Donkey,Hado L,Hado L,yes,12
 277,0x130,Shoryu,Hado L,Hado L,yes,12
+278,0x130,Shin Shoryu,Hado L,Hado L,yes,12
+279,0x130,Tatsu Super Startup,Hado L,Hado L,yes,12
+280,0x130,Tatsu Super Windup,Hado L,Hado L,yes,12
+281,0x130,Forward Throw,Hado L,Hado L,yes,12
+282,0x130,Forward Thrown,Hado L,Hado L,yes,12
+284,0x130,Forward Thrown,Hado L,Hado L,yes,12
+285,0x130,Back Throw,Hado L,Hado L,yes,12
+286,0x130,Back Thrown,Hado L,Hado L,yes,12
 304,0x130,Hado L,Hado L,Hado L,yes,12
 305,0x131,Hado M,Hado M,Hado M,yes,12
 306,0x132,Hado H,Hado H,Hado H,yes,12

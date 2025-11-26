@@ -1,15 +1,3 @@
-# editable_frame_data_gui.py
-#
-# Frame Data Editor window for TvC HUD.
-#
-# Features:
-#   - Edits main frame data (damage, meter, startup, active, hitstun, etc.)
-#   - Active 2 (inline active) editing support
-#   - Hitbox radius discovery + editing based on scanned float candidates
-#   - Knockback + hit reaction editors with named presets
-#   - Right-click context menu to copy / inspect relevant memory addresses
-#
-# The editor is read-only if move_writer is not available.
 
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
@@ -383,23 +371,27 @@ class EditableFrameDataWindow:
 
         moves_sorted = sorted(target_slot.get("moves", []), key=_mv_sort_key)
 
-        # Deduplicate moves that share the same named animation label.
-        seen_named = set()
-        deduped = []
+        # Count how many times each anim ID appears so we can tag duplicates.
+        id_counts = {}
         for mv in moves_sorted:
             aid = mv.get("id")
             if aid is None:
-                deduped.append(mv)
                 continue
-            name = _pretty_move_name(aid, cname)
+            id_counts[aid] = id_counts.get(aid, 0) + 1
 
-            if not name.startswith("anim_") and "?" not in name:
-                if aid in seen_named:
-                    continue
-                seen_named.add(aid)
-            deduped.append(mv)
+        # Assign a 0-based "dup_index" for IDs that appear more than once.
+        id_seen = {}
+        for mv in moves_sorted:
+            aid = mv.get("id")
+            if aid is None:
+                continue
+            if id_counts.get(aid, 0) > 1:
+                idx = id_seen.get(aid, 0)
+                mv["dup_index"] = idx  # 0,1,2,...
+                id_seen[aid] = idx + 1
 
-        self.moves = deduped
+        # Keep *all* moves; no dedupe.
+        self.moves = moves_sorted
         self.move_to_tree_item: dict[str, dict] = {}
         self.original_moves: dict[int, dict] = {}
 
@@ -494,6 +486,10 @@ class EditableFrameDataWindow:
             move_name = _pretty_move_name(aid, cname)
 
             if aid is not None:
+                dup_idx = mv.get("dup_index")
+                if dup_idx is not None:
+                    # 1-based variant index so you can say "use v1/v2/v3"
+                    move_name = f"{move_name} (Tier{dup_idx + 1})"
                 move_name = f"{move_name} [0x{aid:04X}]"
 
             # startup/active from main table
