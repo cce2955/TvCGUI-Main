@@ -10,16 +10,23 @@ from constants import (
 )
 # looks_like_hp is used by resolver and fighter
 
+# looks_like_hp is used by resolver and fighter
 def looks_like_hp(maxhp, curhp, auxhp):
-    if maxhp is None or curhp is None:
+    """
+    Very forgiving sanity check for HP.
+
+    We only reject obviously junk data:
+      - maxhp is None, <= 0, or absurdly huge.
+    curhp/auxhp are *not* used to gate the struct anymore, because
+    they can flap during loads or special states and cause our resolver
+    to drop otherwise valid fighter bases.
+    """
+    if maxhp is None:
         return False
-    if not (10_000 <= maxhp <= 60_000):
-        return False
-    if not (0 <= curhp <= maxhp):
-        return False
-    if auxhp is not None and not (0 <= auxhp <= maxhp):
+    if maxhp <= 0 or maxhp > 80_000:
         return False
     return True
+
 
 def _variance(vals):
     n = len(vals)

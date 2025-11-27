@@ -19,7 +19,8 @@ from scan_worker import ScanNormalsWorker
 from training_flags import read_training_flags
 from debug_panel import read_debug_flags, draw_debug_overlay
 
-from dolphin_io import hook, rd8, rd32, wd8
+from dolphin_io import hook, rd8, rd32, wd8, addr_in_ram
+
 from config import (
     MIN_HIT_DAMAGE,
     SCREEN_W, SCREEN_H,
@@ -222,7 +223,7 @@ def safe_read_fighter(base, yoff):
     print(f"[safe_read_fighter] max_hp={max_hp} cur_hp={cur_hp}")
 
     # Simple sanity guard. If these fail, we treat the struct as invalid.
-    if max_hp <= 0 or max_hp > 1000000:
+    if max_hp <= 30000 or max_hp > 1000000:
         print(f"[safe_read_fighter] HP sanity check failed: max_hp={max_hp}")
         return None
 
@@ -403,14 +404,26 @@ def main():
         # Resolve base addresses for each character slot using the resolver.
         resolved_slots = []
         for slotname, ptr_addr, teamtag in SLOTS:
-            base, changed = RESOLVER.resolve_base(ptr_addr)
-            if base and last_base_by_slot.get(ptr_addr) != base:
+            # Read the fighter base directly from the slot pointer
+            raw_base = rd32(ptr_addr)
+
+            if raw_base is None or not addr_in_ram(raw_base):
+                base = None
+            else:
+                base = raw_base
+
+            # Detect changes the same way as before
+            changed = base is not None and last_base_by_slot.get(ptr_addr) != base
+
+            if base and changed:
                 last_base_by_slot[ptr_addr] = base
                 # Reset cached meter reads when bases move.
                 METER_CACHE.drop(base)
                 # Recompute Y offset heuristics when a new base appears.
                 y_off_by_base[base] = pick_posy_off_no_jump(base)
+
             resolved_slots.append((slotname, teamtag, base))
+
 
         # Read meter using P1/P2 point characters as canonical.
         p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
@@ -565,7 +578,12 @@ def main():
         # Giants occupy both character panels; we reshuffle the mapping to
         # keep the HUD consistent.
         snaps = reassign_slots_for_giants(snaps)
-
+        if frame_idx < 120:  # first 2 seconds at 60 FPS
+            for slotname, teamtag, base in resolved_slots:
+                if base:
+                    print(f"[slots] {slotname}: base=0x{base:08X}")
+                else:
+                    print(f"[slots] {slotname}: (none)")
         # -------------------------------------------------------------------
         # Damage / hit logging and frame advantage tracking
         # -------------------------------------------------------------------
