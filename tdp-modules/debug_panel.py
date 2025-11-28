@@ -74,6 +74,34 @@ def _format_value(v):
         return f"{v:02X} ({v:d})"
     return f"{v:08X} ({v:d})"
 
+def _state_label(name: str, v):
+    """
+    Human-friendly ON/OFF state for a given flag.
+
+    For most flags we treat 0 as OFF and non-zero as ON.
+
+    For the three momentary debug flags we special-case the values
+    that we actively write from main.py:
+
+        - HypeTrigger / ComboAnnouncer: 0x40 = ON, anything else = OFF
+        - ComboStore[1] / Last Combo + dmg: 0x41 = ON, anything else = OFF
+        - SpecialPopup: 0x40 = ON, anything else = OFF
+    """
+    if v is None:
+        return "--"
+
+    # Momentary "do a thing now" flags
+    if name in ("HypeTrigger", "ComboAnnouncer"):
+        return "ON" if v == 0x40 else "OFF"
+
+    if name in ("ComboStore[1]", "Last Combo + dmg"):
+        return "ON" if v == 0x41 else "OFF"
+
+    if name == "SpecialPopup":
+        return "ON" if v == 0x40 else "OFF"
+
+    # Default: simple boolean interpretation
+    return "ON" if int(v) != 0 else "OFF"
 
 def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
     """
@@ -137,9 +165,12 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
         disp_name = DISPLAY_LABEL_OVERRIDES.get(name, name)
         row_y = inner_top + (idx - start) * row_h
 
+        # OFF/ON state (uses special rules for the momentary flags)
+        state = _state_label(name, val)
+        is_on = (state == "ON")
+
         # Background striping + active highlight
-        active = bool(val)
-        if active:
+        if is_on:
             bg_col = (55, 65, 105)
         else:
             bg_col = (32, 32, 40) if (idx % 2) else (26, 26, 32)
@@ -156,14 +187,22 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
             1,
         )
 
-        # Label (left)
+        # Left: label
         label_surf = font_small.render(disp_name, True, COL_TEXT)
         surface.blit(label_surf, (row_x + 4, row_y + 2))
 
-        # Value (right, hex/dec)
+        # Middle: OFF / ON (or "--")
+        state_surf = font_small.render(state, True, (200, 230, 200))
+        state_x = row_x + 4 + label_surf.get_width() + 16
+        surface.blit(state_surf, (state_x, row_y + 2))
+
+        # Right: value (hex/dec) – unchanged
         val_s = _format_value(val)
         val_surf = font_small.render(val_s, True, COL_TEXT)
-        surface.blit(val_surf, (row_x + row_w - val_surf.get_width() - 4, row_y + 2))
+        surface.blit(
+            val_surf,
+            (row_x + row_w - val_surf.get_width() - 4, row_y + 2),
+        )
 
         # Clickable area uses the INTERNAL name as the key
         click_areas[name] = (row_rect, addr)
