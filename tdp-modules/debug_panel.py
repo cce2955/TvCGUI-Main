@@ -7,7 +7,12 @@ import pygame
 
 from dolphin_io import rd8
 from config import COL_PANEL, COL_BORDER, COL_TEXT, DEBUG_FLAG_ADDRS
-
+DISPLAY_LABEL_OVERRIDES = {
+    "PauseOverlay":  "Pause rendering",
+    "HypeTrigger":   "Combo announcer",
+    "ComboStore[1]": "Last Combo + dmg",
+    "TrPause":       "Pause",
+}
 
 def read_debug_flags():
     """
@@ -129,6 +134,7 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
 
     for idx in range(start, end):
         name, addr, val = dbg_values[idx][0], dbg_values[idx][1], dbg_values[idx][2]
+        disp_name = DISPLAY_LABEL_OVERRIDES.get(name, name)
         row_y = inner_top + (idx - start) * row_h
 
         # Background striping + active highlight
@@ -144,32 +150,22 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
         # Divider line
         pygame.draw.line(
             surface,
-            (60, 60, 80),
-            (row_rect.left, row_rect.bottom - 1),
-            (row_rect.right, row_rect.bottom - 1),
+            (60, 60, 70),
+            (row_x, row_y + row_h - 1),
+            (row_x + row_w, row_y + row_h - 1),
             1,
         )
 
-        # Name on the left
-        name_txt = font_small.render(name, True, COL_TEXT)
-        surface.blit(name_txt, (row_rect.x + 6, row_rect.y + 2))
+        # Label (left)
+        label_surf = font_small.render(disp_name, True, COL_TEXT)
+        surface.blit(label_surf, (row_x + 4, row_y + 2))
 
-        # Value + address on the right
-        val_str = _format_value(val)
-        val_txt = font_small.render(val_str, True, (210, 210, 230))
-        addr_txt = font_small.render(f"@ 0x{addr:08X}", True, (150, 150, 170))
+        # Value (right, hex/dec)
+        val_s = _format_value(val)
+        val_surf = font_small.render(val_s, True, COL_TEXT)
+        surface.blit(val_surf, (row_x + row_w - val_surf.get_width() - 4, row_y + 2))
 
-        addr_w = addr_txt.get_width()
-        val_w = val_txt.get_width()
-        right_pad = 6
-
-        addr_x = row_rect.right - right_pad - addr_w
-        val_x = addr_x - 8 - val_w
-
-        surface.blit(val_txt, (val_x, row_rect.y + 2))
-        surface.blit(addr_txt, (addr_x, row_rect.y + 2))
-
-        # Whole row is clickable
+        # Clickable area uses the INTERNAL name as the key
         click_areas[name] = (row_rect, addr)
 
     # Simple scroll indicator

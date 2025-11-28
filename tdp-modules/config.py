@@ -59,8 +59,6 @@ PAIR_MAPPING_CSV = "move_id_map_charpair.csv"
 
 DEBUG_FLAG_ADDRS = [
     ("PauseOverlay", 0x805610F0 + 0x1B),  # dims the screen when pause is active
-    ("PauseCtrl",    0x80561100 + 0x24),  # controller-side pause flag
-    ("Director",     0x805C78B0),         # large block governing camera/announcer
 ]
 
 

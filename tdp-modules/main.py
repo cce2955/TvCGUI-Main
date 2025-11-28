@@ -176,6 +176,34 @@ def update_assist_for_snap(slotname: str, snap: dict, cur_anim: int | None):
     snap["assist_phase"] = state.phase
     snap["is_assist"] = state.is_assisting
 
+def merged_debug_values():
+    """
+    Combine debug flags and training flags into a single ordered list for the
+    overlay, with TrPause placed directly under the PauseOverlay row.
+    """
+    from debug_panel import read_debug_flags
+    from training_flags import read_training_flags
+
+    core_flags = read_debug_flags()
+    training_flags = read_training_flags()
+
+    trpause_row = None
+    remaining_training = []
+    for entry in training_flags:
+        if entry and entry[0] == "TrPause" and trpause_row is None:
+            trpause_row = entry
+        else:
+            remaining_training.append(entry)
+
+    if trpause_row is not None:
+        if core_flags:
+            # Insert TrPause right after the first debug flag (PauseOverlay).
+            core_flags = [core_flags[0], trpause_row] + core_flags[1:]
+        else:
+            core_flags = [trpause_row]
+
+    return core_flags + remaining_training
+
 
 def get_assist_state(slotname: str) -> AssistState | None:
     """Return the current AssistState for the given slot, if any."""
@@ -885,7 +913,7 @@ def main():
         # Debug overlay region (always on now).
         debug_rect = layout["debug"]
 
-        dbg_values = read_debug_flags() + read_training_flags()
+        dbg_values = merged_debug_values()
 
         debug_click_areas, debug_max_scroll = draw_debug_overlay(
             screen, debug_rect, smallfont, dbg_values, debug_scroll_offset
