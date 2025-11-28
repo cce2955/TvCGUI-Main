@@ -178,13 +178,17 @@ def open_frame_data_window(slot_label, scan_data):
     """
     Public entry point used by main.py.
 
-    Uses the editable editor when available; otherwise falls back
-    to the legacy Tk viewer above.
+    IMPORTANT:
+        Tkinter MUST run on the main thread.
+        No background threads, no async destruction.
+        We open the window directly and block until closed.
     """
+    # If editable GUI exists -> use it directly
     if HAVE_EDITABLE_GUI and open_editable_frame_data_window is not None:
         open_editable_frame_data_window(slot_label, scan_data)
         return
 
+    # Fallback to legacy Tk viewer
     print(f"Editable GUI not available for {slot_label}")
     if not scan_data:
         return
@@ -197,8 +201,5 @@ def open_frame_data_window(slot_label, scan_data):
     if not target:
         return
 
-    threading.Thread(
-        target=_open_frame_data_window_thread,
-        args=(slot_label, target),
-        daemon=True,
-    ).start()
+    # NO THREADS — open Tk window directly
+    _open_frame_data_window_thread(slot_label, target)

@@ -870,7 +870,7 @@ def main():
 
             pygame.draw.rect(surf, base_col, btn_rect_local, border_radius=3)
             pygame.draw.rect(surf, border_col, btn_rect_local, 1, border_radius=3)
-            label_surf = smallfont.render("Show frame data", True, (220, 220, 220))
+            label_surf = smallfont.render("Frame Data", True, (220, 220, 220))
             surf.blit(label_surf, (btn_x + 6, btn_y + 2))
 
             if flash_left > 0:
