@@ -682,7 +682,7 @@ class EditableFrameDataWindow:
             "kb", "hit_reaction",
             "abs",
         )
-        self.tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
+        self.tree = ttk.Treeview(frame, columns=cols, show="tree headings", height=30)
 
         vsb = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(frame, orient="horizontal", command=self.tree.xview)
@@ -694,6 +694,10 @@ class EditableFrameDataWindow:
 
         frame.rowconfigure(0, weight=1)
         frame.columnconfigure(0, weight=1)
+
+        self.tree.heading("#0", text="")
+        self.tree.column("#0", width=24, stretch=False, anchor="w")
+
 
 
         headers = [
@@ -735,8 +739,8 @@ class EditableFrameDataWindow:
 
         cname = self.target_slot.get("char_name", "—")
 
-        # Populate rows with move data and derived fields.
-        for mv in self.moves:
+        def _insert_move_row(mv, parent=""):
+            """Insert a single move row, optionally as a child of `parent`."""
             aid = mv.get("id")
             move_name = _pretty_move_name(aid, cname)
 
@@ -761,6 +765,8 @@ class EditableFrameDataWindow:
             a2_e = mv.get("active2_end")
             if a2_s is None and a2_e is None:
                 active2_txt = ""
+            elif a2_s is None:
+                active2_txt = str(a2_e)
             elif a2_e is None:
                 active2_txt = str(a2_s)
             else:
@@ -801,8 +807,9 @@ class EditableFrameDataWindow:
             hr_txt = _fmt_hit_reaction(mv.get("hit_reaction"))
 
             item_id = self.tree.insert(
-                "",
+                parent,
                 "end",
+                text="",  # use tree column only for the expand arrow
                 values=(
                     move_name,
                     mv.get("kind", ""),
@@ -845,6 +852,39 @@ class EditableFrameDataWindow:
                     "hb_candidates": hb_cands,
                 }
 
+            return item_id
+
+        # Group moves by anim ID so duplicates become collapsible children.
+        groups = []
+        index_by_id = {}
+
+        for mv in self.moves:
+            aid = mv.get("id")
+            if aid is None:
+                groups.append((None, [mv]))
+                continue
+            if aid in index_by_id:
+                groups[index_by_id[aid]][1].append(mv)
+            else:
+                index_by_id[aid] = len(groups)
+                groups.append((aid, [mv]))
+
+        # Insert groups into the tree
+        for aid, mv_list in groups:
+            # No grouping for moves without an ID or singletons
+            if aid is None or len(mv_list) == 1:
+                _insert_move_row(mv_list[0], parent="")
+                continue
+
+            # Parent row: first entry for this ID
+            parent_item = _insert_move_row(mv_list[0], parent="")
+            # Start collapsed; user can expand to see tiers/variants
+            self.tree.item(parent_item, open=False)
+
+            # Children: remaining duplicates for the same ID
+            for mv in mv_list[1:]:
+                _insert_move_row(mv, parent=parent_item)
+        
         self.tree.bind("<Double-Button-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
 
