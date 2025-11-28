@@ -99,7 +99,7 @@ DAMAGE_EVERY_FRAMES = 3
 ADV_EVERY_FRAMES = 2
 SCAN_MIN_INTERVAL_SEC = 180.0
 
-PANEL_SLIDE_DURATION = 0.35
+PANEL_SLIDE_DURATION = 2
 PANEL_FLASH_FRAMES = 12
 
 # offsets for "real" baroque (relative to fighter base)
@@ -683,20 +683,68 @@ def main():
         screen.fill(COL_BG)
         w, h = screen.get_size()
         layout = compute_layout(w, h, snaps)
+                # Consume any queued panel animations now that we know the layout.
+        if anim_queue_after_scan:
+            slot_rect_lookup = {
+                "P1-C1": layout["p1c1"],
+                "P2-C1": layout["p2c1"],
+                "P1-C2": layout["p1c2"],
+                "P2-C2": layout["p2c2"],
+            }
 
+            for slot_label, kind in list(anim_queue_after_scan):
+                base_rect = slot_rect_lookup.get(slot_label)
+                if base_rect is None:
+                    # If we don't have a rect for this slot, just drop the request.
+                    anim_queue_after_scan.discard((slot_label, kind))
+                    continue
+
+                panel_height = base_rect.height
+                offscreen_y = -panel_height - 8  # start just above the top
+
+                anim = {
+                    "start": now,
+                    "dur": PANEL_SLIDE_DURATION,
+                    "from_y": None,
+                    "to_y": None,
+                    "from_a": 255,
+                    "to_a": 255,
+                }
+
+                if kind == "fadein":
+                    # Slide in from the top, fully transparent at first.
+                    anim["from_y"] = offscreen_y
+                    anim["to_y"] = base_rect.y
+                    anim["from_a"] = 0
+                    anim["to_a"] = 255
+                elif kind == "fadeout":
+                    # Optional: slide back up and fade out when a slot empties.
+                    anim["from_y"] = base_rect.y
+                    anim["to_y"] = offscreen_y
+                    anim["from_a"] = 255
+                    anim["to_a"] = 0
+                else:
+                    anim_queue_after_scan.discard((slot_label, kind))
+                    continue
+
+                panel_anim[slot_label] = anim
+                anim_queue_after_scan.discard((slot_label, kind))
+
+        # Small helper to apply slide/alpha animation on panels.
         # Small helper to apply slide/alpha animation on panels.
         def anim_rect_and_alpha(slot_label, base_rect):
             anim = panel_anim.get(slot_label)
             if not anim:
+                # No animation: use the layout rect and full opacity.
                 return base_rect, 255
 
-            if anim["to_y"] is None:
+            if anim.get("to_y") is None:
                 anim["to_y"] = base_rect.y
-            if anim["from_y"] is None:
+            if anim.get("from_y") is None:
                 anim["from_y"] = base_rect.y
 
             t = now - anim["start"]
-            dur = anim["dur"]
+            dur = anim.get("dur") or PANEL_SLIDE_DURATION
 
             if t <= 0:
                 frac = 0.0
@@ -705,13 +753,32 @@ def main():
             else:
                 frac = t / dur
 
+            # Slide along the full duration.
             y = anim["from_y"] + (anim["to_y"] - anim["from_y"]) * frac
-            alpha = int(anim["from_a"] + (anim["to_a"] - anim["from_a"]) * frac)
+
+            from_a = anim.get("from_a", 255)
+            to_a = anim.get("to_a", 255)
+
+            # 90/10 split for fade-ins: fully transparent for the first 90%
+            # of the slide, then fade in quickly over the last 10%.
+            if from_a == 0 and to_a > 0:
+                if frac <= 0.9:
+                    alpha = 0
+                else:
+                    inner = (frac - 0.9) / 0.1  # 0..1 over the last 10%
+                    if inner < 0.0:
+                        inner = 0.0
+                    elif inner > 1.0:
+                        inner = 1.0
+                    alpha = int(from_a + (to_a - from_a) * inner)
+            else:
+                # Default: linear alpha over the whole duration.
+                alpha = int(from_a + (to_a - from_a) * frac)
 
             # When the animation finishes, clean up the state and, in the case
             # of fade-outs, drop the render snapshot entirely.
             if frac >= 1.0:
-                if anim["to_a"] == 0:
+                if to_a == 0:
                     render_snap_by_slot.pop(slot_label, None)
                     render_portrait_by_slot.pop(slot_label, None)
                 panel_anim.pop(slot_label, None)
@@ -780,10 +847,10 @@ def main():
                     border_radius=4,
                 )
 
-            # While a fade-in/out is queued, force full opacity to avoid
-            # awkward partial transparency.
-            surf.set_alpha(255 if waiting else alpha)
+            # Use the animated alpha value for the whole panel surface.
+            surf.set_alpha(alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))
+
 
             # Return the absolute screen-space rect for click tests.
             return pygame.Rect(
