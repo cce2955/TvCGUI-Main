@@ -2,6 +2,8 @@ import pygame
 from config import COL_PANEL, COL_BORDER, COL_TEXT
 from events import event_log
 from move_id_map import lookup_move_name  # NEW
+import math
+
 from special_runtime_finder import get_special_anims
 try:
     from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
@@ -87,12 +89,31 @@ def _rainbow_color(t_ms: int, step: int = 0):
 
 def _blit_rainbow_text(surface, text, pos, font, t_ms):
     x, y = pos
-    for i, ch in enumerate(text):
-        col = _rainbow_color(t_ms, i)
-        glyph = font.render(ch, True, col)
-        surface.blit(glyph, (x, y))
-        x += glyph.get_width()
+    base = font.render(text, True, (255, 255, 255))
+    w, h = base.get_size()
 
+    # Slightly lighten rainbow tone so it reads on black
+    def lighten(rgb, factor=0.45):
+        r, g, b = rgb
+        return (
+            int(r + (255 - r) * factor),
+            int(g + (255 - g) * factor),
+            int(b + (255 - b) * factor),
+        )
+
+    cur_x = x
+    for i, ch in enumerate(text):
+        phase = (t_ms / 8.0 + i * 12) % 360
+
+        r = int(127 + 127 * math.sin(phase * 0.0174533))
+        g = int(127 + 127 * math.sin((phase + 120) * 0.0174533))
+        b = int(127 + 127 * math.sin((phase + 240) * 0.0174533))
+
+        lr, lg, lb = lighten((r, g, b), factor=0.45)
+
+        glyph = font.render(ch, True, (lr, lg, lb))
+        surface.blit(glyph, (cur_x, y))
+        cur_x += glyph.get_width()
 
 def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, header_label, t_ms=0):
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
