@@ -10,7 +10,7 @@ from config import COL_PANEL, COL_BORDER, COL_TEXT, DEBUG_FLAG_ADDRS
 
 DISPLAY_LABEL_OVERRIDES = {
     "PauseOverlay":   "Pause rendering",
-    "P2Pause":        "P2 pause (Warning Buggy)",
+    "P2Pause":        "P2 pause (Warning: Buggy)",
     "HypeTrigger":    "Combo announcer",
     "ComboCountOnly": "Combo counter only",
     "ComboStore[1]":  "Last Combo + dmg",

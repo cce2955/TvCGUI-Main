@@ -109,9 +109,6 @@ SCAN_SLIDE_DURATION = 0.7
 HP32_OFF = 0x28
 POOL32_OFF = 0x2C
 
-# Delayed P2Pause writeback
-p2pause_pending_addr = None
-p2pause_pending_ts = 0.0
 
 # ---------------------------------------------------------------------------
 # Assist tracking (per slot)
@@ -1010,54 +1007,51 @@ def main():
                 # All other debug click areas are keyed by name in debug_click_areas.
                 # Each entry is (rect, addr). When clicked, we toggle or cycle the
                 # underlying training/debug flag in memory.
+
+                # 1) Pause overlay (rendering only)
                 entry = debug_click_areas.get("PauseOverlay")
                 if entry:
                     r, addr = entry
                     if r.collidepoint(mx, my):
                         cur = rd8(addr) or 0
                         wd8(addr, 0x01 if cur == 0x00 else 0x00)
+
+                # 1b) TrPause = P1 training pause (manual toggle, no questions asked)
+                entry = debug_click_areas.get("TrPause")
+                if entry:
+                    r, addr_tr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr_tr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr_tr, new)
+
+                # 2) P2 training pause:
+                #    OFF -> ON: force TrPause=01 and P2Pause=01
+                #    ON  -> OFF: force TrPause=00 and P2Pause=00
                 entry = debug_click_areas.get("P2Pause")
                 if entry:
                     r, addr_p2 = entry
                     if r.collidepoint(mx, my):
-                        cur = rd8(addr_p2) or 0
+                        cur_p2 = rd8(addr_p2) or 0
 
-                        # OFF -> ON: require TrPause, then delayed P2Pause
-                        if cur == 0x00:
-                            entry_tr = debug_click_areas.get("TrPause")
-                            if entry_tr:
-                                _, addr_tr = entry_tr
-                                # Ensure P1 training pause is ON first
+                        # Find TrPause address (if present in the list)
+                        entry_tr = debug_click_areas.get("TrPause")
+                        addr_tr = entry_tr[1] if entry_tr else None
+
+                        if cur_p2 == 0x00:
+                            # OFF -> ON
+                            if addr_tr is not None:
                                 wd8(addr_tr, 0x01)
-
-                            # Schedule delayed activation of P2Pause
-                            p2pause_pending_addr = addr_p2
-                            p2pause_pending_ts = now + 0.15  # ~150 ms
-                            print("[P2Pause] Scheduled activation in 150ms")
-
-                        # ON -> OFF: hard unpause both P1 and P2
+                            wd8(addr_p2, 0x01)
+                            print("[P2Pause] TrPause=01, P2Pause=01")
                         else:
-                            # Cancel any pending delayed write
-                            p2pause_pending_addr = None
-                            p2pause_pending_ts = 0.0
-
-                            # Force P2Pause OFF
-                            wd8(addr_p2, 0x00)
-
-                            # Force TrPause OFF as well
-                            entry_tr = debug_click_areas.get("TrPause")
-                            if entry_tr:
-                                _, addr_tr = entry_tr
+                            # ON -> OFF
+                            if addr_tr is not None:
                                 wd8(addr_tr, 0x00)
+                            wd8(addr_p2, 0x00)
+                            print("[P2Pause] TrPause=00, P2Pause=00")
 
-
-                if entry:
-                    r, addr = entry
-                    if r.collidepoint(mx, my):
-                        cur = rd8(addr) or 0
-                        new = 0x01 if cur == 0x00 else 0x00
-                        wd8(addr, new)
-
+                # 3) Remaining flags: simple toggle / cycle behavior
                 entry = debug_click_areas.get("DummyMeter")
                 if entry:
                     r, addr = entry
@@ -1184,7 +1178,9 @@ def main():
                 if entry:
                     r, addr = entry
                     if r.collidepoint(mx, my):
+                        # Momentary trigger: store last combo + damage.
                         wd8(addr, 0x41)
+
                 entry = debug_click_areas.get("ComboCountOnly")
                 if entry:
                     r, addr = entry
@@ -1204,6 +1200,7 @@ def main():
                         wd8(sp_addr, 0x40)
                         special_restore_addr = sp_addr
                         special_restore_ts = now + 0.5
+
 
         # Restore temporarily overridden hype / special values once the
         # timer expires.
