@@ -1200,6 +1200,7 @@ def main():
             scan_worker.request()
             need_rescan_normals = False
 
+        # Manual F5 scan
         if HAVE_SCAN_NORMALS and manual_scan_requested:
             if scan_worker:
                 scan_worker.request()
@@ -1211,10 +1212,7 @@ def main():
                 except Exception as e:
                     print("manual scan failed:", e)
             manual_scan_requested = False
-        elif HAVE_SCAN_NORMALS and scan_worker:
-            if time.time() - last_scan_time >= SCAN_MIN_INTERVAL_SEC:
-                scan_worker.request()
-
+     
         # Flush any pending hit log entries to CSV every so often.
         if pending_hits and (frame_idx % 30 == 0):
             newcsv = not os.path.exists(HIT_CSV)
