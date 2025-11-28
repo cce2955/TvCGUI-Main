@@ -101,7 +101,7 @@ SCAN_MIN_INTERVAL_SEC = 180.0
 
 PANEL_SLIDE_DURATION = 2
 PANEL_FLASH_FRAMES = 12
-
+SCAN_SLIDE_DURATION = 0.7
 # offsets for "real" baroque (relative to fighter base)
 HP32_OFF = 0x28
 POOL32_OFF = 0x2C
@@ -316,7 +316,7 @@ def main():
 
     last_scan_normals = None
     last_scan_time = 0.0
-
+    scan_anim = None
     # Per-slot / per-base state caches used to smooth behavior over time.
     last_base_by_slot = {}
     y_off_by_base = {}
@@ -397,9 +397,15 @@ def main():
         # Pull the latest scan results from the background worker, if any.
         if scan_worker:
             res, ts = scan_worker.get_latest()
-            if res is not None and ts >= last_scan_time:
+            if res is not None and ts > last_scan_time:
                 last_scan_normals = res
                 last_scan_time = ts
+
+                # Kick off a slide-in animation for the scan panel.
+                scan_anim = {
+                    "start": now,
+                    "dur": SCAN_SLIDE_DURATION,
+                }
 
         # Resolve base addresses for each character slot using the resolver.
         resolved_slots = []
@@ -901,7 +907,45 @@ def main():
         screen.blit(label_surf, (dbg_btn_x + 6, dbg_btn_y + 4))
 
         # ---- scan panel at the bottom: NORMALS ONLY ----
-        draw_scan_normals(screen, layout["scan"], font, smallfont, last_scan_normals)
+                # ---- scan panel at the bottom: NORMALS ONLY (animated slide-in) ----
+        scan_rect = layout["scan"]
+
+        # Render into an offscreen surface first.
+        scan_surf = pygame.Surface(
+            (scan_rect.width, scan_rect.height), pygame.SRCALPHA
+        )
+        # Note: use scan_surf.get_rect() so draw_scan_normals can treat (0,0) as origin.
+        draw_scan_normals(scan_surf, scan_surf.get_rect(), font, smallfont, last_scan_normals)
+
+        # Animate the whole block sliding up from below with a 90/10 ghost fade.
+                # Animate the whole block sliding up from below (no heavy fade).
+        if scan_anim is not None:
+            t = now - scan_anim["start"]
+            dur = scan_anim.get("dur", SCAN_SLIDE_DURATION)
+
+            if t <= 0:
+                frac = 0.0
+            elif t >= dur:
+                frac = 1.0
+            else:
+                frac = t / dur
+
+            from_y = scan_rect.y + scan_rect.height + 8  # start just below
+            to_y = scan_rect.y
+            y = from_y + (to_y - from_y) * frac
+
+            # Keep it fully visible while sliding.
+            alpha = 255
+
+            if frac >= 1.0:
+                scan_anim = None
+        else:
+            y = scan_rect.y
+            alpha = 255
+
+        scan_surf.set_alpha(alpha)
+        screen.blit(scan_surf, (scan_rect.x, int(y)))
+
 
         pygame.display.flip()
 
