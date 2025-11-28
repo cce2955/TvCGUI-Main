@@ -13,7 +13,10 @@ import time
 import threading
 
 import pygame
-
+try:
+    import pyperclip
+except ImportError:
+    pyperclip = None
 from layout import compute_layout, reassign_slots_for_giants
 from scan_worker import ScanNormalsWorker
 from training_flags import read_training_flags
@@ -138,6 +141,21 @@ ASSIST_ATTACK_IDS = set()
 # Slot name -> AssistState
 _ASSIST_BY_SLOT = {}
 
+def _copy_to_clipboard(text: str):
+    """
+    Best-effort copy to clipboard. If pyperclip is missing,
+    print to stdout so the value is still easily accessible.
+    """
+    if not text:
+        return
+    if pyperclip is not None:
+        try:
+            pyperclip.copy(text)
+            print(f"[copy] {text}")
+        except Exception as e:
+            print(f"[copy] failed ({e!r}) → {text}")
+    else:
+        print(f"[copy] (no pyperclip) → {text}")
 
 def update_assist_for_snap(slotname: str, snap: dict, cur_anim: int | None):
     """
@@ -212,78 +230,23 @@ def get_assist_state(slotname: str) -> AssistState | None:
 
 def safe_read_fighter(base, yoff):
     """
-    Wrapper around read_fighter(base, yoff) with a fallback path for giants.
+    Thin wrapper around read_fighter(base, yoff).
 
-    Some characters (e.g. giants) do not match the standard fighter struct
-    layout used by read_fighter(). If the primary reader fails, we fall back
-    to a generic reader that pulls out only the fields we care about.
-
-    Returns:
-        A snapshot dict compatible with the rest of the HUD, or None if
-        the data looks unreasonable.
+    For now we trust fighter.read_fighter() to either return a valid
+    snapshot dict or a falsy value when the struct is not usable.
+    Any earlier "giant fallback" logic that tried to re-read HP/pos
+    directly is removed to avoid noisy None reads and log spam.
     """
-    snap = read_fighter(base, yoff)
-    if snap:
-        return snap
-
-    print(f"[safe_read_fighter] read_fighter failed for base=0x{base:08X}, trying fallback")
-
     try:
-        max_hp = rd32(base + OFF_MAX_HP)
-        cur_hp = rd32(base + OFF_CUR_HP)
-        aux_hp = rd32(base + OFF_AUX_HP)
-
-        pos_x = rd32(base + POSX_OFF)
-        pos_y = rd32(base + yoff)
-
-        attA = rd8(base + ATT_ID_OFF_PRIMARY)
-        attB = rd8(base + ATT_ID_OFF_SECOND)
-
-        ctrl = rd32(base + CTRL_WORD_OFF)
-
-        flag062 = rd8(base + FLAG_062)
-        flag063 = rd8(base + FLAG_063)
-        flag072 = rd8(base + FLAG_072)
+        snap = read_fighter(base, yoff)
     except Exception as e:
-        print(f"[safe_read_fighter] Exception reading fields: {e}")
+        print(f"[safe_read_fighter] read_fighter raised {e!r} for base=0x{base:08X}")
         return None
 
-    print(f"[safe_read_fighter] max_hp={max_hp} cur_hp={cur_hp}")
-
-    # Simple sanity guard. If these fail, we treat the struct as invalid.
-    if max_hp <= 30000 or max_hp > 1000000:
-        print(f"[safe_read_fighter] HP sanity check failed: max_hp={max_hp}")
+    if not snap:
         return None
 
-    try:
-        char_id = rd32(base + OFF_CHAR_ID)
-    except Exception:
-        char_id = None
-
-    print(f"[safe_read_fighter] char_id={char_id}, name={CHAR_NAMES.get(char_id)}")
-
-    char_name = "Unknown"
-    if char_id is not None and char_id != 0:
-        char_name = CHAR_NAMES.get(char_id, f"ID_{char_id}")
-
-    return {
-        "max": max_hp,
-        "cur": cur_hp,
-        "aux": aux_hp,
-        "pos_x": pos_x,
-        "pos_y": pos_y,
-        "attA": attA,
-        "attB": attB,
-        "ctrl": ctrl,
-        "flag062": flag062,
-        "flag063": flag063,
-        "flag072": flag072,
-        "id": char_id,
-        "name": char_name,
-        # Giants do not use the standard byte pool in the same way
-        "hp_pool_byte": None,
-    }
-
+    return snap
 
 def init_pygame():
     """
@@ -372,7 +335,8 @@ def main():
     pending_hits = []
     frame_idx = 0
     running = True
-
+    right_clicked_pos = None
+    
     # Debug overlay state (per-frame overlay + scrollable list).
     
     debug_overlay = True
@@ -398,7 +362,6 @@ def main():
         t_ms = pygame.time.get_ticks()
         mouse_clicked_pos = None
 
-        # Basic event pump: resize, quit, F5 for manual scan, mouse wheel for debug.
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
                 running = False
@@ -410,18 +373,15 @@ def main():
             elif ev.type == pygame.MOUSEBUTTONDOWN:
                 if ev.button == 1:
                     mouse_clicked_pos = ev.pos
+                elif ev.button == 3:
+                    right_clicked_pos = ev.pos
                 elif ev.button in (4, 5) and debug_overlay:
                     # Legacy wheel events on some platforms.
                     if ev.button == 4 and debug_scroll_offset > 0:
                         debug_scroll_offset -= 1
                     elif ev.button == 5 and debug_scroll_offset < debug_max_scroll:
                         debug_scroll_offset += 1
-            elif ev.type == pygame.MOUSEWHEEL and debug_overlay:
-                # Newer wheel events (pygame 2).
-                if ev.y > 0 and debug_scroll_offset > 0:
-                    debug_scroll_offset -= 1
-                elif ev.y < 0 and debug_scroll_offset < debug_max_scroll:
-                    debug_scroll_offset += 1
+
 
         # Pull the latest scan results from the background worker, if any.
         if scan_worker:
@@ -613,12 +573,7 @@ def main():
         # Giants occupy both character panels; we reshuffle the mapping to
         # keep the HUD consistent.
         snaps = reassign_slots_for_giants(snaps)
-        if frame_idx < 120:  # first 2 seconds at 60 FPS
-            for slotname, teamtag, base in resolved_slots:
-                if base:
-                    print(f"[slots] {slotname}: base=0x{base:08X}")
-                else:
-                    print(f"[slots] {slotname}: (none)")
+
         # -------------------------------------------------------------------
         # Damage / hit logging and frame advantage tracking
         # -------------------------------------------------------------------
@@ -968,7 +923,41 @@ def main():
         # -------------------------------------------------------------------
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
+            copied = False
 
+            # 1) Debug panel rows → copy flag address
+            #    debug_click_areas[name] = (rect, addr)
+            for name, (r, addr) in debug_click_areas.items():
+                if r.collidepoint(mx, my):
+                    if isinstance(addr, int):
+                        _copy_to_clipboard(f"0x{addr:08X}")
+                    else:
+                        _copy_to_clipboard(str(addr))
+                    copied = True
+                    break
+
+            # 2) Character panels → copy slot base address
+            if not copied:
+                slot_panels = [
+                    ("P1-C1", r_p1c1),
+                    ("P2-C1", r_p2c1),
+                    ("P1-C2", r_p1c2),
+                    ("P2-C2", r_p2c2),
+                ]
+                for slot_label, rect in slot_panels:
+                    if rect and rect.collidepoint(mx, my):
+                        snap = render_snap_by_slot.get(slot_label)
+                        if snap:
+                            base = snap.get("base")
+                            if isinstance(base, int):
+                                _copy_to_clipboard(f"0x{base:08X}")
+                            else:
+                                _copy_to_clipboard(str(base))
+                            copied = True
+                        break
+
+            # Clear the right-click so we only handle it once
+            right_clicked_pos = None
             def ensure_scan_now():
                 """
                 Make sure we have at least one set of normals scan data.
