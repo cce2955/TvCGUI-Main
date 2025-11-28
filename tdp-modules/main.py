@@ -109,6 +109,9 @@ SCAN_SLIDE_DURATION = 0.7
 HP32_OFF = 0x28
 POOL32_OFF = 0x2C
 
+# Delayed P2Pause writeback
+p2pause_pending_addr = None
+p2pause_pending_ts = 0.0
 
 # ---------------------------------------------------------------------------
 # Assist tracking (per slot)
@@ -1013,8 +1016,41 @@ def main():
                     if r.collidepoint(mx, my):
                         cur = rd8(addr) or 0
                         wd8(addr, 0x01 if cur == 0x00 else 0x00)
+                entry = debug_click_areas.get("P2Pause")
+                if entry:
+                    r, addr_p2 = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr_p2) or 0
 
-                entry = debug_click_areas.get("TrPause")
+                        # OFF -> ON: require TrPause, then delayed P2Pause
+                        if cur == 0x00:
+                            entry_tr = debug_click_areas.get("TrPause")
+                            if entry_tr:
+                                _, addr_tr = entry_tr
+                                # Ensure P1 training pause is ON first
+                                wd8(addr_tr, 0x01)
+
+                            # Schedule delayed activation of P2Pause
+                            p2pause_pending_addr = addr_p2
+                            p2pause_pending_ts = now + 0.15  # ~150 ms
+                            print("[P2Pause] Scheduled activation in 150ms")
+
+                        # ON -> OFF: hard unpause both P1 and P2
+                        else:
+                            # Cancel any pending delayed write
+                            p2pause_pending_addr = None
+                            p2pause_pending_ts = 0.0
+
+                            # Force P2Pause OFF
+                            wd8(addr_p2, 0x00)
+
+                            # Force TrPause OFF as well
+                            entry_tr = debug_click_areas.get("TrPause")
+                            if entry_tr:
+                                _, addr_tr = entry_tr
+                                wd8(addr_tr, 0x00)
+
+
                 if entry:
                     r, addr = entry
                     if r.collidepoint(mx, my):
@@ -1149,6 +1185,13 @@ def main():
                     r, addr = entry
                     if r.collidepoint(mx, my):
                         wd8(addr, 0x41)
+                entry = debug_click_areas.get("ComboCountOnly")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        new = 0x01 if cur == 0x00 else 0x00
+                        wd8(addr, new)
 
                 entry = debug_click_areas.get("SpecialPopup")
                 if entry:
