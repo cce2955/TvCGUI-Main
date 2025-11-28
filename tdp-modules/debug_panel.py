@@ -1,25 +1,21 @@
 # debug_panel.py
 #
-# Helper routines for reading a curated set of runtime flags from memory
-# and drawing them in an inspector-style overlay. This file keeps all
-# debug-panel logic out of main.py so the main loop stays focused on
-# gameplay-state tracking and rendering.
-
+# Read a curated set of runtime flags from memory and render them
+# in a scrollable, click-friendly overlay.
 
 import pygame
 
 from dolphin_io import rd8
-from config import COL_BG, DEBUG_FLAG_ADDRS
+from config import COL_PANEL, COL_BORDER, COL_TEXT, DEBUG_FLAG_ADDRS
 
 
 def read_debug_flags():
     """
     Collect a list of (label, addr, value) entries for the debug overlay.
 
-    DEBUG_FLAG_ADDRS covers the generic toggles (pause overlay, director block,
-    etc.). In addition, we expose a few single-byte addresses found through
-    memory tracing that correspond to hype, combo popup behavior, and special
-    effect triggers.
+    DEBUG_FLAG_ADDRS comes from config.py and is a list of (label, addr).
+    We also append a few individually mapped flags discovered during
+    reverse-engineering.
 
     Returns:
         A list of tuples: (label, address, byte_value or None)
@@ -59,72 +55,146 @@ def read_debug_flags():
     return out
 
 
-def draw_debug_overlay(surface, rect, font, values, scroll_offset):
+def _format_value(v):
     """
-    Draw the debug flag inspector.
+    Format a small integer as both hex and decimal.
+    """
+    if v is None:
+        return "--"
+    if not isinstance(v, int):
+        return str(v)
+    if v < 0:
+        return str(v)
+    if v <= 0xFF:
+        return f"{v:02X} ({v:d})"
+    return f"{v:08X} ({v:d})"
 
-    The overlay shows a scrollable list of (label, value, address) pairs,
-    with each row clickable so that other parts of the HUD can toggle
-    the corresponding byte in memory.
 
-    Arguments:
-        surface        The pygame Surface to draw on.
-        rect           The region allocated for the debug panel.
-        font           Font object for rendering text.
-        values         Output of read_debug_flags().
-        scroll_offset  Number of rows to skip from the top.
+def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
+    """
+    Draw a scrollable list of debug / training flags.
+
+    dbg_values is a list of tuples (name, addr, value). We only rely on:
+        name = entry[0]
+        addr = entry[1]
+        val  = entry[2]
 
     Returns:
-        click_areas : dict mapping label → (pygame.Rect, address)
-                      Used for hit-testing click toggles.
-
-        max_scroll  : Maximum valid value for scroll_offset given panel height.
+        click_areas: dict[name] = (rect, addr)
+        max_scroll:  maximum scroll offset based on rows.
     """
     # Panel base and border
-    pygame.draw.rect(surface, COL_BG, rect, border_radius=4)
-    pygame.draw.rect(surface, (120, 120, 160), rect, 1, border_radius=4)
+    pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
+    pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
+
+    x0 = rect.x + 6
+    y0 = rect.y + 4
+
+    # Header + hint
+    header = "Debug flags (rd8)"
+    surface.blit(font_small.render(header, True, COL_TEXT), (x0, y0))
+    y0 += font_small.get_height() + 2
+
+    hint = "Wheel to scroll, click a row to toggle/cycle"
+    surface.blit(font_small.render(hint, True, (170, 170, 190)), (x0, y0))
+    y0 += font_small.get_height() + 4
+
+    inner_top = y0
+    inner_bottom = rect.bottom - 4
+    row_h = font_small.get_height() + 4
+    max_rows = max(1, (inner_bottom - inner_top) // row_h)
 
     click_areas = {}
 
-    x = rect.x + 8
-    y = rect.y + 32   # leave room for the ON/OFF button printed in main HUD
-
-    header = "Debug flags (rd8)"
-    surface.blit(font.render(header, True, (220, 220, 220)), (x, y))
-    y += 16
-
-    # No data → no scrolling
-    if not values:
+    if not dbg_values:
+        surface.blit(
+            font_small.render("(no debug flags)", True, COL_TEXT),
+            (x0, inner_top),
+        )
         return click_areas, 0
 
-    line_height = 14
-    y_start = y
-    visible_px = (rect.bottom - 10) - y_start
-    max_visible = max(0, visible_px // line_height)
+    total = len(dbg_values)
+    max_scroll = max(0, total - max_rows)
 
-    total = len(values)
-    max_scroll = max(0, total - max_visible)
+    if scroll_offset < 0:
+        scroll_offset = 0
+    elif scroll_offset > max_scroll:
+        scroll_offset = max_scroll
 
-    # Clamp scroll_offset once we know the valid range
-    scroll_offset = max(0, min(scroll_offset, max_scroll))
+    start = scroll_offset
+    end = min(total, start + max_rows)
 
-    # Take the visible window of rows
-    visible_values = values[scroll_offset:scroll_offset + max_visible]
+    row_x = rect.x + 4
+    row_w = rect.width - 8
 
-    for label, addr, val in visible_values:
-        if y > rect.bottom - 10:
-            break
+    for idx in range(start, end):
+        name, addr, val = dbg_values[idx][0], dbg_values[idx][1], dbg_values[idx][2]
+        row_y = inner_top + (idx - start) * row_h
 
-        vtxt = "--" if val is None else f"{val:02X}"
-        line = f"{label}: {vtxt} @0x{addr:08X}"
+        # Background striping + active highlight
+        active = bool(val)
+        if active:
+            bg_col = (55, 65, 105)
+        else:
+            bg_col = (32, 32, 40) if (idx % 2) else (26, 26, 32)
 
-        text_surf = font.render(line, True, (200, 200, 200))
-        surface.blit(text_surf, (x, y))
+        row_rect = pygame.Rect(row_x, row_y, row_w, row_h)
+        pygame.draw.rect(surface, bg_col, row_rect, border_radius=2)
 
-        # Record bounding rect for click detection
-        text_rect = text_surf.get_rect(topleft=(x, y))
-        click_areas[label] = (text_rect, addr)
+        # Divider line
+        pygame.draw.line(
+            surface,
+            (60, 60, 80),
+            (row_rect.left, row_rect.bottom - 1),
+            (row_rect.right, row_rect.bottom - 1),
+            1,
+        )
 
-        y += line_height
+        # Name on the left
+        name_txt = font_small.render(name, True, COL_TEXT)
+        surface.blit(name_txt, (row_rect.x + 6, row_rect.y + 2))
+
+        # Value + address on the right
+        val_str = _format_value(val)
+        val_txt = font_small.render(val_str, True, (210, 210, 230))
+        addr_txt = font_small.render(f"@ 0x{addr:08X}", True, (150, 150, 170))
+
+        addr_w = addr_txt.get_width()
+        val_w = val_txt.get_width()
+        right_pad = 6
+
+        addr_x = row_rect.right - right_pad - addr_w
+        val_x = addr_x - 8 - val_w
+
+        surface.blit(val_txt, (val_x, row_rect.y + 2))
+        surface.blit(addr_txt, (addr_x, row_rect.y + 2))
+
+        # Whole row is clickable
+        click_areas[name] = (row_rect, addr)
+
+    # Simple scroll indicator
+    if max_scroll > 0:
+        bar_area_h = inner_bottom - inner_top
+        bar_x = rect.right - 3
+        bar_y = inner_top
+
+        pygame.draw.line(
+            surface,
+            (80, 80, 110),
+            (bar_x, bar_y),
+            (bar_x, inner_bottom),
+            2,
+        )
+
+        frac = scroll_offset / float(max_scroll) if max_scroll > 0 else 0.0
+        thumb_h = max(10, bar_area_h // max_rows)
+        thumb_y = int(bar_y + frac * (bar_area_h - thumb_h))
+
+        pygame.draw.rect(
+            surface,
+            (180, 180, 220),
+            pygame.Rect(bar_x - 1, thumb_y, 3, thumb_h),
+            border_radius=2,
+        )
 
     return click_areas, max_scroll

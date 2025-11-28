@@ -346,8 +346,9 @@ def main():
     running = True
 
     # Debug overlay state (per-frame overlay + scrollable list).
-    debug_overlay = False
-    debug_btn_rect = pygame.Rect(0, 0, 0, 0)
+    
+    debug_overlay = True
+    debug_btn_rect = pygame.Rect(0, 0, 0, 0) 
     debug_click_areas = {}
     debug_scroll_offset = 0
     debug_max_scroll = 0
@@ -881,33 +882,18 @@ def main():
         draw_activity(screen, layout["act"], font, last_adv_display)
         draw_event_log(screen, layout["events"], font, smallfont)
 
-        # Debug overlay region.
+        # Debug overlay region (always on now).
         debug_rect = layout["debug"]
 
-        if debug_overlay:
-            dbg_values = read_debug_flags() + read_training_flags()
-        else:
-            dbg_values = []
+        dbg_values = read_debug_flags() + read_training_flags()
 
         debug_click_areas, debug_max_scroll = draw_debug_overlay(
             screen, debug_rect, smallfont, dbg_values, debug_scroll_offset
         )
 
-        # Small toggle button for the debug overlay itself.
-        dbg_btn_w, dbg_btn_h = 120, 24
-        dbg_btn_x = debug_rect.x + 8
-        dbg_btn_y = debug_rect.y + 4
-        debug_btn_rect = pygame.Rect(dbg_btn_x, dbg_btn_y, dbg_btn_w, dbg_btn_h)
 
-        pygame.draw.rect(screen, (40, 40, 70), debug_btn_rect, border_radius=4)
-        pygame.draw.rect(screen, (180, 180, 220), debug_btn_rect, 1, border_radius=4)
 
-        btn_label = "Debug: ON" if debug_overlay else "Debug: OFF"
-        label_surf = smallfont.render(btn_label, True, (230, 230, 230))
-        screen.blit(label_surf, (dbg_btn_x + 6, dbg_btn_y + 4))
-
-        # ---- scan panel at the bottom: NORMALS ONLY ----
-                # ---- scan panel at the bottom: NORMALS ONLY (animated slide-in) ----
+        # ---- scan panel at the bottom: NORMALS ONLY (animated slide-in) ----
         scan_rect = layout["scan"]
 
         # Render into an offscreen surface first.
@@ -999,11 +985,6 @@ def main():
                 if data:
                     open_frame_data_window("P2-C2", data)
                 panel_btn_flash["P2-C2"] = PANEL_FLASH_FRAMES
-
-            # Debug toggle button
-            elif debug_btn_rect and debug_btn_rect.collidepoint(mx, my):
-                debug_overlay = not debug_overlay
-                debug_scroll_offset = 0
 
             else:
                 # All other debug click areas are keyed by name in debug_click_areas.
