@@ -396,29 +396,34 @@ def main():
                     "dur": SCAN_SLIDE_DURATION,
                 }
 
-        # Resolve base addresses for each character slot using the resolver.
+        # Resolve base addresses for each character slot using the SlotResolver.
         resolved_slots = []
         for slotname, ptr_addr, teamtag in SLOTS:
-            # Read the fighter base directly from the slot pointer
-            raw_base = rd32(ptr_addr)
+            # Ask the resolver to give us the actual fighter struct base.
+            base, changed = RESOLVER.resolve_base(ptr_addr)
 
-            if raw_base is None or not addr_in_ram(raw_base):
-                base = None
-            else:
-                base = raw_base
-
-            # Detect changes the same way as before
-            changed = base is not None and last_base_by_slot.get(ptr_addr) != base
-
-            if base and changed:
-                last_base_by_slot[ptr_addr] = base
+            if base is not None and changed:
                 # Reset cached meter reads when bases move.
                 METER_CACHE.drop(base)
                 # Recompute Y offset heuristics when a new base appears.
                 y_off_by_base[base] = pick_posy_off_no_jump(base)
 
             resolved_slots.append((slotname, teamtag, base))
+                
+            # ---------------------------------------------------------
+            # RAW HP16 DEBUG PROBE (inserted temporarily)
+            # ---------------------------------------------------------
+            if True:  # turn off by setting to False
+                for slotname, teamtag, base in resolved_slots:
+                    if base and addr_in_ram(base):
+                        b0 = rd8(base + 0x26)
+                        b1 = rd8(base + 0x27)
+                        hp16 = None
+                        if b0 is not None and b1 is not None:
+                            hp16 = (b0 << 8) | b1
 
+                        print(f"[HP16 DEBUG] {slotname} base=0x{base:08X}  "
+                                f"+0x26={b0:02X} +0x27={b1:02X}  hp16={hp16}")
 
         # Read meter using P1/P2 point characters as canonical.
         p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
