@@ -1115,6 +1115,21 @@ def main():
                         cur = rd8(addr) or 0
                         new = 0x01 if cur == 0x00 else 0x00
                         wd8(addr, new)
+                      
+                entry = debug_click_areas.get("Orientation")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my) and isinstance(addr, int):
+                        cur = rd8(addr) or 0
+                        wd8(addr, 0x01 if cur == 0x00 else 0x00)
+
+                # Super background flag
+                entry = debug_click_areas.get("SuperBG")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my) and isinstance(addr, int):
+                        cur = rd8(addr) or 0
+                        wd8(addr, 0x01 if cur == 0x00 else 0x00)
 
                 entry = debug_click_areas.get("BaroquePct")
                 if entry:

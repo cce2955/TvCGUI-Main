@@ -15,6 +15,8 @@ DISPLAY_LABEL_OVERRIDES = {
     "ComboCountOnly": "Combo counter only",
     "ComboStore[1]":  "Last Combo + dmg",
     "TrPause":        "Pause",
+    "Orientation":    "Orientation",
+    "SuperBG":        "Super background",
 }
 
 
@@ -33,11 +35,15 @@ def read_debug_flags():
 
     # Main debug flags defined in config.py
     for label, addr in DEBUG_FLAG_ADDRS:
+        if not isinstance(addr, int):
+            out.append((label, addr, None))
+            continue
         try:
             val = rd8(addr)
         except Exception:
             val = None
         out.append((label, addr, val))
+
 
     # Individually mapped flags discovered during reverse-engineering.
 
