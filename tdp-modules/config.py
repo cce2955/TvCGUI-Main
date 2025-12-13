@@ -56,8 +56,13 @@ PAIR_MAPPING_CSV = "move_id_map_charpair.csv"
 # debug tools elsewhere handle toggling.
 #
 # Address notes come from runtime tracing and memory dumps.
-ORIENTATION_FLAG_ADDR = None
-SUPER_BG_FLAG_ADDR    = None
+
+ORIENTATION_FLAG_ADDR = 0x908AEE38
+
+
+SUPER_BG_FLAG_ADDR    = 0x908AEE21
+
+
 DEBUG_FLAG_ADDRS = [
     ("PauseOverlay", 0x805610F0 + 0x1B),  # dims the screen when pause is active
     ("Orientation", ORIENTATION_FLAG_ADDR),

@@ -129,6 +129,8 @@ def _state_label(name: str, v):
 
     if name == "SpecialPopup":
         return "ON" if v == 0x40 else "OFF"
+    if name == "SuperBG":
+        return "ON" if v == 0x04 else "OFF"
 
     # Default: simple boolean interpretation (also fine for P2Pause)
     return "ON" if int(v) != 0 else "OFF"
