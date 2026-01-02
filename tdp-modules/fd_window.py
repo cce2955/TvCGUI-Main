@@ -63,6 +63,12 @@ HB_SCAN_MAX = 0x600
 FALLBACK_HB_OFFSET = 0x21C
 MIN_REAL_RADIUS = 5.0
 
+KB_TRAJ_MAP = {
+    0xBD: "Up Forward KB",
+    0xBE: "Down Forward KB",
+    0xBC: "Up KB (Spiral)",
+    0xC4: "Up Pop (j.L/j.M)",
+}
 
 def _pretty_move_name(aid, char_name=None):
     if aid is None:
@@ -140,13 +146,150 @@ def _format_candidate_list(cands: list[tuple[int, float]], max_show: int = 4) ->
     if len(cands) > max_show:
         parts.append("…")
     return " ".join(parts)
+def _parse_hit_reaction_input(s: str):
+    """
+    Parse a hit reaction value from user input.
+
+    Accepts:
+        - Hex with 0x prefix (e.g. "0x800080")
+        - Hex without prefix (e.g. "800080")
+        - Decimal (e.g. "524288")
+    Returns:
+        int or None on failure.
+    """
+    s = s.strip()
+    if not s:
+        return None
+    # Try hex first
+    try:
+        return int(s, 16) if s.lower().startswith("0x") else int(s, 16)
+    except ValueError:
+        pass
+    # Fallback to decimal
+    try:
+        return int(s, 10)
+    except ValueError:
+        pass
+    return None
+
+def _write_hit_reaction(mv, val) -> bool:
+    """
+    Write hit reaction bitfield to memory for a given move.
+
+    Tries a dedicated move_writer helper first if present, falling back to
+    a direct byte write using addresses from scan_normals_all.
+    """
+    if not WRITER_AVAILABLE:
+        return False
+
+    # 1. Prefer move_writer's helper if available.
+    try:
+        from move_writer import write_hit_reaction
+        if write_hit_reaction(mv, val):
+            return True
+    except Exception:
+        # Helper failed or is missing; use inline write instead.
+        pass
+
+    # 2. Direct write from the annotated address.
+    addr = mv.get("hit_reaction_addr")
+    if not addr:
+        return False
+
+    try:
+        from dolphin_io import wd8
+        # Hit reaction is stored as three bytes: XX YY ZZ
+        wd8(addr + 0, (val >> 16) & 0xFF)
+        wd8(addr + 1, (val >> 8) & 0xFF)
+        wd8(addr + 2, val & 0xFF)
+        return True
+    except Exception as e:
+        print(f"Inline hit reaction write failed: {e}")
+        return False
 
 
 def _fmt_superbg(v):
     if v is None:
         return ""
     return "ON" if int(v) == 0x04 else "OFF"
+def _fmt_stun(v):
+    """
+    Convert internal stun byte into a more readable value where known.
 
+    Some common values are mapped to their in-game frame equivalents.
+    """
+    if v is None:
+        return ""
+    if v == 0x0C:
+        return "10"
+    if v == 0x0F:
+        return "15"
+    if v == 0x11:
+        return "17"
+    if v == 0x15:
+        return "21"
+    return str(v)
+def _unfmt_stun(s):
+    """
+    Inverse of _fmt_stun: map a friendly frame count back to the raw byte.
+
+    Returns:
+        int or None if the input is empty/invalid.
+    """
+    s = s.strip()
+    if not s:
+        return None
+    try:
+        val = int(s)
+    except ValueError:
+        return None
+    if val == 10:
+        return 0x0C
+    if val == 15:
+        return 0x0F
+    if val == 17:
+        return 0x11
+    if val == 21:
+        return 0x15
+    return val
+def _write_active2_frames(mv, start, end) -> bool:
+    """
+    Write Active 2 (inline active) frame window to memory for a given move.
+
+    start / end are frame indices as integers. The underlying pattern expects:
+        - start at pattern_base + 4
+        - end   at pattern_base + 16
+    """
+    if not WRITER_AVAILABLE:
+        return False
+
+    addr = mv.get("active2_addr")
+    if not addr:
+        return False
+
+    try:
+        from dolphin_io import wd8
+        if not wd8(addr + 4, start):
+            return False
+        if not wd8(addr + 16, end):
+            return False
+        return True
+    except Exception as e:
+        print(f"Failed to write active2 frames: {e}")
+        return False
+def _fmt_kb_traj(val):
+    """Format a knockback trajectory byte as hex plus a short label."""
+    if val is None:
+        return ""
+    desc = KB_TRAJ_MAP.get(val, "Unknown")
+    return f"0x{val:02X} ({desc})"
+
+def _fmt_hit_reaction(val):
+    """Format a hit reaction bitfield as hex plus a short label."""
+    if val is None:
+        return ""
+    desc = HIT_REACTION_MAP.get(val, "Unknown")
+    return f"0x{val:06X} ({desc})"
 
 class Tooltip:
     def __init__(self, widget, text: str):
@@ -278,8 +421,33 @@ class EditableFrameDataWindow:
         self.tree: ttk.Treeview | None = None
 
         self._build()
-    # ========== EDITORS ==========
+    def _write_active2_frames(mv, start, end) -> bool:
+        """
+        Write Active 2 (inline active) frame window to memory for a given move.
 
+        start / end are frame indices as integers. The underlying pattern expects:
+            - start at pattern_base + 4
+            - end   at pattern_base + 16
+        """
+        if not WRITER_AVAILABLE:
+            return False
+
+        addr = mv.get("active2_addr")
+        if not addr:
+            return False
+
+        try:
+            from dolphin_io import wd8
+            if not wd8(addr + 4, start):
+                return False
+            if not wd8(addr + 16, end):
+                return False
+            return True
+        except Exception as e:
+            print(f"Failed to write active2 frames: {e}")
+            return False        
+    # ========== EDITORS ==========
+    
     def _edit_active2(self, item, mv, current):
         """Dialog editor for Active 2 (inline active) frame window."""
         current = current.strip()
@@ -420,6 +588,7 @@ class EditableFrameDataWindow:
             dlg.destroy()
 
         tk.Button(dlg, text="OK", command=on_ok).pack(pady=8)
+
 
     def _edit_hitstun(self, item, mv, current):
         cur = _unfmt_stun(current) if current else 0
