@@ -495,6 +495,61 @@ class EditableFrameDataWindow:
             dlg.destroy()
 
         tk.Button(dlg, text="OK", command=on_ok, font=("Arial", 10)).pack(pady=10)
+    def _edit_combo_kb_mod(self, item, mv, current):
+        """
+        Edit the per-move combo-only KB modifier byte you discovered.
+        Backed by find_combo_kb_mod_addr() and write_combo_kb_mod_inline().
+        """
+
+        # Ensure we have an address; try to resolve it on-demand if missing
+        if mv.get("combo_kb_mod_addr") is None:
+            move_abs = mv.get("abs")
+            if move_abs:
+                try:
+                    from dolphin_io import rbytes
+                    addr, cur, sig = find_combo_kb_mod_addr(move_abs, rbytes)
+                except Exception:
+                    addr, cur, sig = (None, None, None)
+
+                if addr:
+                    mv["combo_kb_mod_addr"] = addr
+                    mv["combo_kb_mod"] = cur
+                    mv["combo_kb_sig"] = sig
+
+        addr = mv.get("combo_kb_mod_addr")
+        if not addr:
+            messagebox.showerror(
+                "Combo KB Mod",
+                "Signature not found for this move.\n"
+                "Try Refresh visible, or this move may not have the pattern.",
+            )
+            return
+
+        # Determine current numeric value
+        cur_val = mv.get("combo_kb_mod")
+        if cur_val is None:
+            # fall back to parsing display text like "12 (0x0C)"
+            try:
+                cur_val = int(str(current).split()[0])
+            except Exception:
+                cur_val = 0
+
+        # Simple byte editor
+        new_val = simpledialog.askinteger(
+            "Edit Combo KB Mod",
+            f"New combo KB mod byte (0–255)\nAddr: 0x{addr:08X}",
+            initialvalue=int(cur_val),
+            minvalue=0,
+            maxvalue=255,
+        )
+        if new_val is None:
+            return
+
+        if write_combo_kb_mod_inline(mv, int(new_val), WRITER_AVAILABLE):
+            mv["combo_kb_mod"] = int(new_val)
+            self.tree.set(item, "combo_kb_mod", f"{new_val} (0x{new_val:02X})")
+        else:
+            messagebox.showerror("Combo KB Mod", "Failed to write Combo KB Mod byte.")
 
     def _edit_damage(self, item, mv, current):
         try:
