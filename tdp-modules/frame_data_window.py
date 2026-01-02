@@ -1,19 +1,42 @@
 # frame_data_window.py
 #
-# Wrapper for opening the frame data window.
-# Uses the editable GUI when available, otherwise falls back
-# to the legacy Tk viewer contained here.
+# Router for opening frame data window.
+# Preferred order:
+#   1) NEW modular FD stack (frame_data_gui -> fd_window)
+#   2) OLD editable GUI (editable_frame_data_gui)
+#   3) Legacy Tk viewer (implemented here)
 
-import threading
+# -----------------------------
+# Prefer NEW modular FD
+# -----------------------------
+HAVE_NEW_FD = False
+open_new_fd_window = None
+NEW_FD_IMPORT_ERROR = None
 
-# Try the editable GUI first
 try:
-    from editable_frame_data_gui import open_editable_frame_data_window
-    HAVE_EDITABLE_GUI = True
-except ImportError:
-    HAVE_EDITABLE_GUI = False
-    open_editable_frame_data_window = None
-    print("WARNING: editable_frame_data_gui not available")
+    # frame_data_gui.py is a thin entrypoint that exports:
+    #   open_editable_frame_data_window(slot_label, scan_data)
+    from frame_data_gui import open_editable_frame_data_window as open_new_fd_window
+    HAVE_NEW_FD = True
+except Exception as e:
+    HAVE_NEW_FD = False
+    open_new_fd_window = None
+    NEW_FD_IMPORT_ERROR = e
+
+# -----------------------------
+# Fall back to OLD editable GUI
+# -----------------------------
+HAVE_OLD_EDITABLE = False
+open_old_editable_window = None
+OLD_EDITABLE_IMPORT_ERROR = None
+
+try:
+    from editable_frame_data_gui import open_editable_frame_data_window as open_old_editable_window
+    HAVE_OLD_EDITABLE = True
+except Exception as e:
+    HAVE_OLD_EDITABLE = False
+    open_old_editable_window = None
+    OLD_EDITABLE_IMPORT_ERROR = e
 
 
 def _fmt_stun(v):
@@ -43,11 +66,9 @@ def _fmt_move_label(mv):
     return f"{name} [0x{aid:04X}]"
 
 
-def _open_frame_data_window_thread(slot_label, target_slot):
+def _open_legacy_viewer(slot_label, target_slot):
     """
-    Legacy Tk-based frame data viewer.
-    The editable version lives in editable_frame_data_gui and is used
-    by open_frame_data_window when available.
+    Legacy Tk-based frame data viewer as last resort.
     """
     try:
         import tkinter as tk
@@ -113,14 +134,6 @@ def _open_frame_data_window_thread(slot_label, target_slot):
     tree.column("hb", width=80, anchor="center")
     tree.column("abs", width=110, anchor="center")
 
-    # ------------------------------------------------------------
-    # NEW: guarantee 0111 / 0112 / 0113 / all special IDs appear
-    #      even if scan_normals_all had missing fields
-    #
-    # The actual scan already gives us ALL moves, including specials.
-    # We simply sort them, label them correctly, and render cleanly.
-    # ------------------------------------------------------------
-
     moves = target_slot.get("moves", [])
     moves_sorted = sorted(moves, key=lambda mv: (mv.get("id") is None, mv.get("id") or 0))
 
@@ -177,19 +190,29 @@ def _open_frame_data_window_thread(slot_label, target_slot):
 def open_frame_data_window(slot_label, scan_data):
     """
     Public entry point used by main.py.
-
-    IMPORTANT:
-        Tkinter MUST run on the main thread.
-        No background threads, no async destruction.
-        We open the window directly and block until closed.
+    Route to NEW modular FD first, then OLD editable, then legacy.
     """
-    # If editable GUI exists -> use it directly
-    if HAVE_EDITABLE_GUI and open_editable_frame_data_window is not None:
-        open_editable_frame_data_window(slot_label, scan_data)
-        return
+    # 1) NEW modular FD
+    if HAVE_NEW_FD and open_new_fd_window is not None:
+        try:
+            open_new_fd_window(slot_label, scan_data)
+            return
+        except Exception as e:
+            print("[frame_data_window] NEW FD failed:", repr(e))
+            if NEW_FD_IMPORT_ERROR is not None:
+                print("[frame_data_window] NEW FD import error:", repr(NEW_FD_IMPORT_ERROR))
 
-    # Fallback to legacy Tk viewer
-    print(f"Editable GUI not available for {slot_label}")
+    # 2) OLD editable GUI
+    if HAVE_OLD_EDITABLE and open_old_editable_window is not None:
+        try:
+            open_old_editable_window(slot_label, scan_data)
+            return
+        except Exception as e:
+            print("[frame_data_window] OLD editable failed:", repr(e))
+            if OLD_EDITABLE_IMPORT_ERROR is not None:
+                print("[frame_data_window] OLD editable import error:", repr(OLD_EDITABLE_IMPORT_ERROR))
+
+    # 3) Legacy viewer
     if not scan_data:
         return
 
@@ -201,5 +224,4 @@ def open_frame_data_window(slot_label, scan_data):
     if not target:
         return
 
-    # NO THREADS — open Tk window directly
-    _open_frame_data_window_thread(slot_label, target)
+    _open_legacy_viewer(slot_label, target)

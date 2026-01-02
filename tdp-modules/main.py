@@ -272,7 +272,7 @@ def compute_team_giant_solo(snaps: dict) -> tuple[bool, bool]:
     """
     Determine whether each team should be treated as "giant occupies both slots".
 
-    This is the key fix for your 3-character edge case:
+    
       - A team is giant_solo only if:
           * C1 exists AND is a giant ID, AND
           * (C2 is missing) OR (C2 base == C1 base)
@@ -673,7 +673,6 @@ def main():
         layout = compute_layout(w, h, snaps)
 
         # Override layout's "giant" flags with the corrected solo detection.
-        # This is the HUD-visible fix for your edge case where scan_normals sees all,
         # but HUD hides the partner panel due to a misdetected giant.
         layout["p1_is_giant"] = bool(p1_giant_solo)
         layout["p2_is_giant"] = bool(p2_giant_solo)

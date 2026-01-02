@@ -35,7 +35,7 @@ from constants import MEM1_LO, MEM1_HI, MEM2_LO, MEM2_HI
 # MEM2 LATCH CONFIG
 # ============================================================
 
-# Your "this is correct" sentinel
+
 EXPECT_EA = 0x9246B9C0
 EXPECT_BYTES = bytes.fromhex(
     "00 00 80 0F 00 00 00 00 00 00 00 00 00 00 00 00 "
