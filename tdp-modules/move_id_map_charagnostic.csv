@@ -267,7 +267,7 @@
 520,0x13a,Ukifune,Kasha followup,Kasha followup,yes,10
 522,0x13a,Ukifune,Kasha followup,Kasha followup,yes,10
 
-013904
+
 
 # Ryu (ID: 12)
 263,0x130,6c,Hado L,Hado L,yes,12
@@ -674,12 +674,14 @@
 336,0x13b,Roll A,Roundhouse C,Roundhouse C,yes,30
 337,0x13b,Roll B,Roundhouse C,Roundhouse C,yes,30
 338,0x13b,Roll C,Roundhouse C,Roundhouse C,yes,30
+352,0x202,Real Megabuster,Dead Rising,Dead Rising,yes,30
 353,0x202,Dead Rising,Dead Rising,Dead Rising,yes,30
 359,0x160,Real Megabuster,Real Megabuster,Real Megabuster,yes,30
-368,0x200,Zombie Charge,Funny Face crusher,Funny Face crusher,yes,30
+368,0x200,Frank Lvl 3 Startup,Funny Face crusher,Funny Face crusher,yes,30
 512,0x200,Zombie Charge,Funny Face crusher,Funny Face crusher,yes,30
 514,0x202,Dead Rising,Dead Rising,Dead Rising,yes,30
 516,0x204,Giant Swing,Giant Swing,Giant Swing,yes,30
+544,0x204,Big Bad Explosion,Giant Swing,Giant Swing,yes,30
 
 # PTX (ID: 22)
 263,0x13b,4C,Roundhouse C,Roundhouse C,yes,22
@@ -793,6 +795,7 @@
 426,0x1,assist attack,assist attack,assist attack,yes,100
 427,0x1,Cross Counter Tag in,assist attack,assist attack,yes,100
 426,0x1,assist attack,assist attack,assist attack,yes,100
+428,0x1,DHC Hop in,assist attack,assist attack,yes,100
 430,0x1,assist standby,assist standby,assist standby,yes,100
 432,0x1,DHC Tag out,assist standby,assist standby,yes,100
 433,0x1,DHC Tag in,assist standby,assist standby,yes,100
