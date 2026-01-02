@@ -1,4 +1,3 @@
-
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 import threading
@@ -39,6 +38,16 @@ except Exception:
 HB_SCAN_MAX = 0x600
 FALLBACK_HB_OFFSET = 0x21C
 MIN_REAL_RADIUS = 5.0
+
+# ---- New: Combo-only KB/Vacuum modifier pattern ----
+# Observed chunk:
+#   01 AC 3D 00 00 00 XX 00 00 00 00
+# and you mentioned a "signature" 01 AC 3F as well, so we accept both.
+COMBO_KB_SIG_A = bytes([0x01, 0xAC, 0x3D, 0x00, 0x00, 0x00])  # then XX at +6
+COMBO_KB_SIG_B = bytes([0x01, 0xAC, 0x3F, 0x00, 0x00, 0x00])  # then XX at +6
+COMBO_KB_TAIL_LEN = 4  # expect 00 00 00 00 after XX, but don't require strictly
+COMBO_KB_SCAN_MAX = 0x200  # scan first 0x200 bytes of the move block by default
+
 
 # Knockback trajectory descriptions (angle codes → labels)
 KB_TRAJ_MAP = {
@@ -184,6 +193,7 @@ def _write_active2_frames(mv, start, end) -> bool:
         print(f"Failed to write active2 frames: {e}")
         return False
 
+
 def _write_anim_id(mv, new_anim_id) -> bool:
     """
     Replace this move's 01 XX 01 3C animation chunk with new_anim_id.
@@ -235,6 +245,7 @@ def _write_anim_id(mv, new_anim_id) -> bool:
     except Exception as e:
         print(f"_write_anim_id write failed: {e}")
         return False
+
 
 def _scan_hitbox_house(move_abs: int):
     """
@@ -392,6 +403,90 @@ def _pretty_move_name(aid, char_name=None):
 
     return f"anim_{aid:04X}"
 
+
+def _find_combo_kb_mod_addr(move_abs: int):
+    """
+    Scan a move block for the pattern:
+        01 AC 3D 00 00 00 XX 00 00 00 00
+    or:
+        01 AC 3F 00 00 00 XX 00 00 00 00
+
+    Returns:
+        (addr_of_xx, current_value, matched_sig_byte) or (None, None, None)
+    """
+    if not move_abs:
+        return None, None, None
+    try:
+        from dolphin_io import rbytes
+    except ImportError:
+        return None, None, None
+
+    try:
+        buf = rbytes(move_abs, COMBO_KB_SCAN_MAX)
+    except Exception:
+        return None, None, None
+
+    if not buf or len(buf) < 8:
+        return None, None, None
+
+    def _match_at(i, sig):
+        # sig is 6 bytes long
+        if i + 7 >= len(buf):
+            return False
+        if buf[i:i + 6] != sig:
+            return False
+        # Optional: check tail zeros after XX (best-effort, not strict)
+        # layout: sig(6) + XX(1) + tail(>=1..4)
+        tail_start = i + 7
+        tail_end = min(i + 11, len(buf))
+        if tail_end > tail_start:
+            # If any of the next bytes are non-zero, we still accept; just don't treat as "clean".
+            pass
+        return True
+
+    for i in range(0, len(buf) - 7):
+        if _match_at(i, COMBO_KB_SIG_A):
+            xx = buf[i + 6]
+            return move_abs + i + 6, xx, 0x3D
+        if _match_at(i, COMBO_KB_SIG_B):
+            xx = buf[i + 6]
+            return move_abs + i + 6, xx, 0x3F
+
+    return None, None, None
+
+
+def _write_combo_kb_mod(mv, new_val: int) -> bool:
+    """
+    Write the combo-only KB/vacuum modifier byte (XX).
+    """
+    if not WRITER_AVAILABLE:
+        return False
+
+    addr = mv.get("combo_kb_mod_addr")
+    if not addr:
+        # Try to discover on demand
+        move_abs = mv.get("abs")
+        addr, cur, sig = _find_combo_kb_mod_addr(move_abs)
+        if addr:
+            mv["combo_kb_mod_addr"] = addr
+            mv["combo_kb_mod"] = cur
+            mv["combo_kb_sig"] = sig
+        else:
+            return False
+
+    try:
+        from dolphin_io import wd8
+    except ImportError:
+        return False
+
+    try:
+        new_val = int(new_val) & 0xFF
+        return bool(wd8(addr, new_val))
+    except Exception as e:
+        print(f"_write_combo_kb_mod failed @0x{addr:08X}: {e}")
+        return False
+
+
 class ReplaceMoveDialog(tk.Toplevel):
     """
     Dialog to select another move and how to replace:
@@ -483,6 +578,7 @@ class ReplaceMoveDialog(tk.Toplevel):
         self.result = None
         self.destroy()
 
+
 class EditableFrameDataWindow:
     """
     Tkinter-based frame data editor for a single character slot.
@@ -544,6 +640,7 @@ class EditableFrameDataWindow:
             self.next_abs_map[abs_list[i]] = abs_list[i + 1]
 
         self._build()
+
     def _clone_move_block_y2(self, src_mv, dst_mv) -> bool:
         """
         Aggressive 'Y2' clone:
@@ -603,6 +700,7 @@ class EditableFrameDataWindow:
         except Exception as e:
             print(f"_clone_move_block_y2: write failed @0x{dst_abs:08X}: {e}")
             return False
+
     def _edit_move_replacement(self, item, mv):
         """Open the Replace Move dialog and perform anim-only or full-block swap."""
         if not WRITER_AVAILABLE:
@@ -651,7 +749,7 @@ class EditableFrameDataWindow:
         cname = self.target_slot.get("char_name", "—")
         self.root = tk.Tk()
         self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
-        self.root.geometry("1350x720")
+        self.root.geometry("1450x720")
 
         top = tk.Frame(self.root)
         top.pack(side="top", fill="x", padx=5, pady=5)
@@ -679,7 +777,7 @@ class EditableFrameDataWindow:
             "startup", "active", "active2",
             "hitstun", "blockstun", "hitstop",
             "hb_main", "hb",
-            "kb", "hit_reaction",
+            "kb", "combo_kb_mod", "hit_reaction",
             "abs",
         )
         self.tree = ttk.Treeview(frame, columns=cols, show="tree headings", height=30)
@@ -698,8 +796,6 @@ class EditableFrameDataWindow:
         self.tree.heading("#0", text="")
         self.tree.column("#0", width=24, stretch=False, anchor="w")
 
-
-
         headers = [
             ("move", "Move"),
             ("kind", "Kind"),
@@ -714,6 +810,7 @@ class EditableFrameDataWindow:
             ("hb_main", "Hitbox"),
             ("hb", "Hitbox cand."),
             ("kb", "Knockback"),
+            ("combo_kb_mod", "Combo KB Mod"),
             ("hit_reaction", "Hit Reaction"),
             ("abs", "Address"),
         ]
@@ -734,6 +831,7 @@ class EditableFrameDataWindow:
         self.tree.column("hb_main", width=70, anchor="center")
         self.tree.column("hb", width=220, anchor="w")
         self.tree.column("kb", width=160, anchor="center")
+        self.tree.column("combo_kb_mod", width=120, anchor="center")
         self.tree.column("hit_reaction", width=240, anchor="w")
         self.tree.column("abs", width=100, anchor="w")
 
@@ -804,6 +902,21 @@ class EditableFrameDataWindow:
                 kb_parts.append(_fmt_kb_traj(kb_traj))
             kb_txt = " ".join(kb_parts)
 
+            # Combo-only KB/Vacuum modifier discovery (best-effort)
+            combo_txt = ""
+            if move_abs and mv.get("combo_kb_mod_addr") is None:
+                addr, cur, sig = _find_combo_kb_mod_addr(move_abs)
+                if addr:
+                    mv["combo_kb_mod_addr"] = addr
+                    mv["combo_kb_mod"] = cur
+                    mv["combo_kb_sig"] = sig
+            if mv.get("combo_kb_mod_addr"):
+                v = mv.get("combo_kb_mod")
+                if v is not None:
+                    combo_txt = f"{v} (0x{v:02X})"
+                else:
+                    combo_txt = "?"
+
             hr_txt = _fmt_hit_reaction(mv.get("hit_reaction"))
 
             item_id = self.tree.insert(
@@ -824,6 +937,7 @@ class EditableFrameDataWindow:
                     hb_main_txt,
                     hb_txt,
                     kb_txt,
+                    combo_txt,
                     hr_txt,
                     f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
                 ),
@@ -850,6 +964,8 @@ class EditableFrameDataWindow:
                     "hb_off": hb_off,
                     "hb_r": hb_val,
                     "hb_candidates": hb_cands,
+                    "combo_kb_mod": mv.get("combo_kb_mod"),
+                    "combo_kb_mod_addr": mv.get("combo_kb_mod_addr"),
                 }
 
             return item_id
@@ -884,7 +1000,7 @@ class EditableFrameDataWindow:
             # Children: remaining duplicates for the same ID
             for mv in mv_list[1:]:
                 _insert_move_row(mv, parent=parent_item)
-        
+
         self.tree.bind("<Double-Button-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
 
@@ -1001,6 +1117,16 @@ class EditableFrameDataWindow:
                 else:
                     failed_writes.append(f"knockback @ 0x{abs_addr:08X}")
 
+            # combo KB mod
+            if orig.get("combo_kb_mod_addr") and orig.get("combo_kb_mod") is not None:
+                mv["combo_kb_mod_addr"] = orig["combo_kb_mod_addr"]
+                if _write_combo_kb_mod(mv, orig["combo_kb_mod"]):
+                    mv["combo_kb_mod"] = orig["combo_kb_mod"]
+                    self.tree.set(item_id, "combo_kb_mod", f"{orig['combo_kb_mod']} (0x{orig['combo_kb_mod']:02X})")
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"combo_kb_mod @ 0x{abs_addr:08X}")
+
             # hit reaction
             if orig.get("hit_reaction") is not None:
                 if _write_hit_reaction(mv, orig["hit_reaction"]):
@@ -1060,7 +1186,6 @@ class EditableFrameDataWindow:
             self._edit_move_replacement(item, mv)
             return
 
-
         if col_name == "damage":
             self._edit_damage(item, mv, current_val)
         elif col_name == "meter":
@@ -1083,6 +1208,8 @@ class EditableFrameDataWindow:
             self._edit_hitbox(item, mv, current_val)
         elif col_name == "kb":
             self._edit_knockback(item, mv, current_val)
+        elif col_name == "combo_kb_mod":
+            self._edit_combo_kb_mod(item, mv, current_val)
         elif col_name == "hit_reaction":
             self._edit_hit_reaction(item, mv, current_val)
 
@@ -1112,6 +1239,7 @@ class EditableFrameDataWindow:
             "blockstun": ("stun_addr", "Stun"),
             "hitstop": ("stun_addr", "Stun"),
             "kb": ("knockback_addr", "Knockback"),
+            "combo_kb_mod": ("combo_kb_mod_addr", "Combo KB Mod"),
             "hb_main": ("hb_off", "Hitbox"),
             "hb": ("hb_off", "Hitbox"),
             "abs": ("abs", "Move"),
@@ -1126,6 +1254,17 @@ class EditableFrameDataWindow:
                 move_abs = mv.get("abs")
                 if move_abs and addr is not None:
                     addr = move_abs + addr
+
+            if addr_key == "combo_kb_mod_addr" and not addr:
+                # Attempt discovery if user right-clicks before row had it
+                move_abs = mv.get("abs")
+                if move_abs:
+                    daddr, cur, sig = _find_combo_kb_mod_addr(move_abs)
+                    if daddr:
+                        mv["combo_kb_mod_addr"] = daddr
+                        mv["combo_kb_mod"] = cur
+                        mv["combo_kb_sig"] = sig
+                        addr = daddr
 
             if addr:
                 menu.add_command(
@@ -1471,6 +1610,59 @@ class EditableFrameDataWindow:
             dlg.destroy()
 
         tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
+
+    def _edit_combo_kb_mod(self, item, mv, current):
+        """
+        Editor for the combo-only KB/vacuum modifier byte at:
+            01 AC 3D/3F 00 00 00 XX 00 00 00 00
+        """
+        move_abs = mv.get("abs")
+        if move_abs and not mv.get("combo_kb_mod_addr"):
+            addr, cur, sig = _find_combo_kb_mod_addr(move_abs)
+            if addr:
+                mv["combo_kb_mod_addr"] = addr
+                mv["combo_kb_mod"] = cur
+                mv["combo_kb_sig"] = sig
+
+        cur_val = mv.get("combo_kb_mod")
+        if cur_val is None:
+            # try parse from current cell if present
+            try:
+                if current and "0x" in current:
+                    cur_val = int(current.split("0x")[-1].strip(") "), 16) & 0xFF
+                elif current and current.strip().isdigit():
+                    cur_val = int(current.strip()) & 0xFF
+            except Exception:
+                cur_val = 0
+        if cur_val is None:
+            cur_val = 0
+
+        addr = mv.get("combo_kb_mod_addr")
+        sig = mv.get("combo_kb_sig")
+        sig_txt = f"0x{sig:02X}" if sig is not None else "?"
+
+        prompt = (
+            "New Combo KB Mod (0-255):\n\n"
+            "Likely affects combo-only pull/vacuum/knockback scaling.\n"
+            "Suggested safe band: 0-160.\n\n"
+            f"Signature byte: {sig_txt}\n"
+            f"Address: {('0x%08X' % addr) if addr else 'not found'}"
+        )
+        new_val = simpledialog.askinteger(
+            "Edit Combo KB Mod",
+            prompt,
+            initialvalue=int(cur_val),
+            minvalue=0,
+            maxvalue=255,
+        )
+        if new_val is None:
+            return
+
+        if _write_combo_kb_mod(mv, new_val):
+            mv["combo_kb_mod"] = new_val & 0xFF
+            self.tree.set(item, "combo_kb_mod", f"{mv['combo_kb_mod']} (0x{mv['combo_kb_mod']:02X})")
+        else:
+            messagebox.showerror("Error", "Failed to write Combo KB Mod (pattern not found or write failed).")
 
     def _edit_hit_reaction(self, item, mv, current):
         """Dialog editor for the hit reaction bitfield with a curated preset list."""
