@@ -995,6 +995,7 @@ def main():
                 _cycle_u8("CpuGuard", 3)
 
                 _toggle_u8("CpuPushblock")
+                _toggle_u8("CameraLock")
                 _toggle_u8("CpuThrowTech")
                 _cycle_u8("P1Meter", 3)
                 _toggle_u8("P1Life")

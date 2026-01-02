@@ -17,6 +17,7 @@ DISPLAY_LABEL_OVERRIDES = {
     "TrPause":        "Pause",
     "Orientation":    "Orientation",
     "SuperBG":        "Super background",
+    "CameraLock":     "Camera lock",
 }
 
 
@@ -43,7 +44,6 @@ def read_debug_flags():
         except Exception:
             val = None
         out.append((label, addr, val))
-
 
     # Individually mapped flags discovered during reverse-engineering.
 
@@ -87,6 +87,14 @@ def read_debug_flags():
         sp_val = None
     out.append(("SpecialPopup", sp_addr, sp_val))
 
+    # 6) Camera lock (EA 0x9246B9C8) - 0=unlocked, 1=locked
+    cam_lock_addr = 0x9246B9C8
+    try:
+        cam_lock_val = rd8(cam_lock_addr)
+    except Exception:
+        cam_lock_val = None
+    out.append(("CameraLock", cam_lock_addr, cam_lock_val))
+
     return out
 
 
@@ -129,10 +137,11 @@ def _state_label(name: str, v):
 
     if name == "SpecialPopup":
         return "ON" if v == 0x40 else "OFF"
+
     if name == "SuperBG":
         return "ON" if v == 0x04 else "OFF"
 
-    # Default: simple boolean interpretation (also fine for P2Pause)
+    # Default: simple boolean interpretation (also fine for P2Pause, CameraLock)
     return "ON" if int(v) != 0 else "OFF"
 
 
