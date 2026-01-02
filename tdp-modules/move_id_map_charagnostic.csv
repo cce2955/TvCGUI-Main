@@ -682,6 +682,7 @@
 516,0x204,Giant Swing,Giant Swing,Giant Swing,yes,30
 
 # PTX (ID: 22)
+263,0x13b,4C,Roundhouse C,Roundhouse C,yes,22
 271,0x13b,6B4B,Roundhouse C,Roundhouse C,yes,22
 304,0x13b,Weapon Right Down,Roundhouse C,Roundhouse C,yes,22
 305,0x13b,Weapon Right Mid,Roundhouse C,Roundhouse C,yes,22
@@ -701,6 +702,7 @@
 512,0x13b,L-P Buster,Roundhouse C,Roundhouse C,yes,22
 
 # Gold Lightan (ID: 11)
+263,0x130,4C,Punch A,Punch A,yes,11
 304,0x130,Gold Quake A,Punch A,Punch A,yes,11
 305,0x130,Gold Quake B,Punch A,Punch A,yes,11
 306,0x130,Gold Quake C,Punch A,Punch A,yes,11
