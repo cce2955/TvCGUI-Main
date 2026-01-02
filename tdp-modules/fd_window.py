@@ -244,6 +244,739 @@ class EditableFrameDataWindow:
 
         self._build()
 
+    def _edit_damage(self, item, mv, current):
+        try:
+            cur = int(current) if current else 0
+        except ValueError:
+            cur = 0
+
+        new_val = simpledialog.askinteger(
+            "Edit Damage",
+            "New damage:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=999999,
+            parent=self.root,
+        )
+        if new_val is None:
+            return
+
+        ok = False
+        # Prefer new modular inline writer if present
+        try:
+            if "write_damage" in globals():
+                ok = bool(write_damage(mv, new_val))
+        except Exception:
+            ok = False
+
+        if not ok:
+            messagebox.showerror("Error", "Failed to write damage", parent=self.root)
+            return
+
+        self.tree.set(item, "damage", str(new_val))
+        mv["damage"] = new_val
+
+
+    def _edit_meter(self, item, mv, current):
+        try:
+            cur = int(current) if current else 0
+        except ValueError:
+            cur = 0
+
+        new_val = simpledialog.askinteger(
+            "Edit Meter",
+            "New meter:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+            parent=self.root,
+        )
+        if new_val is None:
+            return
+
+        ok = False
+        try:
+            if "write_meter" in globals():
+                ok = bool(write_meter(mv, new_val))
+        except Exception:
+            ok = False
+
+        if not ok:
+            messagebox.showerror("Error", "Failed to write meter", parent=self.root)
+            return
+
+        self.tree.set(item, "meter", str(new_val))
+        mv["meter"] = new_val
+
+
+    def _edit_startup(self, item, mv, current):
+        try:
+            cur = int(current) if current else 1
+        except ValueError:
+            cur = 1
+
+        new_val = simpledialog.askinteger(
+            "Edit Startup",
+            "New startup frame:",
+            initialvalue=cur,
+            minvalue=1,
+            maxvalue=255,
+            parent=self.root,
+        )
+        if new_val is None:
+            return
+
+        end = mv.get("active_end", new_val)
+        if end is None:
+            end = new_val
+        if end < new_val:
+            end = new_val
+
+        ok = False
+        try:
+            if "write_active_frames" in globals():
+                ok = bool(write_active_frames(mv, new_val, end))
+        except Exception:
+            ok = False
+
+        if not ok:
+            messagebox.showerror("Error", "Failed to write active frames", parent=self.root)
+            return
+
+        self.tree.set(item, "startup", str(new_val))
+        self.tree.set(item, "active", f"{new_val}-{end}")
+        mv["active_start"] = new_val
+        mv["active_end"] = end
+
+
+    def _edit_active(self, item, mv, current):
+        current = (current or "").strip()
+        if "-" in current:
+            parts = current.split("-", 1)
+            try:
+                cur_s = int(parts[0])
+                cur_e = int(parts[1])
+            except ValueError:
+                cur_s, cur_e = 1, 1
+        else:
+            cur_s = mv.get("active_start", 1) or 1
+            cur_e = mv.get("active_end", cur_s) or cur_s
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Active Frames")
+        dlg.geometry("260x150")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Active Start:").pack(pady=3)
+        sv = tk.IntVar(value=cur_s)
+        tk.Entry(dlg, textvariable=sv).pack()
+
+        tk.Label(dlg, text="Active End:").pack(pady=3)
+        ev = tk.IntVar(value=cur_e)
+        tk.Entry(dlg, textvariable=ev).pack()
+
+        def on_ok():
+            s = int(sv.get())
+            e = int(ev.get())
+            if e < s:
+                e = s
+
+            ok = False
+            try:
+                if "write_active_frames" in globals():
+                    ok = bool(write_active_frames(mv, s, e))
+            except Exception:
+                ok = False
+
+            if ok:
+                self.tree.set(item, "startup", str(s))
+                self.tree.set(item, "active", f"{s}-{e}")
+                mv["active_start"] = s
+                mv["active_end"] = e
+            else:
+                messagebox.showerror("Error", "Failed to write active frames", parent=dlg)
+
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok).pack(pady=8)
+
+
+    def _edit_active2(self, item, mv, current):
+        current = (current or "").strip()
+        if "-" in current:
+            parts = current.split("-", 1)
+            try:
+                cur_s = int(parts[0])
+                cur_e = int(parts[1])
+            except ValueError:
+                cur_s, cur_e = 1, 1
+        else:
+            cur_s = mv.get("active2_start", 1) or 1
+            cur_e = mv.get("active2_end", cur_s) or cur_s
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Active 2 Frames")
+        dlg.geometry("320x180")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Active 2 Start Frame:", font=("Arial", 10)).pack(pady=3)
+        sv = tk.IntVar(value=cur_s)
+        tk.Entry(dlg, textvariable=sv, font=("Arial", 10)).pack()
+
+        tk.Label(dlg, text="Active 2 End Frame:", font=("Arial", 10)).pack(pady=3)
+        ev = tk.IntVar(value=cur_e)
+        tk.Entry(dlg, textvariable=ev, font=("Arial", 10)).pack()
+
+        addr = mv.get("active2_addr")
+        if addr:
+            tk.Label(dlg, text=f"Address: 0x{addr:08X}", fg="gray", font=("Arial", 9)).pack(pady=5)
+        else:
+            tk.Label(dlg, text="No address found", fg="red", font=("Arial", 9)).pack(pady=5)
+
+        def on_ok():
+            s = int(sv.get())
+            e = int(ev.get())
+            if e < s:
+                e = s
+
+            ok = False
+            # Prefer modular helper if present
+            try:
+                if "write_active2_frames_inline" in globals():
+                    ok = bool(write_active2_frames_inline(mv, s, e))
+            except Exception:
+                ok = False
+
+            if ok:
+                self.tree.set(item, "active2", f"{s}-{e}")
+                mv["active2_start"] = s
+                mv["active2_end"] = e
+            else:
+                messagebox.showerror("Error", "Failed to write Active 2 frames", parent=dlg)
+
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok, font=("Arial", 10)).pack(pady=10)
+
+
+    def _edit_hitstun(self, item, mv, current):
+        # your new fd_format provides fmt/unfmt; fall back to old mapping
+        try:
+            cur = unfmt_stun(current) if current else 0
+        except Exception:
+            try:
+                cur = int(current) if current else 0
+            except Exception:
+                cur = 0
+
+        new_val = simpledialog.askinteger(
+            "Edit Hitstun",
+            "New hitstun:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+            parent=self.root,
+        )
+        if new_val is None:
+            return
+
+        ok = False
+        try:
+            if "write_hitstun" in globals():
+                ok = bool(write_hitstun(mv, new_val))
+        except Exception:
+            ok = False
+
+        if not ok:
+            messagebox.showerror("Error", "Failed to write hitstun", parent=self.root)
+            return
+
+        try:
+            self.tree.set(item, "hitstun", fmt_stun(new_val))
+        except Exception:
+            self.tree.set(item, "hitstun", str(new_val))
+        mv["hitstun"] = new_val
+
+
+    def _edit_blockstun(self, item, mv, current):
+        try:
+            cur = unfmt_stun(current) if current else 0
+        except Exception:
+            try:
+                cur = int(current) if current else 0
+            except Exception:
+                cur = 0
+
+        new_val = simpledialog.askinteger(
+            "Edit Blockstun",
+            "New blockstun:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+            parent=self.root,
+        )
+        if new_val is None:
+            return
+
+        ok = False
+        try:
+            if "write_blockstun" in globals():
+                ok = bool(write_blockstun(mv, new_val))
+        except Exception:
+            ok = False
+
+        if not ok:
+            messagebox.showerror("Error", "Failed to write blockstun", parent=self.root)
+            return
+
+        try:
+            self.tree.set(item, "blockstun", fmt_stun(new_val))
+        except Exception:
+            self.tree.set(item, "blockstun", str(new_val))
+        mv["blockstun"] = new_val
+
+
+    def _edit_hitstop(self, item, mv, current):
+        try:
+            cur = int(current) if current else 0
+        except ValueError:
+            cur = 0
+
+        new_val = simpledialog.askinteger(
+            "Edit Hitstop",
+            "New hitstop:",
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+            parent=self.root,
+        )
+        if new_val is None:
+            return
+
+        ok = False
+        try:
+            if "write_hitstop" in globals():
+                ok = bool(write_hitstop(mv, new_val))
+        except Exception:
+            ok = False
+
+        if not ok:
+            messagebox.showerror("Error", "Failed to write hitstop", parent=self.root)
+            return
+
+        self.tree.set(item, "hitstop", str(new_val))
+        mv["hitstop"] = new_val
+
+
+    def _edit_knockback(self, item, mv, current):
+        cur_k0 = mv.get("kb0", 0) or 0
+        cur_k1 = mv.get("kb1", 0) or 0
+        cur_t = mv.get("kb_traj", 0) or 0
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Knockback")
+        dlg.geometry("420x320")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Knockback Editor", font=("Arial", 12, "bold")).pack(pady=5)
+
+        tk.Label(dlg, text="Knockback 0 (Vertical Distance):", justify="left").pack(anchor="w", padx=10)
+        k0v = tk.IntVar(value=cur_k0)
+        tk.Entry(dlg, textvariable=k0v, width=10).pack(anchor="w", padx=10)
+
+        tk.Label(dlg, text="Knockback 1 (Horizontal Distance):", justify="left").pack(anchor="w", padx=10, pady=(10, 0))
+        k1v = tk.IntVar(value=cur_k1)
+        tk.Entry(dlg, textvariable=k1v, width=10).pack(anchor="w", padx=10)
+
+        tk.Label(dlg, text="Trajectory (Angle):", justify="left").pack(anchor="w", padx=10, pady=(10, 0))
+        tk.Label(
+            dlg,
+            text="Common: 0xBD=Up Forward, 0xBE=Down Forward, 0xBC=Up, 0xC4=Pop",
+            font=("Arial", 9),
+            fg="gray",
+            justify="left",
+        ).pack(anchor="w", padx=10)
+
+        tv = tk.StringVar(value=f"0x{cur_t:02X}")
+        tk.Entry(dlg, textvariable=tv, width=10).pack(anchor="w", padx=10)
+
+        def on_ok():
+            try:
+                k0 = int(k0v.get())
+                k1 = int(k1v.get())
+                t_str = tv.get().strip()
+                t = int(t_str, 16) if t_str.lower().startswith("0x") else int(t_str, 16)
+            except Exception:
+                messagebox.showerror("Error", "Invalid knockback values", parent=dlg)
+                return
+
+            ok = False
+            try:
+                if "write_knockback" in globals():
+                    ok = bool(write_knockback(mv, k0, k1, t))
+            except Exception:
+                ok = False
+
+            if ok:
+                try:
+                    kb_txt = f"K0:{k0} K1:{k1} {fmt_kb_traj(t)}"
+                except Exception:
+                    kb_txt = f"K0:{k0} K1:{k1} 0x{t:02X}"
+                self.tree.set(item, "kb", kb_txt)
+                mv["kb0"] = k0
+                mv["kb1"] = k1
+                mv["kb_traj"] = t
+                dlg.destroy()
+            else:
+                messagebox.showerror("Error", "Failed to write knockback", parent=dlg)
+
+        tk.Button(dlg, text="OK", command=on_ok).pack(pady=12)
+
+
+    def _edit_hit_reaction(self, item, mv, current):
+        cur_hr = mv.get("hit_reaction")
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Hit Reaction")
+        dlg.geometry("560x440")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Hit Reaction Type", font=("Arial", 12, "bold")).pack(pady=5)
+
+        if cur_hr is not None:
+            try:
+                cur_txt = fmt_hit_reaction(cur_hr)
+            except Exception:
+                cur_txt = f"0x{cur_hr:06X}"
+            tk.Label(dlg, text=f"Current: {cur_txt}", fg="blue", font=("Arial", 10)).pack(pady=3)
+
+        tk.Label(dlg, text="Common Reactions:", font=("Arial", 10, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
+
+        frame = tk.Frame(dlg)
+        frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+        scrollbar = tk.Scrollbar(frame)
+        scrollbar.pack(side="right", fill="y")
+
+        listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set)
+        scrollbar.config(command=listbox.yview)
+        listbox.pack(fill="both", expand=True)
+
+        # Use your fd_format.HIT_REACTION_MAP if present, otherwise fall back
+        try:
+            keys = sorted(HIT_REACTION_MAP.keys())
+            common_vals = keys
+        except Exception:
+            common_vals = []
+
+        common = []
+        for val in common_vals:
+            try:
+                desc = HIT_REACTION_MAP.get(val, "Unknown")
+            except Exception:
+                desc = "Unknown"
+            common.append((val, desc))
+            listbox.insert("end", f"0x{val:06X}: {desc}")
+
+        tk.Label(dlg, text="Or enter hex/decimal value:", font=("Arial", 10)).pack(anchor="w", padx=10, pady=(10, 0))
+        hex_entry = tk.Entry(dlg, width=24)
+        if cur_hr is not None:
+            hex_entry.insert(0, f"0x{cur_hr:06X}")
+        else:
+            hex_entry.insert(0, "0x000000")
+        hex_entry.pack(anchor="w", padx=10)
+
+        def on_select(_evt):
+            sel = listbox.curselection()
+            if sel:
+                val, _ = common[sel[0]]
+                hex_entry.delete(0, tk.END)
+                hex_entry.insert(0, f"0x{val:06X}")
+
+        listbox.bind("<<ListboxSelect>>", on_select)
+
+        def on_ok():
+            try:
+                val = parse_hit_reaction_input(hex_entry.get())
+            except Exception:
+                # fallback parser if module mismatch
+                s = hex_entry.get().strip()
+                try:
+                    val = int(s, 16) if s.lower().startswith("0x") else int(s, 16)
+                except Exception:
+                    try:
+                        val = int(s, 10)
+                    except Exception:
+                        val = None
+
+            if val is None:
+                messagebox.showerror("Error", "Invalid hit reaction value", parent=dlg)
+                return
+
+            ok = False
+            try:
+                if "write_hit_reaction_inline" in globals():
+                    ok = bool(write_hit_reaction_inline(mv, val))
+            except Exception:
+                ok = False
+
+            if not ok:
+                messagebox.showerror("Error", "Failed to write hit reaction", parent=dlg)
+                return
+
+            try:
+                self.tree.set(item, "hit_reaction", fmt_hit_reaction(val))
+            except Exception:
+                self.tree.set(item, "hit_reaction", f"0x{val:06X}")
+            mv["hit_reaction"] = val
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
+
+
+    def _edit_hitbox_main(self, item, mv, current):
+        # Your new code already stores hb_r / hb_off / hb_candidates
+        cur_r = mv.get("hb_r")
+        cands = mv.get("hb_candidates") or []
+
+        if cur_r is None and cands:
+            cur_r = cands[0][1]
+            mv["hb_off"] = cands[0][0]
+        if cur_r is None:
+            cur_r = 0.0
+
+        new_val = simpledialog.askfloat(
+            "Edit Hitbox",
+            "New radius:",
+            initialvalue=float(cur_r),
+            minvalue=0.0,
+            parent=self.root,
+        )
+        if new_val is None:
+            return
+
+        # Ensure there is an offset for writer to use
+        if mv.get("hb_off") is None:
+            # keep your existing fallback if defined in module, else 0x21C
+            off = globals().get("FALLBACK_HB_OFFSET", 0x21C)
+            mv["hb_off"] = off
+
+        ok = False
+        try:
+            if "write_hitbox_radius" in globals():
+                ok = bool(write_hitbox_radius(mv, float(new_val)))
+        except Exception:
+            ok = False
+
+        if not ok:
+            # If you want hitbox editing to be silent when missing writer, change this to return.
+            messagebox.showerror("Error", "Failed to write hitbox radius", parent=self.root)
+            return
+
+        mv["hb_r"] = float(new_val)
+
+        # Update candidate list so display stays consistent
+        off0 = mv.get("hb_off")
+        if cands:
+            new_cands = []
+            replaced = False
+            for off, val in cands:
+                if off == off0 and not replaced:
+                    new_cands.append((off, float(new_val)))
+                    replaced = True
+                else:
+                    new_cands.append((off, val))
+            mv["hb_candidates"] = new_cands
+        else:
+            mv["hb_candidates"] = [(off0, float(new_val))]
+
+        self.tree.set(item, "hb_main", f"{float(new_val):.1f}")
+        # If you have fd_format.fmt helpers, use them; otherwise keep your old compact list
+        try:
+            self.tree.set(item, "hb", _format_candidate_list(mv["hb_candidates"]))
+        except Exception:
+            # fallback: show first few
+            parts = []
+            for i, (_off, v) in enumerate((mv["hb_candidates"] or [])[:4]):
+                parts.append(f"r{i}={float(v):.1f}")
+            if len(mv["hb_candidates"] or []) > 4:
+                parts.append("…")
+            self.tree.set(item, "hb", " ".join(parts))
+
+
+    def _edit_hitbox(self, item, mv, current):
+        cands = mv.get("hb_candidates") or []
+        if not cands:
+            return self._edit_hitbox_main(item, mv, current)
+
+        if len(cands) <= 6:
+            return self._edit_hitbox_simple(item, mv, cands)
+        return self._edit_hitbox_scrollable(item, mv, cands)
+
+
+    def _edit_hitbox_simple(self, item, mv, cands):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Hitbox Values")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        tk.Label(dlg, text="Edit each radius below. r0 is usually the main one.").grid(
+            row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w"
+        )
+
+        entries = []
+        row = 1
+        for idx, (off, val) in enumerate(cands):
+            tk.Label(dlg, text=f"r{idx}:").grid(row=row, column=0, padx=6, pady=2, sticky="e")
+            e = tk.Entry(dlg, width=10)
+            try:
+                e.insert(0, f"{float(val):.1f}")
+            except Exception:
+                e.insert(0, str(val))
+            e.grid(row=row, column=1, padx=4, pady=2, sticky="w")
+            tk.Label(dlg, text=f"off=0x{off:04X}").grid(row=row, column=2, padx=4, pady=2, sticky="w")
+            entries.append((idx, off, e))
+            row += 1
+
+        def on_ok():
+            new_cands = []
+            ok_any = True
+            for idx2, off2, entry in entries:
+                txt = entry.get().strip()
+                try:
+                    fval = float(txt)
+                except Exception:
+                    fval = cands[idx2][1]
+
+                mv["hb_off"] = off2
+                ok = False
+                try:
+                    if "write_hitbox_radius" in globals():
+                        ok = bool(write_hitbox_radius(mv, float(fval)))
+                except Exception:
+                    ok = False
+                ok_any = ok_any and ok
+                new_cands.append((off2, float(fval)))
+
+            if not ok_any:
+                messagebox.showerror("Error", "One or more hitbox writes failed", parent=dlg)
+                return
+
+            mv["hb_candidates"] = new_cands
+
+            # Re-select primary
+            try:
+                sel_off, sel_val = _select_primary_from_candidates(new_cands)
+            except Exception:
+                sel_off, sel_val = new_cands[0][0], new_cands[0][1]
+
+            mv["hb_off"] = sel_off
+            mv["hb_r"] = sel_val
+
+            self.tree.set(item, "hb_main", f"{float(sel_val):.1f}" if sel_val is not None else "")
+            try:
+                self.tree.set(item, "hb", _format_candidate_list(new_cands))
+            except Exception:
+                parts = []
+                for i, (_off, v) in enumerate(new_cands[:4]):
+                    parts.append(f"r{i}={float(v):.1f}")
+                if len(new_cands) > 4:
+                    parts.append("…")
+                self.tree.set(item, "hb", " ".join(parts))
+
+            dlg.destroy()
+
+        tk.Button(dlg, text="OK", command=on_ok).grid(row=row, column=0, columnspan=3, pady=6)
+
+
+    def _edit_hitbox_scrollable(self, item, mv, cands):
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Hitbox Values")
+        dlg.transient(self.root)
+        dlg.grab_set()
+        dlg.geometry("420x520")
+
+        canvas = tk.Canvas(dlg)
+        vsb = tk.Scrollbar(dlg, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas)
+
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=vsb.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        tk.Label(inner, text="Edit each radius below. r0 is usually the main one.", anchor="w", justify="left").grid(
+            row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w"
+        )
+
+        entries = []
+        row = 1
+        for idx, (off, val) in enumerate(cands):
+            tk.Label(inner, text=f"r{idx}:").grid(row=row, column=0, padx=6, pady=2, sticky="e")
+            e = tk.Entry(inner, width=10)
+            try:
+                e.insert(0, f"{float(val):.1f}")
+            except Exception:
+                e.insert(0, str(val))
+            e.grid(row=row, column=1, padx=4, pady=2, sticky="w")
+            tk.Label(inner, text=f"off=0x{off:04X}").grid(row=row, column=2, padx=4, pady=2, sticky="w")
+            entries.append((idx, off, e))
+            row += 1
+
+        def on_ok():
+            new_cands = []
+            ok_any = True
+            for idx2, off2, entry in entries:
+                txt = entry.get().strip()
+                try:
+                    fval = float(txt)
+                except Exception:
+                    fval = cands[idx2][1]
+
+                mv["hb_off"] = off2
+                ok = False
+                try:
+                    if "write_hitbox_radius" in globals():
+                        ok = bool(write_hitbox_radius(mv, float(fval)))
+                except Exception:
+                    ok = False
+                ok_any = ok_any and ok
+                new_cands.append((off2, float(fval)))
+
+            if not ok_any:
+                messagebox.showerror("Error", "One or more hitbox writes failed", parent=dlg)
+                return
+
+            mv["hb_candidates"] = new_cands
+
+            try:
+                sel_off, sel_val = _select_primary_from_candidates(new_cands)
+            except Exception:
+                sel_off, sel_val = new_cands[0][0], new_cands[0][1]
+
+            mv["hb_off"] = sel_off
+            mv["hb_r"] = sel_val
+
+            self.tree.set(item, "hb_main", f"{float(sel_val):.1f}" if sel_val is not None else "")
+            try:
+                self.tree.set(item, "hb", _format_candidate_list(new_cands))
+            except Exception:
+                parts = []
+                for i, (_off, v) in enumerate(new_cands[:4]):
+                    parts.append(f"r{i}={float(v):.1f}")
+                if len(new_cands) > 4:
+                    parts.append("…")
+                self.tree.set(item, "hb", " ".join(parts))
+
+            dlg.destroy()
+
+        tk.Button(inner, text="OK", command=on_ok).grid(row=row, column=0, columnspan=3, pady=8)    
     def _configure_styles(self):
         style = ttk.Style(self.root)
 
@@ -1226,10 +1959,7 @@ class EditableFrameDataWindow:
 
         txt.config(state="disabled")
 
-    # ===== Editors =====
-    # Your remaining editor methods go here unchanged.
-    # You already pasted a large portion; keep the rest as-is.
-
+    
     def show(self):
         # No mainloop here; tk_host owns the root.mainloop()
         return
