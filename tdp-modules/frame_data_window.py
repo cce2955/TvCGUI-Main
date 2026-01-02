@@ -1,16 +1,5 @@
 # frame_data_window.py
-#
-# Wrapper for opening the frame data window.
-# Prefers the NEW modular editor (fd_window.py).
-# Falls back to legacy Tk viewer if the editor is unavailable.
 
-# NOTE:
-#   Tk must run on the thread that creates it. Running Tk windows in a
-#   daemon thread often causes "weird/truncated/half-painted" behavior.
-#   This implementation opens the editor synchronously (blocking),
-#   which is the safest behavior when launching from a pygame app.
-
-# Try the NEW modular editor first
 try:
     from fd_window import open_editable_frame_data_window as _open_new_editor
     HAVE_NEW_EDITOR = True
@@ -184,3 +173,4 @@ def open_frame_data_window(slot_label, scan_data):
         return
 
     _open_legacy_viewer(slot_label, target)
+

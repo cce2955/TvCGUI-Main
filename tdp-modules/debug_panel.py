@@ -20,6 +20,37 @@ DISPLAY_LABEL_OVERRIDES = {
     "CameraLock":     "Camera lock",
 }
 
+# Helper / legend text for flags that are enums (not simple booleans).
+# These are shown as a hover tooltip (floating, does not consume panel space).
+FLAG_HELP = {
+    "DummyMeter": (
+        "00=Off, 01=Recover, 02=Infinite"
+    ),
+    "P1Meter": (
+        "00=Off, 01=Recover, 02=Infinite"
+    ),
+    "P1Life": (
+        "00=Recovery, 01=Infinite"
+    ),
+    "CPUAction": (
+        "00=Stand, 01=Crouch, 02=Jump, 03=Super Jump, 04=CPU, 05=Player"
+    ),
+    "CPUGuard": (
+        "00=Off, 01=Auto, 02=All"
+    ),
+    "BaroquePct": (
+        "Steps of 10%. 00=0%, 01=10%, 02=20%, ..."
+    ),
+    "DamageOutput": (
+        "00=1 star, 01=2 stars, 02=3 stars, 04=4 stars"
+    ),
+}
+
+TOOLTIP_TITLE_OVERRIDES = {
+    # Optional: force a nicer tooltip title if needed.
+    # "CPUGuard": "CPU guard",
+}
+
 
 def read_debug_flags():
     """
@@ -145,6 +176,98 @@ def _state_label(name: str, v):
     return "ON" if int(v) != 0 else "OFF"
 
 
+def _wrap_text(font, text, max_w):
+    """
+    Simple word-wrapping for tooltip text.
+    Returns list[str] lines that fit within max_w.
+    """
+    if not text:
+        return []
+
+    words = text.split()
+    lines = []
+    cur = ""
+
+    for w in words:
+        test = w if not cur else (cur + " " + w)
+        if font.size(test)[0] <= max_w:
+            cur = test
+        else:
+            if cur:
+                lines.append(cur)
+            cur = w
+
+    if cur:
+        lines.append(cur)
+
+    return lines
+
+
+def _draw_floating_tooltip(surface, panel_rect, font_small, anchor_pos, title, body):
+    """
+    Draw a floating tooltip anchored near anchor_pos (mouse),
+    clamped within panel_rect. Does NOT consume layout space.
+    """
+    if not body:
+        return
+
+    pad_x = 6
+    pad_y = 4
+    gap = 10
+
+    # Colors tuned to your panel vibe.
+    bg = (18, 18, 24)
+    border = (70, 70, 90)
+    title_col = (210, 210, 230)
+    body_col = (170, 170, 190)
+
+    # Compute wrapped lines within a reasonable width.
+    max_w = min(420, panel_rect.width - 16)
+    body_lines = _wrap_text(font_small, body, max_w - pad_x * 2)
+
+    title_h = font_small.get_height() if title else 0
+    line_h = font_small.get_height() + 1
+    body_h = len(body_lines) * line_h
+
+    # Tooltip size
+    w = max_w
+    h = pad_y * 2 + body_h + (title_h + 2 if title else 0)
+
+    # Start near cursor
+    x = anchor_pos[0] + gap
+    y = anchor_pos[1] + gap
+
+    # Clamp within panel
+    if x + w > panel_rect.right - 4:
+        x = anchor_pos[0] - w - gap
+    if y + h > panel_rect.bottom - 4:
+        y = anchor_pos[1] - h - gap
+
+    # Hard clamp fallback
+    if x < panel_rect.x + 4:
+        x = panel_rect.x + 4
+    if y < panel_rect.y + 4:
+        y = panel_rect.y + 4
+
+    tip_rect = pygame.Rect(int(x), int(y), int(w), int(h))
+
+    pygame.draw.rect(surface, bg, tip_rect, border_radius=3)
+    pygame.draw.rect(surface, border, tip_rect, 1, border_radius=3)
+
+    tx = tip_rect.x + pad_x
+    ty = tip_rect.y + pad_y
+
+    if title:
+        title_surf = font_small.render(title, True, title_col)
+        surface.blit(title_surf, (tx, ty))
+        ty += font_small.get_height() + 2
+
+    for line in body_lines:
+        surf = font_small.render(line, True, body_col)
+        surface.blit(surf, (tx, ty))
+        ty += line_h
+
+
 def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
     """
     Draw a scrollable list of debug / training flags.
@@ -164,20 +287,38 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
     x0 = rect.x + 6
     y0 = rect.y + 4
 
+    # Header
     header = "Debug flags (rd8)"
     surface.blit(font_small.render(header, True, COL_TEXT), (x0, y0))
     y0 += font_small.get_height() + 2
 
-    hint = "Wheel to scroll, click a row to toggle/cycle"
-    surface.blit(font_small.render(hint, True, (170, 170, 190)), (x0, y0))
-    y0 += font_small.get_height() + 4
+    # Adaptive hint: show only if the panel is tall enough to justify it.
+    hint = "Wheel to scroll, hover for help, click a row to toggle/cycle"
+    hint_h = font_small.get_height() + 2
+
+    # If the panel is short, reclaim space by hiding the hint line.
+    # Threshold: if we can't fit at least ~4 rows comfortably, hide hint.
+    row_h = font_small.get_height() + 4
+    min_rows_target = 4
+    projected_list_h = (rect.bottom - 4) - y0
+    projected_rows = projected_list_h // row_h
+    show_hint = projected_rows >= min_rows_target
+
+    if show_hint:
+        surface.blit(font_small.render(hint, True, (170, 170, 190)), (x0, y0))
+        y0 += hint_h + 2
+    else:
+        y0 += 2
 
     inner_top = y0
     inner_bottom = rect.bottom - 4
-    row_h = font_small.get_height() + 4
+
     max_rows = max(1, (inner_bottom - inner_top) // row_h)
 
     click_areas = {}
+    hovered_name = None
+    hovered_row_rect = None
+    mouse_pos = pygame.mouse.get_pos()
 
     if not dbg_values:
         surface.blit(
@@ -212,6 +353,13 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
             bg_col = (32, 32, 40) if (idx % 2) else (26, 26, 32)
 
         row_rect = pygame.Rect(row_x, row_y, row_w, row_h)
+
+        # Hover
+        if row_rect.collidepoint(mouse_pos):
+            hovered_name = name
+            hovered_row_rect = row_rect
+            bg_col = (min(bg_col[0] + 10, 255), min(bg_col[1] + 10, 255), min(bg_col[2] + 10, 255))
+
         pygame.draw.rect(surface, bg_col, row_rect, border_radius=2)
 
         pygame.draw.line(
@@ -237,6 +385,7 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
 
         click_areas[name] = (row_rect, addr)
 
+    # Scrollbar
     if max_scroll > 0:
         bar_area_h = inner_bottom - inner_top
         bar_x = rect.right - 3
@@ -259,6 +408,28 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
             (180, 180, 220),
             pygame.Rect(bar_x - 1, thumb_y, 3, thumb_h),
             border_radius=2,
+        )
+
+    # Floating tooltip (no reserved space)
+    if hovered_name in FLAG_HELP:
+        title = TOOLTIP_TITLE_OVERRIDES.get(
+            hovered_name,
+            DISPLAY_LABEL_OVERRIDES.get(hovered_name, hovered_name)
+        )
+
+        # Anchor tooltip near mouse, but if you prefer "attached to row", anchor to row top-right.
+        anchor = mouse_pos
+        # Alternative row anchor (feels less jumpy):
+        # if hovered_row_rect:
+        #     anchor = (hovered_row_rect.right - 10, hovered_row_rect.top)
+
+        _draw_floating_tooltip(
+            surface,
+            rect,
+            font_small,
+            anchor,
+            title,
+            FLAG_HELP[hovered_name],
         )
 
     return click_areas, max_scroll
