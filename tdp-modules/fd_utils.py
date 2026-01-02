@@ -109,7 +109,11 @@ def scan_hitbox_candidates(move_abs: int) -> list[tuple[int, float]]:
             continue
         out.append((off, float(f)))
     return out
-
+def fmt_speed_mod_ui(v: int | None) -> str:
+    if v is None:
+        return ""
+    vv = int(v) & 0xFF
+    return f"{vv} (0x{vv:02X})"
 
 def select_primary_hitbox(cands: list[tuple[int, float]]) -> tuple[int | None, float | None]:
     """

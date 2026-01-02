@@ -1,6 +1,7 @@
 # fd_tree.py
 #
-# Tree creation and population is isolated here.
+# You MUST update this file to add the new 'speed_mod' column.
+# Below is the full updated file (based on the modular version we were using).
 
 from __future__ import annotations
 
@@ -8,7 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 
 import fd_utils as U
-from fd_patterns import find_combo_kb_mod_addr, find_superbg_addr
+from fd_patterns import find_combo_kb_mod_addr, find_superbg_addr, find_speed_mod_addr
 from fd_widgets import Tooltip
 
 
@@ -108,7 +109,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "startup", "active", "active2",
         "hitstun", "blockstun", "hitstop",
         "hb_main", "hb",
-        "kb", "combo_kb_mod", "hit_reaction",
+        "kb", "combo_kb_mod", "speed_mod", "hit_reaction",  # NEW speed_mod
         "superbg",
         "abs",
     )
@@ -143,6 +144,7 @@ def build_tree_widget(win) -> ttk.Frame:
         ("hb", "Hitbox cand."),
         ("kb", "Knockback"),
         ("combo_kb_mod", "Combo KB Mod"),
+        ("speed_mod", "Speed Mod"),  # NEW
         ("hit_reaction", "Hit Reaction"),
         ("superbg", "SuperBG"),
         ("abs", "Address"),
@@ -164,6 +166,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("hb", width=260, anchor="w")
     win.tree.column("kb", width=180, anchor="w")
     win.tree.column("combo_kb_mod", width=140, anchor="center")
+    win.tree.column("speed_mod", width=120, anchor="center")  # NEW
     win.tree.column("hit_reaction", width=280, anchor="w")
     win.tree.column("superbg", width=80, anchor="center")
     win.tree.column("abs", width=120, anchor="w")
@@ -180,13 +183,6 @@ def build_tree_widget(win) -> ttk.Frame:
 
 
 def populate_tree(win) -> None:
-    """
-    Inserts all moves, including grouping duplicates under Tier1.
-    Also seeds:
-      - win.move_to_tree_item
-      - win._all_item_ids
-      - win.original_moves
-    """
     cname = win.target_slot.get("char_name", "-")
 
     def insert_move_row(mv, parent=""):
@@ -261,6 +257,21 @@ def populate_tree(win) -> None:
             v = mv.get("combo_kb_mod")
             combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
 
+        # SPEED MOD (NEW)
+        speed_txt = ""
+        if move_abs and mv.get("speed_mod_addr") is None:
+            try:
+                from dolphin_io import rbytes
+                saddr, sval, ssig = find_speed_mod_addr(move_abs, rbytes)
+            except Exception:
+                saddr, sval, ssig = (None, None, None)
+            if saddr:
+                mv["speed_mod_addr"] = saddr
+                mv["speed_mod"] = sval
+                mv["speed_mod_sig"] = ssig
+        if mv.get("speed_mod_addr"):
+            speed_txt = U.fmt_speed_mod_ui(mv.get("speed_mod"))
+
         superbg_txt = ""
         if move_abs and mv.get("superbg_addr") is None:
             try:
@@ -299,6 +310,7 @@ def populate_tree(win) -> None:
                 hb_txt,
                 kb_txt2,
                 combo_txt,
+                speed_txt,  # NEW
                 hr_txt,
                 superbg_txt,
                 f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
@@ -329,6 +341,8 @@ def populate_tree(win) -> None:
                 "hb_candidates": hb_cands,
                 "combo_kb_mod": mv.get("combo_kb_mod"),
                 "combo_kb_mod_addr": mv.get("combo_kb_mod_addr"),
+                "speed_mod": mv.get("speed_mod"),                 # NEW
+                "speed_mod_addr": mv.get("speed_mod_addr"),       # NEW
                 "superbg_addr": mv.get("superbg_addr"),
                 "superbg_val": mv.get("superbg_val"),
             }

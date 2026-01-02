@@ -3,7 +3,7 @@
 # Pattern scanners / address discovery for move blocks.
 
 from __future__ import annotations
-
+from typing import Callable, Optional, Tuple
 # ---- Combo-only KB/Vacuum modifier pattern ----
 COMBO_KB_SIG_A = bytes([0x01, 0xAC, 0x3D, 0x00, 0x00, 0x00])  # then XX at +6
 COMBO_KB_SIG_B = bytes([0x01, 0xAC, 0x3F, 0x00, 0x00, 0x00])  # then XX at +6
@@ -15,7 +15,58 @@ SUPERBG_OFF = 0x00
 SUPERBG_MARKER = 0x60
 SUPERBG_LOOKAHEAD = 0x80
 
+def find_speed_mod_addr(
+    move_abs: int,
+    rbytes: Callable[[int, int], bytes],
+    *,
+    scan_len: int = 0x800,
+) -> Tuple[Optional[int], Optional[int], Optional[bytes]]:
+    """
+    Speed modifier locator (tight pattern).
 
+    Observed layout inside move block:
+        ... 20 3F 00 00 00 XX 04 17 ...
+
+    - Anchor: 20 3F 00 00 00
+    - Value:  XX (1 byte) immediately after anchor
+    - Tail:   04 17 immediately after XX
+
+    Returns:
+      (absolute_addr_of_value, current_value_byte, context_bytes)
+    """
+    if not move_abs:
+        return (None, None, None)
+
+    try:
+        buf = rbytes(move_abs, scan_len)
+    except Exception:
+        return (None, None, None)
+
+    if not buf:
+        return (None, None, None)
+
+    anchor = b"\x20\x3F\x00\x00\x00"  # 5 bytes
+    tail = b"\x04\x17"                # 2 bytes
+
+    start = 0
+    while True:
+        i = buf.find(anchor, start)
+        if i < 0:
+            break
+
+        # Need: anchor(5) + value(1) + tail(2)
+        value_off = i + len(anchor)
+        tail_off = value_off + 1
+        if tail_off + len(tail) <= len(buf):
+            if buf[tail_off:tail_off + len(tail)] == tail:
+                addr = move_abs + value_off
+                cur = buf[value_off]
+                ctx = buf[i:min(len(buf), i + 16)]
+                return (addr, cur, ctx)
+
+        start = i + 1
+
+    return (None, None, None)
 def find_anim_hdr_offset(buf: bytes) -> int | None:
     """
     Find first occurrence of animation header:
