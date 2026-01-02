@@ -472,11 +472,14 @@ class EditableFrameDataWindow:
         self.tree.column("superbg", width=80, anchor="center")
         self.tree.column("abs", width=120, anchor="w")
 
-        self.tree.tag_configure("row_even", background="#F6F7F9")
-        self.tree.tag_configure("row_odd", background="#B4D2F0")
+        self.tree.tag_configure("row_even", background="#F7F9FC")
+        self.tree.tag_configure("row_odd",  background="#EEF2F7")
+
+
 
         self.tree.tag_configure("kb_hot", foreground="#3B6FA5")
         self.tree.tag_configure("combo_hot", foreground="#4C7FB8")
+
         self.tree.tag_configure("super_on", foreground="#3C8C6E")
         self.tree.tag_configure("missing_addr", foreground="#A65C5C")
         self.tree.tag_configure("group_parent", foreground="#5A4E2F")
