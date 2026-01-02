@@ -186,6 +186,41 @@ class Tooltip:
                 pass
             self.tip = None
 
+class ManualAnimIDDialog(simpledialog.Dialog):
+    def __init__(self, parent, cur_hi=None, cur_lo=None):
+        self.cur_hi = cur_hi
+        self.cur_lo = cur_lo
+        self.result = None
+        super().__init__(parent, title="Manual Anim ID (HI / LO)")
+
+    def body(self, master):
+        ttk.Label(master, text="High byte (HI):").grid(row=0, column=0, sticky="e", padx=6, pady=4)
+        ttk.Label(master, text="Low byte (LO):").grid(row=1, column=0, sticky="e", padx=6, pady=4)
+
+        self.hi_var = tk.StringVar(value=f"{self.cur_hi:02X}" if self.cur_hi is not None else "")
+        self.lo_var = tk.StringVar(value=f"{self.cur_lo:02X}" if self.cur_lo is not None else "")
+
+        self.hi_entry = ttk.Entry(master, width=6, textvariable=self.hi_var)
+        self.lo_entry = ttk.Entry(master, width=6, textvariable=self.lo_var)
+
+        self.hi_entry.grid(row=0, column=1, padx=6, pady=4)
+        self.lo_entry.grid(row=1, column=1, padx=6, pady=4)
+
+        ttk.Label(master, text="Hex (00–FF)").grid(row=0, column=2, rowspan=2, padx=6)
+
+        return self.hi_entry
+
+    def validate(self):
+        try:
+            hi = int(self.hi_var.get(), 16)
+            lo = int(self.lo_var.get(), 16)
+            if not (0 <= hi <= 0xFF and 0 <= lo <= 0xFF):
+                raise ValueError
+            self.result = (hi, lo)
+            return True
+        except Exception:
+            messagebox.showerror("Invalid Input", "HI and LO must be hex bytes (00–FF).")
+            return False
 
 class EditableFrameDataWindow:
     def __init__(self, master, slot_label, target_slot):
@@ -244,47 +279,94 @@ class EditableFrameDataWindow:
 
         self._build()
     def _edit_move_replacement(self, item, mv):
-            """Open the Replace Move dialog and perform anim-only or full-block swap."""
-            if not WRITER_AVAILABLE:
-                messagebox.showerror("Error", "Writer unavailable")
-                return
+        """Open the Replace Move dialog and perform anim-only or full-block swap."""
+        if not WRITER_AVAILABLE:
+            messagebox.showerror("Error", "Writer unavailable")
+            return
 
-            dlg = ReplaceMoveDialog(self.root, self.moves, mv)
-            self.root.wait_window(dlg)
-            if not dlg.result:
-                return
+        dlg = ReplaceMoveDialog(self.root, self.moves, mv)
+        self.root.wait_window(dlg)
+        if not dlg.result:
+            return
 
-            new_mv, mode = dlg.result
-            new_id = new_mv.get("id")
-            if new_id is None:
-                messagebox.showerror("Error", "Selected move has no ID")
-                return
+        new_mv, mode = dlg.result
+        new_id = new_mv.get("id")
+        if new_id is None:
+            messagebox.showerror("Error", "Selected move has no ID")
+            return
 
-            ok = False
-            if mode == "anim":
-                ok = self._write_anim_id(mv, new_id)
-            else:
-                ok = self._clone_move_block_y2(new_mv, mv)
+        ok = False
+        if mode == "anim":
+            ok = self._write_anim_id(mv, new_id)
+        else:
+            ok = self._clone_move_block_y2(new_mv, mv)
 
-            if not ok:
-                messagebox.showerror(
-                    "Error",
-                    "Failed to write replacement to Dolphin.\nCheck console for details.",
-                )
-                return
+        if not ok:
+            messagebox.showerror(
+                "Error",
+                "Failed to write replacement to Dolphin.\nCheck console for details.",
+            )
+            return
 
-            # Update the displayed name so 5A -> Shinkuu Hadouken visually.
-            mv["id"] = new_id
-            mv["move_name"] = new_mv.get("move_name") or mv.get("move_name")
+        mv["id"] = new_id
+        mv["move_name"] = new_mv.get("move_name") or mv.get("move_name")
 
-            cname = self.target_slot.get("char_name", "—")
-            pretty = _pretty_move_name(new_id, cname)
-            dup_idx = mv.get("dup_index")
-            if dup_idx is not None:
-                pretty = f"{pretty} (Tier{dup_idx + 1})"
-            pretty = f"{pretty} [0x{new_id:04X}]"
+        cname = self.target_slot.get("char_name", "—")
+        pretty = _pretty_move_name(new_id, cname)
+        dup_idx = mv.get("dup_index")
+        if dup_idx is not None:
+            pretty = f"{pretty} (Tier{dup_idx + 1})"
+        pretty = f"{pretty} [0x{new_id:04X}]"
 
-            self.tree.set(item, "move", pretty)
+        self.tree.set(item, "move", pretty)
+
+    def _write_anim_id_manual(self, mv, hi, lo) -> bool:
+        """
+        Writes raw HI / LO bytes to [HI][LO] 01 3C animation opcode.
+        No validation beyond pattern check.
+        """
+        if not WRITER_AVAILABLE:
+            return False
+
+        base = mv.get("abs")
+        if not base:
+            return False
+
+        try:
+            from dolphin_io import rbytes, wd8
+        except ImportError:
+            return False
+
+        LOOKAHEAD = 0x80
+
+        try:
+            buf = rbytes(base, LOOKAHEAD)
+        except Exception as e:
+            print(f"_write_anim_id_manual read failed @0x{base:08X}: {e}")
+            return False
+
+        target_off = None
+        for i in range(0, len(buf) - 4):
+            b2, b3 = buf[i + 2], buf[i + 3]
+            if b2 == 0x01 and b3 == 0x3C:
+                target_off = i
+                break
+
+        if target_off is None:
+            print("_write_anim_id_manual: pattern ?? ?? 01 3C not found")
+            return False
+
+        addr = base + target_off
+
+        try:
+            ok = wd8(addr, hi) and wd8(addr + 1, lo)
+            if ok:
+                print(f"_write_anim_id_manual: wrote {hi:02X} {lo:02X} @0x{addr:08X}")
+            return ok
+        except Exception as e:
+            print(f"_write_anim_id_manual write failed: {e}")
+            return False
+            
     def _write_anim_id(self, mv, new_anim_id) -> bool:
         """
         Replace this move's 01 XX 01 3C animation chunk with new_anim_id.
@@ -1088,9 +1170,13 @@ class EditableFrameDataWindow:
         current_val = self.tree.set(item, col_name)
 
         if col_name == "move":
-            self._edit_move_replacement(item, mv)
+            self._show_move_edit_menu(event, item, mv)
+            self._apply_row_tags(item, mv)
+            self._set_status_for_item(item, mv)
             return
 
+
+        # ---- ALL OTHER COLUMNS ----
         if col_name == "damage":
             self._edit_damage(item, mv, current_val)
         elif col_name == "meter":
@@ -1246,6 +1332,131 @@ class EditableFrameDataWindow:
         self.root.clipboard_clear()
         self.root.clipboard_append(f"0x{addr:08X}")
         messagebox.showinfo("Copied", f"0x{addr:08X} copied to clipboard")
+    def _read_anim_id_hi_lo(self, mv):
+        """
+        Read current HI/LO bytes from the first pattern ?? ?? 01 3C within LOOKAHEAD.
+        Returns (hi, lo) or (None, None) if not found/readable.
+        """
+        base = mv.get("abs")
+        if not base:
+            return (None, None)
+
+        try:
+            from dolphin_io import rbytes
+        except ImportError:
+            return (None, None)
+
+        LOOKAHEAD = 0x80
+        try:
+            buf = rbytes(base, LOOKAHEAD)
+        except Exception:
+            return (None, None)
+
+        for i in range(0, len(buf) - 4):
+            if buf[i + 2] == 0x01 and buf[i + 3] == 0x3C:
+                return (buf[i], buf[i + 1])
+
+        return (None, None)
+
+    def _show_move_edit_menu(self, event, item, mv):
+        """
+        Pops a small menu with BOTH:
+        - Replace with known move (ReplaceMoveDialog)
+        - Manual HI/LO edit
+        Triggered on double-click of the Move column.
+        """
+        if not WRITER_AVAILABLE:
+            messagebox.showerror("Error", "Writer unavailable")
+            return
+
+        menu = tk.Menu(self.root, tearoff=0)
+
+        menu.add_command(
+            label="Replace with known move...",
+            command=lambda: self._edit_move_replacement(item, mv),
+        )
+
+        menu.add_command(
+            label="Manual Anim ID (HI / LO)...",
+            command=lambda: self._edit_anim_manual(item, mv),
+        )
+
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _edit_anim_manual(self, item, mv):
+        """
+        Manual HI/LO write into ?? ?? 01 3C.
+        Updates mv['id'] and the displayed Move name.
+        """
+        if not WRITER_AVAILABLE:
+            messagebox.showerror("Error", "Writer unavailable")
+            return
+
+        cur_hi, cur_lo = self._read_anim_id_hi_lo(mv)
+
+        dlg = ManualAnimIDDialog(self.root, cur_hi=cur_hi, cur_lo=cur_lo)
+        self.root.wait_window(dlg)
+        if not dlg.result:
+            return
+
+        hi, lo = dlg.result
+
+        ok = self._write_anim_id_manual(mv, hi, lo)
+        if not ok:
+            messagebox.showerror("Error", "Failed to write anim bytes")
+            return
+
+        new_id = ((hi & 0xFF) << 8) | (lo & 0xFF)
+        mv["id"] = new_id
+
+        cname = self.target_slot.get("char_name", "—")
+        pretty = _pretty_move_name(new_id, cname)
+
+        dup_idx = mv.get("dup_index")
+        if dup_idx is not None:
+            pretty = f"{pretty} (Tier{dup_idx + 1})"
+
+        pretty = f"{pretty} [0x{new_id:04X}]"
+        self.tree.set(item, "move", pretty)
+
+    def _edit_anim_manual(self, item, mv):
+        """
+        Double-click Move column: manual HI/LO write into ?? ?? 01 3C.
+        Updates mv['id'] and the displayed Move name.
+        """
+        if not WRITER_AVAILABLE:
+            messagebox.showerror("Error", "Writer unavailable")
+            return
+
+        cur_hi, cur_lo = self._read_anim_id_hi_lo(mv)
+
+        dlg = ManualAnimIDDialog(self.root, cur_hi=cur_hi, cur_lo=cur_lo)
+        self.root.wait_window(dlg)
+        if not dlg.result:
+            return
+
+        hi, lo = dlg.result
+
+        ok = self._write_anim_id_manual(mv, hi, lo)
+        if not ok:
+            messagebox.showerror("Error", "Failed to write anim bytes")
+            return
+
+        new_id = ((hi & 0xFF) << 8) | (lo & 0xFF)
+        mv["id"] = new_id
+
+        cname = self.target_slot.get("char_name", "—")
+        pretty = _pretty_move_name(new_id, cname)
+
+        dup_idx = mv.get("dup_index")
+        if dup_idx is not None:
+            pretty = f"{pretty} (Tier{dup_idx + 1})"
+
+        pretty = f"{pretty} [0x{new_id:04X}]"
+        self.tree.set(item, "move", pretty)
 
     def _show_address_info(self, addr, title):
         LINE_SIZE = 16

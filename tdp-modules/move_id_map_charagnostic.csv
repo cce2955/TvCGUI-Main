@@ -800,11 +800,13 @@
 432,0x1,DHC Tag out,assist standby,assist standby,yes,100
 433,0x1,DHC Tag in,assist standby,assist standby,yes,100
 444,0x1,Match Start Point,Match Start Point,Match Start Point,yes,100
-444,0x1,Match Start Point,Match Start Anchor,Match Start Anchor,yes,100
+445,0x1,Match Start Leave,Match Start Point,Match Start Point,yes,100
+446,0x1,Match Start Swap,Match Start Anchor,Match Start Anchor,yes,100
 447,0x1,Match Start Anchor,Match Start Anchor,Match Start Anchor,yes,100
 449,0x1,Crumple,Match Start Anchor,Match Start Anchor,yes,100
 465,0x1,Forward Throw,Match Start Anchor,Match Start Anchor,yes,100
 468,0x1,Back Throw,Match Start Anchor,Match Start Anchor,yes,100
+471,0x1,Air Front Throw,Match Start Anchor,Match Start Anchor,yes,100
 575,0x1,Taunt,Match Start Anchor,Match Start Anchor,yes,100
 4562,0x1,forward throw,forward throw,forward throw,yes,100
 4565,0x1,back throw,back throw,back throw,yes,100
