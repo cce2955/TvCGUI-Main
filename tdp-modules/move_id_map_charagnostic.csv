@@ -308,6 +308,7 @@
 362,0x161,Shin Sho Startup,Tatsu Super,Tatsu Super,yes,12
 465,0x1d1,Forward Throw,Forward Throw,Forward Throw,yes,12
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,12
+368,0x1d4,Shin Sho,Back Throw,Back Throw,yes,12
 512,0x1d4,Shin Sho,Back Throw,Back Throw,yes,12
 
 # Chun-Li (ID: 13)
@@ -739,14 +740,14 @@
 158,0x1,KO in slow motion (Forward),Air Recovery,Air Recovery,yes,100
 159,0x1,Go invsible,Air Recovery,Air Recovery,yes,100
 160,0x1,Air Recovery,Air Recovery,Air Recovery,yes,100
-162,0x1,Baroque cancel?,Air Recovery,Air Recovery,yes,100
+162,0x1,Baroque cancel,Air Recovery,Air Recovery,yes,100
 167,0x1,Parry? what is this?,Air Recovery,Air Recovery,yes,100
 416,0x1,Tag Out,Tag Out,Tag Out,yes,100
 417,0x1,assist leave,assist leave,assist leave,yes,100
 418,0x1,Tag In,Tag In,Tag In,yes,100
 420,0x1,Cross Counter Tag out,assist attack,assist attack,yes,100
 421,0x1,VAR,Tag In Taunt,Tag In Taunt,yes,100
-421,0x1,VAR Tag In,Tag In Taunt,Tag In Taunt,yes,100
+423,0x1,VAR Tag In,Tag In Taunt,Tag In Taunt,yes,100
 424,0x1,assist taunt,assist taunt,assist taunt,yes,100
 425,0x1,Tag In Taunt,Tag In Taunt,Tag In Taunt,yes,100
 426,0x1,assist attack,assist attack,assist attack,yes,100
