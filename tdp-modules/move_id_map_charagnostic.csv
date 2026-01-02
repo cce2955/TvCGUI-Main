@@ -681,6 +681,43 @@
 514,0x202,Dead Rising,Dead Rising,Dead Rising,yes,30
 516,0x204,Giant Swing,Giant Swing,Giant Swing,yes,30
 
+# PTX (ID: 22)
+304,0x13b,Weapon Right Down,Roundhouse C,Roundhouse C,yes,22
+305,0x13b,Weapon Right Mid,Roundhouse C,Roundhouse C,yes,22
+306,0x13b,Weapon Right High,Roundhouse C,Roundhouse C,yes,22
+307,0x13b,Weapon Left Down,Roundhouse C,Roundhouse C,yes,22
+308,0x13b,Weapon Left Mid,Roundhouse C,Roundhouse C,yes,22
+309,0x13b,Weapon Left High,Roundhouse C,Roundhouse C,yes,22
+310,0x13b,Caliber Execution A,Roundhouse C,Roundhouse C,yes,22
+311,0x13b,Caliber Execution B,Roundhouse C,Roundhouse C,yes,22
+312,0x13b,Caliber Execution C,Roundhouse C,Roundhouse C,yes,22
+313,0x13b,VS Tackle A,Roundhouse C,Roundhouse C,yes,22
+314,0x13b,VS Tackle B,Roundhouse C,Roundhouse C,yes,22
+315,0x13b,VS Tackle C,Roundhouse C,Roundhouse C,yes,22
+352,0x13b,Arsenal Barrage,Roundhouse C,Roundhouse C,yes,22
+353,0x13b,Tactical Caliber,Roundhouse C,Roundhouse C,yes,22
+368,0x13b,L-P Buster,Roundhouse C,Roundhouse C,yes,22
+512,0x13b,L-P Buster,Roundhouse C,Roundhouse C,yes,22
+
+# Gold Lightan (ID: 11)
+304,0x130,Gold Quake A,Punch A,Punch A,yes,11
+305,0x130,Gold Quake B,Punch A,Punch A,yes,11
+306,0x130,Gold Quake C,Punch A,Punch A,yes,11
+307,0x130,Tank Slice A,Punch A,Punch A,yes,11
+308,0x130,Tank Slice B,Punch A,Punch A,yes,11
+309,0x130,Tank Slice C,Punch A,Punch A,yes,11
+310,0x130,Battleship Breaker A,Punch A,Punch A,yes,11
+311,0x130,Battleship Breaker B,Punch A,Punch A,yes,11
+312,0x130,Battleship Breaker C,Punch A,Punch A,yes,11
+313,0x130,Gold Press,Punch A,Punch A,yes,11
+352,0x130,Gold Crash,Punch A,Punch A,yes,11
+353,0x130,Gold Crash,Punch A,Punch A,yes,11
+368,0x130,Gold Kick,Punch A,Punch A,yes,11
+476,0x130,PRESSED,Punch A,Punch A,yes,11
+512,0x130,Gold Crash,Punch A,Punch A,yes,11
+514,0x130,Gold Kick,Punch A,Punch A,yes,11
+516,0x130,Gold Finger Crash,Punch A,Punch A,yes,11
+
 # Global/System Flags
 1,0x1,idle,idle,idle,yes,100
 2,0x1,Forward,Forward,Forward,yes,100
