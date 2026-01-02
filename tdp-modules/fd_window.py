@@ -324,7 +324,7 @@ class EditableFrameDataWindow:
             print(f"_write_anim_id: pattern 01 ?? 01 3C not found for move @0x{base:08X}")
             return False
 
-        addr = base + target_off + 1  # points to high byte of ID
+        addr = base + target_off
         new_hi = (new_anim_id >> 8) & 0xFF
         new_lo = new_anim_id & 0xFF
 
