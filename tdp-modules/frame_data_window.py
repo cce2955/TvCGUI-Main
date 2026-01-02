@@ -1,44 +1,25 @@
 # frame_data_window.py
 #
-# Router for opening frame data window.
-# Preferred order:
-#   1) NEW modular FD stack (frame_data_gui -> fd_window)
-#   2) OLD editable GUI (editable_frame_data_gui)
-#   3) Legacy Tk viewer (implemented here)
+# Wrapper for opening the frame data window.
+# Prefers the NEW modular editor (fd_window.py).
+# Falls back to legacy Tk viewer if the editor is unavailable.
 
-# -----------------------------
-# Prefer NEW modular FD
-# -----------------------------
-HAVE_NEW_FD = False
-open_new_fd_window = None
-NEW_FD_IMPORT_ERROR = None
+# NOTE:
+#   Tk must run on the thread that creates it. Running Tk windows in a
+#   daemon thread often causes "weird/truncated/half-painted" behavior.
+#   This implementation opens the editor synchronously (blocking),
+#   which is the safest behavior when launching from a pygame app.
 
+# Try the NEW modular editor first
 try:
-    # frame_data_gui.py is a thin entrypoint that exports:
-    #   open_editable_frame_data_window(slot_label, scan_data)
-    from frame_data_gui import open_editable_frame_data_window as open_new_fd_window
-    HAVE_NEW_FD = True
+    from fd_window import open_editable_frame_data_window as _open_new_editor
+    HAVE_NEW_EDITOR = True
 except Exception as e:
-    HAVE_NEW_FD = False
-    open_new_fd_window = None
-    NEW_FD_IMPORT_ERROR = e
+    HAVE_NEW_EDITOR = False
+    _open_new_editor = None
+    print(f"WARNING: fd_window editor not available ({e!r})")
 
-# -----------------------------
-# Fall back to OLD editable GUI
-# -----------------------------
-HAVE_OLD_EDITABLE = False
-open_old_editable_window = None
-OLD_EDITABLE_IMPORT_ERROR = None
-
-try:
-    from editable_frame_data_gui import open_editable_frame_data_window as open_old_editable_window
-    HAVE_OLD_EDITABLE = True
-except Exception as e:
-    HAVE_OLD_EDITABLE = False
-    open_old_editable_window = None
-    OLD_EDITABLE_IMPORT_ERROR = e
-
-
+# Legacy fallback stays inside this file
 def _fmt_stun(v):
     if v is None:
         return ""
@@ -48,12 +29,6 @@ def _fmt_stun(v):
 
 
 def _fmt_move_label(mv):
-    """
-    Always produce a clean move label:
-        - use mv["move_name"] when available
-        - fallback to anim_XXXX
-        - always append hex ID [0xXXXX]
-    """
     aid = mv.get("id")
     name = mv.get("move_name")
 
@@ -67,9 +42,6 @@ def _fmt_move_label(mv):
 
 
 def _open_legacy_viewer(slot_label, target_slot):
-    """
-    Legacy Tk-based frame data viewer as last resort.
-    """
     try:
         import tkinter as tk
         from tkinter import ttk
@@ -94,10 +66,12 @@ def _open_legacy_viewer(slot_label, target_slot):
 
     tree = ttk.Treeview(frame, columns=cols, show="headings", height=30)
     vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
-    tree.configure(yscrollcommand=vsb.set)
+    hsb = ttk.Scrollbar(frame, orient="horizontal", command=tree.xview)
+    tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
     tree.grid(row=0, column=0, sticky="nsew")
     vsb.grid(row=0, column=1, sticky="ns")
+    hsb.grid(row=1, column=0, sticky="ew")
 
     frame.rowconfigure(0, weight=1)
     frame.columnconfigure(0, weight=1)
@@ -120,19 +94,19 @@ def _open_legacy_viewer(slot_label, target_slot):
     for col_id, txt in headers:
         tree.heading(col_id, text=txt)
 
-    tree.column("move", width=220, anchor="w")
-    tree.column("kind", width=60, anchor="w")
-    tree.column("damage", width=65, anchor="center")
-    tree.column("meter", width=55, anchor="center")
-    tree.column("startup", width=55, anchor="center")
-    tree.column("active", width=70, anchor="center")
-    tree.column("hitstun", width=45, anchor="center")
-    tree.column("blockstun", width=45, anchor="center")
-    tree.column("hitstop", width=50, anchor="center")
-    tree.column("advH", width=55, anchor="center")
-    tree.column("advB", width=55, anchor="center")
-    tree.column("hb", width=80, anchor="center")
-    tree.column("abs", width=110, anchor="center")
+    tree.column("move", width=260, anchor="w")
+    tree.column("kind", width=70, anchor="w")
+    tree.column("damage", width=70, anchor="center")
+    tree.column("meter", width=70, anchor="center")
+    tree.column("startup", width=70, anchor="center")
+    tree.column("active", width=90, anchor="center")
+    tree.column("hitstun", width=55, anchor="center")
+    tree.column("blockstun", width=55, anchor="center")
+    tree.column("hitstop", width=70, anchor="center")
+    tree.column("advH", width=70, anchor="center")
+    tree.column("advB", width=70, anchor="center")
+    tree.column("hb", width=110, anchor="center")
+    tree.column("abs", width=120, anchor="center")
 
     moves = target_slot.get("moves", [])
     moves_sorted = sorted(moves, key=lambda mv: (mv.get("id") is None, mv.get("id") or 0))
@@ -190,32 +164,17 @@ def _open_legacy_viewer(slot_label, target_slot):
 def open_frame_data_window(slot_label, scan_data):
     """
     Public entry point used by main.py.
-    Route to NEW modular FD first, then OLD editable, then legacy.
+    Prefers the NEW fd_window editor; falls back to legacy viewer.
     """
-    # 1) NEW modular FD
-    if HAVE_NEW_FD and open_new_fd_window is not None:
-        try:
-            open_new_fd_window(slot_label, scan_data)
-            return
-        except Exception as e:
-            print("[frame_data_window] NEW FD failed:", repr(e))
-            if NEW_FD_IMPORT_ERROR is not None:
-                print("[frame_data_window] NEW FD import error:", repr(NEW_FD_IMPORT_ERROR))
-
-    # 2) OLD editable GUI
-    if HAVE_OLD_EDITABLE and open_old_editable_window is not None:
-        try:
-            open_old_editable_window(slot_label, scan_data)
-            return
-        except Exception as e:
-            print("[frame_data_window] OLD editable failed:", repr(e))
-            if OLD_EDITABLE_IMPORT_ERROR is not None:
-                print("[frame_data_window] OLD editable import error:", repr(OLD_EDITABLE_IMPORT_ERROR))
-
-    # 3) Legacy viewer
     if not scan_data:
         return
 
+    # Prefer NEW modular editor
+    if HAVE_NEW_EDITOR and _open_new_editor is not None:
+        _open_new_editor(slot_label, scan_data)
+        return
+
+    # Legacy fallback
     target = None
     for s in scan_data:
         if s.get("slot_label") == slot_label:
