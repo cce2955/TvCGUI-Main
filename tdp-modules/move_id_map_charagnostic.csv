@@ -629,13 +629,16 @@
 304,0x131,Hadengeki A,Hadengeki B,Hadengeki B,yes,29
 305,0x131,Hadengeki B,Hadengeki B,Hadengeki B,yes,29
 306,0x132,Hadengeki C,Hadengeki C,Hadengeki C,yes,29
-315,0x13b,Dash A,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
-316,0x13b,Dash B,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
-317,0x13b,Dash C,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+307,0x13b,Dash A,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+308,0x13b,Dash B,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+309,0x13b,Dash C,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
 310,0x137,DP A,DP A,DP A,yes,29
 311,0x137,DP B,DP A,DP A,yes,29
 312,0x138,DP C,DP C,DP C,yes,29
 315,0x13b,Hyper Zero Blaster,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+320,0x13b,Sentsuizan A,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+321,0x13b,Sentsuizan B,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
+322,0x13b,Sentsuizan C,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
 323,0x13b,Air Dash A,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
 324,0x13b,Air Dash B,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
 325,0x13b,Air Dash C,Hyper Zero Blaster,Hyper Zero Blaster,yes,29
@@ -667,6 +670,9 @@
 320,0x13b,Air Grand Slam A,Roundhouse C,Roundhouse C,yes,30
 321,0x13b,Air Grand Slam B,Roundhouse C,Roundhouse C,yes,30
 322,0x13b,Air Grand Slam C,Roundhouse C,Roundhouse C,yes,30
+336,0x13b,Roll A,Roundhouse C,Roundhouse C,yes,30
+337,0x13b,Roll B,Roundhouse C,Roundhouse C,yes,30
+338,0x13b,Roll C,Roundhouse C,Roundhouse C,yes,30
 353,0x202,Dead Rising,Dead Rising,Dead Rising,yes,30
 359,0x160,Real Megabuster,Real Megabuster,Real Megabuster,yes,30
 368,0x200,Zombie Charge,Funny Face crusher,Funny Face crusher,yes,30
