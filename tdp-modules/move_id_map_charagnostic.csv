@@ -14,6 +14,10 @@
 269,0x138,j.C (Second),j.C,j.C,yes,100
 270,0x10e,6B,6B,6B,yes,100
 271,0x10f,j.2C,3B,3B,yes,100
+282,0x10f,Front Throw,3B,3B,yes,100
+283,0x10f,Air Front Throw,3B,3B,yes,100
+285,0x10f,Air Back Throw,3B,3B,yes,100
+286,0x10f,Back Throw,3B,3B,yes,100
 288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,100
 289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,100
 
@@ -318,7 +322,10 @@
 263,0x130,6C,Kikoken L,Kikoken L,yes,13
 268,0x130,j.C (Second hit),Kikoken L,Kikoken L,yes,13
 272,0x130,SBK,Kikoken L,Kikoken L,yes,13
+273,0x130,Anim from either 6C or 2B I dunno,Kikoken L,Kikoken L,yes,13
 274,0x130,Tensho,Kikoken L,Kikoken L,yes,13
+275,0x130,Tensho Second Phase,Kikoken L,Kikoken L,yes,13
+276,0x130,Tensho Startup?,Kikoken L,Kikoken L,yes,13
 304,0x130,Kikoken L,Kikoken L,Kikoken L,yes,13
 305,0x131,Kikoken M,Kikoken M,Kikoken M,yes,13
 306,0x132,Kikoken C,Kikoken C,Kikoken C,yes,13
@@ -755,6 +762,7 @@
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
 42,0x1,Win Pose,Intro Pose Anchor,Intro Pose Anchor,yes,100
 49,0x1,CrouchingBlock,Intro Pose Anchor,Intro Pose Anchor,yes,100
+60,0x1,Hit by Sweep Reaction,Standing Hitstun,Standing Hitstun,yes,100
 61,0x1,Stunned,Standing Hitstun,Standing Hitstun,yes,100
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
@@ -784,6 +792,7 @@
 115,01x1,Roll Forwards,get up (face up),get up (face up),yes,100
 116,01x1,Roll Backwards,get up (face up),get up (face up),yes,100
 119,0x1,get up (face down),get up (face down),get up (face down),yes,100
+132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
 154,0x1,KO'd,Air Recovery,Air Recovery,yes,100
 155,0x1,KO in slow motion,Air Recovery,Air Recovery,yes,100
 158,0x1,KO in slow motion (Forward),Air Recovery,Air Recovery,yes,100
