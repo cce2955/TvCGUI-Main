@@ -683,6 +683,8 @@ python tvc_sigtool.py poke --addr 0x908B2C2C --bytes "43 FF 00 00"
 # 6B hit 2
 python tvc_sigtool.py poke --addr 0x908B102C --bytes "43 FF 00 00"   
 # 6C
+010c013c
+908b3910 Hado L, wait 0x908B391A is hado l?
 
 python tvc_sigtool.py poke --addr 0x908B49C4 --bytes "43 FF 00 00"   
 # Tatsu L

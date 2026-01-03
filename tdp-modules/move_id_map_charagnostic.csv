@@ -10,6 +10,8 @@
 265,0x138,j.A,j.A,j.A,yes,100
 266,0x138,j.B,j.B,j.B,yes,100
 267,0x138,j.C,j.C,j.C,yes,100
+268,0x138,j.B (Second),j.C,j.C,yes,100
+269,0x138,j.C (Second),j.C,j.C,yes,100
 270,0x10e,6B,6B,6B,yes,100
 271,0x10f,j.2C,3B,3B,yes,100
 288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,100
@@ -312,6 +314,11 @@
 512,0x1d4,Shin Sho,Back Throw,Back Throw,yes,12
 
 # Chun-Li (ID: 13)
+262,0x130,j.2B,Kikoken L,Kikoken L,yes,13
+263,0x130,6C,Kikoken L,Kikoken L,yes,13
+268,0x130,j.C (Second hit),Kikoken L,Kikoken L,yes,13
+272,0x130,SBK,Kikoken L,Kikoken L,yes,13
+274,0x130,Tensho,Kikoken L,Kikoken L,yes,13
 304,0x130,Kikoken L,Kikoken L,Kikoken L,yes,13
 305,0x131,Kikoken M,Kikoken M,Kikoken M,yes,13
 306,0x132,Kikoken C,Kikoken C,Kikoken C,yes,13
