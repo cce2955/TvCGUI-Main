@@ -539,7 +539,20 @@
 514,0x200,Shining Laser anim,Shining Laser,Shining Laser,yes,18
 
 # Roll (ID: 19)
-270,0x10e,6B,6B,6B,yes,19
+270,0x10e,Puddle toss,6B,6B,yes,19
+272,0x131,Mop up,Zombie Grab,Zombie Grab,yes,30
+273,0x131,Mopping,Zombie Grab,Zombie Grab,yes,30
+274,0x131,Mopped,Zombie Grab,Zombie Grab,yes,30
+275,0x131,Scrub a dub dub,Zombie Grab,Zombie Grab,yes,30
+276,0x131,Scrubbed,Zombie Grab,Zombie Grab,yes,30
+277,0x131,Charge,Zombie Grab,Zombie Grab,yes,30
+281,0x131,Bucket head,Zombie Grab,Zombie Grab,yes,30
+296,0x131,Healing start,Zombie Grab,Zombie Grab,yes,30
+297,0x131,Healing,Zombie Grab,Zombie Grab,yes,30
+299,0x131,Super mop up start,Zombie Grab,Zombie Grab,yes,30
+300,0x131,Super mop up,Zombie Grab,Zombie Grab,yes,30
+302,0x131,no you didn't mopping,Zombie Grab,Zombie Grab,yes,30
+302,0x131,Super mop up end,Zombie Grab,Zombie Grab,yes,30
 304,0x130,Swing A,Swing A,Swing A,yes,19
 305,0x131,Swing B,Swing B,Swing B,yes,19
 306,0x132,Swing C,Swing C,Swing C,yes,19
@@ -735,6 +748,7 @@
 512,0x200,Dark Hold,Dark Hold,Dark Hold,yes,29
 
 # Frank West (ID: 30)
+
 304,0x131,Zombie Grab A,Zombie Grab,Zombie Grab,yes,30
 305,0x131,Zombie Grab B,Zombie Grab,Zombie Grab,yes,30
 306,0x131,Zombie Grab C,Zombie Grab,Zombie Grab,yes,30
@@ -822,6 +836,7 @@
 20,0x1,jump,jump,jump,yes,100
 21,0x1,jump forward,jump forward,jump forward,yes,100
 22,0x1,jump back,jump back,jump back,yes,100
+24,0x1,alt taunt?,jump back,jump back,yes,100
 25,0x1,Push block post anim,jump back,jump back,yes,100
 28,0x1,Super Jump,Super Jump,Super Jump,yes,100
 29,0x1,Super Jump,Super Jump,Super Jump,yes,100
