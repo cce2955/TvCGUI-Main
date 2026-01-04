@@ -308,6 +308,49 @@ def pick_best_block(mv_abs, blocks, rng=PAIR_RANGE):
             best = (addr, data)
             best_dist = d
     return best
+def find_strict_anim4(buf_local):
+    # returns list of (pos, aid)
+    out = []
+    # [hi][lo][op][fps] where op in (01,04) and fps==3C
+    for p in range(0, len(buf_local) - 4 + 1):
+        op = buf_local[p+2]
+        fps = buf_local[p+3]
+        if fps != 0x3C:
+            continue
+        if op not in (0x01, 0x04):
+            continue
+        hi = buf_local[p]
+        lo = buf_local[p+1]
+        aid = (hi << 8) | lo
+        if 1 <= aid <= 0x0500:
+            out.append((p, aid))
+    return out
+def looks_like_real_move_anchor(buf_local, pos):
+    # Strict, cheap validation:
+    # accept if ANIM_HDR exists shortly before OR shortly after,
+    # OR if any known block header exists within a reasonable vicinity.
+    back = max(0, pos - 0x40)
+    fwd = min(len(buf_local), pos + 0x200)
+
+    # Nearby ANIM_HDR
+    for p in range(back, min(pos + 1, len(buf_local) - len(ANIM_HDR) + 1)):
+        if match_bytes(buf_local, p, ANIM_HDR):
+            return True
+    for p in range(pos, min(fwd, len(buf_local) - len(ANIM_HDR) + 1)):
+        if match_bytes(buf_local, p, ANIM_HDR):
+            return True
+
+    # Nearby known blocks 
+    for p in range(max(0, pos - 0x200), min(len(buf_local), pos + 0x600)):
+        if match_bytes(buf_local, p, ACTIVE_HDR):
+            return True
+        if match_bytes(buf_local, p, STUN_HDR):
+            return True
+        if match_bytes(buf_local, p, DAMAGE_HDR):
+            return True
+
+    return False
+
 # ============================================================
 # MAIN SCAN
 # ============================================================
@@ -324,7 +367,7 @@ def scan_once():
     tails = find_all_tails(mem)
     clusters = cluster_tails(tails)
 
-    # Slot association based on your existing mapping
+    # Slot association 
     cluster_to_slot = [0, 2, 1, 3]
 
     result = []
@@ -431,11 +474,19 @@ def scan_once():
                         continue
 
             i += 1
+            # PASS 1B: strict raw anim4 anchors (hi lo op fps) anywhere,
+            # but only accept if validated as being near real move data.
+            for pos, aid in find_strict_anim4(buf_local):
+                if not looks_like_real_move_anchor(buf_local, pos):
+                    continue
+                kind = ("normal" if (aid & 0xFF) in NORMAL_IDS else "special")
+                # Anchor at the 4-byte location; this is intentionally different from ANIM_HDR anchoring.
+                add_mv(kind, base_abs_local + pos, aid)
 
         return moves_local
-
+    
     # ========================================================
-    # FOR EACH CHARACTER CLUSTER (your original behavior)
+    # FOR EACH CHARACTER CLUSTER 
     # ========================================================
     for c_idx in range(max_chars):
 
@@ -454,10 +505,7 @@ def scan_once():
         # PASS 1: anchors from cluster
         moves = collect_move_anchors(buf, base_abs)
 
-        # PASS 2..9 unchanged (collect blocks)
-        # (Everything below this line in your original function stays the same,
-        #  except we will later MERGE in extra anchors before attaching blocks.)
-
+        
         # METER
         METER_HDR = [
             0x34, 0x04, 0x00, 0x20,
