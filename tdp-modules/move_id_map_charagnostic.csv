@@ -428,8 +428,8 @@
 307,0x133,Wild Stomp A,Wild Stomp A,Wild Stomp A,yes,16
 308,0x134,Wild Stomp B,Wild Stomp B,Wild Stomp B,yes,16
 309,0x135,Wild Stomp C,Wild Stomp C,Wild Stomp C,yes,16
-310,0x136,Flash Elbow L,Flash Elbow L,Flash Elbow L,yes,16
-311,0x137,Flash Elbow M,Flash Elbow M,Flash Elbow M,yes,16
+310,0x136,Slash Elbow L,Flash Elbow L,Flash Elbow L,yes,16
+311,0x137,Slash Elbow M,Flash Elbow M,Flash Elbow M,yes,16
 312,0x138,Slash Elbow H,Slash Elbow H,Slash Elbow H,yes,16
 313,0x138,Knee Drop A,Slash Elbow H,Slash Elbow H,yes,16
 314,0x138,Knee Drop B,Slash Elbow H,Slash Elbow H,yes,16
@@ -776,6 +776,7 @@
 40,0x1,Intro Pose Point,Intro Pose Point,Intro Pose Point,yes,100
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
 42,0x1,Win Pose,Intro Pose Anchor,Intro Pose Anchor,yes,100
+48,0x1,Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 49,0x1,Crouching Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 55,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 56,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
@@ -792,6 +793,8 @@
 81,0x1,Bounce Launched,W100 Bounce Launched,W100 Bounce Launched,yes,100
 82,0x1,Bounce Bounce off,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 84,0x1,Stun (Giants),W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
+85,0x1,Puddle Slip,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
+86,0x1,Swept, W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 87,0x1,???,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 88,0x1,Spiral away from the camera?,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 89,0x1,Spiral Knockdown,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
@@ -803,6 +806,7 @@
 95,0x1,Forced Roll,Soft Knockdown,Soft Knockdown,yes,100
 96,0x1,Soft Knockdown,Soft Knockdown,Soft Knockdown,yes,100
 97,0x1,Launched,Launched,Launched,yes,100
+98,0x1,Hard Knockdown,Launched,Launched,yes,100
 100,0x1,super jump,super jump,super jump,yes,100
 102,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
 103,0x1,Wakeup?,Hit Low,Hit Low,yes,100
@@ -813,6 +817,7 @@
 115,01x1,Roll Forwards,get up (face up),get up (face up),yes,100
 116,01x1,Roll Backwards,get up (face up),get up (face up),yes,100
 119,0x1,get up (face down),get up (face down),get up (face down),yes,100132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
+166,0x1,??? forcefield?,get up (face down),get up (face down),yes,100132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
 142,0x1,???,get up (face down),get up (face down),yes,100132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
 154,0x1,KO'd,Air Recovery,Air Recovery,yes,100
 155,0x1,KO in slow motion,Air Recovery,Air Recovery,yes,100
