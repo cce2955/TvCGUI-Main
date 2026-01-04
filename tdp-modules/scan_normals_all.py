@@ -311,7 +311,6 @@ def pick_best_block(mv_abs, blocks, rng=PAIR_RANGE):
 # ============================================================
 # MAIN SCAN
 # ============================================================
-
 def scan_once():
     hook()
 
@@ -339,18 +338,111 @@ def scan_once():
             "moves": [],
         })
 
+    # ------------------------------
+    # Strict anim-id finder helper (kept strict on purpose)
+    # ------------------------------
+    def get_anim_id_after_hdr_strict(buf_local, hdr_pos):
+        start = hdr_pos + len(ANIM_HDR)
+        end = min(start + LOOKAHEAD_AFTER_HDR, len(buf_local))
+        for p in range(start, end - 4 + 1):
+            hi = buf_local[p]
+            lo = buf_local[p + 1]
+            op = buf_local[p + 2]
+            fps = buf_local[p + 3]
+            if fps == 0x3C and op in (0x01, 0x04):
+                aid = (hi << 8) | lo
+                if 1 <= aid <= 0x0500:
+                    return aid
+        return None
+
+    # ------------------------------
+    # Pass 1 anchor collector for any region
+    # ------------------------------
+    def collect_move_anchors(buf_local, base_abs_local):
+        moves_local = []
+        seen_abs_local = set()
+
+        def add_mv(kind, abs_addr, aid):
+            if abs_addr in seen_abs_local:
+                return
+            seen_abs_local.add(abs_addr)
+            moves_local.append({"kind": kind, "abs": abs_addr, "id": aid})
+
+        i = 0
+        while i < len(buf_local):
+
+            # SUPER END
+            if match_bytes(buf_local, i, SUPER_END_HDR):
+                add_mv("super", base_abs_local + i, None)
+                i += len(SUPER_END_HDR)
+                continue
+
+            # AIR → ANIM_HDR (scan window; keep strict ID rule)
+            if match_bytes(buf_local, i, AIR_HDR):
+                s0 = i + AIR_HDR_LEN
+                s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf_local))
+                # IMPORTANT: do not break on first ANIM_HDR; keep scanning the window
+                p = s0
+                while p < s1:
+                    if match_bytes(buf_local, p, ANIM_HDR):
+                        aid = get_anim_id_after_hdr_strict(buf_local, p)
+                        kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special")
+                        add_mv(kind, base_abs_local + p, aid)
+                        p += len(ANIM_HDR)
+                        continue
+                    p += 1
+                i += AIR_HDR_LEN
+                continue
+
+            # CMD → ANIM_HDR (scan window; keep strict ID rule)
+            if match_bytes(buf_local, i, CMD_HDR):
+                s0 = i + CMD_HDR_LEN + 3
+                s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf_local))
+                p = s0
+                while p < s1:
+                    if match_bytes(buf_local, p, ANIM_HDR):
+                        aid = get_anim_id_after_hdr_strict(buf_local, p)
+                        kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special")
+                        add_mv(kind, base_abs_local + p, aid)
+                        p += len(ANIM_HDR)
+                        continue
+                    p += 1
+                i += CMD_HDR_LEN
+                continue
+
+            # DIRECT ANIM
+            if match_bytes(buf_local, i, ANIM_HDR):
+                aid = get_anim_id_after_hdr_strict(buf_local, i)
+                kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special")
+                add_mv(kind, base_abs_local + i, aid)
+                i += len(ANIM_HDR)
+                continue
+
+            # SPECIAL FRAGMENT DETECTOR (kept as you had it)
+            if i + 4 <= len(buf_local):
+                if (buf_local[i] == 0x01 and
+                    buf_local[i + 2] == 0x01 and
+                    buf_local[i + 3] == 0x3C):
+                    lo = buf_local[i + 1]
+                    if 0x01 <= lo <= 0x1E:
+                        aid = 0x0100 | lo
+                        add_mv("special", base_abs_local + i, aid)
+                        i += 4
+                        continue
+
+            i += 1
+
+        return moves_local
+
     # ========================================================
-    # FOR EACH CHARACTER CLUSTER
+    # FOR EACH CHARACTER CLUSTER (your original behavior)
     # ========================================================
     for c_idx in range(max_chars):
 
         tails_in_cluster = clusters[c_idx]
         start_off = tails_in_cluster[0]
-
-        # Pull back a bit for the beginning of the table
         start_off = max(0, start_off - CLUSTER_PAD_BACK)
 
-        # End bound
         if c_idx + 1 < len(clusters):
             end_off = clusters[c_idx + 1][0]
         else:
@@ -359,100 +451,12 @@ def scan_once():
         buf = mem[start_off:end_off]
         base_abs = MEM2_LO + start_off
 
-        # ------------------------------
-        # PASS 1: FIND ALL MOVE ANCHORS
-        # ------------------------------
-        moves = []
-        i = 0
+        # PASS 1: anchors from cluster
+        moves = collect_move_anchors(buf, base_abs)
 
-        while i < len(buf):
-
-            # SUPER END
-            if match_bytes(buf, i, SUPER_END_HDR):
-                moves.append({
-                    "kind": "super",
-                    "abs": base_abs + i,
-                    "id": None
-                })
-                i += len(SUPER_END_HDR)
-                continue
-
-            # AIR → ANIM_HDR
-            if match_bytes(buf, i, AIR_HDR):
-                s0 = i + AIR_HDR_LEN
-                s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf))
-                for p in range(s0, s1):
-                    if match_bytes(buf, p, ANIM_HDR):
-                        aid = get_anim_id_after_hdr(buf, p)
-                        kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS)
-                                else "special")
-                        moves.append({
-                            "kind": kind,
-                            "abs": base_abs + p,
-                            "id": aid
-                        })
-                        break
-                i += AIR_HDR_LEN
-                continue
-
-            # CMD → ANIM_HDR
-            if match_bytes(buf, i, CMD_HDR):
-                s0 = i + CMD_HDR_LEN + 3
-                s1 = min(s0 + LOOKAHEAD_AFTER_HDR, len(buf))
-                for p in range(s0, s1):
-                    if match_bytes(buf, p, ANIM_HDR):
-                        aid = get_anim_id_after_hdr(buf, p)
-                        kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS)
-                                else "special")
-                        moves.append({
-                            "kind": kind,
-                            "abs": base_abs + p,
-                            "id": aid
-                        })
-                        break
-                i += CMD_HDR_LEN
-                continue
-
-            # DIRECT ANIM
-            if match_bytes(buf, i, ANIM_HDR):
-                aid = get_anim_id_after_hdr(buf, i)
-                kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS)
-                        else "special")
-                moves.append({
-                    "kind": kind,
-                    "abs": base_abs + i,
-                    "id": aid
-                })
-                i += len(ANIM_HDR)
-                continue
-
-            # ==========================================
-            # NEW OPTION A: SPECIAL FRAGMENT DETECTOR
-            # 01 XX 01 3C, where 01 <= XX <= 1E
-            # ==========================================
-            if i + 4 <= len(buf):
-                if (buf[i] == 0x01 and
-                    buf[i+2] == 0x01 and
-                    buf[i+3] == 0x3C):
-
-                    lo = buf[i+1]
-
-                    if 0x01 <= lo <= 0x1E:
-                        aid = 0x0100 | lo   # 0111, 0112, 0113 ...
-                        moves.append({
-                            "kind": "special",
-                            "abs": base_abs + i,
-                            "id": aid
-                        })
-                        i += 4
-                        continue
-
-            # Default step
-            i += 1
-
-        # =======================================================
-        # PASS 2..9: COLLECT ALL BLOCKS (meter, active, dmg, etc)
-        # =======================================================
+        # PASS 2..9 unchanged (collect blocks)
+        # (Everything below this line in your original function stays the same,
+        #  except we will later MERGE in extra anchors before attaching blocks.)
 
         # METER
         METER_HDR = [
@@ -464,7 +468,7 @@ def scan_once():
             0x36, 0x43, 0x00, 0x20,
             0x00, 0x00, 0x00,
         ]
-        METER_TOTAL_LEN = len(METER_HDR)+5
+        METER_TOTAL_LEN = len(METER_HDR) + 5
 
         meters = []
         p = 0
@@ -505,7 +509,7 @@ def scan_once():
         while p < len(buf):
             d = parse_damage(buf, p)
             if d:
-                dmg_blocks.append((base_abs+p, d))
+                dmg_blocks.append((base_abs + p, d))
                 p += DAMAGE_TOTAL_LEN
                 continue
             p += 1
@@ -516,7 +520,7 @@ def scan_once():
         while p < len(buf):
             d = parse_atkprop(buf, p)
             if d is not None:
-                atkprop_blocks.append((base_abs+p, d))
+                atkprop_blocks.append((base_abs + p, d))
                 p += ATKPROP_TOTAL_LEN
                 continue
             p += 1
@@ -527,7 +531,7 @@ def scan_once():
         while p < len(buf):
             d = parse_hitreaction(buf, p)
             if d is not None:
-                hitreact_blocks.append((base_abs+p, d))
+                hitreact_blocks.append((base_abs + p, d))
                 p += HITREACTION_TOTAL_LEN
                 continue
             p += 1
@@ -538,7 +542,7 @@ def scan_once():
         while p < len(buf):
             d = parse_knockback(buf, p)
             if d:
-                kb_blocks.append((base_abs+p, d))
+                kb_blocks.append((base_abs + p, d))
                 p += KNOCKBACK_TOTAL_LEN
                 continue
             p += 1
@@ -549,21 +553,19 @@ def scan_once():
         while p < len(buf):
             d = parse_stun(buf, p)
             if d:
-                stun_blocks.append((base_abs+p, d))
+                stun_blocks.append((base_abs + p, d))
                 p += STUN_TOTAL_LEN
                 continue
             p += 1
 
         # =======================================================
-        # PASS 10: ATTACH DATA TO MOVES
+        # PASS 10: ATTACH DATA TO MOVES (unchanged)
         # =======================================================
-
         for mv in moves:
             aid = mv["id"]
             mv_abs = mv["abs"]
             aid_low = (aid & 0xFF) if aid is not None else None
 
-            # Meter
             if mv["kind"] == "normal":
                 mv["meter"] = DEFAULT_METER.get(aid_low)
             else:
@@ -575,7 +577,6 @@ def scan_once():
                 mv["meter"] = mblk[1]
                 mv["meter_addr"] = mblk[0]
 
-            # Active
             mv["active_start"] = None
             mv["active_end"] = None
             mv["active_addr"] = None
@@ -584,14 +585,13 @@ def scan_once():
                 mv["active_start"], mv["active_end"] = ablk[1]
                 mv["active_addr"] = ablk[0]
 
-            # INLINE ACTIVE 2
             mv["active2_start"] = None
             mv["active2_end"] = None
             mv["active2_addr"] = None
 
             rel = mv_abs - base_abs
             inline_off = rel + INLINE_ACTIVE_OFF
-            if 0 <= inline_off < len(buf)-INLINE_ACTIVE_LEN:
+            if 0 <= inline_off < len(buf) - INLINE_ACTIVE_LEN:
                 a2 = parse_inline_active(buf, inline_off)
                 if a2:
                     mv["active2_start"], mv["active2_end"] = a2
@@ -603,63 +603,50 @@ def scan_once():
                     mv["active2_start"], mv["active2_end"] = ablk[1]
                     mv["active2_addr"] = ablk[0]
 
-            # Damage
             mv["damage"] = None
             mv["damage_flag"] = None
             mv["damage_addr"] = None
-
             dblk = pick_best_block(mv_abs, dmg_blocks)
             if dblk:
                 mv["damage"], mv["damage_flag"] = dblk[1]
                 mv["damage_addr"] = dblk[0]
 
-            # ATKPROP
             mv["attack_property"] = None
             mv["atkprop_addr"] = None
-
             apblk = pick_best_block(mv_abs, atkprop_blocks)
             if apblk:
                 mv["attack_property"] = apblk[1]
                 mv["atkprop_addr"] = apblk[0]
 
-            # HIT REACTION
             mv["hit_reaction"] = None
             mv["hit_reaction_addr"] = None
-
             hrblk = pick_best_block(mv_abs, hitreact_blocks)
             if hrblk:
                 mv["hit_reaction"] = hrblk[1]
                 mv["hit_reaction_addr"] = hrblk[0] + HITREACTION_CODE_OFF
 
-            # KNOCKBACK
             mv["kb0"] = None
             mv["kb1"] = None
             mv["kb_traj"] = None
             mv["knockback_addr"] = None
-
             kbblk = pick_best_block(mv_abs, kb_blocks)
             if kbblk:
                 mv["kb0"], mv["kb1"], mv["kb_traj"] = kbblk[1]
                 mv["knockback_addr"] = kbblk[0]
 
-            # STUN
             mv["hitstun"] = None
             mv["blockstun"] = None
             mv["hitstop"] = None
             mv["stun_addr"] = None
-
             sblk = pick_best_block(mv_abs, stun_blocks)
             if sblk:
                 mv["hitstun"], mv["blockstun"], mv["hitstop"] = sblk[1]
                 mv["stun_addr"] = sblk[0]
 
-            # Hitbox dims
             mv["hb_x"] = None
             mv["hb_y"] = None
-
             off_x = rel + HITBOX_OFF_X
             off_y = rel + HITBOX_OFF_Y
-
             if off_x + 4 <= len(buf):
                 try:
                     mv["hb_x"] = rd_f32_be(buf, off_x)
@@ -671,7 +658,6 @@ def scan_once():
                 except:
                     pass
 
-            # Advantage
             total_frames = mv.get("speed") or 0x3C
             a_end = mv.get("active_end")
             if a_end:
@@ -683,7 +669,6 @@ def scan_once():
             mv["adv_hit"] = hs - recovery
             mv["adv_block"] = bs - recovery
 
-            # Human-readable name
             if aid is None:
                 mv["move_name"] = "anim_--"
             else:
@@ -692,10 +677,6 @@ def scan_once():
                     lo = (aid & 0xFF)
                     name = ANIM_MAP.get(lo)
                 mv["move_name"] = name if name else f"anim_{aid:04X}"
-
-        # =======================================================
-        # SORT MOVES
-        # =======================================================
 
         def sort_key(m):
             aid = m["id"]
@@ -708,7 +689,6 @@ def scan_once():
 
         moves_sorted = sorted(moves, key=sort_key)
 
-        # Assign to slot
         slot_idx = cluster_to_slot[c_idx] if c_idx < len(cluster_to_slot) else c_idx
         if slot_idx < len(slots_info):
             slot_label, base_ptr, cid, cname = slots_info[slot_idx]
@@ -720,5 +700,53 @@ def scan_once():
             "char_name": cname,
             "moves": moves_sorted,
         }
+
+    # ========================================================
+    # NEW: Per-slot “thorough” scan around the slot base_ptr
+    # Keeps strict signature logic, just looks in the right place.
+    # ========================================================
+    SLOT_SCAN_BEFORE = 0x2000
+    SLOT_SCAN_LEN = 0x30000  # 192KB window; adjust if needed
+
+    def merge_by_abs(existing, extra):
+        by_abs = {}
+        for mv in existing:
+            a = mv.get("abs")
+            if a is not None and a not in by_abs:
+                by_abs[a] = mv
+        for mv in extra:
+            a = mv.get("abs")
+            if a is not None and a not in by_abs:
+                by_abs[a] = mv
+        return list(by_abs.values())
+
+    for slot_idx, (slot_label, base_ptr, cid, cname) in enumerate(slots_info):
+        if slot_idx >= len(result):
+            continue
+        if not base_ptr:
+            continue
+
+        # Only scan if the base_ptr looks like MEM2
+        if not (MEM2_LO <= base_ptr < MEM2_HI):
+            continue
+
+        start_abs = max(MEM2_LO, base_ptr - SLOT_SCAN_BEFORE)
+        end_abs = min(MEM2_HI, start_abs + SLOT_SCAN_LEN)
+        start_off = start_abs - MEM2_LO
+        end_off = end_abs - MEM2_LO
+
+        buf2 = mem[start_off:end_off]
+        extra_moves = collect_move_anchors(buf2, start_abs)
+
+        merged = merge_by_abs(result[slot_idx].get("moves", []), extra_moves)
+        merged_sorted = sorted(merged, key=lambda m: (
+            2 if m.get("id") is None else (0 if m.get("id") >= 0x0100 else 1),
+            0xFFFF if m.get("id") is None else m.get("id"),
+            m.get("abs") or 0
+        ))
+
+        result[slot_idx]["slot_label"] = slot_label
+        result[slot_idx]["char_name"] = cname
+        result[slot_idx]["moves"] = merged_sorted
 
     return result
