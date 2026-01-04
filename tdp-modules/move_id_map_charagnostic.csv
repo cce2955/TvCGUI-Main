@@ -392,6 +392,7 @@
 522,0x204,United by Fall,United by Fate: Upper,United by Fate: Upper,yes,14
 
 # Morrigan (ID: 15)
+4,0x130,Morrigan is gonna party all night,Soul Fist L,Soul Fist L,yes,15
 304,0x130,Soul Fist L,Soul Fist L,Soul Fist L,yes,15
 305,0x131,Soul Fist M,Soul Fist M,Soul Fist M,yes,15
 306,0x132,Soul Fist H,Soul Fist H,Soul Fist H,yes,15
@@ -434,14 +435,32 @@
 313,0x138,Knee Drop A,Slash Elbow H,Slash Elbow H,yes,16
 314,0x138,Knee Drop B,Slash Elbow H,Slash Elbow H,yes,16
 315,0x138,Knee Drop C,Slash Elbow H,Slash Elbow H,yes,16
-316,0x138,Powerbomb Start/Whiff,Slash Elbow H,Slash Elbow H,yes,16
+316,0x138,Powerbomb Start/Whiff A,Slash Elbow H,Slash Elbow H,yes,16
+317,0x138,Powerbomb Start/Whiff B,Slash Elbow H,Slash Elbow H,yes,16
+318,0x138,Powerbomb Start/Whiff C,Slash Elbow H,Slash Elbow H,yes,16
+319,0x138,Knee Smash A,Slash Elbow H,Slash Elbow H,yes,16
+320,0x138,Knee Smash B,Slash Elbow H,Slash Elbow H,yes,16
+321,0x138,Knee Smash C,Slash Elbow H,Slash Elbow H,yes,16
 323,0x138,Powerbomb Start/Whiff,Slash Elbow H,Slash Elbow H,yes,16
 352,0x160,Boomerang Raid,Boomerang Raid,Boomerang Raid,yes,16
 353,0x160,Stungun Near,Boomerang Raid,Boomerang Raid,yes,16
 354,0x160,Stungun Mid,Boomerang Raid,Boomerang Raid,yes,16
 355,0x160,Stungun Far,Boomerang Raid,Boomerang Raid,yes,16
+356,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+357,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+359,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+360,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+361,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+362,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+363,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+364,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+365,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+366,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+367,0x160,Hyperbomb Startup,Boomerang Raid,Boomerang Raid,yes,16
+
 465,0x1d1,Forward Throw,Forward Throw,Forward Throw,yes,16
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,16
+496,0x1d4,Alex Front Throw Anim,Back Throw,Back Throw,yes,16
 512,0x200,Knee H,Knee H,Knee H,yes,16
 514,0x202,Powerbomb,Powerbomb,Powerbomb,yes,16
 518,0x202,Air Powerbomb,Powerbomb,Powerbomb,yes,16
