@@ -514,6 +514,9 @@
 273,0x138,Air 3B,j.2C,j.2C,yes,18
 282,0x11a,Charged C,C level 3?,C level 3?,yes,18
 284,0x11a,Charged j.C,C level 3?,C level 3?,yes,18
+290,0x11a,j.2C,C level 3?,C level 3?,yes,18
+291,0x11a,air 3B,C level 3?,C level 3?,yes,18
+301,0x11a,air 3B startup,C level 3?,C level 3?,yes,18
 304,0x160,Weapon Switch Neutral A,machine gun super,machine gun super,yes,18
 305,0x160,Weapon Switch Neutral B,machine gun super,machine gun super,yes,18
 306,0x160,Weapon Switch Neutral C,machine gun super,machine gun super,yes,18
@@ -533,6 +536,7 @@
 368,0x171,Shining Laser,max drill upper,max drill upper,yes,18
 369,0x171,max drill upper,max drill upper,max drill upper,yes,18
 512,0x200,Shining Laser,Shining Laser,Shining Laser,yes,18
+514,0x200,Shining Laser anim,Shining Laser,Shining Laser,yes,18
 
 # Roll (ID: 19)
 270,0x10e,6B,6B,6B,yes,19
@@ -581,6 +585,22 @@
 5141,0x200,World's Greatest Attack,Headbutt,Headbutt,yes,20
 
 # Soki (ID: 21)
+272,0x130,Counter (air),Slam A,Slam A,yes,21
+273,0x130,Issen (air),Slam A,Slam A,yes,21
+274,0x130,Purification (Air),Slam A,Slam A,yes,21
+275,0x130,Tactics (Air),Slam A,Slam A,yes,21
+276,0x130,Oni Mode (Air),Slam A,Slam A,yes,21
+277,0x130,Throw (Air),Slam A,Slam A,yes,21
+278,0x130,Thrown (Air),Slam A,Slam A,yes,21
+279,0x130,Back Throw (Air),Slam A,Slam A,yes,21
+280,0x130,Back Thrown (Air),Slam A,Slam A,yes,21
+287,0x130,5C (Air),Slam A,Slam A,yes,21
+292,0x130,Slam (Air),Slam A,Slam A,yes,21
+294,0x130,Oni Cutter (Air),Slam A,Slam A,yes,21
+295,0x130,Oni Cutter (Air),Slam A,Slam A,yes,21
+296,0x130,Oni Cutter (Air),Slam A,Slam A,yes,21
+297,0x130,Oni Cutter (Air),Slam A,Slam A,yes,21
+298,0x130,Tactics (Air),Slam A,Slam A,yes,21
 304,0x130,Slam A,Slam A,Slam A,yes,21
 305,0x131,Slam B,Slam B,Slam B,yes,21
 306,0x132,Slam C,Slam C,Slam C,yes,21
@@ -595,6 +615,7 @@
 315,0x13b,overhead splitter issen,overhead splitter issen,overhead splitter issen,yes,21
 316,0x13c,Finisher,Finisher,Finisher,yes,21
 317,0x13c,Absorb,Finisher,Finisher,yes,21
+320,0x13c,Absorb (air),Finisher,Finisher,yes,21
 352,0x160,Purification,Purification,Purification,yes,21
 353,0x161,Oni Tactics,Oni Tactics,Oni Tactics,yes,21
 368,0x161,Oni Mode!!!,Oni Tactics,Oni Tactics,yes,21
@@ -795,12 +816,14 @@
 10,0x1,couching,couching,couching,yes,100
 11,0x1,crouched,crouched,crouched,yes,100
 13,0x1,Landing,crouched,crouched,yes,100
+14,0x1,Turn around,crouched,crouched,yes,100
 18,0x1,Jump Cancel,crouched,crouched,yes,100
 19,0x1,pre jump,pre jump,pre jump,yes,100
 20,0x1,jump,jump,jump,yes,100
 21,0x1,jump forward,jump forward,jump forward,yes,100
 22,0x1,jump back,jump back,jump back,yes,100
-25,0x1,jump back,jump back,jump back,yes,100
+25,0x1,Push block post anim,jump back,jump back,yes,100
+28,0x1,Super Jump,Super Jump,Super Jump,yes,100
 29,0x1,Super Jump,Super Jump,Super Jump,yes,100
 30,0x1,landing,landing,landing,yes,100
 32,0x1,Turn Around,landing,landing,yes,100
@@ -819,9 +842,12 @@
 58,0x1,Crouch Turn,Intro Pose Anchor,Intro Pose Anchor,yes,100
 60,0x1,Hit by Sweep Reaction,Standing Hitstun,Standing Hitstun,yes,100
 61,0x1,Stunned,Standing Hitstun,Standing Hitstun,yes,100
+62,0x1,Stumble,Standing Hitstun,Standing Hitstun,yes,100
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
 66,0x1,Hit Low,Hit Low,Hit Low,yes,100
+67,0x1,Hit that air t pose,Hit Low,Hit Low,yes,100
+69,0x1,Airborne KO,Hit Low,Hit Low,yes,100
 70,0x1,Wall Bounce Interim?,knocked down (face up),knocked down (face up),yes,100
 73,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
 74,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
