@@ -14,6 +14,11 @@
 269,0x138,j.C (Second),j.C,j.C,yes,100
 270,0x10e,6B,6B,6B,yes,100
 271,0x10f,j.2C,3B,3B,yes,100
+277,0x10f,Filler?,3B,3B,yes,100
+278,0x10f,Filler?,3B,3B,yes,100
+279,0x10f,Filler?,3B,3B,yes,100
+278,0x10f,Filler?,3B,3B,yes,100
+
 282,0x10f,Front Throw,3B,3B,yes,100
 283,0x10f,Air Front Throw,3B,3B,yes,100
 285,0x10f,Air Back Throw,3B,3B,yes,100
@@ -751,6 +756,7 @@
 20,0x1,jump,jump,jump,yes,100
 21,0x1,jump forward,jump forward,jump forward,yes,100
 22,0x1,jump back,jump back,jump back,yes,100
+25,0x1,jump back,jump back,jump back,yes,100
 29,0x1,Super Jump,Super Jump,Super Jump,yes,100
 30,0x1,landing,landing,landing,yes,100
 32,0x1,Turn Around,landing,landing,yes,100
@@ -791,8 +797,7 @@
 113,0x1,get up (face up),get up (face up),get up (face up),yes,100
 115,01x1,Roll Forwards,get up (face up),get up (face up),yes,100
 116,01x1,Roll Backwards,get up (face up),get up (face up),yes,100
-119,0x1,get up (face down),get up (face down),get up (face down),yes,100
-132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
+119,0x1,get up (face down),get up (face down),get up (face down),yes,100132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
 154,0x1,KO'd,Air Recovery,Air Recovery,yes,100
 155,0x1,KO in slow motion,Air Recovery,Air Recovery,yes,100
 158,0x1,KO in slow motion (Forward),Air Recovery,Air Recovery,yes,100

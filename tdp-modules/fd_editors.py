@@ -634,9 +634,20 @@ class FDCellEditorsMixin:
             return
 
         cur_hi, cur_lo = self._read_anim_id_hi_lo(mv)
+
+        # If ManualAnimIDDialog subclasses simpledialog.Dialog, it likely blocks
+        # (and may destroy itself) during __init__. So we must not blindly wait again.
         dlg = ManualAnimIDDialog(self.root, cur_hi=cur_hi, cur_lo=cur_lo)
-        self.root.wait_window(dlg)
-        if not dlg.result:
+
+        # Only wait if the widget still exists (covers both Dialog-style and Toplevel-style impls).
+        try:
+            if hasattr(dlg, "winfo_exists") and dlg.winfo_exists():
+                self.root.wait_window(dlg)
+        except tk.TclError:
+            # Dialog was already destroyed/closed during construction.
+            pass
+
+        if not getattr(dlg, "result", None):
             return
 
         hi, lo = dlg.result
@@ -655,7 +666,6 @@ class FDCellEditorsMixin:
             pretty = f"{pretty} (Tier{dup_idx + 1})"
         pretty = f"{pretty} [0x{new_id:04X}]"
         self.tree.set(item, "move", pretty)
-
     def _show_move_edit_menu(self, event, item, mv):
         if not U.WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
