@@ -6,7 +6,7 @@
 260,0x104,2B,2B,2B,yes,100
 261,0x105,2C,2C,2C,yes,100
 262,0x106,6C,6C,6C,yes,100
-263,0x130,6? 6C? Throw? back throw?,Yoyo A,Yoyo A,yes,8
+263,0x130,back throw,Yoyo A,Yoyo A,yes,100
 264,0x108,3C,3C,3C,yes,100
 265,0x138,j.A,j.A,j.A,yes,100
 266,0x138,j.B,j.B,j.B,yes,100
@@ -221,7 +221,7 @@
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,7
 
 # Jun the Swan (ID: 8)
-263,0x130,6? 6C? Throw?,Yoyo A,Yoyo A,yes,8
+
 304,0x130,Yoyo A,Yoyo A,Yoyo A,yes,8
 305,0x131,Yoyo B,Yoyo B,Yoyo B,yes,8
 306,0x132,yoyo C,yoyo C,yoyo C,yes,8
@@ -287,7 +287,7 @@
 
 
 # Ryu (ID: 12)
-263,0x130,6c,Hado L,Hado L,yes,12
+
 268,0x130,Hado,Hado L,Hado L,yes,12
 273,0x130,Tatsu Start,Hado L,Hado L,yes,12
 274,0x130,Tatsu Spin,Hado L,Hado L,yes,12
@@ -330,7 +330,7 @@
 
 # Chun-Li (ID: 13)
 262,0x130,j.2B,Kikoken L,Kikoken L,yes,13
-263,0x130,6C,Kikoken L,Kikoken L,yes,13
+
 268,0x130,j.C (Second hit),Kikoken L,Kikoken L,yes,13
 272,0x130,SBK,Kikoken L,Kikoken L,yes,13
 273,0x130,Anim from either 6C or 2B I dunno,Kikoken L,Kikoken L,yes,13
@@ -376,20 +376,36 @@
 310,0x136,Guts Upper A,Guts Upper A,Guts Upper A,yes,14
 311,0x137,Guts Upper B,Guts Upper B,Guts Upper B,yes,14
 312,0x138,Guts Upper C,Guts Upper C,Guts Upper C,yes,14
+313,0x136,Guts Upper A (Assist),Guts Upper A,Guts Upper A,yes,14
+
 320,0x138,Air Guts Bullet A,Guts Upper C,Guts Upper C,yes,14
 321,0x138,Air Guts Bullet B,Guts Upper C,Guts Upper C,yes,14
 322,0x138,Air Guts Bullet C,Guts Upper C,Guts Upper C,yes,14
 323,0x138,Air Divekick A,Guts Upper C,Guts Upper C,yes,14
 324,0x138,Air Divekick B,Guts Upper C,Guts Upper C,yes,14
 325,0x138,Air Divekick C,Guts Upper C,Guts Upper C,yes,14
+327,0x138,Divekick bounce,Guts Upper C,Guts Upper C,yes,14
+328,0x138,Divekick,Guts Upper C,Guts Upper C,yes,14
+338,0x138,Batsu Air Thrown,Guts Upper C,Guts Upper C,yes,14
+339,0x138,Batsu Back Air Thrown,Guts Upper C,Guts Upper C,yes,14
+343,0x138,Batsu Back Air Thrown Arc,Guts Upper C,Guts Upper C,yes,14
+349,0x138,Air 5B? Beta Air Throw?,Guts Upper C,Guts Upper C,yes,14
+350,0x138,Grounded Super Guts Bulllet but airborn?,Guts Upper C,Guts Upper C,yes,14
 352,0x160,Super Guts Bullet,Super Guts Bullet,Super Guts Bullet,yes,14
 354,0x160,Air Super Guts Bullet,Super Guts Bullet,Super Guts Bullet,yes,14
+356,0x160,United by Fate,Super Guts Bullet,Super Guts Bullet,yes,14
 353,0x161,Super Guts Upper,Super Guts Upper,Super Guts Upper,yes,14
 368,0x161,United by fate startup,Super Guts Upper,Super Guts Upper,yes,14
+377,0x161,Batsu checking his kicks in midair,Super Guts Upper,Super Guts Upper,yes,14
+496,0x204,Batsu Thrown,United by Fate: Upper,United by Fate: Upper,yes,14
 513,0x204,United by Fate: Bullet,United by Fate: Upper,United by Fate: Upper,yes,14
 516,0x204,United by Fate: Upper,United by Fate: Upper,United by Fate: Upper,yes,14
 519,0x204,United by Fate: Kicks,United by Fate: Upper,United by Fate: Upper,yes,14
 522,0x204,United by Fall,United by Fate: Upper,United by Fate: Upper,yes,14
+545,0x204,United by Fate:Bullet Batsu Solo,United by Fate: Upper,United by Fate: Upper,yes,14
+547,0x204,United by Fate:Upper Batsu Solo,United by Fate: Upper,United by Fate: Upper,yes,14
+550,0x204,United by Fate:Kick Batsu Solo,United by Fate: Upper,United by Fate: Upper,yes,14
+552,0x204,United by Fall: Batsu Solo,United by Fate: Upper,United by Fate: Upper,yes,14
 
 # Morrigan (ID: 15)
 4,0x130,Morrigan is gonna party all night,Soul Fist L,Soul Fist L,yes,15
@@ -795,22 +811,28 @@
 40,0x1,Intro Pose Point,Intro Pose Point,Intro Pose Point,yes,100
 41,0x1,Intro Pose Anchor,Intro Pose Anchor,Intro Pose Anchor,yes,100
 42,0x1,Win Pose,Intro Pose Anchor,Intro Pose Anchor,yes,100
+46,0x1,Time Over Lose,Intro Pose Anchor,Intro Pose Anchor,yes,100
 48,0x1,Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 49,0x1,Crouching Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 55,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 56,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
+58,0x1,Crouch Turn,Intro Pose Anchor,Intro Pose Anchor,yes,100
 60,0x1,Hit by Sweep Reaction,Standing Hitstun,Standing Hitstun,yes,100
 61,0x1,Stunned,Standing Hitstun,Standing Hitstun,yes,100
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
 66,0x1,Hit Low,Hit Low,Hit Low,yes,100
-
+70,0x1,Wall Bounce Interim?,knocked down (face up),knocked down (face up),yes,100
 73,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
-73,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
+74,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
+75,0x1,Crumple,knocked down (face down),knocked down (face down),yes,100
+77,0x1,Air borne Bounce,knocked down (face down),knocked down (face down),yes,100
+77,0x1,Air borne Plank,knocked down (face down),knocked down (face down),yes,100
 79,0x1,Stagger,knocked down (face down),knocked down (face down),yes,100
 80,0x1,Hard Knockdown,Hard Knockdown,Hard Knockdown,yes,100
 81,0x1,Bounce Launched,W100 Bounce Launched,W100 Bounce Launched,yes,100
 82,0x1,Bounce Bounce off,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
+83,0x1,Spiral,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 84,0x1,Stun (Giants),W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 85,0x1,Puddle Slip,W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
 86,0x1,Swept, W100 Bounce Bounce off w100,W100 Bounce Bounce off w100,yes,100
@@ -826,24 +848,36 @@
 96,0x1,Soft Knockdown,Soft Knockdown,Soft Knockdown,yes,100
 97,0x1,Launched,Launched,Launched,yes,100
 98,0x1,Hard Knockdown,Launched,Launched,yes,100
+99,0x1,Aerial TPose,Launched,Launched,yes,100
 100,0x1,super jump,super jump,super jump,yes,100
+101,0x1,Air heavy hitstun,knocked down (face up),knocked down (face up),yes,100
 102,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
 103,0x1,Wakeup?,Hit Low,Hit Low,yes,100
 104,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
 105,0x1,OTG Hit (Face up),OTG Hit (Face up),OTG Hit (Face up),yes,100
 106,0x1,OTG Hit (Face Down),OTG Hit (Face Down),OTG Hit (Face Down),yes,100
+108,0x1,Knockdown light bounce (air),OTG Hit (Face Down),OTG Hit (Face Down),yes,100
+109,0x1,Knockdown light bounce face down (air),OTG Hit (Face Down),OTG Hit (Face Down),yes,100
 113,0x1,get up (face up),get up (face up),get up (face up),yes,100
 115,01x1,Roll Forwards,get up (face up),get up (face up),yes,100
 116,01x1,Roll Backwards,get up (face up),get up (face up),yes,100
-119,0x1,get up (face down),get up (face down),get up (face down),yes,100132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
-166,0x1,??? forcefield?,get up (face down),get up (face down),yes,100132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
-142,0x1,???,get up (face down),get up (face down),yes,100132,0x1,Forced Knockdown (face first),get up (face down),get up (face down),yes,100
+119,0x1,get up (face down),get up (face down),get up (face down),yes,100
+124,0x1,SAZ stagger,get up (face down),get up (face down),yes,100
+126,0x1,Breakaway,get up (face down),get up (face down),yes,100
+128,0x1,Heavy hit but no knockdown?,get up (face down),get up (face down),yes,100
+129,0x1,Heavy hit but overhead?,get up (face down),get up (face down),yes,100
+130,0x1,Starts a T Pose then swaps stances,get up (face down),get up (face down),yes,100
+132,0x1,Knockdown to stun,get up (face down),get up (face down),yes,100
+133,0x1,Backroll,get up (face down),get up (face down),yes,100
+166,0x1,??? forcefield?,get up (face down),get up (face down),yes,100
+142,0x1,???,get up (face down),get up (face down),yes,100
 154,0x1,KO'd,Air Recovery,Air Recovery,yes,100
 155,0x1,KO in slow motion,Air Recovery,Air Recovery,yes,100
 158,0x1,KO in slow motion (Forward),Air Recovery,Air Recovery,yes,100
 159,0x1,Go invsible,Air Recovery,Air Recovery,yes,100
 160,0x1,Air Recovery,Air Recovery,Air Recovery,yes,100
 162,0x1,Baroque cancel,Air Recovery,Air Recovery,yes,100
+165,0x1,Breakaway Recovery,Air Recovery,Air Recovery,yes,100
 167,0x1,Parry? what is this?,Air Recovery,Air Recovery,yes,100
 416,0x1,Tag Out,Tag Out,Tag Out,yes,100
 417,0x1,assist leave,assist leave,assist leave,yes,100
