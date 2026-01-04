@@ -6,6 +6,7 @@
 260,0x104,2B,2B,2B,yes,100
 261,0x105,2C,2C,2C,yes,100
 262,0x106,6C,6C,6C,yes,100
+263,0x130,6? 6C? Throw? back throw?,Yoyo A,Yoyo A,yes,8
 264,0x108,3C,3C,3C,yes,100
 265,0x138,j.A,j.A,j.A,yes,100
 266,0x138,j.B,j.B,j.B,yes,100
@@ -17,8 +18,12 @@
 277,0x10f,Filler?,3B,3B,yes,100
 278,0x10f,Filler?,3B,3B,yes,100
 279,0x10f,Filler?,3B,3B,yes,100
-278,0x10f,Filler?,3B,3B,yes,100
 
+
+281,0x130,Forward Throw,Hado L,Hado L,yes,12
+284,0x130,Air Forward Throw,Hado L,Hado L,yes,12
+285,0x130,Back Throw,Hado L,Hado L,yes,12
+286,0x130,Back Thrown,Hado L,Hado L,yes,12
 282,0x10f,Front Throw,3B,3B,yes,100
 283,0x10f,Air Front Throw,3B,3B,yes,100
 285,0x10f,Air Back Throw,3B,3B,yes,100
@@ -216,6 +221,7 @@
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,7
 
 # Jun the Swan (ID: 8)
+263,0x130,6? 6C? Throw?,Yoyo A,Yoyo A,yes,8
 304,0x130,Yoyo A,Yoyo A,Yoyo A,yes,8
 305,0x131,Yoyo B,Yoyo B,Yoyo B,yes,8
 306,0x132,yoyo C,yoyo C,yoyo C,yes,8
@@ -293,7 +299,7 @@
 280,0x130,Tatsu Super Windup,Hado L,Hado L,yes,12
 281,0x130,Forward Throw,Hado L,Hado L,yes,12
 282,0x130,Forward Thrown,Hado L,Hado L,yes,12
-284,0x130,Forward Thrown,Hado L,Hado L,yes,12
+284,0x130,Air Forward Throw,Hado L,Hado L,yes,12
 285,0x130,Back Throw,Hado L,Hado L,yes,12
 286,0x130,Back Thrown,Hado L,Hado L,yes,12
 304,0x130,Hado L,Hado L,Hado L,yes,12
@@ -415,6 +421,7 @@
 
 # Alex (ID: 16)
 272,0x130,Drop Kick,Flash Chop A,Flash Chop A,yes,16
+273,0x130,j.C Roll,Flash Chop A,Flash Chop A,yes,16
 304,0x130,Flash Chop A,Flash Chop A,Flash Chop A,yes,16
 305,0x131,Flash Chop B,Flash Chop B,Flash Chop B,yes,16
 306,0x132,Flash Chop C,Flash Chop C,Flash Chop C,yes,16
