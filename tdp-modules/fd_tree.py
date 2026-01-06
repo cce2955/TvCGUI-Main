@@ -1,7 +1,12 @@
 # fd_tree.py
 #
-# You MUST update this file to add the new 'speed_mod' column.
-# Below is the full updated file (based on the modular version we were using).
+# Update: add projectile display columns:
+#   - proj_dmg  (ProjDmg)
+#   - proj_tpl  (ProjTpl)
+#
+# This file still owns tree column definitions + row population wiring.
+# Projectile resolution itself is upstream; here we only display whatever
+# mv carries (mv["proj_dmg"], mv["proj_tpl"]).
 
 from __future__ import annotations
 
@@ -104,12 +109,15 @@ def build_tree_widget(win) -> ttk.Frame:
     frame = ttk.Frame(win.root)
     frame.pack(fill="both", expand=True, padx=8, pady=8)
 
+    # NEW: add proj_dmg, proj_tpl columns (display-only)
     cols = (
-        "move", "kind", "damage", "meter",
+        "move", "kind",
+        "damage", "proj_dmg", "proj_tpl",  # NEW
+        "meter",
         "startup", "active", "active2",
         "hitstun", "blockstun", "hitstop",
         "hb_main", "hb",
-        "kb", "combo_kb_mod", "speed_mod", "hit_reaction",  # NEW speed_mod
+        "kb", "combo_kb_mod", "speed_mod", "hit_reaction",
         "superbg",
         "abs",
     )
@@ -133,6 +141,8 @@ def build_tree_widget(win) -> ttk.Frame:
         ("move", "Move"),
         ("kind", "Kind"),
         ("damage", "Dmg"),
+        ("proj_dmg", "ProjDmg"),     # NEW
+        ("proj_tpl", "ProjTpl"),     # NEW
         ("meter", "Meter"),
         ("startup", "Start"),
         ("active", "Active"),
@@ -144,7 +154,7 @@ def build_tree_widget(win) -> ttk.Frame:
         ("hb", "Hitbox cand."),
         ("kb", "Knockback"),
         ("combo_kb_mod", "Combo KB Mod"),
-        ("speed_mod", "Speed Mod"),  # NEW
+        ("speed_mod", "Speed Mod"),
         ("hit_reaction", "Hit Reaction"),
         ("superbg", "SuperBG"),
         ("abs", "Address"),
@@ -154,7 +164,11 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win.tree.column("move", width=260, anchor="w")
     win.tree.column("kind", width=70, anchor="w")
+
     win.tree.column("damage", width=70, anchor="center")
+    win.tree.column("proj_dmg", width=70, anchor="center")   # NEW
+    win.tree.column("proj_tpl", width=120, anchor="w")       # NEW
+
     win.tree.column("meter", width=60, anchor="center")
     win.tree.column("startup", width=60, anchor="center")
     win.tree.column("active", width=98, anchor="center")
@@ -166,7 +180,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("hb", width=260, anchor="w")
     win.tree.column("kb", width=180, anchor="w")
     win.tree.column("combo_kb_mod", width=140, anchor="center")
-    win.tree.column("speed_mod", width=120, anchor="center")  # NEW
+    win.tree.column("speed_mod", width=120, anchor="center")
     win.tree.column("hit_reaction", width=280, anchor="w")
     win.tree.column("superbg", width=80, anchor="center")
     win.tree.column("abs", width=120, anchor="w")
@@ -184,6 +198,24 @@ def build_tree_widget(win) -> ttk.Frame:
 
 def populate_tree(win) -> None:
     cname = win.target_slot.get("char_name", "-")
+
+    def _fmt_proj_dmg(v) -> str:
+        if v is None:
+            return ""
+        try:
+            return str(int(v))
+        except Exception:
+            return str(v)
+
+    def _fmt_proj_tpl(v) -> str:
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v
+        try:
+            return f"0x{int(v):08X}"
+        except Exception:
+            return str(v)
 
     def insert_move_row(mv, parent=""):
         aid = mv.get("id")
@@ -257,7 +289,7 @@ def populate_tree(win) -> None:
             v = mv.get("combo_kb_mod")
             combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
 
-        # SPEED MOD (NEW)
+        # SPEED MOD
         speed_txt = ""
         if move_abs and mv.get("speed_mod_addr") is None:
             try:
@@ -287,6 +319,10 @@ def populate_tree(win) -> None:
 
         hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
 
+        # NEW: projectile display fields (populated upstream)
+        proj_dmg_txt = _fmt_proj_dmg(mv.get("proj_dmg"))
+        proj_tpl_txt = _fmt_proj_tpl(mv.get("proj_tpl"))
+
         row_tag = "row_even" if (win._row_counter % 2 == 0) else "row_odd"
         win._row_counter += 1
 
@@ -299,6 +335,10 @@ def populate_tree(win) -> None:
                 move_name,
                 mv.get("kind", ""),
                 "" if mv.get("damage") is None else str(mv.get("damage")),
+
+                proj_dmg_txt,  # NEW
+                proj_tpl_txt,  # NEW
+
                 "" if mv.get("meter") is None else str(mv.get("meter")),
                 startup_txt,
                 active_txt,
@@ -310,7 +350,7 @@ def populate_tree(win) -> None:
                 hb_txt,
                 kb_txt2,
                 combo_txt,
-                speed_txt,  # NEW
+                speed_txt,
                 hr_txt,
                 superbg_txt,
                 f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
@@ -324,6 +364,8 @@ def populate_tree(win) -> None:
         if abs_key:
             win.original_moves[abs_key] = {
                 "damage": mv.get("damage"),
+                "proj_dmg": mv.get("proj_dmg"),       # NEW
+                "proj_tpl": mv.get("proj_tpl"),       # NEW
                 "meter": mv.get("meter"),
                 "active_start": mv.get("active_start"),
                 "active_end": mv.get("active_end"),
@@ -341,8 +383,8 @@ def populate_tree(win) -> None:
                 "hb_candidates": hb_cands,
                 "combo_kb_mod": mv.get("combo_kb_mod"),
                 "combo_kb_mod_addr": mv.get("combo_kb_mod_addr"),
-                "speed_mod": mv.get("speed_mod"),                 # NEW
-                "speed_mod_addr": mv.get("speed_mod_addr"),       # NEW
+                "speed_mod": mv.get("speed_mod"),
+                "speed_mod_addr": mv.get("speed_mod_addr"),
                 "superbg_addr": mv.get("superbg_addr"),
                 "superbg_val": mv.get("superbg_val"),
             }

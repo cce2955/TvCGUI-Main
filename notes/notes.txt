@@ -1281,7 +1281,7 @@ Damage word in slice: 0x908D0920 = 00 00 09 60
 
 Resolver marker: 0x908D0924 = 00 00 00 0C
 
-Adjacent sentinel: FF FF FF FF follows in the local pattern you observed
+Adjacent sentinel: FF FF FF FF follows in the local pattern 
 
 Key takeaway
 For new characters/projectiles, you can shortcut discovery:
