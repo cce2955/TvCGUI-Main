@@ -783,3 +783,408 @@ In summary, the projectile configuration is organized in a small internal table 
 Byte one selects the behavior entry.
 Byte two selects the projectile family.
 Byte three selects the variant for that family.
+
+
+
+Projectile architecture (caller vs projectile object)
+
+TvC separates projectile attacks into two distinct layers:
+
+Fighter-side move logic (animation, timing, spawn call)
+
+Projectile actor definition (movement, hitbox, damage, behavior)
+
+Edits to move IDs such as 268 (Hado “mother”) or 304 (Hado L slot) affect only the fighter-side logic. They do not modify the projectile itself.
+
+The projectile’s actual behavior is defined in a separate actor template that is copied when the projectile spawns.
+
+Confirmed projectile template offset (Ryu)
+
+Medium Hadoken projectile template (Ryu):
+
+Effective address:
+0x908D09A0
+
+Type:
+Projectile actor definition / template
+
+Scope:
+Copied into a live projectile instance at spawn time.
+Edits affect newly spawned projectiles only.
+
+This structure defines:
+
+movement velocity
+gravity / drift
+lifespan / distance cap
+hitbox radius
+damage
+hit reaction
+pushback
+ownership / collision behavior
+despawn rules
+
+This is the correct location to modify Hadoken behavior.
+
+Edits to 268 or 304 do not affect projectile physics because those entries only trigger the spawn routine.
+
+Engine flow for projectile moves
+
+When Ryu performs Hadoken:
+
+The fighter executes move logic (268 / 304).
+The engine calls the projectile spawn routine.
+The projectile template at 0x908D09A0 is copied.
+A new projectile instance is created and updated per frame.
+
+Because the template is copied:
+
+Editing the template after the projectile exists has no effect.
+Editing the template before the move is executed works reliably.
+
+Projectile behavior triple (actor-spawn block)
+
+Projectile behavior is selected by a three-byte structure inside the projectile actor definition:
+
+Format:
+XX A5 A0
+
+Byte meanings:
+
+Byte 0: behavior mode
+Selects an entry in the projectile behavior table. Controls collision rules, ownership, attachment, stun logic, and interaction type.
+
+Byte 1: projectile family
+For Ryu, this is A5. Other characters use different family values. The family selects the graphics group, hitbox group, and script group.
+
+Byte 2: variant
+Sub-variant within the family. Controls angle logic, collision layers, grounded/airborne interaction, and special cases.
+
+Observed behavior modes (Byte 0):
+
+00 A5 A0
+Immediate full-health deletion on contact. Bypasses standard collision and scaling. Likely a debug/raw handler.
+
+01 A5 A0
+Minimum possible damage. Likely a stub or test handler.
+
+02 A5 A0
+No collision. Projectile passes through opponents.
+
+03 A5 A0
+Normal Hadoken behavior. Default table entry.
+
+04 A5 A0
+Zero-damage hit that still triggers hit reaction.
+
+05 A5 A0
+Ownership reversed. Projectile affects the caller.
+
+06 A5 A0
+Projectile attaches to Ryu instead of traveling forward.
+
+07 A5 A0
+Projectile affects the assist caller instead of the opponent.
+
+08 A5 A0
+Projectile spawns underground. Likely ground-trace mode.
+
+09 A5 A0
+Knockdown with persistent shock/status effect.
+
+0A A5 A0
+Projectile slides along ground and hits the caller.
+
+Higher values continue the same pattern: each value selects a distinct behavior table entry combining collision masks, team rules, attachment flags, stun types, and environment alignment.
+
+Relationship between 268, 304, and projectile templates
+
+268 (0x010C):
+Shared special prolog / animation controller. Affects Ryu’s motion, timing, cancels, and animation state.
+
+304 (0x0130):
+Special A slot entry. Used by the live move table to route inputs. Does not own projectile data.
+
+0x908D09A0:
+Projectile actor template. Owns projectile physics, hitboxes, damage, and behavior.
+
+This explains why:
+
+Editing 268 affects Ryu but not the projectile.
+Editing 304 often appears to do nothing.
+Editing 0x908D09A0 directly modifies the Hadoken projectile.
+
+Implications
+
+Projectile moves are not fully defined in fighter move blocks.
+
+Each projectile strength (L / M / H) likely has its own nearby template with small differences in velocity, lifespan, and hit reaction.
+
+Characters that share move ID 304 (projectile-capable characters) use different projectile templates rather than different move scripts.
+
+To modify projectile behavior, always locate and edit the projectile actor template, not the move ID.
+
+Projectile Strength Segmentation
+
+Projectile actor templates are internally segmented by strength.
+Each segment is delimited by an 8-byte sentinel:
+
+FF FF FF FF FF FF FF FF
+
+Observed layout for Ryu Hadouken family (A5):
+
+Segment 0: Light Hadouken
+Segment 1: Medium Hadouken
+Segment 2: Heavy Hadouken
+Segment 3: Extra / Air / Super-use variant
+
+The engine selects the segment based on the move’s strength input
+before copying the projectile template into live actor memory.
+
+Edits within one segment only affect that strength.
+Family ID and variant ID remain constant across segments.
+
+Projectile Strength Sharing (Ground vs Air)
+
+Ground and air Hadoukens share the same projectile strength segments.
+There is no separate air-only projectile data.
+
+The actor system selects projectile family (A5) and strength index (L/M/H),
+but does not distinguish ground vs air.
+
+Ground/air differences are handled in fighter move logic
+(spawn height, animation, initial velocity),
+not in the projectile actor template.
+
+Result:
+Editing Light Hadouken projectile data affects both ground L and air L Hadouken.
+
+Ryu hado starts at 908d08f0. 908d0922 sets damage for L hado, 908d091b does something with hit reaction, I dunno what, but it's doing..something, setting 908d0937 above 1 makes it hit twice, but only twice, if I set it to any value, it doesn't reflect that value, it just hits twice, changing anything in 908d0952 removes the particle effect on hit, but there's nothing to replace it with? 908d097a setting above 1 causes hado to spawn in the center of the stage and then behave normally, setting at 43 causes it to spawn above Ryu, 44 it's invisible but you can see it drifting to the background, then nothing until FF where it instant hits the opponent, 908d09a0 of course is speed, 908d09a5 is acceleration
+
+Ryu Hadouken Projectile Template (family A5, variant A0)
+
+Block start and slice boundaries
+
+Projectile template block begins at 0x908D08F0.
+
+0x908D08F0: 00 00 00 04
+Likely segment count (Ryu has 4 segments: L, M, H, plus an extra variant used by the engine).
+
+Strength slices are delimited by an 8-byte sentinel:
+FF FF FF FF FF FF FF FF
+
+Light slice delimiter begins at:
+0x908D08F4
+
+Light slice data begins at:
+0x908D08FC
+
+Notes below refer to the Light slice unless stated otherwise.
+
+Core fields (Light slice)
+
+Scale or tuning floats (stable, not speed)
+
+0x908D08FC f32 1.02 (3F 82 8F 5C)
+0x908D0900 f32 1.01 (3F 81 47 AE)
+0x908D0904 f32 1.01 (3F 81 47 AE)
+
+These three behave like internal multipliers (scale/tuning). They do not feel like raw velocity. Good candidates for subtle tuning.
+
+Damage field
+
+0x908D0920 u32 0x00000960
+Low 16 bits are 0x0960 = 2400 damage for Light Hadouken.
+ “0x908D0922 sets damage” matches this (it’s inside the low halfword).
+
+Hit reaction / property class (unknown, but definitely meaningful)
+
+0x908D0918 u32 0x0000000C
+0x908D0924 u32 0x0000000C
+
+Two separate 0x0C-class words show up early in the slice. These look like “resolver class” style fields (how the engine interprets the rest of the hit / reaction / collision parameters).
+
+Collision / hit gating / multi-hit mode
+
+0x908D0934 u32 0x00000001
+modifying 0x908D0937 (low byte) affects whether it hits, hits twice, or loses collision.
+
+Observed behaviors:
+
+0x908D0937 = 00: projectile does not hit at all (no collision / no contact).
+
+0x908D0937 > 01: projectile hits twice, but clamps at two hits regardless of higher values.
+
+Pattern “FF FF FF 01” removes collision.
+
+Pattern “FF 00 00 01” removes collision 
+
+Interpretation:
+This is not a literal “hit count.” It is a small mode byte or flag byte inside a u32 that toggles collision/hit routing and enables a two-hit script path. The fact that it clamps at two implies the actor script only defines two hit events.
+
+Motion / spawn / travel cluster (partially mapped)
+
+0x908D0944 f32 -3.0 (C0 40 00 00)
+
+
+0x908D0948 f32 9.0 (41 10 00 00)
+
+0x908D094C u32 0x3F800000 (f32 1.0 by default)
+it doesn’t react until the upper 80s, then projectile instantly hits opponent.
+That behavior is consistent with:
+
+a velocity clamp or range clamp that starts overflowing into a “forced contact” path
+
+a collision distance threshold
+
+or a table index that becomes valid only at high values and routes into a “touch opponent now” handler
+
+Do not treat 0x908D094C as “just a float.” It is likely interpreted by code in at least one non-linear way (threshold behavior). Keep it noted as a special field.
+
+Unknown timer / lifetime / FX-related fields
+
+0x908D0950 u32 0x000003E8 (decimal 1000)
+changing bytes around 0x908D0952 removes hit particle effect.
+Byte-scribbling inside the word probably corrupts a timer/id used by the FX emitter or hit FX routing.
+
+Suggested safe test style:
+Change the full u32, not a single byte, to keep it interpretable.
+
+00 00 01 F4 (500)
+
+00 00 07 D0 (2000)
+If that changes lifespan or hit FX lifetime, it confirms it is a duration-like field.
+
+0x908D0960 u32 0x0000000A (decimal 10)
+Unknown. Looks like a cap/limit constant or small timer. Common roles include:
+
+active collision ticks
+
+hitstop ticks
+
+per-actor tick count for script loops
+
+
+Identity / handle field (high-priority)
+
+0x908D0970 u32 0x0003A6F0 (decimal 239344)
+
+
+it looks like an index into a global table (resource/script/actor definition registry)
+
+Adjacent subtype:
+0x908D0978 u32 0x0000000B (decimal 11)
+Likely a subtype, script variant, or resolver index associated with 0x3A6F0.
+
+This pair (0x3A6F0, 0x0B) is the best “at a glance ID” you have inside the projectile template so far.
+
+Spawn position manipulation 
+
+0x908D097A (byte-level field within the 0x908D0978..0x908D097B region)
+Observed:
+
+1 spawns projectile centered in the stage, then behaves normally
+
+0x43 spawns above Ryu
+
+0x44 projectile becomes invisible, drifts to background, then does nothing until FF where it instant-hits opponent
+
+Interpretation:
+This is a strong spawn-mode byte that affects initial transform/origin selection and potentially render flags / depth layer behavior.
+
+Speed / acceleration / cap cluster (confirmed)
+
+0x908D09A0 f32 6.0 (40 C0 00 00)
+Confirmed speed scalar.
+
+0x908D09A4 f32 1.0 (3F 80 00 00)
+ 0x908D09A5 is acceleration; practically, acceleration is likely represented by the full float at 0x09A4, not the single byte at 0x09A5.
+
+0x908D09AC f32 100.0 (42 C8 00 00)
+
+Most likely role:
+
+max speed cap
+
+max travel distance
+
+or range cap
+It will feel like “speed” if the engine clamps velocity based on this.
+
+Action items (next tests that will actually resolve unknowns)
+
+0x908D0970 handle pair
+Goal: prove whether this is an index into a global actor/script registry.
+Test:
+
+Find other projectiles (Chun/Jun/Ken) and see if they each have their own distinct handle value at the analogous offset.
+
+
+
+0x908D09AC 100.0
+Goal: determine whether it is a distance cap or velocity cap.
+Test:
+
+Set 42 C8 00 00 (100.0) to 41 20 00 00 (10.0) and see if it shortens travel distance.
+
+Set to 43 7A 00 00 (250.0) and see if it travels longer or faster.
+If it changes travel length without changing early speed feel, it’s distance cap. If it changes terminal feel, it’s velocity cap.
+
+0x908D0950 1000
+Goal: determine if it is projectile lifetime or hit FX lifetime.
+Test:
+
+Change full word to 500 and 2000 and observe:
+a) how long projectile exists if it misses
+b) whether hit particle duration changes
+
+0x908D0960 10
+Goal: classify as tick cap vs hitstop vs script loop counter.
+Test:
+
+Double it to 20 and see if any “internal cadence” changes (hit timing, particle cadence, collision window).
+If nothing changes, it may be a fixed enum count used only in specific variants.
+
+Ryu Hadouken Speed/Cap/Acceleration Behavior
+
+Let:
+S = 0x908D09A0 (f32) initial speed
+C = 0x908D09AC (f32) cap/limit
+
+Observed:
+- S and C are coupled. Certain ranges enable "normal acceleration" behavior.
+- If S is set above ~5 and C is set below ~70, acceleration becomes clearly active (projectile ramps).
+- Outside this range, behavior degenerates:
+  - either projectile becomes excessively fast (likely immediate clamp/saturation),
+  - or projectile does not move / fails to behave normally (likely speed forced to 0 or init rejected).
+- Hard constraint previously observed: if S > C, projectile fails to spawn.
+
+Ryu Hadouken L slice: packed heading/steering bytes
+
+0x908D0910–0x908D0913 (4 bytes)
+
+Observed:
+- Changing bytes at +0 and +2 rotates projectile heading.
+- Setting byte1=0x80 and byte2=0x90 produces near-homing behavior toward a character.
+
+Working hypothesis:
+These bytes are packed direction/steering parameters, likely interpreted as signed components via (byte - 0x80).
+0x80 behaves like neutral (0), values above/below bias steering.
+
+Suggested mapping guesses:
+- 0x908D0910: heading component A (angle or X)
+- 0x908D0911: steering gain / neutral center (0x80)
+- 0x908D0912: heading component B (angle or Z), 0x90 introduces positive bias
+- 0x908D0913: secondary gain / clamp / unknown
+
+
+Ryu Hadouken (projectile actor block starts 0x908D08F0)
+
+Hit Reaction selector (projectile)
+
+0x908D0918–0x908D091B (u32 / 4 bytes, big-endian)
+This word controls the opponent’s hit reaction when the projectile connects.
+
+Notes:
+- This is the projectile’s reaction setting, not Ryu’s move reaction (so it can differ from the normal move table entries).
+- 0x908D091B is the low byte of the reaction word; changing it will often appear to “do something” even if the higher bytes are unchanged.

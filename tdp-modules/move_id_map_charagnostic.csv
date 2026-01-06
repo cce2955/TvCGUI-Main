@@ -30,6 +30,8 @@
 286,0x10f,Back Throw,3B,3B,yes,100
 288,0x138,j.A (second hit),j.A (second hit),j.A (second hit),yes,100
 289,0x138,j.B (second hit),j.B (second hit),j.B (second hit),yes,100
+471,0x138,Air Forward Throw,j.B (second hit),j.B (second hit),yes,100
+474,0x138,Air Back Throw,j.B (second hit),j.B (second hit),yes,100
 
 # Ken the Eagle (ID: 1)
 304,0x130,Bird Run A,Bird Run A,Bird Run A,yes,1
@@ -944,7 +946,7 @@
 468,0x1,Back Throw,Match Start Anchor,Match Start Anchor,yes,100
 471,0x1,Air Front Throw,Match Start Anchor,Match Start Anchor,yes,100
 513,0x1,Shin Sho fly away,Match Start Anchor,Match Start Anchor,yes,100
-514,0x1,Shin Sho second hit,Match Start Anchor,Match Start Anchor,yes,100
+514,0x1,Level 3 anim,Match Start Anchor,Match Start Anchor,yes,100
 575,0x1,Taunt,Match Start Anchor,Match Start Anchor,yes,100
 4562,0x1,forward throw,forward throw,forward throw,yes,100
 4565,0x1,back throw,back throw,back throw,yes,100
@@ -964,6 +966,8 @@
 4622,0x1,Captured,Captured,Captured,yes,100
 4623,0x1,Captured,Captured,Captured,yes,100
 4294967295,0xffffffff,versus screen loading flag,versus screen loading flag,versus screen loading flag,yes,12
+
+
 
 
 
