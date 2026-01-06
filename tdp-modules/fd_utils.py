@@ -6,7 +6,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Iterable
+from typing import Any, Iterable, Callable
+
 
 from move_id_map import lookup_move_name
 from moves import CHAR_ID_CORRECTION
@@ -58,6 +59,86 @@ KB_TRAJ_MAP = {
     0xBC: "Up KB (Spiral)",
     0xC4: "Up Pop (j.L/j.M)",
 }
+# ============================================================
+# Projectile quick resolver (ProjDmg / ProjTpl)
+#
+# Minimal heuristic:
+#   00 00 XX YY 00 00 00 0C FF FF FF FF
+#
+# We scan a region for the suffix:
+#   00 00 00 0C FF FF FF FF
+# then take the 4 bytes immediately before it as the candidate u32.
+# The low halfword (XXYY) is treated as damage (big-endian).
+#
+# proj_tpl is set to the absolute address of the candidate damage word.
+# ============================================================
+
+_PROJ_SUFFIX = b"\x00\x00\x00\x0C\xFF\xFF\xFF\xFF"
+
+
+def resolve_projectile_fields_for_move(
+    mv: dict,
+    *,
+    region_abs: int | None = None,
+    region_size: int = 0x1400,
+    rbytes_func: Callable[[int, int], bytes] | None = None,
+) -> bool:
+    """
+    Populate:
+      - mv["proj_dmg"]: int (low 16 bits of the candidate u32)
+      - mv["proj_tpl"]: int (absolute address of the candidate u32)
+
+    Returns True if populated.
+    """
+    if mv.get("proj_dmg") is not None and mv.get("proj_tpl") is not None:
+        return True
+
+    base = int(region_abs) if region_abs is not None else int(mv.get("abs") or 0)
+    if not base:
+        return False
+
+    size = int(region_size or 0)
+    if size <= 0:
+        return False
+    # sanity cap; keep it small to reduce unrelated anchors
+    size = max(0x200, min(size, 0x6000))
+
+    if rbytes_func is None:
+        try:
+            from dolphin_io import rbytes as rbytes_func  # type: ignore
+        except Exception:
+            return False
+
+    try:
+        buf = rbytes_func(base, size)
+    except Exception:
+        return False
+
+    if not buf or len(buf) < 12:
+        return False
+
+    pos = 0
+    while True:
+        j = buf.find(_PROJ_SUFFIX, pos)
+        if j < 0:
+            break
+        pos = j + 1
+
+        # need 4 bytes before suffix
+        if j < 4:
+            continue
+
+        cand = buf[j - 4 : j]  # 00 00 XX YY
+        if cand[0] != 0x00 or cand[1] != 0x00:
+            continue
+
+        u32 = int.from_bytes(cand, "big", signed=False)
+        mv["proj_dmg"] = int(u32 & 0xFFFF)      # XXYY as int
+        mv["proj_tpl"] = base + (j - 4)         # address of 00 00 XX YY
+        mv["proj_marker"] = base + j            # optional: where 00 00 00 0C starts
+        return True
+
+    return False
 
 
 def pretty_move_name(anim_id: int | None, char_name: str | None = None) -> str:
