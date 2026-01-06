@@ -1188,3 +1188,105 @@ This word controls the opponent’s hit reaction when the projectile connects.
 Notes:
 - This is the projectile’s reaction setting, not Ryu’s move reaction (so it can differ from the normal move table entries).
 - 0x908D091B is the low byte of the reaction word; changing it will often appear to “do something” even if the higher bytes are unchanged.
+
+
+Kikoken found at 90997c70
+
+projectile marker 0c ff ff ff ff?
+
+Primary marker (damage + resolver + sentinel)
+Within a projectile strength slice, a distinctive sequence appears:
+
+00 00 XX YY 00 00 00 0C FF FF FF FF
+
+Where:
+
+00 00 XX YY is a u32 whose low halfword (XXYY) behaves like damage (big-endian).
+
+Example: 00 00 09 60 = 0x0960 = 2400 damage (Ryu Hadoken L).
+
+00 00 00 0C is a resolver/class selector word used by the projectile hit/reaction/collision system.
+
+FF FF FF FF is a -1 sentinel immediately after the resolver word.
+
+Practical use:
+Scan MEM2 for:
+?? ?? 00 00 00 0C FF FF FF FF
+and then validate the preceding two bytes are a sane damage halfword (and the surrounding structure matches a projectile slice).
+
+Secondary confirmations (to avoid false positives)
+
+Slice delimiter (strength segmentation)
+Projectile templates are segmented by strength slices, delimited by an 8-byte sentinel:
+
+FF FF FF FF FF FF FF FF
+
+In Ryu’s Hadoken family, the actor block begins with a segment count and then uses these 8-byte sentinels to separate L/M/H/(extra) slices.
+
+Expected nearby structure (Ryu-style)
+If the anchor is real, you usually see (nearby, within the same ~0x20–0x80 neighborhood):
+
+one or more stable “tuning” floats around 1.0 (3F 80 00 00-ish)
+
+a small mode/flag word near collision gating (often includes a low-byte that toggles multihit/collision behavior)
+
+later, obvious motion floats (speed / accel / cap) like 40 C0 00 00, 3F 80 00 00, 42 C8 00 00
+
+Cross-character implication
+If Chun’s Kikoken block contains the same local marker:
+00 00 [damage] 00 00 00 0C FF FF FF FF
+then:
+
+0x0C is not “Ryu-only”; it’s a general projectile-hit resolver class.
+
+The pattern is usable as a generic “projectile template locator” across characters/families.
+
+What the “0C” likely is (operational definition)
+0x0000000C is acting like a “resolver class” or “handler ID” that tells the engine:
+
+which projectile-hit interpretation path to use (reaction mapping, collision masks, attachment/team rules, etc.)
+It is not “damage,” and it is not a float; it behaves like a dispatcher index.
+
+Workflow (how to use this in practice)
+
+Find candidate anchors in MEM2
+Search for:
+00 00 00 0C FF FF FF FF
+Then take the 4 bytes immediately before it:
+00 00 XX YY (candidate damage word)
+
+Validate the neighborhood
+From each candidate:
+
+look backward for an 8-byte slice delimiter FF FF FF FF FF FF FF FF
+
+look forward/back for the motion float cluster (speed/accel/cap-like values)
+
+if present, treat the region as a projectile slice inside an actor template
+
+Extract the block
+Once validated:
+
+dump a fixed window around the slice start (or around the delimiter)
+
+label the slice as L/M/H based on its position between delimiters
+
+Known example (Ryu Hadoken)
+
+Actor block start: 0x908D08F0
+
+L slice begins after first 8-byte delimiter
+
+Damage word in slice: 0x908D0920 = 00 00 09 60
+
+Resolver marker: 0x908D0924 = 00 00 00 0C
+
+Adjacent sentinel: FF FF FF FF follows in the local pattern you observed
+
+Key takeaway
+For new characters/projectiles, you can shortcut discovery:
+Instead of hunting “move IDs,” you can locate projectile templates by scanning for:
+
+00 00 XX YY 00 00 00 0C FF FF FF FF
+
+and then validating you’re inside a strength-sliced projectile actor template (8-byte delimiters + motion float cluster nearby).
