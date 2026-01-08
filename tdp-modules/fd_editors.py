@@ -18,9 +18,11 @@ from fd_patterns import (
 from fd_write_helpers import (
     write_hit_reaction_inline,
     write_active2_frames_inline,
-    write_anim_id_inline,          # if you still use this elsewhere
+    write_anim_id_inline,
     write_combo_kb_mod_inline,
     write_superbg_inline,
+    write_proj_dmg_inline,
+
 )
 
 import fd_utils as U
@@ -138,6 +140,48 @@ class FDCellEditorsMixin:
         if new_val is not None and U.WRITER_AVAILABLE and U.write_damage(mv, new_val):
             self.tree.set(item, "damage", str(new_val))
             mv["damage"] = new_val
+    def _edit_proj_dmg(self, item, mv, current: str):
+        # make sure we have proj_tpl/proj_dmg populated
+        if mv.get("proj_tpl") is None:
+            try:
+                import fd_utils as U
+                U.resolve_projectile_fields_for_move(mv, region_abs=mv.get("abs"))
+            except Exception:
+                pass
+
+        addr = mv.get("proj_tpl")
+        if not addr:
+            messagebox.showerror(
+                "Projectile Damage",
+                "Projectile signature not found for this move.\n"
+                "Try Refresh visible.",
+            )
+            return
+
+        cur_val = mv.get("proj_dmg")
+        if cur_val is None:
+            try:
+                cur_val = int((current or "0").strip())
+            except Exception:
+                cur_val = 0
+
+        new_val = simpledialog.askinteger(
+            "Edit Projectile Damage",
+            f"New projectile damage (0-65535)\nAddr: 0x{int(addr):08X}",
+            initialvalue=int(cur_val),
+            minvalue=0,
+            maxvalue=65535,
+        )
+        if new_val is None:
+            return
+
+        import fd_utils as U
+        if write_proj_dmg_inline(mv, int(new_val), U.WRITER_AVAILABLE):
+            self.tree.set(item, "proj_dmg", str(int(new_val)))
+            # keep tpl formatted (optional but nice)
+            self.tree.set(item, "proj_tpl", f"0x{int(mv.get('proj_tpl')):08X}")
+        else:
+            messagebox.showerror("Projectile Damage", "Failed to write projectile damage.")
 
     def _edit_meter(self, item, mv, current: str):
         cur = U.ensure_int(current, 0)

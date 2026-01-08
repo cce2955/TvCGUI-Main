@@ -463,6 +463,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._edit_hitstun(item, mv, current_val)
         elif col_name == "blockstun":
             self._edit_blockstun(item, mv, current_val)
+        elif col_name == "proj_dmg":
+            self._edit_proj_dmg(item, mv, current_val)
         elif col_name == "hitstop":
             self._edit_hitstop(item, mv, current_val)
         elif col_name == "hb_main":

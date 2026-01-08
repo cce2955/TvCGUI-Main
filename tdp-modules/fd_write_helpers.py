@@ -185,3 +185,51 @@ def write_superbg_inline(mv: dict, enabled: bool, WRITER_AVAILABLE: bool) -> boo
         return ok
     except Exception:
         return False
+
+def write_proj_dmg_inline(mv: dict, new_val: int, writer_available: bool) -> bool:
+    """
+    Writes projectile damage at mv["proj_tpl"] which points to the u32 word: 00 00 XX YY (big-endian).
+    We keep the top halfword 0 and write XX YY from new_val (0..65535).
+    """
+    if not writer_available:
+        return False
+
+    addr = mv.get("proj_tpl")
+    if addr is None:
+        return False
+
+    try:
+        addr = int(addr, 16) if isinstance(addr, str) and addr.lower().startswith("0x") else int(addr)
+    except Exception:
+        return False
+
+    try:
+        from dolphin_io import wd8
+    except Exception:
+        return False
+
+    try:
+        v = int(new_val)
+        if v < 0:
+            v = 0
+        if v > 0xFFFF:
+            v = 0xFFFF
+
+        hi = (v >> 8) & 0xFF
+        lo = v & 0xFF
+
+        # 00 00 XX YY
+        if not wd8(addr + 0, 0x00):
+            return False
+        if not wd8(addr + 1, 0x00):
+            return False
+        if not wd8(addr + 2, hi):
+            return False
+        if not wd8(addr + 3, lo):
+            return False
+
+        mv["proj_dmg"] = v
+        mv["proj_tpl"] = addr
+        return True
+    except Exception:
+        return False
