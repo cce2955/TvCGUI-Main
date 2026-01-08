@@ -244,6 +244,16 @@ def populate_tree(win) -> None:
             active2_txt = f"{a2_s}-{a2_e}"
 
         move_abs = mv.get("abs")
+        # --- Projectile resolve (lazy, read-only) ---
+        if move_abs and mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
+            try:
+                U.resolve_projectile_fields_for_move(
+                    mv,
+                    region_abs=move_abs,
+                    region_size=0x1400,
+                )
+            except Exception:
+                pass
 
         hb_cands = []
         hb_off = None

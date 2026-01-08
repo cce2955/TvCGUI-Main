@@ -340,6 +340,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     mv["speed_mod_sig"] = ssig
             if mv.get("speed_mod_addr"):
                 self.tree.set(item_id, "speed_mod", U.fmt_speed_mod_ui(mv.get("speed_mod")))
+            # projectile refresh
+            if mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
+                try:
+                    U.resolve_projectile_fields_for_move(mv, region_abs=move_abs)
+                    self.tree.set(item_id, "proj_dmg", mv.get("proj_dmg") or "")
+                    self.tree.set(
+                        item_id,
+                        "proj_tpl",
+                        f"0x{mv['proj_tpl']:08X}" if mv.get("proj_tpl") else ""
+                    )
+                except Exception:
+                    pass
 
             # superbg (lazy resolve)
             if mv.get("superbg_addr") is None:
