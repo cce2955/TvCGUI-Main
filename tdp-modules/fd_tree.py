@@ -1,10 +1,10 @@
 # fd_tree.py
 #
-# Update: add projectile display columns:
+# Update: projectile display columns:
 #   - proj_dmg  (ProjDmg)
 #   - proj_tpl  (ProjTpl)
 #
-# This file still owns tree column definitions + row population wiring.
+# This file owns tree column definitions + row population wiring.
 # Projectile resolution itself is upstream; here we only display whatever
 # mv carries (mv["proj_dmg"], mv["proj_tpl"]).
 
@@ -65,7 +65,14 @@ def configure_styles(root: tk.Toplevel) -> None:
     )
     style.map("Treeview.Heading", background=[("active", BG_HEADER)])
 
-    style.configure("TButton", background=BG_HEADER, foreground=TXT_MAIN, bordercolor=BORDER, font=("Segoe UI", 9), padding=(8, 3))
+    style.configure(
+        "TButton",
+        background=BG_HEADER,
+        foreground=TXT_MAIN,
+        bordercolor=BORDER,
+        font=("Segoe UI", 9),
+        padding=(8, 3),
+    )
     style.map("TButton", background=[("active", "#DDE6F1")], foreground=[("active", TXT_SELECT)])
 
 
@@ -96,7 +103,7 @@ def build_top_bar(win) -> None:
     ttk.Button(actions, text="Collapse all", command=win._collapse_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Refresh visible", command=win._refresh_visible).pack(side="left", padx=4)
     ttk.Button(actions, text="Reset to original", command=win._reset_all_moves).pack(side="left", padx=4)
-    
+
 
 def build_tree_widget(win) -> ttk.Frame:
     hint = ttk.Label(
@@ -109,10 +116,9 @@ def build_tree_widget(win) -> ttk.Frame:
     frame = ttk.Frame(win.root)
     frame.pack(fill="both", expand=True, padx=8, pady=8)
 
-    # NEW: add proj_dmg, proj_tpl columns (display-only)
     cols = (
         "move", "kind",
-        "damage", "proj_dmg", "proj_tpl",  # NEW
+        "damage", "proj_dmg", "proj_tpl",
         "meter",
         "startup", "active", "active2",
         "hitstun", "blockstun", "hitstop",
@@ -121,17 +127,135 @@ def build_tree_widget(win) -> ttk.Frame:
         "superbg",
         "abs",
     )
+
+    # Store per-column filter vars on the window so fd_window._apply_filter can read them.
+    if not hasattr(win, "_col_filter_vars") or win._col_filter_vars is None:
+        win._col_filter_vars = {}
+    else:
+        win._col_filter_vars.clear()
+
+    win._col_filter_after_id = None
+
+    def _schedule_apply_filters():
+        try:
+            if win._col_filter_after_id is not None:
+                win.root.after_cancel(win._col_filter_after_id)
+        except Exception:
+            pass
+        try:
+            win._col_filter_after_id = win.root.after(80, win._apply_filter)
+        except Exception:
+            try:
+                win._apply_filter()
+            except Exception:
+                pass
+
+    # Two-row header: labels row + entry row
+    labels_row = ttk.Frame(frame)
+    labels_row.grid(row=0, column=0, sticky="ew", padx=(0, 2), pady=(0, 1))
+
+    filter_row = ttk.Frame(frame)
+    filter_row.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=(0, 4))
+
+    _filter_widths = {
+        "move": 34,
+        "kind": 10,
+        "damage": 8,
+        "proj_dmg": 8,
+        "proj_tpl": 12,
+        "meter": 8,
+        "startup": 8,
+        "active": 10,
+        "active2": 10,
+        "hitstun": 8,
+        "blockstun": 8,
+        "hitstop": 8,
+        "hb_main": 8,
+        "hb": 18,
+        "kb": 16,
+        "combo_kb_mod": 12,
+        "speed_mod": 10,
+        "hit_reaction": 16,
+        "superbg": 10,
+        "abs": 12,
+    }
+
+    _filter_labels = {
+        "move": "Move",
+        "kind": "Kind",
+        "damage": "Dmg",
+        "proj_dmg": "ProjDmg",
+        "proj_tpl": "ProjTpl",
+        "meter": "Meter",
+        "startup": "Start",
+        "active": "Active",
+        "active2": "Active2",
+        "hitstun": "HS",
+        "blockstun": "BS",
+        "hitstop": "Stop",
+        "hb_main": "Hitbox",
+        "hb": "HB cand.",
+        "kb": "Knockback",
+        "combo_kb_mod": "ComboKB",
+        "speed_mod": "Speed",
+        "hit_reaction": "HitReact",
+        "superbg": "SuperBG",
+        "abs": "Abs",
+    }
+
+    def _clear_col_filters():
+        for _c, _v in win._col_filter_vars.items():
+            try:
+                _v.set("")
+            except Exception:
+                pass
+        _schedule_apply_filters()
+
+    # Make it callable from elsewhere (your button + any future code)
+    win._clear_col_filters = _clear_col_filters
+
+    # Build label+entry in the same order as Treeview columns
+    for c in cols:
+        w = _filter_widths.get(c, 10)
+        label_txt = _filter_labels.get(c, c)
+
+        lbl = ttk.Label(labels_row, text=label_txt)
+        lbl.pack(side="left", padx=1)
+        try:
+            lbl.configure(width=w)
+        except Exception:
+            pass
+
+        var = tk.StringVar(master=win.root)
+        win._col_filter_vars[c] = var
+
+        ent = ttk.Entry(filter_row, textvariable=var, width=w)
+        ent.pack(side="left", padx=1)
+
+        Tooltip(ent, f"Filter: {label_txt}. Case-insensitive substring. Leave blank to ignore.")
+        ent.bind("<Return>", lambda _e: _schedule_apply_filters())
+
+        def _make_trace(_var=var):
+            def _trace_cb(*_args):
+                _schedule_apply_filters()
+            return _trace_cb
+
+        var.trace_add("write", _make_trace())
+
+    ttk.Button(labels_row, text="Clear col filter", command=win._clear_col_filters).pack(side="left", padx=(8, 0))
+    Tooltip(labels_row, "Type in any box to filter. Multiple boxes are AND'ed together.")
+
     win.tree = ttk.Treeview(frame, columns=cols, show="tree headings", height=30)
 
     vsb = ttk.Scrollbar(frame, orient="vertical", command=win.tree.yview)
     hsb = ttk.Scrollbar(frame, orient="horizontal", command=win.tree.xview)
     win.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
 
-    win.tree.grid(row=0, column=0, sticky="nsew")
-    vsb.grid(row=0, column=1, sticky="ns")
-    hsb.grid(row=1, column=0, sticky="ew")
+    win.tree.grid(row=2, column=0, sticky="nsew")
+    vsb.grid(row=2, column=1, sticky="ns")
+    hsb.grid(row=3, column=0, sticky="ew")
 
-    frame.rowconfigure(0, weight=1)
+    frame.rowconfigure(2, weight=1)
     frame.columnconfigure(0, weight=1)
 
     win.tree.heading("#0", text="")
@@ -141,8 +265,8 @@ def build_tree_widget(win) -> ttk.Frame:
         ("move", "Move"),
         ("kind", "Kind"),
         ("damage", "Dmg"),
-        ("proj_dmg", "ProjDmg"),     # NEW
-        ("proj_tpl", "ProjTpl"),     # NEW
+        ("proj_dmg", "ProjDmg"),
+        ("proj_tpl", "ProjTpl"),
         ("meter", "Meter"),
         ("startup", "Start"),
         ("active", "Active"),
@@ -166,8 +290,8 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("kind", width=70, anchor="w")
 
     win.tree.column("damage", width=70, anchor="center")
-    win.tree.column("proj_dmg", width=70, anchor="center")   # NEW
-    win.tree.column("proj_tpl", width=120, anchor="w")       # NEW
+    win.tree.column("proj_dmg", width=70, anchor="center")
+    win.tree.column("proj_tpl", width=120, anchor="w")
 
     win.tree.column("meter", width=60, anchor="center")
     win.tree.column("startup", width=60, anchor="center")
@@ -244,14 +368,10 @@ def populate_tree(win) -> None:
             active2_txt = f"{a2_s}-{a2_e}"
 
         move_abs = mv.get("abs")
-        # --- Projectile resolve (lazy, read-only) ---
+
         if move_abs and mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
             try:
-                U.resolve_projectile_fields_for_move(
-                    mv,
-                    region_abs=move_abs,
-                    region_size=0x1400,
-                )
+                U.resolve_projectile_fields_for_move(mv, region_abs=move_abs, region_size=0x1400)
             except Exception:
                 pass
 
@@ -299,7 +419,6 @@ def populate_tree(win) -> None:
             v = mv.get("combo_kb_mod")
             combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
 
-        # SPEED MOD
         speed_txt = ""
         if move_abs and mv.get("speed_mod_addr") is None:
             try:
@@ -329,7 +448,6 @@ def populate_tree(win) -> None:
 
         hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
 
-        # NEW: projectile display fields (populated upstream)
         proj_dmg_txt = _fmt_proj_dmg(mv.get("proj_dmg"))
         proj_tpl_txt = _fmt_proj_tpl(mv.get("proj_tpl"))
 
@@ -345,10 +463,8 @@ def populate_tree(win) -> None:
                 move_name,
                 mv.get("kind", ""),
                 "" if mv.get("damage") is None else str(mv.get("damage")),
-
-                proj_dmg_txt,  # NEW
-                proj_tpl_txt,  # NEW
-
+                proj_dmg_txt,
+                proj_tpl_txt,
                 "" if mv.get("meter") is None else str(mv.get("meter")),
                 startup_txt,
                 active_txt,
@@ -374,8 +490,8 @@ def populate_tree(win) -> None:
         if abs_key:
             win.original_moves[abs_key] = {
                 "damage": mv.get("damage"),
-                "proj_dmg": mv.get("proj_dmg"),       # NEW
-                "proj_tpl": mv.get("proj_tpl"),       # NEW
+                "proj_dmg": mv.get("proj_dmg"),
+                "proj_tpl": mv.get("proj_tpl"),
                 "meter": mv.get("meter"),
                 "active_start": mv.get("active_start"),
                 "active_end": mv.get("active_end"),
@@ -402,7 +518,6 @@ def populate_tree(win) -> None:
         win._apply_row_tags(item_id, mv)
         return item_id
 
-    # Group duplicates by anim id
     groups = []
     index_by_id = {}
 

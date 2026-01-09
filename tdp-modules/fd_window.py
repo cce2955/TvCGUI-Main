@@ -1,5 +1,4 @@
 # fd_window.py
-
 from __future__ import annotations
 
 import tkinter as tk
@@ -12,7 +11,7 @@ from fd_editors import FDCellEditorsMixin
 from fd_patterns import (
     find_combo_kb_mod_addr,
     find_superbg_addr,
-    find_speed_mod_addr,   # NEW
+    find_speed_mod_addr,
     SUPERBG_ON,
 )
 
@@ -21,7 +20,7 @@ from fd_write_helpers import (
     write_active2_frames_inline,
     write_combo_kb_mod_inline,
     write_superbg_inline,
-    write_speed_mod_inline,  # NEW
+    write_speed_mod_inline,
 )
 
 from tk_host import tk_call
@@ -76,9 +75,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._all_item_ids: list[str] = []
         self._detached: set[str] = set()
 
-        self._filter_var = None
-        self._status_var = None
-        self._writer_var = None
+        self._filter_var: tk.StringVar | None = None
+        self._status_var: tk.StringVar | None = None
+        self._writer_var: tk.StringVar | None = None
+
+        # Per-column filter vars (populated in fd_tree.build_tree_widget)
+        self._col_filter_vars: dict[str, tk.StringVar] = {}
+        self._col_filter_after_id = None
 
         self.root: tk.Toplevel | None = None
         self.tree: ttk.Treeview | None = None
@@ -106,8 +109,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         fd_tree.configure_styles(self.root)
         fd_tree.build_top_bar(self)
-        fd_tree.build_tree_widget(self)   # fd_tree must include the new speed_mod column (see note below)
-        fd_tree.populate_tree(self)       # fd_tree must also populate speed_mod
+        fd_tree.build_tree_widget(self)
+        fd_tree.populate_tree(self)
 
         self.tree.bind("<Double-Button-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
@@ -132,7 +135,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         speed_txt = self.tree.set(item_id, "speed_mod").strip()
         if speed_txt:
-            tags.add("combo_hot")  # reuse existing accent
+            tags.add("combo_hot")
 
         super_txt = self.tree.set(item_id, "superbg").strip()
         if super_txt == "ON":
@@ -182,10 +185,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         for item in self.tree.get_children(""):
             self.tree.item(item, open=False)
 
-    def _clear_filter(self):
-        self._filter_var.set("")
-        self._apply_filter()
-
     def _safe_detach(self, item_id: str) -> bool:
         if item_id in self._detached:
             return False
@@ -208,28 +207,73 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             finally:
                 self._detached.discard(item_id)
 
+    def _clear_col_filters(self):
+        if getattr(self, "_col_filter_vars", None):
+            for _c, var in self._col_filter_vars.items():
+                try:
+                    var.set("")
+                except Exception:
+                    pass
+        self._apply_filter()
+
+    def _clear_filter(self):
+        # Clears both global and per-column
+        if self._filter_var is not None:
+            self._filter_var.set("")
+        self._clear_col_filters()
+
     def _apply_filter(self):
-        q = (self._filter_var.get() or "").strip().lower()
+        global_q = (self._filter_var.get() or "").strip().lower()
+
+        # Per-column filters (ANDed)
+        col_filters: dict[str, str] = {}
+        for col, var in (getattr(self, "_col_filter_vars", {}) or {}).items():
+            v = (var.get() or "").strip().lower()
+            if v:
+                col_filters[col] = v
 
         self._reattach_all()
 
-        if not q:
+        if not global_q and not col_filters:
             self._status_var.set("Filter cleared")
             return
 
         keep: set[str] = set()
 
+        # Global filter searches only these columns (same as your original behavior)
+        global_cols = ("move", "kind", "abs")
+
         for item_id in self._all_item_ids:
-            text_move = (self.tree.set(item_id, "move") or "").lower()
-            text_kind = (self.tree.set(item_id, "kind") or "").lower()
-            text_abs = (self.tree.set(item_id, "abs") or "").lower()
-            hay = " ".join([text_move, text_kind, text_abs])
-            if q in hay:
-                keep.add(item_id)
-                parent = self.tree.parent(item_id)
-                while parent:
-                    keep.add(parent)
-                    parent = self.tree.parent(parent)
+            # 1) Global filter check
+            if global_q:
+                hay_parts = []
+                for c in global_cols:
+                    try:
+                        hay_parts.append((self.tree.set(item_id, c) or "").lower())
+                    except Exception:
+                        hay_parts.append("")
+                hay = " ".join(hay_parts)
+                if global_q not in hay:
+                    continue
+
+            # 2) Column filters check
+            ok = True
+            for c, needle in col_filters.items():
+                try:
+                    cell = (self.tree.set(item_id, c) or "").lower()
+                except Exception:
+                    cell = ""
+                if needle not in cell:
+                    ok = False
+                    break
+            if not ok:
+                continue
+
+            keep.add(item_id)
+            parent = self.tree.parent(item_id)
+            while parent:
+                keep.add(parent)
+                parent = self.tree.parent(parent)
 
         detached = 0
         for item_id in self._all_item_ids:
@@ -237,7 +281,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 if self._safe_detach(item_id):
                     detached += 1
 
-        self._status_var.set(f"Filter applied: '{q}' (hidden {detached})")
+        parts = []
+        if global_q:
+            parts.append(f"q='{global_q}'")
+        if col_filters:
+            parts.append("cols=" + ", ".join(f"{k}:{v}" for k, v in col_filters.items()))
+        self._status_var.set(f"Filter applied ({' | '.join(parts)}), hidden {detached}")
 
     # ---------- Speed modifier resolve + edit ----------
 
@@ -327,7 +376,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 v = mv.get("combo_kb_mod")
                 self.tree.set(item_id, "combo_kb_mod", f"{v} (0x{v:02X})" if v is not None else "?")
 
-            # speed mod (NEW)
+            # speed mod
             if mv.get("speed_mod_addr") is None:
                 try:
                     from dolphin_io import rbytes
@@ -340,6 +389,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     mv["speed_mod_sig"] = ssig
             if mv.get("speed_mod_addr"):
                 self.tree.set(item_id, "speed_mod", U.fmt_speed_mod_ui(mv.get("speed_mod")))
+
             # projectile refresh
             if mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
                 try:
@@ -389,9 +439,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             if not orig:
                 continue
 
-            # (existing reset code stays the same...) --------------
-
-            # Speed mod (NEW)
+            # Speed mod
             if orig.get("speed_mod_addr") and orig.get("speed_mod") is not None:
                 mv["speed_mod_addr"] = orig["speed_mod_addr"]
                 if write_speed_mod_inline(mv, orig["speed_mod"], U.WRITER_AVAILABLE):
@@ -438,7 +486,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._set_status_for_item(item, mv)
             return
 
-        # Existing routes (damage/meter/etc.) are in FDCellEditorsMixin.
         if col_name == "speed_mod":
             self._edit_speed_mod(item, mv, current_val)
         else:
@@ -447,7 +494,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._apply_row_tags(item, mv)
         self._set_status_for_item(item, mv)
 
-    # Keep standard routing in one place to avoid duplicating if/elif ladders.
     def _route_standard_edit(self, col_name: str, item: str, mv: dict, current_val: str) -> None:
         if col_name == "damage":
             self._edit_damage(item, mv, current_val)
@@ -507,7 +553,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "hitstop": ("stun_addr", "Stun"),
             "kb": ("knockback_addr", "Knockback"),
             "combo_kb_mod": ("combo_kb_mod_addr", "Combo KB Mod"),
-            "speed_mod": ("speed_mod_addr", "Speed Mod"),  # NEW
+            "speed_mod": ("speed_mod_addr", "Speed Mod"),
             "superbg": ("superbg_addr", "SuperBG"),
             "hb_main": ("hb_off", "Hitbox"),
             "hb": ("hb_off", "Hitbox"),
