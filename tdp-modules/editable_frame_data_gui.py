@@ -42,7 +42,7 @@ MIN_REAL_RADIUS = 5.0
 # ---- New: Combo-only KB/Vacuum modifier pattern ----
 # Observed chunk:
 #   01 AC 3D 00 00 00 XX 00 00 00 00
-# and you mentioned a "signature" 01 AC 3F as well, so we accept both.
+# and there is 01 AC 3F as well, so we accept both.
 COMBO_KB_SIG_A = bytes([0x01, 0xAC, 0x3D, 0x00, 0x00, 0x00])  # then XX at +6
 COMBO_KB_SIG_B = bytes([0x01, 0xAC, 0x3F, 0x00, 0x00, 0x00])  # then XX at +6
 COMBO_KB_TAIL_LEN = 4  # expect 00 00 00 00 after XX, but don't require strictly
@@ -1940,7 +1940,7 @@ class EditableFrameDataWindow:
         """Start the Tk mainloop for this editor window."""
         self.root.mainloop()
 # ---- New: Per-move Super Background flag (04 ?? 60) ----
-# You described:
+# 
 #   after anim header 01 XX 01 3C
 #   7 bytes later there is: 04 XX 60
 # We treat the first byte at that +7 location as the toggle:

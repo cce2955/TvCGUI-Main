@@ -211,7 +211,7 @@ def build_tree_widget(win) -> ttk.Frame:
                 pass
         _schedule_apply_filters()
 
-    # Make it callable from elsewhere (your button + any future code)
+    
     win._clear_col_filters = _clear_col_filters
 
     # Build label+entry in the same order as Treeview columns

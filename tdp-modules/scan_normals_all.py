@@ -742,7 +742,7 @@ def attach_move_fields(moves: List[Dict[str, Any]], buf: bytes, base_abs: int, b
             except Exception:
                 pass
 
-        # Advantage (kept as you had it; note 'speed' isn't currently populated)
+        # Advantage 
         total_frames = mv.get("speed") or 0x3C
         a_end = mv.get("active_end")
         if a_end:

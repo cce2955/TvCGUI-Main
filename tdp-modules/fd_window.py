@@ -240,7 +240,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         keep: set[str] = set()
 
-        # Global filter searches only these columns (same as your original behavior)
+        # Global filter searches only these columns
         global_cols = ("move", "kind", "abs")
 
         for item_id in self._all_item_ids:

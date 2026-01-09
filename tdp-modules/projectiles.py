@@ -219,7 +219,7 @@ def ptr_candidates_from_instance(inst_ea: int, header_size: int = 0x200) -> List
 
 def is_valid_instance(inst_ea: int, owner_ea: int) -> bool:
     """
-    Your scan was picking up garbage. This filters it.
+    scan was picking up garbage. This filters it.
     We don't know the full instance struct, so use conservative checks:
       - inst aligned
       - inst in MEM2
@@ -240,7 +240,7 @@ def is_valid_instance(inst_ea: int, owner_ea: int) -> bool:
         # Not owned by this fighter (or ownership isn't stored plainly here)
         return False
 
-    # Reject obvious non-instances: "HEAD" etc found in your output
+    # Reject obvious non-instances: "HEAD" etc found in output
     if b"HEAD" in hdr or b"HEAP" in hdr:
         return False
 

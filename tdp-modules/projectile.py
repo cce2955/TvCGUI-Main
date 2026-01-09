@@ -4,7 +4,7 @@
 #
 # Requirements:
 #   - dolphin_io.py provides: hook(), rd32(), rdf32()
-#   - Uses your documented fighter manager pointers to auto-resolve fighter_base
+#   - Uses documented fighter manager pointers to auto-resolve fighter_base
 #
 # Usage:
 #   python projectile_backtrace.py
@@ -33,7 +33,7 @@ except Exception:
 MEM2_BASE = 0x90000000
 MEM2_END = 0x94000000
 
-# Your static manager pointers
+# static manager pointers
 MANAGERS = {
     "p1c1": 0x803C9FCC,
     "p1c2": 0x803C9FDC,
@@ -41,7 +41,7 @@ MANAGERS = {
     "p2c2": 0x803C9FE4,
 }
 
-# You’ve observed “move data” / actor blocks living around here.
+# observed “move data” / actor blocks living around here.
 # Keep as tunables.
 DEF_REGION_MIN = 0x90800000
 DEF_REGION_MAX = 0x90A80000
@@ -104,7 +104,7 @@ def read_bytes_u8(addr: int, n: int) -> Optional[bytes]:
 
 
 def fighter_base_sanity(base: int) -> bool:
-    # Matches your sanity checks
+    # Matches sanity checks
     max_hp = _safe_u32(base + 0x24)
     cur_hp = _safe_u32(base + 0x28)
     x = _safe_f32(base + 0xF0)
@@ -186,7 +186,7 @@ def find_behavior_triple(buf: bytes, family: int, variant: int) -> List[int]:
 def find_hitbox_markers(buf: bytes) -> List[int]:
     """
     Look for known hitbox delimiters.
-    You confirmed 35 0D 20 3F. Projectiles may reuse it, but some actors use other tags.
+    confirmed 35 0D 20 3F. Projectiles may reuse it, but some actors use other tags.
     We search a small set.
     """
     patterns = [
@@ -268,7 +268,7 @@ def backtrace_definition_pointers(instance_addr: int, family: int, variant: int)
                 print(f"      triple bytes: {mode:02X} {family:02X} {variant:02X} at def+0x{th:X}")
             if marker_hits:
                 mh = marker_hits[0]
-                # Your normal rule: radius at marker+0x44. Try reading that float.
+                # normal rule: radius at marker+0x44. Try reading that float.
                 rad = _safe_f32(p + mh + 0x44)
                 print(f"      marker at def+0x{mh:X} -> radius@+0x44 = {rad!r}")
 
