@@ -794,14 +794,27 @@ def main():
             btn_x = panel_rect.width - btn_w - 6
             btn_y = panel_rect.height - btn_h - 6
             btn_rect_local = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+            # Hover detection (mouse is in screen coords; convert to panel-local coords)
+            mx, my = pygame.mouse.get_pos()
+            mx_local = mx - panel_rect.x
+            my_local = my - panel_rect.y
+            is_hover = btn_rect_local.collidepoint(mx_local, my_local)
 
             flash_left = panel_btn_flash.get(slot_label, 0)
+
             if flash_left > 0:
+                # clicked/flash state
                 base_col = (90, 140, 255)
                 border_col = (255, 255, 255)
+            elif is_hover:
+                # hover state (slightly brighter so it reads as interactive)
+                base_col = (55, 55, 55)
+                border_col = (220, 220, 220)
             else:
+                # normal
                 base_col = (40, 40, 40)
                 border_col = (180, 180, 180)
+
 
             pygame.draw.rect(surf, base_col, btn_rect_local, border_radius=3)
             pygame.draw.rect(surf, border_col, btn_rect_local, 1, border_radius=3)

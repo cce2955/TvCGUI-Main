@@ -96,7 +96,7 @@ def build_top_bar(win) -> None:
     ttk.Button(actions, text="Collapse all", command=win._collapse_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Refresh visible", command=win._refresh_visible).pack(side="left", padx=4)
     ttk.Button(actions, text="Reset to original", command=win._reset_all_moves).pack(side="left", padx=4)
-
+    
 
 def build_tree_widget(win) -> ttk.Frame:
     hint = ttk.Label(

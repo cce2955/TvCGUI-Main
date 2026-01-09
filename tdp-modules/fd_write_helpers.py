@@ -32,35 +32,7 @@ def write_hit_reaction_inline(mv: dict, val: int, WRITER_AVAILABLE: bool) -> boo
     except Exception:
         return False
 
-def write_speed_mod_inline(mv: dict, new_val: int, writer_available: bool) -> bool:
-    """
-    Writes the 'speed modifier' byte to its resolved absolute address.
 
-    Requires:
-      mv["speed_mod_addr"] = absolute address of the byte
-    Sets:
-      mv["speed_mod"] = new_val (0-255)
-    """
-    if not writer_available:
-        return False
-
-    addr = mv.get("speed_mod_addr")
-    if not addr:
-        return False
-
-    try:
-        from dolphin_io import wd8
-    except Exception:
-        return False
-
-    try:
-        b = int(new_val) & 0xFF
-        ok = bool(wd8(addr, b))
-        if ok:
-            mv["speed_mod"] = b
-        return ok
-    except Exception as e:
-        print(f"write_speed_mod_inline failed @0x{addr:08X}: {e}")
 def write_speed_mod_inline(mv: dict, new_val: int, writer_available: bool) -> bool:
     """
     Writes the 'speed modifier' byte to its resolved absolute address.
