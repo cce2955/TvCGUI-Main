@@ -150,13 +150,6 @@ def build_tree_widget(win) -> ttk.Frame:
             except Exception:
                 pass
 
-    # Two-row header: labels row + entry row
-    labels_row = ttk.Frame(frame)
-    labels_row.grid(row=0, column=0, sticky="ew", padx=(0, 2), pady=(0, 1))
-
-    filter_row = ttk.Frame(frame)
-    filter_row.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=(0, 4))
-
     _filter_widths = {
         "move": 34,
         "kind": 10,
@@ -180,6 +173,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "abs": 12,
     }
 
+    # Short labels row (what you asked: “which is which”)
     _filter_labels = {
         "move": "Move",
         "kind": "Kind",
@@ -211,26 +205,50 @@ def build_tree_widget(win) -> ttk.Frame:
                 pass
         _schedule_apply_filters()
 
-    
     win._clear_col_filters = _clear_col_filters
 
-    # Build label+entry in the same order as Treeview columns
-    for c in cols:
+    # --- Column filter UI (label row above entry row; "invisible boxes") ---
+
+    labels_row = ttk.Frame(frame)
+    labels_row.grid(row=0, column=0, sticky="ew", padx=(0, 2), pady=(0, 1))
+
+    filter_row = ttk.Frame(frame)
+    filter_row.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=(0, 4))
+
+    # Make the label row look like plain text over the same background
+    # (optional: match your header color)
+    try:
+        s = ttk.Style(win.root)
+        s.configure("FilterLabel.TLabel", background="#E1E6ED", foreground="#2F5D8C", font=("Segoe UI", 9))
+        labels_row.configure(style="Top.TFrame")
+        filter_row.configure(style="Top.TFrame")
+    except Exception:
+        pass
+
+    # Configure columns so label "cells" and entry "cells" have identical widths.
+    # ttk width is in characters. Use minsize to force consistent cell width.
+    for i, c in enumerate(cols):
+        w = _filter_widths.get(c, 10)
+        labels_row.grid_columnconfigure(i, weight=0, minsize=w * 8)  # 8px per char approx
+        filter_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
+
+    # Last column expands; it holds the clear button aligned right.
+    labels_row.grid_columnconfigure(len(cols), weight=1)
+    filter_row.grid_columnconfigure(len(cols), weight=1)
+
+    for col_i, c in enumerate(cols):
         w = _filter_widths.get(c, 10)
         label_txt = _filter_labels.get(c, c)
 
-        lbl = ttk.Label(labels_row, text=label_txt)
-        lbl.pack(side="left", padx=1)
-        try:
-            lbl.configure(width=w)
-        except Exception:
-            pass
+        # "Invisible box": label with fixed width, no border, just text.
+        lbl = ttk.Label(labels_row, text=label_txt, width=w, anchor="w", style="FilterLabel.TLabel")
+        lbl.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
 
         var = tk.StringVar(master=win.root)
         win._col_filter_vars[c] = var
 
         ent = ttk.Entry(filter_row, textvariable=var, width=w)
-        ent.pack(side="left", padx=1)
+        ent.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
 
         Tooltip(ent, f"Filter: {label_txt}. Case-insensitive substring. Leave blank to ignore.")
         ent.bind("<Return>", lambda _e: _schedule_apply_filters())
@@ -242,9 +260,15 @@ def build_tree_widget(win) -> ttk.Frame:
 
         var.trace_add("write", _make_trace())
 
-    ttk.Button(labels_row, text="Clear col filter", command=win._clear_col_filters).pack(side="left", padx=(8, 0))
+    clear_btn = ttk.Button(labels_row, text="Clear col filter", command=win._clear_col_filters)
+    clear_btn.grid(row=0, column=len(cols), sticky="e", padx=(8, 0))
+    Tooltip(clear_btn, "Clear all per-column filters.")
+   
+
+
     Tooltip(labels_row, "Type in any box to filter. Multiple boxes are AND'ed together.")
 
+    # --- Tree ---
     win.tree = ttk.Treeview(frame, columns=cols, show="tree headings", height=30)
 
     vsb = ttk.Scrollbar(frame, orient="vertical", command=win.tree.yview)
@@ -369,6 +393,7 @@ def populate_tree(win) -> None:
 
         move_abs = mv.get("abs")
 
+        # Lazy resolve (read-only): only if not populated yet.
         if move_abs and mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
             try:
                 U.resolve_projectile_fields_for_move(mv, region_abs=move_abs, region_size=0x1400)
@@ -518,6 +543,7 @@ def populate_tree(win) -> None:
         win._apply_row_tags(item_id, mv)
         return item_id
 
+    # Group duplicates by anim id
     groups = []
     index_by_id = {}
 
