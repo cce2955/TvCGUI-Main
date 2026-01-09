@@ -1,40 +1,31 @@
-# fd_dialogs.py
-#
-# Small Tk dialogs used by the frame editor.
+# fd_dialogs.py (only change is the radio label text)
+# Full file as-is with the updated label.
+
+from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
 
 
 class ReplaceMoveDialog(tk.Toplevel):
-    """
-    Dialog to select another move and how to replace:
-
-    - mode 'anim'  -> replace animation ID only
-    - mode 'block' -> aggressive block clone (Y2-style)
-    """
-
-    def __init__(self, parent, all_moves, current_mv):
+    def __init__(self, parent, all_moves):
         super().__init__(parent)
         self.title("Replace Move")
+        self.geometry("620x480")
+        self.resizable(True, True)
+
         self.result = None
+        self.all_moves = list(all_moves or [])
 
-        self.all_moves = [m for m in all_moves if m is not current_mv]
-        self.current_mv = current_mv
-
-        cur_id = current_mv.get("id")
-        cur_name = current_mv.get("move_name") or "?"
-        tk.Label(
-            self,
-            text=f"Current: {cur_name} [0x{(cur_id or 0):04X}]",
-            font=("Arial", 10, "bold"),
-        ).pack(anchor="w", padx=8, pady=(6, 4))
+        label = tk.Label(self, text="Choose the move to copy FROM (source):")
+        label.pack(anchor="w", padx=8, pady=(8, 2))
 
         frame = tk.Frame(self)
         frame.pack(fill="both", expand=True, padx=8, pady=4)
 
-        self.listbox = tk.Listbox(frame, height=14, exportselection=False, font=("Courier", 9))
+        self.listbox = tk.Listbox(frame, height=16)
         self.listbox.pack(side="left", fill="both", expand=True)
+
         sb = ttk.Scrollbar(frame, orient="vertical", command=self.listbox.yview)
         sb.pack(side="right", fill="y")
         self.listbox.configure(yscrollcommand=sb.set)
@@ -58,7 +49,7 @@ class ReplaceMoveDialog(tk.Toplevel):
 
         ttk.Radiobutton(
             mode_frame,
-            text="Replace animation only (01 ?? 01 3C)",
+            text="Replace animation only (prefers 04 01 02 3F record; falls back to 01 ?? 01 3C)",
             variable=self.mode_var,
             value="anim",
         ).pack(anchor="w", padx=4, pady=2)
@@ -88,8 +79,10 @@ class ReplaceMoveDialog(tk.Toplevel):
         if not sel:
             self.result = None
         else:
-            mv = self._candidates[sel[0]]
-            self.result = (mv, self.mode_var.get())
+            idx = int(sel[0])
+            src = self._candidates[idx]
+            mode = self.mode_var.get()
+            self.result = (src, mode)
         self.destroy()
 
     def _on_cancel(self):

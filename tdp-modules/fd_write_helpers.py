@@ -4,9 +4,11 @@
 
 from __future__ import annotations
 
-from fd_patterns import SUPERBG_ON, SUPERBG_OFF
+from fd_patterns import SUPERBG_ON, SUPERBG_OFF, find_anim_u16_addr
 
 from typing import Optional
+
+
 def write_hit_reaction_inline(mv: dict, val: int, WRITER_AVAILABLE: bool) -> bool:
     if not WRITER_AVAILABLE:
         return False
@@ -95,24 +97,10 @@ def write_anim_id_inline(mv: dict, new_anim_id: int, WRITER_AVAILABLE: bool) -> 
     except ImportError:
         return False
 
-    LOOKAHEAD = 0x80
-
-    try:
-        buf = rbytes(base, LOOKAHEAD)
-    except Exception:
+    addr, _cur, _kind = find_anim_u16_addr(base, rbytes, lookahead=0x80)
+    if addr is None:
         return False
 
-    target_off = None
-    for i in range(0, len(buf) - 4):
-        b0, b2, b3 = buf[i], buf[i + 2], buf[i + 3]
-        if b0 == 0x01 and b3 == 0x3C and b2 == 0x01:
-            target_off = i
-            break
-
-    if target_off is None:
-        return False
-
-    addr = base + target_off + 1
     new_hi = (new_anim_id >> 8) & 0xFF
     new_lo = new_anim_id & 0xFF
 
@@ -157,6 +145,7 @@ def write_superbg_inline(mv: dict, enabled: bool, WRITER_AVAILABLE: bool) -> boo
         return ok
     except Exception:
         return False
+
 
 def write_proj_dmg_inline(mv: dict, new_val: int, writer_available: bool) -> bool:
     """
