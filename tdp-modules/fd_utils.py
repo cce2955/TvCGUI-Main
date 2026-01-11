@@ -332,6 +332,128 @@ def fmt_hit_reaction_ui(val: int | None) -> str:
     desc = HIT_REACTION_MAP.get(val, "Unknown")
     return f"0x{val:06X} ({desc})"
 
+# ============================================================
+# Projectile strength-slice resolver (A6 F0 anchors)
+#
+# Your dump shows repeating anchor bytes "A6 F0" inside the move block.
+# Treat each occurrence as a "strength slice" in ascending order:
+#   slice[0] -> L
+#   slice[1] -> M
+#   slice[2] -> H/C
+#
+# We store:
+#   mv["proj_slices"] = [abs_addr0, abs_addr1, ...]
+#   mv["proj_slice"]  = selected abs addr for this row's strength
+# ============================================================
+
+_A6F0 = b"\xA6\xF0"
+
+
+def infer_strength_index_from_name(move_name: str) -> int | None:
+    """
+    Returns:
+      0 for Light (L)
+      1 for Medium (M)
+      2 for Heavy/Capcom (H/C)
+    """
+    if not move_name:
+        return None
+    s = move_name.lower()
+
+    # Strongest match: explicit token at end or surrounded by punctuation.
+    # We keep this intentionally simple.
+    if " hado" in s or "kiko" in s or "hado" in s or "kiko" in s or "kik" in s:
+        pass  # allow parsing suffix below
+    else:
+        # Only apply to obvious projectile specials; expand if needed.
+        return None
+
+    # Light
+    if " l" in s or s.endswith(" l") or s.endswith("l]") or s.endswith("l"):
+        return 0
+    # Medium
+    if " m" in s or s.endswith(" m") or s.endswith("m]") or s.endswith("m"):
+        return 1
+    # Heavy / Capcom "C"
+    if " h" in s or s.endswith(" h") or s.endswith("h]") or s.endswith("h"):
+        return 2
+    if " c" in s or s.endswith(" c") or s.endswith("c]") or s.endswith("c"):
+        return 2
+
+    return None
+
+
+def resolve_projectile_strength_slices_for_move(
+    mv: dict,
+    *,
+    region_abs: int | None = None,
+    region_size: int = 0x1400,
+    rbytes_func: Callable[[int, int], bytes] | None = None,
+    strength_index: int | None = None,
+    move_name_for_strength: str | None = None,
+) -> bool:
+    """
+    Populate:
+      - mv["proj_slices"]: list[int] of absolute addresses where "A6 F0" occurs
+      - mv["proj_slice"]:  selected slice for this mv based on strength_index
+
+    strength_index:
+      0=L, 1=M, 2=H/C
+    """
+    base = int(region_abs) if region_abs is not None else int(mv.get("abs") or 0)
+    if not base:
+        return False
+
+    size = int(region_size or 0)
+    if size <= 0:
+        return False
+    size = max(0x200, min(size, 0x6000))
+
+    if rbytes_func is None:
+        try:
+            from dolphin_io import rbytes as rbytes_func  # type: ignore
+        except Exception:
+            return False
+
+    try:
+        buf = rbytes_func(base, size)
+    except Exception:
+        return False
+
+    if not buf or len(buf) < 2:
+        return False
+
+    # Collect all A6F0 occurrences (absolute addresses), in ascending order.
+    slices: list[int] = []
+    pos = 0
+    while True:
+        j = buf.find(_A6F0, pos)
+        if j < 0:
+            break
+        slices.append(base + j)
+        pos = j + 1  # allow overlaps (doesn't matter here)
+
+    if not slices:
+        return False
+
+    mv["proj_slices"] = slices
+
+    # Determine which slice to bind to this mv row
+    idx = strength_index
+    if idx is None and move_name_for_strength:
+        idx = infer_strength_index_from_name(move_name_for_strength)
+
+    if idx is not None:
+        if 0 <= idx < len(slices):
+            mv["proj_slice"] = slices[idx]
+        else:
+            # If we don't have enough slices, clamp to last.
+            mv["proj_slice"] = slices[-1]
+    else:
+        # No strength requested: leave mv["proj_slice"] unset, but keep list.
+        mv.pop("proj_slice", None)
+
+    return True
 
 def ensure_int(s: str, default: int = 0) -> int:
     try:

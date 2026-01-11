@@ -101,11 +101,6 @@ def build_top_bar(win) -> None:
 
     ttk.Button(actions, text="Expand all", command=win._expand_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Collapse all", command=win._collapse_all).pack(side="left", padx=4)
-
-    ttk.Button(actions, text="Sort: Notation", command=getattr(win, "sort_by_notation_order", win._refresh_visible)).pack(side="left", padx=10)
-    ttk.Button(actions, text="Sort: Scanned", command=getattr(win, "sort_by_scanned_order", win._refresh_visible)).pack(side="left", padx=4)
-    ttk.Button(actions, text="Sort: Abs", command=getattr(win, "sort_by_abs_order", win._refresh_visible)).pack(side="left", padx=4)
-
     ttk.Button(actions, text="Refresh visible", command=win._refresh_visible).pack(side="left", padx=4)
     ttk.Button(actions, text="Reset to original", command=win._reset_all_moves).pack(side="left", padx=4)
 
@@ -178,6 +173,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "abs": 12,
     }
 
+    # Short labels row 
     _filter_labels = {
         "move": "Move",
         "kind": "Kind",
@@ -211,12 +207,16 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win._clear_col_filters = _clear_col_filters
 
+    # --- Column filter UI (label row above entry row; "invisible boxes") ---
+
     labels_row = ttk.Frame(frame)
     labels_row.grid(row=0, column=0, sticky="ew", padx=(0, 2), pady=(0, 1))
 
     filter_row = ttk.Frame(frame)
     filter_row.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=(0, 4))
 
+    # Make the label row look like plain text over the same background
+    # (optional: match your header color)
     try:
         s = ttk.Style(win.root)
         s.configure("FilterLabel.TLabel", background="#E1E6ED", foreground="#2F5D8C", font=("Segoe UI", 9))
@@ -225,11 +225,14 @@ def build_tree_widget(win) -> ttk.Frame:
     except Exception:
         pass
 
+    # Configure columns so label "cells" and entry "cells" have identical widths.
+    # ttk width is in characters. Use minsize to force consistent cell width.
     for i, c in enumerate(cols):
         w = _filter_widths.get(c, 10)
-        labels_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
+        labels_row.grid_columnconfigure(i, weight=0, minsize=w * 8)  # 8px per char approx
         filter_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
 
+    # Last column expands; it holds the clear button aligned right.
     labels_row.grid_columnconfigure(len(cols), weight=1)
     filter_row.grid_columnconfigure(len(cols), weight=1)
 
@@ -237,6 +240,7 @@ def build_tree_widget(win) -> ttk.Frame:
         w = _filter_widths.get(c, 10)
         label_txt = _filter_labels.get(c, c)
 
+        # "Invisible box": label with fixed width, no border, just text.
         lbl = ttk.Label(labels_row, text=label_txt, width=w, anchor="w", style="FilterLabel.TLabel")
         lbl.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
 
@@ -259,9 +263,12 @@ def build_tree_widget(win) -> ttk.Frame:
     clear_btn = ttk.Button(labels_row, text="Clear col filter", command=win._clear_col_filters)
     clear_btn.grid(row=0, column=len(cols), sticky="e", padx=(8, 0))
     Tooltip(clear_btn, "Clear all per-column filters.")
+   
+
 
     Tooltip(labels_row, "Type in any box to filter. Multiple boxes are AND'ed together.")
 
+    # --- Tree ---
     win.tree = ttk.Treeview(frame, columns=cols, show="tree headings", height=30)
 
     vsb = ttk.Scrollbar(frame, orient="vertical", command=win.tree.yview)
@@ -357,7 +364,36 @@ def populate_tree(win) -> None:
             return f"0x{int(v):08X}"
         except Exception:
             return str(v)
+    def _infer_strength_from_move_name(move_name: str) -> int | None:
+        """
+        If ProjDmg couldn't be resolved, fall back to strength indexing:
+          L -> 1, M -> 2, H/C -> 3
 
+        We key off common patterns like:
+          "Hadoken L", "Kikoken M", etc.
+        """
+        if not move_name:
+            return None
+
+        s = move_name.lower()
+
+        # Only apply this fallback to known projectile specials by name.
+        # Add more keywords if you want (e.g., "hadouken", "kikouken", etc.)
+        if ("hado" not in s) and ("kiko" not in s) and ("kiko" not in s) and ("hadoken" not in s) and ("kikoken" not in s):
+            return None
+
+        # Strongest signals: explicit " L"/" M"/" H"/" C" tokens.
+        # We check both end-of-string and bracketed forms that may appear.
+        if " l" in s or s.endswith("l") or " light" in s:
+            return 1
+        if " m" in s or s.endswith("m") or " medium" in s:
+            return 2
+
+        # TvC sometimes uses C for heavy (Capcom notation), or H in other lists
+        if " c" in s or s.endswith("c") or " h" in s or s.endswith("h") or " heavy" in s:
+            return 3
+
+        return None
     def insert_move_row(mv, parent=""):
         aid = mv.get("id")
         move_name = U.pretty_move_name(aid, cname)
@@ -368,188 +404,201 @@ def populate_tree(win) -> None:
                 move_name = f"{move_name} (Tier{dup_idx + 1})"
             move_name = f"{move_name} [0x{aid:04X}]"
 
-        a_s = mv.get("active_start")
-        a_e = mv.get("active_end")
-        startup_txt = "" if a_s is None else str(a_s)
-        active_txt = f"{a_s}-{a_e}" if (a_s is not None and a_e is not None) else ""
+        move_abs = mv.get("abs")  # MOVE THIS UP BEFORE ANY "if move_abs"
 
-        a2_s = mv.get("active2_start")
-        a2_e = mv.get("active2_end")
-        if a2_s is None and a2_e is None:
-            active2_txt = ""
-        elif a2_s is None:
-            active2_txt = str(a2_e)
-        elif a2_e is None:
-            active2_txt = str(a2_s)
-        else:
-            active2_txt = f"{a2_s}-{a2_e}"
-
-        move_abs = mv.get("abs")
-
-        # Lazy resolve (read-only): only if not populated yet.
-        if move_abs and mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
+        # Strength-slice resolve (A6F0 anchors):
+        if move_abs and mv.get("proj_slices") is None:
             try:
-                U.resolve_projectile_fields_for_move(mv, region_abs=move_abs, region_size=0x1400)
+                U.resolve_projectile_strength_slices_for_move(
+                    mv,
+                    region_abs=move_abs,
+                    region_size=0x1400,
+                    move_name_for_strength=move_name,
+                )
             except Exception:
                 pass
 
-        # IMPORTANT: cache hitbox candidates so sorting does NOT rescan Dolphin every time.
-        hb_cands = mv.get("hb_candidates")
-        hb_off = mv.get("hb_off")
-        hb_val = mv.get("hb_r")
 
-        if move_abs and (hb_cands is None or hb_off is None or hb_val is None):
-            hb_cands2 = []
-            hb_off2 = None
-            hb_val2 = None
-            try:
-                hb_cands2 = U.scan_hitbox_candidates(move_abs)
-                hb_off2, hb_val2 = U.select_primary_hitbox(hb_cands2)
-            except Exception:
-                hb_cands2 = []
-                hb_off2 = None
-                hb_val2 = None
 
-            hb_cands = hb_cands2
-            hb_off = hb_off2
-            hb_val = hb_val2
+            a_s = mv.get("active_start")
+            a_e = mv.get("active_end")
+            startup_txt = "" if a_s is None else str(a_s)
+            active_txt = f"{a_s}-{a_e}" if (a_s is not None and a_e is not None) else ""
+
+            a2_s = mv.get("active2_start")
+            a2_e = mv.get("active2_end")
+            if a2_s is None and a2_e is None:
+                active2_txt = ""
+            elif a2_s is None:
+                active2_txt = str(a2_e)
+            elif a2_e is None:
+                active2_txt = str(a2_s)
+            else:
+                active2_txt = f"{a2_s}-{a2_e}"
+
+            # Old heuristic resolve (suffix-based) only if not populated yet.
+            if move_abs and mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
+                try:
+                    U.resolve_projectile_fields_for_move(mv, region_abs=move_abs, region_size=0x1400)
+                except Exception:
+                    pass
+
+            # Hitbox scanning
+            hb_cands = []
+            hb_off = None
+            hb_val = None
+            hb_txt = ""
+            hb_main_txt = ""
+            if move_abs:
+                hb_cands = U.scan_hitbox_candidates(move_abs)
+                hb_off, hb_val = U.select_primary_hitbox(hb_cands)
+                if hb_val is not None:
+                    hb_main_txt = f"{hb_val:.1f}"
+                if hb_cands:
+                    hb_txt = U.format_candidate_list(hb_cands)
 
             mv["hb_candidates"] = hb_cands
             mv["hb_off"] = hb_off
             mv["hb_r"] = hb_val
 
-        hb_txt = ""
-        hb_main_txt = ""
-        if hb_val is not None:
-            hb_main_txt = f"{hb_val:.1f}"
-        if hb_cands:
-            hb_txt = U.format_candidate_list(hb_cands)
+            kb0 = mv.get("kb0")
+            kb1 = mv.get("kb1")
+            kb_traj = mv.get("kb_traj")
+            kb_parts = []
+            if kb0 is not None:
+                kb_parts.append(f"K0:{kb0}")
+            if kb1 is not None:
+                kb_parts.append(f"K1:{kb1}")
+            if kb_traj is not None:
+                kb_parts.append(U.fmt_kb_traj(kb_traj))
+            kb_txt2 = " ".join(kb_parts)
 
-        kb0 = mv.get("kb0")
-        kb1 = mv.get("kb1")
-        kb_traj = mv.get("kb_traj")
-        kb_parts = []
-        if kb0 is not None:
-            kb_parts.append(f"K0:{kb0}")
-        if kb1 is not None:
-            kb_parts.append(f"K1:{kb1}")
-        if kb_traj is not None:
-            kb_parts.append(U.fmt_kb_traj(kb_traj))
-        kb_txt2 = " ".join(kb_parts)
+            combo_txt = ""
+            if move_abs and mv.get("combo_kb_mod_addr") is None:
+                try:
+                    from dolphin_io import rbytes
+                    addr, cur, sig = find_combo_kb_mod_addr(move_abs, rbytes)
+                except Exception:
+                    addr, cur, sig = (None, None, None)
+                if addr:
+                    mv["combo_kb_mod_addr"] = addr
+                    mv["combo_kb_mod"] = cur
+                    mv["combo_kb_sig"] = sig
+            if mv.get("combo_kb_mod_addr"):
+                v = mv.get("combo_kb_mod")
+                combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
 
-        combo_txt = ""
-        if move_abs and mv.get("combo_kb_mod_addr") is None:
-            try:
-                from dolphin_io import rbytes
-                addr, cur, sig = find_combo_kb_mod_addr(move_abs, rbytes)
-            except Exception:
-                addr, cur, sig = (None, None, None)
-            if addr:
-                mv["combo_kb_mod_addr"] = addr
-                mv["combo_kb_mod"] = cur
-                mv["combo_kb_sig"] = sig
-        if mv.get("combo_kb_mod_addr"):
-            v = mv.get("combo_kb_mod")
-            combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
+            speed_txt = ""
+            if move_abs and mv.get("speed_mod_addr") is None:
+                try:
+                    from dolphin_io import rbytes
+                    saddr, sval, ssig = find_speed_mod_addr(move_abs, rbytes)
+                except Exception:
+                    saddr, sval, ssig = (None, None, None)
+                if saddr:
+                    mv["speed_mod_addr"] = saddr
+                    mv["speed_mod"] = sval
+                    mv["speed_mod_sig"] = ssig
+            if mv.get("speed_mod_addr"):
+                speed_txt = U.fmt_speed_mod_ui(mv.get("speed_mod"))
 
-        speed_txt = ""
-        if move_abs and mv.get("speed_mod_addr") is None:
-            try:
-                from dolphin_io import rbytes
-                saddr, sval, ssig = find_speed_mod_addr(move_abs, rbytes)
-            except Exception:
-                saddr, sval, ssig = (None, None, None)
-            if saddr:
-                mv["speed_mod_addr"] = saddr
-                mv["speed_mod"] = sval
-                mv["speed_mod_sig"] = ssig
-        if mv.get("speed_mod_addr"):
-            speed_txt = U.fmt_speed_mod_ui(mv.get("speed_mod"))
+            superbg_txt = ""
+            if move_abs and mv.get("superbg_addr") is None:
+                try:
+                    from dolphin_io import rbytes, rd8
+                    saddr, sval = find_superbg_addr(move_abs, rbytes, rd8)
+                except Exception:
+                    saddr, sval = (None, None)
+                if saddr:
+                    mv["superbg_addr"] = saddr
+                    mv["superbg_val"] = sval
+            if mv.get("superbg_addr"):
+                superbg_txt = U.fmt_superbg(mv.get("superbg_val"))
 
-        superbg_txt = ""
-        if move_abs and mv.get("superbg_addr") is None:
-            try:
-                from dolphin_io import rbytes, rd8
-                saddr, sval = find_superbg_addr(move_abs, rbytes, rd8)
-            except Exception:
-                saddr, sval = (None, None)
-            if saddr:
-                mv["superbg_addr"] = saddr
-                mv["superbg_val"] = sval
-        if mv.get("superbg_addr"):
-            superbg_txt = U.fmt_superbg(mv.get("superbg_val"))
+            hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
 
-        hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
+            # ProjDmg display: prefer resolved proj_dmg, else fallback to 1/2/3 strength.
+            proj_dmg_val = mv.get("proj_dmg")
+            if proj_dmg_val is None:
+                strength_123 = _infer_strength_from_move_name(move_name)
+                if strength_123 is not None:
+                    proj_dmg_val = strength_123
+            proj_dmg_txt = _fmt_proj_dmg(proj_dmg_val)
 
-        proj_dmg_txt = _fmt_proj_dmg(mv.get("proj_dmg"))
-        proj_tpl_txt = _fmt_proj_tpl(mv.get("proj_tpl"))
+            # ProjTpl display: prefer strength-bound slice address, else old proj_tpl.
+            proj_tpl_value = mv.get("proj_slice")
+            if proj_tpl_value is None:
+                proj_tpl_value = mv.get("proj_tpl")
+            proj_tpl_txt = _fmt_proj_tpl(proj_tpl_value)
 
-        row_tag = "row_even" if (win._row_counter % 2 == 0) else "row_odd"
-        win._row_counter += 1
+            row_tag = "row_even" if (win._row_counter % 2 == 0) else "row_odd"
+            win._row_counter += 1
 
-        item_id = win.tree.insert(
-            parent,
-            "end",
-            text="",
-            tags=(row_tag,),
-            values=(
-                move_name,
-                mv.get("kind", ""),
-                "" if mv.get("damage") is None else str(mv.get("damage")),
-                proj_dmg_txt,
-                proj_tpl_txt,
-                "" if mv.get("meter") is None else str(mv.get("meter")),
-                startup_txt,
-                active_txt,
-                active2_txt,
-                U.fmt_stun(mv.get("hitstun")),
-                U.fmt_stun(mv.get("blockstun")),
-                "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
-                hb_main_txt,
-                hb_txt,
-                kb_txt2,
-                combo_txt,
-                speed_txt,
-                hr_txt,
-                superbg_txt,
-                f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
-            ),
-        )
+            item_id = win.tree.insert(
+                parent,
+                "end",
+                text="",
+                tags=(row_tag,),
+                values=(
+                    move_name,
+                    mv.get("kind", ""),
+                    "" if mv.get("damage") is None else str(mv.get("damage")),
+                    proj_dmg_txt,
+                    proj_tpl_txt,
+                    "" if mv.get("meter") is None else str(mv.get("meter")),
+                    startup_txt,
+                    active_txt,
+                    active2_txt,
+                    U.fmt_stun(mv.get("hitstun")),
+                    U.fmt_stun(mv.get("blockstun")),
+                    "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
+                    hb_main_txt,
+                    hb_txt,
+                    kb_txt2,
+                    combo_txt,
+                    speed_txt,
+                    hr_txt,
+                    superbg_txt,
+                    f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
+                ),
+            )
 
-        win.move_to_tree_item[item_id] = mv
-        win._all_item_ids.append(item_id)
+            win.move_to_tree_item[item_id] = mv
+            win._all_item_ids.append(item_id)
 
-        abs_key = mv.get("abs")
-        if abs_key:
-            win.original_moves[abs_key] = {
-                "damage": mv.get("damage"),
-                "proj_dmg": mv.get("proj_dmg"),
-                "proj_tpl": mv.get("proj_tpl"),
-                "meter": mv.get("meter"),
-                "active_start": mv.get("active_start"),
-                "active_end": mv.get("active_end"),
-                "active2_start": a2_s,
-                "active2_end": a2_e,
-                "hitstun": mv.get("hitstun"),
-                "blockstun": mv.get("blockstun"),
-                "hitstop": mv.get("hitstop"),
-                "kb0": mv.get("kb0"),
-                "kb1": mv.get("kb1"),
-                "kb_traj": mv.get("kb_traj"),
-                "hit_reaction": mv.get("hit_reaction"),
-                "hb_off": hb_off,
-                "hb_r": hb_val,
-                "hb_candidates": hb_cands,
-                "combo_kb_mod": mv.get("combo_kb_mod"),
-                "combo_kb_mod_addr": mv.get("combo_kb_mod_addr"),
-                "speed_mod": mv.get("speed_mod"),
-                "speed_mod_addr": mv.get("speed_mod_addr"),
-                "superbg_addr": mv.get("superbg_addr"),
-                "superbg_val": mv.get("superbg_val"),
-            }
+            abs_key = mv.get("abs")
+            if abs_key:
+                win.original_moves[abs_key] = {
+                    "damage": mv.get("damage"),
+                    "proj_dmg": mv.get("proj_dmg"),
+                    "proj_tpl": mv.get("proj_tpl"),
+                    "proj_slices": mv.get("proj_slices"),
+                    "proj_slice": mv.get("proj_slice"),
+                    "meter": mv.get("meter"),
+                    "active_start": mv.get("active_start"),
+                    "active_end": mv.get("active_end"),
+                    "active2_start": a2_s,
+                    "active2_end": a2_e,
+                    "hitstun": mv.get("hitstun"),
+                    "blockstun": mv.get("blockstun"),
+                    "hitstop": mv.get("hitstop"),
+                    "kb0": mv.get("kb0"),
+                    "kb1": mv.get("kb1"),
+                    "kb_traj": mv.get("kb_traj"),
+                    "hit_reaction": mv.get("hit_reaction"),
+                    "hb_off": hb_off,
+                    "hb_r": hb_val,
+                    "hb_candidates": hb_cands,
+                    "combo_kb_mod": mv.get("combo_kb_mod"),
+                    "combo_kb_mod_addr": mv.get("combo_kb_mod_addr"),
+                    "speed_mod": mv.get("speed_mod"),
+                    "speed_mod_addr": mv.get("speed_mod_addr"),
+                    "superbg_addr": mv.get("superbg_addr"),
+                    "superbg_val": mv.get("superbg_val"),
+                }
 
-        win._apply_row_tags(item_id, mv)
-        return item_id
+            win._apply_row_tags(item_id, mv)
+            return item_id
 
     # Group duplicates by anim id
     groups = []
