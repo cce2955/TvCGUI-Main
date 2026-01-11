@@ -1290,3 +1290,5 @@ Instead of hunting “move IDs,” you can locate projectile templates by scanni
 00 00 XX YY 00 00 00 0C FF FF FF FF
 
 and then validating you’re inside a strength-sliced projectile actor template (8-byte delimiters + motion float cluster nearby).
+
+9084b796 setting to 50 removes the hud

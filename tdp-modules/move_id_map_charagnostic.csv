@@ -856,7 +856,9 @@
 49,0x1,Crouching Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 55,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 56,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
+57,0x1,Crouch hit reaction,Intro Pose Anchor,Intro Pose Anchor,yes,100
 58,0x1,Crouch Turn,Intro Pose Anchor,Intro Pose Anchor,yes,100
+59,0x1,Crouch Turn Rising/hitreaction?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 60,0x1,Hit by Sweep Reaction,Standing Hitstun,Standing Hitstun,yes,100
 61,0x1,Stunned,Standing Hitstun,Standing Hitstun,yes,100
 62,0x1,Stumble,Standing Hitstun,Standing Hitstun,yes,100

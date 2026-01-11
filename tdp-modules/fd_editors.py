@@ -545,12 +545,45 @@ class FDCellEditorsMixin:
             messagebox.showerror("Error", "Writer unavailable")
             return
 
-        dlg = ReplaceMoveDialog(self.root, self.moves, mv)
-        self.root.wait_window(dlg)
-        if not dlg.result:
+        # ReplaceMoveDialog has had multiple signatures across revisions.
+        # Try the newest first, then gracefully fall back.
+        try:
+            dlg = ReplaceMoveDialog(self.root, self.moves, mv)   # (parent, all_moves, current_mv)
+        except TypeError:
+            try:
+                dlg = ReplaceMoveDialog(self.root, self.moves)   # (parent, all_moves)
+            except TypeError:
+                dlg = ReplaceMoveDialog(self.root, mv)           # (parent, current_mv) fallback
+
+        # Some dialogs are true Toplevels, others might destroy themselves during __init__.
+        try:
+            if hasattr(dlg, "winfo_exists") and dlg.winfo_exists():
+                self.root.wait_window(dlg)
+        except tk.TclError:
+            pass
+
+        res = getattr(dlg, "result", None)
+        if not res:
             return
 
-        new_mv, mode = dlg.result
+        # Normalize result into (new_mv, mode)
+        mode = "anim"
+        new_mv = None
+
+        # Expected modern format: (mv_dict, "anim"|"block")
+        if isinstance(res, tuple) and len(res) == 2 and isinstance(res[1], str):
+            new_mv, mode = res[0], res[1]
+        else:
+            # Older formats: just the mv dict, or (mv_dict, something-non-string)
+            if isinstance(res, tuple) and len(res) >= 1:
+                new_mv = res[0]
+            else:
+                new_mv = res
+
+        if not isinstance(new_mv, dict):
+            messagebox.showerror("Error", "Replace dialog returned an unexpected result type.")
+            return
+
         new_id = new_mv.get("id")
         if new_id is None:
             messagebox.showerror("Error", "Selected move has no ID")
@@ -558,24 +591,24 @@ class FDCellEditorsMixin:
 
         ok = False
         if mode == "anim":
-            ok = self._write_anim_id(mv, new_id)
+            ok = self._write_anim_id(mv, int(new_id))
         else:
-            # This is your existing full-block swap implementation.
+            # Full-block swap implementation.
             ok = self._clone_move_block_y2(new_mv, mv)
 
         if not ok:
             messagebox.showerror("Error", "Failed to write replacement to Dolphin.\nCheck console for details.")
             return
 
-        mv["id"] = new_id
+        mv["id"] = int(new_id)
         mv["move_name"] = new_mv.get("move_name") or mv.get("move_name")
 
         cname = self.target_slot.get("char_name", "-")
-        pretty = U.pretty_move_name(new_id, cname)
+        pretty = U.pretty_move_name(int(new_id), cname)
         dup_idx = mv.get("dup_index")
         if dup_idx is not None:
             pretty = f"{pretty} (Tier{dup_idx + 1})"
-        pretty = f"{pretty} [0x{new_id:04X}]"
+        pretty = f"{pretty} [0x{int(new_id):04X}]"
         self.tree.set(item, "move", pretty)
 
     # ----- Anim ID write/read helpers (deduped: only one _edit_anim_manual) -----

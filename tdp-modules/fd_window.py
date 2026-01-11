@@ -32,7 +32,16 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.slot_label = slot_label
         self.target_slot = target_slot
 
-        def _mv_sort_key(m):
+        # Preserve the raw scan order for optional view sorting.
+        # Tag each move dict with a stable scan index so we can return to the scanner order.
+        moves_scanned = list(target_slot.get("moves", []) or [])
+        for i, mv in enumerate(moves_scanned):
+            try:
+                mv.setdefault("_scan_index", i)
+            except Exception:
+                pass
+
+        def _mv_sort_key_notation(m):
             aid = m.get("id")
             if aid is None:
                 group = 2
@@ -42,7 +51,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 group = 0 if aid >= 0x100 else 1
             return (group, aid_val, m.get("abs", 0xFFFFFFFF))
 
-        moves_sorted = sorted(target_slot.get("moves", []), key=_mv_sort_key)
+        def _mv_sort_key_abs(m):
+            a = m.get("abs")
+            if a is None:
+                return (1, 0xFFFFFFFF, m.get("_scan_index", 0))
+            return (0, int(a), m.get("_scan_index", 0))
+
+        moves_sorted = sorted(moves_scanned, key=_mv_sort_key_notation)
+        moves_abs = sorted(moves_scanned, key=_mv_sort_key_abs)
 
         # Dedup indexing per anim ID (Tier1/2/3...)
         id_counts = {}
@@ -61,6 +77,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 idx = id_seen.get(aid, 0)
                 mv["dup_index"] = idx
                 id_seen[aid] = idx + 1
+
+        # Keep all orderings available for view toggles (do not mutate move dicts).
+        self._moves_notation = moves_sorted
+        self._moves_scanned = moves_scanned
+        self._moves_abs = moves_abs
 
         self.moves = moves_sorted
         self.move_to_tree_item: dict[str, dict] = {}
@@ -184,6 +205,87 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _collapse_all(self):
         for item in self.tree.get_children(""):
             self.tree.item(item, open=False)
+
+    def _rebuild_tree_with_moves(self, moves, label: str):
+        """Rebuild the Treeview using a different ordering of the same move dicts."""
+        if not self.tree:
+            return
+
+        # Preserve filter state
+        try:
+            global_q = self._filter_var.get() if self._filter_var is not None else ""
+        except Exception:
+            global_q = ""
+        try:
+            col_q = {k: v.get() for k, v in (self._col_filter_vars or {}).items()}
+        except Exception:
+            col_q = {}
+
+        # Make it visually obvious we're doing work (and flush UI)
+        try:
+            if self.root:
+                self.root.config(cursor="watch")
+                self.root.update_idletasks()
+        except Exception:
+            pass
+
+        # Swap move list + rebuild helper maps
+        self.moves = list(moves)
+
+        self.next_abs_map.clear()
+        abs_list = sorted({mv.get("abs") for mv in self.moves if mv.get("abs")})
+        for i in range(len(abs_list) - 1):
+            self.next_abs_map[abs_list[i]] = abs_list[i + 1]
+
+        # Clear the existing tree content
+        for child in self.tree.get_children(""):
+            self.tree.delete(child)
+
+        self.move_to_tree_item.clear()
+        self._all_item_ids.clear()
+        self._detached.clear()
+        self._row_counter = 0
+
+        # Repopulate (this now reuses cached hitbox candidates in fd_tree.py)
+        fd_tree.populate_tree(self)
+
+        # Force top so you SEE the reorder immediately
+        try:
+            self.tree.yview_moveto(0.0)
+        except Exception:
+            pass
+
+        # Restore filter state + reapply
+        if self._filter_var is not None:
+            self._filter_var.set(global_q)
+        for k, val in col_q.items():
+            if k in self._col_filter_vars:
+                try:
+                    self._col_filter_vars[k].set(val)
+                except Exception:
+                    pass
+
+        self._apply_filter()
+
+        try:
+            if self._status_var is not None:
+                self._status_var.set(f"Sorted: {label}")
+        finally:
+            try:
+                if self.root:
+                    self.root.config(cursor="")
+                    self.root.update_idletasks()
+            except Exception:
+                pass
+
+    def sort_by_notation_order(self):
+        self._rebuild_tree_with_moves(self._moves_notation, "notation order")
+
+    def sort_by_scanned_order(self):
+        self._rebuild_tree_with_moves(self._moves_scanned, "scanned order")
+
+    def sort_by_abs_order(self):
+        self._rebuild_tree_with_moves(self._moves_abs, "abs order")
 
     def _safe_detach(self, item_id: str) -> bool:
         if item_id in self._detached:

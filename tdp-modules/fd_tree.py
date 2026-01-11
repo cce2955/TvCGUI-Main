@@ -101,6 +101,11 @@ def build_top_bar(win) -> None:
 
     ttk.Button(actions, text="Expand all", command=win._expand_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Collapse all", command=win._collapse_all).pack(side="left", padx=4)
+
+    ttk.Button(actions, text="Sort: Notation", command=getattr(win, "sort_by_notation_order", win._refresh_visible)).pack(side="left", padx=10)
+    ttk.Button(actions, text="Sort: Scanned", command=getattr(win, "sort_by_scanned_order", win._refresh_visible)).pack(side="left", padx=4)
+    ttk.Button(actions, text="Sort: Abs", command=getattr(win, "sort_by_abs_order", win._refresh_visible)).pack(side="left", padx=4)
+
     ttk.Button(actions, text="Refresh visible", command=win._refresh_visible).pack(side="left", padx=4)
     ttk.Button(actions, text="Reset to original", command=win._reset_all_moves).pack(side="left", padx=4)
 
@@ -173,7 +178,6 @@ def build_tree_widget(win) -> ttk.Frame:
         "abs": 12,
     }
 
-    # Short labels row (what you asked: “which is which”)
     _filter_labels = {
         "move": "Move",
         "kind": "Kind",
@@ -207,16 +211,12 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win._clear_col_filters = _clear_col_filters
 
-    # --- Column filter UI (label row above entry row; "invisible boxes") ---
-
     labels_row = ttk.Frame(frame)
     labels_row.grid(row=0, column=0, sticky="ew", padx=(0, 2), pady=(0, 1))
 
     filter_row = ttk.Frame(frame)
     filter_row.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=(0, 4))
 
-    # Make the label row look like plain text over the same background
-    # (optional: match your header color)
     try:
         s = ttk.Style(win.root)
         s.configure("FilterLabel.TLabel", background="#E1E6ED", foreground="#2F5D8C", font=("Segoe UI", 9))
@@ -225,14 +225,11 @@ def build_tree_widget(win) -> ttk.Frame:
     except Exception:
         pass
 
-    # Configure columns so label "cells" and entry "cells" have identical widths.
-    # ttk width is in characters. Use minsize to force consistent cell width.
     for i, c in enumerate(cols):
         w = _filter_widths.get(c, 10)
-        labels_row.grid_columnconfigure(i, weight=0, minsize=w * 8)  # 8px per char approx
+        labels_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
         filter_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
 
-    # Last column expands; it holds the clear button aligned right.
     labels_row.grid_columnconfigure(len(cols), weight=1)
     filter_row.grid_columnconfigure(len(cols), weight=1)
 
@@ -240,7 +237,6 @@ def build_tree_widget(win) -> ttk.Frame:
         w = _filter_widths.get(c, 10)
         label_txt = _filter_labels.get(c, c)
 
-        # "Invisible box": label with fixed width, no border, just text.
         lbl = ttk.Label(labels_row, text=label_txt, width=w, anchor="w", style="FilterLabel.TLabel")
         lbl.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
 
@@ -263,12 +259,9 @@ def build_tree_widget(win) -> ttk.Frame:
     clear_btn = ttk.Button(labels_row, text="Clear col filter", command=win._clear_col_filters)
     clear_btn.grid(row=0, column=len(cols), sticky="e", padx=(8, 0))
     Tooltip(clear_btn, "Clear all per-column filters.")
-   
-
 
     Tooltip(labels_row, "Type in any box to filter. Multiple boxes are AND'ed together.")
 
-    # --- Tree ---
     win.tree = ttk.Treeview(frame, columns=cols, show="tree headings", height=30)
 
     vsb = ttk.Scrollbar(frame, orient="vertical", command=win.tree.yview)
@@ -400,22 +393,37 @@ def populate_tree(win) -> None:
             except Exception:
                 pass
 
-        hb_cands = []
-        hb_off = None
-        hb_val = None
+        # IMPORTANT: cache hitbox candidates so sorting does NOT rescan Dolphin every time.
+        hb_cands = mv.get("hb_candidates")
+        hb_off = mv.get("hb_off")
+        hb_val = mv.get("hb_r")
+
+        if move_abs and (hb_cands is None or hb_off is None or hb_val is None):
+            hb_cands2 = []
+            hb_off2 = None
+            hb_val2 = None
+            try:
+                hb_cands2 = U.scan_hitbox_candidates(move_abs)
+                hb_off2, hb_val2 = U.select_primary_hitbox(hb_cands2)
+            except Exception:
+                hb_cands2 = []
+                hb_off2 = None
+                hb_val2 = None
+
+            hb_cands = hb_cands2
+            hb_off = hb_off2
+            hb_val = hb_val2
+
+            mv["hb_candidates"] = hb_cands
+            mv["hb_off"] = hb_off
+            mv["hb_r"] = hb_val
+
         hb_txt = ""
         hb_main_txt = ""
-        if move_abs:
-            hb_cands = U.scan_hitbox_candidates(move_abs)
-            hb_off, hb_val = U.select_primary_hitbox(hb_cands)
-            if hb_val is not None:
-                hb_main_txt = f"{hb_val:.1f}"
-            if hb_cands:
-                hb_txt = U.format_candidate_list(hb_cands)
-
-        mv["hb_candidates"] = hb_cands
-        mv["hb_off"] = hb_off
-        mv["hb_r"] = hb_val
+        if hb_val is not None:
+            hb_main_txt = f"{hb_val:.1f}"
+        if hb_cands:
+            hb_txt = U.format_candidate_list(hb_cands)
 
         kb0 = mv.get("kb0")
         kb1 = mv.get("kb1")
