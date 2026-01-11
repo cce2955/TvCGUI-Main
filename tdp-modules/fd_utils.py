@@ -8,7 +8,6 @@ from __future__ import annotations
 import math
 from typing import Any, Iterable, Callable
 
-
 from move_id_map import lookup_move_name
 from moves import CHAR_ID_CORRECTION
 
@@ -59,6 +58,7 @@ KB_TRAJ_MAP = {
     0xBC: "Up KB (Spiral)",
     0xC4: "Up Pop (j.L/j.M)",
 }
+
 # ============================================================
 # Projectile quick resolver (ProjDmg / ProjTpl)
 #
@@ -88,7 +88,9 @@ def resolve_projectile_fields_for_move(
       - mv["proj_dmg"]: int (low 16 bits of the candidate u32)
       - mv["proj_tpl"]: int (absolute address of the candidate u32)
 
-    Returns True if populated.
+    IMPORTANT:
+      If multiple candidates exist (strength slices), choose the candidate whose
+      anchor address is closest to mv["abs"] (or region_abs).
     """
     if mv.get("proj_dmg") is not None and mv.get("proj_tpl") is not None:
         return True
@@ -100,7 +102,6 @@ def resolve_projectile_fields_for_move(
     size = int(region_size or 0)
     if size <= 0:
         return False
-    # sanity cap; keep it small to reduce unrelated anchors
     size = max(0x200, min(size, 0x6000))
 
     if rbytes_func is None:
@@ -117,6 +118,8 @@ def resolve_projectile_fields_for_move(
     if not buf or len(buf) < 12:
         return False
 
+    # collect all candidates
+    cands: list[tuple[int, int, int]] = []  # (addr_damage, dmg16, addr_marker)
     pos = 0
     while True:
         j = buf.find(_PROJ_SUFFIX, pos)
@@ -124,49 +127,100 @@ def resolve_projectile_fields_for_move(
             break
         pos = j + 1
 
-        # need 4 bytes before suffix
         if j < 4:
             continue
 
-        cand = buf[j - 4 : j]  # 00 00 XX YY
+        cand = buf[j - 4 : j]  # expected 00 00 XX YY
+        if len(cand) != 4:
+            continue
         if cand[0] != 0x00 or cand[1] != 0x00:
             continue
 
         u32 = int.from_bytes(cand, "big", signed=False)
-        mv["proj_dmg"] = int(u32 & 0xFFFF)      # XXYY as int
-        mv["proj_tpl"] = base + (j - 4)         # address of 00 00 XX YY
-        mv["proj_marker"] = base + j            # optional: where 00 00 00 0C starts
-        return True
+        dmg16 = int(u32 & 0xFFFF)
+        addr_damage = base + (j - 4)
+        addr_marker = base + j
+        cands.append((addr_damage, dmg16, addr_marker))
 
-    return False
+    if not cands:
+        return False
+
+    prefer = int(mv.get("abs") or base)
+    addr_damage, dmg16, addr_marker = min(cands, key=lambda t: abs(t[0] - prefer))
+
+    mv["proj_dmg"] = dmg16
+    mv["proj_tpl"] = addr_damage
+    mv["proj_marker"] = addr_marker
+    return True
+
+
+def _try_lookup_move_name(char_name: str | None, anim_id: int) -> str | None:
+    """
+    
+    This helper tries the safe variants without ever throwing.
+    """
+    # Preferred: (char_name, anim_id)
+    if char_name:
+        try:
+            s = lookup_move_name(char_name, anim_id)
+            if s:
+                return s
+        except TypeError:
+            pass
+        except Exception:
+            pass
+
+    # Fallback: (anim_id) or (anim_id, char_id)
+    try:
+        s = lookup_move_name(anim_id)
+        if s:
+            return s
+    except TypeError:
+        pass
+    except Exception:
+        pass
+
+    if char_name:
+        # If someone passed char_name but lookup expects an int char_id, try deriving.
+        char_id = None
+        try:
+            # CHAR_ID_CORRECTION is not guaranteed to map names; guard it
+            char_id = CHAR_ID_CORRECTION.get(char_name)  # type: ignore[arg-type]
+        except Exception:
+            char_id = None
+        if char_id is not None:
+            try:
+                s = lookup_move_name(anim_id, char_id)
+                if s:
+                    return s
+            except Exception:
+                pass
+
+    return None
 
 
 def pretty_move_name(anim_id: int | None, char_name: str | None = None) -> str:
     if anim_id is None:
         return "anim_--"
 
-    char_id = None
-    if char_name:
-        try:
-            char_id = CHAR_ID_CORRECTION.get(char_name, None)
-        except Exception:
-            char_id = None
+    anim_id_i = int(anim_id)
 
-    name = lookup_move_name(anim_id, char_id)
+    name = _try_lookup_move_name(char_name, anim_id_i)
     if name:
         return name
 
-    if anim_id < 0x100:
+    # small-ID fallback probing
+    if anim_id_i < 0x100:
         for high in (0x100, 0x200, 0x300):
-            name = lookup_move_name(anim_id + high, char_id)
+            name = _try_lookup_move_name(char_name, anim_id_i + high)
             if name:
                 return name
 
-    name = _ANIM_MAP_FOR_GUI.get(anim_id)
+    name = _ANIM_MAP_FOR_GUI.get(anim_id_i)
     if name:
         return name
 
-    return f"anim_{anim_id:04X}"
+    return f"anim_{anim_id_i:04X}"
 
 
 def scan_hitbox_candidates(move_abs: int) -> list[tuple[int, float]]:
@@ -190,11 +244,14 @@ def scan_hitbox_candidates(move_abs: int) -> list[tuple[int, float]]:
             continue
         out.append((off, float(f)))
     return out
+
+
 def fmt_speed_mod_ui(v: int | None) -> str:
     if v is None:
         return ""
     vv = int(v) & 0xFF
     return f"{vv} (0x{vv:02X})"
+
 
 def select_primary_hitbox(cands: list[tuple[int, float]]) -> tuple[int | None, float | None]:
     """
@@ -220,7 +277,6 @@ def select_primary_hitbox(cands: list[tuple[int, float]]) -> tuple[int | None, f
         if MIN_REAL_RADIUS <= val <= MAX_REAL_RADIUS:
             return (off, val)
 
-    # last-resort: last candidate
     return cands[-1] if cands else (None, None)
 
 
@@ -244,11 +300,9 @@ def parse_hit_reaction_input(s: str) -> int | None:
     if not s:
         return None
 
-    # Try hex first (both with and without 0x)
     try:
         if s.lower().startswith("0x"):
             return int(s, 16)
-        # if user typed only digits but intends decimal, they can still use decimal fallback
         return int(s, 16)
     except ValueError:
         pass
