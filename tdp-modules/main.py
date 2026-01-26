@@ -19,7 +19,12 @@
 import os
 import csv
 import time
-import threading
+
+from constants import (
+    SLOTS,
+    CHAR_NAMES,
+    OFF_CHAR_ID,
+)
 
 import pygame
 
@@ -53,21 +58,6 @@ from portraits import (
     get_portrait_for_snap,
 )
 
-from constants import (
-    SLOTS,
-    CHAR_NAMES,
-    OFF_MAX_HP,
-    OFF_CUR_HP,
-    OFF_AUX_HP,
-    POSX_OFF,
-    OFF_CHAR_ID,
-    ATT_ID_OFF_PRIMARY,
-    ATT_ID_OFF_SECOND,
-    CTRL_WORD_OFF,
-    FLAG_062,
-    FLAG_063,
-    FLAG_072,
-)
 
 from resolver import RESOLVER, pick_posy_off_no_jump
 from meter import read_meter, METER_CACHE
@@ -231,18 +221,28 @@ def safe_read_fighter(base: int, yoff: int) -> dict | None:
 
 def init_pygame():
     pygame.init()
+
     try:
         font = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
     except Exception:
         font = pygame.font.Font(None, FONT_MAIN_SIZE)
+
     try:
         smallfont = pygame.font.SysFont("consolas", FONT_SMALL_SIZE)
     except Exception:
         smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
 
+    # --- WINDOW / TASKBAR ICON ---
+    icon_path = os.path.join("assets", "icon.png")
+    if os.path.exists(icon_path):
+        icon = pygame.image.load(icon_path).convert_alpha()
+        pygame.display.set_icon(icon)
+
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
     pygame.display.set_caption("TvC Live HUD / Frame Probe")
+
     return screen, font, smallfont
+
 
 
 def resolve_bases(last_base_by_ptr: dict, y_off_by_base: dict) -> list[tuple[str, str, int | None]]:
@@ -356,9 +356,7 @@ def main():
     anim_queue_after_scan = set()
     panel_btn_flash = {s: 0 for (s, _, _) in SLOTS}
 
-    local_scan = RedHealthScanner()
-    global_scan = GlobalRedScanner()
-
+    
     manual_scan_requested = False
     need_rescan_normals = False
 

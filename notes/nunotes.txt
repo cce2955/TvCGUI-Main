@@ -1,0 +1,161 @@
+GNTA / MOT / SEQ Architecture Notes
+High-level model
+
+Attack behavior is split cleanly across three layers:
+
+SEQ: logic and timing
+
+MOT: skeletal pose over time
+
+GNTA: spatial interpretation rules for gameplay
+
+Hitboxes are never authored directly. They are computed at runtime.
+
+SEQ (sequence / move logic)
+
+SEQ defines when an attack happens, not where or how big it is.
+
+Contains:
+
+active frame windows
+
+damage, knockback, hit reaction, flags
+
+animation ID selection
+
+SEQ is parsed once and compiled into internal engine structures.
+
+After parsing, SEQ bytes are not referenced again.
+
+SEQ is not hot-editable at runtime; only its compiled output in RAM is.
+
+MOT (motion / animation)
+
+MOT contains skeletal animation data only.
+
+Defines bone transforms per frame at 30 FPS.
+
+No hitbox data, no damage, no gameplay flags.
+
+Supplies pose information used by the engine every frame.
+
+MOT is animation-scoped and reused across moves and tiers.
+
+GNTA (geometry / spatial interpretation)
+
+GNTA is animation-scoped metadata, keyed 1:1 by animation ID.
+
+GNTA data is loaded as part of the animation package (MOT-adjacent).
+
+Standalone .gnta files are extracted representations of embedded animation metadata.
+
+GNTA does not define hitbox geometry directly.
+
+GNTA defines:
+
+which bone or reference mode to use
+
+how pose data should be interpreted
+
+how spatial values are scaled or modulated
+
+how parameters evolve over animation time
+
+GNTA structure (confirmed)
+
+GNTA files are record-based and struct-parsed.
+
+Each record contains:
+
+a fixed field offset (example: 0x10)
+
+bone ID or sentinel
+
+flags / mode selectors
+
+normalized float coefficients
+
+optional enable/disable gating
+
+GNTA records can be time-variant and contain curves with keyframes.
+
+GNTA curves are evaluated per animation frame in sync with MOT.
+
+Important sentinel:
+
+Bone ID = 0xFFFF indicates non-bone modes such as root or proximity.
+
+Used for throws and body-wide checks.
+
+GNTA floats are dimensionless scalars, not world-space values.
+
+AnimationList.dat
+
+Character-scoped file.
+
+Explicit list of animation IDs valid for that character.
+
+Determines which animation IDs (and thus GNTA records) are expected to exist.
+
+Explains why some animations never produce hitboxes.
+
+Confirms GNTA usage is intentional and curated per character.
+
+Runtime hitbox computation
+
+At runtime, per frame:
+
+MOT supplies current pose.
+
+GNTA supplies a scalar or curve value for the current frame.
+
+Engine math derives distances from pose (bone to reference).
+
+Final hitbox radius and offsets are computed as:
+
+derived_value = pose_distance × gnta_scalar
+clamped / modified by engine rules
+
+Results are written to RAM.
+
+RAM contains results, not source data.
+
+This explains:
+
+large throw radii
+
+tiny jab radii
+
+smooth frame-to-frame changes
+
+tier differences tied to animation selection
+
+Memory observations
+
+GNTA scalar values (example: ~0.53333336) appear verbatim in RAM.
+
+Clamp values (example: 0.5) appear heavily due to engine minimums.
+
+Same behavior observed across characters, confirming engine-global math.
+
+Editing implications
+
+Real-time editing is only practical at the RAM level.
+
+Editing GNTA or SEQ requires reloads.
+
+GNTA editing changes rules, RAM editing changes results.
+
+SEQ editing affects logic; GNTA editing affects spatial behavior; MOT editing affects pose.
+
+Final mental model
+
+SEQ answers when and what
+
+MOT answers where the body is
+
+GNTA answers how that pose becomes attack space
+
+Engine code performs the math
+
+RAM holds the final, editable output
