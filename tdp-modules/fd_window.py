@@ -152,45 +152,127 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         status.pack(side="bottom", fill="x")
         ttk.Label(status, textvariable=self._status_var, style="Status.TLabel").pack(side="left", padx=8, pady=4)
 
-    def _show_bones(self):
-        # Bones MUST anchor to fighter base, not move abs
-        base = self.target_slot.get("fighter_base")
 
-        if not base:
-            messagebox.showerror("Bones", "No fighter base available for bonescan")
+    def _show_bones(self):
+        # Anchor = any address BEFORE the bones region
+        anchor = self.target_slot.get("fighter_base")
+
+        if not anchor:
+            # fallback: derive anchor from move abs
+            for mv in self.target_slot.get("moves", []):
+                abs_addr = mv.get("abs")
+                if abs_addr:
+                    anchor = abs_addr & ~0xFFF
+                    break
+
+        if not anchor:
+            messagebox.showerror("Bones", "No anchor address available for bonescan")
             return
 
         win = tk.Toplevel(self.root)
-        win.title(f"Bones: {self.slot_label} @ 0x{base:08X}")
-        win.geometry("760x420")
+        win.title(f"Bones: {self.slot_label} @ 0x{anchor:08X}")
+        win.geometry("980x520")
+
+
+        top = ttk.Frame(win)
+        top.pack(side="top", fill="x", padx=8, pady=(8, 4))
+
+        ttk.Label(top, text="Scan start offset (hex):").pack(side="left")
+        off_var = tk.StringVar(value="0x3000")
+        ttk.Entry(top, textvariable=off_var, width=10).pack(side="left", padx=(6, 18))
+
+        ttk.Label(top, text="Scan length (hex):").pack(side="left")
+        len_var = tk.StringVar(value="0x5000")
+        ttk.Entry(top, textvariable=len_var, width=10).pack(side="left", padx=(6, 18))
+
+        ttk.Label(top, text="Budget blocks/tick:").pack(side="left")
+        bud_var = tk.StringVar(value="128")
+        ttk.Entry(top, textvariable=bud_var, width=6).pack(side="left", padx=(6, 18))
+
+        apply_btn = ttk.Button(top, text="Apply")
+        apply_btn.pack(side="left")
 
         tree = ttk.Treeview(
             win,
-            columns=("addr", "floats", "changes", "score"),
+            columns=("addr", "float_ok", "changes", "pat", "score", "sample"),
             show="headings",
         )
-        tree.heading("addr", text="Base Addr")
-        tree.heading("floats", text="Float Count")
+        tree.heading("addr", text="Addr")
+        tree.heading("float_ok", text="Plausible Floats")
         tree.heading("changes", text="Changes")
+        tree.heading("pat", text="Pattern Hits")
         tree.heading("score", text="Score")
+        tree.heading("sample", text="Sample (first 8 floats)")
 
-        tree.column("addr", width=140, anchor="center")
-        tree.column("floats", width=90, anchor="center")
-        tree.column("changes", width=90, anchor="center")
-        tree.column("score", width=90, anchor="center")
+        tree.column("addr", width=120, anchor="center")
+        tree.column("float_ok", width=120, anchor="center")
+        tree.column("changes", width=80, anchor="center")
+        tree.column("pat", width=95, anchor="center")
+        tree.column("score", width=80, anchor="center")
+        tree.column("sample", width=430, anchor="w")
 
         tree.pack(fill="both", expand=True, padx=8, pady=8)
 
-        scanner = BoneScanner(base)
+        status = ttk.Label(win, text="", anchor="w")
+        status.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
+
+        scanner = None
+
+        def _parse_hex(s: str, default: int) -> int:
+            try:
+                s = (s or "").strip().lower()
+                if not s:
+                    return default
+                if s.startswith("0x"):
+                    return int(s, 16)
+                return int(s, 16)
+            except Exception:
+                return default
+
+        def _parse_int(s: str, default: int) -> int:
+            try:
+                return int((s or "").strip())
+            except Exception:
+                return default
+
+        def rebuild_scanner():
+            nonlocal scanner
+            start_off = _parse_hex(off_var.get(), 0x3000)
+            scan_len = _parse_hex(len_var.get(), 0x5000)
+
+            scanner = BoneScanner(
+                anchor,
+                start_off=start_off,
+                scan_len=scan_len,
+                align=0x10,
+                block_len=0x60,
+                max_results=256,
+            )
+
+            status.config(
+                text=f"Scanning 0x{anchor+start_off:08X} .. 0x{anchor+start_off+scan_len:08X}"
+            )
+
+        def on_apply():
+            rebuild_scanner()
+
+        apply_btn.config(command=on_apply)
+        rebuild_scanner()
 
         def tick():
             if not win.winfo_exists():
                 return
 
-            scanner.step()
+            if scanner is None:
+                win.after(int(INTERVAL * 1000), tick)
+                return
+
+            budget = _parse_int(bud_var.get(), 128)
+            scanner.step(budget_blocks=max(16, min(2048, budget)))
 
             tree.delete(*tree.get_children())
-            for r in scanner.results[:64]:
+            for r in scanner.results[:96]:
+                samp = ", ".join(f"{x:+.3f}" for x in (r.sample or ()))
                 tree.insert(
                     "",
                     "end",
@@ -198,13 +280,16 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         f"0x{r.addr:08X}",
                         r.float_count,
                         r.change_count,
+                        r.pattern_hits,
                         f"{r.score:.2f}",
+                        samp,
                     ),
                 )
 
             win.after(int(INTERVAL * 1000), tick)
 
         tick()
+
     # ---------- Row tagging / status ----------
 
     def _apply_row_tags(self, item_id: str, mv: dict):
