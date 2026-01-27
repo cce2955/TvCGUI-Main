@@ -116,12 +116,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _reset_to_original_grouping(self):
         # Clear sort state so arrows don’t lie
         self._sort_state.clear()
-        # Reset headers (remove ▲▼)
-        for c in self.tree["columns"]:
-            base = self.tree.heading(c, "text").split(" ")[0]
-            self.tree.heading(c, text=base)
 
-            # Rebuild in original notation order
+        # Reset headers (remove ▲▼)
+        if self.tree:
+            for c in self.tree["columns"]:
+                base = self.tree.heading(c, "text").split(" ")[0]
+                self.tree.heading(c, text=base)
+
+        # Rebuild in original notation order
         self.sort_by_notation_order()
 
 
