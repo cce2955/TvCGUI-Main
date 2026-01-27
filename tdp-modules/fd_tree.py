@@ -308,7 +308,11 @@ def build_tree_widget(win) -> ttk.Frame:
         ("abs", "Address"),
     ]
     for c, txt in headers:
-        win.tree.heading(c, text=txt)
+        win.tree.heading(
+            c,
+            text=txt,
+            command=lambda col=c: win._on_sort_column(col),
+        )
 
     win.tree.column("move", width=260, anchor="w")
     win.tree.column("kind", width=70, anchor="w")

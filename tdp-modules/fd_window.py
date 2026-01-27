@@ -35,6 +35,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.master = master
         self.slot_label = slot_label
         self.target_slot = target_slot
+        self._sort_state = {}  # col_name -> ascending bool
 
         # Preserve the raw scan order for optional view sorting.
         # Tag each move dict with a stable scan index so we can return to the scanner order.
@@ -206,13 +207,57 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         tree.heading("pat", text="Pattern Hits")
         tree.heading("score", text="Score")
         tree.heading("sample", text="Sample (first 8 floats)")
-
+        
         tree.column("addr", width=120, anchor="center")
         tree.column("float_ok", width=120, anchor="center")
         tree.column("changes", width=80, anchor="center")
         tree.column("pat", width=95, anchor="center")
         tree.column("score", width=80, anchor="center")
         tree.column("sample", width=430, anchor="w")
+        # ---- sortable column headers with indicators ----
+        _sort_state = {}       # col -> ascending bool
+        _sort_active = None    # currently sorted column
+
+        def sort_bones_column(tree, col):
+            nonlocal _sort_active, paused   # <-- THIS IS THE FIX
+
+            paused = True
+
+            asc = _sort_state.get(col, True)
+            _sort_state[col] = not asc
+            _sort_active = col
+
+            rows = [(tree.set(i, col), i) for i in tree.get_children("")]
+
+            def cast(v):
+                if col == "addr":
+                    return int(v, 16)
+                try:
+                    return float(v)
+                except Exception:
+                    return v
+
+            rows.sort(key=lambda x: cast(x[0]), reverse=not asc)
+
+            for idx, (_, item) in enumerate(rows):
+                tree.move(item, "", idx)
+
+            # update header indicators
+            for c in ("addr", "float_ok", "changes", "pat", "score", "sample"):
+                base = tree.heading(c, "text").split(" ")[0]
+                if c == col:
+                    arrow = "▲" if asc else "▼"
+                    tree.heading(c, text=f"{base} {arrow}")
+                else:
+                    tree.heading(c, text=base)
+
+
+        for col in ("addr", "float_ok", "changes", "pat", "score", "sample"):
+            tree.heading(
+                col,
+                text=tree.heading(col, "text"),
+                command=lambda c=col: sort_bones_column(tree, c),
+            )
 
         tree.pack(fill="both", expand=True, padx=8, pady=8)
         
@@ -278,7 +323,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         tree.bind("<Double-Button-1>", on_double_click)
         def on_click(evt):
             nonlocal paused
-            paused = True
+            region = tree.identify_region(evt.x, evt.y)
+            if region == "heading":
+                paused = True
+            elif region == "cell":
+                paused = True
 
         tree.bind("<Button-1>", on_click)
         def resume():
@@ -504,6 +553,43 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     def sort_by_abs_order(self):
         self._rebuild_tree_with_moves(self._moves_abs, "abs order")
+
+    def _on_sort_column(self, col_name: str):
+        # Toggle direction per column
+        asc = self._sort_state.get(col_name, True)
+        self._sort_state[col_name] = not asc
+        for c in self.tree["columns"]:
+            base = self.tree.heading(c, "text").split(" ")[0]
+            if c == col_name:
+                arrow = "▲" if asc else "▼"
+                self.tree.heading(c, text=f"{base} {arrow}")
+            else:
+                self.tree.heading(c, text=base)
+        def key_fn(mv):
+            v = mv.get(col_name)
+
+            if col_name == "abs":
+                return int(v) if v else 0xFFFFFFFF
+
+            if col_name == "id":
+                return int(v) if v is not None else 0xFFFF
+
+            if isinstance(v, str):
+                return v.lower()
+
+            if v is None:
+                return ""
+
+            return v
+
+        sorted_moves = sorted(
+            self.moves,
+            key=lambda mv: (key_fn(mv), mv.get("_scan_index", 0)),
+            reverse=not asc,
+        )
+
+        direction = "↑" if asc else "↓"
+        self._rebuild_tree_with_moves(sorted_moves, f"{col_name} {direction}")
 
     def _safe_detach(self, item_id: str) -> bool:
         if item_id in self._detached:
