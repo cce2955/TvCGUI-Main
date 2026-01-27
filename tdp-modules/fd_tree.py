@@ -346,20 +346,19 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("group_parent", foreground="#5A4E2F")
 
     return frame
-
-
 def populate_tree(win) -> None:
     cname = win.target_slot.get("char_name", "-")
 
-    def _fmt_proj_dmg(v) -> str:
-        if v is None:
-            return ""
-        try:
-            return str(int(v))
-        except Exception:
-            return str(v)
+    win.tree.delete(*win.tree.get_children())
+    win._row_counter = 0
+    win._all_item_ids = []
+    win.move_to_tree_item = {}
+    win.original_moves = {}
 
-    def _fmt_proj_tpl(v) -> str:
+    def _fmt(v):
+        return "" if v is None else str(v)
+
+    def _fmt_proj_tpl(v):
         if v is None:
             return ""
         if isinstance(v, str):
@@ -368,264 +367,217 @@ def populate_tree(win) -> None:
             return f"0x{int(v):08X}"
         except Exception:
             return str(v)
-    def _infer_strength_from_move_name(move_name: str) -> int | None:
-        """
-        If ProjDmg couldn't be resolved, fall back to strength indexing:
-          L -> 1, M -> 2, H/C -> 3
 
-        We key off common patterns like:
-          "Hadoken L", "Kikoken M", etc.
-        """
-        if not move_name:
+    def _infer_strength_from_move_name(name):
+        if not name:
             return None
-
-        s = move_name.lower()
-
-        # Only apply this fallback to known projectile specials by name.
-        # Add more keywords if you want (e.g., "hadouken", "kikouken", etc.)
-        if ("hado" not in s) and ("kiko" not in s) and ("kiko" not in s) and ("hadoken" not in s) and ("kikoken" not in s):
-            return None
-
-        # Strongest signals: explicit " L"/" M"/" H"/" C" tokens.
-        # We check both end-of-string and bracketed forms that may appear.
-        if " l" in s or s.endswith("l") or " light" in s:
+        s = name.lower()
+        if " l" in s or s.endswith("l"):
             return 1
-        if " m" in s or s.endswith("m") or " medium" in s:
+        if " m" in s or s.endswith("m"):
             return 2
-
-        # TvC sometimes uses C for heavy (Capcom notation), or H in other lists
-        if " c" in s or s.endswith("c") or " h" in s or s.endswith("h") or " heavy" in s:
+        if " h" in s or " c" in s or s.endswith("h") or s.endswith("c"):
             return 3
-
         return None
+
     def insert_move_row(mv, parent=""):
         aid = mv.get("id")
-        move_name = U.pretty_move_name(aid, cname)
+        move_abs = mv.get("abs")
+
+        pretty = U.pretty_move_name(aid, cname)
+        mv["pretty_name"] = pretty
 
         if aid is not None:
-            dup_idx = mv.get("dup_index")
-            if dup_idx is not None:
-                move_name = f"{move_name} (Tier{dup_idx + 1})"
-            move_name = f"{move_name} [0x{aid:04X}]"
+            dup = mv.get("dup_index")
+            if dup is not None:
+                pretty = f"{pretty} (Tier{dup + 1})"
+            pretty = f"{pretty} [0x{aid:04X}]"
 
-        move_abs = mv.get("abs")  # MOVE THIS UP BEFORE ANY "if move_abs"
+        # -------------------------
+        # Resolve optional fields (SAFE)
+        # -------------------------
 
-        # Strength-slice resolve (A6F0 anchors):
-        if move_abs and mv.get("proj_slices") is None:
-            try:
-                U.resolve_projectile_strength_slices_for_move(
-                    mv,
-                    region_abs=move_abs,
-                    region_size=0x1400,
-                    move_name_for_strength=move_name,
-                )
-            except Exception:
-                pass
-
-
-
-            a_s = mv.get("active_start")
-            a_e = mv.get("active_end")
-            startup_txt = "" if a_s is None else str(a_s)
-            active_txt = f"{a_s}-{a_e}" if (a_s is not None and a_e is not None) else ""
-
-            a2_s = mv.get("active2_start")
-            a2_e = mv.get("active2_end")
-            if a2_s is None and a2_e is None:
-                active2_txt = ""
-            elif a2_s is None:
-                active2_txt = str(a2_e)
-            elif a2_e is None:
-                active2_txt = str(a2_s)
-            else:
-                active2_txt = f"{a2_s}-{a2_e}"
-
-            # Old heuristic resolve (suffix-based) only if not populated yet.
-            if move_abs and mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
+        if move_abs:
+            if mv.get("proj_slices") is None:
                 try:
-                    U.resolve_projectile_fields_for_move(mv, region_abs=move_abs, region_size=0x1400)
+                    U.resolve_projectile_strength_slices_for_move(
+                        mv,
+                        region_abs=move_abs,
+                        region_size=0x1400,
+                        move_name_for_strength=pretty,
+                    )
                 except Exception:
                     pass
 
-            # Hitbox scanning
-            hb_cands = []
-            hb_off = None
-            hb_val = None
-            hb_txt = ""
-            hb_main_txt = ""
-            if move_abs:
+            if mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
+                try:
+                    U.resolve_projectile_fields_for_move(
+                        mv,
+                        region_abs=move_abs,
+                        region_size=0x1400,
+                    )
+                except Exception:
+                    pass
+
+        # -------------------------
+        # Display formatting (ALWAYS RUNS)
+        # -------------------------
+
+        a_s = mv.get("active_start")
+        a_e = mv.get("active_end")
+        startup_txt = _fmt(a_s)
+        active_txt = f"{a_s}-{a_e}" if a_s is not None and a_e is not None else ""
+
+        a2_s = mv.get("active2_start")
+        a2_e = mv.get("active2_end")
+        if a2_s is not None and a2_e is not None:
+            active2_txt = f"{a2_s}-{a2_e}"
+        else:
+            active2_txt = _fmt(a2_s or a2_e)
+
+        hb_main_txt = ""
+        hb_txt = ""
+        hb_cands = []
+        hb_off = None
+        hb_val = None
+
+        if move_abs:
+            try:
                 hb_cands = U.scan_hitbox_candidates(move_abs)
                 hb_off, hb_val = U.select_primary_hitbox(hb_cands)
                 if hb_val is not None:
                     hb_main_txt = f"{hb_val:.1f}"
                 if hb_cands:
                     hb_txt = U.format_candidate_list(hb_cands)
+            except Exception:
+                pass
 
-            mv["hb_candidates"] = hb_cands
-            mv["hb_off"] = hb_off
-            mv["hb_r"] = hb_val
+        kb_parts = []
+        if mv.get("kb0") is not None:
+            kb_parts.append(f"K0:{mv['kb0']}")
+        if mv.get("kb1") is not None:
+            kb_parts.append(f"K1:{mv['kb1']}")
+        if mv.get("kb_traj") is not None:
+            kb_parts.append(U.fmt_kb_traj(mv["kb_traj"]))
+        kb_txt = " ".join(kb_parts)
 
-            kb0 = mv.get("kb0")
-            kb1 = mv.get("kb1")
-            kb_traj = mv.get("kb_traj")
-            kb_parts = []
-            if kb0 is not None:
-                kb_parts.append(f"K0:{kb0}")
-            if kb1 is not None:
-                kb_parts.append(f"K1:{kb1}")
-            if kb_traj is not None:
-                kb_parts.append(U.fmt_kb_traj(kb_traj))
-            kb_txt2 = " ".join(kb_parts)
-
-            combo_txt = ""
-            if move_abs and mv.get("combo_kb_mod_addr") is None:
+        combo_txt = ""
+        if move_abs:
+            if mv.get("combo_kb_mod_addr") is None:
                 try:
                     from dolphin_io import rbytes
                     addr, cur, sig = find_combo_kb_mod_addr(move_abs, rbytes)
+                    if addr:
+                        mv["combo_kb_mod_addr"] = addr
+                        mv["combo_kb_mod"] = cur
                 except Exception:
-                    addr, cur, sig = (None, None, None)
-                if addr:
-                    mv["combo_kb_mod_addr"] = addr
-                    mv["combo_kb_mod"] = cur
-                    mv["combo_kb_sig"] = sig
-            if mv.get("combo_kb_mod_addr"):
-                v = mv.get("combo_kb_mod")
-                combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
+                    pass
+        if mv.get("combo_kb_mod_addr"):
+            v = mv.get("combo_kb_mod")
+            combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
 
-            speed_txt = ""
-            if move_abs and mv.get("speed_mod_addr") is None:
+        speed_txt = ""
+        if move_abs:
+            if mv.get("speed_mod_addr") is None:
                 try:
                     from dolphin_io import rbytes
-                    saddr, sval, ssig = find_speed_mod_addr(move_abs, rbytes)
+                    saddr, sval, _ = find_speed_mod_addr(move_abs, rbytes)
+                    if saddr:
+                        mv["speed_mod_addr"] = saddr
+                        mv["speed_mod"] = sval
                 except Exception:
-                    saddr, sval, ssig = (None, None, None)
-                if saddr:
-                    mv["speed_mod_addr"] = saddr
-                    mv["speed_mod"] = sval
-                    mv["speed_mod_sig"] = ssig
-            if mv.get("speed_mod_addr"):
-                speed_txt = U.fmt_speed_mod_ui(mv.get("speed_mod"))
+                    pass
+        if mv.get("speed_mod_addr"):
+            speed_txt = U.fmt_speed_mod_ui(mv.get("speed_mod"))
 
-            superbg_txt = ""
-            if move_abs and mv.get("superbg_addr") is None:
+        superbg_txt = ""
+        if move_abs:
+            if mv.get("superbg_addr") is None:
                 try:
                     from dolphin_io import rbytes, rd8
                     saddr, sval = find_superbg_addr(move_abs, rbytes, rd8)
+                    if saddr:
+                        mv["superbg_addr"] = saddr
+                        mv["superbg_val"] = sval
                 except Exception:
-                    saddr, sval = (None, None)
-                if saddr:
-                    mv["superbg_addr"] = saddr
-                    mv["superbg_val"] = sval
-            if mv.get("superbg_addr"):
-                superbg_txt = U.fmt_superbg(mv.get("superbg_val"))
+                    pass
+        if mv.get("superbg_addr"):
+            superbg_txt = U.fmt_superbg(mv.get("superbg_val"))
 
-            hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
+        hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
 
-            # ProjDmg display: prefer resolved proj_dmg, else fallback to 1/2/3 strength.
-            proj_dmg_val = mv.get("proj_dmg")
-            if proj_dmg_val is None:
-                strength_123 = _infer_strength_from_move_name(move_name)
-                if strength_123 is not None:
-                    proj_dmg_val = strength_123
-            proj_dmg_txt = _fmt_proj_dmg(proj_dmg_val)
+        proj_dmg = mv.get("proj_dmg")
+        if proj_dmg is None:
+            proj_dmg = _infer_strength_from_move_name(pretty)
 
-            # ProjTpl display: prefer strength-bound slice address, else old proj_tpl.
-            proj_tpl_value = mv.get("proj_slice")
-            if proj_tpl_value is None:
-                proj_tpl_value = mv.get("proj_tpl")
-            proj_tpl_txt = _fmt_proj_tpl(proj_tpl_value)
+        proj_tpl = mv.get("proj_slice") or mv.get("proj_tpl")
 
-            row_tag = "row_even" if (win._row_counter % 2 == 0) else "row_odd"
-            win._row_counter += 1
+        # -------------------------
+        # Insert row
+        # -------------------------
 
-            item_id = win.tree.insert(
-                parent,
-                "end",
-                text="",
-                tags=(row_tag,),
-                values=(
-                    move_name,
-                    mv.get("kind", ""),
-                    "" if mv.get("damage") is None else str(mv.get("damage")),
-                    proj_dmg_txt,
-                    proj_tpl_txt,
-                    "" if mv.get("meter") is None else str(mv.get("meter")),
-                    startup_txt,
-                    active_txt,
-                    active2_txt,
-                    U.fmt_stun(mv.get("hitstun")),
-                    U.fmt_stun(mv.get("blockstun")),
-                    "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
-                    hb_main_txt,
-                    hb_txt,
-                    kb_txt2,
-                    combo_txt,
-                    speed_txt,
-                    hr_txt,
-                    superbg_txt,
-                    f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
-                ),
-            )
+        row_tag = "row_even" if (win._row_counter % 2 == 0) else "row_odd"
+        win._row_counter += 1
 
-            win.move_to_tree_item[item_id] = mv
-            win._all_item_ids.append(item_id)
+        item_id = win.tree.insert(
+            parent,
+            "end",
+            text="",
+            tags=(row_tag,),
+            values=(
+                pretty,
+                mv.get("kind", ""),
+                _fmt(mv.get("damage")),
+                _fmt(proj_dmg),
+                _fmt_proj_tpl(proj_tpl),
+                _fmt(mv.get("meter")),
+                startup_txt,
+                active_txt,
+                active2_txt,
+                U.fmt_stun(mv.get("hitstun")),
+                U.fmt_stun(mv.get("blockstun")),
+                _fmt(mv.get("hitstop")),
+                hb_main_txt,
+                hb_txt,
+                kb_txt,
+                combo_txt,
+                speed_txt,
+                hr_txt,
+                superbg_txt,
+                f"0x{move_abs:08X}" if move_abs else "",
+            ),
+        )
 
-            abs_key = mv.get("abs")
-            if abs_key:
-                win.original_moves[abs_key] = {
-                    "damage": mv.get("damage"),
-                    "proj_dmg": mv.get("proj_dmg"),
-                    "proj_tpl": mv.get("proj_tpl"),
-                    "proj_slices": mv.get("proj_slices"),
-                    "proj_slice": mv.get("proj_slice"),
-                    "meter": mv.get("meter"),
-                    "active_start": mv.get("active_start"),
-                    "active_end": mv.get("active_end"),
-                    "active2_start": a2_s,
-                    "active2_end": a2_e,
-                    "hitstun": mv.get("hitstun"),
-                    "blockstun": mv.get("blockstun"),
-                    "hitstop": mv.get("hitstop"),
-                    "kb0": mv.get("kb0"),
-                    "kb1": mv.get("kb1"),
-                    "kb_traj": mv.get("kb_traj"),
-                    "hit_reaction": mv.get("hit_reaction"),
-                    "hb_off": hb_off,
-                    "hb_r": hb_val,
-                    "hb_candidates": hb_cands,
-                    "combo_kb_mod": mv.get("combo_kb_mod"),
-                    "combo_kb_mod_addr": mv.get("combo_kb_mod_addr"),
-                    "speed_mod": mv.get("speed_mod"),
-                    "speed_mod_addr": mv.get("speed_mod_addr"),
-                    "superbg_addr": mv.get("superbg_addr"),
-                    "superbg_val": mv.get("superbg_val"),
-                }
+        win.move_to_tree_item[item_id] = mv
+        win._all_item_ids.append(item_id)
+        win._apply_row_tags(item_id, mv)
 
-            win._apply_row_tags(item_id, mv)
-            return item_id
+        return item_id
 
-    # Group duplicates by anim id
-    groups = []
-    index_by_id = {}
+    # -------------------------
+    # GROUPING (stable, no skips)
+    # -------------------------
+
+    groups = {}
+    order = []
 
     for mv in win.moves:
         aid = mv.get("id")
-        if aid is None:
-            groups.append((None, [mv]))
-            continue
-        if aid in index_by_id:
-            groups[index_by_id[aid]][1].append(mv)
-        else:
-            index_by_id[aid] = len(groups)
-            groups.append((aid, [mv]))
+        if aid not in groups:
+            groups[aid] = []
+            order.append(aid)
+        groups[aid].append(mv)
 
-    for aid, mv_list in groups:
-        if aid is None or len(mv_list) == 1:
-            insert_move_row(mv_list[0], parent="")
+    for aid in order:
+        mv_list = groups[aid]
+
+        if len(mv_list) == 1:
+            insert_move_row(mv_list[0])
             continue
 
-        parent_item = insert_move_row(mv_list[0], parent="")
-        win.tree.item(parent_item, open=False)
-        win.tree.item(parent_item, tags=tuple(set(win.tree.item(parent_item, "tags")) | {"group_parent"}))
+        parent = insert_move_row(mv_list[0])
+        win.tree.item(parent, open=False)
+        win.tree.item(parent, tags=("group_parent",))
+
         for mv in mv_list[1:]:
-            insert_move_row(mv, parent=parent_item)
+            insert_move_row(mv, parent=parent)

@@ -47,22 +47,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 pass
 
         def _mv_sort_key_notation(m):
-            aid = m.get("id")
-            if aid is None:
-                group = 2
-                aid_val = 0xFFFF
-            else:
-                aid_val = aid
-                group = 0 if aid >= 0x100 else 1
-            return (group, aid_val, m.get("abs", 0xFFFFFFFF))
+            return self._notation_rank(m)
+
 
         def _mv_sort_key_abs(m):
             a = m.get("abs")
             if a is None:
                 return (1, 0xFFFFFFFF, m.get("_scan_index", 0))
             return (0, int(a), m.get("_scan_index", 0))
-
         moves_sorted = sorted(moves_scanned, key=_mv_sort_key_notation)
+
+        self._moves_notation = moves_sorted
+
         moves_abs = sorted(moves_scanned, key=_mv_sort_key_abs)
 
         # Dedup indexing per anim ID (Tier1/2/3...)
@@ -126,6 +122,31 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # Rebuild in original notation order
         self.sort_by_notation_order()
 
+    def _explicit_notation(self, mv):
+        """
+        Return a strict ordering index.
+        Lower = earlier.
+        """
+        # animation ID is the ONLY stable identifier
+        aid = mv.get("id")
+        if aid is None:
+            return 9999
+
+        ORDER = {
+            0x0100: 0,   # 5A
+            0x0101: 1,   # 5B
+            0x0102: 2,   # 5C
+            0x0103: 3,   # 6C
+            0x0104: 4,   # 3C
+            0x0105: 5,   # 2A
+            0x0106: 6,   # 2B
+            0x0107: 7,   # 2C
+            0x0108: 8,   # j.A
+            0x0109: 9,   # j.B
+            0x010A: 10,  # j.C
+        }
+
+        return ORDER.get(aid, 1000 + aid)
 
     # ---------- UI build ----------
 
@@ -173,6 +194,31 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         status = ttk.Frame(self.root, style="Status.TFrame")
         status.pack(side="bottom", fill="x")
         ttk.Label(status, textvariable=self._status_var, style="Status.TLabel").pack(side="left", padx=8, pady=4)
+    def _notation_rank(self, mv):
+        name = (mv.get("pretty_name") or "").lower()
+
+        # ABSOLUTE priority list — no exceptions
+        priority = [
+            "5a",
+            "5b",
+            "5c",
+            "6c",
+            "3c",
+            "2a",
+            "2b",
+            "2c",
+            "j.a",
+            "j.b",
+            "j.c",
+        ]
+
+        for idx, token in enumerate(priority):
+            if token in name:
+                return (0, idx)
+
+        # Everything else goes AFTER, stable order
+        return (1, mv.get("_scan_index", 0))
+
 
 
     def _show_bones(self):
@@ -573,7 +619,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 pass
 
     def sort_by_notation_order(self):
-        self._rebuild_tree_with_moves(self._moves_notation, "notation order")
+        ordered = sorted(
+            self._moves_scanned,
+            key=lambda mv: self._explicit_notation(mv)
+    )
+        self._rebuild_tree_with_moves(ordered, "explicit order")
+
 
     def sort_by_scanned_order(self):
         self._rebuild_tree_with_moves(self._moves_scanned, "scanned order")
