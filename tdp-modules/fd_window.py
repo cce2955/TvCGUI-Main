@@ -425,11 +425,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             scan_len = _parse_hex(len_var.get(), 0x5000)
 
             scanner = BoneScanner(
-                anchor,
-                start_off=start_off,
-                scan_len=scan_len,
-                align=0x10,
-                block_len=0x60,
+                absolute_start=0x92477400,
+                absolute_end=0x94477500,
                 max_results=256,
             )
 
