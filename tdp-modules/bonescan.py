@@ -1,34 +1,3 @@
-# bonescan.py
-# TvC structured-float ("bones"/constraint) block scanner
-#
-# Goal:
-#   Scan memory and surface blocks that look like structured float slabs with
-#   padding/regularity (vec/quats, matrices, constraints, anchors, etc.).
-#
-# Design:
-#   - Deterministic, structural only
-#   - No semantic interpretation
-#   - Absolute OR base-relative ranges (base is optional)
-#   - Static blocks are valid
-#   - Can be used incrementally (UI) or as a standalone scan pass (CLI)
-#
-# IMPORTANT:
-#   - If you pass fighter_base positionally, this class supports it for backwards compat.
-#   - If you want to avoid base entirely, use absolute_start/absolute_end.
-#
-# Examples:
-#   UI/base-relative:
-#       scanner = BoneScanner(anchor, start_off=0x3000, scan_len=0x9000)
-#
-#   Absolute (no base):
-#       scanner = BoneScanner(absolute_start=0x92477000, absolute_end=0x92478000)
-#
-#   Run full pass (one-shot):
-#       results = scanner.run_full()
-#
-#   Incremental:
-#       scanner.step(budget_blocks=256); scanner.results
-
 from __future__ import annotations
 
 from dataclasses import dataclass
