@@ -113,6 +113,17 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.tree: ttk.Treeview | None = None
 
         self._build()
+    def _reset_to_original_grouping(self):
+        # Clear sort state so arrows don’t lie
+        self._sort_state.clear()
+        # Reset headers (remove ▲▼)
+        for c in self.tree["columns"]:
+            base = self.tree.heading(c, "text").split(" ")[0]
+            self.tree.heading(c, text=base)
+
+            # Rebuild in original notation order
+        self.sort_by_notation_order()
+
 
     # ---------- UI build ----------
 
@@ -137,6 +148,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         fd_tree.build_top_bar(self)
         bones_bar = ttk.Frame(self.root)
         bones_bar.pack(side="top", fill="x", padx=6, pady=(2, 4))
+        ttk.Button(
+            bones_bar,
+            text="Reset Order",
+            command=self._reset_to_original_grouping,
+        ).pack(side="left", padx=6)
+
+
 
         ttk.Button(
             bones_bar,
