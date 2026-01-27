@@ -568,32 +568,26 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         asc = self._sort_state.get(col_name, True)
         self._sort_state[col_name] = not asc
 
-        # header arrows
+        # Header arrows
         for c in tree["columns"]:
             base = tree.heading(c, "text").split(" ")[0]
-            tree.heading(c, text=f"{base} {'▲' if c == col_name and asc else '▼' if c == col_name else ''}".strip())
+            tree.heading(
+                c,
+                text=f"{base} {'▲' if c == col_name and asc else '▼' if c == col_name else ''}".strip()
+            )
 
-        def key_fn(item):
+        parents = list(tree.get_children(""))
+
+        def parent_key(item):
             v = tree.set(item, col_name)
             if not v:
                 return ""
-            try:
-                return float(v)
-            except Exception:
-                return v.lower() if isinstance(v, str) else v
+            return v.lower()
 
+        parents.sort(key=parent_key, reverse=not asc)
 
-        # sort each top-level group independently
-        for parent in tree.get_children(""):
-            kids = tree.get_children(parent)
-            if kids:
-                ordered = sorted(kids, key=key_fn, reverse=not asc)
-                for i, k in enumerate(ordered):
-                    tree.move(k, parent, i)
-            else:
-                # ungrouped row
-                pass
-    
+        for idx, parent in enumerate(parents):
+            tree.move(parent, "", idx)
     def _sort_treeview_only(self, col_name: str):
         tree = self.tree
         if not tree:
