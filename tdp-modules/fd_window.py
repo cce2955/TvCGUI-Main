@@ -386,7 +386,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 return
 
             budget = _parse_int(bud_var.get(), 128)
+            prev_count = getattr(scanner, "_last_result_count", 0)
             scanner.step(budget_blocks=max(16, min(2048, budget)))
+
+            if len(scanner.results) == prev_count:
+                win.after(int(INTERVAL * 1000), tick)
+                return
+
+            scanner._last_result_count = len(scanner.results)
 
             tree.delete(*tree.get_children())
             for r in scanner.results[:96]:
@@ -553,43 +560,99 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     def sort_by_abs_order(self):
         self._rebuild_tree_with_moves(self._moves_abs, "abs order")
+    def _sort_treeview_grouped(self, col_name: str):
+        tree = self.tree
+        if not tree:
+            return
+
+        asc = self._sort_state.get(col_name, True)
+        self._sort_state[col_name] = not asc
+
+        # header arrows
+        for c in tree["columns"]:
+            base = tree.heading(c, "text").split(" ")[0]
+            tree.heading(c, text=f"{base} {'▲' if c == col_name and asc else '▼' if c == col_name else ''}".strip())
+
+        def key_fn(item):
+            v = tree.set(item, col_name)
+            if not v:
+                return ""
+            try:
+                return float(v)
+            except Exception:
+                return v.lower() if isinstance(v, str) else v
+
+
+        # sort each top-level group independently
+        for parent in tree.get_children(""):
+            kids = tree.get_children(parent)
+            if kids:
+                ordered = sorted(kids, key=key_fn, reverse=not asc)
+                for i, k in enumerate(ordered):
+                    tree.move(k, parent, i)
+            else:
+                # ungrouped row
+                pass
+    
+    def _sort_treeview_only(self, col_name: str):
+        tree = self.tree
+        if not tree:
+            return
+
+        asc = self._sort_state.get(col_name, True)
+        self._sort_state[col_name] = not asc
+
+        # Header arrows
+        for c in tree["columns"]:
+            base = tree.heading(c, "text").split(" ")[0]
+            tree.heading(
+                c,
+                text=f"{base} {'▲' if c == col_name and asc else '▼' if c == col_name else ''}".strip()
+            )
+
+        rows = []
+        for item in tree.get_children(""):
+            val = tree.set(item, col_name)
+            rows.append((val, item))
+
+        def key(v):
+            """
+            Return a comparable tuple:
+            (type_rank, value)
+            type_rank ensures all comparisons are valid.
+            """
+            if v is None or v == "":
+                return (2, "")  # empty last
+
+            # abs column is hex
+            if col_name == "abs":
+                try:
+                    return (0, int(v, 16))
+                except Exception:
+                    return (2, "")
+
+            # numeric
+            try:
+                return (0, float(v))
+            except Exception:
+                pass
+
+            # string fallback
+            return (1, str(v).lower())
+
+        rows.sort(key=lambda x: key(x[0]), reverse=not asc)
+
+        for idx, (_, item) in enumerate(rows):
+            tree.move(item, "", idx)
 
     def _on_sort_column(self, col_name: str):
         # Toggle direction per column
-        asc = self._sort_state.get(col_name, True)
-        self._sort_state[col_name] = not asc
-        for c in self.tree["columns"]:
-            base = self.tree.heading(c, "text").split(" ")[0]
-            if c == col_name:
-                arrow = "▲" if asc else "▼"
-                self.tree.heading(c, text=f"{base} {arrow}")
-            else:
-                self.tree.heading(c, text=base)
-        def key_fn(mv):
-            v = mv.get(col_name)
-
-            if col_name == "abs":
-                return int(v) if v else 0xFFFFFFFF
-
-            if col_name == "id":
-                return int(v) if v is not None else 0xFFFF
-
-            if isinstance(v, str):
-                return v.lower()
-
-            if v is None:
-                return ""
-
-            return v
-
-        sorted_moves = sorted(
-            self.moves,
-            key=lambda mv: (key_fn(mv), mv.get("_scan_index", 0)),
-            reverse=not asc,
-        )
-
-        direction = "↑" if asc else "↓"
-        self._rebuild_tree_with_moves(sorted_moves, f"{col_name} {direction}")
+        if col_name in ("move", "kind"):
+            self._sort_treeview_grouped(col_name)
+            return
+        else:
+            self._sort_treeview_only(col_name)
+            return
 
     def _safe_detach(self, item_id: str) -> bool:
         if item_id in self._detached:
