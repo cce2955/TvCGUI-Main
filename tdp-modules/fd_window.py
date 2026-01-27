@@ -6,6 +6,9 @@ from tkinter import ttk, messagebox, simpledialog
 
 import fd_utils as U
 import fd_tree
+from bonescan import BoneScanner
+from config import INTERVAL
+
 from fd_editors import FDCellEditorsMixin
 
 from fd_patterns import (
@@ -130,6 +133,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         fd_tree.configure_styles(self.root)
         fd_tree.build_top_bar(self)
+        bones_bar = ttk.Frame(self.root)
+        bones_bar.pack(side="top", fill="x", padx=6, pady=(2, 4))
+
+        ttk.Button(
+            bones_bar,
+            text="Show Bones",
+            command=self._show_bones,
+        ).pack(side="left")
         fd_tree.build_tree_widget(self)
         fd_tree.populate_tree(self)
 
@@ -140,7 +151,82 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         status = ttk.Frame(self.root, style="Status.TFrame")
         status.pack(side="bottom", fill="x")
         ttk.Label(status, textvariable=self._status_var, style="Status.TLabel").pack(side="left", padx=8, pady=4)
+    def _show_bones(self):
+        base = None
 
+        # Prefer currently selected move if any
+        sel = self.tree.selection()
+        if sel:
+            mv = self.move_to_tree_item.get(sel[0])
+            if mv:
+                base = mv.get("abs")
+
+        # Fallback: first move with an abs
+        if not base:
+            for mv in self.moves:
+                if mv.get("abs"):
+                    base = mv["abs"]
+                    break
+
+        if not base:
+            messagebox.showerror("Bones", "No move address available to anchor bonescan")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title(f"Bones: {self.slot_label} @ 0x{base:08X}")
+        win.geometry("760x420")
+
+        # ---- Tree ----
+        tree = ttk.Treeview(
+            win,
+            columns=("addr", "floats", "changes", "score"),
+            show="headings",
+        )
+        tree.heading("addr", text="Base Addr")
+        tree.heading("floats", text="Float Count")
+        tree.heading("changes", text="Changes")
+        tree.heading("score", text="Score")
+
+        tree.column("addr", width=140, anchor="center")
+        tree.column("floats", width=90, anchor="center")
+        tree.column("changes", width=90, anchor="center")
+        tree.column("score", width=90, anchor="center")
+
+        tree.pack(fill="both", expand=True, padx=8, pady=8)
+
+        # ---- Scanner ----
+        scanner = BoneScanner(base)
+
+        def tick():
+            # stop cleanly if window closed
+            if not win.winfo_exists():
+                return
+
+            try:
+                scanner.step()
+            except Exception as e:
+                # don’t kill the UI on scan errors
+                win.after(int(INTERVAL * 1000), tick)
+                return
+
+            tree.delete(*tree.get_children())
+
+            # show top candidates only
+            for r in scanner.results[:64]:
+                tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        f"0x{r.addr:08X}",
+                        r.float_count,
+                        r.change_count,
+                        f"{r.score:.2f}",
+                    ),
+                )
+
+            win.after(int(INTERVAL * 1000), tick)
+
+        tick()
     # ---------- Row tagging / status ----------
 
     def _apply_row_tags(self, item_id: str, mv: dict):

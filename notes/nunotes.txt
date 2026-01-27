@@ -159,3 +159,69 @@ GNTA answers how that pose becomes attack space
 Engine code performs the math
 
 RAM holds the final, editable output
+
+Unpacking MOT for GNTA data
+
+Although GNTA is often handled as standalone .gnta files during analysis, the engine treats GNTA as animation-bound metadata, not an independent asset.
+
+In practice:
+
+GNTA data is packaged alongside MOT data inside the animation container.
+
+The animation loader resolves:
+
+animation ID
+
+MOT motion data
+
+associated GNTA records
+
+All three are loaded together and share the same timing domain.
+
+Standalone .gnta files represent extracted GNTA blocks, not the original on-disk layout used by the game.
+
+When unpacking MOT data:
+
+GNTA records appear as structured, non-skeletal blocks adjacent to motion data.
+
+GNTA records are not bone animation curves, even though they may be time-keyed.
+
+GNTA uses its own schema:
+
+fixed offsets
+
+record tables
+
+scalar or curve data
+
+GNTA records reference animation time implicitly rather than storing absolute frame counts.
+
+Because GNTA is animation-scoped:
+
+There is no animation ID stored inside GNTA itself.
+
+Identity is assigned externally by the loader based on:
+
+animation slot
+
+character animation table
+
+This allows the same animation ID to exist across characters with different GNTA tuning.
+
+When extracted for tooling:
+
+GNTA is separated for inspection and editing.
+
+MOT remains skeletal pose only.
+
+Repacking requires preserving record order, offsets, and timing assumptions.
+
+This packaging explains:
+
+why GNTA curves line up exactly with MOT frame counts
+
+why hitbox behavior updates immediately on animation change
+
+why GNTA edits affect gameplay without altering animation visuals
+
+GNTA is best thought of as animation-resident gameplay metadata, not a separate system layered on top of animation.
