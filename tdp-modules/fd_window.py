@@ -1,5 +1,6 @@
 # fd_window.py
 from __future__ import annotations
+import struct
 
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
@@ -154,6 +155,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
 
     def _show_bones(self):
+        paused = False
+
         # Anchor = any address BEFORE the bones region
         anchor = self.target_slot.get("fighter_base")
 
@@ -212,11 +215,77 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         tree.column("sample", width=430, anchor="w")
 
         tree.pack(fill="both", expand=True, padx=8, pady=8)
-
+        
         status = ttk.Label(win, text="", anchor="w")
         status.pack(side="bottom", fill="x", padx=8, pady=(0, 8))
 
         scanner = None
+        def edit_bone_block(addr: int):
+            try:
+                from dolphin_io import rbytes, wbytes
+            except Exception:
+                messagebox.showerror("Bones", "dolphin_io write unavailable")
+                return
+
+            raw = rbytes(addr, 0x40)
+            if not raw:
+                messagebox.showerror("Bones", f"Failed to read 0x{addr:08X}")
+                return
+
+            floats = [struct.unpack(">f", raw[i:i+4])[0] for i in range(0, 32, 4)]
+
+            dlg = tk.Toplevel(win)
+            dlg.title(f"Edit Bones @ 0x{addr:08X}")
+            dlg.geometry("360x320")
+
+            entries = []
+
+            for i, val in enumerate(floats):
+                row = ttk.Frame(dlg)
+                row.pack(fill="x", padx=8, pady=2)
+
+                ttk.Label(row, text=f"f{i}", width=4).pack(side="left")
+                e = ttk.Entry(row, width=12)
+                e.insert(0, f"{val:.3f}")
+                e.pack(side="left", padx=6)
+                entries.append(e)
+
+            def apply():
+                out = bytearray(raw)
+                for i, e in enumerate(entries):
+                    try:
+                        v = float(e.get())
+                        out[i*4:i*4+4] = struct.pack(">f", v)
+                    except Exception:
+                        pass
+                wbytes(addr, out)
+
+            ttk.Button(dlg, text="Apply", command=apply).pack(pady=10)
+
+        def on_double_click(evt):
+            item = tree.identify_row(evt.y)
+            col = tree.identify_column(evt.x)
+            if not item:
+                return
+
+            values = tree.item(item, "values")
+            if not values:
+                return
+
+            addr = int(values[0], 16)
+            edit_bone_block(addr)
+
+        tree.bind("<Double-Button-1>", on_double_click)
+        def on_click(evt):
+            nonlocal paused
+            paused = True
+
+        tree.bind("<Button-1>", on_click)
+        def resume():
+            nonlocal paused
+            paused = False
+
+        ttk.Button(top, text="Resume Scan", command=resume).pack(side="left", padx=8)
 
         def _parse_hex(s: str, default: int) -> int:
             try:
@@ -263,7 +332,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             if not win.winfo_exists():
                 return
 
-            if scanner is None:
+            if paused or scanner is None:
                 win.after(int(INTERVAL * 1000), tick)
                 return
 
