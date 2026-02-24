@@ -60,7 +60,7 @@
 354,0x161,Air Bird Smash,Bird Smash,Bird Smash,yes,1
 368,0x1ae,Phoenix,Phoenix,Phoenix,yes,1
 512,0x1ae,Phoenix,Phoenix,Phoenix,yes,1
-430,0x1ae,Phoenix,Phoenix,Phoenix,yes,1
+
 514,0x202,Lightning Strike,Lightning Strike,Lightning Strike,yes,1
 
 
@@ -324,6 +324,7 @@
 325,0x142,Air Tatsu H,Air Hado H,Air Hado H,yes,12
 352,0x160,Shinkuu,Shinkuu,Shinkuu,yes,12
 353,0x161,Tatsu Super,Tatsu Super,Tatsu Super,yes,12
+354,0x161,Air Shinkuu,Tatsu Super,Tatsu Super,yes,12
 362,0x161,Shin Sho Startup,Tatsu Super,Tatsu Super,yes,12
 465,0x1d1,Forward Throw,Forward Throw,Forward Throw,yes,12
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,12
@@ -921,6 +922,7 @@
 158,0x1,KO in slow motion (Forward),Air Recovery,Air Recovery,yes,100
 159,0x1,Go invsible,Air Recovery,Air Recovery,yes,100
 160,0x1,Air Recovery,Air Recovery,Air Recovery,yes,100
+161,0x1,You Made Screen Fly happen congrats want a cookie?,Air Recovery,Air Recovery,yes,100
 162,0x1,Baroque cancel,Air Recovery,Air Recovery,yes,100
 165,0x1,Breakaway Recovery,Air Recovery,Air Recovery,yes,100
 167,0x1,Parry? what is this?,Air Recovery,Air Recovery,yes,100
