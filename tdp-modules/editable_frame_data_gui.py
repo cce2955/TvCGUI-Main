@@ -735,7 +735,7 @@ class EditableFrameDataWindow:
         mv["id"] = new_id
         mv["move_name"] = new_mv.get("move_name") or mv.get("move_name")
 
-        cname = self.target_slot.get("char_name", "—")
+        cname = self.target_slot.get("char_name", ",")
         pretty = _pretty_move_name(new_id, cname)
         dup_idx = mv.get("dup_index")
         if dup_idx is not None:
@@ -746,7 +746,7 @@ class EditableFrameDataWindow:
 
     def _build(self):
         """Construct the Tk UI components and populate the move table."""
-        cname = self.target_slot.get("char_name", "—")
+        cname = self.target_slot.get("char_name", ",")
         self.root = tk.Tk()
         self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
         self.root.geometry("1450x720")
@@ -835,7 +835,7 @@ class EditableFrameDataWindow:
         self.tree.column("hit_reaction", width=240, anchor="w")
         self.tree.column("abs", width=100, anchor="w")
 
-        cname = self.target_slot.get("char_name", "—")
+        cname = self.target_slot.get("char_name", ",")
 
         def _insert_move_row(mv, parent=""):
             """Insert a single move row, optionally as a child of `parent`."""

@@ -172,7 +172,7 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
 
 
 
-    mv_label = snap.get("mv_label", "—")
+    mv_label = snap.get("mv_label", ",")
     mv_id = snap.get("mv_id_display")
 
     # Assist display: if this slot is currently acting as an assist, append a tag.
@@ -311,7 +311,7 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         col_x = rect.x + 4 + col * col_w
         y = y0
         label = slot.get("slot_label", "?")
-        cname = slot.get("char_name", "—")
+        cname = slot.get("char_name", ",")
         surface.blit(smallfont.render(f"{label} ({cname})", True, COL_TEXT), (col_x, y))
         y += 14
 

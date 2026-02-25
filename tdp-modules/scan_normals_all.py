@@ -206,7 +206,7 @@ def read_slots() -> List[Tuple[str, int, Optional[int], str]]:
     for label, ptr, _tag in SLOTS:
         base = rd32(ptr) or 0
         cid: Optional[int] = None
-        cname = "—"
+        cname = ","
         if base:
             cid = rd32(base + 0x14)
             if cid is not None:
@@ -811,7 +811,7 @@ def scan_once():
         if slot_idx < len(slots_info):
             slot_label, base_ptr, cid, cname = slots_info[slot_idx]
         else:
-            slot_label, cname = f"slot{slot_idx}", "—"
+            slot_label, cname = f"slot{slot_idx}", ","
 
         result[slot_idx] = {
             "slot_label": slot_label,

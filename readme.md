@@ -245,5 +245,5 @@ This method is consistent during “Hit Anywhere” testing and normal gameplay.
 
 ## License
 
-MIT License — free for community use and research.  
+MIT License , free for community use and research.  
 Not affiliated with Capcom, Tatsunoko, or Dolphin developers.

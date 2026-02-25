@@ -424,7 +424,7 @@ Address	Default	Float Value	Effect / Behavior
 0x908AEFD8	00 00 00 3F	0.5	Changing to 40 20 00 00 → Ryu freezes post-attack if opponent out of range. Probably an active frame duration or animation gate.
 0x908AEFC8	00 00 00 0A	(int 10)	Changing to 00 00 00 14 → Ryu freezes after punch. Likely sub-hitbox count / duration counter.
 0x908AEFE8	00 00 00 0A	(int 10)	(Not yet tested; predicted same effect as 0xC8.)
-0x908AEF7C	(not in region, earlier)	–	“Global” hitbox range — setting to FF previously expanded all hits. Related global flag or header byte.
+0x908AEF7C	(not in region, earlier)	–	“Global” hitbox range , setting to FF previously expanded all hits. Related global flag or header byte.
 
 
 

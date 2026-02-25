@@ -60,8 +60,8 @@ def read_fighter(base, y_off):
             max (OFF_MAX_HP)
             cur (OFF_CUR_HP)
             aux (OFF_AUX_HP)
-            hp_pool_byte  (0x02A — pooled / red-life style total)
-            mystery_2B    (0x02B — decremented "phase" byte under test)
+            hp_pool_byte  (0x02A , pooled / red-life style total)
+            mystery_2B    (0x02B , decremented "phase" byte under test)
       - Identity:
             id, name (resolved via CHAR_NAMES)
       - Position:

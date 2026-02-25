@@ -48,7 +48,7 @@ HEX_PAIR_RE = re.compile(r"^[0-9A-Fa-f]{2}$")
 def read_mem2() -> bytes:
     if not HAVE_DOLPHIN:
         return b""
-    # reads whole MEM2 (0x40_00000 on Wii, ~64MB) — we will try to do this sparingly
+    # reads whole MEM2 (0x40_00000 on Wii, ~64MB) , we will try to do this sparingly
     return rbytes(MEM2_LO, MEM2_HI - MEM2_LO)
 
 
@@ -222,7 +222,7 @@ class App(tk.Tk):
                 continue
             base, _ = os.path.splitext(fname)
             samples.append((base, sample))
-        # try longer samples first — more specific
+        # try longer samples first , more specific
         samples.sort(key=lambda t: len(t[1]), reverse=True)
         return samples
 
@@ -237,8 +237,8 @@ class App(tk.Tk):
         for name, rel in moves:
             row = ttk.Frame(self.inner); row.pack(fill=tk.X, pady=1)
             tk.Label(row, text=name, width=32, anchor="w").pack(side=tk.LEFT)
-            addr_var = tk.StringVar(value="—")
-            val_var = tk.StringVar(value="—")
+            addr_var = tk.StringVar(value=",")
+            val_var = tk.StringVar(value=",")
             tk.Label(row, textvariable=addr_var, width=14).pack(side=tk.LEFT)
             tk.Label(row, textvariable=val_var, width=10).pack(side=tk.LEFT)
             self.rows.append((name, rel, addr_var, val_var))
@@ -371,8 +371,8 @@ class App(tk.Tk):
                 else:
                     val_var.set("ERR")
             else:
-                addr_var.set("—")
-                val_var.set("—")
+                addr_var.set(",")
+                val_var.set(",")
 
         self.after(500, self.tick)
 

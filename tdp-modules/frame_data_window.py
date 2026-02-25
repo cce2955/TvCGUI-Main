@@ -38,7 +38,7 @@ def _open_legacy_viewer(slot_label, target_slot):
         print("tkinter not available")
         return
 
-    cname = target_slot.get("char_name", "—")
+    cname = target_slot.get("char_name", ",")
     root = tk.Tk()
     root.title(f"Frame data: {slot_label} ({cname})")
 

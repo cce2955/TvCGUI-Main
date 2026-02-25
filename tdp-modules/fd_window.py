@@ -197,7 +197,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _notation_rank(self, mv):
         name = (mv.get("pretty_name") or "").lower()
 
-        # ABSOLUTE priority list — no exceptions
+        # ABSOLUTE priority list , no exceptions
         priority = [
             "5a",
             "5b",
