@@ -225,3 +225,573 @@ why hitbox behavior updates immediately on animation change
 why GNTA edits affect gameplay without altering animation visuals
 
 GNTA is best thought of as animation-resident gameplay metadata, not a separate system layered on top of animation.
+Vertex Buffer Analysis
+Location
+
+Vertex buffer base:
+0x92468B20
+
+Stride:
+0xD0
+
+Offsets referenced are inside the vertex layout and represent model-space data, not world-space.
+
+Offset +0x28
+
+Behavior:
+
+Y span increases during jump
+
+Example range: Y:[-0.434 .. 2.346]
+
+X and Z remain symmetric around 0
+
+Average center remains near (0, 0, 0)
+
+Conclusion:
+
+This is model-space vertex position (local Y relative to mesh origin).
+Affected by animation.
+Not affected by stage/world movement.
+
+Offset +0x2C
+
+Behavior:
+
+X span shifts during cross-up
+
+Value spikes during flip/facing change
+
+Conclusion:
+
+Likely adjacent vec3 component in local space.
+Represents rotated or mirrored local-space axis during facing change.
+
+Offset +0x30
+
+Behavior:
+
+Z occasionally spikes to ~10 during jump/landing
+
+Conclusion:
+
+Misaligned read crossing into unrelated float field.
+Likely matrix or weight data.
+
+Offset +0x34
+
+Behavior:
+
+Z behaves differently when grounded
+
+Flattens to 1.00 during jump
+
+Appears to vary relative to opponent distance
+
+Conclusion:
+
+Likely animation blend / root correction / foot IK data.
+Not stage distance.
+
+Offsets +0xB8 → +0xC4
+
+Behavior:
+
+Tight [-1 .. 1] ranges
+
+Consistent normalization
+
+Conclusion:
+
+Normalized vectors.
+Likely normals, tangents, or bone-space vectors.
+
+Critical Vertex Conclusion
+
+Average vertex center remains near zero at all times.
+
+Therefore:
+
+Vertex buffer is model-space
+
+World position applied via GX transform matrix
+
+Stage movement does not modify vertex buffer
+
+Implication:
+
+World position must exist in:
+
+Fighter actor struct
+
+Or transform matrix uploaded before draw
+
+Vertex buffer unsuitable for stage tracking.
+
+Actor Runtime Structure
+Example Actor Base (Ryu Slot 0)
+
+0x9246B9C0
+
+Confirmed World Coordinates
+World X
+
+Offset:
+BASE + 0x98
+Example: 0x9246BA58
+
+Behavior:
+
+Far left wall ≈ -8.5 (0xC1080000)
+
+Center ≈ 0
+
+Far right wall ≈ +8.5 (0x41080000)
+
+Smooth continuous change while walking
+
+Symmetric around 0
+
+Not affected by jump
+
+Conclusion:
+
+Absolute world X coordinate.
+
+World Y
+
+Offset:
+BASE + 0x9C
+
+Behavior:
+
+Increases when jumping
+
+Returns on landing
+
+Stable while grounded
+
+Conclusion:
+
+Absolute world Y coordinate.
+
+Stage Width
+
+Approximately:
+
+Left wall: -8.5
+Right wall: +8.5
+Total width ≈ 17 units
+
+State Flags
+
+Offset:
+BASE + 0x60
+Example: 0x9246BA20
+
+Observed values:
+
+0x0400 → grounded idle
+0x0002 → air
+0x0401 → moving
+0x0421 → moving + opponent contact
+0x4401 → right wall
+0x8401 → left wall
+0x4400 → idle right wall
+0x8400 → idle left wall
+
+Bit deductions:
+
+0x0001 → moving
+0x0002 → airborne
+0x0020 → opponent contact
+0x0400 → grounded
+0x4000 → right wall
+0x8000 → left wall
+Additional Horizontal Metric
+
+Offset:
+BASE + 0x8C
+
+Behavior:
+
+Increments toward right wall
+
+Decrements when moving away
+
+Conclusion:
+
+Camera-relative or boundary metric.
+Not absolute world X.
+
+Velocity
+
+Offset:
+BASE + 0x1D0
+
+Behavior:
+
+Increases when moving
+
+Returns to baseline when stopped
+
+Conclusion:
+
+Horizontal velocity component.
+
+Actor Slot Architecture
+
+Static MEM2 slot bases:
+
+Slot 0: 0x9246B9C0
+Slot 1: 0x927EB9E0
+Slot 2: 0x92B6BA00
+Slot 3: 0x92EEBA20
+
+Approximate slot stride:
+
+~ 0x380020
+
+Properties:
+
+Fixed across character swaps
+
+Fixed across stage swaps
+
+Fixed across rematches
+
+Fixed across reloads
+
+Not heap allocated
+
+Not relocated
+
+Conclusion:
+
+Engine-level preallocated actor banks:
+
+ActorSlots[4]
+
+Dynamic fighter detection:
+
+for slot in SLOTS:
+    if state & (0x0400 | 0x0002):
+        slot is active
+
+No memory scanning required.
+
+Subaction Runtime Block
+
+Region located around:
+
+0x9246BBxx (Slot 0)
+
+This region represents gameplay-layer subaction runtime state.
+
+Not bone data.
+Not animation blend data.
+
+Collision State
+
+Address:
+0x9246BBE6
+
+Type:
+u16 (big endian)
+
+Observed values:
+
+0x0018 → no active hitbox
+0x0019 → offensive hitbox active
+
+Behavior:
+
+0x19 persists for entire active duration
+
+Returns to 0x18 immediately when hitbox clears
+
+Deterministic across normals, aerials, specials, supers
+
+Conclusion:
+
+Offensive collision enable state.
+
+Not a pulse.
+Not a counter.
+Mode flag.
+
+Subaction Frame Counter
+
+Located near collision state.
+
+Behavior:
+
+Increments every frame during startup
+
+Continues incrementing on whiff
+
+Pauses during hitlag
+
+Resumes after hitlag ends
+
+Engine model:
+
+if (!hitlag)
+    frame++
+
+Conclusion:
+
+Subaction Frame Index.
+
+Subaction ID
+
+Offset:
+CollisionState - 0x24
+
+Behavior:
+
+Changes exactly when animation changes
+
+Deterministic per move
+
+Conclusion:
+
+Subaction / Animation ID field.
+
+Engine Behavioral Model
+
+Per-frame logic inferred:
+
+SubactionFrame++
+
+if SubactionFrame enters active window:
+    CollisionState = 0x19
+else:
+    CollisionState = 0x18
+
+if hit connects:
+    Hitlag active
+    SubactionFrame paused
+
+Matches all observed runtime behavior.
+
+Subaction Runtime Struct (Partial)
+
+Relative to 0x9246BBE6:
+
+[ -0x24 ]  Subaction ID
+[ nearby ] Subaction Frame
+[ nearby ] Hitlag Timer
+[ +0x00 ]  Collision State (18 / 19)
+
+Precise offsets for frame + hitlag pending full mapping.
+
+Capabilities Enabled by This Mapping
+
+Deterministic memory-side detection of:
+
+Startup frames
+
+Active frames
+
+Recovery window
+
+Hitlag
+
+Whiff vs hit
+
+Move window timing
+
+No need for:
+
+Bone scanning
+
+GX matrix analysis
+
+Breakpoints
+
+PPC tracing
+Layer reached
+
+Gameplay runtime execution layer.
+
+This is the correct abstraction tier for frame-data extraction and hitbox timing analysis.
+
+CONFIRMED FIELD MAP (FLAG @ 0x9246BBE6)
+
+FLAG+40 (0x9246BC0E) u16 — BASE_DAMAGE
+720=LK, 800=LP, 1360=MK, 1440=MP, 2400=HK, 2480=HP
+
+FLAG+48 (0x9246BC16) u16 — LAST_ACTIVE_FRAME
+(12/17/21 for L/M/H)
+
+FLAG+64 (0x9246BC26) u16 — FIRST_ACTIVE_FRAME (STARTUP)
+(6/9/12 for L/M/H)
+
+FLAG+52 (0x9246BC1A) u16 — PREV_MOVE_LAST_FRAME
+carry-forward (likely cancel logic)
+
+FLAG+60 (0x9246BC22) u16 — PREV_MOVE_FIRST_FRAME
+carry-forward
+
+FLAG+6 (0x9246BBEC) f32 — HITBOX_HEIGHT_TYPE
+2.0 = mid/high, 3.0 = low
+
+FLAG-56 (0x9246BBAE) u16 — ATTACK_ID
+hi = 0x01 when active, lo = sequence index 0–255
+
+HURTBOX / COLLISION CLUSTER (likely world-space, stage-center referenced)
+
+Observed collision block behaves like persistent collision volumes rather than “spawned per-move hitboxes”:
+
+Does not mirror/flip with facing
+
+Values appear measured from stage center / world X, not local/bone space
+
+Updates continuously with animation/pose (attack poses “shift” centers forward without root translation)
+
+Persists across idle / walk / jump, suggesting baseline collision/hurt volumes
+
+Importantly: slots do not clear/revert once written, suggesting a fixed collision-volume array that is selectively overwritten rather than rebuilt per move
+
+Working hypothesis (not proven):
+This looks consistent with an always-on set of hurtbox/collision spheres/capsules whose centers follow animation bones, but are stored/accumulated in world coordinates.
+
+Note: not yet proven — needs controlled tests (turnaround, lock-root, bone isolate, freeze anim) to fully confirm coordinate space + attachment.
+
+BONE CLUSTER SUSPECT (possible world-space hitbox positions)
+
+0x9246BA4C (-410) f32 idle≈3.18, active≈3.4–3.8 (12-byte stride)
+0x9246BA58 (-398) f32 same
+0x9246BA64 (-386) f32 same
+0x9246BA70 (-374) f32 same
+0x9246BA7C (-362) f32 same
+0x9246BAA0 (-326) f32 same
+
+→ Cross-reference with bone labeler: which arm/fist bones live here?
+
+Additional candidate flag
+
+0x9246DA9B
+Monitors attacks on ground before opponent is airborne. Resets on new combo. Also appears to reset when a normal can’t be cancelled further (tentative).
+
+CONFIRMED FIELD MAP
+FLAG @ 0x9246BBE6
+FLAG+40 (0x9246BC0E) — u16 BASE_DAMAGE
+720  = LK  
+800  = LP  
+1360 = MK  
+1440 = MP  
+2400 = HK  
+2480 = HP
+FLAG+48 (0x9246BC16) — u16 LAST_ACTIVE_FRAME
+
+Observed:
+
+12 / 17 / 21 (L/M/H normals)
+
+FLAG+64 (0x9246BC26) — u16 FIRST_ACTIVE_FRAME (Startup)
+
+Observed:
+
+6 / 9 / 12 (L/M/H normals)
+
+FLAG+52 (0x9246BC1A) — u16 PREV_MOVE_LAST_FRAME
+
+Likely carry-forward window
+Suspected involvement in cancel logic.
+
+FLAG+60 (0x9246BC22) — u16 PREV_MOVE_FIRST_FRAME
+
+Carry-forward (startup reference)
+Likely used for chained cancel validation.
+
+FLAG+6 (0x9246BBEC) — f32 HITBOX_HEIGHT_TYPE
+2.0 = mid/high  
+3.0 = low
+FLAG-56 (0x9246BBAE) — u16 ATTACK_ID
+
+High byte = 0x01 when active
+
+Low byte = sequence index (0–255)
+
+Appears to track move slot identity.
+
+COLLISION / HURTBOX CLUSTER (World-Space Suspect)
+
+Observed block behaves like persistent collision volumes rather than dynamically spawned attack-only hitboxes.
+
+Observations
+
+Does not mirror/flip with facing.
+
+Appears measured from stage center / world X, not local bone space.
+
+Updates continuously with animation pose.
+
+Attack poses shift volume centers forward without root translation.
+
+Persists across idle / walk / jump.
+
+Slots do not clear automatically after move end.
+
+Volumes appear selectively overwritten rather than rebuilt per move.
+
+Working Hypothesis (Not Yet Proven)
+
+This structure appears consistent with:
+
+A fixed collision-volume array (likely spheres/capsules)
+Whose centers follow animation bones
+Stored in world coordinates
+Persistently allocated per character
+
+These may represent:
+
+Hurtboxes
+
+Collision volumes
+
+Or a shared slot system for both
+
+Controlled testing still required to confirm:
+
+World vs local transform source
+
+Bone attachment
+
+Overwrite logic
+
+Slot reuse pattern
+
+BONE CLUSTER SUSPECT
+
+Possible world-space volume positions:
+
+0x9246BA4C (-410) f32 idle≈3.18, active≈3.4–3.8 (12-byte stride)
+0x9246BA58 (-398)
+0x9246BA64 (-386)
+0x9246BA70 (-374)
+0x9246BA7C (-362)
+0x9246BAA0 (-326)
+
+Pattern suggests structured array.
+
+Action item:
+Cross-reference with bone labeler to determine which skeletal nodes map to these offsets.
+
+ADDITIONAL FLAG CANDIDATE
+0x9246DA9B
+
+Observed behavior:
+
+Monitors grounded attack state before opponent airborne.
+
+Resets on new combo.
+
+Also appears to reset when a normal becomes non-cancellable.
+
+Tentative interpretation:
+Possible combo state / ground-confirm tracking / cancel-window validator.
+
+Further testing required.

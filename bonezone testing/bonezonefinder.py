@@ -1,12 +1,12 @@
 """
-TvC Bone Finder  v3  ,  Full MEM2 scanner
+TvC Bone Finder  v3  —  Full MEM2 scanner
 ==========================================
 Scans all of MEM2 (0x90000000–0x93FFFFFF) in chunks looking for
 regions that match the confirmed 0x40-stride 3x4 float matrix layout.
 
 Signature fingerprint (must match ALL of these to count as a bone):
   - At least 8 of the 12 float fields (+0x00–+0x2B) are valid IEEE floats
-  - At least one field equals 1.0 (3F800000) , rotation identity hint
+  - At least one field equals 1.0 (3F800000) — rotation identity hint
   - +0x30 onward contains at least one non-float (metadata separator)
   - Record is 0x40-aligned
 
@@ -35,7 +35,7 @@ except ImportError:
 MEM2_START   = 0x90000000
 MEM2_END     = 0x93FFFFFF
 
-CHUNK_SIZE   = 0x10000      # 64KB per read , safe for DME
+CHUNK_SIZE   = 0x10000      # 64KB per read — safe for DME
 BONE_STRIDE  = 0x40
 FLOAT_ONE    = 0x3F800000
 FLOAT_ZERO   = 0x00000000
@@ -199,7 +199,7 @@ def scan():
         f.write('\n'.join(lines))
     print('\n'.join(lines[:60]))   # preview first 60 lines to console
     if len(lines) > 60:
-        print(f"  ... ({len(lines)-60} more lines , see {OUT_FILE})")
+        print(f"  ... ({len(lines)-60} more lines — see {OUT_FILE})")
 
     print(f"\n[SAVED] Full results → {os.path.abspath(OUT_FILE)}")
     input("\nPress Enter to exit.")

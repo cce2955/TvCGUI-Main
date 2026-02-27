@@ -71,7 +71,7 @@ def is_valid_float(raw):
     return abs(val) < 1e6
 
 def fmt_raw(raw, fval):
-    """Safe formatter , handles None."""
+    """Safe formatter — handles None."""
     if raw is None:
         return "raw=N/A (out of range)"
     return f"raw=0x{raw:08X}  float={fval:10.4f}" if fval is not None else f"raw=0x{raw:08X}  float=N/A"
@@ -82,7 +82,7 @@ def fmt_raw(raw, fval):
 
 def pattern_scan(data):
     print("\n" + "="*60)
-    print("  PATTERN SCAN , float cluster + identity quat signatures")
+    print("  PATTERN SCAN — float cluster + identity quat signatures")
     print("="*60)
 
     size = len(data)
@@ -144,7 +144,7 @@ def pattern_scan(data):
 
 def reactive_xref(data):
     print("\n" + "="*60)
-    print("  REACTIVE XREF , stride alignment of hot addresses")
+    print("  REACTIVE XREF — stride alignment of hot addresses")
     print("="*60)
     print(f"\n  Reactive: {[hex(r) for r in REACTIVE]}\n")
 

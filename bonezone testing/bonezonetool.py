@@ -17,7 +17,7 @@ except ImportError:
     sys.exit("[ERROR] dolphin_memory_engine not installed.")
 
 # ─────────────────────────────────────────────
-# CONFIG  ,  update SCAN_START/END after running tvc_bone_finder.py
+# CONFIG  —  update SCAN_START/END after running tvc_bone_finder.py
 # ─────────────────────────────────────────────
 
 SCAN_START  = 0x924773C0   # update after wide scan

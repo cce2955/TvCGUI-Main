@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════╗
-║           TvC Bone Toolkit  ,  all-in-one edition           ║
+║           TvC Bone Toolkit  —  all-in-one edition           ║
 ╚══════════════════════════════════════════════════════════════╝
 Confirmed layout (3x4 row-major float matrix, stride 0x40):
   +0x0C  tX   +0x1C  tY   +0x2C  tZ
@@ -51,7 +51,7 @@ REGIONS = {
     5: ("Cluster 1881",    0x92F8C000, 180),
     6: ("Original region", 0x921773C0,  50000),
     #6: ("Original region", 0x924773C0,  300),
-    # slot 99 reserved for live finder result , filled at runtime
+    # slot 99 reserved for live finder result — filled at runtime
 }
 
 INC_MAP     = {b'1': 1.0, b'5': 5.0, b'0': 10.0, b'2': 20.0}
@@ -418,7 +418,7 @@ def _dump_range_to_file(start, count, filename):
     print(f"  Saved → {filename}")
 
 # ══════════════════════════════════════════════════════════════
-# BONE LABELER  ,  works on any region including live finder result
+# BONE LABELER  —  works on any region including live finder result
 # ══════════════════════════════════════════════════════════════
 
 def load_labels():
@@ -435,13 +435,13 @@ def print_label_summary(labels, rstart, rcount):
     print(f"  {'-'*50}")
     for i in range(rcount):
         addr = rstart + i * BONE_STRIDE
-        lbl  = labels.get(hex(addr), ",")
+        lbl  = labels.get(hex(addr), "—")
         print(f"  {i:<5} 0x{addr:08X}    {lbl}")
 
 def bone_labeler():
     print("\n  ─── BONE LABELER ───────────────────────────")
     print("  Zeros one bone, you observe, type label, restores, moves on.")
-    print("  Works on any region , original 13 bones OR live finder result.\n")
+    print("  Works on any region — original 13 bones OR live finder result.\n")
 
     # Pick region
     print_regions()
@@ -505,7 +505,7 @@ def bone_labeler():
         try:
             original = dme.read_bytes(addr, BONE_STRIDE)
         except Exception:
-            print(f"  [READ ERROR] bone_{i} , skipping")
+            print(f"  [READ ERROR] bone_{i} — skipping")
             i += 1; continue
 
         zero_bone(addr)
@@ -530,7 +530,7 @@ def bone_labeler():
         elif lbl.lower() == 'skip':
             i += 1; continue
         else:
-            
+            # ONLY CHANGE YOU ASKED FOR:
             # blank label becomes "dead" (NOT "nothing"), and any typed label overwrites it.
             labels[key] = lbl if lbl else 'dead'
             save_labels(labels)
@@ -542,7 +542,7 @@ def bone_labeler():
     # Save human-readable map
     map_file = f"bone_map_{rname.replace(' ','_')}.txt"
     with open(map_file, 'w') as f:
-        f.write(f"TvC Bone Map , {rname}  0x{rstart:08X}\n{'='*50}\n")
+        f.write(f"TvC Bone Map — {rname}  0x{rstart:08X}\n{'='*50}\n")
         for ii in range(rcount):
             a = rstart + ii * BONE_STRIDE
             l = labels.get(hex(a), "unlabeled")
@@ -557,7 +557,7 @@ def bone_labeler():
 
 BANNER = """
 ╔══════════════════════════════════════════════════════════════╗
-║              TvC Bone Toolkit  ,  all-in-one                ║
+║              TvC Bone Toolkit  —  all-in-one                ║
 ║      Grabber | Dump | Scan | Zero | Restore | Labeler       ║
 ╚══════════════════════════════════════════════════════════════╝
   Stride: 0x40   tX=+0x0C   tY=+0x1C   tZ=+0x2C
