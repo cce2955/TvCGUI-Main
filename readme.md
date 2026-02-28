@@ -14,7 +14,7 @@ This suite connects directly to Dolphin's RAM and provides:
 
 TvC Continuo visualizes live match data pulled directly from Dolphin's memory.  
 It supports all four character slots (P1-C1, P1-C2, P2-C1, P2-C2) with dynamic pointer resolution to track state across tags and swaps.  
-The name is a nod to the basso continuo — the continuous harmonic backbone of Baroque music — fitting for a tool built around TvC's Baroque mechanic.
+
 
 ---
 
@@ -228,7 +228,7 @@ This method is consistent during training mode and normal gameplay.
 
 ## Troubleshooting
 
-- **HUD says "waiting for Dolphin"** — ensure Dolphin is running with TvC loaded. If Dolphin is loaded it may be looking at a stale process or a different Dolphin PID. Close all Dolphin windows and the HUD, then relaunch both
+- **HUD says "waiting for Dolphin"** , ensure Dolphin is running with TvC loaded. If Dolphin is loaded it may be looking at a stale process or a different Dolphin PID. Close all Dolphin windows and the HUD, then relaunch both
 
 ---
 
@@ -243,7 +243,7 @@ This method is consistent during training mode and normal gameplay.
 
 ## License
 
-MIT License — free for community use and research.  
+MIT License , free for community use and research.  
 Not affiliated with Capcom, Tatsunoko, or the Dolphin project.
 
 ---
