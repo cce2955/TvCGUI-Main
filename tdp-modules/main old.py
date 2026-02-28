@@ -1,4 +1,5 @@
 
+
 import os
 import csv
 import time
@@ -25,7 +26,7 @@ from scan_worker import ScanNormalsWorker
 from training_flags import read_training_flags
 from debug_panel import read_debug_flags, draw_debug_overlay
 
-from dolphin_io import hook, rd8, rd32, wd8, addr_in_ram, rbytes
+from dolphin_io import hook, rd8, rd32, wd8, addr_in_ram
 
 from config import (
     MIN_HIT_DAMAGE,
@@ -96,21 +97,6 @@ SCAN_SLIDE_DURATION = 0.7
 # offsets for "real" baroque (relative to fighter base)
 HP32_OFF = 0x28
 POOL32_OFF = 0x2C
-# ---------------------------------------------------------------------------
-# Bulk fighter struct read helpers
-# ---------------------------------------------------------------------------
-
-FIGHTER_BLOCK_SIZE = 0x120  # safely covers OFF_CHAR_ID, HP32_OFF, POOL32_OFF
-
-def u32be_from_block(block: bytes, off: int) -> int | None:
-    if not block or off + 4 > len(block):
-        return None
-    return (
-        (block[off] << 24)
-        | (block[off + 1] << 16)
-        | (block[off + 2] << 8)
-        | block[off + 3]
-    )
 
 # Reaction / hitstun IDs used as a crude "victim is being hit" signal
 REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
@@ -351,7 +337,6 @@ def main():
     y_off_by_base = {}
     prev_hp = {}
     pool_baseline = {}
-    char_meta_by_base = {}
 
     last_move_anim_id = {}
     last_char_by_slot = {}
@@ -507,38 +492,16 @@ def main():
             snap["slotname"] = slotname
 
             # Prefer "true" ID from struct if present
-            blk = rbytes(base, FIGHTER_BLOCK_SIZE)
-            # ------------------------------------------------------------------
-            # Character metadata cache (per base)
-            # ------------------------------------------------------------------
+            try:
+                true_id = rd32(base + OFF_CHAR_ID)
+            except Exception:
+                true_id = None
 
-            if base not in char_meta_by_base:
-                # Resolve true ID once
-                true_id_cached = None
-
-                if blk:
-                    true_id_cached = u32be_from_block(blk, OFF_CHAR_ID)
-
-                if true_id_cached in (None, 0):
-                    try:
-                        true_id_cached = rd32(base + OFF_CHAR_ID)
-                    except Exception:
-                        true_id_cached = None
-
-                # Resolve name + CSV correction once
-                name_cached = CHAR_NAMES.get(true_id_cached)
-                csv_id_cached = CHAR_ID_CORRECTION.get(name_cached, true_id_cached)
-
-                char_meta_by_base[base] = {
-                    "id": true_id_cached,
-                    "name": name_cached,
-                    "csv_char_id": csv_id_cached,
-                }
-
-            true_id = None
-            if blk:
-                true_id = u32be_from_block(blk, OFF_CHAR_ID)
-
+            if true_id not in (None, 0):
+                snap["id"] = true_id
+                nm = CHAR_NAMES.get(true_id)
+                if nm:
+                    snap["name"] = nm
 
             if slotname == "P1-C1":
                 snap["meter_str"] = str(meter_p1) if meter_p1 is not None else "--"
@@ -567,15 +530,7 @@ def main():
             update_assist_for_snap(slotname, snap, cur_anim)
 
             char_name = snap.get("name")
-            meta = char_meta_by_base.get(base)
-            if meta:
-                snap["id"] = meta["id"]
-                snap["name"] = meta["name"]
-                snap["csv_char_id"] = meta["csv_char_id"]
-            else:
-                snap["csv_char_id"] = snap.get("id")
-
-            csv_char_id = snap.get("csv_char_id")
+            csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
 
             mv_label = lookup_move_name(cur_anim, csv_char_id)
             if not mv_label:
@@ -583,6 +538,8 @@ def main():
 
             snap["mv_label"] = mv_label
             snap["mv_id_display"] = cur_anim
+            snap["csv_char_id"] = csv_char_id
+
             last_move_anim_id[base] = cur_anim
 
             # Pool percent baseline
@@ -598,23 +555,8 @@ def main():
 
             # Local 32-bit baroque values
             max_hp_stat = snap.get("max") or 0
-            hp32 = 0
-            pool32 = 0
-
-            if blk:
-                tmp_hp = u32be_from_block(blk, HP32_OFF)
-                tmp_pool = u32be_from_block(blk, POOL32_OFF)
-
-                if tmp_hp is not None:
-                    hp32 = tmp_hp
-                if tmp_pool is not None:
-                    pool32 = tmp_pool
-
-            # fallback if block read failed
-            if hp32 == 0:
-                hp32 = rd32(base + HP32_OFF) or 0
-            if pool32 == 0:
-                pool32 = rd32(base + POOL32_OFF) or 0
+            hp32 = rd32(base + HP32_OFF) or 0
+            pool32 = rd32(base + POOL32_OFF) or 0
 
             ready_local = False
             red_amt = 0
