@@ -245,3 +245,11 @@ This method is consistent during training mode and normal gameplay.
 
 MIT License — free for community use and research.  
 Not affiliated with Capcom, Tatsunoko, or the Dolphin project.
+
+---
+
+## Special Thanks
+
+Jaaaames - For doing some serious foundational work
+Capcom
+Brian Transeau
