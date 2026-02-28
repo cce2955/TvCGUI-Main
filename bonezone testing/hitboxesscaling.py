@@ -331,10 +331,38 @@ class Overlay:
         if self.screen is None or self.font_small is None:
             return
 
-        hit_surf = pygame.Surface((rpx * 2 + 2, rpx * 2 + 2), pygame.SRCALPHA)
+        
 
-        pygame.draw.circle(hit_surf, (*color, 60), (rpx + 1, rpx + 1), rpx)
-        pygame.draw.circle(hit_surf, (*color, 220), (rpx + 1, rpx + 1), rpx, 2)
+        hit_surf = pygame.Surface((rpx * 2 + 6, rpx * 2 + 6), pygame.SRCALPHA)
+
+        center = (rpx + 3, rpx + 3)
+
+        # Subtle outer glow ring (soft alpha, slightly larger)
+        pygame.draw.circle(
+            hit_surf,
+            (*color, 60),
+            center,
+            rpx + 2,
+            3
+        )
+
+        # Main crisp ring
+        pygame.draw.circle(
+            hit_surf,
+            (*color, 255),
+            center,
+            rpx,
+            3
+        )
+        pygame.draw.circle(self.screen, COL_CROSS, (sx, sy), 2)
+        dest_x = int(sx - rpx - 3)
+        dest_y = int(sy - rpx - 3)
+
+        self.screen.blit(hit_surf, (dest_x, dest_y))
+        dest_x = int(sx - rpx - 1)
+        dest_y = int(sy - rpx - 1)
+
+        self.screen.blit(hit_surf, (dest_x, dest_y))
 
         dest_x = int(sx - rpx - 1)
         dest_y = int(sy - rpx - 1)
