@@ -19,6 +19,10 @@
 import os
 import csv
 import time
+import json
+import subprocess
+import sys
+import pygame
 
 from constants import (
     SLOTS,
@@ -116,7 +120,10 @@ REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
 # TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.
 GIANT_IDS = {11, 22}
 
+HB_BTN_X, HB_BTN_Y = 8, 8
+HB_BTN_W, HB_BTN_H = 130, 22
 
+TOP_UI_RESERVED = HB_BTN_Y + HB_BTN_H + 12
 # ---------------------------------------------------------------------------
 # Assist tracking (per slot)
 # ---------------------------------------------------------------------------
@@ -364,6 +371,47 @@ def main():
     pending_hits = []
     frame_idx = 0
     running = True
+
+    # ------------------------------------------------------------------
+    # Hitbox overlay state
+    # ------------------------------------------------------------------
+    HITBOX_FILTER_FILE = "hitbox_filter.json"
+    hitbox_proc = None          # subprocess.Popen handle
+    hitbox_active = False
+    hitbox_slots = {"P1": True, "P2": True, "P3": True, "P4": True}
+
+    def _write_hitbox_filter():
+        try:
+            with open(HITBOX_FILTER_FILE, "w") as f:
+                json.dump(hitbox_slots, f)
+        except Exception:
+            pass
+
+    def _launch_hitbox_overlay():
+        nonlocal hitbox_proc, hitbox_active
+        _write_hitbox_filter()
+        try:
+            hitbox_proc = subprocess.Popen(
+                [sys.executable, "hitboxesscaling.py"],
+                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
+            )
+            hitbox_active = True
+        except Exception as e:
+            print(f"[hitbox] failed to launch: {e}")
+
+    def _stop_hitbox_overlay():
+        nonlocal hitbox_proc, hitbox_active
+        if hitbox_proc and hitbox_proc.poll() is None:
+            hitbox_proc.terminate()
+        hitbox_proc = None
+        hitbox_active = False
+
+    def _check_hitbox_proc():
+        nonlocal hitbox_proc, hitbox_active
+        if hitbox_proc and hitbox_proc.poll() is not None:
+            hitbox_proc = None
+            hitbox_active = False
+    # ------------------------------------------------------------------
 
     debug_overlay = True
     debug_click_areas = {}
@@ -668,7 +716,11 @@ def main():
         # -----------------------------
         screen.fill(COL_BG)
         w, h = screen.get_size()
-        layout = compute_layout(w, h, snaps)
+        layout = compute_layout(w, h - TOP_UI_RESERVED, snaps)
+
+        for key, value in layout.items():
+            if isinstance(value, pygame.Rect):
+                value.y += TOP_UI_RESERVED
 
         # Override layout's "giant" flags with the corrected solo detection.
         # but HUD hides the partner panel due to a misdetected giant.
@@ -767,6 +819,58 @@ def main():
             r.y = int(y)
             return r, max(0, min(255, alpha))
 
+        # ------------------------------------------------------------------
+        # Hitbox overlay button + slot filter (top-left)
+        # ------------------------------------------------------------------
+        _check_hitbox_proc()
+
+        HB_BTN_X, HB_BTN_Y = 8, 8
+        HB_BTN_W, HB_BTN_H = 130, 22
+        hb_btn_rect = pygame.Rect(HB_BTN_X, HB_BTN_Y, HB_BTN_W, HB_BTN_H)
+
+        if hitbox_active:
+            hb_btn_col = (60, 200, 80)
+            hb_btn_label = "Hitboxes: ON"
+        else:
+            hb_btn_col = (80, 80, 80)
+            hb_btn_label = "Activate Hitboxes"
+
+        mx_h, my_h = pygame.mouse.get_pos()
+        hb_hover = hb_btn_rect.collidepoint(mx_h, my_h)
+        if hb_hover:
+            hb_btn_col = tuple(min(255, c + 30) for c in hb_btn_col)
+
+        pygame.draw.rect(screen, hb_btn_col, hb_btn_rect, border_radius=3)
+        pygame.draw.rect(screen, (200, 200, 200), hb_btn_rect, 1, border_radius=3)
+        screen.blit(smallfont.render(hb_btn_label, True, (230, 230, 230)),
+                    (HB_BTN_X + 6, HB_BTN_Y + 4))
+
+        # Slot filter checkboxes (only shown when active)
+        hb_filter_rects = {}
+        if hitbox_active:
+            fx = HB_BTN_X
+            fy = HB_BTN_Y + HB_BTN_H + 4
+            slot_colors = {
+                "P1": (255, 100, 100),
+                "P2": (100, 160, 255),
+                "P3": (255, 100, 200),
+                "P4": (100, 255, 140),
+            }
+            for slot_name in ("P1", "P2", "P3", "P4"):
+                cb_rect = pygame.Rect(fx, fy, 14, 14)
+                col = slot_colors[slot_name]
+                if hitbox_slots[slot_name]:
+                    pygame.draw.rect(screen, col, cb_rect, border_radius=2)
+                    pygame.draw.rect(screen, (220, 220, 220), cb_rect, 1, border_radius=2)
+                    screen.blit(smallfont.render("✓", True, (0, 0, 0)), (fx + 1, fy - 1))
+                else:
+                    pygame.draw.rect(screen, (40, 40, 40), cb_rect, border_radius=2)
+                    pygame.draw.rect(screen, (140, 140, 140), cb_rect, 1, border_radius=2)
+                label_surf = smallfont.render(slot_name, True, col)
+                screen.blit(label_surf, (fx + 18, fy))
+                hb_filter_rects[slot_name] = pygame.Rect(fx, fy, 18 + label_surf.get_width() + 4, 16)
+                fy += 20
+        # ------------------------------------------------------------------
         r_p1c1, a_p1c1 = anim_rect_and_alpha("P1-C1", layout["p1c1"])
         r_p2c1, a_p2c1 = anim_rect_and_alpha("P2-C1", layout["p2c1"])
         r_p1c2, a_p1c2 = anim_rect_and_alpha("P1-C2", layout["p1c2"])
@@ -889,6 +993,21 @@ def main():
         # -----------------------------
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
+
+            # Hitbox button
+            if hb_btn_rect.collidepoint(mx, my):
+                if hitbox_active:
+                    _stop_hitbox_overlay()
+                else:
+                    _launch_hitbox_overlay()
+
+            # Hitbox slot filter checkboxes
+            elif hitbox_active:
+                for slot_name, cb_rect in hb_filter_rects.items():
+                    if cb_rect.collidepoint(mx, my):
+                        hitbox_slots[slot_name] = not hitbox_slots[slot_name]
+                        _write_hitbox_filter()
+                        break
 
             # Debug panel rows -> copy address
             copied = False
