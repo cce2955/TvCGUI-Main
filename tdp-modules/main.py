@@ -225,6 +225,10 @@ def safe_read_fighter(base: int, yoff: int) -> dict | None:
 
 
 def init_pygame():
+    # Set taskbar icon on Windows
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TvCGUI.HUD.1")
     pygame.init()
 
     try:
@@ -237,16 +241,20 @@ def init_pygame():
     except Exception:
         smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
 
+    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
+    pygame.display.set_caption("TvC Live HUD / Frame Probe")
+
     # --- WINDOW / TASKBAR ICON ---
-    icon_path = os.path.join("assets", "icon.png")
+    icon_path = os.path.join("assets", "portraits", "Placeholder.png")
+    if not os.path.exists(icon_path):
+        icon_path = os.path.join("assets", "icon.png")
     if os.path.exists(icon_path):
         icon = pygame.image.load(icon_path).convert_alpha()
         pygame.display.set_icon(icon)
 
-    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
-    pygame.display.set_caption("TvC Live HUD / Frame Probe")
-
     return screen, font, smallfont
+
+    
 
 
 
