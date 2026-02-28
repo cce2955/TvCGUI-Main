@@ -370,6 +370,8 @@ def main():
     pending_hits = []
     frame_idx = 0
     running = True
+    debug_cache = []
+    DEBUG_REFRESH_EVERY = 6 
 
     # ------------------------------------------------------------------
     # Hitbox overlay state
@@ -508,75 +510,51 @@ def main():
 
             # Prefer "true" ID from struct if present
             blk = rbytes(base, FIGHTER_BLOCK_SIZE)
+
             # ------------------------------------------------------------------
-            # Character metadata cache (per base)
+            # Character metadata cache (per base, ID-aware)
             # ------------------------------------------------------------------
 
-            if base not in char_meta_by_base:
-                # Resolve true ID once
-                true_id_cached = None
+            # Always determine current true ID first
+            true_id_current = None
 
-                if blk:
-                    true_id_cached = u32be_from_block(blk, OFF_CHAR_ID)
+            if blk:
+                true_id_current = u32be_from_block(blk, OFF_CHAR_ID)
 
-                if true_id_cached in (None, 0):
-                    try:
-                        true_id_cached = rd32(base + OFF_CHAR_ID)
-                    except Exception:
-                        true_id_cached = None
+            if true_id_current in (None, 0):
+                try:
+                    true_id_current = rd32(base + OFF_CHAR_ID)
+                except Exception:
+                    true_id_current = None
 
-                # Resolve name + CSV correction once
-                name_cached = CHAR_NAMES.get(true_id_cached)
-                csv_id_cached = CHAR_ID_CORRECTION.get(name_cached, true_id_cached)
+            meta = char_meta_by_base.get(base)
+
+            # Refresh cache if new base OR ID changed
+            if (
+                meta is None
+                or meta.get("id") != true_id_current
+            ):
+                name_cached = CHAR_NAMES.get(true_id_current)
+                csv_id_cached = CHAR_ID_CORRECTION.get(name_cached, true_id_current)
 
                 char_meta_by_base[base] = {
-                    "id": true_id_cached,
+                    "id": true_id_current,
                     "name": name_cached,
                     "csv_char_id": csv_id_cached,
                 }
 
-            true_id = None
-            if blk:
-                true_id = u32be_from_block(blk, OFF_CHAR_ID)
-
-
-            if slotname == "P1-C1":
-                snap["meter_str"] = str(meter_p1) if meter_p1 is not None else "--"
-            elif slotname == "P2-C1":
-                snap["meter_str"] = str(meter_p2) if meter_p2 is not None else "--"
-            else:
-                snap["meter_str"] = "--"
-
-            cur_anim = snap.get("attA") or snap.get("attB")
-
-            # Assist hints
-            assist_phase = None
-            is_assist = False
-            if cur_anim == 268:
-                is_assist = True
-                assist_phase = "attack"
-
-            mv_name_lower = (snap.get("mv_label") or "").lower()
-            if "assist standby" in mv_name_lower:
-                assist_phase = "standby"
-
-            snap["assist_phase"] = assist_phase
-            snap["is_assist"] = is_assist
-
-            # Apply assist state machine
-            update_assist_for_snap(slotname, snap, cur_anim)
-
-            char_name = snap.get("name")
             meta = char_meta_by_base.get(base)
+
+            # Inject into snap
             if meta:
                 snap["id"] = meta["id"]
                 snap["name"] = meta["name"]
                 snap["csv_char_id"] = meta["csv_char_id"]
             else:
-                snap["csv_char_id"] = snap.get("id")
-
+                snap["csv_char_id"] = true_id_current
             csv_char_id = snap.get("csv_char_id")
-
+            # Determine current animation ID
+            cur_anim = snap.get("attA") or snap.get("attB")
             mv_label = lookup_move_name(cur_anim, csv_char_id)
             if not mv_label:
                 mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
@@ -997,7 +975,10 @@ def main():
         draw_event_log(screen, layout["events"], font, smallfont)
 
         debug_rect = layout["debug"]
-        dbg_values = merged_debug_values()
+        if frame_idx % DEBUG_REFRESH_EVERY == 0:
+            debug_cache = merged_debug_values()
+
+        dbg_values = debug_cache
         debug_click_areas, debug_max_scroll = draw_debug_overlay(
             screen, debug_rect, smallfont, dbg_values, debug_scroll_offset
         )
