@@ -1296,7 +1296,12 @@ def main():
 
         clock.tick(TARGET_FPS)
         frame_idx += 1
-    
+        
+    if hitbox_proc and hitbox_proc.poll() is None:
+        try:
+            hitbox_proc.terminate()
+        except Exception:
+            pass
     pygame.quit()
 
 
