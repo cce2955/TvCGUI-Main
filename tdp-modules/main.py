@@ -242,7 +242,7 @@ def init_pygame():
         smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
 
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
-    pygame.display.set_caption("TvC Live HUD / Frame Probe")
+    pygame.display.set_caption("TvC Continuo Tool")
 
     # --- WINDOW / TASKBAR ICON ---
     icon_path = os.path.join("assets", "portraits", "Placeholder.png")
@@ -405,7 +405,11 @@ def main():
                 creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
             )
             hitbox_active = True
-            print(f"[hitbox] launched PID {hitbox_proc.pid}")
+            if sys.platform == "win32":
+                import ctypes
+                hwnd = pygame.display.get_wm_info().get("window")
+                if hwnd:
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
         except Exception as e:
             print(f"[hitbox] failed to launch: {e}")
 
@@ -854,7 +858,7 @@ def main():
         _check_hitbox_proc()
 
         HB_BTN_X, HB_BTN_Y = 8, 8
-        HB_BTN_W, HB_BTN_H = 130, 22
+        HB_BTN_W, HB_BTN_H = 150, 22
         hb_btn_rect = pygame.Rect(HB_BTN_X, HB_BTN_Y, HB_BTN_W, HB_BTN_H)
 
         if hitbox_active:
@@ -878,7 +882,10 @@ def main():
         fx = HB_BTN_X
         fy = HB_BTN_Y + HB_BTN_H + 4
         gap = 10
-
+        # "Filter:" label
+        filter_label_surf = smallfont.render("Filter Hitboxes (click to toggle a slot):", True, (180, 180, 180))
+        screen.blit(filter_label_surf, (fx, fy))
+        fx += filter_label_surf.get_width() + 6
         slot_colors = {
             "P1": (255, 100, 100),
             "P2": (100, 160, 255),
