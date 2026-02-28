@@ -3,8 +3,6 @@
 hitbox_overlay.py
 Transparent always-on-top hitbox overlay for TvC.
 Reads live hitbox data from Dolphin memory.
-
-4-slot expanded version.
 """
 
 import pygame
@@ -16,21 +14,15 @@ import win32con
 from dolphin_io import hook, rd32
 
 # ----------------------------
-# Hitbox layout (4 slots)
+# VERIFIED SLOT BASES
 # ----------------------------
-from dolphin_io import hook, rd32
-from constants import (
-    PTR_P1_CHAR1,
-    PTR_P1_CHAR2,
-    PTR_P2_CHAR1,
-    PTR_P2_CHAR2,
-)
+SLOT1_BASE = 0x9246B9C0
+SLOT2_BASE = 0x92B6BA00
+SLOT3_BASE = 0x927EB9E0
+SLOT4_BASE = 0x92EEBA20
 
-def resolve_base(ptr_addr):
-    base = rd32(ptr_addr)
-    if base is None:
-        return 0
-    return base
+STRUCT_SHIFT = 0x4C0  # hitbox region inside fighter struct
+
 BLOCKS = [0x64, 0xA4, 0xE4]
 OFF_X  = 0x00
 OFF_Y  = 0x04
@@ -104,7 +96,8 @@ def apply_overlay_style(hwnd):
     ex |= (win32con.WS_EX_LAYERED | win32con.WS_EX_TOPMOST)
     win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, ex)
     win32gui.SetLayeredWindowAttributes(hwnd, 0x000000, 0, win32con.LWA_COLORKEY)
-    win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST,0,0,0,0,win32con.SWP_NOMOVE|win32con.SWP_NOSIZE)
+    win32gui.SetWindowPos(hwnd, win32con.HWND_TOPMOST,0,0,0,0,
+                          win32con.SWP_NOMOVE|win32con.SWP_NOSIZE)
 
 
 # ----------------------------
@@ -121,7 +114,8 @@ def rf(addr):
         return 0.0
 
 
-def read_hitboxes(base):
+def read_hitboxes(slot_base):
+    base = slot_base + STRUCT_SHIFT
     boxes = []
     for b in BLOCKS:
         x = rf(base + b + OFF_X)
@@ -162,9 +156,12 @@ def draw_hitbox(surf,x,y,r,color,label,font,cx,cy):
     pygame.draw.circle(hit_surf,(*color,220),(rpx+1,rpx+1),rpx,2)
     surf.blit(hit_surf,(sx-rpx-1,sy-rpx-1))
 
-    if label:
-        txt = font.render(f"{label} r={r:.2f}",True,color)
-        surf.blit(txt,(sx+rpx+4,sy-8))
+    cs = 5
+    pygame.draw.line(surf,COL_CROSS,(sx-cs,sy),(sx+cs,sy),1)
+    pygame.draw.line(surf,COL_CROSS,(sx,sy-cs),(sx,sy+cs),1)
+
+    txt = font.render(f"{label} r={r:.2f}",True,color)
+    surf.blit(txt,(sx+rpx+4,sy-8))
 
 
 # ----------------------------
@@ -204,11 +201,11 @@ def main():
             CAM_X = camx
             CAM_Y = camy
 
-        bases = {
-            "P1": resolve_base(PTR_P1_CHAR1),
-            "P2": resolve_base(PTR_P2_CHAR1),
-            "P3": resolve_base(PTR_P1_CHAR2),
-            "P4": resolve_base(PTR_P2_CHAR2),
+        slots = {
+            "P1": read_hitboxes(SLOT1_BASE),
+            "P2": read_hitboxes(SLOT2_BASE),
+            "P3": read_hitboxes(SLOT3_BASE),
+            "P4": read_hitboxes(SLOT4_BASE),
         }
 
         for event in pygame.event.get():
@@ -220,25 +217,23 @@ def main():
 
         screen.fill(COL_BG)
 
-        active_counts = {}
-        slots = { name: read_hitboxes(base) for name, base in bases.items() if base }
+        counts = {}
+
         for name, boxes in slots.items():
             active = 0
             for i,(x,y,r) in enumerate(boxes):
                 if r > 0.001:
                     active += 1
-                    draw_hitbox(
-                        screen,
-                        x,y,r,
-                        COLORS[name][i % 3],
-                        f"{name}[{i}]",
-                        font_small,
-                        cx,cy
-                    )
-            active_counts[name] = active
+                    draw_hitbox(screen,x,y,r,
+                                COLORS[name][i%3],
+                                f"{name}[{i}]",
+                                font_small,cx,cy)
+            counts[name] = active
 
-        hud_text = " | ".join([f"{k}={v}" for k,v in active_counts.items()])
-        hud = font_hud.render(hud_text,True,COL_DIM)
+        hud = font_hud.render(
+            " | ".join([f"{k}={v}" for k,v in counts.items()]),
+            True,COL_DIM
+        )
         screen.blit(hud,(8,8))
 
         pygame.display.flip()
