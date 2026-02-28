@@ -1,5 +1,4 @@
 
-
 import os
 import csv
 import time
@@ -26,7 +25,7 @@ from scan_worker import ScanNormalsWorker
 from training_flags import read_training_flags
 from debug_panel import read_debug_flags, draw_debug_overlay
 
-from dolphin_io import hook, rd8, rd32, wd8, addr_in_ram
+from dolphin_io import hook, rd8, rd32, wd8, addr_in_ram, rbytes
 
 from config import (
     MIN_HIT_DAMAGE,
@@ -97,6 +96,21 @@ SCAN_SLIDE_DURATION = 0.7
 # offsets for "real" baroque (relative to fighter base)
 HP32_OFF = 0x28
 POOL32_OFF = 0x2C
+# ---------------------------------------------------------------------------
+# Bulk fighter struct read helpers
+# ---------------------------------------------------------------------------
+
+FIGHTER_BLOCK_SIZE = 0x120  # safely covers OFF_CHAR_ID, HP32_OFF, POOL32_OFF
+
+def u32be_from_block(block: bytes, off: int) -> int | None:
+    if not block or off + 4 > len(block):
+        return None
+    return (
+        (block[off] << 24)
+        | (block[off + 1] << 16)
+        | (block[off + 2] << 8)
+        | block[off + 3]
+    )
 
 # Reaction / hitstun IDs used as a crude "victim is being hit" signal
 REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
@@ -337,6 +351,7 @@ def main():
     y_off_by_base = {}
     prev_hp = {}
     pool_baseline = {}
+    char_meta_by_base = {}
 
     last_move_anim_id = {}
     last_char_by_slot = {}
@@ -355,6 +370,8 @@ def main():
     pending_hits = []
     frame_idx = 0
     running = True
+    debug_cache = []
+    DEBUG_REFRESH_EVERY = 6 
 
     # ------------------------------------------------------------------
     # Hitbox overlay state
@@ -476,7 +493,7 @@ def main():
         snaps = {}
         for slotname, teamtag, base in resolved_slots:
             if not base:
-                if last_char_by_slot.get(slotname):
+                if last_char_by_slot.get(slotname) is not None:
                     anim_queue_after_scan.add((slotname, "fadeout"))
                     last_char_by_slot[slotname] = None
                     need_rescan_normals = True
@@ -492,54 +509,58 @@ def main():
             snap["slotname"] = slotname
 
             # Prefer "true" ID from struct if present
-            try:
-                true_id = rd32(base + OFF_CHAR_ID)
-            except Exception:
-                true_id = None
+            blk = rbytes(base, FIGHTER_BLOCK_SIZE)
 
-            if true_id not in (None, 0):
-                snap["id"] = true_id
-                nm = CHAR_NAMES.get(true_id)
-                if nm:
-                    snap["name"] = nm
+            # ------------------------------------------------------------------
+            # Character metadata cache (per base, ID-aware)
+            # ------------------------------------------------------------------
 
-            if slotname == "P1-C1":
-                snap["meter_str"] = str(meter_p1) if meter_p1 is not None else "--"
-            elif slotname == "P2-C1":
-                snap["meter_str"] = str(meter_p2) if meter_p2 is not None else "--"
+            # Always determine current true ID first
+            true_id_current = None
+
+            if blk:
+                true_id_current = u32be_from_block(blk, OFF_CHAR_ID)
+
+            if true_id_current in (None, 0):
+                try:
+                    true_id_current = rd32(base + OFF_CHAR_ID)
+                except Exception:
+                    true_id_current = None
+
+            meta = char_meta_by_base.get(base)
+
+            # Refresh cache if new base OR ID changed
+            if (
+                meta is None
+                or meta.get("id") != true_id_current
+            ):
+                name_cached = CHAR_NAMES.get(true_id_current)
+                csv_id_cached = CHAR_ID_CORRECTION.get(name_cached, true_id_current)
+
+                char_meta_by_base[base] = {
+                    "id": true_id_current,
+                    "name": name_cached,
+                    "csv_char_id": csv_id_cached,
+                }
+
+            meta = char_meta_by_base.get(base)
+
+            # Inject into snap
+            if meta:
+                snap["id"] = meta["id"]
+                snap["name"] = meta["name"]
+                snap["csv_char_id"] = meta["csv_char_id"]
             else:
-                snap["meter_str"] = "--"
-
+                snap["csv_char_id"] = true_id_current
+            csv_char_id = snap.get("csv_char_id")
+            # Determine current animation ID
             cur_anim = snap.get("attA") or snap.get("attB")
-
-            # Assist hints
-            assist_phase = None
-            is_assist = False
-            if cur_anim == 268:
-                is_assist = True
-                assist_phase = "attack"
-
-            mv_name_lower = (snap.get("mv_label") or "").lower()
-            if "assist standby" in mv_name_lower:
-                assist_phase = "standby"
-
-            snap["assist_phase"] = assist_phase
-            snap["is_assist"] = is_assist
-
-            # Apply assist state machine
-            update_assist_for_snap(slotname, snap, cur_anim)
-
-            char_name = snap.get("name")
-            csv_char_id = CHAR_ID_CORRECTION.get(char_name, snap.get("id"))
-
             mv_label = lookup_move_name(cur_anim, csv_char_id)
             if not mv_label:
                 mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
 
             snap["mv_label"] = mv_label
             snap["mv_id_display"] = cur_anim
-            snap["csv_char_id"] = csv_char_id
-
             last_move_anim_id[base] = cur_anim
 
             # Pool percent baseline
@@ -555,8 +576,23 @@ def main():
 
             # Local 32-bit baroque values
             max_hp_stat = snap.get("max") or 0
-            hp32 = rd32(base + HP32_OFF) or 0
-            pool32 = rd32(base + POOL32_OFF) or 0
+            hp32 = 0
+            pool32 = 0
+
+            if blk:
+                tmp_hp = u32be_from_block(blk, HP32_OFF)
+                tmp_pool = u32be_from_block(blk, POOL32_OFF)
+
+                if tmp_hp is not None:
+                    hp32 = tmp_hp
+                if tmp_pool is not None:
+                    pool32 = tmp_pool
+
+            # fallback if block read failed
+            if hp32 == 0:
+                hp32 = rd32(base + HP32_OFF) or 0
+            if pool32 == 0:
+                pool32 = rd32(base + POOL32_OFF) or 0
 
             ready_local = False
             red_amt = 0
@@ -828,32 +864,39 @@ def main():
         pygame.draw.rect(screen, (200, 200, 200), hb_btn_rect, 1, border_radius=3)
         screen.blit(smallfont.render(hb_btn_label, True, (230, 230, 230)),
                     (HB_BTN_X + 6, HB_BTN_Y + 4))
-
-        # Slot filter checkboxes (only shown when active)
         hb_filter_rects = {}
-        if hitbox_active:
-            fx = HB_BTN_X
-            fy = HB_BTN_Y + HB_BTN_H + 4
-            slot_colors = {
-                "P1": (255, 100, 100),
-                "P2": (100, 160, 255),
-                "P3": (255, 100, 200),
-                "P4": (100, 255, 140),
-            }
-            for slot_name in ("P1", "P2", "P3", "P4"):
-                cb_rect = pygame.Rect(fx, fy, 14, 14)
-                col = slot_colors[slot_name]
-                if hitbox_slots[slot_name]:
-                    pygame.draw.rect(screen, col, cb_rect, border_radius=2)
-                    pygame.draw.rect(screen, (220, 220, 220), cb_rect, 1, border_radius=2)
-                    screen.blit(smallfont.render("✓", True, (0, 0, 0)), (fx + 1, fy - 1))
-                else:
-                    pygame.draw.rect(screen, (40, 40, 40), cb_rect, border_radius=2)
-                    pygame.draw.rect(screen, (140, 140, 140), cb_rect, 1, border_radius=2)
-                label_surf = smallfont.render(slot_name, True, col)
-                screen.blit(label_surf, (fx + 18, fy))
-                hb_filter_rects[slot_name] = pygame.Rect(fx, fy, 18 + label_surf.get_width() + 4, 16)
-                fy += 20
+        # Slot filter checkboxes (only shown when active)
+        fx = HB_BTN_X
+        fy = HB_BTN_Y + HB_BTN_H + 4
+        gap = 10
+
+        slot_colors = {
+            "P1": (255, 100, 100),
+            "P2": (100, 160, 255),
+            "P3": (255, 100, 200),
+            "P4": (100, 255, 140),
+        }
+
+        for slot_name in ("P1", "P2", "P3", "P4"):
+            col = slot_colors[slot_name]
+
+            cb_rect = pygame.Rect(fx, fy, 14, 14)
+
+            if hitbox_slots[slot_name]:
+                pygame.draw.rect(screen, col, cb_rect, border_radius=2)
+                pygame.draw.rect(screen, (220, 220, 220), cb_rect, 1, border_radius=2)
+                screen.blit(smallfont.render("✓", True, (0, 0, 0)), (fx + 1, fy - 1))
+            else:
+                pygame.draw.rect(screen, (40, 40, 40), cb_rect, border_radius=2)
+                pygame.draw.rect(screen, (140, 140, 140), cb_rect, 1, border_radius=2)
+
+            label_surf = smallfont.render(slot_name, True, col)
+            screen.blit(label_surf, (fx + 18, fy))
+
+            total_w = 18 + label_surf.get_width() + 8
+            hb_filter_rects[slot_name] = pygame.Rect(fx, fy, total_w, 16)
+
+            fx += total_w + gap
         # ------------------------------------------------------------------
         r_p1c1, a_p1c1 = anim_rect_and_alpha("P1-C1", layout["p1c1"])
         r_p2c1, a_p2c1 = anim_rect_and_alpha("P2-C1", layout["p2c1"])
@@ -939,7 +982,10 @@ def main():
         draw_event_log(screen, layout["events"], font, smallfont)
 
         debug_rect = layout["debug"]
-        dbg_values = merged_debug_values()
+        if frame_idx % DEBUG_REFRESH_EVERY == 0:
+            debug_cache = merged_debug_values()
+
+        dbg_values = debug_cache
         debug_click_areas, debug_max_scroll = draw_debug_overlay(
             screen, debug_rect, smallfont, dbg_values, debug_scroll_offset
         )

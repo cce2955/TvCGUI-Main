@@ -20,24 +20,24 @@ import win32gui
 from dolphin_io import hook, rd32
 
 import json as _json
+WORLD_Y_OFFSET = -0.7
 
 HITBOX_FILTER_FILE = "hitbox_filter.json"
 _last_filter_mtime = 0.0
-WORLD_Y_OFFSET = -0.7
+_slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
+
 def _read_slot_filter() -> dict:
-    global _last_filter_mtime
+    global _last_filter_mtime, _slot_filter
     try:
         import os
         mt = os.path.getmtime(HITBOX_FILTER_FILE)
         if mt != _last_filter_mtime:
             _last_filter_mtime = mt
             with open(HITBOX_FILTER_FILE) as f:
-                return _json.load(f)
+                _slot_filter = _json.load(f)
     except Exception:
         pass
-    return {"P1": True, "P2": True, "P3": True, "P4": True}
-
-_slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
+    return _slot_filter
 
 
 # ----------------------------

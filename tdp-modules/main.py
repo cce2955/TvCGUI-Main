@@ -397,6 +397,7 @@ def main():
                 creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
             )
             hitbox_active = True
+            print(f"[hitbox] launched PID {hitbox_proc.pid}")
         except Exception as e:
             print(f"[hitbox] failed to launch: {e}")
 
@@ -493,7 +494,7 @@ def main():
         snaps = {}
         for slotname, teamtag, base in resolved_slots:
             if not base:
-                if last_char_by_slot.get(slotname):
+                if last_char_by_slot.get(slotname) is not None:
                     anim_queue_after_scan.add((slotname, "fadeout"))
                     last_char_by_slot[slotname] = None
                     need_rescan_normals = True
@@ -864,32 +865,39 @@ def main():
         pygame.draw.rect(screen, (200, 200, 200), hb_btn_rect, 1, border_radius=3)
         screen.blit(smallfont.render(hb_btn_label, True, (230, 230, 230)),
                     (HB_BTN_X + 6, HB_BTN_Y + 4))
-
-        # Slot filter checkboxes (only shown when active)
         hb_filter_rects = {}
-        if hitbox_active:
-            fx = HB_BTN_X
-            fy = HB_BTN_Y + HB_BTN_H + 4
-            slot_colors = {
-                "P1": (255, 100, 100),
-                "P2": (100, 160, 255),
-                "P3": (255, 100, 200),
-                "P4": (100, 255, 140),
-            }
-            for slot_name in ("P1", "P2", "P3", "P4"):
-                cb_rect = pygame.Rect(fx, fy, 14, 14)
-                col = slot_colors[slot_name]
-                if hitbox_slots[slot_name]:
-                    pygame.draw.rect(screen, col, cb_rect, border_radius=2)
-                    pygame.draw.rect(screen, (220, 220, 220), cb_rect, 1, border_radius=2)
-                    screen.blit(smallfont.render("✓", True, (0, 0, 0)), (fx + 1, fy - 1))
-                else:
-                    pygame.draw.rect(screen, (40, 40, 40), cb_rect, border_radius=2)
-                    pygame.draw.rect(screen, (140, 140, 140), cb_rect, 1, border_radius=2)
-                label_surf = smallfont.render(slot_name, True, col)
-                screen.blit(label_surf, (fx + 18, fy))
-                hb_filter_rects[slot_name] = pygame.Rect(fx, fy, 18 + label_surf.get_width() + 4, 16)
-                fy += 20
+        # Slot filter checkboxes (only shown when active)
+        fx = HB_BTN_X
+        fy = HB_BTN_Y + HB_BTN_H + 4
+        gap = 10
+
+        slot_colors = {
+            "P1": (255, 100, 100),
+            "P2": (100, 160, 255),
+            "P3": (255, 100, 200),
+            "P4": (100, 255, 140),
+        }
+
+        for slot_name in ("P1", "P2", "P3", "P4"):
+            col = slot_colors[slot_name]
+
+            cb_rect = pygame.Rect(fx, fy, 14, 14)
+
+            if hitbox_slots[slot_name]:
+                pygame.draw.rect(screen, col, cb_rect, border_radius=2)
+                pygame.draw.rect(screen, (220, 220, 220), cb_rect, 1, border_radius=2)
+                screen.blit(smallfont.render("✓", True, (0, 0, 0)), (fx + 1, fy - 1))
+            else:
+                pygame.draw.rect(screen, (40, 40, 40), cb_rect, border_radius=2)
+                pygame.draw.rect(screen, (140, 140, 140), cb_rect, 1, border_radius=2)
+
+            label_surf = smallfont.render(slot_name, True, col)
+            screen.blit(label_surf, (fx + 18, fy))
+
+            total_w = 18 + label_surf.get_width() + 8
+            hb_filter_rects[slot_name] = pygame.Rect(fx, fy, total_w, 16)
+
+            fx += total_w + gap
         # ------------------------------------------------------------------
         r_p1c1, a_p1c1 = anim_rect_and_alpha("P1-C1", layout["p1c1"])
         r_p2c1, a_p2c1 = anim_rect_and_alpha("P2-C1", layout["p2c1"])
@@ -1023,6 +1031,8 @@ def main():
                     _stop_hitbox_overlay()
                 else:
                     _launch_hitbox_overlay()
+                mouse_clicked_pos = None
+                continue
 
             # Hitbox slot filter checkboxes
             elif hitbox_active:
@@ -1286,7 +1296,7 @@ def main():
 
         clock.tick(TARGET_FPS)
         frame_idx += 1
-
+    
     pygame.quit()
 
 
