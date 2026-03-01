@@ -12,7 +12,7 @@ import math
 import struct
 from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
-
+import os
 import pygame
 import win32con
 import win32gui
@@ -21,7 +21,10 @@ from dolphin_io import hook, rd32
 
 import json as _json
 WORLD_Y_OFFSET = -0.7
-
+# Manually tuned perspective baseline. Set to the cam_z value
+# you read at center stage with players at neutral position.
+# Set to None to auto-capture on first valid frame (current behavior).
+PERSPECTIVE_Z_OVERRIDE: Optional[float] = None
 HITBOX_FILTER_FILE = "hitbox_filter.json"
 _last_filter_mtime = 0.0
 _slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
@@ -250,9 +253,6 @@ def find_dolphin_hwnd() -> Optional[int]:
     candidates.sort(key=lambda x: x[0], reverse=True)
     best_score, best_hwnd, best_title = candidates[0]
 
-    # Optional: print what we picked for sanity while debugging
-    # print(f"[find_dolphin_hwnd] picked score={best_score} hwnd={hex(best_hwnd)} title={best_title}")
-
     return best_hwnd
 
 
@@ -313,6 +313,8 @@ class Overlay:
         self.cfg = cfg
         self.cam_x = 0.0
         self.cam_y = 0.0
+        self.cam_z = 0.0
+        self.ref_cam_z = None
         self.ppu = cfg.baseline_ppu
         self.zoom = cfg.zoom
         self.w = cfg.baseline_w
@@ -329,6 +331,15 @@ class Overlay:
         self.font_small = pygame.font.SysFont("consolas", 11)
         self.font_hud = pygame.font.SysFont("consolas", 13, bold=True)
         self.screen = pygame.display.set_mode((self.w, self.h), pygame.SRCALPHA)
+        pygame.display.set_caption("TvC Hitbox Overlay")
+
+        icon_path = os.path.join("assets", "portraits", "Placeholder.png")
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join("assets", "icon.png")
+        if os.path.exists(icon_path):
+            icon = pygame.image.load(icon_path).convert_alpha()
+            pygame.display.set_icon(icon)
+
         hwnd = pygame.display.get_wm_info()["window"]
         apply_overlay_style(hwnd)
         return hwnd
@@ -343,9 +354,23 @@ class Overlay:
         self.cx = self.w // 2
         self.cy = self.h // 2 + self.cfg.center_y_offset_px
 
+    def _perspective_scale(self) -> float:
+        """Return the current perspective-adjusted scale factor."""
+        if not math.isfinite(self.cam_z) or abs(self.cam_z) < 0.0001:
+            return self.ppu * self.zoom
+        return self.ppu * self.zoom * (self.ref_cam_z / self.cam_z)
+
     def world_to_screen(self, x: float, y: float):
-        sx = self.cx + int((x - self.cam_x) * self.ppu * self.zoom)
-        sy = self.cy - int(((y + WORLD_Y_OFFSET) - self.cam_y) * self.ppu * self.zoom)
+        # Capture reference Z once (center-stage baseline)
+        if PERSPECTIVE_Z_OVERRIDE is not None:
+            self.ref_cam_z = PERSPECTIVE_Z_OVERRIDE
+        elif self.ref_cam_z is None and math.isfinite(self.cam_z) and abs(self.cam_z) > 0.0001:
+            self.ref_cam_z = self.cam_z
+
+        scale = self._perspective_scale()
+
+        sx = self.cx + int((x - self.cam_x) * scale)
+        sy = self.cy - int(((y + WORLD_Y_OFFSET) - self.cam_y) * scale)
         return sx, sy
 
     def clear(self):
@@ -366,7 +391,8 @@ class Overlay:
         r = min(r, self.cfg.max_radius_units)
         sx, sy = self.world_to_screen(x, y)
 
-        rpx = max(2, int(r * self.ppu * self.zoom))
+        scale = self._perspective_scale()
+        rpx = max(2, int(r * scale))
         if rpx <= 0 or rpx > 5000:
             return
 
@@ -431,14 +457,13 @@ class Overlay:
 
         txt = self.font_small.render(f"{label} r={r:.2f}", True, (r_c, g_c, b_c))
         self.screen.blit(txt, (sx + rpx + 6, sy - 10))
-    def draw_hud(self, counts):
-        hud = self.font_hud.render(
-            " | ".join([f"{k}={v}" for k, v in counts.items()]),
-            True,
-            COL_DIM,
-        )
-        self.screen.blit(hud, (8, 8))
 
+    def draw_hud(self, counts):
+        base = " | ".join([f"{k}={v}" for k, v in counts.items()])
+        ref_str = f"{self.ref_cam_z:.4f}" if self.ref_cam_z is not None else "none"
+        debug = f"  |  cam_z={self.cam_z:.4f}  ref_z={ref_str}"
+        hud = self.font_hud.render(base + debug, True, COL_DIM)
+        self.screen.blit(hud, (8, 8))
     def present(self):
         pygame.display.flip()
 
@@ -457,10 +482,10 @@ def main():
     overlay = Overlay(DISPLAY)
     overlay_hwnd = overlay.init_pygame()
     win32gui.SetWindowLong(
-    overlay_hwnd,
-    win32con.GWL_HWNDPARENT,
-    dolphin_hwnd
-)
+        overlay_hwnd,
+        win32con.GWL_HWNDPARENT,
+        dolphin_hwnd
+    )
     clock = pygame.time.Clock()
 
     running = True
@@ -477,10 +502,11 @@ def main():
                 elif event.key == pygame.K_F1:
                     overlay.debug_axes = not overlay.debug_axes
 
-        camx, camy, _, _ = read_camera_pos(CAMERA)
+        camx, camy, camz, camw = read_camera_pos(CAMERA)
         if USE_LIVE_CAMERA:
             overlay.cam_x = camx
             overlay.cam_y = camy
+            overlay.cam_z = camz
 
         _slot_filter = _read_slot_filter()
 

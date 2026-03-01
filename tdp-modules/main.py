@@ -103,15 +103,49 @@ POOL32_OFF = 0x2C
 FIGHTER_BLOCK_SIZE = 0x120  # safely covers OFF_CHAR_ID, HP32_OFF, POOL32_OFF
 
 def u32be_from_block(block: bytes, off: int) -> int | None:
+    """
+    Read a big-endian unsigned 32-bit integer from a raw memory block.
+
+    Parameters
+    ----------
+    block : bytes
+        Raw byte buffer previously read from Dolphin memory.
+    off : int
+        Offset within the buffer at which the 32-bit value begins.
+
+    Returns
+    -------
+    int | None
+        The parsed unsigned 32-bit integer if the read is valid.
+        Returns None if:
+            - The block is empty or None.
+            - The offset would exceed the buffer bounds.
+
+    Notes
+    -----
+    TvC structures are big-endian (Wii / PowerPC architecture),
+    so manual byte shifting is used instead of struct.unpack with
+    native endianness.
+
+    This helper is intentionally allocation-free and avoids exceptions
+    for performance and safety inside the main loop.
+    """
+
+    # Guard against invalid buffer or out-of-bounds read.
     if not block or off + 4 > len(block):
         return None
+
+    # Manual big-endian reconstruction:
+    #   byte0 << 24
+    #   byte1 << 16
+    #   byte2 << 8
+    #   byte3
     return (
         (block[off] << 24)
         | (block[off + 1] << 16)
         | (block[off + 2] << 8)
         | block[off + 3]
     )
-
 # Reaction / hitstun IDs used as a crude "victim is being hit" signal
 REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
 
@@ -161,49 +195,126 @@ def _copy_to_clipboard(text: str) -> None:
 
 
 def update_assist_for_snap(slotname: str, snap: dict, cur_anim: int | None) -> None:
+    """
+    Update per-slot assist state based on the current animation ID and
+    inject assist metadata into the fighter snapshot.
+
+    Parameters
+    ----------
+    slotname : str
+        Logical slot label (e.g. "P1-C1", "P2-C2").
+    snap : dict
+        Mutable fighter snapshot dictionary for the current frame.
+        This function augments it with assist-related fields.
+    cur_anim : int | None
+        Current animation ID (typically attA or attB).
+
+    Behavior
+    --------
+    Assist state is tracked per slot using a lightweight state machine:
+
+        None → flyin → attack → recover → None
+
+    State transitions are inferred from animation IDs:
+        - ASSIST_FLYIN_IDS   → enter "flyin"
+        - ASSIST_ATTACK_IDS  → enter "attack"
+        - Any other anim:
+              if previously assisting → transition to "recover"
+              if already recovering   → reset to idle
+
+    This logic is intentionally conservative. It does not attempt
+    to fully model assist lifecycle timing; it only infers phase
+    boundaries based on animation changes.
+
+    Side Effects
+    ------------
+    - Updates _ASSIST_BY_SLOT state cache.
+    - Mutates `snap` with:
+          snap["assist_phase"]
+          snap["is_assist"]
+    """
+
+    # Guard against invalid inputs.
     if not slotname or snap is None:
         return
 
+    # Retrieve or lazily initialize per-slot state container.
     state = _ASSIST_BY_SLOT.get(slotname)
     if state is None:
         state = AssistState()
         _ASSIST_BY_SLOT[slotname] = state
 
+    # Record the latest animation for debugging or future refinement.
     state.last_anim = cur_anim
 
+    # -------------------------
+    # State transition logic
+    # -------------------------
+
     if cur_anim in ASSIST_FLYIN_IDS:
+        # Assist has entered the screen.
         state.is_assisting = True
         state.phase = "flyin"
+
     elif cur_anim in ASSIST_ATTACK_IDS:
+        # Assist is performing its attack.
         state.is_assisting = True
         state.phase = "attack"
+
     else:
+        # If we were previously assisting, begin recovery phase.
         if state.is_assisting and state.phase in ("flyin", "attack"):
             state.phase = "recover"
+
+        # Once recovery frame passes without assist animations,
+        # fully reset to idle.
         elif state.phase == "recover":
             state.is_assisting = False
             state.phase = None
 
+    # Inject computed assist metadata into the snapshot.
     snap["assist_phase"] = state.phase
     snap["is_assist"] = state.is_assisting
-
-
 def merged_debug_values():
     """
-    Combine debug flags and training flags into a single ordered list for the
-    overlay, with TrPause placed directly under the PauseOverlay row.
+    Merge core debug flags and training flags into a single ordered list
+    for display in the debug overlay.
+
+    Behavior
+    --------
+    - Core debug flags are retrieved first.
+    - Training flags are appended after.
+    - If a "TrPause" entry exists, it is inserted directly beneath
+      the first core debug flag entry to keep pause-related controls grouped.
+
+    Ordering Rules
+    --------------
+    1. Core debug flags remain in their original order.
+    2. If TrPause exists:
+         - It is placed immediately after the first core flag.
+         - It is removed from its original position in training flags.
+    3. Remaining training flags are appended in original order.
+
+    Returns
+    -------
+    list
+        Ordered list of debug flag entries ready for rendering.
     """
+
     core_flags = read_debug_flags()
     training = read_training_flags()
 
     trpause_row = None
     remaining_training = []
+
+    # Separate TrPause from other training flags.
     for entry in training:
         if entry and entry[0] == "TrPause" and trpause_row is None:
             trpause_row = entry
         else:
             remaining_training.append(entry)
 
+    # Insert TrPause directly after the first core flag if present.
     if trpause_row is not None:
         if core_flags:
             core_flags = [core_flags[0], trpause_row] + core_flags[1:]
@@ -214,15 +325,53 @@ def merged_debug_values():
 
 
 def safe_read_fighter(base: int, yoff: int) -> dict | None:
+    """
+    Safely read a fighter snapshot from memory.
+
+    This is a protective wrapper around `read_fighter` that ensures
+    memory read failures do not break the main HUD loop.
+
+    Parameters
+    ----------
+    base : int
+        Base address of the fighter structure in Dolphin memory.
+    yoff : int
+        Y-position offset used by the reader to resolve positional data.
+
+    Returns
+    -------
+    dict | None
+        Fighter snapshot dictionary if successful.
+        None if:
+            - read_fighter raises an exception
+            - read_fighter returns a falsy result
+
+    Design Rationale
+    ----------------
+    The HUD runs at 60 FPS and must never crash due to transient
+    memory access errors or pointer invalidation.
+
+    This wrapper:
+        - Catches exceptions from read_fighter
+        - Logs the failure with contextual base address
+        - Returns None instead of propagating the exception
+
+    This keeps the render loop stable even during:
+        - Character swaps
+        - Pointer churn
+        - Match state transitions
+    """
+
     try:
         snap = read_fighter(base, yoff)
     except Exception as e:
         print(f"[safe_read_fighter] read_fighter raised {e!r} for base=0x{base:08X}")
         return None
+
     if not snap:
         return None
-    return snap
 
+    return snap
 
 def init_pygame():
     # Set taskbar icon on Windows
@@ -258,68 +407,197 @@ def init_pygame():
 
 
 
-def resolve_bases(last_base_by_ptr: dict, y_off_by_base: dict) -> list[tuple[str, str, int | None]]:
+def resolve_bases(
+    last_base_by_ptr: dict,
+    y_off_by_base: dict
+) -> list[tuple[str, str, int | None]]:
     """
-    Resolve base addresses for each character slot using SLOTS pointer addresses.
-    Returns a list of (slotname, teamtag, base|None).
+    Resolve active fighter base addresses for all configured slots.
+
+    Each slot entry in `SLOTS` provides:
+        - slotname   (e.g. "P1-C1")
+        - pointer address in RAM
+        - team tag   (e.g. "P1", "P2")
+
+    This function:
+        1. Reads the current base pointer from memory.
+        2. Validates that it points to RAM.
+        3. Detects base changes per pointer.
+        4. Invalidates cached meter data when a base changes.
+        5. Computes and caches the correct Y-offset for the new base.
+
+    Parameters
+    ----------
+    last_base_by_ptr : dict
+        Maps slot pointer address -> last resolved base.
+        Used to detect base changes between frames.
+    y_off_by_base : dict
+        Maps base address -> computed Y offset.
+        Populated lazily when a new base appears.
+
+    Returns
+    -------
+    list[tuple[str, str, int | None]]
+        List of (slotname, teamtag, base).
+        base is None if:
+            - pointer is invalid
+            - pointer does not resolve to RAM
+
+    Design Notes
+    ------------
+    - Pointer churn occurs during character swaps, KOs, assists, and match transitions.
+    - When a base changes:
+          * Meter cache must be invalidated.
+          * Y-offset must be recomputed.
+    - This function does not read fighter state.
+      It strictly resolves base pointers.
     """
+
     resolved = []
+
     for slotname, ptr_addr, teamtag in SLOTS:
+
+        # Read raw base pointer from Dolphin memory.
         raw_base = rd32(ptr_addr)
+
+        # Validate pointer.
         if raw_base is None or not addr_in_ram(raw_base):
             base = None
         else:
             base = raw_base
 
-        changed = base is not None and last_base_by_ptr.get(ptr_addr) != base
+        # Detect base change for this pointer.
+        changed = (
+            base is not None
+            and last_base_by_ptr.get(ptr_addr) != base
+        )
+
         if base and changed:
+            # Update pointer-to-base tracking.
             last_base_by_ptr[ptr_addr] = base
+
+            # Invalidate any cached meter state tied to the old base.
             METER_CACHE.drop(base)
+
+            # Compute and cache the correct Y offset for this fighter.
             y_off_by_base[base] = pick_posy_off_no_jump(base)
 
         resolved.append((slotname, teamtag, base))
-    return resolved
 
+    return resolved
 
 def compute_team_giant_solo(snaps: dict) -> tuple[bool, bool]:
     """
-    Determine whether each team should be treated as "giant occupies both slots".
+    Determine whether each team should be treated as a single-slot
+    giant character occupying both team panels.
 
-    
-      - A team is giant_solo only if:
-          * C1 exists AND is a giant ID, AND
-          * (C2 is missing) OR (C2 base == C1 base)
+    A team is considered "giant_solo" only if:
 
-    If a giant is present but a real partner exists (different base), giant_solo is False.
+        1. C1 exists.
+        2. C1's character ID is in GIANT_IDS.
+        3. Either:
+             - C2 does not exist, or
+             - C2 resolves to the same base address as C1.
+
+    If a giant is present but a real partner exists with a different base,
+    the team is not treated as solo.
+
+    Parameters
+    ----------
+    snaps : dict
+        Mapping of slotname -> fighter snapshot.
+
+    Returns
+    -------
+    tuple[bool, bool]
+        (p1_giant_solo, p2_giant_solo)
+
+    Design Rationale
+    ----------------
+    TvC internally duplicates slot structures for giant characters.
+    In some states, both C1 and C2 may point to the same base.
+
+    This logic prevents false positives where:
+        - A giant is present,
+        - But a legitimate partner is also active.
+
+    The decision is purely structural and does not modify snaps.
     """
+
     def team_solo(prefix: str) -> bool:
         c1 = snaps.get(f"{prefix}-C1")
         c2 = snaps.get(f"{prefix}-C2")
+
+        # No primary character means not solo.
         if not c1:
             return False
+
         c1_id = c1.get("id") or 0
+
+        # Only giant character IDs qualify.
         if c1_id not in GIANT_IDS:
             return False
+
+        # If no C2 exists, treat as solo.
         if not c2:
             return True
+
         b1 = c1.get("base")
         b2 = c2.get("base")
+
+        # If both slots resolve to the same base, treat as solo.
         if isinstance(b1, int) and isinstance(b2, int) and b1 == b2:
             return True
+
         return False
 
     return team_solo("P1"), team_solo("P2")
-
-
 def ensure_scan_now(last_scan_normals, last_scan_time):
     """
-    Ensure we have at least one normals scan payload.
-    If the worker hasn't produced anything yet, do a synchronous scan fallback.
-    Returns (data, last_scan_time_updated).
+    Ensure that at least one normals scan payload is available.
+
+    This function is used when frame data is requested but the background
+    scan worker has not yet produced results.
+
+    Behavior
+    --------
+    - If cached scan data already exists, return it unchanged.
+    - If no data exists and deep scan support is available:
+          * Perform a synchronous scan.
+          * Update the scan timestamp.
+    - If scan support is unavailable or scan fails:
+          * Return (None, original_timestamp).
+
+    Parameters
+    ----------
+    last_scan_normals : Any
+        Most recent scan payload, or None.
+    last_scan_time : float
+        Timestamp of the last successful scan.
+
+    Returns
+    -------
+    tuple
+        (scan_payload, updated_timestamp)
+
+    Design Rationale
+    ----------------
+    The HUD primarily relies on an asynchronous worker thread for
+    normals scanning to avoid blocking the render loop.
+
+    However, when frame data is explicitly requested, we must guarantee
+    that at least one scan payload exists.
+
+    This function provides a safe synchronous fallback while preserving:
+        - Non-blocking behavior during normal operation
+        - Deterministic availability during manual requests
     """
+
+    # If we already have scan data, return it unchanged.
     if last_scan_normals is not None:
         return last_scan_normals, last_scan_time
 
+    # Attempt synchronous fallback scan if supported.
     if HAVE_SCAN_NORMALS and scan_normals_all is not None:
         try:
             data = scan_normals_all.scan_once()
@@ -328,68 +606,154 @@ def ensure_scan_now(last_scan_normals, last_scan_time):
             print("sync scan failed:", e)
             return None, last_scan_time
 
+    # No scan support available.
     return None, last_scan_time
 
-
 def main():
+    """
+    Entry point for the TvC HUD runtime.
+
+    Responsibilities
+    ----------------
+    - Attach to Dolphin process
+    - Initialize rendering and assets
+    - Start background scan worker (if available)
+    - Maintain main event and render loop
+    - Coordinate memory reads, state tracking, and UI interaction
+
+    This function is intentionally monolithic due to:
+        - Real-time constraints
+        - Tight coupling between render, input, and memory state
+        - 60 FPS deterministic update loop
+
+    Subsections are logically segmented for clarity.
+    """
+
+    # ----------------------------------------------------------
+    # Dolphin hook and environment validation
+    # ----------------------------------------------------------
+
     print("HUD: waiting for Dolphin...")
     hook()
     print("HUD: hooked Dolphin.")
 
-    move_map, global_map = load_move_map(GENERIC_MAPPING_CSV, PAIR_MAPPING_CSV)
+    # ----------------------------------------------------------
+    # Move mapping load
+    # ----------------------------------------------------------
+
+    # Load per-character and global move label mappings.
+    # These are used to resolve animation IDs into readable names.
+    move_map, global_map = load_move_map(
+        GENERIC_MAPPING_CSV,
+        PAIR_MAPPING_CSV
+    )
+
+    # ----------------------------------------------------------
+    # Rendering initialization
+    # ----------------------------------------------------------
 
     screen, font, smallfont = init_pygame()
     clock = pygame.time.Clock()
 
+    # ----------------------------------------------------------
+    # Portrait assets
+    # ----------------------------------------------------------
+
     placeholder_portrait = load_portrait_placeholder()
-    portraits = load_portraits_from_dir(os.path.join("assets", "portraits"))
+    portraits = load_portraits_from_dir(
+        os.path.join("assets", "portraits")
+    )
+
     print(f"HUD: loaded {len(portraits)} portraits.")
 
+    # ----------------------------------------------------------
+    # Background normals scan worker
+    # ----------------------------------------------------------
+
     if HAVE_SCAN_NORMALS and scan_normals_all is not None:
+        # Worker thread prevents blocking main loop during heavy scans.
         scan_worker = ScanNormalsWorker(scan_normals_all.scan_once)
         scan_worker.start()
     else:
         scan_worker = None
 
+    # ----------------------------------------------------------
+    # Runtime state initialization
+    # ----------------------------------------------------------
+
+    # Normals scan tracking
     last_scan_normals = None
     last_scan_time = 0.0
-    scan_anim = None
+    scan_anim = None  # slide-in animation state for scan panel
 
-    last_base_by_ptr = {}
-    y_off_by_base = {}
-    prev_hp = {}
-    pool_baseline = {}
-    char_meta_by_base = {}
+    # Base pointer tracking
+    last_base_by_ptr = {}     # ptr_addr -> last resolved base
+    y_off_by_base = {}        # base -> cached Y offset
 
-    last_move_anim_id = {}
-    last_char_by_slot = {}
-    render_snap_by_slot = {}
-    render_portrait_by_slot = {}
+    # Health and baroque tracking
+    prev_hp = {}              # base -> previous HP (for damage detection)
+    pool_baseline = {}        # base -> max observed pool byte
+    char_meta_by_base = {}    # base -> cached character metadata
 
-    panel_anim = {}
-    anim_queue_after_scan = set()
-    panel_btn_flash = {s: 0 for (s, _, _) in SLOTS}
+    # Move and character tracking
+    last_move_anim_id = {}    # base -> last animation ID
+    last_char_by_slot = {}    # slotname -> last character name
 
-    
+    # Render cache
+    render_snap_by_slot = {}      # slotname -> latest snap for rendering
+    render_portrait_by_slot = {}  # slotname -> portrait surface
+
+    # Panel animation state
+    panel_anim = {}               # slotname -> animation state dict
+    anim_queue_after_scan = set() # pending fadein/fadeout triggers
+    panel_btn_flash = {
+        s: 0 for (s, _, _) in SLOTS
+    }
+
+    # Manual scan triggers
     manual_scan_requested = False
     need_rescan_normals = False
 
+    # Frame advantage display
     last_adv_display = ""
-    pending_hits = []
-    frame_idx = 0
-    running = True
-    debug_cache = []
-    DEBUG_REFRESH_EVERY = 6 
 
-    # ------------------------------------------------------------------
-    # Hitbox overlay state
-    # ------------------------------------------------------------------
+    # Hit logging buffer
+    pending_hits = []
+
+    # Frame counter
+    frame_idx = 0
+
+    running = True
+
+    # Debug overlay caching
+    debug_cache = []
+    DEBUG_REFRESH_EVERY = 6
+    # ----------------------------------------------------------
+    # Hitbox overlay subprocess management
+    # ----------------------------------------------------------
     HITBOX_FILTER_FILE = "hitbox_filter.json"
-    hitbox_proc = None          # subprocess.Popen handle
-    hitbox_active = False
-    hitbox_slots = {"P1": True, "P2": True, "P3": True, "P4": True}
+
+    hitbox_proc = None        # subprocess.Popen handle
+    hitbox_active = False     # logical state flag
+
+    # Slot filter state persisted for hitbox overlay consumption
+    hitbox_slots = {
+        "P1": True,
+        "P2": True,
+        "P3": True,
+        "P4": True,
+    }
 
     def _write_hitbox_filter():
+        """
+        Persist current hitbox slot filter configuration to disk.
+
+        The external hitbox overlay reads this file to determine which
+        slots should be rendered.
+
+        Failure to write is silently ignored to avoid interrupting the
+        main HUD loop.
+        """
         try:
             with open(HITBOX_FILTER_FILE, "w") as f:
                 json.dump(hitbox_slots, f)
@@ -397,31 +761,60 @@ def main():
             pass
 
     def _launch_hitbox_overlay():
+        """
+        Launch the external hitbox overlay process.
+
+        Behavior:
+        - Writes current filter state to disk.
+        - Starts hitboxesscaling.py as a separate process.
+        - On Windows, optionally restores focus to the HUD window.
+
+        Any failure is logged but does not stop the HUD.
+        """
         nonlocal hitbox_proc, hitbox_active
+
         _write_hitbox_filter()
+
         try:
             hitbox_proc = subprocess.Popen(
                 [sys.executable, "hitboxesscaling.py"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
+                creationflags=(
+                    subprocess.CREATE_NEW_CONSOLE
+                    if sys.platform == "win32"
+                    else 0
+                ),
             )
+
             hitbox_active = True
+
+            # Restore focus to HUD window on Windows.
             if sys.platform == "win32":
                 import ctypes
                 hwnd = pygame.display.get_wm_info().get("window")
                 if hwnd:
                     ctypes.windll.user32.SetForegroundWindow(hwnd)
+
         except Exception as e:
             print(f"[hitbox] failed to launch: {e}")
 
     def _stop_hitbox_overlay():
+        """
+        Terminate the hitbox overlay process if running.
+        """
         nonlocal hitbox_proc, hitbox_active
+
         if hitbox_proc and hitbox_proc.poll() is None:
             hitbox_proc.terminate()
+
         hitbox_proc = None
         hitbox_active = False
 
     def _check_hitbox_proc():
+        """
+        Poll hitbox process and clear state if it has exited.
+        """
         nonlocal hitbox_proc, hitbox_active
+
         if hitbox_proc and hitbox_proc.poll() is not None:
             hitbox_proc = None
             hitbox_active = False
