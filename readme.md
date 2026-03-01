@@ -368,4 +368,4 @@ Not affiliated with Capcom, Tatsunoko, or the Dolphin project.
 - The TvC community led by Dr. Science
 - Capcom and their amazing work over the years
 - Brian Transeau
-- This fish sandwich with homemade coleslaw and spicy mayo sitting in front of me
+- This fish sandwich with homemade coleslaw and spicy mayo sitting in front of me, man I wish I had some cajun fries.
