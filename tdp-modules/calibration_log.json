@@ -1,0 +1,492 @@
+[
+  {
+    "ts": 1772404483.0937371,
+    "label": "raw_projection",
+    "manual_offset_x": 0,
+    "manual_offset_y": 0,
+    "include_manual_offsets": false,
+    "camera": {
+      "cam_x": 2.048891305923462,
+      "cam_y": 0.7374179363250732,
+      "cam_z": 7.469015121459961,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 0.08988431096076965,
+        "hitbox_world_y": 0.9891976714134216,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 282,
+        "screen_y": 414
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 0.07155498117208481,
+        "hitbox_world_y": 1.0303009748458862,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 279,
+        "screen_y": 408
+      }
+    ]
+  },
+  {
+    "ts": 1772404492.881609,
+    "label": "corrected_projection",
+    "manual_offset_x": -122,
+    "manual_offset_y": 0,
+    "include_manual_offsets": true,
+    "camera": {
+      "cam_x": 2.048891305923462,
+      "cam_y": 0.7374179363250732,
+      "cam_z": 7.469015121459961,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 0.0909121111035347,
+        "hitbox_world_y": 0.9851438403129578,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 160,
+        "screen_y": 415
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 0.07182332873344421,
+        "hitbox_world_y": 1.0265657901763916,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 157,
+        "screen_y": 409
+      }
+    ]
+  },
+  {
+    "ts": 1772404496.087556,
+    "label": "raw_projection",
+    "manual_offset_x": -122,
+    "manual_offset_y": 0,
+    "include_manual_offsets": false,
+    "camera": {
+      "cam_x": 2.965176582336426,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 4.116686820983887,
+        "hitbox_world_y": 0.9745562672615051,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 765,
+        "screen_y": 416
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 4.091258525848389,
+        "hitbox_world_y": 1.0047177076339722,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 761,
+        "screen_y": 411
+      }
+    ]
+  },
+  {
+    "ts": 1772404511.555425,
+    "label": "corrected_projection",
+    "manual_offset_x": 70,
+    "manual_offset_y": -4,
+    "include_manual_offsets": true,
+    "camera": {
+      "cam_x": 2.965177297592163,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 4.11144495010376,
+        "hitbox_world_y": 0.9800859093666077,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 834,
+        "screen_y": 411
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 4.086798667907715,
+        "hitbox_world_y": 1.019549012184143,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 830,
+        "screen_y": 405
+      }
+    ]
+  },
+  {
+    "ts": 1772404515.7732437,
+    "label": "raw_projection",
+    "manual_offset_x": 70,
+    "manual_offset_y": -4,
+    "include_manual_offsets": false,
+    "camera": {
+      "cam_x": 6.149999141693115,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 8.443772315979004,
+        "hitbox_world_y": 1.2602086067199707,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 945,
+        "screen_y": 371
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 8.586820602416992,
+        "hitbox_world_y": 1.0484765768051147,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 968,
+        "screen_y": 404
+      }
+    ]
+  },
+  {
+    "ts": 1772404516.7585237,
+    "label": "corrected_projection",
+    "manual_offset_x": 70,
+    "manual_offset_y": -4,
+    "include_manual_offsets": true,
+    "camera": {
+      "cam_x": 6.149999141693115,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 8.428523063659668,
+        "hitbox_world_y": 1.3045915365219116,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 1013,
+        "screen_y": 360
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 8.565208435058594,
+        "hitbox_world_y": 1.0929672718048096,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 1035,
+        "screen_y": 393
+      }
+    ]
+  },
+  {
+    "ts": 1772404519.0567899,
+    "label": "raw_projection",
+    "manual_offset_x": 70,
+    "manual_offset_y": -4,
+    "include_manual_offsets": false,
+    "camera": {
+      "cam_x": 6.149999141693115,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 5.961442470550537,
+        "hitbox_world_y": 1.2771165370941162,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 554,
+        "screen_y": 368
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 6.090651035308838,
+        "hitbox_world_y": 1.0664575099945068,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 574,
+        "screen_y": 401
+      }
+    ]
+  },
+  {
+    "ts": 1772404529.9531052,
+    "label": "corrected_projection",
+    "manual_offset_x": -62,
+    "manual_offset_y": -4,
+    "include_manual_offsets": true,
+    "camera": {
+      "cam_x": 6.149999141693115,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 5.980483531951904,
+        "hitbox_world_y": 1.2851760387420654,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 495,
+        "screen_y": 363
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 6.131030082702637,
+        "hitbox_world_y": 1.0735273361206055,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 518,
+        "screen_y": 396
+      }
+    ]
+  },
+  {
+    "ts": 1772404535.3416512,
+    "label": "raw_projection",
+    "manual_offset_x": -62,
+    "manual_offset_y": -4,
+    "include_manual_offsets": false,
+    "camera": {
+      "cam_x": 1.5383801460266113,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 0.1445111781358719,
+        "hitbox_world_y": 1.30755615234375,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 363,
+        "screen_y": 363
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 0.28163084387779236,
+        "hitbox_world_y": 1.09051513671875,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 385,
+        "screen_y": 398
+      }
+    ]
+  },
+  {
+    "ts": 1772404542.2004137,
+    "label": "corrected_projection",
+    "manual_offset_x": -132,
+    "manual_offset_y": -4,
+    "include_manual_offsets": true,
+    "camera": {
+      "cam_x": 1.5381518602371216,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": 0.1287415325641632,
+        "hitbox_world_y": 1.288172960281372,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 229,
+        "screen_y": 362
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": 0.2639458179473877,
+        "hitbox_world_y": 1.0810035467147827,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 250,
+        "screen_y": 395
+      }
+    ]
+  },
+  {
+    "ts": 1772404549.4540088,
+    "label": "raw_projection",
+    "manual_offset_x": -132,
+    "manual_offset_y": -4,
+    "include_manual_offsets": false,
+    "camera": {
+      "cam_x": -6.149999141693115,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": -8.242788314819336,
+        "hitbox_world_y": 0.9469940662384033,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 252,
+        "screen_y": 420
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": -8.259247779846191,
+        "hitbox_world_y": 0.9778580665588379,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 250,
+        "screen_y": 415
+      }
+    ]
+  },
+  {
+    "ts": 1772404549.9898536,
+    "label": "corrected_projection",
+    "manual_offset_x": -132,
+    "manual_offset_y": -4,
+    "include_manual_offsets": true,
+    "camera": {
+      "cam_x": -6.149999141693115,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": -8.244912147521973,
+        "hitbox_world_y": 0.9723544120788574,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 120,
+        "screen_y": 412
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": -8.24742317199707,
+        "hitbox_world_y": 1.0074775218963623,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 120,
+        "screen_y": 407
+      }
+    ]
+  },
+  {
+    "ts": 1772404553.1774023,
+    "label": "raw_projection",
+    "manual_offset_x": -132,
+    "manual_offset_y": -4,
+    "include_manual_offsets": false,
+    "camera": {
+      "cam_x": -6.149999141693115,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": -5.064698219299316,
+        "hitbox_world_y": 0.9893414378166199,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 754,
+        "screen_y": 414
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": -5.078048229217529,
+        "hitbox_world_y": 1.0294493436813354,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 752,
+        "screen_y": 407
+      }
+    ]
+  },
+  {
+    "ts": 1772404568.0878875,
+    "label": "corrected_projection",
+    "manual_offset_x": 60,
+    "manual_offset_y": -4,
+    "include_manual_offsets": true,
+    "camera": {
+      "cam_x": -6.149999141693115,
+      "cam_y": 0.7200000286102295,
+      "cam_z": 7.260000228881836,
+      "ref_cam_z": 7.469015121459961
+    },
+    "samples": [
+      {
+        "slot": "P1",
+        "index": 0,
+        "hitbox_world_x": -5.0609235763549805,
+        "hitbox_world_y": 0.9782357215881348,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 815,
+        "screen_y": 411
+      },
+      {
+        "slot": "P1",
+        "index": 1,
+        "hitbox_world_x": -5.085885524749756,
+        "hitbox_world_y": 1.0146210193634033,
+        "radius": 0.19999998807907104,
+        "flag": 0,
+        "screen_x": 811,
+        "screen_y": 406
+      }
+    ]
+  }
+]

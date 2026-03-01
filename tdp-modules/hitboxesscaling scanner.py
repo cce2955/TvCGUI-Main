@@ -412,8 +412,6 @@ class Overlay:
         self.cam_x = 0.0
         self.cam_y = 0.0
         self.cam_z = 0.0
-        self.forward_x = 0.0
-        self.forward_z = -1.0
         self.ref_cam_z = None
         self.ppu = cfg.baseline_ppu
         self.zoom = cfg.zoom
@@ -453,54 +451,23 @@ class Overlay:
         self.ppu = self.cfg.baseline_ppu * scale_y
         self.cx = self.w // 2
         self.cy = self.h // 2 + self.cfg.center_y_offset_px
-    def _compute_right_vector(self):
-        # Use forward vector to compute horizontal right axis
-        fx = self.forward_x
-        fz = self.forward_z
 
-        # Perpendicular in X/Z plane
-        rx = -fz
-        rz = fx
-
-        length = math.sqrt(rx * rx + rz * rz)
-        if length < 0.0001:
-            return (1.0, 0.0)
-
-        rx /= length
-        rz /= length
-
-        return (rx, rz)
     def _perspective_scale(self) -> float:
         if not math.isfinite(self.cam_z) or abs(self.cam_z) < 0.0001:
             return self.ppu * self.zoom
         return self.ppu * self.zoom * (self.ref_cam_z / self.cam_z)
 
     def world_to_screen(self, x: float, y: float):
-
         if PERSPECTIVE_Z_OVERRIDE is not None:
             self.ref_cam_z = PERSPECTIVE_Z_OVERRIDE
         elif self.ref_cam_z is None and math.isfinite(self.cam_z) and abs(self.cam_z) > 0.0001:
             self.ref_cam_z = self.cam_z
 
         scale = self._perspective_scale()
-
-        # ---- full 3D delta ----
-        world_z = 0.0  # gameplay plane
-
-        vx = x - self.cam_x
-        vy = (y + WORLD_Y_OFFSET) - self.cam_y
-        vz = world_z - 0.0  # assume cam_z handled via scale only
-
-        # Use full camera right vector (X/Z plane only)
-        rx, rz = self._compute_right_vector()
-
-        screen_dx = (vx * rx) + (vz * rz)
-
-        sx = self.cx + int(screen_dx * scale)
-        sy = self.cy - int(vy * scale)
-
+        sx = self.cx + int((x - self.cam_x) * scale)
+        sy = self.cy - int(((y + WORLD_Y_OFFSET) - self.cam_y) * scale)
         return sx, sy
-    
+
     def clear(self):
         self.screen.fill(COL_BG)
 
@@ -606,18 +573,10 @@ def main():
                     overlay.debug_axes = not overlay.debug_axes
 
         camx, camy, camz, camw = read_camera_pos(CAMERA)
-
-        # Read forward vector (adjust offsets if needed)
-        fwd_x = rf(CAMERA.base + 0x10)
-        fwd_y = rf(CAMERA.base + 0x14)
-        fwd_z = rf(CAMERA.base + 0x18)
-
         if USE_LIVE_CAMERA:
             overlay.cam_x = camx
             overlay.cam_y = camy
             overlay.cam_z = camz
-            overlay.forward_x = fwd_x
-            overlay.forward_z = fwd_z
 
         _slot_filter = _read_slot_filter()
 
