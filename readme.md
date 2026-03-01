@@ -1,6 +1,6 @@
 # TvC Continuo
 
-A Python-based live memory overlay for Tatsunoko vs. Capcom: Ultimate All-Stars (Wii), running on Dolphin Emulator.  
+A Python-based live memory overlay for Tatsunoko vs. Capcom: Ultimate All-Stars (Wii), running on Dolphin Emulator.
 This suite connects directly to Dolphin's RAM and provides:
 
 - A real-time training HUD with health, meter, baroque tracking, and frame advantage
@@ -12,84 +12,192 @@ This suite connects directly to Dolphin's RAM and provides:
 
 ## Overview
 
-TvC Continuo visualizes live match data pulled directly from Dolphin's memory.  
-It supports all four character slots (P1-C1, P1-C2, P2-C1, P2-C2) with dynamic pointer resolution to track state across tags and swaps.  
+TvC Continuo visualizes live match data pulled directly from Dolphin's memory.
+It supports all four character slots (P1-C1, P1-C2, P2-C1, P2-C2) with dynamic pointer resolution to track state across tags, swaps, and giant normalization logic.
 
+The HUD runs at a fixed 60 FPS and is designed to remain stable even during pointer churn, character swaps, assists, and match transitions.
 
 ---
 
 ## Features
 
 ### Real-Time HUD
+
 - 4-panel live display for both teams (HP, meter, position, current move)
 - Color-coded health bars with pooled HP (red-life style)
+- True 32-bit baroque detection using live HP32 vs Pool32 comparison
 - Baroque readiness and activation tracking
 - Real-time frame advantage computation based on live hits
 - Event feed for hits and inferred attacker/victim pairs
-- Giant character support (PTX-40A, Gold Lightan) with automatic solo panel layout
+- Correct giant-solo detection (only when C1 and C2 share the same base)
+- Per-slot assist phase tracking (fly-in / attack / recover inference)
+- Per-slot input monitor (P1-C1)
+- Dynamic character metadata caching (true struct ID + CSV correction)
+- Panel slide and fade animations on tag, swap, or KO
+- Clipboard integration (click fighter panel to copy base address)
+- Scrollable debug overlay
+
+---
 
 ### Hitbox Overlay
+
 - Launch a live hitbox visualizer directly from the HUD with one click
-- Per-slot color-coded filter checkboxes (P1/P2/P3/P4) to toggle individual slots
-- Overlay runs as an independent process and closes automatically when the HUD exits
+- Per-slot color-coded filter checkboxes (P1/P2/P3/P4)
+- Runtime slot filter persisted via hitbox_filter.json
+- Overlay runs as an independent subprocess
+- Automatic overlay shutdown when the HUD exits
+- Live process monitoring (overlay state reflects actual subprocess state)
+
+---
 
 ### Frame Data Scanner
-- Deep MEM2 analysis via `scan_normals_all.py`:
-  - Extracts startup, active, recovery, hitstun, blockstun, damage, knockback, and meter values
-  - Computes estimated frame advantage on hit/block
+
+- Deep MEM2 analysis via scan_normals_all.py
+- Extracts:
+  - Startup
+  - Active
+  - Recovery
+  - Hitstun
+  - Blockstun
+  - Damage
+  - Knockback
+  - Meter values
+- Computes estimated frame advantage on hit and block
 - Interactive move-table window per character slot
-- Auto-scan on character change or manual F5 trigger
+- Background scan worker (non-blocking)
+- Auto-scan on character change
+- Manual F5 trigger
+- Synchronous fallback scan if worker is unavailable
+- Slide-in animation when new scan data arrives
+
+---
+
+### Assist Phase Tracking
+
+Each slot maintains a lightweight assist state machine:
+
+```
+None -> flyin -> attack -> recover -> None
+```
+
+Assist phases are inferred from animation IDs using:
+
+```
+ASSIST_FLYIN_IDS
+ASSIST_ATTACK_IDS
+```
+
+Snapshots are augmented with:
+
+```
+snap["assist_phase"]
+snap["is_assist"]
+```
+
+This system is conservative and animation-driven.
+Future refinement can replace animation ID inference with explicit assist struct mapping.
+
+---
+
+### True 32-bit Baroque Detection
+
+In addition to pool-byte tracking, TvC Continuo reads:
+
+```
++0x28  HP32
++0x2C  Pool32
+```
+
+Baroque readiness is determined by:
+
+```
+hp32 != pool32
+```
+
+The HUD computes:
+
+- baroque_local_hp32
+- baroque_local_pool32
+- baroque_ready_local
+- baroque_red_amt
+- baroque_red_pct_max
+
+This avoids inaccuracies from 8-bit pool tracking and reflects actual red-life state.
+
+---
 
 ### Memory Tools
-- `redscan.py` / `global_redscan.py`: detect HP-correlated bytes (red-life / mystery bytes)
-- `memscan.py`: scans MEM1/MEM2 for ASCII strings and backreferences
-- `resolver.py`: automatically resolves and validates fighter base pointers
-- `tvc_fill_bacluster.py`: read/fill/restore fighter float clusters (BA40–BA9F)
 
-### HUD Controls
+- redscan.py / global_redscan.py - detect HP-correlated bytes (red-life / mystery bytes)
+- memscan.py - scans MEM1 and MEM2 for ASCII strings and backreferences
+- resolver.py - automatically resolves and validates fighter base pointers
+- tvc_fill_bacluster.py - read, fill, and restore fighter float clusters (BA40-BA9F)
+
+---
+
+### Interactive Debug Flags
+
+The debug panel supports direct memory writes:
+
+- Toggle flags (PauseOverlay, FreeBaroque, CameraLock, etc.)
+- Cycle values (CpuAction, CpuGuard, DummyMeter, CpuDifficulty)
+- Momentary triggers (HypeTrigger, SpecialPopup)
+- Coupled logic (P2Pause auto-syncs TrPause)
+
+Momentary writes are automatically restored after a short delay to prevent unintended state corruption.
+
+All debug writes are performed safely via wd8() and are guarded against failure.
+
+---
+
+## HUD Controls
 
 | Input | Action |
 |-------|--------|
-| **F5** | Manual move-table re-scan |
-| **Click "Activate Hitboxes"** | Toggle hitbox overlay on/off |
-| **Filter: P1/P2/P3/P4** | Toggle hitbox visibility per slot |
-| **Click "Frame Data" on panel** | Open move list for that character |
-| **Click debug row** | Copy memory address to clipboard |
-| **Click character panel** | Copy fighter base address to clipboard |
-| **Scroll wheel on debug panel** | Scroll debug flag list |
+| F5 | Manual move-table re-scan |
+| Click "Activate Hitboxes" | Toggle hitbox overlay on or off |
+| Filter: P1/P2/P3/P4 | Toggle hitbox visibility per slot |
+| Click "Frame Data" on panel | Open move list for that character |
+| Click debug row | Copy memory address to clipboard |
+| Click character panel | Copy fighter base address to clipboard |
+| Scroll wheel on debug panel | Scroll debug flag list |
 
 ---
 
 ## Installation
 
 ### Requirements
+
 - Python 3.10+
 - Dolphin Emulator (US build recommended)
 - Pygame
 
+---
+
 ### Quick Setup (Windows)
 
-The easiest way is to use the included batch files. They will set up the virtual environment automatically if it doesn't exist.
+Full HUD plus all tools:
 
-**Full HUD + all tools:**
 ```
 run.bat
 ```
 
-**Hitbox overlay only (lightweight):**
+Hitbox overlay only:
+
 ```
 hitbox.bat
 ```
 
-To set up manually:
+Manual setup:
+
 ```
 python -m venv .venv
 .venv\Scripts\activate
 pip install pygame
 ```
 
-Ensure Dolphin is running TvC and memory read/write is enabled.  
-If your revision differs from the US build, update addresses in `constants.py`.
+Ensure Dolphin is running TvC and memory read and write is enabled.
+If your revision differs from the US build, update addresses in constants.py.
 
 ---
 
@@ -99,20 +207,18 @@ If your revision differs from the US build, update addresses in `constants.py`.
 python main.py
 ```
 
-Wait until the console shows that Dolphin is hooked.  
+Wait until the console shows Dolphin is hooked.
 When connected, four fighter panels and the event log appear automatically.
 
 ---
 
 ## Frame Data Scanning
 
-To scan and view per-character move tables:
-
 ```
 python -m scan_normals_all
 ```
 
-Or use the HUD (F5 to refresh, then click "Frame Data" on any panel).  
+Or use the HUD (F5 then click "Frame Data").
 Displays move labels, startup, active frames, hitstun, blockstun, and computed frame advantage.
 
 ---
@@ -144,8 +250,8 @@ Displays move labels, startup, active frames, hitstun, blockstun, and computed f
 ### Valid Ranges
 
 ```
-MEM1: 0x80000000–0x817FFFFF
-MEM2: 0x90000000–0x93FFFFFF
+MEM1: 0x80000000-0x817FFFFF
+MEM2: 0x90000000-0x93FFFFFF
 BAD_PTRS: {0x00000000, 0x80520000}
 ```
 
@@ -182,15 +288,16 @@ BAD_PTRS: {0x00000000, 0x80520000}
 30  Frank West
 ```
 
-Extend the list in `constants.py` under `CHAR_NAMES`.
+Extend the list in constants.py under CHAR_NAMES.
 
 ---
 
 ## Attacker Detection Logic
 
 When a victim's HP drops or a hit state is detected, the system:
+
 1. Logs a hit for that fighter
-2. Finds the nearest opponent (distance² heuristic)
+2. Finds the nearest opponent (distance squared heuristic)
 3. Associates that attacker to compute live frame advantage
 
 This method is consistent during training mode and normal gameplay.
@@ -201,55 +308,64 @@ This method is consistent during training mode and normal gameplay.
 
 | File | Purpose |
 |------|---------|
-| **main.py** | Main Pygame HUD loop |
-| **hitboxesscaling.py** | Standalone hitbox overlay |
-| **fighter.py** | Reads fighter structs (HP, state, flags) |
-| **advantage.py** | Computes and tracks frame advantage |
-| **hud_draw.py** | Visual HUD rendering |
-| **layout.py** | Panel layout and giant slot normalization |
-| **resolver.py** | Slot pointer resolution logic |
-| **meter.py** | Meter state reading and caching |
-| **moves.py** | Character move label mapping (CSV-based) |
-| **move_id_map.py** | Move ID to name lookup |
-| **scan_normals_all.py** | Full move table scan with advantage computation |
-| **scan_worker.py** | Background thread for non-blocking scans |
-| **frame_data_window.py** | Interactive move-table GUI window |
-| **debug_panel.py** | Debug flag overlay rendering and click areas |
-| **training_flags.py** | Training mode flag reader |
-| **redscan.py / global_redscan.py** | HP correlation scanners |
-| **memscan.py** | Global ASCII + pointer reference search |
-| **tvc_fill_bacluster.py** | Fighter cluster inspection utility |
-| **events.py** | Hit and advantage logging / CSV output |
-| **constants.py** | Addresses, character IDs, offsets |
-| **config.py** | Screen, color, and address config |
-| **portraits.py** | Portrait loading and slot matching |
+| main.py | Main Pygame HUD loop |
+| hitboxesscaling.py | Standalone hitbox overlay |
+| fighter.py | Reads fighter structs |
+| advantage.py | Frame advantage tracker |
+| hud_draw.py | Visual HUD rendering |
+| layout.py | Panel layout and giant normalization |
+| resolver.py | Slot pointer resolution |
+| meter.py | Meter state reading |
+| moves.py | Move label mapping |
+| move_id_map.py | Move ID to name lookup |
+| scan_normals_all.py | Full move table scanner |
+| scan_worker.py | Background scan thread |
+| frame_data_window.py | Interactive frame data GUI |
+| debug_panel.py | Debug overlay rendering |
+| training_flags.py | Training flag reader |
+| redscan.py / global_redscan.py | HP correlation scanners |
+| memscan.py | ASCII and pointer reference search |
+| tvc_fill_bacluster.py | Fighter float cluster tool |
+| events.py | Hit and advantage logging |
+| constants.py | Offsets and IDs |
+| config.py | Screen and color config |
+| portraits.py | Portrait loading |
 
 ---
 
 ## Troubleshooting
 
-- **HUD says "waiting for Dolphin"** , ensure Dolphin is running with TvC loaded. If Dolphin is loaded it may be looking at a stale process or a different Dolphin PID. Close all Dolphin windows and the HUD, then relaunch both
+If the HUD says "waiting for Dolphin":
+
+- Ensure Dolphin is running TvC
+- Close duplicate Dolphin instances
+- Relaunch both Dolphin and the HUD
 
 ---
 
 ## Developer Notes
 
-- RedScan requires multiple snapshots for meaningful results.
-- Frame advantage auto-corrects using active frames when hit timing is off.
-- CSV output logged under `HIT_CSV` with frame index, damage, and participants.
-- Fully compatible with newer Dolphin memory APIs (`dolphin_io.py`).
+- Bulk fighter struct reads use rbytes() for performance
+- Character metadata cache refreshes automatically on ID change
+- Safe wrappers prevent pointer churn from crashing the render loop
+- RedScan requires multiple snapshots
+- Frame advantage auto-corrects using active frames
+- CSV output logged under HIT_CSV
+- Compatible with modern Dolphin memory APIs (dolphin_io.py)
 
 ---
 
 ## License
 
-MIT License , free for community use and research.  
+MIT License - free for community use and research.
 Not affiliated with Capcom, Tatsunoko, or the Dolphin project.
 
 ---
 
 ## Special Thanks
 
-Jaaaames - For doing some serious foundational work
-Capcom
+Jaaaames - for his amazing foundational work
+The TvC community led by Dr. Science
+Capcom and their amazing work over the years
 Brian Transeau
+This fish sandwich with homemade coleslaw and spicy mayo sitting in front of me
