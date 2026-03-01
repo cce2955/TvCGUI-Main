@@ -33,7 +33,7 @@ The HUD runs at a fixed 60 FPS and is designed to remain stable even during poin
 - Per-slot assist phase tracking (fly-in / attack / recover inference)
 - Per-slot input monitor (P1-C1)
 - Dynamic character metadata caching (true struct ID + CSV correction)
-- Panel slide and fade animations on tag, swap, or KO
+- Panel slide and fade animations
 - Clipboard integration (click fighter panel to copy base address)
 - Scrollable debug overlay
 
