@@ -20,10 +20,16 @@ import win32gui
 from dolphin_io import hook, rd32
 
 import json as _json
+# WORLD_Y_OFFSET shifts world Y before projection.
+# TvC world origin is not centered on character midline.
+# This value compensates for in-game coordinate bias so hitboxes
+# visually align with the character model on screen.
 WORLD_Y_OFFSET = -0.7
-# Manually tuned perspective baseline. Set to the cam_z value
-# you read at center stage with players at neutral position.
-# Set to None to auto-capture on first valid frame (current behavior).
+
+# Perspective baseline Z reference.
+# If set to a float, that value is used as the fixed reference camera Z.
+# If None, the first valid camera Z observed at runtime is captured
+# and treated as the neutral center-stage baseline.
 PERSPECTIVE_Z_OVERRIDE: Optional[float] = None
 HITBOX_FILTER_FILE = "hitbox_filter.json"
 _last_filter_mtime = 0.0
@@ -64,6 +70,21 @@ set_dpi_aware()
 # ----------------------------
 @dataclass(frozen=True)
 class HitboxLayout:
+    """
+    Describes the layout of the hitbox struct inside a fighter object.
+
+    struct_shift:
+        Offset from fighter base to hitbox struct.
+
+    blocks:
+        Relative offsets for each hitbox entry.
+
+    off_x, off_y, off_r:
+        Per-block offsets for X, Y, and radius floats.
+
+    off_flag:
+        Offset for the hitbox state flag byte.
+    """
     struct_shift: int
     blocks: Tuple[int, ...]
     off_x: int
@@ -93,6 +114,9 @@ class DisplayConfig:
     show_debug_axes: bool
 
 
+# Fighter slot base pointers.
+# These are static pointer addresses that resolve to each fighter struct.
+# The actual hitbox struct is located at (slot_base + struct_shift).
 SLOT_BASES: Dict[str, int] = {
     "P1": 0x9246B9C0,
     "P2": 0x92B6BA00,
@@ -147,6 +171,10 @@ COL_DEBUG = (0, 255, 0)
 # Memory helpers
 # ----------------------------
 def rb(addr: int) -> int:
+    """
+    Read a single big-endian byte from Dolphin memory.
+    Uses rd32 and bit shifting to avoid separate 8-bit reads.
+    """
     v = rd32(addr & ~3)
     if v is None:
         return 0
@@ -155,6 +183,11 @@ def rb(addr: int) -> int:
 
 
 def rf(addr: int) -> float:
+    """
+    Read a big-endian 32-bit float from Dolphin memory.
+    Returns 0.0 if value is invalid or non-finite.
+    """
+    
     v = rd32(addr)
     if v is None:
         return 0.0
@@ -166,6 +199,16 @@ def rf(addr: int) -> float:
 
 
 def read_hitboxes(slot_base: int, layout: HitboxLayout):
+    """
+    Read all configured hitbox entries for a fighter slot.
+
+    Returns:
+        List of tuples:
+            (x, y, radius, flag)
+
+    flag:
+        Raw state byte used to determine active vs inactive hitboxes.
+    """
     base = slot_base + layout.struct_shift
     out = []
     flag = rb(base + layout.off_flag)
@@ -264,6 +307,10 @@ def get_client_screen_rect(hwnd: int):
 
 
 def apply_overlay_style(hwnd: int) -> None:
+    """
+    Convert pygame window into a borderless layered overlay window.
+    Removes decorations and enables color-key transparency.
+    """
     style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
     style &= ~(win32con.WS_CAPTION |
                win32con.WS_THICKFRAME |
@@ -292,6 +339,10 @@ def apply_overlay_style(hwnd: int) -> None:
 
 
 def sync_overlay_to_dolphin(dolphin_hwnd: int, overlay_hwnd: int):
+    """
+    Resize and reposition overlay to exactly match Dolphin client area.
+    Called every frame to follow window moves and resizes.
+    """
     x, y, w, h = get_client_screen_rect(dolphin_hwnd)
     win32gui.SetWindowPos(
         overlay_hwnd,
@@ -355,12 +406,19 @@ class Overlay:
         self.cy = self.h // 2 + self.cfg.center_y_offset_px
 
     def _perspective_scale(self) -> float:
-        """Return the current perspective-adjusted scale factor."""
+        """
+        Compute pixels-per-unit adjusted for camera Z perspective.
+        Keeps hitboxes visually consistent as camera zoom changes.
+        """
         if not math.isfinite(self.cam_z) or abs(self.cam_z) < 0.0001:
             return self.ppu * self.zoom
         return self.ppu * self.zoom * (self.ref_cam_z / self.cam_z)
 
     def world_to_screen(self, x: float, y: float):
+        """
+        Convert world coordinates into screen pixel coordinates.
+        Applies camera offset and perspective scaling.
+        """
         # Capture reference Z once (center-stage baseline)
         if PERSPECTIVE_Z_OVERRIDE is not None:
             self.ref_cam_z = PERSPECTIVE_Z_OVERRIDE
@@ -383,6 +441,11 @@ class Overlay:
         pygame.draw.line(self.screen, COL_DEBUG, (self.w // 2, 0), (self.w // 2, self.h), 1)
 
     def draw_hitbox(self, x, y, r, color, label, is_active=False):
+        """
+        Render a single hitbox circle with crosshair and label.
+        Active hitboxes are rendered filled and glowing.
+        Inactive hitboxes are rendered hollow.
+        """
         if r <= 0.001 or not math.isfinite(r):
             return
         if not math.isfinite(x) or not math.isfinite(y):
@@ -472,6 +535,18 @@ class Overlay:
 # Main
 # ----------------------------
 def main():
+    """
+    Entry point for the standalone hitbox overlay.
+
+    Responsibilities:
+        - Attach to Dolphin memory.
+        - Locate Dolphin render window.
+        - Create borderless transparent overlay.
+        - Read hitbox data each frame.
+        - Project world coordinates to screen space.
+        - Render hitboxes aligned with game window.
+        - Sync overlay position with Dolphin client area.
+    """
     hook()
 
     dolphin_hwnd = find_dolphin_hwnd()
@@ -526,6 +601,17 @@ def main():
                 if r > 0.001:
                     active += 1
                     base_color = palette[i % len(palette)]
+                    # Hitbox active-state detection.
+                    # Through reverse-engineering, flag value 0x53 corresponds to an
+                    # active attacking hitbox in TvC.
+                    #
+                    # Other observed values typically represent:
+                    #   - Inactive / idle state
+                    #   - Pre-activation frames
+                    #   - Disabled slots
+                    #
+                    # If future research reveals additional active values,
+                    # this condition should be expanded into a set.
                     is_active = (flag == 0x53)
 
                     if is_active:

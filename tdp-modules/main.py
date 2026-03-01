@@ -182,8 +182,38 @@ _ASSIST_BY_SLOT = {}
 
 
 def _copy_to_clipboard(text: str) -> None:
+    """
+    Attempt to copy a string value to the system clipboard.
+
+    Parameters
+    ----------
+    text : str
+        The string to copy. If empty or falsy, no action is taken.
+
+    Behavior
+    --------
+    - If pyperclip is available:
+          * Attempt to copy to the OS clipboard.
+          * Log success to stdout.
+    - If pyperclip is unavailable or raises:
+          * Fallback to printing the value to stdout.
+    - Never raises an exception.
+
+    Design Rationale
+    ----------------
+    Clipboard functionality is optional and must not break
+    the HUD runtime if:
+        - pyperclip is not installed
+        - OS clipboard access fails
+        - Permission errors occur
+
+    This function guarantees safe execution inside the
+    real-time loop.
+    """
+
     if not text:
         return
+
     if pyperclip is not None:
         try:
             pyperclip.copy(text)
@@ -191,8 +221,9 @@ def _copy_to_clipboard(text: str) -> None:
             return
         except Exception as e:
             print(f"[copy] failed ({e!r}) -> {text}")
-    print(f"[copy] (no pyperclip) -> {text}")
 
+    # Fallback behavior when clipboard is unavailable.
+    print(f"[copy] (no pyperclip) -> {text}")
 
 def update_assist_for_snap(slotname: str, snap: dict, cur_anim: int | None) -> None:
     """
@@ -374,36 +405,81 @@ def safe_read_fighter(base: int, yoff: int) -> dict | None:
     return snap
 
 def init_pygame():
-    # Set taskbar icon on Windows
+    """
+    Initialize pygame rendering context and UI resources.
+
+    Responsibilities
+    ----------------
+    - Configure Windows taskbar identity (if applicable)
+    - Initialize pygame subsystems
+    - Load primary and secondary fonts with fallback handling
+    - Create the main resizable display surface
+    - Set window title and icon
+
+    Returns
+    -------
+    tuple
+        (screen, main_font, small_font)
+
+        screen      : pygame.Surface
+        main_font   : pygame.font.Font
+        small_font  : pygame.font.Font
+
+    Design Notes
+    ------------
+    - Font loading uses Consolas when available for consistent
+      fixed-width alignment. Falls back to default pygame font
+      if unavailable.
+    - Window icon is resolved dynamically to support either:
+          assets/portraits/Placeholder.png
+          assets/icon.png
+    - All failures are handled gracefully to avoid breaking startup.
+    """
+
+    # Set Windows taskbar grouping ID so the HUD has a distinct identity.
     if sys.platform == "win32":
         import ctypes
-        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("TvCGUI.HUD.1")
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "TvCGUI.HUD.1"
+        )
+
     pygame.init()
 
+    # Load main font with fallback.
     try:
         font = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
     except Exception:
         font = pygame.font.Font(None, FONT_MAIN_SIZE)
 
+    # Load secondary font with fallback.
     try:
         smallfont = pygame.font.SysFont("consolas", FONT_SMALL_SIZE)
     except Exception:
         smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
 
-    screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
+    # Create resizable window.
+    screen = pygame.display.set_mode(
+        (SCREEN_W, SCREEN_H),
+        pygame.RESIZABLE
+    )
+
     pygame.display.set_caption("TvC Continuo Tool")
 
-    # --- WINDOW / TASKBAR ICON ---
-    icon_path = os.path.join("assets", "portraits", "Placeholder.png")
+    # Resolve and apply window icon.
+    icon_path = os.path.join(
+        "assets",
+        "portraits",
+        "Placeholder.png"
+    )
+
     if not os.path.exists(icon_path):
         icon_path = os.path.join("assets", "icon.png")
+
     if os.path.exists(icon_path):
         icon = pygame.image.load(icon_path).convert_alpha()
         pygame.display.set_icon(icon)
 
     return screen, font, smallfont
-
-    
 
 
 
