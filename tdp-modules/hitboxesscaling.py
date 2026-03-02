@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 """
-hitbox_overlay_v2.py
+hitbox_overlay.py
 Transparent always-on-top hitbox overlay for TvC.
 Reads live hitbox data from Dolphin memory.
-
-v2: Translation-based despawn system.
-    Hitboxes that aren't moving fast enough across frames are
-    considered "stale" and suppressed from rendering.
-    This eliminates leftover radii from previous moves that stay
-    on screen when a shorter-hitbox move is performed next.
 """
 
 from __future__ import annotations
@@ -16,7 +10,7 @@ from __future__ import annotations
 import ctypes
 import math
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 import os
 import pygame
@@ -26,31 +20,20 @@ import win32gui
 from dolphin_io import hook, rd32
 
 import json as _json
-
+# WORLD_Y_OFFSET shifts world Y before projection.
+# TvC world origin is not centered on character midline.
+# This value compensates for in-game coordinate bias so hitboxes
+# visually align with the character model on screen.
 WORLD_Y_OFFSET = -0.7
 
+# Perspective baseline Z reference.
+# If set to a float, that value is used as the fixed reference camera Z.
+# If None, the first valid camera Z observed at runtime is captured
+# and treated as the neutral center-stage baseline.
 PERSPECTIVE_Z_OVERRIDE: Optional[float] = None
 HITBOX_FILTER_FILE = "hitbox_filter.json"
 _last_filter_mtime = 0.0
 _slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
-
-# ----------------------------
-# Translation-based despawn config
-# ----------------------------
-
-# Minimum world-unit movement per frame for a hitbox to be considered "live".
-# Hitboxes moving less than this are treated as stale/leftover.
-# Tune this: too low = stale hitboxes linger; too high = real hitboxes flicker.
-MOTION_THRESHOLD: float = 0.003
-
-# How many consecutive "slow" frames before a hitbox is hidden.
-# A small value (e.g. 3) despawns quickly; larger values add lag but reduce flicker.
-STILL_FRAME_LIMIT: int = 4
-
-# How many consecutive "fast" frames needed to RE-SPAWN a suppressed hitbox.
-# Prevents noisy single-frame spikes from re-enabling stale hitboxes.
-MOTION_FRAME_REQUIRED: int = 2
-
 
 def _read_slot_filter() -> dict:
     global _last_filter_mtime, _slot_filter
@@ -87,6 +70,21 @@ set_dpi_aware()
 # ----------------------------
 @dataclass(frozen=True)
 class HitboxLayout:
+    """
+    Describes the layout of the hitbox struct inside a fighter object.
+
+    struct_shift:
+        Offset from fighter base to hitbox struct.
+
+    blocks:
+        Relative offsets for each hitbox entry.
+
+    off_x, off_y, off_r:
+        Per-block offsets for X, Y, and radius floats.
+
+    off_flag:
+        Offset for the hitbox state flag byte.
+    """
     struct_shift: int
     blocks: Tuple[int, ...]
     off_x: int
@@ -116,6 +114,9 @@ class DisplayConfig:
     show_debug_axes: bool
 
 
+# Fighter slot base pointers.
+# These are static pointer addresses that resolve to each fighter struct.
+# The actual hitbox struct is located at (slot_base + struct_shift).
 SLOT_BASES: Dict[str, int] = {
     "P1": 0x9246B9C0,
     "P2": 0x92B6BA00,
@@ -167,112 +168,13 @@ COL_DEBUG = (0, 255, 0)
 
 
 # ----------------------------
-# Translation tracker
-# ----------------------------
-@dataclass
-class HitboxMotionState:
-    """
-    Tracks per-hitbox position history to determine if it is
-    actively translating (live) or sitting still (stale).
-
-    still_frames:
-        Consecutive frames below MOTION_THRESHOLD.
-    motion_frames:
-        Consecutive frames above MOTION_THRESHOLD (used for re-spawn).
-    suppressed:
-        Whether this hitbox is currently hidden due to low motion.
-    prev_x / prev_y:
-        Last observed world position for delta computation.
-    """
-    still_frames: int = 0
-    motion_frames: int = 0
-    suppressed: bool = False
-    prev_x: float = 0.0
-    prev_y: float = 0.0
-    initialized: bool = False
-
-
-class MotionFilter:
-    """
-    Manages one HitboxMotionState per (slot, hitbox_index) pair.
-    Call update() each frame with the current world position and radius.
-    Returns True if the hitbox should be rendered.
-    """
-
-    def __init__(self):
-        # Key: (slot_name, hitbox_index)  →  HitboxMotionState
-        self._states: Dict[Tuple[str, int], HitboxMotionState] = {}
-
-    def _key(self, slot: str, idx: int) -> Tuple[str, int]:
-        return (slot, idx)
-
-    def update(self, slot: str, idx: int, x: float, y: float, r: float) -> bool:
-        """
-        Feed current frame position. Returns True if hitbox should render.
-
-        A hitbox with r <= 0 is never rendered regardless of motion.
-        """
-        key = self._key(slot, idx)
-
-        if key not in self._states:
-            self._states[key] = HitboxMotionState()
-
-        state = self._states[key]
-
-        # No radius → always hidden; reset state so it re-evaluates cleanly
-        # when the slot becomes active again.
-        if r <= 0.001:
-            state.still_frames = 0
-            state.motion_frames = 0
-            state.suppressed = False
-            state.initialized = False
-            return False
-
-        # First frame this hitbox has a radius: show it optimistically,
-        # start tracking from here.
-        if not state.initialized:
-            state.prev_x = x
-            state.prev_y = y
-            state.initialized = True
-            state.still_frames = 0
-            state.motion_frames = MOTION_FRAME_REQUIRED  # treat first appearance as moving
-            state.suppressed = False
-            return True
-
-        # Compute displacement from last frame
-        dx = x - state.prev_x
-        dy = y - state.prev_y
-        delta = math.sqrt(dx * dx + dy * dy)
-
-        state.prev_x = x
-        state.prev_y = y
-
-        if delta >= MOTION_THRESHOLD:
-            state.still_frames = 0
-            state.motion_frames = min(state.motion_frames + 1, MOTION_FRAME_REQUIRED + 1)
-            if state.suppressed and state.motion_frames >= MOTION_FRAME_REQUIRED:
-                # Enough consecutive motion frames → re-enable
-                state.suppressed = False
-        else:
-            state.motion_frames = 0
-            state.still_frames = min(state.still_frames + 1, STILL_FRAME_LIMIT + 1)
-            if not state.suppressed and state.still_frames >= STILL_FRAME_LIMIT:
-                state.suppressed = True
-
-        return not state.suppressed
-
-    def reset_slot(self, slot: str, count: int):
-        """Clear state for all hitbox indices of a slot."""
-        for i in range(count):
-            key = self._key(slot, i)
-            if key in self._states:
-                del self._states[key]
-
-
-# ----------------------------
 # Memory helpers
 # ----------------------------
 def rb(addr: int) -> int:
+    """
+    Read a single big-endian byte from Dolphin memory.
+    Uses rd32 and bit shifting to avoid separate 8-bit reads.
+    """
     v = rd32(addr & ~3)
     if v is None:
         return 0
@@ -281,6 +183,11 @@ def rb(addr: int) -> int:
 
 
 def rf(addr: int) -> float:
+    """
+    Read a big-endian 32-bit float from Dolphin memory.
+    Returns 0.0 if value is invalid or non-finite.
+    """
+    
     v = rd32(addr)
     if v is None:
         return 0.0
@@ -292,6 +199,16 @@ def rf(addr: int) -> float:
 
 
 def read_hitboxes(slot_base: int, layout: HitboxLayout):
+    """
+    Read all configured hitbox entries for a fighter slot.
+
+    Returns:
+        List of tuples:
+            (x, y, radius, flag)
+
+    flag:
+        Raw state byte used to determine active vs inactive hitboxes.
+    """
     base = slot_base + layout.struct_shift
     out = []
     flag = rb(base + layout.off_flag)
@@ -318,26 +235,47 @@ def read_camera_pos(layout: CameraLayout):
 # Win32 helpers
 # ----------------------------
 def find_dolphin_hwnd() -> Optional[int]:
+    """
+    Prefer the actual game/render window over the Dolphin main UI.
+    Strategy:
+      - Score visible windows whose title contains "dolphin"
+      - Strongly prefer titles that look like the render window:
+          contain '|' and common backend tokens (JIT/OpenGL/Vulkan/D3D/HLE)
+          or contain a game ID in parentheses e.g. (STKE08)
+      - As a fallback, return the highest scoring Dolphin window.
+    """
     candidates: List[Tuple[int, int, str]] = []
 
     def score_title(t: str) -> int:
         tl = t.lower()
         if "dolphin" not in tl:
             return -10_000
+
         s = 0
+
+        # Render window usually has a bunch of " | " segments
         if "|" in t:
             s += 50
             s += min(30, t.count("|") * 5)
+
+        # Typical render-title tokens
         for tok in ("jit", "jit64", "opengl", "vulkan", "d3d", "direct3d", "hле", "hle"):
             if tok in tl:
                 s += 20
+
+        # Game ID pattern "(STKE08)" or any "(xxxxx)" of 5+ chars
         if "(" in t and ")" in t:
             s += 30
+
+        # Penalize common non-render UI windows
         for bad in ("memory", "watch", "log", "breakpoint", "register", "disassembly", "config", "settings"):
             if bad in tl:
                 s -= 25
+
+        # Strong preference: title includes a game name-ish chunk after pipes
         if t.count("|") >= 3:
             s += 20
+
         return s
 
     def cb(hwnd, _):
@@ -351,10 +289,14 @@ def find_dolphin_hwnd() -> Optional[int]:
         candidates.append((score_title(title), hwnd, title))
 
     win32gui.EnumWindows(cb, None)
+
     if not candidates:
         return None
+
     candidates.sort(key=lambda x: x[0], reverse=True)
-    return candidates[0][1]
+    best_score, best_hwnd, best_title = candidates[0]
+
+    return best_hwnd
 
 
 def get_client_screen_rect(hwnd: int):
@@ -365,6 +307,10 @@ def get_client_screen_rect(hwnd: int):
 
 
 def apply_overlay_style(hwnd: int) -> None:
+    """
+    Convert pygame window into a borderless layered overlay window.
+    Removes decorations and enables color-key transparency.
+    """
     style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
     style &= ~(win32con.WS_CAPTION |
                win32con.WS_THICKFRAME |
@@ -393,11 +339,18 @@ def apply_overlay_style(hwnd: int) -> None:
 
 
 def sync_overlay_to_dolphin(dolphin_hwnd: int, overlay_hwnd: int):
+    """
+    Resize and reposition overlay to exactly match Dolphin client area.
+    Called every frame to follow window moves and resizes.
+    """
     x, y, w, h = get_client_screen_rect(dolphin_hwnd)
     win32gui.SetWindowPos(
         overlay_hwnd,
         win32con.HWND_NOTOPMOST,
-        x, y, w, h,
+        x,
+        y,
+        w,
+        h,
         win32con.SWP_NOACTIVATE,
     )
     return w, h
@@ -412,8 +365,6 @@ class Overlay:
         self.cam_x = 0.0
         self.cam_y = 0.0
         self.cam_z = 0.0
-        self.forward_x = 0.0
-        self.forward_z = -1.0
         self.ref_cam_z = None
         self.ppu = cfg.baseline_ppu
         self.zoom = cfg.zoom
@@ -431,7 +382,7 @@ class Overlay:
         self.font_small = pygame.font.SysFont("consolas", 11)
         self.font_hud = pygame.font.SysFont("consolas", 13, bold=True)
         self.screen = pygame.display.set_mode((self.w, self.h), pygame.SRCALPHA)
-        pygame.display.set_caption("TvC Hitbox Overlay v2")
+        pygame.display.set_caption("TvC Hitbox Overlay")
 
         icon_path = os.path.join("assets", "portraits", "Placeholder.png")
         if not os.path.exists(icon_path):
@@ -453,30 +404,22 @@ class Overlay:
         self.ppu = self.cfg.baseline_ppu * scale_y
         self.cx = self.w // 2
         self.cy = self.h // 2 + self.cfg.center_y_offset_px
-    def _compute_right_vector(self):
-        # Use forward vector to compute horizontal right axis
-        fx = self.forward_x
-        fz = self.forward_z
 
-        # Perpendicular in X/Z plane
-        rx = -fz
-        rz = fx
-
-        length = math.sqrt(rx * rx + rz * rz)
-        if length < 0.0001:
-            return (1.0, 0.0)
-
-        rx /= length
-        rz /= length
-
-        return (rx, rz)
     def _perspective_scale(self) -> float:
+        """
+        Compute pixels-per-unit adjusted for camera Z perspective.
+        Keeps hitboxes visually consistent as camera zoom changes.
+        """
         if not math.isfinite(self.cam_z) or abs(self.cam_z) < 0.0001:
             return self.ppu * self.zoom
         return self.ppu * self.zoom * (self.ref_cam_z / self.cam_z)
 
     def world_to_screen(self, x: float, y: float):
-
+        """
+        Convert world coordinates into screen pixel coordinates.
+        Applies camera offset and perspective scaling.
+        """
+        # Capture reference Z once (center-stage baseline)
         if PERSPECTIVE_Z_OVERRIDE is not None:
             self.ref_cam_z = PERSPECTIVE_Z_OVERRIDE
         elif self.ref_cam_z is None and math.isfinite(self.cam_z) and abs(self.cam_z) > 0.0001:
@@ -484,23 +427,10 @@ class Overlay:
 
         scale = self._perspective_scale()
 
-        # ---- full 3D delta ----
-        world_z = 0.0  # gameplay plane
-
-        vx = x - self.cam_x
-        vy = (y + WORLD_Y_OFFSET) - self.cam_y
-        vz = world_z - 0.0  # assume cam_z handled via scale only
-
-        # Use full camera right vector (X/Z plane only)
-        rx, rz = self._compute_right_vector()
-
-        screen_dx = (vx * rx) + (vz * rz)
-
-        sx = self.cx + int(screen_dx * scale)
-        sy = self.cy - int(vy * scale)
-
+        sx = self.cx + int((x - self.cam_x) * scale)
+        sy = self.cy - int(((y + WORLD_Y_OFFSET) - self.cam_y) * scale)
         return sx, sy
-    
+
     def clear(self):
         self.screen.fill(COL_BG)
 
@@ -511,6 +441,11 @@ class Overlay:
         pygame.draw.line(self.screen, COL_DEBUG, (self.w // 2, 0), (self.w // 2, self.h), 1)
 
     def draw_hitbox(self, x, y, r, color, label, is_active=False):
+        """
+        Render a single hitbox circle with crosshair and label.
+        Active hitboxes are rendered filled and glowing.
+        Inactive hitboxes are rendered hollow.
+        """
         if r <= 0.001 or not math.isfinite(r):
             return
         if not math.isfinite(x) or not math.isfinite(y):
@@ -533,15 +468,51 @@ class Overlay:
         center = (rpx + 4, rpx + 4)
 
         if is_active:
-            pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 140), center, rpx)
-            pygame.draw.circle(hit_surf, (255, 255, 255, 255), center, rpx, 4)
-            pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 120), center, rpx + 3, 4)
+            # Strong interior fill
+            pygame.draw.circle(
+                hit_surf,
+                (r_c, g_c, b_c, 140),
+                center,
+                rpx
+            )
+
+            # Thick outline
+            pygame.draw.circle(
+                hit_surf,
+                (255, 255, 255, 255),
+                center,
+                rpx,
+                4
+            )
+
+            # Outer glow
+            pygame.draw.circle(
+                hit_surf,
+                (r_c, g_c, b_c, 120),
+                center,
+                rpx + 3,
+                4
+            )
         else:
-            pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 70), center, rpx + 2, 3)
-            pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 220), center, rpx, 3)
+            # Hollow version
+            pygame.draw.circle(
+                hit_surf,
+                (r_c, g_c, b_c, 70),
+                center,
+                rpx + 2,
+                3
+            )
+            pygame.draw.circle(
+                hit_surf,
+                (r_c, g_c, b_c, 220),
+                center,
+                rpx,
+                3
+            )
 
         self.screen.blit(hit_surf, (sx - rpx - 4, sy - rpx - 4))
 
+        # Crosshair
         pygame.draw.circle(self.screen, COL_CROSS, (sx, sy), 2)
         cs = 6
         pygame.draw.line(self.screen, COL_CROSS, (sx - cs, sy), (sx + cs, sy), 2)
@@ -550,20 +521,12 @@ class Overlay:
         txt = self.font_small.render(f"{label} r={r:.2f}", True, (r_c, g_c, b_c))
         self.screen.blit(txt, (sx + rpx + 6, sy - 10))
 
-    def draw_hud(self, counts, motion_filter: MotionFilter):
+    def draw_hud(self, counts):
         base = " | ".join([f"{k}={v}" for k, v in counts.items()])
         ref_str = f"{self.ref_cam_z:.4f}" if self.ref_cam_z is not None else "none"
         debug = f"  |  cam_z={self.cam_z:.4f}  ref_z={ref_str}"
-
-        # Count suppressed hitboxes for HUD visibility
-        suppressed_total = sum(
-            1 for s in motion_filter._states.values() if s.suppressed
-        )
-        supp_str = f"  |  suppressed={suppressed_total}"
-
-        hud = self.font_hud.render(base + debug + supp_str, True, COL_DIM)
+        hud = self.font_hud.render(base + debug, True, COL_DIM)
         self.screen.blit(hud, (8, 8))
-
     def present(self):
         pygame.display.flip()
 
@@ -572,6 +535,18 @@ class Overlay:
 # Main
 # ----------------------------
 def main():
+    """
+    Entry point for the standalone hitbox overlay.
+
+    Responsibilities:
+        - Attach to Dolphin memory.
+        - Locate Dolphin render window.
+        - Create borderless transparent overlay.
+        - Read hitbox data each frame.
+        - Project world coordinates to screen space.
+        - Render hitboxes aligned with game window.
+        - Sync overlay position with Dolphin client area.
+    """
     hook()
 
     dolphin_hwnd = find_dolphin_hwnd()
@@ -588,9 +563,6 @@ def main():
     )
     clock = pygame.time.Clock()
 
-    # One shared motion filter tracks all slots × hitbox indices
-    motion_filter = MotionFilter()
-
     running = True
     while running:
         w, h = sync_overlay_to_dolphin(dolphin_hwnd, overlay_hwnd)
@@ -606,18 +578,10 @@ def main():
                     overlay.debug_axes = not overlay.debug_axes
 
         camx, camy, camz, camw = read_camera_pos(CAMERA)
-
-        # Read forward vector (adjust offsets if needed)
-        fwd_x = rf(CAMERA.base + 0x10)
-        fwd_y = rf(CAMERA.base + 0x14)
-        fwd_z = rf(CAMERA.base + 0x18)
-
         if USE_LIVE_CAMERA:
             overlay.cam_x = camx
             overlay.cam_y = camy
             overlay.cam_z = camz
-            overlay.forward_x = fwd_x
-            overlay.forward_z = fwd_z
 
         _slot_filter = _read_slot_filter()
 
@@ -634,17 +598,20 @@ def main():
             palette = COLORS.get(name, [(255, 255, 255)])
 
             for i, (x, y, r, flag) in enumerate(boxes):
-                # --- Translation filter ---
-                # Ask the motion filter if this hitbox is "live enough" to render.
-                # Stale hitboxes (not moving) are suppressed even if r > 0.
-                should_render = motion_filter.update(name, i, x, y, r)
-
-                if not should_render:
-                    continue
-
                 if r > 0.001:
                     active += 1
                     base_color = palette[i % len(palette)]
+                    # Hitbox active-state detection.
+                    # Through reverse-engineering, flag value 0x53 corresponds to an
+                    # active attacking hitbox in TvC.
+                    #
+                    # Other observed values typically represent:
+                    #   - Inactive / idle state
+                    #   - Pre-activation frames
+                    #   - Disabled slots
+                    #
+                    # If future research reveals additional active values,
+                    # this condition should be expanded into a set.
                     is_active = (flag == 0x53)
 
                     if is_active:
@@ -658,7 +625,7 @@ def main():
 
             counts[name] = active
 
-        overlay.draw_hud(counts, motion_filter)
+        overlay.draw_hud(counts)
         overlay.present()
         clock.tick(DISPLAY.fps)
 
