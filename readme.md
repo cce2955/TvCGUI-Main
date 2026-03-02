@@ -592,7 +592,11 @@ Local scan radius: ±0x4000 around fighter base
 MEM1: 0x80000000 - 0x817FFFFF
 MEM2: 0x90000000 - 0x93FFFFFF
 ```
-
+---
+## Global Table Pointer
+```
+Global Table Pointer 0x803AA4C0
+```
 ---
 
 ## Bad Pointers

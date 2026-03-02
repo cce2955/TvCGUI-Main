@@ -795,3 +795,90 @@ Tentative interpretation:
 Possible combo state / ground-confirm tracking / cancel-window validator.
 
 Further testing required.
+
+possible projectile pattern 00 00 00 0C FF FF FF FF ?? ?? ?? ?? ?? ?? ?? ?? 00 00 00 00 ?? ?? ?? ?? ... [hi] [lo] C8 00 00
+
++0x00   ??? id / flags
++0x??   00 00 00 0C
++0x??   FF FF FF FF
++0x??   speed (41 20 00 00 = 10.0)
++0x??   accel (3F 80 00 00 = 1.0)
++0x??   00 00 00 00
++0x??   cap (41 20 00 00)
++0x50   radius (42 C8 00 00)
+
+0x916BC000 page — Hit Particle FX Data
+
+Page classified as: revert-like (travel + T3==T0) ✓
+Contains heap allocator block chain (HEAPHEAD magic)
+RGBA color keyframes at 0x916BC1F0+:
+
+FF 7A 00 FF — opaque orange
+FF FF 64 FF — yellow
+FF 55 55 FF — pinkish-red
+
+📝 Session Notes — TvC Hadouken Position Investigation
+
+Address of interest: 0x91987600
+
+Observed to change when a hadouken is active on screen
+Three floats at this address read approximately (4.54, 0.998, -0.005) during an observed throw
+The first word (+0x00) appears to be the axis that changes most across a throw — increases by roughly 1.65 per frame
+The second word (+0x04) stays near ~1.0 throughout — possibly height
+The third word (+0x08) stays near ~0.0 throughout — possibly depth/lateral
+max observed per-frame delta: ~1.65 units
+observed travel over one throw: ~1.77 units net (short window), pointer slot 0x918A4040 observed holding 0x91987600 consistently across multiple reads
+
+Pointer at 0x918A4040
+
+Consistently read as 0x91987600 across all polling sessions
+Did not appear to advance or change — may be a static reference
+
+Spawn reference at 0x918A4004
+
+Read as (0.000, 5.769, 0.998) at one point during the session
+Unclear relationship to 0x91987600 — may be a spawn offset or separate struct field
+
+0x918A3FE4
+
+Contains a pointer at +0x060 that pointed to 0x919876C0
+0x919876C0 contains a sequence of smoothly incrementing vec3s — observed values like (5.486, 0.869, 0.020) incrementing across rows
+Unclear if this is pre-baked or live-written
+
+0x919876C0 block
+
+Observed to contain vec3s with a smoothly changing dominant component across ~0xC0 bytes
+Values look trajectory-like but were static across repeated reads in later sessions — may only be valid at spawn time
+
+0x9182B700 region
+
+Contains HEAPHEAD magic
+Observed pointer to 0x919874C0 (the spawn scratch arena)
+Contains a large linked structure with vtable-like 0x8047Axxx pointers and cross-references into 0x918A3xxx pages
+
+0x919874C0 spawn scratch arena
+
+Contains HEAPHEAD
+Observed tiling vec3 pattern (5.014, 1.055, -0.069) repeating across ~0x1B0 bytes — possibly geometry/hitbox verts
+Reverts to pre-spawn state after despawn (T3==T0 in MEM2 classifier)
+
+0x916BC000 page
+
+Contains HEAPHEAD + heap block chain
+RGBA values observed at 0x916BC1F0: FF7A00FF, FFFF64FF, FF5555FF — orange, yellow, pinkish-red
+Pointer at 0x916BC110 to 0x91572460 — unexamined
+Tentatively looks like hit particle / visual FX data rather than position
+
+0x90BE4A80 projectile object
+
+High-frequency pointer changes at +0x008/00C/014 — looks like vtable slots swapping on state transitions
+Counter at +0x06C read as 0x00000001 — did not increment during observed flight
++0x1E0 (0x90BE4C60) observed flashing during active hadouken — read as code pointer 0x80120B08, not a float
+Overall struct appears to be a behavior/logic object rather than a position holder
+
+General observations
+
+The game appears to use a pooled object system — 0x90BE4A80 showed signs of being reused across projectiles
+Multiple HEAPHEAD arenas observed linked together across the 0x918xxxxx and 0x919xxxxx ranges
+The waypoint buffer hypothesis (pre-baked path, pointer walks through it) was not confirmed — pointer at the cursor slot did not advance during flight
+The 0x91987600 region is still the strongest observed candidate for live position data but alignment ambiguity remains — the same three float values appear at +0x00, +0x04, +0x08 in a rotating pattern suggesting the true vec3 base may be one word off
