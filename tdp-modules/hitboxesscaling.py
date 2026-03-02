@@ -464,29 +464,45 @@ class Overlay:
         apply_overlay_style(hwnd)
         return hwnd
 
-    def on_resize(self, w: int, h: int):
-        if w <= 0 or h <= 0 or (w == self.w and h == self.h):
-            return
-        self.w, self.h = w, h
-        self.screen = pygame.display.set_mode((self.w, self.h), pygame.SRCALPHA)
-        scale_y = self.h / float(self.cfg.baseline_h)
-        self.ppu = self.cfg.baseline_ppu * scale_y
-        self.cx = self.w // 2
-        self.cy = self.h // 2 + self.cfg.center_y_offset_px
 
+    def on_resize(self, w: int, h: int):
+        if w <= 0 or h <= 0:
+            return
+
+        self.w, self.h = w, h
+        self.screen = pygame.display.set_mode((w, h), pygame.SRCALPHA)
+
+        # TvC logical height is always 720
+        self.viewport_scale = h / 720.0
+        self.aspect_ratio = w / float(h)
+        self.base_aspect = 4.0 / 3.0
+        self.x_aspect_scale = self.base_aspect / self.aspect_ratio
+        self.cx = w * 0.5
+        self.cy = h * 0.5
+        self.window_aspect = w / float(h)
+        self.base_aspect = 4.0 / 3.0
+        self.stretch_factor = self.window_aspect / self.base_aspect
     def _perspective_scale(self) -> float:
         return self.ppu * self.zoom
     
     def world_to_screen(self, world_x: float, world_y: float, world_z: float):
-        # Simple planar projection for 2.5D fighter
 
-        # Stable zoom based on cam_z (inverse relationship)
-        if abs(self.cam_z) > 0.0001:
-            zoom_scale = self.ppu * (7.26 / self.cam_z)
-        else:
-            zoom_scale = self.ppu
+        if self.ref_cam_z is None and abs(self.cam_z) > 0.0001:
+            self.ref_cam_z = self.cam_z
 
-        sx = self.cx + (world_x - self.cam_x) * zoom_scale
+        camera_scale = (
+            self.ref_cam_z / self.cam_z
+            if (self.ref_cam_z is not None and abs(self.cam_z) > 0.0001)
+            else 1.0
+        )
+
+        zoom_scale = (
+            self.cfg.baseline_ppu
+            * self.viewport_scale
+            * camera_scale
+        )
+
+        sx = self.cx + (world_x - self.cam_x) * zoom_scale * self.stretch_factor
         sy = self.cy - ((world_y - self.cam_y) + WORLD_Y_OFFSET) * zoom_scale
 
         return int(sx), int(sy), 1.0, zoom_scale
