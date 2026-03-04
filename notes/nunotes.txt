@@ -817,7 +817,7 @@ FF 7A 00 FF — opaque orange
 FF FF 64 FF — yellow
 FF 55 55 FF — pinkish-red
 
-📝 Session Notes — TvC Hadouken Position Investigation
+Session Notes — TvC Hadouken Position Investigation
 
 Address of interest: 0x91987600
 
@@ -882,3 +882,948 @@ The game appears to use a pooled object system — 0x90BE4A80 showed signs of be
 Multiple HEAPHEAD arenas observed linked together across the 0x918xxxxx and 0x919xxxxx ranges
 The waypoint buffer hypothesis (pre-baked path, pointer walks through it) was not confirmed — pointer at the cursor slot did not advance during flight
 The 0x91987600 region is still the strongest observed candidate for live position data but alignment ambiguity remains — the same three float values appear at +0x00, +0x04, +0x08 in a rotating pattern suggesting the true vec3 base may be one word off
+
+Projectile system notes
+
+Projectile manager head
+Address: 9246FD10
+Behavior:
+When no projectile exists, the pointers at this address reference itself.
+When a projectile is active, the pointers change to a different address.
+On despawn or hit, it returns to referencing itself.
+
+Conclusion:
+This is a circular linked list head for projectiles.
+
+Active projectile node
+When L Hado is active, the manager head points to:
+91A6CCBC
+
+This address is the active projectile instance node.
+When the projectile despawns, it is unlinked and the head resets to itself.
+
+Projectile instance struct
+Region begins around:
+91A6CCB0
+
+Confirmed inside this struct:
+
+Linked list metadata at the beginning.
+Back reference to 9246FD10.
+Collision activation timer at 91A6CD24.
+
+Collision timer
+Address: 91A6CD24
+Default value: BF800000 which is -1.0 as a big endian float.
+It decreases over time.
+
+When set to 3F800000 which is 1.0:
+Projectile still moves and renders.
+Projectile passes through the opponent.
+No hit detection occurs.
+
+Conclusion:
+This field controls collision activation or hit window state, not lifetime.
+
+Implications about struct layout
+This struct contains:
+List node pointers
+Position vector
+Velocity vector
+Collision timer
+Likely a separate lifetime timer
+Likely damage and flags
+Likely owner pointer
+
+Architecture summary
+9246FD10 is the projectile manager head.
+It links to 91A6CCBC when a projectile is active.
+That address is the live projectile instance.
+
+This provides deterministic access to projectile objects without scanning.
+
+Open items not yet identified
+Exact lifetime timer
+Velocity vector offsets
+Damage value
+Owner pointer offset
+Projectile type identifier
+
+Checkpoint
+You now have direct access to the live projectile instance via the manager head.
+Future work should begin from 9246FD10 and follow the pointer to the active node.
+
+Slot 1 Projectile Manager
+
+Head Address:
+0x9246FD10
+
+Behavior:
+When empty:
+next == 0x9246FD10
+prev == 0x9246FD10
+
+When active:
+next == projectile_node_address
+prev == projectile_node_address
+
+Observed node pool addresses:
+0x91A6B778
+0x91A6CCBC
+
+These are pooled projectile instance slots.
+They are reused between spawns.
+They live in the 0x91A6xxxx region.
+
+Confirmed inside node struct:
+
+Linked list metadata at start
+
+Collision activation timer (example previously at 0x91A6CD24)
+
+Position and velocity floats nearby
+
+Node unlinks on despawn
+
+Head resets to self on despawn
+
+Architecture:
+Slot 1 head → Slot 1 projectile pool (0x91A6xxxx)
+
+Slot 2 Projectile Manager
+
+Head Address:
+0x9246B9C0
+
+Confirmed by:
+Node 0x918A15E8 contains:
+head: 0x9246B9C0
+
+Observed node pool addresses:
+0x918A15E8
+Possibly 0x9189ED88 (though that one appears inactive or unrelated)
+
+Slot 2 projectile pool lives in:
+0x918Axxxx region
+
+Node layout mirrors Slot 1 structure:
+
+prev pointer
+
+next pointer
+
+head pointer
+
+gameplay fields follow
+
+Architecture:
+Slot 2 head → Slot 2 projectile pool (0x918Axxxx)
+
+Structural Conclusions
+
+Each player slot has its own projectile manager head.
+
+Each slot has its own projectile memory pool region.
+
+Pools are separate between Slot 1 and Slot 2.
+
+Nodes are reused, not dynamically allocated per spawn.
+
+Heads are located near actor memory (0x9246xxxx region).
+
+Pools are located in MEM2 (0x91xxxxxx region).
+
+Actor System / Object Architecture (Confirmed Extension)
+
+The projectile system discovered appears to be part of a broader actor-object framework used by the engine.
+
+Evidence supporting this:
+
+Projectile instances exist as nodes in a circular linked list
+
+Nodes are reused from a fixed memory pool
+
+The manager head exists near fighter actor memory
+
+The node pool exists in MEM2 pooled object memory
+
+This is consistent with a typical GameCube-era Actor Manager + Pool Allocator design.
+
+Generalized structure inferred:
+
+ActorManager
+{
+    ActorListHead
+    ActorPool
+}
+
+Projectile manager appears to be a specialized actor list rather than a completely separate system.
+
+Projectile Manager Head Behavior (Refined)
+
+Address example:
+
+0x9246FD10
+
+Observed structure:
+
+struct ListHead
+{
+    Node* next
+    Node* prev
+}
+
+Behavior:
+
+Idle state:
+
+next = head
+prev = head
+
+Active state:
+
+next = node
+prev = node
+
+This confirms a circular doubly-linked list sentinel node.
+
+Properties:
+
+Head never moves
+
+Nodes are inserted and removed
+
+Empty list always points to itself
+
+This design allows constant-time insert/remove operations.
+
+Projectile Node Structure (Expanded)
+
+Observed node example:
+
+0x91A6CCBC
+
+Memory preceding this indicates the node likely begins at:
+
+0x91A6CCB0
+
+Initial layout likely resembles:
+
+struct ProjectileNode
+{
+    Node* prev        // linked list
+    Node* next
+    Node* head        // back-reference to manager head
+
+    ActorVTable* vtbl
+    Flags / state
+    Owner pointer
+
+    vec3 position
+    vec3 velocity
+
+    float collision_timer
+    float lifetime_timer
+
+    damage
+    flags
+}
+
+Evidence supporting this:
+
+Node contains back-reference to manager head
+
+Multiple float fields update during flight
+
+Collision timer field behaves independently from lifetime
+
+Node unlinks from list when projectile despawns
+
+Object Pool Behavior
+
+Projectile instances appear to be drawn from a fixed memory pool.
+
+Example pool region:
+
+0x91A6xxxx
+
+Observed pool nodes:
+
+0x91A6B778
+0x91A6CCBC
+
+Properties:
+
+Node addresses are reused between spawns
+
+Nodes remain allocated even when inactive
+
+Only linked-list membership changes
+
+This indicates a preallocated object pool, not dynamic heap allocation per projectile.
+
+Typical implementation pattern:
+
+ProjectilePool[N]
+
+for node in pool:
+    if node.active == false:
+        reuse node
+
+Advantages of this design:
+
+No runtime allocation cost
+
+Deterministic memory layout
+
+Faster insertion/removal
+
+No fragmentation
+
+Per-Slot Projectile Managers
+
+Evidence suggests each fighter slot maintains its own projectile manager.
+
+Observed heads:
+
+Slot 1 head → 0x9246FD10
+Slot 2 head → 0x9246B9C0
+
+Observed pools:
+
+Slot 1 pool → 0x91A6xxxx
+Slot 2 pool → 0x918Axxxx
+
+This suggests the architecture:
+
+FighterActor
+{
+    ProjectileManager
+}
+
+Meaning projectile ownership is likely tied to the fighter actor instance.
+
+Benefits of this architecture:
+
+Projectiles are automatically associated with their owner
+
+Cleanup on character death / KO becomes trivial
+
+Multi-character fights remain deterministic
+
+Collision Timer Interpretation
+
+Address example:
+
+0x91A6CD24
+
+Default:
+
+BF800000  →  -1.0
+
+Observed behavior:
+
+Counts downward or changes during active frames
+
+When forced to 1.0, projectile becomes non-hitting but still moves
+
+Conclusion:
+
+This field likely represents collision enable state rather than lifetime.
+
+Possible logic model:
+
+if collision_timer >= 0:
+    collision_enabled
+else:
+    collision_disabled
+
+This may control:
+
+first-hit activation
+
+invulnerability windows
+
+multi-hit cooldown
+
+Relationship to Fighter Actor Struct
+
+Projectile manager heads appear located near fighter actor memory.
+
+Example:
+
+FighterActorBase
+    + offsets
+        ProjectileManagerHead
+
+This suggests projectile managers may be embedded inside the fighter actor struct rather than global.
+
+Possible pattern:
+
+struct FighterActor
+{
+    ...
+    ProjectileManager manager
+}
+
+This would naturally partition projectile ownership by slot.
+
+Actor Pool Memory Regions
+
+Two primary MEM2 object regions have been observed:
+
+0x91A6xxxx
+0x918Axxxx
+
+Both contain:
+
+object-like structs
+
+linked list nodes
+
+float motion data
+
+pointer references into actor code
+
+This indicates MEM2 likely hosts multiple actor pools used for:
+
+projectiles
+
+assists
+
+temporary entities
+
+effects
+
+Relationship to Spawn System
+
+Earlier observations of spawn command buffers and heap activity may correspond to a higher-level spawn system that activates nodes in these pools.
+
+Possible flow:
+
+Move script triggers spawn
+      ↓
+Spawn command written
+      ↓
+Actor manager activates node from pool
+      ↓
+Node linked into projectile list
+
+Once active, the projectile node is updated each frame by the actor system.
+
+Overlay / Tooling Implications
+
+Because the projectile manager provides deterministic access to live nodes:
+
+head -> next -> next -> ...
+
+You can enumerate projectiles reliably without memory scanning.
+
+Typical traversal:
+
+node = head.next
+while node != head:
+    process(node)
+    node = node.next
+
+This allows:
+
+live projectile tracking
+
+hitbox overlay
+
+velocity extraction
+
+owner identification
+
+Open Mapping Targets
+
+Fields still unidentified inside projectile node:
+
+lifetime timer
+
+owner pointer
+
+damage value
+
+projectile type identifier
+
+hitbox radius
+
+hitlag parameters
+
+cancel / interaction flags
+
+These likely exist within the node following the position/velocity fields.
+
+Summary of Confirmed Architecture
+
+FighterActor
+    ProjectileManagerHead
+        ↓
+    Circular linked list
+
+ProjectilePool (MEM2)
+    Node structs reused
+
+ProjectileNode
+    prev
+    next
+    head
+    position
+    velocity
+    collision timer
+    other gameplay fields
+
+Projectiles are therefore actor-style objects managed through per-slot linked lists backed by fixed pools.
+
+Projectile Node Pool
+
+Base address:
+
+0x919874C0
+
+Stride:
+
+0x30
+
+Observed active nodes during hadouken:
+
+0x919874F0
+0x91987520
+0x91987550
+0x91987580
+0x91987610
+0x91987640
+0x91987670
+0x919876A0
+
+These repeat between projectiles, indicating a fixed object pool.
+
+Estimated pool size:
+
+~64 entries
+Projectile Node Layout (Partial)
+
+Confirmed transform offsets:
+
++0x10  float pos_x
++0x14  float pos_y
++0x18  float pos_z
+
+Example motion data:
+
+x ≈ -0.15 → 0.31
+y ≈ -3 → -5
+z ≈ 0.6 → 1.0
+
+These match TvC world-space coordinates.
+
+Node Header
+
+Nodes appear to begin with a vtable pointer:
+
++0x00  0x9182B700
+
+Likely structure start:
+
+struct ProjectileNode
+{
+    void* vtable
+    ProjectileNode* next
+    ProjectileNode* prev
+    ...
+    vec3 position
+}
+
+Observed internal linked-list pointers:
+
+node+0x04
+node+0x08
+Spawn Routing System
+
+Runtime route pointer observed at:
+
+0x918A3EC0
+
+Values during hadouken:
+
+0x918A417C
+0x918A4260
+0x918A4098
+
+Interpretation:
+
+route pointer → move/actor script entry
+
+Example mapping:
+
+Ryu hadouken route → 0x918A417C
+Ken hadouken route → 0x918A4260
+
+These routes change before projectile nodes activate.
+
+Pipeline confirmed:
+
+fighter move
+    ↓
+route pointer (0x918Axxxx)
+    ↓
+spawn actor
+    ↓
+projectile node pool allocation
+Heap Allocator Regions
+
+Two heap headers identified:
+
+0x91987920
+0x918A3EA0
+
+Signature:
+
+"HEAPHEAD"
+
+Pointers from these regions into the projectile pool are allocator metadata, not gameplay logic.
+
+Memory Reference Scan Results
+
+References to projectile pool found at:
+
+0x9182B6FC -> 0x919874C0
+0x9182B70C -> 0x919874C0
+
+Likely associated with the projectile class or manager vtable.
+
+Other references near:
+
+0x918A3F5C – 0x918A42F0
+
+These are allocator bookkeeping entries.
+
+Current Overlay Strategy
+
+Reliable approach:
+
+scan projectile pool
+read transform
+draw hitbox
+
+Example logic:
+
+node = 0x919874C0 + i*0x30
+
+if rd32(node) == 0x9182B700:
+    x = rf(node+0x10)
+    y = rf(node+0x14)
+    z = rf(node+0x18)
+
+This avoids relying on the route system.
+
+Subactor / Projectile System Notes
+Node Transform Offsets
+
+Projectile node structure exposes transform data at:
+
+node + 0x04
+node + 0x08
+
+(Additional transform offsets also observed later in the struct.)
+
+Typical usage during overlay:
+
+x = rf(node + 0x10)
+y = rf(node + 0x14)
+z = rf(node + 0x18)
+Spawn Routing System
+
+Runtime route pointer observed at:
+
+0x918A3EC0
+
+Observed values during Hadouken execution:
+
+0x918A417C
+0x918A4260
+0x918A4098
+Interpretation
+route pointer → move / actor script entry
+
+Example mapping:
+
+Ryu Hadouken route → 0x918A417C
+Ken Hadouken route → 0x918A4260
+
+These route pointers change immediately before projectile nodes activate.
+
+Confirmed Spawn Pipeline
+fighter move
+     ↓
+route pointer (0x918Axxxx)
+     ↓
+spawn actor
+     ↓
+projectile node pool allocation
+
+This confirms the route system is responsible for dispatching the actor creation event.
+
+Heap Allocator Regions
+
+Two heap headers identified:
+
+0x91987920
+0x918A3EA0
+
+Signature:
+
+"HEAPHEAD"
+
+Pointers from these regions into the projectile pool are allocator metadata, not gameplay logic.
+
+These should be ignored when tracing gameplay ownership.
+
+Memory Reference Scan Results
+
+References into the projectile pool located at:
+
+0x9182B6FC → 0x919874C0
+0x9182B70C → 0x919874C0
+
+These likely belong to:
+
+projectile class
+projectile manager
+vtable reference
+
+Additional allocator references found around:
+
+0x918A3F5C – 0x918A42F0
+
+These appear to be heap bookkeeping structures, not actor logic.
+
+Projectile Node Pool
+
+Observed pool base:
+
+0x919874C0
+
+Observed stride:
+
+0x30 bytes per node
+
+Example access:
+
+node = 0x919874C0 + i * 0x30
+Current Reliable Overlay Strategy
+
+The most stable approach is to scan the node pool directly.
+
+Example logic:
+
+node = 0x919874C0 + i * 0x30
+
+if rd32(node) == 0x9182B700:
+
+    x = rf(node + 0x10)
+    y = rf(node + 0x14)
+    z = rf(node + 0x18)
+
+    draw_hitbox(x, y, z)
+
+Advantages:
+
+✔ does not depend on spawn route system
+✔ works even if routing changes
+✔ stable across move scripts
+Key Takeaway
+
+The route system only triggers actor creation.
+
+Once the actor exists:
+
+projectile node pool → authoritative position source
+
+Therefore the overlay should read node transforms directly, not attempt to follow routing logic.
+
+Projectile Node Pools
+
+Initial projectile node pool observed at:
+
+0x91B15A10
+
+Node stride:
+
+0x30 bytes
+
+Observed nodes:
+
+0x91B15A10
+0x91B15A40
+0x91B15A70
+
+Structure pattern strongly suggests:
+
+node = base + index * 0x30
+
+Likely fields:
+
+node+0x10  → X position
+node+0x14  → Y position
+node+0x18  → Z position
+
+These match expected float ranges for world coordinates.
+
+Secondary Node Pool
+
+A second table was discovered further down in memory:
+
+0x91B15B50
+
+This table appears when:
+
+multiple projectiles exist
+
+multiple characters spawn actors simultaneously
+
+primary table becomes inactive
+
+Example case:
+
+Ryu Hadouken
++
+Morrigan Soul Fist
+
+Result:
+
+0x91B15A10 table stops updating
+0x91B15B50 becomes active
+
+This indicates multiple actor pools or a double-buffered system.
+
+Pool Layout Observation
+
+Memory layout suggests contiguous pool blocks:
+
+0x91B15980  pool header
+0x91B15A10  pool A
+0x91B15B50  pool B
+
+Pointer relationships observed:
+
+91B15B50 → references addresses near 91B159B0
+
+Which suggests:
+
+allocator metadata
+linked pool blocks
+Actor Node Structure Indicators
+
+Several values inside the nodes resemble transform components.
+
+Examples:
+
+3F800000 ≈ 1.0
+3F7FFFFE ≈ ~0.9999
+
+These are typical for:
+
+scale
+rotation matrix values
+transform normalization
+
+This strongly suggests nodes contain full transform data.
+
+Likely structure (partial):
+
++00  actor/vtable pointer
++04  flags/state
++08  pointer/reference
++10  pos_x
++14  pos_y
++18  pos_z
++1C  rotation / velocity / scale
+
+Further confirmation required.
+
+Actor Spawn Pipeline (Confirmed)
+
+Move execution triggers actor spawn via route script.
+
+Pipeline:
+
+fighter move
+   ↓
+route pointer (0x918Axxxx)
+   ↓
+spawn actor
+   ↓
+actor allocated in projectile node pool
+
+Example route pointers observed:
+
+0x918A417C   Ryu Hadouken
+0x918A4260   Ken Hadouken
+0x918A4098   alternate route
+
+Runtime route pointer location:
+
+0x918A3EC0
+Heap Allocator
+
+Heap headers discovered:
+
+0x91987920
+0x918A3EA0
+
+Signature:
+
+"HEAPHEAD"
+
+These manage memory for projectile pools but are not gameplay structures.
+
+Reliable Overlay Strategy
+
+Best approach for rendering projectile hitboxes:
+
+scan projectile pool nodes
+detect active nodes
+read transform
+draw hitbox
+
+Example logic:
+
+node = pool_base + i * 0x30
+
+if rd32(node) == actor_class_ptr:
+    x = rf(node + 0x10)
+    y = rf(node + 0x14)
+    z = rf(node + 0x18)
+
+This avoids dependency on route scripts.
+
+Important Finding
+
+Projectile pool location is not static.
+
+Observed behavior:
+
+pool A active
+→ multiple actors spawn
+→ pool B becomes active
+→ pool A stops updating
+
+Meaning the engine likely uses:
+
+multiple pools
+or
+double-buffered actor tables
+
+Overlay should therefore monitor multiple pool bases.
+
+Candidate Pool Bases
+
+Current confirmed ranges:
+
+0x91B15A10
+0x91B15B50
+
+Both should be scanned.

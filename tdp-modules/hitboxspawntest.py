@@ -50,7 +50,15 @@ STILL_FRAME_LIMIT: int = 4
 # How many consecutive "fast" frames needed to RE-SPAWN a suppressed hitbox.
 # Prevents noisy single-frame spikes from re-enabling stale hitboxes.
 MOTION_FRAME_REQUIRED: int = 2
+# ----------------------------
+# Projectile scalar tracking
+# ----------------------------
 
+PROJECTILE_HEAD_P1 = 0x9246FD10
+TEST_ADDR = 0x91A6B858
+PROJECTILE_DIST_OFFSET = 0x88  # 0x91A6B858 relative offset
+
+PROJECTILE_RADIUS = 0.6
 
 def _read_slot_filter() -> dict:
     global _last_filter_mtime, _slot_filter
@@ -335,6 +343,32 @@ def mul_vec4_mat4_colmajor(m, v):
         m[2]*x  + m[6]*y  + m[10]*z + m[14]*w,
         m[3]*x  + m[7]*y  + m[11]*z + m[15]*w,
     )
+def get_active_projectile_node(head_addr: int) -> Optional[int]:
+    nxt = rd32(head_addr)
+    if nxt is None:
+        return None
+    if nxt == head_addr:
+        return None
+    return nxt
+def dump_region(addr: int, start: int = 0x00, end: int = 0x100):
+    print(f"\n--- Dump @ 0x{addr:08X} ---")
+    for off in range(start, end, 4):
+        raw = rd32(addr + off)
+        if raw is None:
+            continue
+
+        try:
+            f = struct.unpack(">f", struct.pack(">I", raw))[0]
+            print(f"+0x{off:02X}  0x{raw:08X}  {f:10.4f}")
+        except:
+            print(f"+0x{off:02X}  0x{raw:08X}")
+
+# ----------------------------
+# Projectile synthetic hitbox
+# ----------------------------
+projectile_spawn_x = None
+projectile_spawn_y = None
+projectile_prev_timer = 0.0
 
 # ----------------------------
 # Win32 helpers
@@ -579,7 +613,8 @@ class Overlay:
 # ----------------------------
 def main():
     hook()
-
+    print("HEAD next:", hex(rd32(0x9246FD10) or 0))
+    print("HEAD prev:", hex(rd32(0x9246FD14) or 0))
     dolphin_hwnd = find_dolphin_hwnd()
     if not dolphin_hwnd:
         print("Dolphin not found.")
@@ -594,8 +629,13 @@ def main():
     )
     clock = pygame.time.Clock()
 
-    # One shared motion filter tracks all slots × hitbox indices
     motion_filter = MotionFilter()
+
+    # Projectile state
+    projectile_spawn_x = None
+    projectile_spawn_y = None
+    projectile_prev_timer = 0.0
+    projectile_speed = 0.0
 
     running = True
     while running:
@@ -619,13 +659,70 @@ def main():
 
         _slot_filter = _read_slot_filter()
 
-        slots = {name: read_hitboxes(base, HITBOX)
-                 for name, base in SLOT_BASES.items()
-                 if _slot_filter.get(name, True)}
-
         overlay.clear()
         overlay.draw_debug_axes()
 
+        # ----------------------------
+        # Projectile synthetic hitbox
+        # ----------------------------
+        raw = rd32(TEST_ADDR)
+        timer = 0.0
+        if raw is not None and raw != 0:
+            try:
+                timer = struct.unpack(">f", struct.pack(">I", raw))[0]
+            except Exception:
+                timer = 0.0
+            if not math.isfinite(timer):
+                timer = 0.0
+
+        if projectile_prev_timer == 0.0 and timer > 0.0:
+            root_x, root_y, _ = read_fighter_root(SLOT_BASES["P1"])
+            projectile_spawn_x = root_x
+            projectile_spawn_y = root_y
+            anim_id = rd32(SLOT_BASES["P1"] + 0x1E8)
+            projectile_speed = {304: 6.0, 305: 8.0, 306: 10.0}.get(anim_id, 8.0)
+
+            face_addr = SLOT_BASES["P1"] + 0x103
+            waddr = face_addr & ~3
+            w = rd32(waddr) or 0
+
+            # current rb()
+            facing_be = rb(face_addr)
+
+            # alternate byte extraction (little-endian-in-word)
+            shift_le = (face_addr & 3) * 8
+            facing_le = (w >> shift_le) & 0xFF
+
+            print(
+                "spawn edge",
+                "timer=", f"{timer:.4f}",
+                "face_addr=", hex(face_addr),
+                "word@", hex(waddr), "=", hex(w),
+                "rb(be)=", hex(facing_be),
+                "rb(le)=", hex(facing_le),
+            )
+
+            # choose one after you see which matches your memory viewer
+            facing = facing_be  # or facing_le
+            projectile_dir = -1.0 if facing == 0x01 else 1.0
+        if timer > 0.0 and projectile_spawn_x is not None:
+            synth_x = projectile_spawn_x + timer * projectile_speed * 0.01  # tune base scalar
+            overlay.draw_hitbox(
+                synth_x, projectile_spawn_y, 0.0,
+                PROJECTILE_RADIUS,
+                (255, 255, 255),
+                "PROJ",
+                is_active=True
+            )
+        elif timer == 0.0:
+            projectile_spawn_x = None
+            projectile_spawn_y = None
+
+        projectile_prev_timer = timer
+
+        # ----------------------------
+        # Slot hitboxes
+        # ----------------------------
         counts = {}
         for name, base in SLOT_BASES.items():
             if not _slot_filter.get(name, True):
@@ -638,11 +735,7 @@ def main():
             palette = COLORS.get(name, [(255, 255, 255)])
 
             for i, (x, y, r, flag) in enumerate(boxes):
-                # --- Translation filter ---
-                # Ask the motion filter if this hitbox is "live enough" to render.
-                # Stale hitboxes (not moving) are suppressed even if r > 0.
                 should_render = motion_filter.update(name, i, x, y, r)
-
                 if not should_render:
                     continue
 
@@ -657,12 +750,7 @@ def main():
                     else:
                         alpha = 220
 
-                    color = (*base_color, alpha)
-                    world_x = x
-                    world_y = y
-
-                    world_z = 0
-                    overlay.draw_hitbox(world_x, world_y, world_z, r, base_color, f"{name}[{i}]", is_active=is_active)
+                    overlay.draw_hitbox(x, y, 0, r, base_color, f"{name}[{i}]", is_active=is_active)
 
             counts[name] = active
 
@@ -671,7 +759,6 @@ def main():
         clock.tick(DISPLAY.fps)
 
     pygame.quit()
-
-
+    
 if __name__ == "__main__":
     main()
