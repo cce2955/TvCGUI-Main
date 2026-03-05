@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 import struct
 
@@ -930,6 +929,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         item_id,
                         "proj_tpl",
                         f"0x{mv['proj_tpl']:08X}" if mv.get("proj_tpl") else ""
+                    )
+                except Exception:
+                    pass
+
+            # projectile radius (lazy resolve)
+            if mv.get("proj_radius") is None:
+                try:
+                    U.resolve_projectile_radius_for_move(mv, region_abs=move_abs)
+                    self.tree.set(
+                        item_id,
+                        "proj_radius",
+                        f"{mv['proj_radius']:.2f}" if mv.get("proj_radius") else "",
                     )
                 except Exception:
                     pass

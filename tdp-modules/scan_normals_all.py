@@ -851,10 +851,6 @@ def scan_once():
                 best_moves = merged
                 best_specials = sp
 
-            # Early stop threshold; tune if you want.
-            if best_specials >= 20:
-                break
-
         merged_sorted = sorted(best_moves, key=sort_key)
 
         result[slot_idx]["slot_label"] = slot_label

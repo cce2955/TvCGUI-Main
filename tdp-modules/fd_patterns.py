@@ -127,7 +127,74 @@ def _find_phase_record_offset(buf: bytes) -> int | None:
             return i
         start = i + 1
 
+# ---- Projectile template radius pattern ----
+#
+# Observed across Ryu, Ken, Chun:
+#   00 04 01 02  00 01 00  [XX XX]  ...  [radius float @ +0x2C from damage]
+#
+# Anchor: 00 04 01 02 00 01 00  (7 bytes)
+# Damage u16 (big-endian) at anchor + 7
+# Radius float (big-endian f32) at damage_addr + 0x2C
 
+PROJ_TPL_SCAN = 0x2000
+PROJ_ANCHOR = b"\x00\x04\x01\x02\x00\x01\x00"
+PROJ_DMG_OFFSET = 7       # damage u16 relative to anchor start
+PROJ_RADIUS_FROM_DMG = 0x2C  # radius f32 relative to damage addr
+
+
+def find_projectile_radius_addr(
+    base: int,
+    rbytes: Callable[[int, int], bytes],
+    *,
+    scan_len: int = PROJ_TPL_SCAN,
+) -> tuple[int | None, float | None]:
+    """
+    Scan from base for the projectile template radius.
+
+    Anchor: 00 04 01 02 00 01 00
+    Damage u16 at anchor+7, radius f32 at damage_addr+0x2C.
+
+    Returns (absolute_addr_of_radius_float, radius_value) or (None, None).
+    If multiple slices match, returns the first hit.
+    """
+    import struct
+    import math
+
+    if not base:
+        return None, None
+
+    try:
+        buf = rbytes(base, scan_len)
+    except Exception:
+        return None, None
+
+    if not buf or len(buf) < len(PROJ_ANCHOR) + PROJ_RADIUS_FROM_DMG + 4:
+        return None, None
+
+    pos = 0
+    while True:
+        i = buf.find(PROJ_ANCHOR, pos)
+        if i < 0:
+            break
+        pos = i + 1
+
+        dmg_off = i + PROJ_DMG_OFFSET
+        radius_off = dmg_off + PROJ_RADIUS_FROM_DMG
+
+        if radius_off + 4 > len(buf):
+            continue
+
+        try:
+            r = struct.unpack(">f", buf[radius_off:radius_off + 4])[0]
+        except Exception:
+            continue
+
+        if not math.isfinite(r) or r <= 0:
+            continue
+
+        return base + radius_off, r
+
+    return None, None
 def find_move_anim_anchor(buf: bytes) -> tuple[int | None, int, str]:
     """
     Return a best-effort anchor inside a move block that we can treat as the

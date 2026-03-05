@@ -16,7 +16,7 @@ from __future__ import annotations
 import ctypes
 import math
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 import os
 import pygame
@@ -38,32 +38,26 @@ _slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
 # Translation-based despawn config
 # ----------------------------
 
-# Minimum world-unit movement per frame for a hitbox to be considered "live".
-# Hitboxes moving less than this are treated as stale/leftover.
-# Tune this: too low = stale hitboxes linger; too high = real hitboxes flicker.
 MOTION_THRESHOLD: float = 0.003
-
-# How many consecutive "slow" frames before a hitbox is hidden.
-# A small value (e.g. 3) despawns quickly; larger values add lag but reduce flicker.
 STILL_FRAME_LIMIT: int = 4
-
-# How many consecutive "fast" frames needed to RE-SPAWN a suppressed hitbox.
-# Prevents noisy single-frame spikes from re-enabling stale hitboxes.
 MOTION_FRAME_REQUIRED: int = 2
+
 # ----------------------------
-# Projectile scalar tracking
+# Projectile config
 # ----------------------------
 
-PROJECTILE_HEAD_P1 = 0x9246FD10
-TEST_ADDR = 0x91A6B858
-PROJECTILE_DIST_OFFSET = 0x88  # 0x91A6B858 relative offset
+PROJECTILE_POOLS = [
+    0x91B15A10,
+    0x91B15B50,
+]
+PROJECTILE_NODE_STRIDE = 0x30
+PROJECTILE_NODE_COUNT = 16
+PROJECTILE_RADIUS_ADDR = 0x908d094c
 
-PROJECTILE_RADIUS = 0.6
 
 def _read_slot_filter() -> dict:
     global _last_filter_mtime, _slot_filter
     try:
-        import os
         mt = os.path.getmtime(HITBOX_FILTER_FILE)
         if mt != _last_filter_mtime:
             _last_filter_mtime = mt
@@ -179,19 +173,6 @@ COL_DEBUG = (0, 255, 0)
 # ----------------------------
 @dataclass
 class HitboxMotionState:
-    """
-    Tracks per-hitbox position history to determine if it is
-    actively translating (live) or sitting still (stale).
-
-    still_frames:
-        Consecutive frames below MOTION_THRESHOLD.
-    motion_frames:
-        Consecutive frames above MOTION_THRESHOLD (used for re-spawn).
-    suppressed:
-        Whether this hitbox is currently hidden due to low motion.
-    prev_x / prev_y:
-        Last observed world position for delta computation.
-    """
     still_frames: int = 0
     motion_frames: int = 0
     suppressed: bool = False
@@ -201,25 +182,13 @@ class HitboxMotionState:
 
 
 class MotionFilter:
-    """
-    Manages one HitboxMotionState per (slot, hitbox_index) pair.
-    Call update() each frame with the current world position and radius.
-    Returns True if the hitbox should be rendered.
-    """
-
     def __init__(self):
-        # Key: (slot_name, hitbox_index)  →  HitboxMotionState
         self._states: Dict[Tuple[str, int], HitboxMotionState] = {}
 
     def _key(self, slot: str, idx: int) -> Tuple[str, int]:
         return (slot, idx)
 
     def update(self, slot: str, idx: int, x: float, y: float, r: float) -> bool:
-        """
-        Feed current frame position. Returns True if hitbox should render.
-
-        A hitbox with r <= 0 is never rendered regardless of motion.
-        """
         key = self._key(slot, idx)
 
         if key not in self._states:
@@ -227,8 +196,6 @@ class MotionFilter:
 
         state = self._states[key]
 
-        # No radius → always hidden; reset state so it re-evaluates cleanly
-        # when the slot becomes active again.
         if r <= 0.001:
             state.still_frames = 0
             state.motion_frames = 0
@@ -236,18 +203,15 @@ class MotionFilter:
             state.initialized = False
             return False
 
-        # First frame this hitbox has a radius: show it optimistically,
-        # start tracking from here.
         if not state.initialized:
             state.prev_x = x
             state.prev_y = y
             state.initialized = True
             state.still_frames = 0
-            state.motion_frames = MOTION_FRAME_REQUIRED  # treat first appearance as moving
+            state.motion_frames = MOTION_FRAME_REQUIRED
             state.suppressed = False
             return True
 
-        # Compute displacement from last frame
         dx = x - state.prev_x
         dy = y - state.prev_y
         delta = math.sqrt(dx * dx + dy * dy)
@@ -259,7 +223,6 @@ class MotionFilter:
             state.still_frames = 0
             state.motion_frames = min(state.motion_frames + 1, MOTION_FRAME_REQUIRED + 1)
             if state.suppressed and state.motion_frames >= MOTION_FRAME_REQUIRED:
-                # Enough consecutive motion frames → re-enable
                 state.suppressed = False
         else:
             state.motion_frames = 0
@@ -270,7 +233,6 @@ class MotionFilter:
         return not state.suppressed
 
     def reset_slot(self, slot: str, count: int):
-        """Clear state for all hitbox indices of a slot."""
         for i in range(count):
             key = self._key(slot, i)
             if key in self._states:
@@ -313,13 +275,13 @@ def read_hitboxes(slot_base: int, layout: HitboxLayout):
 
     return out
 
+
 def read_fighter_root(slot_base: int):
-    # Resolved base is at slot_base
-    # +0xB0 appears to be world position from your dump
     root_x = rf(slot_base + 0xB0)
     root_y = rf(slot_base + 0xB4)
     root_z = rf(slot_base + 0xB8)
     return root_x, root_y, root_z
+
 
 def read_camera_pos(layout: CameraLayout):
     return (
@@ -328,71 +290,24 @@ def read_camera_pos(layout: CameraLayout):
         rf(layout.base + layout.off_z),
         rf(layout.base + layout.off_w),
     )
-CAM_VIEW_BASE = 0x8053CB20  # confirmed live view matrix region
-
-def read_view16() -> List[float]:
-    return [rf(CAM_VIEW_BASE + i * 4) for i in range(16)]
-
-def mul_vec4_mat4_colmajor(m, v):
-    # m: length-16 list of floats, column-major (OpenGL style)
-    # v: (x,y,z,w)
-    x, y, z, w = v
-    return (
-        m[0]*x  + m[4]*y  + m[8]*z  + m[12]*w,
-        m[1]*x  + m[5]*y  + m[9]*z  + m[13]*w,
-        m[2]*x  + m[6]*y  + m[10]*z + m[14]*w,
-        m[3]*x  + m[7]*y  + m[11]*z + m[15]*w,
-    )
-def get_active_projectile_node(head_addr: int) -> Optional[int]:
-    nxt = rd32(head_addr)
-    if nxt is None:
-        return None
-    if nxt == head_addr:
-        return None
-    return nxt
-def dump_region(addr: int, start: int = 0x00, end: int = 0x100):
-    print(f"\n--- Dump @ 0x{addr:08X} ---")
-    for off in range(start, end, 4):
-        raw = rd32(addr + off)
-        if raw is None:
-            continue
-
-        try:
-            f = struct.unpack(">f", struct.pack(">I", raw))[0]
-            print(f"+0x{off:02X}  0x{raw:08X}  {f:10.4f}")
-        except:
-            print(f"+0x{off:02X}  0x{raw:08X}")
-PROJECTILE_POOLS = [
-    0x91B15A10,
-    0x91B15B50
-]
-
-PROJECTILE_NODE_STRIDE = 0x30
-PROJECTILE_NODE_COUNT = 16
-PROJECTILE_RADIUS = 0.6
 
 
 def read_projectile_nodes():
     nodes = []
+    r = rf(PROJECTILE_RADIUS_ADDR)
 
     for pool in PROJECTILE_POOLS:
         for i in range(PROJECTILE_NODE_COUNT):
-
             node = pool + i * PROJECTILE_NODE_STRIDE
-
             x = rf(node + 0x00)
             y = rf(node + 0x04)
             z = rf(node + 0x08)
+
             if abs(x) < 50 and abs(y) < 50:
-                nodes.append((node, x, y, z))
+                nodes.append((node, x, y, z, r))
 
     return nodes
-# ----------------------------
-# Projectile synthetic hitbox
-# ----------------------------
-projectile_spawn_x = None
-projectile_spawn_y = None
-projectile_prev_timer = 0.0
+
 
 # ----------------------------
 # Win32 helpers
@@ -408,7 +323,7 @@ def find_dolphin_hwnd() -> Optional[int]:
         if "|" in t:
             s += 50
             s += min(30, t.count("|") * 5)
-        for tok in ("jit", "jit64", "opengl", "vulkan", "d3d", "direct3d", "hле", "hle"):
+        for tok in ("jit", "jit64", "opengl", "vulkan", "d3d", "direct3d", "hle"):
             if tok in tl:
                 s += 20
         if "(" in t and ")" in t:
@@ -522,7 +437,6 @@ class Overlay:
         apply_overlay_style(hwnd)
         return hwnd
 
-
     def on_resize(self, w: int, h: int):
         if w <= 0 or h <= 0:
             return
@@ -530,7 +444,6 @@ class Overlay:
         self.w, self.h = w, h
         self.screen = pygame.display.set_mode((w, h), pygame.SRCALPHA)
 
-        # TvC logical height is always 720
         self.viewport_scale = h / 720.0
         self.aspect_ratio = w / float(h)
         self.base_aspect = 4.0 / 3.0
@@ -538,13 +451,9 @@ class Overlay:
         self.cx = w * 0.5
         self.cy = h * 0.5
         self.window_aspect = w / float(h)
-        self.base_aspect = 4.0 / 3.0
         self.stretch_factor = self.window_aspect / self.base_aspect
-    def _perspective_scale(self) -> float:
-        return self.ppu * self.zoom
-    
-    def world_to_screen(self, world_x: float, world_y: float, world_z: float):
 
+    def world_to_screen(self, world_x: float, world_y: float, world_z: float):
         if self.ref_cam_z is None and abs(self.cam_z) > 0.0001:
             self.ref_cam_z = self.cam_z
 
@@ -554,16 +463,13 @@ class Overlay:
             else 1.0
         )
 
-        zoom_scale = (
-            self.cfg.baseline_ppu
-            * self.viewport_scale
-            * camera_scale
-        )
+        zoom_scale = self.cfg.baseline_ppu * self.viewport_scale * camera_scale
 
         sx = self.cx + (world_x - self.cam_x) * zoom_scale * self.stretch_factor
         sy = self.cy - ((world_y - self.cam_y) + WORLD_Y_OFFSET) * zoom_scale
 
         return int(sx), int(sy), 1.0, zoom_scale
+
     def clear(self):
         self.screen.fill(COL_BG)
 
@@ -619,10 +525,7 @@ class Overlay:
         ref_str = f"{self.ref_cam_z:.4f}" if self.ref_cam_z is not None else "none"
         debug = f"  |  cam_z={self.cam_z:.4f}  ref_z={ref_str}"
 
-        # Count suppressed hitboxes for HUD visibility
-        suppressed_total = sum(
-            1 for s in motion_filter._states.values() if s.suppressed
-        )
+        suppressed_total = sum(1 for s in motion_filter._states.values() if s.suppressed)
         supp_str = f"  |  suppressed={suppressed_total}"
 
         hud = self.font_hud.render(base + debug + supp_str, True, COL_DIM)
@@ -637,8 +540,6 @@ class Overlay:
 # ----------------------------
 def main():
     hook()
-    print("HEAD next:", hex(rd32(0x9246FD10) or 0))
-    print("HEAD prev:", hex(rd32(0x9246FD14) or 0))
     dolphin_hwnd = find_dolphin_hwnd()
     if not dolphin_hwnd:
         print("Dolphin not found.")
@@ -646,20 +547,10 @@ def main():
 
     overlay = Overlay(DISPLAY)
     overlay_hwnd = overlay.init_pygame()
-    win32gui.SetWindowLong(
-        overlay_hwnd,
-        win32con.GWL_HWNDPARENT,
-        dolphin_hwnd
-    )
+    win32gui.SetWindowLong(overlay_hwnd, win32con.GWL_HWNDPARENT, dolphin_hwnd)
     clock = pygame.time.Clock()
 
     motion_filter = MotionFilter()
-
-    # Projectile state
-    projectile_spawn_x = None
-    projectile_spawn_y = None
-    projectile_prev_timer = 0.0
-    projectile_speed = 0.0
 
     running = True
     while running:
@@ -687,64 +578,6 @@ def main():
         overlay.draw_debug_axes()
 
         # ----------------------------
-        # Projectile synthetic hitbox
-        # ----------------------------
-        raw = rd32(TEST_ADDR)
-        timer = 0.0
-        if raw is not None and raw != 0:
-            try:
-                timer = struct.unpack(">f", struct.pack(">I", raw))[0]
-            except Exception:
-                timer = 0.0
-            if not math.isfinite(timer):
-                timer = 0.0
-
-        if projectile_prev_timer == 0.0 and timer > 0.0:
-            root_x, root_y, _ = read_fighter_root(SLOT_BASES["P1"])
-            projectile_spawn_x = root_x
-            projectile_spawn_y = root_y
-            anim_id = rd32(SLOT_BASES["P1"] + 0x1E8)
-            projectile_speed = {304: 6.0, 305: 8.0, 306: 10.0}.get(anim_id, 8.0)
-
-            face_addr = SLOT_BASES["P1"] + 0x103
-            waddr = face_addr & ~3
-            w = rd32(waddr) or 0
-
-            # current rb()
-            facing_be = rb(face_addr)
-
-            # alternate byte extraction (little-endian-in-word)
-            shift_le = (face_addr & 3) * 8
-            facing_le = (w >> shift_le) & 0xFF
-
-            print(
-                "spawn edge",
-                "timer=", f"{timer:.4f}",
-                "face_addr=", hex(face_addr),
-                "word@", hex(waddr), "=", hex(w),
-                "rb(be)=", hex(facing_be),
-                "rb(le)=", hex(facing_le),
-            )
-
-            # choose one after you see which matches your memory viewer
-            facing = facing_be  # or facing_le
-            projectile_dir = -1.0 if facing == 0x01 else 1.0
-        if timer > 0.0 and projectile_spawn_x is not None:
-            synth_x = projectile_spawn_x + timer * projectile_speed * 0.01  # tune base scalar
-            overlay.draw_hitbox(
-                synth_x, projectile_spawn_y, 0.0,
-                PROJECTILE_RADIUS,
-                (255, 255, 255),
-                "PROJ",
-                is_active=True
-            )
-        elif timer == 0.0:
-            projectile_spawn_x = None
-            projectile_spawn_y = None
-
-        projectile_prev_timer = timer
-
-        # ----------------------------
         # Slot hitboxes
         # ----------------------------
         counts = {}
@@ -753,52 +586,33 @@ def main():
                 continue
 
             boxes = read_hitboxes(base, HITBOX)
-            root_x, root_y, root_z = read_fighter_root(base)
-
             active = 0
             palette = COLORS.get(name, [(255, 255, 255)])
 
             for i, (x, y, r, flag) in enumerate(boxes):
-                should_render = motion_filter.update(name, i, x, y, r)
-                if not should_render:
+                if not motion_filter.update(name, i, x, y, r):
                     continue
 
                 if r > 0.001:
                     active += 1
                     base_color = palette[i % len(palette)]
                     is_active = (flag == 0x53)
-
-                    if is_active:
-                        pulse = int(50 + 40 * math.sin(pygame.time.get_ticks() * 0.02))
-                        alpha = min(255, 180 + pulse)
-                    else:
-                        alpha = 220
-
                     overlay.draw_hitbox(x, y, 0, r, base_color, f"{name}[{i}]", is_active=is_active)
 
             counts[name] = active
 
-
         # ----------------------------
         # Projectile pool actors
         # ----------------------------
-        projectiles = read_projectile_nodes()
-
-        for node, x, y, z in projectiles:
-            overlay.draw_hitbox(
-                x, y, z,
-                PROJECTILE_RADIUS,
-                (255, 255, 255),
-                "PRJ",
-                is_active=True
-            )
-
+        for node, x, y, z, r in read_projectile_nodes():
+            overlay.draw_hitbox(x, y, z, r, (255, 255, 255), "PRJ", is_active=True)
 
         overlay.draw_hud(counts, motion_filter)
         overlay.present()
         clock.tick(DISPLAY.fps)
 
     pygame.quit()
-    
+
+
 if __name__ == "__main__":
     main()

@@ -335,7 +335,7 @@ def fmt_hit_reaction_ui(val: int | None) -> str:
 # ============================================================
 # Projectile strength-slice resolver (A6 F0 anchors)
 #
-# Your dump shows repeating anchor bytes "A6 F0" inside the move block.
+# Dumps show repeating anchor bytes "A6 F0" inside the move block.
 # Treat each occurrence as a "strength slice" in ascending order:
 #   slice[0] -> L
 #   slice[1] -> M
@@ -454,6 +454,47 @@ def resolve_projectile_strength_slices_for_move(
         mv.pop("proj_slice", None)
 
     return True
+
+def resolve_projectile_radius_for_move(
+    mv: dict,
+    *,
+    region_abs: int | None = None,
+    rbytes_func: Callable[[int, int], bytes] | None = None,
+) -> bool:
+    """
+    Populate:
+      - mv["proj_radius"]:      float
+      - mv["proj_radius_addr"]: int (absolute address of the radius float)
+
+    Scans from region_abs (or mv["abs"]) for the projectile template
+    radius signature defined in fd_patterns.
+    """
+    if mv.get("proj_radius") is not None:
+        return True
+
+    base = int(region_abs) if region_abs is not None else int(mv.get("abs") or 0)
+    if not base:
+        return False
+
+    if rbytes_func is None:
+        try:
+            from dolphin_io import rbytes as rbytes_func  # type: ignore
+        except Exception:
+            return False
+
+    try:
+        from fd_patterns import find_projectile_radius_addr
+        addr, r = find_projectile_radius_addr(base, rbytes_func)
+    except Exception:
+        return False
+
+    if addr is None or r is None:
+        return False
+
+    mv["proj_radius_addr"] = addr
+    mv["proj_radius"] = r
+    return True
+
 
 def ensure_int(s: str, default: int = 0) -> int:
     try:
