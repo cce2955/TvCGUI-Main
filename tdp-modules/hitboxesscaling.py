@@ -16,7 +16,7 @@ from dolphin_io import hook, rd32, rbytes
 import json as _json
 
 WORLD_Y_OFFSET = -0.7
-PROJECTILE_Y_OFFSET: float = 1.2
+PROJECTILE_Y_OFFSET: float = 0
 PROJECTILE_RADIUS_SCALE: float = 0.5
 PROJECTILE_DESPAWN_FRAMES: int = 6   # frames of inactivity before hiding
 
@@ -44,6 +44,13 @@ HITBOX_MAX_RENDER_RADIUS: float = 4.0
 PROJECTILE_POOLS       = [0x91B15A10, 0x91B15B50]
 PROJECTILE_NODE_STRIDE = 0x30
 PROJECTILE_NODE_COUNT  = 16
+
+# Memory confirmed: node is 0x30 bytes, two 0x10 rows
+# Row 0 (+0x00): X float, then padding
+# Row 1 (+0x10): Y float, then padding
+PROJ_OFF_X: int = 0x00
+PROJ_OFF_Y: int = 0x10
+PROJ_OFF_Z: int = 0x20   # third row — unknown, experiment as needed
 
 PROJ_PAIR_DISTANCE = 999.0
 OFF_CHAR_ID = 0x14
@@ -206,7 +213,7 @@ class ProjectileScanner:
             while idx != -1 and hits < max_hits:
                 sig_addr = base_addr + idx
                 chunk    = data[idx : idx + 0x60]
-                
+                print(f"\n  sig @ 0x{sig_addr:08X}")
                 for row in range(0, len(chunk), 16):
                     row_bytes = chunk[row : row + 16]
                     hex_str   = " ".join(f"{b:02x}" for b in row_bytes)
@@ -405,10 +412,11 @@ def update_projectile_nodes(
     for pool in PROJECTILE_POOLS:
         for i in range(PROJECTILE_NODE_COUNT):
             node = pool + i * PROJECTILE_NODE_STRIDE
-            x = _rf(node + 0x00)
-            y = _rf(node + 0x04)
-            z = _rf(node + 0x08)
-            
+            x = _rf(node + PROJ_OFF_X)
+            y = _rf(node + PROJ_OFF_Y)
+            z = _rf(node + PROJ_OFF_Z)
+            if pool == PROJECTILE_POOLS[0] and i == 0:
+                print(f"node[0] x={x:.4f} y={y:.4f} z={z:.4f}")
             tracker.update(node_idx, x, y, z, default_r if (abs(x) > 0.001 and abs(x) < 50 and abs(y) < 50) else 0.0)
             node_idx += 1
 
