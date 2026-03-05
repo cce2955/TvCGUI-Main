@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""
-hitbox_overlay_v3.py
-Transparent always-on-top hitbox overlay for TvC.
-Reads live hitbox data from Dolphin memory.
-
-v3: Projectile radius discovery via memory signature scan.
-    On startup (and on F2 keypress) scans MEM1 for the projectile
-    template signature 04 01 02 00 00.  The radius float lives at
-    a fixed +0x8D offset from each signature hit.  Discovered
-    radius addresses replace the old single hardcoded PROJECTILE_RADIUS_ADDR.
-
-    Translation-based despawn system retained from v2.
-"""
-
 from __future__ import annotations
 
 import ctypes
@@ -30,45 +16,33 @@ from dolphin_io import hook, rd32, rbytes
 import json as _json
 
 WORLD_Y_OFFSET = -0.7
-PROJECTILE_Y_OFFSET: float = 1.0  # tune this up/down to align projectile circles
+PROJECTILE_Y_OFFSET: float = 1.2
+PROJECTILE_RADIUS_SCALE: float = 0.5
+PROJECTILE_DESPAWN_FRAMES: int = 6   # frames of inactivity before hiding
 
 PERSPECTIVE_Z_OVERRIDE: Optional[float] = None
 HITBOX_FILTER_FILE = "hitbox_filter.json"
 _last_filter_mtime = 0.0
 _slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
 
-# ----------------------------
-# Translation-based despawn config
-# ----------------------------
-
 MOTION_THRESHOLD: float = 0.003
 STILL_FRAME_LIMIT: int = 4
 MOTION_FRAME_REQUIRED: int = 2
 
-# ----------------------------
-# Projectile scanner config
-# ----------------------------
-
-# Signature bytes found at the start of each projectile template block.
-# 04 01 02 00 00 is the anchor; the radius float is +0x8D from here.
 PROJ_SIG         = b"\x04\x01\x02\x00\x00"
-PROJ_RADIUS_OFF  = 0x2F          # offset from sig start to the radius float
+PROJ_RADIUS_OFF  = 0x2F
 
-# Memory region to scan (MEM1 mirror range typical for DME/Dolphin).
 PROJ_SCAN_START  = 0x90000000
 PROJ_SCAN_END    = 0x94000000
-PROJ_SCAN_BLOCK  = 0x40000      # bytes per rbytes call
+PROJ_SCAN_BLOCK  = 0x40000
 
-# Projectile node pools – used to read X/Y/Z of live projectiles.
 PROJECTILE_POOLS       = [0x91B15A10, 0x91B15B50]
 PROJECTILE_NODE_STRIDE = 0x30
 PROJECTILE_NODE_COUNT  = 16
 
-# How close (world-units) a node XY must be to a discovered radius address's
-# "home" position before we pair them.  Set large if you just want all radii.
-PROJ_PAIR_DISTANCE = 999.0   # effectively unlimited – refine if needed
-# Offset within each slot base to the character ID u32.
+PROJ_PAIR_DISTANCE = 999.0
 OFF_CHAR_ID = 0x14
+
 
 def _read_slot_filter() -> dict:
     global _last_filter_mtime, _slot_filter
@@ -83,9 +57,6 @@ def _read_slot_filter() -> dict:
     return _slot_filter
 
 
-# ----------------------------
-# DPI awareness
-# ----------------------------
 def set_dpi_aware() -> None:
     try:
         ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
@@ -95,13 +66,9 @@ def set_dpi_aware() -> None:
         except Exception:
             pass
 
-
 set_dpi_aware()
 
 
-# ----------------------------
-# Config
-# ----------------------------
 @dataclass(frozen=True)
 class HitboxLayout:
     struct_shift: int
@@ -111,7 +78,6 @@ class HitboxLayout:
     off_r: int
     off_flag: int
 
-
 @dataclass(frozen=True)
 class CameraLayout:
     base: int
@@ -119,7 +85,6 @@ class CameraLayout:
     off_y: int
     off_z: int
     off_w: int
-
 
 @dataclass(frozen=True)
 class DisplayConfig:
@@ -189,74 +154,49 @@ COL_PROJ  = (255, 255, 255)
 # ----------------------------
 
 class ProjectileScanner:
-    """
-    Scans MEM1 once for PROJ_SIG and caches the derived radius addresses.
-    Call scan() at startup and whenever you want a refresh (F2).
-    """
-
     def __init__(self):
-        # List of (radius_addr,)  – one per discovered template block.
         self._radius_addrs: List[int] = []
         self._scan_count: int = 0
 
-    # ------------------------------------------------------------------
     def scan(self) -> int:
-        """
-        Full memory scan.  Populates self._radius_addrs.
-        Returns number of signature hits found.
-        """
         found: List[int] = []
-
         for base_addr in range(PROJ_SCAN_START, PROJ_SCAN_END, PROJ_SCAN_BLOCK):
             data = rbytes(base_addr, PROJ_SCAN_BLOCK)
             if not data:
                 continue
-
             idx = data.find(PROJ_SIG)
             while idx != -1:
-                sig_addr   = base_addr + idx
+                sig_addr    = base_addr + idx
                 radius_addr = sig_addr + PROJ_RADIUS_OFF
-
                 r = _rf(radius_addr)
                 if 0.0 < r < 20.0:
                     found.append(radius_addr)
-
                 idx = data.find(PROJ_SIG, idx + 1)
 
         self._radius_addrs = found
         self._scan_count  += 1
-        print(f"[ProjectileScanner] scan #{self._scan_count}: "
-              f"{len(found)} radius address(es) found")
+        print(f"[ProjectileScanner] scan #{self._scan_count}: {len(found)} radius address(es) found")
         for a in found:
             print(f"  radius_addr=0x{a:08X}  r={_rf(a):.4f}")
         return len(found)
 
     def dump(self, max_hits: int = 3) -> None:
-        """
-        Re-scan and for each sig hit print a hex dump of the surrounding
-        0x60 bytes so we can identify the true radius offset visually.
-        Only dumps the first max_hits hits to keep output manageable.
-        """
         print(f"\n[ProjectileScanner.dump] first {max_hits} sig hits:")
         hits = 0
-
         for base_addr in range(PROJ_SCAN_START, PROJ_SCAN_END, PROJ_SCAN_BLOCK):
             if hits >= max_hits:
                 break
             data = rbytes(base_addr, PROJ_SCAN_BLOCK)
             if not data:
                 continue
-
             idx = data.find(PROJ_SIG)
             while idx != -1 and hits < max_hits:
                 sig_addr = base_addr + idx
                 chunk    = data[idx : idx + 0x60]
-
                 print(f"\n  sig @ 0x{sig_addr:08X}")
                 for row in range(0, len(chunk), 16):
                     row_bytes = chunk[row : row + 16]
                     hex_str   = " ".join(f"{b:02x}" for b in row_bytes)
-                    # also decode any plausible floats in this row
                     floats = []
                     for fi in range(0, len(row_bytes) - 3, 4):
                         try:
@@ -267,13 +207,10 @@ class ProjectileScanner:
                             pass
                     float_str = "  " + " ".join(floats) if floats else ""
                     print(f"    +0x{row:02X}  {hex_str}{float_str}")
-
                 hits += 1
                 idx = data.find(PROJ_SIG, idx + 1)
-
         print(f"\n[dump] done.")
 
-    # ------------------------------------------------------------------
     @property
     def radius_addrs(self) -> List[int]:
         return self._radius_addrs
@@ -284,8 +221,58 @@ class ProjectileScanner:
 
 
 # ----------------------------
+# Projectile node tracker
+# ----------------------------
+
+@dataclass
+class ProjectileNodeState:
+    x: float = 0.0
+    y: float = 0.0
+    z: float = 0.0
+    r: float = 0.0
+    prev_x: float = 0.0
+    inactive_frames: int = 0
+    active: bool = False
+
+
+class ProjectileNodeTracker:
+    """
+    Tracks per-node liveness. A node is considered active when it has a
+    plausible position. After PROJECTILE_DESPAWN_FRAMES consecutive frames
+    without a valid position the node is hidden. This prevents flicker and
+    gives a clean despawn.
+    """
+
+    def __init__(self, pool_count: int):
+        self._nodes: Dict[int, ProjectileNodeState] = {
+            i: ProjectileNodeState() for i in range(pool_count)
+        }
+
+    def update(self, node_idx: int, x: float, y: float, z: float, r: float) -> None:
+        state = self._nodes[node_idx]
+        is_moving = abs(x - state.prev_x) > 0.0001
+        state.prev_x = x
+
+        if is_moving and abs(x) < 50 and abs(y) < 50:
+            state.x = x
+            state.y = y
+            state.z = z
+            state.r = r
+            state.inactive_frames = 0
+            state.active = True
+        else:
+            state.inactive_frames += 1
+            if state.inactive_frames >= PROJECTILE_DESPAWN_FRAMES:
+                state.active = False
+
+    def visible_nodes(self) -> List[ProjectileNodeState]:
+        return [s for s in self._nodes.values() if s.active]
+
+
+# ----------------------------
 # Translation tracker
 # ----------------------------
+
 @dataclass
 class HitboxMotionState:
     still_frames: int = 0
@@ -305,10 +292,8 @@ class MotionFilter:
 
     def update(self, slot: str, idx: int, x: float, y: float, r: float) -> bool:
         key = self._key(slot, idx)
-
         if key not in self._states:
             self._states[key] = HitboxMotionState()
-
         state = self._states[key]
 
         if r <= 0.001:
@@ -330,7 +315,6 @@ class MotionFilter:
         dx = x - state.prev_x
         dy = y - state.prev_y
         delta = math.sqrt(dx * dx + dy * dy)
-
         state.prev_x = x
         state.prev_y = y
 
@@ -367,7 +351,6 @@ def rb(addr: int) -> int:
 
 
 def _rf(addr: int) -> float:
-    """Read a big-endian float from Dolphin memory."""
     v = rd32(addr)
     if v is None:
         return 0.0
@@ -377,7 +360,6 @@ def _rf(addr: int) -> float:
     except Exception:
         return 0.0
 
-# Keep old name as alias so nothing else breaks.
 rf = _rf
 
 
@@ -385,21 +367,16 @@ def read_hitboxes(slot_base: int, layout: HitboxLayout):
     base = slot_base + layout.struct_shift
     out = []
     flag = rb(base + layout.off_flag)
-
     for b in layout.blocks:
         x = _rf(base + b + layout.off_x)
         y = _rf(base + b + layout.off_y)
         r = _rf(base + b + layout.off_r)
         out.append((x, y, r, flag))
-
     return out
 
 
 def read_fighter_root(slot_base: int):
-    root_x = _rf(slot_base + 0xB0)
-    root_y = _rf(slot_base + 0xB4)
-    root_z = _rf(slot_base + 0xB8)
-    return root_x, root_y, root_z
+    return _rf(slot_base + 0xB0), _rf(slot_base + 0xB4), _rf(slot_base + 0xB8)
 
 
 def read_camera_pos(layout: CameraLayout):
@@ -411,49 +388,35 @@ def read_camera_pos(layout: CameraLayout):
     )
 
 
-def read_projectile_nodes(scanner: ProjectileScanner):
+def update_projectile_nodes(
+    tracker: ProjectileNodeTracker,
+    scanner: ProjectileScanner,
+) -> None:
     """
-    Yields (x, y, z, r) for each live projectile node.
-
-    X/Y/Z come from the PROJECTILE_POOLS node entries (unchanged from v2).
-    Radius comes from the addresses discovered by ProjectileScanner.
-
-    If the scanner found N radius addresses we pair them round-robin with
-    live nodes that pass the plausibility filter.  In practice TvC has one
-    projectile template per character so N is small (1-4).
+    Read all node positions from pools and feed them into the tracker.
+    The tracker handles liveness / despawn logic.
     """
-    radius_addrs = scanner.radius_addrs
-    if not radius_addrs:
-        # Nothing scanned yet – yield nothing rather than crash.
-        return
+    radii = [_rf(a) for a in scanner.radius_addrs]
+    default_r = next((r for r in radii if r > 0.001), 0.0)
 
-    live_nodes = []
+    node_idx = 0
+    
     for pool in PROJECTILE_POOLS:
         for i in range(PROJECTILE_NODE_COUNT):
             node = pool + i * PROJECTILE_NODE_STRIDE
             x = _rf(node + 0x00)
             y = _rf(node + 0x04)
             z = _rf(node + 0x08)
-            if abs(x) < 50 and abs(y) < 50:
-                live_nodes.append((x, y, z))
-
-    # Read all discovered radii once per frame.
-    radii = [_rf(a) for a in radius_addrs]
-
-    # Pair each live node with the best (non-zero) radius we have.
-    # Simple strategy: use the first valid radius.  Extend this if you
-    # need per-character radius lookup later.
-    default_r = next((r for r in radii if r > 0.001), 0.0)
-
-    for x, y, z in live_nodes:
-        # Pick the closest radius value in case multiple were found.
-        # For now just use default_r; refine if characters have different radii.
-        yield x, y, z, default_r
+            if pool == PROJECTILE_POOLS[0] and i == 0:
+                print(f"node[0] x={x:.4f} y={y:.4f} z={z:.4f}")
+            tracker.update(node_idx, x, y, z, default_r if (abs(x) > 0.001 and abs(x) < 50 and abs(y) < 50) else 0.0)
+            node_idx += 1
 
 
 # ----------------------------
 # Win32 helpers
 # ----------------------------
+
 def find_dolphin_hwnd() -> Optional[int]:
     candidates: List[Tuple[int, int, str]] = []
 
@@ -503,11 +466,8 @@ def get_client_screen_rect(hwnd: int):
 
 def apply_overlay_style(hwnd: int) -> None:
     style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-    style &= ~(win32con.WS_CAPTION |
-               win32con.WS_THICKFRAME |
-               win32con.WS_MINIMIZE |
-               win32con.WS_MAXIMIZE |
-               win32con.WS_SYSMENU)
+    style &= ~(win32con.WS_CAPTION | win32con.WS_THICKFRAME |
+               win32con.WS_MINIMIZE | win32con.WS_MAXIMIZE | win32con.WS_SYSMENU)
     style |= win32con.WS_POPUP
     win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)
 
@@ -517,32 +477,22 @@ def apply_overlay_style(hwnd: int) -> None:
     win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, ex)
 
     win32gui.SetLayeredWindowAttributes(hwnd, 0x000000, 0, win32con.LWA_COLORKEY)
-
-    win32gui.SetWindowPos(
-        hwnd,
-        win32con.HWND_NOTOPMOST,
-        0, 0, 0, 0,
-        win32con.SWP_FRAMECHANGED |
-        win32con.SWP_NOMOVE |
-        win32con.SWP_NOSIZE |
-        win32con.SWP_NOACTIVATE
-    )
+    win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0,
+        win32con.SWP_FRAMECHANGED | win32con.SWP_NOMOVE |
+        win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE)
 
 
 def sync_overlay_to_dolphin(dolphin_hwnd: int, overlay_hwnd: int):
     x, y, w, h = get_client_screen_rect(dolphin_hwnd)
-    win32gui.SetWindowPos(
-        overlay_hwnd,
-        win32con.HWND_NOTOPMOST,
-        x, y, w, h,
-        win32con.SWP_NOACTIVATE,
-    )
+    win32gui.SetWindowPos(overlay_hwnd, win32con.HWND_NOTOPMOST, x, y, w, h,
+        win32con.SWP_NOACTIVATE)
     return w, h
 
 
 # ----------------------------
 # Overlay
 # ----------------------------
+
 class Overlay:
     def __init__(self, cfg: DisplayConfig):
         self.cfg = cfg
@@ -582,10 +532,10 @@ class Overlay:
     def on_resize(self, w: int, h: int):
         if w <= 0 or h <= 0:
             return
-
+        if w == self.w and h == self.h:  
+            return
         self.w, self.h = w, h
         self.screen = pygame.display.set_mode((w, h), pygame.SRCALPHA)
-
         self.viewport_scale = h / 720.0
         self.aspect_ratio = w / float(h)
         self.base_aspect = 4.0 / 3.0
@@ -598,18 +548,14 @@ class Overlay:
     def world_to_screen(self, world_x: float, world_y: float, world_z: float):
         if self.ref_cam_z is None and abs(self.cam_z) > 0.0001:
             self.ref_cam_z = self.cam_z
-
         camera_scale = (
             self.ref_cam_z / self.cam_z
             if (self.ref_cam_z is not None and abs(self.cam_z) > 0.0001)
             else 1.0
         )
-
         zoom_scale = self.cfg.baseline_ppu * self.viewport_scale * camera_scale
-
         sx = self.cx + (world_x - self.cam_x) * zoom_scale * self.stretch_factor
         sy = self.cy - ((world_y - self.cam_y) + WORLD_Y_OFFSET) * zoom_scale
-
         return int(sx), int(sy), 1.0, zoom_scale
 
     def clear(self):
@@ -626,7 +572,6 @@ class Overlay:
             return
         if not math.isfinite(x) or not math.isfinite(y):
             return
-
         r = min(r, self.cfg.max_radius_units)
         proj = self.world_to_screen(x, y, z)
         if not proj:
@@ -653,12 +598,10 @@ class Overlay:
             pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 220), center, rpx, 3)
 
         self.screen.blit(hit_surf, (sx - rpx - 4, sy - rpx - 4))
-
         pygame.draw.circle(self.screen, COL_CROSS, (sx, sy), 2)
         cs = 6
         pygame.draw.line(self.screen, COL_CROSS, (sx - cs, sy), (sx + cs, sy), 2)
         pygame.draw.line(self.screen, COL_CROSS, (sx, sy - cs), (sx, sy + cs), 2)
-
         txt = self.font_small.render(f"{label} r={r:.2f}", True, (r_c, g_c, b_c))
         self.screen.blit(txt, (sx + rpx + 6, sy - 10))
 
@@ -666,12 +609,9 @@ class Overlay:
         base = " | ".join([f"{k}={v}" for k, v in counts.items()])
         ref_str = f"{self.ref_cam_z:.4f}" if self.ref_cam_z is not None else "none"
         debug = f"  |  cam_z={self.cam_z:.4f}  ref_z={ref_str}"
-
         suppressed_total = sum(1 for s in motion_filter._states.values() if s.suppressed)
         supp_str = f"  |  suppressed={suppressed_total}"
-
         prj_str = f"  |  prj_addrs={len(scanner.radius_addrs)}  [F2=rescan]"
-
         hud = self.font_hud.render(base + debug + supp_str + prj_str, True, COL_DIM)
         self.screen.blit(hud, (8, 8))
 
@@ -682,6 +622,7 @@ class Overlay:
 # ----------------------------
 # Main
 # ----------------------------
+
 def main():
     hook()
     dolphin_hwnd = find_dolphin_hwnd()
@@ -696,13 +637,14 @@ def main():
 
     motion_filter = MotionFilter()
 
-    # ---- Initial projectile scan ----
     scanner = ProjectileScanner()
     print("Running initial projectile signature scan…")
     scanner.scan()
-    # ---- Character change detection ----
-    _last_char_ids: Dict[str, int] = {} 
-    rescan_timer = 0  # frames until next auto-rescan attempt
+
+    total_nodes = len(PROJECTILE_POOLS) * PROJECTILE_NODE_COUNT
+    node_tracker = ProjectileNodeTracker(total_nodes)
+
+    _last_char_ids: Dict[str, int] = {}
 
     running = True
     while running:
@@ -718,20 +660,20 @@ def main():
                 elif event.key == pygame.K_F1:
                     overlay.debug_axes = not overlay.debug_axes
                 elif event.key == pygame.K_F2:
-                    # Re-scan projectile addresses on demand.
                     print("F2: re-scanning projectile signatures…")
                     scanner.scan()
                 elif event.key == pygame.K_F3:
-                    # Dump raw bytes around sig hits to identify radius offset.
                     scanner.dump()
-        # ---- Detect character changes and rescan if needed ----
+
+        # Detect character changes and rescan
         for name, base in SLOT_BASES.items():
             cid = rd32(base + OFF_CHAR_ID) or 0
             if _last_char_ids.get(name) != cid:
                 print(f"[CharChange] {name} char_id {_last_char_ids.get(name)} -> {cid}, rescanning…")
                 _last_char_ids[name] = cid
                 scanner.scan()
-                break  # one rescan covers all slots
+                break
+
         camx, camy, camz, camw = read_camera_pos(CAMERA)
         if USE_LIVE_CAMERA:
             overlay.cam_x = camx
@@ -740,38 +682,37 @@ def main():
 
         _slot_filter = _read_slot_filter()
 
+        # Update projectile node tracker every frame
+        update_projectile_nodes(node_tracker, scanner)
+
         overlay.clear()
         overlay.draw_debug_axes()
 
-        # ----------------------------
         # Slot hitboxes
-        # ----------------------------
         counts = {}
         for name, base in SLOT_BASES.items():
             if not _slot_filter.get(name, True):
                 continue
-
             boxes = read_hitboxes(base, HITBOX)
             active = 0
             palette = COLORS.get(name, [(255, 255, 255)])
-
             for i, (x, y, r, flag) in enumerate(boxes):
                 if not motion_filter.update(name, i, x, y, r):
                     continue
-
                 if r > 0.001:
                     active += 1
                     base_color = palette[i % len(palette)]
                     is_active = (flag == 0x53)
                     overlay.draw_hitbox(x, y, 0, r, base_color, f"{name}[{i}]", is_active=is_active)
-
             counts[name] = active
 
-        # ----------------------------
-        # Projectile nodes (scanner-discovered radii)
-        # ----------------------------
-        for x, y, z, r in read_projectile_nodes(scanner):
-            overlay.draw_hitbox(x, y + PROJECTILE_Y_OFFSET, z, r, COL_PROJ, "PRJ", is_active=True)
+        # Projectile nodes — drawn from tracker, despawn after 6f inactivity
+        for state in node_tracker.visible_nodes():
+            overlay.draw_hitbox(
+                state.x, state.y + PROJECTILE_Y_OFFSET, state.z,
+                state.r * PROJECTILE_RADIUS_SCALE,
+                COL_PROJ, "PRJ", is_active=True,
+            )
 
         overlay.draw_hud(counts, motion_filter, scanner)
         overlay.present()

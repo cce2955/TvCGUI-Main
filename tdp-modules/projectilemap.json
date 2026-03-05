@@ -37,7 +37,8 @@
 
   "FRANK": [
     { "move": "Zombie Spree", "dmg": 2400 },
-    { "move": "Zombie Attack", "dmg": 2400 }
+    { "move": "Zombie Attack", "dmg": 2400 },
+    { "move": "Zombie Fall", "dmg": 2000 }
   ],
     "VOLNUTT": [
     { "move": "C", "dmg": 1280 },
@@ -63,7 +64,12 @@
 
   "SAKI": [
     { "move": "C", "dmg": 2800 },
-    { "move": "Grenade", "dmg": 3600 }
+    { "move": "Grenade", "dmg": 3600 },
+    { "move": "Super", "dmg": 1180},
+    { "move": "Shell", "dmg": 10000},
+    { "move": "Buck", "dmg": 960},
+    { "move": "Pulse", "dmg": 480},
+    { "move": "Rifle", "dmg": 4800}
   ],
 
   "VJOE": [
@@ -221,6 +227,12 @@
     { "move": "Gold Quake (Heavy)", "dmg": 10280 }
   ],
   "PTX": [
-    { "move": "Placeholder", "dmg": 9300 }
+    { "move": "Missle", "dmg": 1040 },
+    { "move": "Missle", "dmg": 7223} ,
+    { "move": "Gatling", "dmg": 800}, 
+    { "move": "Gatling", "dmg": 1600},
+    { "move": "Gatling", "dmg": 5557},
+    { "move": "Shotgun", "dmg": 2080},
+    { "move": "Shotgun", "dmg": 7695}
   ]
 }
