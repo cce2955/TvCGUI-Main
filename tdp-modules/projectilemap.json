@@ -36,7 +36,7 @@
   ],
 
   "FRANK": [
-    { "move": "Zombie Spree", "dmg": 5200 },
+    { "move": "Zombie Spree", "dmg": 2400 },
     { "move": "Zombie Attack", "dmg": 2400 }
   ],
     "VOLNUTT": [
@@ -62,7 +62,8 @@
   ],
 
   "SAKI": [
-    { "move": "TBD", "dmg": 2800 }
+    { "move": "C", "dmg": 2800 },
+    { "move": "Grenade", "dmg": 3600 }
   ],
 
   "VJOE": [

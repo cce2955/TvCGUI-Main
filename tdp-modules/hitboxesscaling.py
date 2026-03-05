@@ -67,7 +67,8 @@ PROJECTILE_NODE_COUNT  = 16
 # How close (world-units) a node XY must be to a discovered radius address's
 # "home" position before we pair them.  Set large if you just want all radii.
 PROJ_PAIR_DISTANCE = 999.0   # effectively unlimited – refine if needed
-
+# Offset within each slot base to the character ID u32.
+OFF_CHAR_ID = 0x14
 
 def _read_slot_filter() -> dict:
     global _last_filter_mtime, _slot_filter
@@ -699,7 +700,8 @@ def main():
     scanner = ProjectileScanner()
     print("Running initial projectile signature scan…")
     scanner.scan()
-
+    # ---- Character change detection ----
+    _last_char_ids: Dict[str, int] = {} 
     rescan_timer = 0  # frames until next auto-rescan attempt
 
     running = True
@@ -722,7 +724,14 @@ def main():
                 elif event.key == pygame.K_F3:
                     # Dump raw bytes around sig hits to identify radius offset.
                     scanner.dump()
-
+        # ---- Detect character changes and rescan if needed ----
+        for name, base in SLOT_BASES.items():
+            cid = rd32(base + OFF_CHAR_ID) or 0
+            if _last_char_ids.get(name) != cid:
+                print(f"[CharChange] {name} char_id {_last_char_ids.get(name)} -> {cid}, rescanning…")
+                _last_char_ids[name] = cid
+                scanner.scan()
+                break  # one rescan covers all slots
         camx, camy, camz, camw = read_camera_pos(CAMERA)
         if USE_LIVE_CAMERA:
             overlay.cam_x = camx
