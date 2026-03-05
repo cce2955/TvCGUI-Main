@@ -36,6 +36,11 @@ PROJ_SCAN_START  = 0x90000000
 PROJ_SCAN_END    = 0x94000000
 PROJ_SCAN_BLOCK  = 0x40000
 
+# Physical hitboxes with radius above this world-unit value are skipped entirely.
+# Grab/command-grab hitboxes tend to read bogus enormous values — this culls them.
+# Tune downward if legit large hitboxes get clipped, or upward if grabs disappear.
+HITBOX_MAX_RENDER_RADIUS: float = 4.0
+
 PROJECTILE_POOLS       = [0x91B15A10, 0x91B15B50]
 PROJECTILE_NODE_STRIDE = 0x30
 PROJECTILE_NODE_COUNT  = 16
@@ -142,6 +147,14 @@ COLORS: Dict[str, List[Tuple[int, int, int]]] = {
     "P4": [(80, 255, 120), (0, 255, 80), (120, 255, 200)],
 }
 
+# Projectile colors mirror the player palette but desaturated/shifted
+PROJ_COLORS: Dict[str, Tuple[int, int, int]] = {
+    "P1": (255, 180, 120),
+    "P2": (180, 140, 255),
+    "P3": (255, 160, 210),
+    "P4": (160, 255, 200),
+}
+
 COL_CROSS = (255, 255, 255)
 COL_DIM = (120, 120, 120)
 COL_BG = (0, 0, 0)
@@ -193,7 +206,7 @@ class ProjectileScanner:
             while idx != -1 and hits < max_hits:
                 sig_addr = base_addr + idx
                 chunk    = data[idx : idx + 0x60]
-                print(f"\n  sig @ 0x{sig_addr:08X}")
+                
                 for row in range(0, len(chunk), 16):
                     row_bytes = chunk[row : row + 16]
                     hex_str   = " ".join(f"{b:02x}" for b in row_bytes)
@@ -236,13 +249,6 @@ class ProjectileNodeState:
 
 
 class ProjectileNodeTracker:
-    """
-    Tracks per-node liveness. A node is considered active when it has a
-    plausible position. After PROJECTILE_DESPAWN_FRAMES consecutive frames
-    without a valid position the node is hidden. This prevents flicker and
-    gives a clean despawn.
-    """
-
     def __init__(self, pool_count: int):
         self._nodes: Dict[int, ProjectileNodeState] = {
             i: ProjectileNodeState() for i in range(pool_count)
@@ -392,23 +398,17 @@ def update_projectile_nodes(
     tracker: ProjectileNodeTracker,
     scanner: ProjectileScanner,
 ) -> None:
-    """
-    Read all node positions from pools and feed them into the tracker.
-    The tracker handles liveness / despawn logic.
-    """
     radii = [_rf(a) for a in scanner.radius_addrs]
     default_r = next((r for r in radii if r > 0.001), 0.0)
 
     node_idx = 0
-    
     for pool in PROJECTILE_POOLS:
         for i in range(PROJECTILE_NODE_COUNT):
             node = pool + i * PROJECTILE_NODE_STRIDE
             x = _rf(node + 0x00)
             y = _rf(node + 0x04)
             z = _rf(node + 0x08)
-            if pool == PROJECTILE_POOLS[0] and i == 0:
-                print(f"node[0] x={x:.4f} y={y:.4f} z={z:.4f}")
+            
             tracker.update(node_idx, x, y, z, default_r if (abs(x) > 0.001 and abs(x) < 50 and abs(y) < 50) else 0.0)
             node_idx += 1
 
@@ -532,7 +532,7 @@ class Overlay:
     def on_resize(self, w: int, h: int):
         if w <= 0 or h <= 0:
             return
-        if w == self.w and h == self.h:  
+        if w == self.w and h == self.h:
             return
         self.w, self.h = w, h
         self.screen = pygame.display.set_mode((w, h), pygame.SRCALPHA)
@@ -567,43 +567,118 @@ class Overlay:
         pygame.draw.line(self.screen, COL_DEBUG, (0, self.h // 2), (self.w, self.h // 2), 1)
         pygame.draw.line(self.screen, COL_DEBUG, (self.w // 2, 0), (self.w // 2, self.h), 1)
 
-    def draw_hitbox(self, x, y, z, r, color, label, is_active=False):
+    def _project_hitbox(self, x, y, z, r):
+        """Shared projection. Returns (sx, sy, rpx) or None."""
         if r <= 0.001 or not math.isfinite(r):
-            return
+            return None
+        if r > HITBOX_MAX_RENDER_RADIUS:
+            return None
         if not math.isfinite(x) or not math.isfinite(y):
-            return
+            return None
         r = min(r, self.cfg.max_radius_units)
         proj = self.world_to_screen(x, y, z)
         if not proj:
-            return
+            return None
         sx, sy, depth, focal = proj
         rpx = max(2, int((r / depth) * focal))
         if rpx <= 0 or rpx > 5000:
+            return None
+        return sx, sy, rpx
+
+    def draw_hitbox(self, x, y, z, r, color, label, is_active=False):
+        """
+        Physical hitbox.
+        Idle:   faint fill + clean 2px rim in player color.
+        Active: slightly brighter fill + same rim + thin inner highlight ring
+                + soft outer glow. Reads clearly without stomping the sprite.
+        """
+        result = self._project_hitbox(x, y, z, r)
+        if result is None:
             return
+        sx, sy, rpx = result
 
-        if len(color) == 3:
-            r_c, g_c, b_c = color
-        else:
-            r_c, g_c, b_c, _ = color
+        r_c, g_c, b_c = color[:3]
 
-        hit_surf = pygame.Surface((rpx * 2 + 8, rpx * 2 + 8), pygame.SRCALPHA)
-        center = (rpx + 4, rpx + 4)
+        pad = 6
+        size = rpx * 2 + pad * 2
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        cx = cy = rpx + pad
 
         if is_active:
-            pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 140), center, rpx)
-            pygame.draw.circle(hit_surf, (255, 255, 255, 255), center, rpx, 4)
-            pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 120), center, rpx + 3, 4)
+            # Soft outer glow
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx + 4, 4)
+            # Fill — tinted, limbs still visible through it
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 110), (cx, cy), rpx)
+            # Main rim
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 220), (cx, cy), rpx, 2)
+            # Inner highlight
+            hi = (min(r_c + 90, 255), min(g_c + 90, 255), min(b_c + 90, 255))
+            pygame.draw.circle(surf, (*hi, 150), (cx, cy), max(rpx - 3, 1), 1)
         else:
-            pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 70), center, rpx + 2, 3)
-            pygame.draw.circle(hit_surf, (r_c, g_c, b_c, 220), center, rpx, 3)
+            # Idle: dim fill + single rim
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx)
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 170), (cx, cy), rpx, 2)
 
-        self.screen.blit(hit_surf, (sx - rpx - 4, sy - rpx - 4))
-        pygame.draw.circle(self.screen, COL_CROSS, (sx, sy), 2)
-        cs = 6
-        pygame.draw.line(self.screen, COL_CROSS, (sx - cs, sy), (sx + cs, sy), 2)
-        pygame.draw.line(self.screen, COL_CROSS, (sx, sy - cs), (sx, sy + cs), 2)
-        txt = self.font_small.render(f"{label} r={r:.2f}", True, (r_c, g_c, b_c))
-        self.screen.blit(txt, (sx + rpx + 6, sy - 10))
+        self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
+
+        # Center cross — color-tinted, not blinding white
+        cross_col = (min(r_c + 50, 255), min(g_c + 50, 255), min(b_c + 50, 255))
+        cs = max(4, min(9, rpx // 3))
+        cross_s = pygame.Surface((cs * 2 + 2, cs * 2 + 2), pygame.SRCALPHA)
+        pygame.draw.line(cross_s, (*cross_col, 190), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
+        pygame.draw.line(cross_s, (*cross_col, 190), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
+        self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
+
+        # Label — only when large enough to not clutter
+        if rpx >= 8:
+            txt = self.font_small.render(f"{label} r={r:.2f}", True, (*color[:3], 170))
+            self.screen.blit(txt, (sx + rpx + 5, sy - 8))
+
+    def draw_projectile_hitbox(self, x, y, z, r, color, label):
+        """
+        Projectile hitbox — visually distinct from physical hitboxes:
+        - No fill (projectiles don't have 'volume' the way limbs do)
+        - Double thin ring (outer faint + inner crisp) signals a different type
+        - Diamond center marker instead of a cross
+        - Softer overall alpha so they don't compete with physical boxes
+        """
+        result = self._project_hitbox(x, y, z, r)
+        if result is None:
+            return
+        sx, sy, rpx = result
+
+        r_c, g_c, b_c = color[:3]
+
+        pad = 8
+        size = rpx * 2 + pad * 2
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        cx = cy = rpx + pad
+
+        # Outer faint ring — gives a slight glow / presence
+        pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx + 3, 2)
+        # Main rim — crisp, 1px
+        pygame.draw.circle(surf, (r_c, g_c, b_c, 190), (cx, cy), rpx, 1)
+        # Inner ring — distinguishes from physical single-ring idle boxes
+        if rpx >= 6:
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 95), (cx, cy), max(rpx - 3, 1), 1)
+
+        # Trace fill — dimmed but present, anchors the circle shape
+        pygame.draw.circle(surf, (r_c, g_c, b_c, 45), (cx, cy), rpx)
+
+        self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
+
+        # Diamond center — immediately reads as "not a physical hitbox"
+        d = max(3, min(7, rpx // 3))
+        dia_s = pygame.Surface((d * 2 + 3, d * 2 + 3), pygame.SRCALPHA)
+        dc = d + 1
+        pygame.draw.polygon(dia_s, (r_c, g_c, b_c, 200),
+            [(dc, dc - d), (dc + d, dc), (dc, dc + d), (dc - d, dc)], 1)
+        self.screen.blit(dia_s, (sx - d - 1, sy - d - 1))
+
+        # Label — only for decently-sized projectile bubbles
+        if rpx >= 10:
+            txt = self.font_small.render(f"{label} r={r:.2f}", True, (*color[:3], 150))
+            self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
     def draw_hud(self, counts, motion_filter: MotionFilter, scanner: ProjectileScanner):
         base = " | ".join([f"{k}={v}" for k, v in counts.items()])
@@ -706,12 +781,13 @@ def main():
                     overlay.draw_hitbox(x, y, 0, r, base_color, f"{name}[{i}]", is_active=is_active)
             counts[name] = active
 
-        # Projectile nodes — drawn from tracker, despawn after 6f inactivity
+        # Projectile nodes — use per-player color if we can infer owner,
+        # otherwise fall back to a neutral warm white
         for state in node_tracker.visible_nodes():
-            overlay.draw_hitbox(
+            overlay.draw_projectile_hitbox(
                 state.x, state.y + PROJECTILE_Y_OFFSET, state.z,
                 state.r * PROJECTILE_RADIUS_SCALE,
-                COL_PROJ, "PRJ", is_active=True,
+                COL_PROJ, "PRJ",
             )
 
         overlay.draw_hud(counts, motion_filter, scanner)
