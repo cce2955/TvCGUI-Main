@@ -1,8 +1,8 @@
 {
   "RYU": [
-    { "move": "Hadouken", "dmg": 2400 },
-    { "move": "Hadouken", "dmg": 2800 },
-    { "move": "Hadouken", "dmg": 3200 },
+    { "move": "Hadouken L", "dmg": 2400 },
+    { "move": "Hadouken M", "dmg": 2800 },
+    { "move": "Hadouken H", "dmg": 3200 },
 
     { "move": "Shinkuu Hadouken", "dmg": 8887 }
   ],
@@ -24,15 +24,15 @@
     { "move": "Science Ninpo: Phoenix", "dmg": 27895 }
   ],
    "ALEX": [
-    { "move": "Flash Chop", "dmg": 2800 },
-    { "move": "Flash Chop", "dmg": 3120 },
-    { "move": "Flash Chop", "dmg": 3440 }
+    { "move": "Flash Chop L", "dmg": 2800 },
+    { "move": "Flash Chop M", "dmg": 3120 },
+    { "move": "Flash Chop H", "dmg": 3440 }
   ],
 
   "BATSU": [
-    { "move": "Guts Bullet", "dmg": 2848 },
-    { "move": "Guts Bullet", "dmg": 3076 },
-    { "move": "Guts Bullet", "dmg": 3288 }
+    { "move": "Guts Bullet L", "dmg": 2848 },
+    { "move": "Guts Bullet M", "dmg": 3076 },
+    { "move": "Guts Bullet H", "dmg": 3288 }
   ],
 
   "FRANK": [
@@ -45,9 +45,9 @@
 
     { "move": "6B", "dmg": 3647 },
     
-    { "move": "Megabuster", "dmg": 3280 },
-    { "move": "Megabuster", "dmg": 7084 },
-    { "move": "Megabuster", "dmg": 10903 },
+    { "move": "Megabuster L2", "dmg": 3280 },
+    { "move": "Megabuster L3", "dmg": 7084 },
+    { "move": "Megabuster L4", "dmg": 10903 },
 
     { "move": "Machine Gun Sweep", "dmg": 9734 }
   ],
@@ -58,7 +58,7 @@
   ],
   "ROLL": [
     { "move": "Roll Splash", "dmg": 1200 },
-    { "move": "Roll Splash", "dmg": 640 },
+    { "move": "Roll Splash (Puddle)", "dmg": 640 },
     { "move": "Roll Splash - Charged", "dmg": 6136 }
   ],
 
@@ -80,19 +80,19 @@
 
   "ZERO": [
     { "move": "Hadengeki", "dmg": 2280 },
-    { "move": "Hadengeki", "dmg": 3360 },
+    { "move": "Hadengeki H", "dmg": 3360 },
 
-    { "move": "Blaster", "dmg": 1080 },
-    { "move": "Blaster", "dmg": 3000 },
-    { "move": "Blaster", "dmg": 4427 }
+    { "move": "Blaster 1", "dmg": 1080 },
+    { "move": "Blaster 2", "dmg": 3000 },
+    { "move": "Blaster 3", "dmg": 4427 }
   ],
  "CASSHAN": [
     { "move": "Boulder Chop", "dmg": 4004 },
     { "move": "Brutal Ax", "dmg": 10005 },
 
-    { "move": "Friender Call", "dmg": 3600 },
-    { "move": "Friender Call", "dmg": 800 },
-    { "move": "Friender Call", "dmg": 6668 },
+    { "move": "Friender Call A", "dmg": 3600 },
+    { "move": "Friender Call B", "dmg": 800 },
+    { "move": "Friender Call C", "dmg": 6668 },
 
     { "move": "Super Destruction Beam", "dmg": 25552 }
   ],
@@ -114,11 +114,7 @@
   ],
    "IPPATSMAN": [
     { "move": "Rainball", "dmg": 2400 },
-
-    { "move": "Quick Upper", "dmg": 2800 },
-    { "move": "Quick Upper", "dmg": 3588 },
-    { "move": "Quick Upper", "dmg": 5032 },
-
+ 
     { "move": "Mound Blast", "dmg": 2480 },
     { "move": "Mound Blast", "dmg": 3540 },
     { "move": "Mound Blast", "dmg": 4511 },

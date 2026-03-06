@@ -50,7 +50,7 @@ PROJECTILE_NODE_COUNT  = 16
 # Row 1 (+0x10): Y float, then padding
 PROJ_OFF_X: int = 0x00
 PROJ_OFF_Y: int = 0x10
-PROJ_OFF_Z: int = 0x20   # third row — unknown, experiment as needed
+PROJ_OFF_Z: int = 0x20   
 
 PROJ_PAIR_DISTANCE = 999.0
 OFF_CHAR_ID = 0x14
@@ -415,8 +415,6 @@ def update_projectile_nodes(
             x = _rf(node + PROJ_OFF_X)
             y = _rf(node + PROJ_OFF_Y)
             z = _rf(node + PROJ_OFF_Z)
-            if pool == PROJECTILE_POOLS[0] and i == 0:
-                print(f"node[0] x={x:.4f} y={y:.4f} z={z:.4f}")
             tracker.update(node_idx, x, y, z, default_r if (abs(x) > 0.001 and abs(x) < 50 and abs(y) < 50) else 0.0)
             node_idx += 1
 

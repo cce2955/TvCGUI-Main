@@ -1827,3 +1827,7 @@ Current confirmed ranges:
 0x91B15B50
 
 Both should be scanned.
+
+in projectile pool 91b15a0c, make a weird MvC2 Shinkuu Effect by changing this, 50 or 60 preferred
+
+9246fe7b assist okay decrementer, one of them
