@@ -4,7 +4,7 @@ from __future__ import annotations
 import ctypes
 import math
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Tuple, Optional
 import os
 import pygame
@@ -18,7 +18,7 @@ import json as _json
 WORLD_Y_OFFSET = -0.7
 PROJECTILE_Y_OFFSET: float = 0
 PROJECTILE_RADIUS_SCALE: float = 0.5
-PROJECTILE_DESPAWN_FRAMES: int = 6   # frames of inactivity before hiding
+PROJECTILE_DESPAWN_FRAMES: int = 6
 
 PERSPECTIVE_Z_OVERRIDE: Optional[float] = None
 HITBOX_FILTER_FILE = "hitbox_filter.json"
@@ -28,7 +28,12 @@ _slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
 MOTION_THRESHOLD: float = 0.003
 STILL_FRAME_LIMIT: int = 4
 MOTION_FRAME_REQUIRED: int = 2
+ACTOR_TABLE = 0x80476E50
+ACTOR_MAX   = 16
 
+ACTOR_OFF_X = 0x5C
+ACTOR_OFF_Y = 0x6C
+ACTOR_OFF_Z = 0x7C
 # ----------------------------
 # Projectile signature scanner (kept but commented out from active use)
 # ----------------------------
@@ -41,22 +46,37 @@ MOTION_FRAME_REQUIRED: int = 2
 # Physical hitboxes with radius above this world-unit value are skipped entirely.
 HITBOX_MAX_RENDER_RADIUS: float = 4.0
 
-PROJECTILE_POOLS       = [0x91B15A10, 0x91B15B50]
+PROJECTILE_POOLS = [
+    0x91B15900,
+    0x91B15A10,
+    0x91B15B50,
+    0x91B15C90,
+    0x91B15DD0,
+    0x91B15F10,
+]
 PROJECTILE_NODE_STRIDE = 0x30
-PROJECTILE_NODE_COUNT  = 16
+PROJECTILE_NODE_COUNT = 16
 
 # Node layout (confirmed):
-#   Row 0: +0x00 = X,  +0x08 = dim_0  (second float in each 16-byte row)
+#   Row 0: +0x00 = X,  +0x08 = dim_0
 #   Row 1: +0x10 = Y,  +0x18 = dim_1
 #   Row 2: +0x20 = Z,  +0x28 = dim_2
-# dim_0/1/2 are the three box dimension values (e.g. 3f 7f ff fe = ~1.0)
-# All three are visualized as separate circles on the projectile position.
 PROJ_OFF_X: int = 0x00
 PROJ_OFF_Y: int = 0x10
 PROJ_OFF_Z: int = 0x20
-PROJ_OFF_DIM_0: int = 0x08   # dim from row 0
-PROJ_OFF_DIM_1: int = 0x18   # dim from row 1
-PROJ_OFF_DIM_2: int = 0x28   # dim from row 2
+PROJ_OFF_DIM_0: int = 0x08
+PROJ_OFF_DIM_1: int = 0x18
+PROJ_OFF_DIM_2: int = 0x28
+
+# Candidate offsets inside the node that may contain an owning actor pointer.
+PROJ_PTR_CANDIDATES = (
+    0x04,
+    0x0C,
+    0x14,
+    0x1C,
+    0x24,
+    0x2C,
+)
 
 OFF_CHAR_ID = 0x14
 
@@ -83,6 +103,7 @@ def set_dpi_aware() -> None:
         except Exception:
             pass
 
+
 set_dpi_aware()
 
 
@@ -95,6 +116,7 @@ class HitboxLayout:
     off_r: int
     off_flag: int
 
+
 @dataclass(frozen=True)
 class CameraLayout:
     base: int
@@ -102,6 +124,7 @@ class CameraLayout:
     off_y: int
     off_z: int
     off_w: int
+
 
 @dataclass(frozen=True)
 class DisplayConfig:
@@ -170,7 +193,7 @@ COL_CROSS = (255, 255, 255)
 COL_DIM = (120, 120, 120)
 COL_BG = (0, 0, 0)
 COL_DEBUG = (0, 255, 0)
-COL_PROJ  = (255, 255, 255)
+COL_PROJ = (255, 255, 255)
 
 
 # ----------------------------
@@ -183,7 +206,6 @@ class ProjectileScanner:
         self._scan_count: int = 0
 
     # def scan(self) -> int:
-    #     """Signature-based radius scan. Commented out — replaced by node watcher."""
     #     found: List[int] = []
     #     for base_addr in range(PROJ_SCAN_START, PROJ_SCAN_END, PROJ_SCAN_BLOCK):
     #         data = rbytes(base_addr, PROJ_SCAN_BLOCK)
@@ -191,26 +213,24 @@ class ProjectileScanner:
     #             continue
     #         idx = data.find(PROJ_SIG)
     #         while idx != -1:
-    #             sig_addr    = base_addr + idx
+    #             sig_addr = base_addr + idx
     #             radius_addr = sig_addr + PROJ_RADIUS_OFF
     #             r = _rf(radius_addr)
     #             if 0.0 < r < 20.0:
     #                 found.append(radius_addr)
     #             idx = data.find(PROJ_SIG, idx + 1)
     #     self._radius_addrs = found
-    #     self._scan_count  += 1
+    #     self._scan_count += 1
     #     print(f"[ProjectileScanner] scan #{self._scan_count}: {len(found)} radius address(es) found")
     #     for a in found:
     #         print(f"  radius_addr=0x{a:08X}  r={_rf(a):.4f}")
     #     return len(found)
 
     def scan(self) -> int:
-        """Stub — signature scan disabled. Returns 0."""
         print("[ProjectileScanner] signature scan disabled (using node watcher instead)")
         return 0
 
     def dump(self, max_hits: int = 3) -> None:
-        """Dump is still available but signature scan is disabled."""
         print("[ProjectileScanner.dump] signature scan disabled — use NodeWatcher.dump() (F3) instead")
 
     @property
@@ -231,10 +251,10 @@ class ProjectileNodeState:
     x: float = 0.0
     y: float = 0.0
     z: float = 0.0
-    dim_0: float = 0.0   # +0x08 — box dimension from row 0
-    dim_1: float = 0.0   # +0x18 — box dimension from row 1
-    dim_2: float = 0.0   # +0x28 — box dimension from row 2
-    prev_x: float = 0.0
+    dim_0: float = 0.0
+    dim_1: float = 0.0
+    dim_2: float = 0.0
+    actor_ptr: int = 0
     inactive_frames: int = 0
     active: bool = False
 
@@ -244,45 +264,102 @@ class ProjectileNodeTracker:
         self._nodes: Dict[int, ProjectileNodeState] = {
             i: ProjectileNodeState() for i in range(pool_count)
         }
+
     def update_from_node(self, node_idx: int, node_addr: int) -> None:
         state = self._nodes[node_idx]
 
-        x     = _rf(node_addr + PROJ_OFF_X)
-        y     = _rf(node_addr + PROJ_OFF_Y)
-        z     = _rf(node_addr + PROJ_OFF_Z)
+        x = _rf(node_addr + PROJ_OFF_X)
+        y = _rf(node_addr + PROJ_OFF_Y)
+        z = _rf(node_addr + PROJ_OFF_Z)
+
         dim_0 = _clean_dim(_rf(node_addr + PROJ_OFF_DIM_0))
         dim_1 = _clean_dim(_rf(node_addr + PROJ_OFF_DIM_1))
         dim_2 = _clean_dim(_rf(node_addr + PROJ_OFF_DIM_2))
 
-        is_moving = abs(x - state.prev_x) > 0.0001
-        state.prev_x = x
+        actor_ptr = 0
+        for off in PROJ_PTR_CANDIDATES:
+            p = rd32(node_addr + off)
+            if _looks_like_ptr(p):
+                actor_ptr = p
+                break
 
-        if is_moving and abs(x) < 30 and abs(y) < 30:
+        has_any_dim = (dim_0 > 0.0) or (dim_1 > 0.0) or (dim_2 > 0.0)
+        sane_pos = abs(x) < 30 and abs(y) < 30 and abs(z) < 30
+
+        if sane_pos and has_any_dim:
+
             state.x = x
             state.y = y
             state.z = z
+
             state.dim_0 = dim_0
             state.dim_1 = dim_1
             state.dim_2 = dim_2
+
+            state.actor_ptr = actor_ptr
             state.inactive_frames = 0
             state.active = True
+
         else:
+
             state.inactive_frames += 1
+
             if state.inactive_frames >= PROJECTILE_DESPAWN_FRAMES:
                 state.active = False
+                state.dim_0 = 0.0
+                state.dim_1 = 0.0
+                state.dim_2 = 0.0
+                state.actor_ptr = 0
 
     def visible_nodes(self) -> List[ProjectileNodeState]:
         return [s for s in self._nodes.values() if s.active]
 
-    def dump_active(self, max_nodes: int = 4) -> None:
+    def actor_clusters(self):
+
+        clusters = []
+        threshold = 0.6
+
+        for s in self._nodes.values():
+
+            if not s.active:
+                continue
+
+            placed = False
+
+            for cluster in clusters:
+
+                ref = cluster[0]
+
+                dx = s.x - ref.x
+                dy = s.y - ref.y
+                dz = s.z - ref.z
+
+                dist = abs(dx) + abs(dy) + abs(dz)
+
+                if dist < threshold:
+                    cluster.append(s)
+                    placed = True
+                    break
+
+            if not placed:
+                clusters.append([s])
+
+        return clusters
+    def dump_active(self, max_nodes: int = 8) -> None:
         active = [(idx, s) for idx, s in self._nodes.items() if s.active]
         if not active:
             print("[NodeWatcher.dump] no active nodes")
             return
-        print(f"\n[NodeWatcher.dump] {len(active)} active node(s):")
-        print(f"  {'idx':>4}  {'x':>8}  {'y':>8}  {'z':>8}  {'dim_0':>8}  {'dim_1':>8}  {'dim_2':>8}")
+
+        print()
+        print("[NodeWatcher.dump] active projectile nodes:")
+        print(" idx        actor_ptr        x        y        z      d0      d1      d2")
         for idx, s in active[:max_nodes]:
-            print(f"  {idx:>4}  {s.x:>8.4f}  {s.y:>8.4f}  {s.z:>8.4f}  {s.dim_0:>8.4f}  {s.dim_1:>8.4f}  {s.dim_2:>8.4f}")
+            print(
+                f"{idx:4d}   0x{s.actor_ptr:08X}   "
+                f"{s.x:7.3f} {s.y:7.3f} {s.z:7.3f}   "
+                f"{s.dim_0:5.3f} {s.dim_1:5.3f} {s.dim_2:5.3f}"
+            )
         print()
 
 
@@ -377,26 +454,37 @@ def _rf(addr: int) -> float:
     except Exception:
         return 0.0
 
+
 rf = _rf
 
-# Sentinel values the game uses for uninitialized/inactive slots.
-# 0x3F7FFFFE = ~1.0 (just below 1.0), 0x3F800000 = exactly 1.0 — both appear
-# as bogus large radii when a slot isn't live.
 _SENTINEL_BITS: frozenset = frozenset({0x3F7FFFFE, 0x3F800000})
-_DIM_MAX: float = 2.0   # real TvC projectile dims are well under 2.0 world units
+_DIM_MAX: float = 2.0
+
 
 def _clean_dim(v: float) -> float:
-    """Return v if it looks like a real game dimension, else 0.0."""
-    if not math.isfinite(v) or v <= 0.001 or v > _DIM_MAX:
+
+    if not math.isfinite(v):
         return 0.0
-    try:
-        bits = struct.unpack(">I", struct.pack(">f", v))[0]
-        if bits in _SENTINEL_BITS:
-            return 0.0
-    except Exception:
-        pass
+
+    if v < 0.01:
+        return 0.0
+
+    if v > 3.0:
+        return 0.0
+
     return v
 
+
+def _looks_like_ptr(v: int) -> bool:
+    if v is None:
+        return False
+    if v < 0x90000000:
+        return False
+    if v > 0x94000000:
+        return False
+    if (v & 3) != 0:
+        return False
+    return True
 
 
 def read_hitboxes(slot_base: int, layout: HitboxLayout):
@@ -424,18 +512,19 @@ def read_camera_pos(layout: CameraLayout):
     )
 
 
-def update_projectile_nodes(tracker: ProjectileNodeTracker) -> None:
-    """
-    Walk every node in every pool and call tracker.update_from_node().
-    No longer needs the scanner — all offset watching happens inside the tracker.
-    """
+def update_projectile_nodes(tracker):
+
     node_idx = 0
-    for pool in PROJECTILE_POOLS:
+    pools = resolve_projectile_pools()
+
+    for pool in pools:
+
         for i in range(PROJECTILE_NODE_COUNT):
+
             node_addr = pool + i * PROJECTILE_NODE_STRIDE
             tracker.update_from_node(node_idx, node_addr)
-            node_idx += 1
 
+            node_idx += 1
 
 # ----------------------------
 # Win32 helpers
@@ -490,8 +579,13 @@ def get_client_screen_rect(hwnd: int):
 
 def apply_overlay_style(hwnd: int) -> None:
     style = win32gui.GetWindowLong(hwnd, win32con.GWL_STYLE)
-    style &= ~(win32con.WS_CAPTION | win32con.WS_THICKFRAME |
-               win32con.WS_MINIMIZE | win32con.WS_MAXIMIZE | win32con.WS_SYSMENU)
+    style &= ~(
+        win32con.WS_CAPTION
+        | win32con.WS_THICKFRAME
+        | win32con.WS_MINIMIZE
+        | win32con.WS_MAXIMIZE
+        | win32con.WS_SYSMENU
+    )
     style |= win32con.WS_POPUP
     win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)
 
@@ -501,15 +595,31 @@ def apply_overlay_style(hwnd: int) -> None:
     win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, ex)
 
     win32gui.SetLayeredWindowAttributes(hwnd, 0x000000, 0, win32con.LWA_COLORKEY)
-    win32gui.SetWindowPos(hwnd, win32con.HWND_NOTOPMOST, 0, 0, 0, 0,
-        win32con.SWP_FRAMECHANGED | win32con.SWP_NOMOVE |
-        win32con.SWP_NOSIZE | win32con.SWP_NOACTIVATE)
+    win32gui.SetWindowPos(
+        hwnd,
+        win32con.HWND_NOTOPMOST,
+        0,
+        0,
+        0,
+        0,
+        win32con.SWP_FRAMECHANGED
+        | win32con.SWP_NOMOVE
+        | win32con.SWP_NOSIZE
+        | win32con.SWP_NOACTIVATE,
+    )
 
 
 def sync_overlay_to_dolphin(dolphin_hwnd: int, overlay_hwnd: int):
     x, y, w, h = get_client_screen_rect(dolphin_hwnd)
-    win32gui.SetWindowPos(overlay_hwnd, win32con.HWND_NOTOPMOST, x, y, w, h,
-        win32con.SWP_NOACTIVATE)
+    win32gui.SetWindowPos(
+        overlay_hwnd,
+        win32con.HWND_NOTOPMOST,
+        x,
+        y,
+        w,
+        h,
+        win32con.SWP_NOACTIVATE,
+    )
     return w, h
 
 
@@ -534,6 +644,12 @@ class Overlay:
         self.font_small: Optional[pygame.font.Font] = None
         self.font_hud: Optional[pygame.font.Font] = None
         self.debug_axes = cfg.show_debug_axes
+        self.viewport_scale = self.h / 720.0
+        self.aspect_ratio = self.w / float(self.h)
+        self.base_aspect = 4.0 / 3.0
+        self.x_aspect_scale = self.base_aspect / self.aspect_ratio
+        self.window_aspect = self.w / float(self.h)
+        self.stretch_factor = self.window_aspect / self.base_aspect
 
     def init_pygame(self) -> int:
         pygame.init()
@@ -564,8 +680,8 @@ class Overlay:
         self.aspect_ratio = w / float(h)
         self.base_aspect = 4.0 / 3.0
         self.x_aspect_scale = self.base_aspect / self.aspect_ratio
-        self.cx = w * 0.5
-        self.cy = h * 0.5
+        self.cx = int(w * 0.5)
+        self.cy = int(h * 0.5)
         self.window_aspect = w / float(h)
         self.stretch_factor = self.window_aspect / self.base_aspect
 
@@ -599,10 +715,7 @@ class Overlay:
         if not math.isfinite(x) or not math.isfinite(y):
             return None
         r = min(r, self.cfg.max_radius_units)
-        proj = self.world_to_screen(x, y, z)
-        if not proj:
-            return None
-        sx, sy, depth, focal = proj
+        sx, sy, depth, focal = self.world_to_screen(x, y, z)
         rpx = max(2, int((r / depth) * focal))
         if rpx <= 0 or rpx > 5000:
             return None
@@ -640,7 +753,7 @@ class Overlay:
         pygame.draw.line(cross_s, (*cross_col, 190), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
         self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
 
-        if rpx >= 8:
+        if rpx >= 8 and self.font_small is not None:
             txt = self.font_small.render(f"{label} r={r:.2f}", True, (*color[:3], 170))
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
@@ -649,7 +762,7 @@ class Overlay:
         if result is None:
             return
         sx, sy, rpx = result
-        if rpx > 100:   # hard pixel cap — real projectiles are never this big on screen
+        if rpx > 100:
             return
 
         r_c, g_c, b_c = color[:3]
@@ -670,15 +783,21 @@ class Overlay:
         d = max(3, min(7, rpx // 3))
         dia_s = pygame.Surface((d * 2 + 3, d * 2 + 3), pygame.SRCALPHA)
         dc = d + 1
-        pygame.draw.polygon(dia_s, (r_c, g_c, b_c, 200),
-            [(dc, dc - d), (dc + d, dc), (dc, dc + d), (dc - d, dc)], 1)
+        pygame.draw.polygon(
+            dia_s,
+            (r_c, g_c, b_c, 200),
+            [(dc, dc - d), (dc + d, dc), (dc, dc + d), (dc - d, dc)],
+            1,
+        )
         self.screen.blit(dia_s, (sx - d - 1, sy - d - 1))
 
-        if rpx >= 10:
+        if rpx >= 10 and self.font_small is not None:
             txt = self.font_small.render(f"{label} r={r:.2f}", True, (*color[:3], 150))
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
     def draw_hud(self, counts, motion_filter: MotionFilter, node_tracker: ProjectileNodeTracker):
+        if self.font_hud is None:
+            return
         base = " | ".join([f"{k}={v}" for k, v in counts.items()])
         ref_str = f"{self.ref_cam_z:.4f}" if self.ref_cam_z is not None else "none"
         debug = f"  |  cam_z={self.cam_z:.4f}  ref_z={ref_str}"
@@ -696,7 +815,84 @@ class Overlay:
 # ----------------------------
 # Main
 # ----------------------------
+def get_projectile_actors():
 
+    actors = []
+
+    for i in range(ACTOR_MAX):
+
+        ptr = rd32(ACTOR_TABLE + i*4)
+
+        if ptr is None:
+            continue
+
+        if not (0x91000000 <= ptr <= 0x94000000):
+            continue
+
+        actors.append(ptr)
+
+    return actors
+def read_projectile_positions():
+
+    actors = get_projectile_actors()
+
+    result = []
+
+    for a in actors:
+
+        x = _rf(a + ACTOR_OFF_X)
+        y = _rf(a + ACTOR_OFF_Y)
+        z = _rf(a + ACTOR_OFF_Z)
+
+        if abs(x) < 30 and abs(y) < 30:
+            result.append((x,y,z))
+
+    return result
+def debug_dump_pools():
+
+    print("\n--- projectile pool dump ---")
+
+    for pool in PROJECTILE_POOLS:
+
+        print(f"\nPOOL 0x{pool:08X}")
+
+        for i in range(PROJECTILE_NODE_COUNT):
+
+            addr = pool + i * PROJECTILE_NODE_STRIDE
+
+            x = _rf(addr + PROJ_OFF_X)
+            y = _rf(addr + PROJ_OFF_Y)
+            z = _rf(addr + PROJ_OFF_Z)
+
+            d0 = _clean_dim(_rf(addr + PROJ_OFF_DIM_0))
+            d1 = _clean_dim(_rf(addr + PROJ_OFF_DIM_1))
+            d2 = _clean_dim(_rf(addr + PROJ_OFF_DIM_2))
+
+            if abs(x) > 0.001 or abs(y) > 0.001 or abs(z) > 0.001:
+                print(
+                    f"node {i:02d} "
+                    f"x={x:7.3f} y={y:7.3f} z={z:7.3f} "
+                    f"d0={d0:.3f} d1={d1:.3f} d2={d2:.3f}"
+                )
+
+def resolve_projectile_pools():
+
+    manager = 0x80476E50
+    pools = []
+
+    for i in range(16):
+
+        ptr = rd32(manager + i * 4)
+        if ptr is None:
+            continue
+
+        if 0x91000000 <= ptr <= 0x94000000:
+
+            node_base = ptr - 0x6C
+            pools.append(node_base)
+
+    return pools
+    return pools              
 def main():
     hook()
     dolphin_hwnd = find_dolphin_hwnd()
@@ -711,7 +907,6 @@ def main():
 
     motion_filter = MotionFilter()
 
-    # Scanner kept but not actively used for radius lookup
     scanner = ProjectileScanner()
     print("Projectile node watcher active (signature scan disabled).")
     print("  F3 = dump active node offset table to console")
@@ -739,8 +934,9 @@ def main():
                     print("F2: signature scan disabled — using node watcher")
                 elif event.key == pygame.K_F3:
                     node_tracker.dump_active()
+                elif event.key == pygame.K_F4:
+                    debug_dump_pools()    
 
-        # Detect character changes
         for name, base in SLOT_BASES.items():
             cid = rd32(base + OFF_CHAR_ID) or 0
             if _last_char_ids.get(name) != cid:
@@ -756,13 +952,11 @@ def main():
 
         _slot_filter = _read_slot_filter()
 
-        # Update node tracker — reads all watched offsets for every node
         update_projectile_nodes(node_tracker)
 
         overlay.clear()
         overlay.draw_debug_axes()
 
-        # Slot hitboxes
         counts = {}
         for name, base in SLOT_BASES.items():
             if not _slot_filter.get(name, True):
@@ -780,16 +974,18 @@ def main():
                     overlay.draw_hitbox(x, y, 0, r, base_color, f"{name}[{i}]", is_active=is_active)
             counts[name] = active
 
-        # Projectile nodes — draw all three dimension values as separate circles
-        for state in node_tracker.visible_nodes():
-            for dim, label in ((state.dim_0, "PRJ_0"), (state.dim_1, "PRJ_1"), (state.dim_2, "PRJ_2")):
-                if dim > 0.001:
-                    overlay.draw_projectile_hitbox(
-                        state.x, state.y + PROJECTILE_Y_OFFSET, state.z,
-                        dim * PROJECTILE_RADIUS_SCALE,
-                        COL_PROJ, label,
-                    )
+        projectiles = read_projectile_positions()
 
+        for x, y, z in projectiles:
+
+            overlay.draw_projectile_hitbox(
+                x,
+                y + PROJECTILE_Y_OFFSET,
+                z,
+                0.35,
+                COL_PROJ,
+                "PRJ"
+            )
         overlay.draw_hud(counts, motion_filter, node_tracker)
         overlay.present()
         clock.tick(DISPLAY.fps)
