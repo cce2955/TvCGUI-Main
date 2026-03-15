@@ -304,8 +304,11 @@ class ProjScannerWindow:
         self._tree = ttk.Treeview(frame, columns=_COL_IDS, show="headings", height=24)
         widths = {"address": 110, "char": 80, "move": 180, "dmg": 65,
                   "speed": 75, "accel": 75, "arc": 75}
+        self._sort_col = None
+        self._sort_asc = True
         for col_id, header, _, _ in _COLS:
-            self._tree.heading(col_id, text=header)
+            self._tree.heading(col_id, text=header,
+                command=lambda c=col_id: self._sort_by(c))
             w = widths.get(col_id, 65)
             self._tree.column(col_id, width=w, anchor="center")
         self._tree.column("move", anchor="w")
@@ -345,6 +348,36 @@ class ProjScannerWindow:
         threading.Thread(target=_run_scan,
             args=(set(self._keys), self._on_prog, self._on_done),
             daemon=True).start()
+
+    def _sort_by(self, col_id):
+        # Toggle direction if same column, else reset to ascending
+        if self._sort_col == col_id:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col_id
+            self._sort_asc = True
+
+        # Update heading arrows
+        col_map = {c[0]: c[1] for c in _COLS}
+        for cid, header, _, _ in _COLS:
+            if cid == col_id:
+                arrow = " ▲" if self._sort_asc else " ▼"
+                self._tree.heading(cid, text=header + arrow)
+            else:
+                self._tree.heading(cid, text=col_map[cid])
+
+        # Get all rows
+        items = [(self._tree.set(iid, col_id), iid)
+                 for iid in self._tree.get_children("")]
+
+        # Try numeric sort, fall back to string
+        def sort_key(val):
+            try: return (0, float(val))
+            except: return (1, val.lower())
+
+        items.sort(key=lambda x: sort_key(x[0]), reverse=not self._sort_asc)
+        for idx, (_, iid) in enumerate(items):
+            self._tree.move(iid, "", idx)
 
     def _on_prog(self, pct):
         try: self.root.after(0, lambda: self._prog.set(pct))
