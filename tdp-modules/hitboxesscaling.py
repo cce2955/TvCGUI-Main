@@ -20,7 +20,6 @@ WORLD_Y_OFFSET = -0.7
 PROJECTILE_Y_OFFSET: float = 0
 PROJECTILE_RADIUS_SCALE: float = 0.5
 PROJECTILE_DESPAWN_FRAMES: int = 6
-
 PERSPECTIVE_Z_OVERRIDE: Optional[float] = None
 HITBOX_FILTER_FILE = "hitbox_filter.json"
 _last_filter_mtime = 0.0
