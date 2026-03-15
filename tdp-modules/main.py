@@ -78,6 +78,7 @@ except Exception:
 
 # Frame data window (editable GUI + legacy Tk)
 from frame_data_window import open_frame_data_window
+from proj_scanner_window import open_proj_scanner_window
 
 
 # ---------------------------------------------------------------------------
@@ -1351,6 +1352,16 @@ def main():
         pygame.draw.rect(screen, (200, 200, 200), hb_btn_rect, 1, border_radius=3)
         screen.blit(smallfont.render(hb_btn_label, True, (230, 230, 230)),
                     (HB_BTN_X + 6, HB_BTN_Y + 4))
+
+        # Projectile scanner button
+        PS_BTN_X = HB_BTN_X + HB_BTN_W + 8
+        PS_BTN_W, PS_BTN_H = 150, 22
+        ps_btn_rect = pygame.Rect(PS_BTN_X, HB_BTN_Y, PS_BTN_W, PS_BTN_H)
+        ps_col = (60, 80, 160) if not ps_btn_rect.collidepoint(mx_h, my_h) else (90, 110, 200)
+        pygame.draw.rect(screen, ps_col, ps_btn_rect, border_radius=3)
+        pygame.draw.rect(screen, (200, 200, 200), ps_btn_rect, 1, border_radius=3)
+        screen.blit(smallfont.render("Projectile Scanner", True, (230, 230, 230)),
+                    (PS_BTN_X + 6, HB_BTN_Y + 4))
         hb_filter_rects = {}
         # Slot filter checkboxes (only shown when active)
         fx = HB_BTN_X
@@ -1520,6 +1531,14 @@ def main():
                     _stop_hitbox_overlay()
                 else:
                     _launch_hitbox_overlay()
+                mouse_clicked_pos = None
+                continue
+
+            elif ps_btn_rect.collidepoint(mx, my):
+                def _get_active_chars():
+                    return {s.get("name") for s in render_snap_by_slot.values()
+                            if s and s.get("name")}
+                open_proj_scanner_window(_get_active_chars)
                 mouse_clicked_pos = None
                 continue
 

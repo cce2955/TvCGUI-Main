@@ -3,6 +3,7 @@
     { "move": "Hadouken L", "dmg": 2400 },
     { "move": "Hadouken M", "dmg": 2800 },
     { "move": "Hadouken H", "dmg": 3200 },
+    { "move": "Assist", "dmg": 3200 },
 
     { "move": "Shinkuu Hadouken", "dmg": 8887 }
   ],
@@ -15,7 +16,8 @@
   ],
 
   "JUN": [
-    { "move": "Yoyo", "dmg": 1200 }
+    { "move": "Yoyo", "dmg": 1200 },
+    { "move": "Talon Burst", "dmg": 400 }
   ],
 
   "KEN": [
@@ -43,9 +45,11 @@
     "VOLNUTT": [
     { "move": "C", "dmg": 1280 },
 
-    { "move": "6B", "dmg": 3647 },
+    { "move": "6B", "dmg": 720 },
     
     { "move": "Megabuster L2", "dmg": 3280 },
+    { "move": "Megabuster L2", "dmg": 1093 },
+    { "move": "Megabuster L2", "dmg": 1094 },
     { "move": "Megabuster L3", "dmg": 7084 },
     { "move": "Megabuster L4", "dmg": 10903 },
 
@@ -58,6 +62,7 @@
   ],
   "ROLL": [
     { "move": "Roll Splash", "dmg": 1200 },
+    { "move": "Puddle", "dmg": 640 },
     { "move": "Roll Splash (Puddle)", "dmg": 640 },
     { "move": "Roll Splash - Charged", "dmg": 6136 }
   ],
