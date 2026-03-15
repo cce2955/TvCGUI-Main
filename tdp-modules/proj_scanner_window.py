@@ -14,7 +14,7 @@ except Exception:
 # This cuts ~318 false positives vs the old 8-byte suffix.
 # Pattern:  00 00 XX YY  00 00 00 0C  FF FF FF FF
 # We search for the 8-byte tail and verify the 4 bytes before it.
-_SUFFIX    = b"\x00\x00\x00\x0C\xFF\xFF\xFF\xFF"
+_SUFFIX    = b"\x00\x00\x00\x0C"
 SCAN_START = 0x90000000
 SCAN_END   = 0x94000000
 SCAN_BLOCK = 0x40000
@@ -126,7 +126,7 @@ def _write_f32(addr: int, val: float) -> bool:
         print(f"[proj_scanner] write f32 failed: {e}")
         return False
 
-def _run_scan(active_keys, slot_order, progress_cb, done_cb):
+def _run_scan(active_keys, progress_cb, done_cb):
     if rbytes is None:
         done_cb([]); return
     proj_map = _load_map()
@@ -153,9 +153,17 @@ def _run_scan(active_keys, slot_order, progress_cb, done_cb):
                 pos = idx + 1
                 if idx < 4: continue
                 c = data[idx-4:idx]
-                if c[0] or c[1]: continue
+                if c[1]: continue
                 dmg = (c[2] << 8) | c[3]
                 if not dmg: continue
+                # Determine format by what follows the 0C sentinel
+                after = data[idx+4:idx+8] if idx+8 <= len(data) else b''
+                if after == b'\xFF\xFF\xFF\xFF':
+                    fmt = "template"
+                elif c[0] == 0x00:
+                    fmt = "template2"
+                else:
+                    fmt = f"script(0x{c[0]:02X})"
                 a = addr + idx - 4
                 fields = {
                     "radius":   _read_f32(a + FIELD_OFFSETS["radius"]),
@@ -183,17 +191,10 @@ def _run_scan(active_keys, slot_order, progress_cb, done_cb):
                 }
                 if dmg in lookup:
                     matches = lookup[dmg]
-                    keys_in_matches = {k for k, _ in matches}
-                    if len(keys_in_matches) > 1:
-                        for slot_key in slot_order:
-                            if slot_key in keys_in_matches:
-                                matches = [(k, mv) for k, mv in matches if k == slot_key]
-                                break
                     for key, mv in matches:
-                        hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, **fields})
+                        hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, "fmt": fmt, **fields})
                 elif dmg not in all_known_dmgs and dmg >= 500:
-                    # not in JSON at all — list as unknown
-                    hits.append({"addr": a, "key": "?", "move": "Unknown", "dmg": dmg, **fields})
+                    hits.append({"addr": a, "key": "?", "move": "Unknown", "dmg": dmg, "fmt": fmt, **fields})
 
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
@@ -242,6 +243,7 @@ _COLS = [
     ("char",     "Char",      None,       False),
     ("move",     "Move",      None,       False),
     ("dmg",      "Damage",    "dmg",      False),
+    ("fmt",      "Fmt",       None,       False),
     ("radius",   "Radius",    "radius",   True),
     ("type",     "Type",      "type",     False),
     ("id",       "ID",        "id",       False),
@@ -328,9 +330,8 @@ class ProjScannerWindow:
 
     def _start(self):
         if self._scanning: return
-        names = self._get_active()  # ordered list by slot
+        names = self._get_active()
         self._keys = {_NAME_TO_KEY[n] for n in names if n in _NAME_TO_KEY}
-        slot_order = [_NAME_TO_KEY[n] for n in names if n in _NAME_TO_KEY]
         self._active_var.set(f"Active: {', '.join(n for n in names if n) or 'none'}")
         if not self._keys:
             self._status.set("No active characters with known projectiles.")
@@ -342,7 +343,7 @@ class ProjScannerWindow:
         for i in self._tree.get_children(): self._tree.delete(i)
         self._status.set("Scanning MEM2...")
         threading.Thread(target=_run_scan,
-            args=(set(self._keys), slot_order, self._on_prog, self._on_done),
+            args=(set(self._keys), self._on_prog, self._on_done),
             daemon=True).start()
 
     def _on_prog(self, pct):
@@ -353,7 +354,7 @@ class ProjScannerWindow:
         def _f():
             for h in hits:
                 iid = self._tree.insert("", "end", values=(
-                    f"0x{h['addr']:08X}", h["key"], h["move"], h["dmg"],
+                    f"0x{h['addr']:08X}", h["key"], h["move"], h["dmg"], h.get("fmt",""),
                     h["radius"],
                     h["type"], h["id"], h["lifetime"], h["hb_size"],
                     h["speed"], h["accel"], h["hitbox"], h["arc"], h["arc2"],
