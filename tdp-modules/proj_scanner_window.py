@@ -10,9 +10,9 @@ except Exception:
     rbytes = None
     wbytes = None
 
-_SUFFIX    = b"\x00\x00\x00\x0C\xFF\xFF\xFF\xFF"
-SCAN_START = 0x90000000
-SCAN_END   = 0x94000000
+_SUFFIX = b"\x00\x00\x00\x0C"
+SCAN_START = 0x90800000
+SCAN_END   = 0x90A00000
 SCAN_BLOCK = 0x40000
 PROJ_MAP_FILE = "projectilemap.json"
 
@@ -143,7 +143,7 @@ def _apply_tiers(hits):
         result.append(dict(h, move=new_name))
     return result
 
-def _run_scan(active_keys, progress_cb, done_cb):
+def _run_scan(active_keys, slot_order, progress_cb, done_cb):
     if rbytes is None:
         done_cb([]); return
     lookup = _build_lookup(_load_map(), active_keys)
@@ -166,27 +166,32 @@ def _run_scan(active_keys, progress_cb, done_cb):
                 c = data[idx-4:idx]
                 if c[0] or c[1]: continue
                 dmg = (c[2] << 8) | c[3]
-                if dmg and dmg in lookup:
-                    a = addr + idx - 4
-                    # read the extra fields now while we have context
-                    if dmg and dmg in lookup:
-                        a = addr + idx - 4
-                        fields = {
-                            "speed": _read_f32(a + FIELD_OFFSETS["speed"]),
-                            "accel": _read_f32(a + FIELD_OFFSETS["accel"]),
-                            "arc":   _read_f32(a + FIELD_OFFSETS["arc"]),
-                            "u01":   _read_f32(a + FIELD_OFFSETS["u01"]),
-                            "u02":   _read_f32(a + FIELD_OFFSETS["u02"]),
-                            "u03":   _read_f32(a + FIELD_OFFSETS["u03"]),
-                            "u04":   _read_u16(a + FIELD_OFFSETS["u04"]),
-                            "u05":   _read_u16(a + FIELD_OFFSETS["u05"]),
-                            "u06":   _read_u16(a + FIELD_OFFSETS["u06"]),
-                            "u07":   _read_u16(a + FIELD_OFFSETS["u07"]),
-                            "u08":   _read_u16(a + FIELD_OFFSETS["u08"]),
-                            "u09":   _read_u16(a + FIELD_OFFSETS["u09"]),
-                        }
-                        for key, mv in lookup[dmg]:
-                            hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, **fields})
+                if not dmg or dmg not in lookup: continue
+                a = addr + idx - 4
+                fields = {
+                    "speed": _read_f32(a + FIELD_OFFSETS["speed"]),
+                    "accel": _read_f32(a + FIELD_OFFSETS["accel"]),
+                    "arc":   _read_f32(a + FIELD_OFFSETS["arc"]),
+                    "u01":   _read_f32(a + FIELD_OFFSETS["u01"]),
+                    "u02":   _read_f32(a + FIELD_OFFSETS["u02"]),
+                    "u03":   _read_f32(a + FIELD_OFFSETS["u03"]),
+                    "u04":   _read_u16(a + FIELD_OFFSETS["u04"]),
+                    "u05":   _read_u16(a + FIELD_OFFSETS["u05"]),
+                    "u06":   _read_u16(a + FIELD_OFFSETS["u06"]),
+                    "u07":   _read_u16(a + FIELD_OFFSETS["u07"]),
+                    "u08":   _read_u16(a + FIELD_OFFSETS["u08"]),
+                    "u09":   _read_u16(a + FIELD_OFFSETS["u09"]),
+                }
+                matches = lookup[dmg]
+                # For shared damage values, pick char that comes first in slot order
+                keys_in_matches = {k for k, _ in matches}
+                if len(keys_in_matches) > 1:
+                    for slot_key in slot_order:
+                        if slot_key in keys_in_matches:
+                            matches = [(k, mv) for k, mv in matches if k == slot_key]
+                            break
+                for key, mv in matches:
+                    hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, **fields})
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
     done_cb(_apply_tiers(hits))
@@ -283,6 +288,10 @@ class ProjScannerWindow:
 
     def _start(self):
         if self._scanning: return
+        names = self._get_active()  # ordered list by slot
+        self._keys = {_NAME_TO_KEY[n] for n in names if n in _NAME_TO_KEY}
+        slot_order = [_NAME_TO_KEY[n] for n in names if n in _NAME_TO_KEY]
+        self._active_var.set(f"Active: {', '.join(n for n in names if n) or 'none'}")
         if not self._keys:
             self._status.set("No active characters with known projectiles.")
             return
@@ -293,7 +302,7 @@ class ProjScannerWindow:
         for i in self._tree.get_children(): self._tree.delete(i)
         self._status.set("Scanning MEM2...")
         threading.Thread(target=_run_scan,
-            args=(set(self._keys), self._on_prog, self._on_done),
+            args=(set(self._keys), slot_order, self._on_prog, self._on_done),
             daemon=True).start()
 
     def _on_prog(self, pct):

@@ -40,7 +40,7 @@
   "FRANK": [
     { "move": "Zombie Spree", "dmg": 2400 },
     { "move": "Zombie Attack", "dmg": 2400 },
-    { "move": "Zombie Fall", "dmg": 2000 }
+    { "move": "Zombie Fall", "dmg": 3200 }
   ],
     "VOLNUTT": [
     { "move": "C", "dmg": 1280 },
@@ -87,6 +87,8 @@
   "ZERO": [
     { "move": "Hadengeki", "dmg": 2280 },
     { "move": "Hadengeki H", "dmg": 3360 },
+    { "move": "Hadengeki H", "dmg": 1680 },
+
 
     { "move": "Blaster 1", "dmg": 1080 },
     { "move": "Blaster 2", "dmg": 3000 },

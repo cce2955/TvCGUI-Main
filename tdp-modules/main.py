@@ -1360,7 +1360,7 @@ def main():
         ps_col = (60, 80, 160) if not ps_btn_rect.collidepoint(mx_h, my_h) else (90, 110, 200)
         pygame.draw.rect(screen, ps_col, ps_btn_rect, border_radius=3)
         pygame.draw.rect(screen, (200, 200, 200), ps_btn_rect, 1, border_radius=3)
-        screen.blit(smallfont.render("Projectile Scanner", True, (230, 230, 230)),
+        screen.blit(smallfont.render("Proj Scanner", True, (230, 230, 230)),
                     (PS_BTN_X + 6, HB_BTN_Y + 4))
         hb_filter_rects = {}
         # Slot filter checkboxes (only shown when active)
@@ -1536,8 +1536,11 @@ def main():
 
             elif ps_btn_rect.collidepoint(mx, my):
                 def _get_active_chars():
-                    return {s.get("name") for s in render_snap_by_slot.values()
-                            if s and s.get("name")}
+                    # Return names in slot order: P1-C1, P1-C2, P2-C1, P2-C2
+                    slot_order = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
+                    return [s.get("name") for slot in slot_order
+                            for s in [render_snap_by_slot.get(slot)]
+                            if s and s.get("name")]
                 open_proj_scanner_window(_get_active_chars)
                 mouse_clicked_pos = None
                 continue
