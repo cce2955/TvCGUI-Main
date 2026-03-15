@@ -10,28 +10,45 @@ except Exception:
     rbytes = None
     wbytes = None
 
-_SUFFIX = b"\x00\x00\x00\x0C"
-SCAN_START = 0x90800000
-SCAN_END   = 0x90A00000
+# Full 12-byte signature — damage word + 0C sentinel + FF FF FF FF guard.
+# This cuts ~318 false positives vs the old 8-byte suffix.
+# Pattern:  00 00 XX YY  00 00 00 0C  FF FF FF FF
+# We search for the 8-byte tail and verify the 4 bytes before it.
+_SUFFIX    = b"\x00\x00\x00\x0C\xFF\xFF\xFF\xFF"
+SCAN_START = 0x90000000
+SCAN_END   = 0x94000000
 SCAN_BLOCK = 0x40000
 PROJ_MAP_FILE = "projectilemap.json"
 
-# Offsets relative to damage_addr for the three unknown fields after the FF block
-# +0x74 = start of FF block, fields follow after
 FIELD_OFFSETS = {
-    "speed": 0x80,  # confirmed speed (float)
-    "accel": 0x84,  # confirmed acceleration (float)
-    "arc":   0x90,  # confirmed arc/gravity (float)
-    # unknowns — numbered for investigation
-    "u01": 0x10,   # float: -3.0 on Roll Splash
-    "u02": 0x14,   # float:  9.0 on Roll Splash
-    "u03": 0x18,   # float:  1.0 on Roll Splash
-    "u04": 0x42,   # u16:   10  on Roll Splash
-    "u05": 0x48,   # u16: 1001  on Roll Splash
-    "u06": 0x52,   # u8:    30  on Roll Splash (puddle lifetime?)
-    "u07": 0x5A,   # u8:   215  on Roll Splash
-    "u08": 0x68,   # u16: 1024  on Roll Splash
-    "u09": 0x72,   # u16:   50  on Roll Splash
+    # Hitbox radius for projectile (exponential effect when increased)
+    "radius":   0x02C,  # f32 — projectile hitbox radius (was vel_s)
+    # Misc u16 fields
+    "c042":     0x042,  # u16 — always 10
+    "type":     0x050,  # u8  — 3=linear, 4=physics
+    "id":       0x052,  # u16 — projectile type ID
+    "lifetime": 0x05A,  # u8  — active frames / lifetime
+    "hb_size":  0x06E,  # u16 — hitbox size
+    # Speed block
+    "speed":    0x080,  # f32 — speed scalar
+    "accel":    0x084,  # f32 — always 1.0
+    "hitbox":   0x08C,  # f32 — hitbox radius (100.0 standard)
+    "arc":      0x090,  # f32 — arc/gravity (Roll only)
+    "arc2":     0x094,  # f32 — arc modifier (Roll only)
+    # Velocity triple 2
+    "vel2_x":   0x0D4,
+    "vel2_y":   0x0D8,
+    "vel2_s":   0x0DC,
+    # Old unknowns
+    "u01": 0x10,
+    "u02": 0x14,
+    "u03": 0x18,
+    "u04": 0x42,
+    "u05": 0x48,
+    "u06": 0x52,
+    "u07": 0x5A,
+    "u08": 0x68,
+    "u09": 0x72,
 }
 
 import re as _re
@@ -109,46 +126,18 @@ def _write_f32(addr: int, val: float) -> bool:
         print(f"[proj_scanner] write f32 failed: {e}")
         return False
 
-def _has_strength_prefix(name: str) -> bool:
-    return bool(_re.search(r'\b[LMHlmh]\b', name) or
-                _re.search(r'\([LMHlmh]\)', name) or
-                name.rstrip().endswith((' L', ' M', ' H')))
-
-def _apply_tiers(hits):
-    from collections import Counter
-    counts = Counter((h["key"], h["move"]) for h in hits)
-    seen = {}
-    result = []
-    for h in hits:
-        group = (h["key"], h["move"])
-        total = counts[group]
-        if total == 1:
-            result.append(h); continue
-        idx = seen.get(group, 0)
-        seen[group] = idx + 1
-        name = h["move"]
-        if _has_strength_prefix(name):
-            if total == 2:
-                new_name = ("j." + name) if idx == 1 else name
-            elif total >= 3:
-                if idx == 0: new_name = name
-                elif idx == 1: new_name = name + " Assist"
-                else: new_name = "j." + name
-            else:
-                new_name = name
-        else:
-            tiers = ["L", "M", "H", "Assist", "j.L", "j.M", "j.H"]
-            tier  = tiers[idx] if idx < len(tiers) else str(idx)
-            new_name = f"{name} {tier}"
-        result.append(dict(h, move=new_name))
-    return result
-
 def _run_scan(active_keys, slot_order, progress_cb, done_cb):
     if rbytes is None:
         done_cb([]); return
-    lookup = _build_lookup(_load_map(), active_keys)
-    if not lookup:
-        done_cb([]); return
+    proj_map = _load_map()
+    lookup   = _build_lookup(proj_map, active_keys)
+    # build a set of ALL known damages across all chars for unknown detection
+    all_known_dmgs = set()
+    for moves in proj_map.values():
+        for e in moves:
+            d = int(e.get("dmg", 0))
+            if d: all_known_dmgs.add(d)
+
     total = SCAN_END - SCAN_START
     hits  = []
     addr  = SCAN_START
@@ -166,12 +155,22 @@ def _run_scan(active_keys, slot_order, progress_cb, done_cb):
                 c = data[idx-4:idx]
                 if c[0] or c[1]: continue
                 dmg = (c[2] << 8) | c[3]
-                if not dmg or dmg not in lookup: continue
+                if not dmg: continue
                 a = addr + idx - 4
                 fields = {
-                    "speed": _read_f32(a + FIELD_OFFSETS["speed"]),
-                    "accel": _read_f32(a + FIELD_OFFSETS["accel"]),
-                    "arc":   _read_f32(a + FIELD_OFFSETS["arc"]),
+                    "radius":   _read_f32(a + FIELD_OFFSETS["radius"]),
+                    "type":     _read_u16(a + FIELD_OFFSETS["type"]),
+                    "id":       _read_u16(a + FIELD_OFFSETS["id"]),
+                    "lifetime": _read_u16(a + FIELD_OFFSETS["lifetime"]),
+                    "hb_size":  _read_u16(a + FIELD_OFFSETS["hb_size"]),
+                    "speed":    _read_f32(a + FIELD_OFFSETS["speed"]),
+                    "accel":    _read_f32(a + FIELD_OFFSETS["accel"]),
+                    "hitbox":   _read_f32(a + FIELD_OFFSETS["hitbox"]),
+                    "arc":      _read_f32(a + FIELD_OFFSETS["arc"]),
+                    "arc2":     _read_f32(a + FIELD_OFFSETS["arc2"]),
+                    "vel2_x":   _read_f32(a + FIELD_OFFSETS["vel2_x"]),
+                    "vel2_y":   _read_f32(a + FIELD_OFFSETS["vel2_y"]),
+                    "vel2_s":   _read_f32(a + FIELD_OFFSETS["vel2_s"]),
                     "u01":   _read_f32(a + FIELD_OFFSETS["u01"]),
                     "u02":   _read_f32(a + FIELD_OFFSETS["u02"]),
                     "u03":   _read_f32(a + FIELD_OFFSETS["u03"]),
@@ -182,19 +181,50 @@ def _run_scan(active_keys, slot_order, progress_cb, done_cb):
                     "u08":   _read_u16(a + FIELD_OFFSETS["u08"]),
                     "u09":   _read_u16(a + FIELD_OFFSETS["u09"]),
                 }
-                matches = lookup[dmg]
-                # For shared damage values, pick char that comes first in slot order
-                keys_in_matches = {k for k, _ in matches}
-                if len(keys_in_matches) > 1:
-                    for slot_key in slot_order:
-                        if slot_key in keys_in_matches:
-                            matches = [(k, mv) for k, mv in matches if k == slot_key]
-                            break
-                for key, mv in matches:
-                    hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, **fields})
+                if dmg in lookup:
+                    matches = lookup[dmg]
+                    keys_in_matches = {k for k, _ in matches}
+                    if len(keys_in_matches) > 1:
+                        for slot_key in slot_order:
+                            if slot_key in keys_in_matches:
+                                matches = [(k, mv) for k, mv in matches if k == slot_key]
+                                break
+                    for key, mv in matches:
+                        hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, **fields})
+                elif dmg not in all_known_dmgs and dmg >= 500:
+                    # not in JSON at all — list as unknown
+                    hits.append({"addr": a, "key": "?", "move": "Unknown", "dmg": dmg, **fields})
+
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
-    done_cb(_apply_tiers(hits))
+
+    # dump context around each hit
+    _dump_hits(hits)
+
+    done_cb(hits)
+
+
+def _dump_hits(hits: list, context: int = 0x100):
+    """Write addr-0x100 .. addr+0x100 for each hit to proj_dump.bin."""
+    if rbytes is None or not hits:
+        return
+    try:
+        with open("proj_dump.bin", "wb") as f:
+            for h in hits:
+                base = max(h["addr"] - context, SCAN_START)
+                size = min(context * 2, SCAN_END - base)
+                try:
+                    data = rbytes(base, size)
+                except Exception:
+                    data = b""
+                # write a small header: base_addr (4 bytes BE), hit_addr (4 bytes BE), size (4 bytes BE)
+                f.write(base.to_bytes(4, "big"))
+                f.write(h["addr"].to_bytes(4, "big"))
+                f.write(len(data).to_bytes(4, "big"))
+                f.write(data)
+        print(f"[proj_scanner] dumped {len(hits)} context block(s) to proj_dump.bin")
+    except Exception as e:
+        print(f"[proj_scanner] dump failed: {e}")
 
 def _write_dmg(addr: int, new_dmg: int) -> bool:
     if wbytes is None:
@@ -208,22 +238,32 @@ def _write_dmg(addr: int, new_dmg: int) -> bool:
 # column index -> (label, field_key, addr_offset, is_float)
 # (col_id, header, field_key, is_float)
 _COLS = [
-    ("address", "Address",  None,    False),
-    ("char",    "Char",     None,    False),
-    ("move",    "Move",     None,    False),
-    ("dmg",     "Damage",   "dmg",   False),
-    ("speed",   "Speed",    "speed", True),
-    ("accel",   "Accel",    "accel", True),
-    ("arc",     "Arc",      "arc",   True),
-    ("u01",     "?? 01",    "u01",   True),
-    ("u02",     "?? 02",    "u02",   True),
-    ("u03",     "?? 03",    "u03",   True),
-    ("u04",     "?? 04",        "u04",   False),
-    ("u05",     "Spawn Ctrl",   "u05",   False),
-    ("u06",     "Hitbox Reach", "u06",   False),
-    ("u07",     "?? 07",        "u07",   False),
-    ("u08",     "?? 08",        "u08",   False),
-    ("u09",     "?? 09",        "u09",   False),
+    ("address",  "Address",   None,       False),
+    ("char",     "Char",      None,       False),
+    ("move",     "Move",      None,       False),
+    ("dmg",      "Damage",    "dmg",      False),
+    ("radius",   "Radius",    "radius",   True),
+    ("type",     "Type",      "type",     False),
+    ("id",       "ID",        "id",       False),
+    ("lifetime", "Lifetime",  "lifetime", False),
+    ("hb_size",  "HB Size",   "hb_size",  False),
+    ("speed",    "Speed",     "speed",    True),
+    ("accel",    "Accel",     "accel",    True),
+    ("hitbox",   "Hitbox",    "hitbox",   True),
+    ("arc",      "Arc",       "arc",      True),
+    ("arc2",     "Arc2",      "arc2",     True),
+    ("vel2_x",   "Vel2 X",    "vel2_x",   True),
+    ("vel2_y",   "Vel2 Y",    "vel2_y",   True),
+    ("vel2_s",   "Vel2 S",    "vel2_s",   True),
+    ("u01",      "?? 01",     "u01",      True),
+    ("u02",      "?? 02",     "u02",      True),
+    ("u03",      "?? 03",     "u03",      True),
+    ("u04",      "?? 04",     "u04",      False),
+    ("u05",      "?? 05",     "u05",      False),
+    ("u06",      "?? 06",     "u06",      False),
+    ("u07",      "?? 07",     "u07",      False),
+    ("u08",      "?? 08",     "u08",      False),
+    ("u09",      "?? 09",     "u09",      False),
 ]
 _COL_IDS = [c[0] for c in _COLS]
 
@@ -314,7 +354,10 @@ class ProjScannerWindow:
             for h in hits:
                 iid = self._tree.insert("", "end", values=(
                     f"0x{h['addr']:08X}", h["key"], h["move"], h["dmg"],
-                    h["speed"], h["accel"], h["arc"],
+                    h["radius"],
+                    h["type"], h["id"], h["lifetime"], h["hb_size"],
+                    h["speed"], h["accel"], h["hitbox"], h["arc"], h["arc2"],
+                    h["vel2_x"], h["vel2_y"], h["vel2_s"],
                     h["u01"], h["u02"], h["u03"],
                     h["u04"], h["u05"], h["u06"],
                     h["u07"], h["u08"], h["u09"],
