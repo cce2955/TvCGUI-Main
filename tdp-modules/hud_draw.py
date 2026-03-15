@@ -143,12 +143,26 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     cur_hp = snap["cur"]
     max_hp = snap["max"]
     _meter_raw = snap.get("meter")
-    meter_str = str(_meter_raw) if _meter_raw is not None else "--"
+    if _meter_raw is not None:
+        _lvl = min(_meter_raw // 10000, 5)
+        _lvl_label = "MAX" if _meter_raw >= 50000 else f"Lvl {_lvl}"
+        meter_str = f"{_meter_raw}/{_lvl_label}"
+        _meter_col = {
+            0: (80,  80,  220),   # blue
+            1: (80,  220, 80),    # green
+            2: (160, 220, 80),    # yellow-green
+            3: (255, 140, 0),     # orange
+            4: (220, 80,  80),    # lighter red
+            5: (255, 30,  30),    # red / MAX
+        }.get(_lvl, COL_TEXT)
+    else:
+        meter_str = "--"
+        _meter_col = COL_TEXT
     hp_col = _hp_color(cur_hp, max_hp)
-    surface.blit(
-        font.render(f"HP {cur_hp}/{max_hp}     Meter:{meter_str}", True, hp_col),
-        (text_x0, y0 + 24),
-    )
+    hp_surf = font.render(f"HP {cur_hp}/{max_hp}     ", True, hp_col)
+    surface.blit(hp_surf, (text_x0, y0 + 24))
+    meter_surf = font.render(f"Meter:{meter_str}", True, _meter_col)
+    surface.blit(meter_surf, (text_x0 + hp_surf.get_width(), y0 + 24))
 
     pool_pct_val = snap.get("pool_pct")
     pool_pct_str = f"{pool_pct_val:.1f}%" if pool_pct_val is not None else "--"
