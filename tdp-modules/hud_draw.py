@@ -142,7 +142,8 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
 
     cur_hp = snap["cur"]
     max_hp = snap["max"]
-    meter_str = snap.get("meter_str", "--")
+    _meter_raw = snap.get("meter")
+    meter_str = str(_meter_raw) if _meter_raw is not None else "--"
     hp_col = _hp_color(cur_hp, max_hp)
     surface.blit(
         font.render(f"HP {cur_hp}/{max_hp}     Meter:{meter_str}", True, hp_col),

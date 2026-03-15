@@ -1,4 +1,3 @@
-
 import os
 import csv
 import time
@@ -966,8 +965,8 @@ def main():
 
         p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
         p2c1_base = next((b for n, t, b in resolved_slots if n == "P2-C1" and b), None)
-        meter_p1 = read_meter(p1c1_base)
-        meter_p2 = read_meter(p2c1_base)
+        meter_p1 = read_meter(p1c1_base, teamtag="P1")
+        meter_p2 = read_meter(p2c1_base, teamtag="P2")
 
         # -----------------------------
         # Build snapshots
@@ -1093,6 +1092,12 @@ def main():
             snap["baroque_ready_local"] = ready_local
             snap["baroque_red_amt"] = red_amt
             snap["baroque_red_pct_max"] = red_pct_max
+
+            # Meter: assign the already-read team meter to each slot in that team
+            if teamtag == "P1":
+                snap["meter"] = meter_p1
+            elif teamtag == "P2":
+                snap["meter"] = meter_p2
 
             # Inputs only for P1-C1
             if slotname == "P1-C1":
