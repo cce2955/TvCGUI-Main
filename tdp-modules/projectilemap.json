@@ -64,7 +64,8 @@
     { "move": "Roll Splash", "dmg": 1200 },
     { "move": "Puddle", "dmg": 640 },
     { "move": "Roll Splash (Puddle)", "dmg": 640 },
-    { "move": "Roll Splash - Charged", "dmg": 6136 }
+    { "move": "Roll Splash - Charged", "dmg": 6136 },
+    { "move": "Roll Splash - Charged", "dmg": 2080 }
   ],
 
   "SAKI": [

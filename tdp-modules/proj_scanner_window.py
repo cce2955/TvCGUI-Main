@@ -19,9 +19,19 @@ PROJ_MAP_FILE = "projectilemap.json"
 # Offsets relative to damage_addr for the three unknown fields after the FF block
 # +0x74 = start of FF block, fields follow after
 FIELD_OFFSETS = {
-    "f1": 0x80,   # first float after FF block (possibly speed)
-    "f2": 0x84,   # second float
-    "f3": 0x90,   # third float (another speed modifier?)
+    "speed": 0x80,  # confirmed speed (float)
+    "accel": 0x84,  # confirmed acceleration (float)
+    "arc":   0x90,  # confirmed arc/gravity (float)
+    # unknowns — numbered for investigation
+    "u01": 0x10,   # float: -3.0 on Roll Splash
+    "u02": 0x14,   # float:  9.0 on Roll Splash
+    "u03": 0x18,   # float:  1.0 on Roll Splash
+    "u04": 0x42,   # u16:   10  on Roll Splash
+    "u05": 0x48,   # u16: 1001  on Roll Splash
+    "u06": 0x52,   # u8:    30  on Roll Splash (puddle lifetime?)
+    "u07": 0x5A,   # u8:   215  on Roll Splash
+    "u08": 0x68,   # u16: 1024  on Roll Splash
+    "u09": 0x72,   # u16:   50  on Roll Splash
 }
 
 import re as _re
@@ -56,6 +66,26 @@ def _build_lookup(proj_map, active_keys):
             if dmg:
                 lookup.setdefault(dmg, []).append((key, entry.get("move", "?")))
     return lookup
+
+def _read_u16(addr: int) -> str:
+    if rbytes is None:
+        return "?"
+    try:
+        b = rbytes(addr, 2)
+        if b and len(b) == 2:
+            return str((b[0] << 8) | b[1])
+    except Exception:
+        pass
+    return "?"
+
+def _write_u16(addr: int, val: int) -> bool:
+    if wbytes is None:
+        return False
+    try:
+        return bool(wbytes(addr, bytes([(val >> 8) & 0xFF, val & 0xFF])))
+    except Exception as e:
+        print(f"[proj_scanner] write u16 failed: {e}")
+        return False
 
 def _read_f32(addr: int) -> str:
     """Read a big-endian float, return formatted string or '?'"""
@@ -139,12 +169,24 @@ def _run_scan(active_keys, progress_cb, done_cb):
                 if dmg and dmg in lookup:
                     a = addr + idx - 4
                     # read the extra fields now while we have context
-                    f1 = _read_f32(a + FIELD_OFFSETS["f1"])
-                    f2 = _read_f32(a + FIELD_OFFSETS["f2"])
-                    f3 = _read_f32(a + FIELD_OFFSETS["f3"])
-                    for key, mv in lookup[dmg]:
-                        hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg,
-                                     "speed": f1, "accel": f2, "arc": f3})
+                    if dmg and dmg in lookup:
+                        a = addr + idx - 4
+                        fields = {
+                            "speed": _read_f32(a + FIELD_OFFSETS["speed"]),
+                            "accel": _read_f32(a + FIELD_OFFSETS["accel"]),
+                            "arc":   _read_f32(a + FIELD_OFFSETS["arc"]),
+                            "u01":   _read_f32(a + FIELD_OFFSETS["u01"]),
+                            "u02":   _read_f32(a + FIELD_OFFSETS["u02"]),
+                            "u03":   _read_f32(a + FIELD_OFFSETS["u03"]),
+                            "u04":   _read_u16(a + FIELD_OFFSETS["u04"]),
+                            "u05":   _read_u16(a + FIELD_OFFSETS["u05"]),
+                            "u06":   _read_u16(a + FIELD_OFFSETS["u06"]),
+                            "u07":   _read_u16(a + FIELD_OFFSETS["u07"]),
+                            "u08":   _read_u16(a + FIELD_OFFSETS["u08"]),
+                            "u09":   _read_u16(a + FIELD_OFFSETS["u09"]),
+                        }
+                        for key, mv in lookup[dmg]:
+                            hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, **fields})
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
     done_cb(_apply_tiers(hits))
@@ -159,14 +201,24 @@ def _write_dmg(addr: int, new_dmg: int) -> bool:
         return False
 
 # column index -> (label, field_key, addr_offset, is_float)
+# (col_id, header, field_key, is_float)
 _COLS = [
-    ("address",  "address",  None,                    False),
-    ("char",     "char",     None,                    False),
-    ("move",     "move",     None,                    False),
-    ("dmg",      "dmg",      2,                       False),  # u16 at addr+2
-    ("speed",    "speed",    FIELD_OFFSETS["f1"],     True),
-    ("accel",    "accel",    FIELD_OFFSETS["f2"],     True),
-    ("arc",      "arc",      FIELD_OFFSETS["f3"],     True),
+    ("address", "Address",  None,    False),
+    ("char",    "Char",     None,    False),
+    ("move",    "Move",     None,    False),
+    ("dmg",     "Damage",   "dmg",   False),
+    ("speed",   "Speed",    "speed", True),
+    ("accel",   "Accel",    "accel", True),
+    ("arc",     "Arc",      "arc",   True),
+    ("u01",     "?? 01",    "u01",   True),
+    ("u02",     "?? 02",    "u02",   True),
+    ("u03",     "?? 03",    "u03",   True),
+    ("u04",     "?? 04",        "u04",   False),
+    ("u05",     "Spawn Ctrl",   "u05",   False),
+    ("u06",     "Hitbox Reach", "u06",   False),
+    ("u07",     "?? 07",        "u07",   False),
+    ("u08",     "?? 08",        "u08",   False),
+    ("u09",     "?? 09",        "u09",   False),
 ]
 _COL_IDS = [c[0] for c in _COLS]
 
@@ -203,11 +255,12 @@ class ProjScannerWindow:
         frame.pack(fill="both", expand=True, padx=8, pady=6)
 
         self._tree = ttk.Treeview(frame, columns=_COL_IDS, show="headings", height=24)
-        widths = {"address": 110, "char": 90, "move": 220, "dmg": 70,
-                  "speed": 90, "accel": 90, "arc": 90}
-        for col_id, label, _, _ in _COLS:
-            self._tree.heading(col_id, text=label)
-            self._tree.column(col_id, width=widths.get(col_id, 80), anchor="center")
+        widths = {"address": 110, "char": 80, "move": 180, "dmg": 65,
+                  "speed": 75, "accel": 75, "arc": 75}
+        for col_id, header, _, _ in _COLS:
+            self._tree.heading(col_id, text=header)
+            w = widths.get(col_id, 65)
+            self._tree.column(col_id, width=w, anchor="center")
         self._tree.column("move", anchor="w")
 
         vsb = ttk.Scrollbar(frame, orient="vertical", command=self._tree.yview)
@@ -219,7 +272,7 @@ class ProjScannerWindow:
         self._tree.bind("<Button-3>",        self._on_right_click)
 
         ttk.Label(self.root,
-                  text="Double-click Dmg/Speed/Accel/Arc to edit. Right-click to copy address.",
+                  text="Double-click Dmg/Speed/Accel/Arc/Lifetime to edit. Right-click to copy address.",
                   foreground="gray").pack(anchor="w", padx=8, pady=(0, 4))
 
     def _auto_scan(self):
@@ -253,6 +306,9 @@ class ProjScannerWindow:
                 iid = self._tree.insert("", "end", values=(
                     f"0x{h['addr']:08X}", h["key"], h["move"], h["dmg"],
                     h["speed"], h["accel"], h["arc"],
+                    h["u01"], h["u02"], h["u03"],
+                    h["u04"], h["u05"], h["u06"],
+                    h["u07"], h["u08"], h["u09"],
                 ))
                 self._addr_by_iid[iid] = h["addr"]
             self._scanning = False
@@ -272,21 +328,24 @@ class ProjScannerWindow:
         addr = self._addr_by_iid.get(iid)
         if addr is None: return
 
-        # also offer per-field addresses
         col_idx = self._col_index(event)
         field_addr = addr
-        field_label = "damage"
+        field_label = "base"
         if 0 <= col_idx < len(_COLS):
-            _, _, off, _ = _COLS[col_idx]
-            if off is not None:
-                field_addr = addr + off
-                field_label = _COLS[col_idx][0]
+            col_id, header, fkey, _ = _COLS[col_idx]
+            if fkey and fkey != "dmg" and fkey in FIELD_OFFSETS:
+                field_addr = addr + FIELD_OFFSETS[fkey]
+                field_label = header
+            elif fkey == "dmg":
+                field_addr = addr + 2
+                field_label = "dmg"
 
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=f"Copy base address (0x{addr:08X})",
                          command=lambda: self._copy(f"0x{addr:08X}"))
-        menu.add_command(label=f"Copy {field_label} address (0x{field_addr:08X})",
-                         command=lambda: self._copy(f"0x{field_addr:08X}"))
+        if field_addr != addr:
+            menu.add_command(label=f"Copy {field_label} address (0x{field_addr:08X})",
+                             command=lambda: self._copy(f"0x{field_addr:08X}"))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -302,18 +361,24 @@ class ProjScannerWindow:
         iid     = self._tree.identify_row(event.y)
         if not iid or col_idx < 0: return
 
-        col_id, label, off, is_float = _COLS[col_idx]
-        if col_id in ("address", "char", "move"): return  # not editable
+        col_id, header, fkey, is_float = _COLS[col_idx]
+        if col_id in ("address", "char", "move"): return
 
         addr = self._addr_by_iid.get(iid)
         if addr is None: return
-        write_addr = addr + off
+
+        if fkey == "dmg":
+            write_addr = addr + 2
+        elif fkey in FIELD_OFFSETS:
+            write_addr = addr + FIELD_OFFSETS[fkey]
+        else:
+            return
 
         vals    = self._tree.item(iid, "values")
         cur_val = vals[col_idx]
 
         new_val = simpledialog.askstring(
-            f"Edit {label}",
+            f"Edit {header}",
             f"Move: {vals[2]}\nAddress: 0x{write_addr:08X}\nCurrent: {cur_val}\n\nNew value:",
             parent=self.root, initialvalue=str(cur_val),
         )
@@ -340,7 +405,11 @@ class ProjScannerWindow:
             if not (0 <= ival <= 0xFFFF):
                 messagebox.showerror("Out of range", "Value must be 0–65535.", parent=self.root)
                 return
-            if _write_dmg(addr, ival):
+            if fkey == "dmg":
+                ok = _write_dmg(addr, ival)
+            else:
+                ok = _write_u16(write_addr, ival)
+            if ok:
                 self._tree.set(iid, col_id, ival)
                 self._status.set(f"Wrote {ival} to 0x{write_addr:08X}")
             else:
