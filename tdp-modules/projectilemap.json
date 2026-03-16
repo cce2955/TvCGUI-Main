@@ -47,12 +47,13 @@
     { "move": "C", "dmg": 1280 },
 
     { "move": "6B", "dmg": 720 },
+    { "move": "Machine Gun Sweep", "dmg": 480 },
     
     { "move": "Megabuster L2", "dmg": 3280 },
     { "move": "Megabuster L2", "dmg": 1093 },
     { "move": "Megabuster L2", "dmg": 1094 },
-    { "move": "Megabuster L3", "dmg": 7084 },
-    { "move": "Megabuster L4", "dmg": 10903 },
+    { "move": "Megabuster L3", "dmg": 1840 },
+    { "move": "Megabuster L4", "dmg": 2320 },
 
     { "move": "Machine Gun Sweep", "dmg": 9734 }
   ],

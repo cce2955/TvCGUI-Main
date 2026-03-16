@@ -6,6 +6,9 @@
     "Assist":     42736,
     "Shinkuu Hadouken": null
   },
+    "CHUN": {
+    "Kikoken": 2608
+  },
   "JUN": {
     "Yoyo":   46916,
     "Bingo":   3932,
@@ -14,5 +17,33 @@
   "KEN": {
     "Bird Run": 8344,
     "Science Ninpo: Phoenix": null
+  },
+    "SAKI": {
+    "C": 19980,
+    "Grenade": 5696
+  },
+      "MORRIGAN": {
+    "Soul Fist": 50212
+    
+  },
+     "Volnutt": {
+    "C": 1028,
+    "Megabuster L2": 1068,
+    "Machine Gun Sweep": 1056
+    
+  },
+       "Batsu": {
+    "Guts Bullet": 17128
+    
+  },
+         "Roll": {
+    "Roll Splash": 7856,
+    "Roll Splash - Charged": 7856
+    
+  },
+  "VJOE": {
+    "Voomerang": 21452,
+    "Shocking Pink": 3672
+    
   }
 }
