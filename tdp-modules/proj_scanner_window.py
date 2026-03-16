@@ -314,7 +314,7 @@ def _run_scan(active_keys, progress_cb, done_cb):
                         for key, mv in lookup[dmg]:
 
                             hits.append({
-                                "addr": a,
+                                "addr": base_addr + idx,
                                 "key": key,
                                 "move": mv,
                                 "dmg": dmg,
@@ -347,7 +347,7 @@ def _run_scan(active_keys, progress_cb, done_cb):
                     else:
 
                         hits.append({
-                            "addr": a,
+                            "addr": base_addr + idx,
                             "key": "?",
                             "move": "Actor",
                             "dmg": dmg,
@@ -376,7 +376,6 @@ def _run_scan(active_keys, progress_cb, done_cb):
                             "u08": "?",
                             "u09": "?",
                         })
-
                 # ------------------------------------------------
                 # NORMAL PROJECTILES
                 # ------------------------------------------------
