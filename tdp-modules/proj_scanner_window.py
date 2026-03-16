@@ -99,7 +99,58 @@ for _k, _sigs in CHAR_SIGS.items():
     _target = _SIG_PRE_TO_KEYS if CHAR_SIG_OFFSETS.get(_k) == "pre" else _SIG_C_TO_KEYS
     for _s in _sigs:
         _target.setdefault(_s, []).append(_k)
+_ACTOR_SIG = b"\x05\x2B"
 
+def _scan_actor_blocks(data, base_addr, hits, lookup):
+    pos = 0
+
+    while True:
+
+        idx = data.find(_ACTOR_SIG, pos)
+
+        if idx < 0:
+            break
+
+        pos = idx + 1
+
+        if idx + 6 >= len(data):
+            continue
+
+        dmg = (data[idx+3] << 16) | (data[idx+4] << 8) | data[idx+5]
+
+        if dmg < 500 or dmg > 20000:
+            continue
+
+        hits.append({
+            "addr": base_addr + idx,
+            "key": "?",
+            "move": "Unknown",
+            "dmg": dmg,
+            "fmt": "actor",
+            "radius": "?",
+            "speed": "?",
+            "accel": "?",
+            "aerial_kb_x": "?",
+            "arc": "?",
+            "arc2": "?",
+            "hitbox": "?",
+            "type": "?",
+            "id": "?",
+            "lifetime": "?",
+            "hb_size": "?",
+            "vel2_x": "?",
+            "vel2_y": "?",
+            "vel2_s": "?",
+            "u01": "?",
+            "u02": "?",
+            "u03": "?",
+            "u04": "?",
+            "u05": "?",
+            "u06": "?",
+            "u07": "?",
+            "u08": "?",
+            "u09": "?",
+        })
 
 def _keys_for_block(c_word: bytes, pre_word: bytes) -> list[str]:
     """Return candidate json keys given the c word and pre word."""
@@ -204,6 +255,7 @@ def _run_scan(active_keys, progress_cb, done_cb):
         try: data = rbytes(addr, sz)
         except: data = b""
         if data:
+            _scan_actor_blocks(data, addr, hits, lookup)
             pos = 0
             while True:
                 idx = data.find(_SUFFIX, pos)
@@ -252,24 +304,128 @@ def _run_scan(active_keys, progress_cb, done_cb):
                     "u08":   _read_u16(a + FIELD_OFFSETS["u08"]),
                     "u09":   _read_u16(a + FIELD_OFFSETS["u09"]),
                 }
-                if dmg in lookup:
+                # ------------------------------------------------
+                # ACTOR SUMMONS
+                # ------------------------------------------------
+                if fmt == "actor":
+
+                    if dmg in lookup:
+
+                        for key, mv in lookup[dmg]:
+
+                            hits.append({
+                                "addr": a,
+                                "key": key,
+                                "move": mv,
+                                "dmg": dmg,
+                                "fmt": "actor",
+                                "radius": "?",
+                                "speed": "?",
+                                "accel": "?",
+                                "aerial_kb_x": "?",
+                                "arc": "?",
+                                "arc2": "?",
+                                "hitbox": "?",
+                                "type": "?",
+                                "id": "?",
+                                "lifetime": "?",
+                                "hb_size": "?",
+                                "vel2_x": "?",
+                                "vel2_y": "?",
+                                "vel2_s": "?",
+                                "u01": "?",
+                                "u02": "?",
+                                "u03": "?",
+                                "u04": "?",
+                                "u05": "?",
+                                "u06": "?",
+                                "u07": "?",
+                                "u08": "?",
+                                "u09": "?",
+                            })
+
+                    else:
+
+                        hits.append({
+                            "addr": a,
+                            "key": "?",
+                            "move": "Actor",
+                            "dmg": dmg,
+                            "fmt": "actor",
+                            "radius": "?",
+                            "speed": "?",
+                            "accel": "?",
+                            "aerial_kb_x": "?",
+                            "arc": "?",
+                            "arc2": "?",
+                            "hitbox": "?",
+                            "type": "?",
+                            "id": "?",
+                            "lifetime": "?",
+                            "hb_size": "?",
+                            "vel2_x": "?",
+                            "vel2_y": "?",
+                            "vel2_s": "?",
+                            "u01": "?",
+                            "u02": "?",
+                            "u03": "?",
+                            "u04": "?",
+                            "u05": "?",
+                            "u06": "?",
+                            "u07": "?",
+                            "u08": "?",
+                            "u09": "?",
+                        })
+
+                # ------------------------------------------------
+                # NORMAL PROJECTILES
+                # ------------------------------------------------
+                elif dmg in lookup:
+
                     matches = lookup[dmg]
+
                     if len({k for k,_ in matches}) > 1:
+
                         proj_id = fields.get("id")
+
                         if proj_id is not None:
-                            try: proj_id_int = int(proj_id)
-                            except: proj_id_int = None
+                            try:
+                                proj_id_int = int(proj_id)
+                            except:
+                                proj_id_int = None
+
                             if proj_id_int is not None:
-                                id_matches = [(k, mv) for k, mv in matches
-                                              if id_map.get(k, {}).get(mv) == proj_id_int]
+                                id_matches = [
+                                    (k,mv) for k,mv in matches
+                                    if id_map.get(k,{}).get(mv) == proj_id_int
+                                ]
+
                                 if id_matches:
                                     matches = id_matches
-                    for key, mv in matches:
-                        hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, "fmt": fmt, **fields})
-                elif dmg not in all_known_dmgs and dmg >= 500:
-                    label = sig_keys[0] if len(sig_keys) == 1 else "?"
-                    hits.append({"addr": a, "key": label, "move": "Unknown", "dmg": dmg, "fmt": fmt, **fields})
 
+                    for key, mv in matches:
+                        hits.append({
+                            "addr": a,
+                            "key": key,
+                            "move": mv,
+                            "dmg": dmg,
+                            "fmt": fmt,
+                            **fields
+                        })
+
+                # ------------------------------------------------
+                # UNKNOWN
+                # ------------------------------------------------
+                elif dmg >= 500:
+
+                    hits.append({
+                        "addr": a,
+                        "key": "?",
+                        "move": "Unknown",
+                        "dmg": dmg,
+                        "fmt": fmt,
+                        **fields
+                    })
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
 
