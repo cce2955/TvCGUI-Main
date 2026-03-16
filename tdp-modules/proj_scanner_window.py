@@ -102,6 +102,7 @@ for _k, _sigs in CHAR_SIGS.items():
 _ACTOR_SIG = b"\x05\x2B"
 
 def _scan_actor_blocks(data, base_addr, hits, lookup):
+
     pos = 0
 
     while True:
@@ -121,36 +122,81 @@ def _scan_actor_blocks(data, base_addr, hits, lookup):
         if dmg < 500 or dmg > 20000:
             continue
 
-        hits.append({
-            "addr": base_addr + idx,
-            "key": "?",
-            "move": "Unknown",
-            "dmg": dmg,
-            "fmt": "actor",
-            "radius": "?",
-            "speed": "?",
-            "accel": "?",
-            "aerial_kb_x": "?",
-            "arc": "?",
-            "arc2": "?",
-            "hitbox": "?",
-            "type": "?",
-            "id": "?",
-            "lifetime": "?",
-            "hb_size": "?",
-            "vel2_x": "?",
-            "vel2_y": "?",
-            "vel2_s": "?",
-            "u01": "?",
-            "u02": "?",
-            "u03": "?",
-            "u04": "?",
-            "u05": "?",
-            "u06": "?",
-            "u07": "?",
-            "u08": "?",
-            "u09": "?",
-        })
+        addr = base_addr + idx
+
+        # --------------------------------
+        # match actor damage to damage map
+        # --------------------------------
+
+        if dmg in lookup:
+
+            for key, mv in lookup[dmg]:
+
+                hits.append({
+                    "addr": addr,
+                    "key": key,
+                    "move": mv,
+                    "dmg": dmg,
+                    "fmt": "actor",
+
+                    "radius": "?",
+                    "speed": "?",
+                    "accel": "?",
+                    "aerial_kb_x": "?",
+                    "arc": "?",
+                    "arc2": "?",
+                    "hitbox": "?",
+                    "type": "?",
+                    "id": "?",
+                    "lifetime": "?",
+                    "hb_size": "?",
+                    "vel2_x": "?",
+                    "vel2_y": "?",
+                    "vel2_s": "?",
+                    "u01": "?",
+                    "u02": "?",
+                    "u03": "?",
+                    "u04": "?",
+                    "u05": "?",
+                    "u06": "?",
+                    "u07": "?",
+                    "u08": "?",
+                    "u09": "?",
+                })
+
+        else:
+
+            hits.append({
+                "addr": addr,
+                "key": "?",
+                "move": "Actor",
+                "dmg": dmg,
+                "fmt": "actor",
+
+                "radius": "?",
+                "speed": "?",
+                "accel": "?",
+                "aerial_kb_x": "?",
+                "arc": "?",
+                "arc2": "?",
+                "hitbox": "?",
+                "type": "?",
+                "id": "?",
+                "lifetime": "?",
+                "hb_size": "?",
+                "vel2_x": "?",
+                "vel2_y": "?",
+                "vel2_s": "?",
+                "u01": "?",
+                "u02": "?",
+                "u03": "?",
+                "u04": "?",
+                "u05": "?",
+                "u06": "?",
+                "u07": "?",
+                "u08": "?",
+                "u09": "?",
+            })
 
 def _keys_for_block(c_word: bytes, pre_word: bytes) -> list[str]:
     """Return candidate json keys given the c word and pre word."""
@@ -314,7 +360,7 @@ def _run_scan(active_keys, progress_cb, done_cb):
                         for key, mv in lookup[dmg]:
 
                             hits.append({
-                                "addr": base_addr + idx,
+                                "addr": a,
                                 "key": key,
                                 "move": mv,
                                 "dmg": dmg,
@@ -347,7 +393,7 @@ def _run_scan(active_keys, progress_cb, done_cb):
                     else:
 
                         hits.append({
-                            "addr": base_addr + idx,
+                            "addr": a,
                             "key": "?",
                             "move": "Actor",
                             "dmg": dmg,
@@ -464,7 +510,19 @@ def _write_dmg(addr: int, new_dmg: int) -> bool:
     except Exception as e:
         print(f"[proj_scanner] write dmg failed: {e}")
         return False
-
+def _write_actor_dmg(addr: int, new_dmg: int) -> bool:
+    if wbytes is None:
+        return False
+    try:
+        # actor format is: 05 2B ?? 00 HI LO
+        # preserve the leading 00, only write HI/LO
+        return bool(wbytes(addr + 4, bytes([
+            (new_dmg >> 8) & 0xFF,
+            new_dmg & 0xFF
+        ])))
+    except Exception as e:
+        print(f"[proj_scanner] write actor dmg failed: {e}")
+        return False
 # column index -> (label, field_key, addr_offset, is_float)
 # (col_id, header, field_key, is_float)
 _COLS = [
@@ -657,9 +715,13 @@ class ProjScannerWindow:
                 field_addr = addr + FIELD_OFFSETS[fkey]
                 field_label = header
             elif fkey == "dmg":
-                field_addr = addr + 2
+                vals = self._tree.item(iid, "values")
+                fmt_val = str(vals[15]) if len(vals) > 15 else ""
+                if fmt_val == "actor":
+                    field_addr = addr + 4
+                else:
+                    field_addr = addr + 2
                 field_label = "dmg"
-
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=f"Copy base address (0x{addr:08X})",
                          command=lambda: self._copy(f"0x{addr:08X}"))
@@ -687,8 +749,14 @@ class ProjScannerWindow:
         addr = self._addr_by_iid.get(iid)
         if addr is None: return
 
+        vals = self._tree.item(iid, "values")
+        fmt_val = str(vals[15]) if len(vals) > 15 else ""
+
         if fkey == "dmg":
-            write_addr = addr + 2
+            if fmt_val == "actor":
+                write_addr = addr + 4
+            else:
+                write_addr = addr + 2
         elif fkey in FIELD_OFFSETS:
             write_addr = addr + FIELD_OFFSETS[fkey]
         else:
@@ -726,7 +794,10 @@ class ProjScannerWindow:
                 messagebox.showerror("Out of range", "Value must be 0–65535.", parent=self.root)
                 return
             if fkey == "dmg":
-                ok = _write_dmg(addr, ival)
+                if fmt_val == "actor":
+                    ok = _write_actor_dmg(addr, ival)
+                else:
+                    ok = _write_dmg(addr, ival)
             else:
                 ok = _write_u16(write_addr, ival)
             if ok:
