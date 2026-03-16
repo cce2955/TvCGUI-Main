@@ -17,6 +17,7 @@
 
   "JUN": [
     { "move": "Yoyo", "dmg": 1200 },
+    { "move": "Bingo", "dmg": 2800 },
     { "move": "Talon Burst", "dmg": 400 }
   ],
 

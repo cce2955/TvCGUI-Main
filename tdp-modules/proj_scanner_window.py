@@ -19,6 +19,7 @@ SCAN_START = 0x90000000
 SCAN_END   = 0x94000000
 SCAN_BLOCK = 0x40000
 PROJ_MAP_FILE = "projectilemap.json"
+PROJ_IDS_FILE = "projectile_ids.json"
 
 FIELD_OFFSETS = {
     # Hitbox radius for projectile (exponential effect when increased)
@@ -67,9 +68,63 @@ _NAME_TO_KEY = {
     "Gold Lightan": "LIGHTAN", "PTX-40A": "PTX",
 }
 
+# Per-character byte signatures found at hit_addr - 8 (4 bytes).
+# Each entry: json_key -> list of known 4-byte signatures at that offset.
+# Extend as more characters are confirmed.
+CHAR_SIGS = {
+    "KEN": [
+        b"\x00\x00\x00\x09",  # hit-8: unique to Ken
+    ],
+    "RYU": [
+        b"\x00\x04\x01\x02",  # c word: 00 04 01 02
+    ],
+    "JUN": [
+        b"\x00\x04\x00\x82",  # c word: 00 04 00 82 (Yoyo template)
+        b"\x00\x00\x01\x0C",  # hit-8 for Bingo script blocks
+    ],
+}
+
+# Sig source: "c" = 4 bytes at hit-4 (already parsed as c[])
+#             "pre" = 4 bytes at hit-8
+CHAR_SIG_OFFSETS = {
+    "KEN": "pre",   # Ken's sig is at hit-8
+    "RYU": "c",     # Ryu's sig is the c word itself
+    "JUN": "c",     # Jun's sig is the c word itself
+}
+
+_SIG_C_TO_KEYS: dict[bytes, list[str]] = {}    # c word (hit-4)
+_SIG_PRE_TO_KEYS: dict[bytes, list[str]] = {}  # pre word (hit-8)
+
+for _k, _sigs in CHAR_SIGS.items():
+    _target = _SIG_PRE_TO_KEYS if CHAR_SIG_OFFSETS.get(_k) == "pre" else _SIG_C_TO_KEYS
+    for _s in _sigs:
+        _target.setdefault(_s, []).append(_k)
+
+
+def _keys_for_block(c_word: bytes, pre_word: bytes) -> list[str]:
+    """Return candidate json keys given the c word and pre word."""
+    keys = set()
+    keys.update(_SIG_C_TO_KEYS.get(bytes(c_word), []))
+    keys.update(_SIG_PRE_TO_KEYS.get(bytes(pre_word), []))
+    return list(keys)
+    try:
+        with open(PROJ_MAP_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[proj_scanner] {e}")
+        return {}
+
 def _load_map():
     try:
         with open(PROJ_MAP_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"[proj_scanner] {e}")
+        return {}
+
+def _load_ids():
+    try:
+        with open(PROJ_IDS_FILE, encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         print(f"[proj_scanner] {e}")
@@ -132,6 +187,7 @@ def _run_scan(active_keys, progress_cb, done_cb):
     if rbytes is None:
         done_cb([]); return
     proj_map = _load_map()
+    id_map   = _load_ids()
     lookup   = _build_lookup(proj_map, active_keys)
     # build a set of ALL known damages across all chars for unknown detection
     all_known_dmgs = set()
@@ -167,6 +223,10 @@ def _run_scan(active_keys, progress_cb, done_cb):
                 else:
                     fmt = f"script(0x{c[0]:02X})"
                 a = addr + idx - 4
+                # Read 4 bytes before c word for pre-signature
+                pre8 = data[idx-8:idx-4] if idx >= 8 else b''
+                sig_keys = _keys_for_block(c, pre8)
+
                 fields = {
                     "radius":   _read_f32(a + FIELD_OFFSETS["radius"]),
                     "aerial_kb_x": _read_f32(a + FIELD_OFFSETS["aerial_kb_x"]),
@@ -194,10 +254,21 @@ def _run_scan(active_keys, progress_cb, done_cb):
                 }
                 if dmg in lookup:
                     matches = lookup[dmg]
+                    if len({k for k,_ in matches}) > 1:
+                        proj_id = fields.get("id")
+                        if proj_id is not None:
+                            try: proj_id_int = int(proj_id)
+                            except: proj_id_int = None
+                            if proj_id_int is not None:
+                                id_matches = [(k, mv) for k, mv in matches
+                                              if id_map.get(k, {}).get(mv) == proj_id_int]
+                                if id_matches:
+                                    matches = id_matches
                     for key, mv in matches:
                         hits.append({"addr": a, "key": key, "move": mv, "dmg": dmg, "fmt": fmt, **fields})
                 elif dmg not in all_known_dmgs and dmg >= 500:
-                    hits.append({"addr": a, "key": "?", "move": "Unknown", "dmg": dmg, "fmt": fmt, **fields})
+                    label = sig_keys[0] if len(sig_keys) == 1 else "?"
+                    hits.append({"addr": a, "key": label, "move": "Unknown", "dmg": dmg, "fmt": fmt, **fields})
 
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
