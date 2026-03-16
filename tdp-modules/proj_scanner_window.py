@@ -23,14 +23,16 @@ PROJ_MAP_FILE = "projectilemap.json"
 FIELD_OFFSETS = {
     # Hitbox radius for projectile (exponential effect when increased)
     "radius":   0x02C,  # f32 — projectile hitbox radius (was vel_s)
+    # speed2 = universal speed field, present in ALL block types
+    "aerial_kb_x": 0x024,  # f32 — aerial knockback X
     # Misc u16 fields
     "c042":     0x042,  # u16 — always 10
     "type":     0x050,  # u8  — 3=linear, 4=physics
     "id":       0x052,  # u16 — projectile type ID
     "lifetime": 0x05A,  # u8  — active frames / lifetime
     "hb_size":  0x06E,  # u16 — hitbox size
-    # Speed block
-    "speed":    0x080,  # f32 — speed scalar
+    # Speed block (template format only)
+    "speed":    0x080,  # f32 — speed scalar (template blocks)
     "accel":    0x084,  # f32 — always 1.0
     "hitbox":   0x08C,  # f32 — hitbox radius (100.0 standard)
     "arc":      0x090,  # f32 — arc/gravity (Roll only)
@@ -167,6 +169,7 @@ def _run_scan(active_keys, progress_cb, done_cb):
                 a = addr + idx - 4
                 fields = {
                     "radius":   _read_f32(a + FIELD_OFFSETS["radius"]),
+                    "aerial_kb_x": _read_f32(a + FIELD_OFFSETS["aerial_kb_x"]),
                     "type":     _read_u16(a + FIELD_OFFSETS["type"]),
                     "id":       _read_u16(a + FIELD_OFFSETS["id"]),
                     "lifetime": _read_u16(a + FIELD_OFFSETS["lifetime"]),
@@ -239,33 +242,34 @@ def _write_dmg(addr: int, new_dmg: int) -> bool:
 # column index -> (label, field_key, addr_offset, is_float)
 # (col_id, header, field_key, is_float)
 _COLS = [
-    ("address",  "Address",   None,       False),
-    ("char",     "Char",      None,       False),
-    ("move",     "Move",      None,       False),
-    ("dmg",      "Damage",    "dmg",      False),
-    ("fmt",      "Fmt",       None,       False),
-    ("radius",   "Radius",    "radius",   True),
-    ("type",     "Type",      "type",     False),
-    ("id",       "ID",        "id",       False),
-    ("lifetime", "Lifetime",  "lifetime", False),
-    ("hb_size",  "HB Size",   "hb_size",  False),
-    ("speed",    "Speed",     "speed",    True),
-    ("accel",    "Accel",     "accel",    True),
-    ("hitbox",   "Hitbox",    "hitbox",   True),
-    ("arc",      "Arc",       "arc",      True),
-    ("arc2",     "Arc2",      "arc2",     True),
-    ("vel2_x",   "Vel2 X",    "vel2_x",   True),
-    ("vel2_y",   "Vel2 Y",    "vel2_y",   True),
-    ("vel2_s",   "Vel2 S",    "vel2_s",   True),
-    ("u01",      "?? 01",     "u01",      True),
-    ("u02",      "?? 02",     "u02",      True),
-    ("u03",      "?? 03",     "u03",      True),
-    ("u04",      "?? 04",     "u04",      False),
-    ("u05",      "?? 05",     "u05",      False),
-    ("u06",      "?? 06",     "u06",      False),
-    ("u07",      "?? 07",     "u07",      False),
-    ("u08",      "?? 08",     "u08",      False),
-    ("u09",      "?? 09",     "u09",      False),
+    ("address",      "Address",   None,          False),
+    ("char",         "Char",      None,          False),
+    ("move",         "Move",      None,          False),
+    ("dmg",          "Damage",    "dmg",         False),
+    ("radius",       "Radius",    "radius",      True),
+    ("speed",        "Speed",     "speed",       True),
+    ("accel",        "Accel",     "accel",       True),
+    ("aerial_kb_x",  "Air KB X",  "aerial_kb_x", True),
+    ("arc",          "Arc",       "arc",         True),
+    ("arc2",         "Arc2",      "arc2",        True),
+    ("hitbox",       "Hitbox",    "hitbox",      True),
+    ("type",         "Type",      "type",        False),
+    ("id",           "ID",        "id",          False),
+    ("lifetime",     "Lifetime",  "lifetime",    False),
+    ("hb_size",      "HB Size",   "hb_size",     False),
+    ("fmt",          "Fmt",       None,          False),
+    ("vel2_x",       "Vel2 X",    "vel2_x",      True),
+    ("vel2_y",       "Vel2 Y",    "vel2_y",      True),
+    ("vel2_s",       "Vel2 S",    "vel2_s",      True),
+    ("u01",          "?? 01",     "u01",         True),
+    ("u02",          "?? 02",     "u02",         True),
+    ("u03",          "?? 03",     "u03",         True),
+    ("u04",          "?? 04",     "u04",         False),
+    ("u05",          "?? 05",     "u05",         False),
+    ("u06",          "?? 06",     "u06",         False),
+    ("u07",          "?? 07",     "u07",         False),
+    ("u08",          "?? 08",     "u08",         False),
+    ("u09",          "?? 09",     "u09",         False),
 ]
 _COL_IDS = [c[0] for c in _COLS]
 
@@ -386,11 +390,15 @@ class ProjScannerWindow:
     def _on_done(self, hits):
         def _f():
             for h in hits:
+                _TYPE_LABELS = {"3": "3:Linear", "4": "4:Physics", 3: "3:Linear", 4: "4:Physics"}
+                type_val = h["type"]
+                type_str = _TYPE_LABELS.get(type_val, str(type_val) if type_val is not None else "")
                 iid = self._tree.insert("", "end", values=(
-                    f"0x{h['addr']:08X}", h["key"], h["move"], h["dmg"], h.get("fmt",""),
-                    h["radius"],
-                    h["type"], h["id"], h["lifetime"], h["hb_size"],
-                    h["speed"], h["accel"], h["hitbox"], h["arc"], h["arc2"],
+                    f"0x{h['addr']:08X}", h["key"], h["move"], h["dmg"],
+                    h["radius"], h["speed"], h["accel"], h["aerial_kb_x"],
+                    h["arc"], h["arc2"], h["hitbox"],
+                    type_str, h["id"], h["lifetime"], h["hb_size"],
+                    h.get("fmt",""),
                     h["vel2_x"], h["vel2_y"], h["vel2_s"],
                     h["u01"], h["u02"], h["u03"],
                     h["u04"], h["u05"], h["u06"],

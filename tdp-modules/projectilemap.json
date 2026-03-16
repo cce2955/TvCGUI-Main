@@ -64,13 +64,16 @@
     { "move": "Roll Splash", "dmg": 1200 },
     { "move": "Puddle", "dmg": 640 },
     { "move": "Roll Splash (Puddle)", "dmg": 640 },
+    { "move": "Healing orb", "dmg": 800 },
     { "move": "Roll Splash - Charged", "dmg": 6136 },
     { "move": "Roll Splash - Charged", "dmg": 2080 }
   ],
 
   "SAKI": [
     { "move": "C", "dmg": 2800 },
-    { "move": "Grenade", "dmg": 3600 },
+    { "move": "Grenade hit", "dmg": 400 },
+    { "move": "Laser", "dmg": 560 },
+    { "move": "Grenade", "dmg": 3200 },
     { "move": "Super", "dmg": 1180},
     { "move": "Shell", "dmg": 10000},
     { "move": "Buck", "dmg": 960},
