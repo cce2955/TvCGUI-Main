@@ -45,5 +45,38 @@
     "Voomerang": 21452,
     "Shocking Pink": 3672
     
+  },
+    "ZERO": {
+    "Blaster 1": 28368,
+    "Blaster 2": 28408,
+    "Blaster 3": 28448,
+    "Hadengeki": 28528,
+    "Hadengeki H": 1680
+    
+  },
+      "YATTER2": {
+    "YatterSwing": 13560,
+    "YatterShield": 150
+    
+  },
+  "BLADE": {
+    "Baselard": 55772,
+    "Baselard Grab": 55772,
+    "Falchion": 55812
+  },
+    "IPPATSMAN": {
+    "Rainball": 14944,
+    "Rainball2?": 15024
+    
+  },
+    "Doronjo": {
+    "Taunt": 62452,
+     "Rock Abandon": 62492,
+     "Rock Abandon2?": 10132
+    
   }
+    
+    
+    
+  
 }

@@ -97,7 +97,7 @@
 
     { "move": "Blaster 1", "dmg": 1080 },
     { "move": "Blaster 2", "dmg": 3000 },
-    { "move": "Blaster 3", "dmg": 4427 }
+    { "move": "Blaster 3", "dmg": 1150 }
   ],
  "CASSHAN": [
     { "move": "Boulder Chop", "dmg": 4004 },
@@ -112,11 +112,11 @@
 
   "DORONJO": [
     { "move": "Taunt", "dmg": 2000 },
-    { "move": "j.Taunt", "dmg": 2000 },
     { "move": "Assist (Kiss)", "dmg": 2000 },
 
-    { "move": "Aizuwakamatzu Punch", "dmg": 4838 },
+    { "move": "Aizuwakamatzu Punch", "dmg": 880 },
     { "move": "Piglet Flare-up", "dmg": 3776 },
+    
 
     { "move": "Rock Abandon (Ground)", "dmg": 4480 },
     { "move": "Rock Abandon (Air)", "dmg": 4480 },
@@ -176,8 +176,8 @@
   ],
     "TEKKAMAN": [
     { "move": "Tek Lancer", "dmg": 3220 },
-    { "move": "Tek Lancer", "dmg": 4770 },
-    { "move": "Tek Lancer", "dmg": 6768 },
+    { "move": "Tek Lancer", "dmg": 1620 },
+    { "move": "Tek Lancer", "dmg": 1440 },
 
     { "move": "Voltekka (Ground)", "dmg": 16696 },
     { "move": "Voltekka (Air)", "dmg": 17115 },
@@ -188,8 +188,9 @@
     "BLADE": [
     { "move": "Baselard", "dmg": 2300 },
     { "move": "Baselard", "dmg": 4380 },
+    { "move": "Baselard Grab", "dmg": 500},
 
-    { "move": "Falchion", "dmg": 3850 },
+    { "move": "Falchion", "dmg": 1000 },
     { "move": "Falchion", "dmg": 5498 },
     { "move": "Falchion", "dmg": 6949 },
 
@@ -218,6 +219,7 @@
     { "move": "YatterShield", "dmg": 300 },
 
     { "move": "YatterStep", "dmg": 2220 },
+    { "move": "YatterSwing", "dmg": 1520 },
 
     { "move": "Yattersplash", "dmg": 2600 },
     { "move": "Yattersplash", "dmg": 3200 },
