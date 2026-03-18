@@ -162,8 +162,21 @@ def _scan_actor_blocks(data, base_addr, hits, lookup):
                     "u07": "?",
                     "u08": "?",
                     "u09": "?",
-                })
 
+                    # NEW SCRIPT DEBUG FIELDS
+                    "preA": _read_u8(addr - 2),
+                    "preB": _read_u8(addr - 1),
+
+                    "opcode": _read_u16_hex(addr),
+
+                    "param1": _read_u16_hex(addr + 2),
+                    "param2": _read_u16_hex(addr + 4),
+                    "param3": _read_u16_hex(addr + 6),
+
+                    "f32_1": _read_f32(addr + 8),
+                    "f32_2": _read_f32(addr + 12),
+                    "f32_3": _read_f32(addr + 16),
+                })
         else:
 
             hits.append({
@@ -237,7 +250,29 @@ def _build_lookup(proj_map, active_keys):
             if dmg:
                 lookup.setdefault(dmg, []).append((key, entry.get("move", "?")))
     return lookup
+def _read_u8(addr: int) -> str:
+    if rbytes is None:
+        return "?"
+    try:
+        b = rbytes(addr, 1)
+        if b and len(b) == 1:
+            return str(b[0])
+    except Exception:
+        pass
+    return "?"
 
+
+def _read_u16_hex(addr: int) -> str:
+    if rbytes is None:
+        return "?"
+    try:
+        b = rbytes(addr, 2)
+        if b and len(b) == 2:
+            v = (b[0] << 8) | b[1]
+            return f"0x{v:04X}"
+    except Exception:
+        pass
+    return "?"
 def _read_u16(addr: int) -> str:
     if rbytes is None:
         return "?"
@@ -542,6 +577,15 @@ _COLS = [
     ("lifetime",     "Lifetime",  "lifetime",    False),
     ("hb_size",      "HB Size",   "hb_size",     False),
     ("fmt",          "Fmt",       None,          False),
+    ("preA", "PreA", None, False),
+    ("preB", "PreB", None, False),
+    ("opcode", "Opcode", None, False),
+    ("param1", "Param1", None, False),
+    ("param2", "Param2", None, False),
+    ("param3", "Param3", None, False),
+    ("f32_1", "F32+8", None, True),
+    ("f32_2", "F32+C", None, True),
+    ("f32_3", "F32+10", None, True),
     ("vel2_x",       "Vel2 X",    "vel2_x",      True),
     ("vel2_y",       "Vel2 Y",    "vel2_y",      True),
     ("vel2_s",       "Vel2 S",    "vel2_s",      True),
@@ -683,6 +727,15 @@ class ProjScannerWindow:
                     h["arc"], h["arc2"], h["hitbox"],
                     type_str, h["id"], h["lifetime"], h["hb_size"],
                     h.get("fmt",""),
+                    h.get("preA","?"),
+                    h.get("preB","?"),
+                    h.get("opcode","?"),
+                    h.get("param1","?"),
+                    h.get("param2","?"),
+                    h.get("param3","?"),
+                    h.get("f32_1","?"),
+                    h.get("f32_2","?"),
+                    h.get("f32_3","?"),
                     h["vel2_x"], h["vel2_y"], h["vel2_s"],
                     h["u01"], h["u02"], h["u03"],
                     h["u04"], h["u05"], h["u06"],
