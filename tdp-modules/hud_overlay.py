@@ -21,7 +21,7 @@ import os
 import sys
 import time
 from typing import Optional
-
+import math
 import pygame
 import win32con
 import win32gui
@@ -127,6 +127,7 @@ def _get_slot_anim(slot_label: str):
         "prev_hp": None,
         "last_hit_damage": 0,
         "damage_timer": 0,
+        "damage_history": [], 
     })
     return s
 def _draw_meter_pips_animated(screen, x, y,
@@ -389,10 +390,17 @@ def _draw_slot_row(screen: pygame.Surface,
     if prev_hp is not None and hp_cur < prev_hp:
         dmg = prev_hp - hp_cur
 
-        # ignore tiny noise / rounding
         if dmg > 1:
             slot_anim["last_hit_damage"] = dmg
-            slot_anim["damage_timer"] = 45   # ~0.75 sec
+            slot_anim["damage_timer"] = 45
+
+            # 🔥 push into history
+            hist = slot_anim["damage_history"]
+            hist.insert(0, int(dmg))
+
+            # keep only last 5 hits
+            if len(hist) > 2:
+                hist.pop()
 
     slot_anim["prev_hp"] = hp_cur
 
@@ -512,7 +520,7 @@ def _draw_slot_row(screen: pygame.Surface,
     baroque_badge_w = 0
     if show_baroque_badge:
         bq_text = f"◆ {display_pct:.1f}%"
-        bq_surf = font_sm.render(bq_text, True, COL_BAROQUE_ON)
+        bq_surf = font_sm.render(bq_text, True, (255, 255, 255))
         baroque_badge_w = bq_surf.get_width() + int(10 * scale)
 
     total_w = (
@@ -600,26 +608,94 @@ def _draw_slot_row(screen: pygame.Surface,
     cx += move_surf.get_width() + sep
         # Damage display
     if show_damage:
-        dmg_text = f"-{int(damage_val)}"
-        dmg_surf = font_sm.render(dmg_text, True, (255, 80, 80))
+        hist = slot_anim["damage_history"]
 
-        screen.blit(
-            dmg_surf,
-            (cx, mid_y - dmg_surf.get_height() // 2)
-        )
+        dx = cx
+        max_w = int(140 * scale)
+        used = 0
+        gap = int(4 * scale)
 
-        cx += dmg_surf.get_width() + sep
+        for i, dmg in enumerate(hist):
+            is_newest = (i == 0)
+
+            
+            if is_newest:
+                col = (255, 80, 80)   # bright red
+            else:
+                col = (180, 70, 70)   # dimmer
+
+            dmg_text = f"-{dmg}"
+
+            
+            dmg_font = font if is_newest else font_sm
+            dmg_surf = dmg_font.render(dmg_text, True, col)
+
+            w = dmg_surf.get_width()
+            h = dmg_surf.get_height()
+
+            
+            pad_x = int(4 * scale)
+            pad_y = int(2 * scale)
+
+            bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
+
+            if is_newest:
+                bg.fill((40, 0, 0, 200))   
+            else:
+                bg.fill((30, 0, 0, 140))   
+
+            # stop if overflow
+            if used + w > max_w:
+                break
+
+            screen.blit(bg, (dx - pad_x, mid_y - h//2 - pad_y))
+            screen.blit(dmg_surf, (dx, mid_y - h // 2))
+
+            dx += w + gap
+            used += w + gap
+            w = dmg_surf.get_width()
+
+            if used + w > max_w:
+                break
+
+            screen.blit(
+                dmg_surf,
+                (dx, mid_y - dmg_surf.get_height() // 2)
+            )
+
+            dx += w + gap
+            used += w + gap
+
+        cx = dx + sep
 
     # Baroque badge (ready OR frozen)
     if show_baroque_badge:
         bq_text = f"◆ {display_pct:.1f}%"
-        bq_surf = font_sm.render(bq_text, True, COL_BAROQUE_ON)
+        # render white base
+        base_text = font_sm.render(bq_text, True, (255, 255, 255))
+
+        # rainbow overlay surface
+        rainbow = pygame.Surface(base_text.get_size(), pygame.SRCALPHA)
+
+        t = time.time() * 0.4  # speed
+
+        for x in range(base_text.get_width()):
+            phase = (x / base_text.get_width() + t) % 1.0
+
+            r = int(200 + 55 * math.sin(2 * math.pi * phase))
+            g = int(160 + 55 * math.sin(2 * math.pi * (phase + 0.33)))
+            b = int(255 + 0  * math.sin(2 * math.pi * (phase + 0.66)))
+            pygame.draw.line(rainbow, (r, g, b, 255), (x, 0), (x, base_text.get_height()))
+
+        # multiply gradient onto text
+        base_text.blit(rainbow, (0, 0), special_flags=pygame.BLEND_MULT)
+
+        bq_surf = base_text
         bq_w    = bq_surf.get_width() + int(8 * scale)
         bq_h    = row_h - int(6 * scale)
 
         bq_pill = pygame.Surface((bq_w, bq_h), pygame.SRCALPHA)
-        bq_pill.fill((*COL_BAROQUE_BG, 220))
-
+        bq_pill.fill((25, 25, 25, 200))     
         screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
         screen.blit(
             bq_surf,
