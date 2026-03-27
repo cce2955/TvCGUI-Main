@@ -124,6 +124,9 @@ def _get_slot_anim(slot_label: str):
         "baroque_freeze_timer": 0,
         "baroque_prev_ready": False,
         "baroque_prev_cancel": False,
+        "prev_hp": None,
+        "last_hit_damage": 0,
+        "damage_timer": 0,
     })
     return s
 def _draw_meter_pips_animated(screen, x, y,
@@ -380,6 +383,26 @@ def _draw_slot_row(screen: pygame.Surface,
     hp_cur    = snap.get("cur") or 0
     hp_max    = snap.get("max") or 1
     is_dead   = (hp_cur <= 0)
+        # --- Damage tracking ---
+    prev_hp = slot_anim["prev_hp"]
+
+    if prev_hp is not None and hp_cur < prev_hp:
+        dmg = prev_hp - hp_cur
+
+        # ignore tiny noise / rounding
+        if dmg > 1:
+            slot_anim["last_hit_damage"] = dmg
+            slot_anim["damage_timer"] = 45   # ~0.75 sec
+
+    slot_anim["prev_hp"] = hp_cur
+
+    if slot_anim["damage_timer"] > 0:
+        slot_anim["damage_timer"] -= 1
+        show_damage = True
+        damage_val = slot_anim["last_hit_damage"]
+    else:
+        show_damage = False
+        damage_val = 0
 
     # Dim everything when dead
     if is_dead:
@@ -575,6 +598,17 @@ def _draw_slot_row(screen: pygame.Surface,
     # Move label
     screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
     cx += move_surf.get_width() + sep
+        # Damage display
+    if show_damage:
+        dmg_text = f"-{int(damage_val)}"
+        dmg_surf = font_sm.render(dmg_text, True, (255, 80, 80))
+
+        screen.blit(
+            dmg_surf,
+            (cx, mid_y - dmg_surf.get_height() // 2)
+        )
+
+        cx += dmg_surf.get_width() + sep
 
     # Baroque badge (ready OR frozen)
     if show_baroque_badge:
