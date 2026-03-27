@@ -521,9 +521,20 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         pygame.draw.rect(pill, (*slot_col, 120), (0, 0, total_w, row_h), 1)
 
         # scanning line (meter-influenced speed)
+        pygame.draw.rect(pill, (*slot_col, 120), (0, 0, total_w, row_h), 1)
+
+        # scanning line (directional + meter-influenced)
         speed = 120 + (slot_anim["meter_display"] * 10)
         t = (time.time() * speed) % total_w
-        scan_x = int(t)
+
+        if slot_label.startswith("P1"):
+            scan_x = int(t)  # left → right
+        else:
+            scan_x = int(total_w - t)  # right → left
+
+        scan = pygame.Surface((6, row_h), pygame.SRCALPHA)
+        scan.fill((*slot_col, 40))
+        pill.blit(scan, (scan_x, 0))
 
         scan = pygame.Surface((6, row_h), pygame.SRCALPHA)
         scan.fill((*slot_col, 40))

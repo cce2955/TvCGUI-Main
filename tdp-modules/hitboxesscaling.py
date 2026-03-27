@@ -196,6 +196,30 @@ COL_DEBUG = (0, 255, 0)
 COL_PROJ = (255, 255, 255)
 
 
+# --- surface cache ---
+_surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
+
+def _get_cached_hitbox_surface(rpx: int, color: Tuple[int,int,int], active: bool):
+    key = (rpx, color, active)
+    if key in _surface_cache:
+        return _surface_cache[key]
+
+    pad = 6
+    size = rpx * 2 + pad * 2
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+
+    cx = cy = rpx + pad
+    r_c, g_c, b_c = color
+
+    if active:
+        pygame.draw.circle(surf, (r_c, g_c, b_c, 110), (cx, cy), rpx)
+        pygame.draw.circle(surf, (r_c, g_c, b_c, 220), (cx, cy), rpx, 2)
+    else:
+        pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx)
+
+    _surface_cache[key] = surf
+    return surf
+
 # ----------------------------
 # Projectile scanner (kept, just not wired into main loop)
 # ----------------------------
@@ -383,7 +407,11 @@ class MotionFilter:
 
     def _key(self, slot: str, idx: int) -> Tuple[str, int]:
         return (slot, idx)
-
+    def cleanup(self):
+        self._states = {
+            k: v for k, v in self._states.items()
+            if not v.suppressed or v.motion_frames > 0
+        }
     def update(self, slot: str, idx: int, x: float, y: float, r: float) -> bool:
         key = self._key(slot, idx)
         if key not in self._states:
@@ -730,10 +758,9 @@ class Overlay:
         r_c, g_c, b_c = color[:3]
 
         pad = 6
-        size = rpx * 2 + pad * 2
-        surf = pygame.Surface((size, size), pygame.SRCALPHA)
-        cx = cy = rpx + pad
+        surf = _get_cached_hitbox_surface(rpx, (r_c, g_c, b_c), is_active)
 
+        cx = cy = rpx + pad
         if is_active:
             pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx + 4, 4)
             pygame.draw.circle(surf, (r_c, g_c, b_c, 110), (cx, cy), rpx)
@@ -753,11 +780,14 @@ class Overlay:
         pygame.draw.line(cross_s, (*cross_col, 190), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
         self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
 
-        if rpx >= 8 and self.font_small is not None:
-            txt = self.font_small.render(f"{label} r={r:.2f}", True, (*color[:3], 170))
+        if rpx >= 12 and self.font_small is not None:
+            txt = self.font_small.render(label, True, color[:3])
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
     def draw_projectile_hitbox(self, x, y, z, r, color, label):
+        if abs(x - self.cam_x) > 25 or abs(y - self.cam_y) > 20:
+            return
+
         result = self._project_hitbox(x, y, z, r)
         if result is None:
             return
@@ -952,7 +982,8 @@ def main():
 
         _slot_filter = _read_slot_filter()
 
-        update_projectile_nodes(node_tracker)
+        if pygame.time.get_ticks() % 2 == 0:
+            update_projectile_nodes(node_tracker)
 
         overlay.clear()
         overlay.draw_debug_axes()
@@ -986,10 +1017,12 @@ def main():
                 COL_PROJ,
                 "PRJ"
             )
+        if pygame.time.get_ticks() % 300 == 0:
+            motion_filter.cleanup()
+
         overlay.draw_hud(counts, motion_filter, node_tracker)
         overlay.present()
         clock.tick(DISPLAY.fps)
-
     pygame.quit()
 
 
