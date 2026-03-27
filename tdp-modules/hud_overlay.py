@@ -334,12 +334,29 @@ def _draw_slot_row(screen: pygame.Surface,
     hp_num_s   = font_sm.render(hp_str, True, text_col)
 
     # Meter value
-    meter_val  = snap.get("meter")
+    meter_val = snap.get("meter")
+
     try:
-        meter_f  = float(meter_val) if meter_val is not None else 0.0
-        meter_str = f"{meter_f:.2f}"
+        raw_meter = float(meter_val) if meter_val is not None else 0.0
+
+        # Tiered meter thresholds
+        if raw_meter < 10000:
+            meter_f = 0
+        elif raw_meter < 20000:
+            meter_f = 1
+        elif raw_meter < 30000:
+            meter_f = 2
+        elif raw_meter < 40000:
+            meter_f = 3
+        elif raw_meter < 50000:
+            meter_f = 4
+        else:
+            meter_f = 5
+
+        meter_str = f"{raw_meter:.0f}"
+
     except (TypeError, ValueError):
-        meter_f  = 0.0
+        meter_f = 0
         meter_str = "---"
     meter_num_s = font_sm.render(meter_str, True, text_col)
 
