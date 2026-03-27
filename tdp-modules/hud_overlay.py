@@ -513,6 +513,10 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         + adv_w
         + pad
     )
+
+    MAX_ROW_W = int(600 * scale)
+    total_w = min(total_w, MAX_ROW_W)
+
     if measure_only:
         return total_w
 
@@ -579,6 +583,10 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     cx    = badge_x + badge_w + name_gap
     mid_y = anchor_y + row_h // 2
     popup_y = anchor_y + row_h + int(4 * scale)
+
+    damage_y = popup_y
+    meter_y  = popup_y + int(10 * scale)
+    adv_y    = popup_y + int(20 * scale)
     sm_top = anchor_y + int(2 * scale)
     sm_bot = anchor_y + row_h - int(2 * scale) - font_sm.get_height()
 
@@ -633,8 +641,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
             bg.fill((40, 0, 0, int(180 * ev["life"])))
             draw_x = dx + int(ev["x_offset"])
-            screen.blit(bg, (draw_x - pad_x, popup_y))
-            screen.blit(dmg_surf, (draw_x, popup_y + pad_y))
+            screen.blit(bg, (draw_x - pad_x, damage_y))
+            screen.blit(dmg_surf, (draw_x, damage_y + pad_y))
             dx += w + gap
         cx = dx + sep
     # Meter gain display
@@ -669,8 +677,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
             draw_x = dx + int(ev["x_offset"])
 
-            screen.blit(bg, (draw_x - pad_x, popup_y))
-            screen.blit(surf, (draw_x, popup_y + pad_y))
+            screen.blit(bg, (draw_x - pad_x, meter_y))
+            screen.blit(surf, (draw_x, meter_y + pad_y))
 
             dx += w + gap
 
@@ -705,8 +713,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
             bg.fill((*bg_col, int(180 * ev["life"])))
             draw_x = dx + int(ev["x_offset"])
-            screen.blit(bg, (draw_x - pad_x, popup_y))
-            screen.blit(adv_surf, (draw_x, popup_y + pad_y))
+            screen.blit(bg, (draw_x - pad_x, adv_y))
+            screen.blit(adv_surf, (draw_x, adv_y + pad_y))
             dx += w + gap
         if alive:
             cx = dx + sep
