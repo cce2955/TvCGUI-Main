@@ -715,6 +715,30 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             cx = dx + sep
 
         slot_anim["meter_events"] = [e for e in meter_events if e["life"] > 0]    
+    # Baroque badge
+    if show_baroque_badge:
+        bq_text = f"BBQ {display_pct:.1f}%"
+        base_text = font_sm.render(bq_text, True, (255, 255, 255))
+        rainbow = pygame.Surface(base_text.get_size(), pygame.SRCALPHA)
+        t = time.time() * 0.4
+        for x in range(base_text.get_width()):
+            phase = (x / base_text.get_width() + t) % 1.0
+            r = int(200 + 55 * math.sin(2 * math.pi * phase))
+            g = int(160 + 55 * math.sin(2 * math.pi * (phase + 0.33)))
+            b = int(255)
+            pygame.draw.line(rainbow, (r, g, b, 255), (x, 0), (x, base_text.get_height()))
+        base_text.blit(rainbow, (0, 0), special_flags=pygame.BLEND_MULT)
+        bq_surf = base_text
+        glow = pygame.Surface((bq_surf.get_width()+6, bq_surf.get_height()+4), pygame.SRCALPHA)
+        glow.fill((80, 40, 10, 120))
+        screen.blit(glow, (cx + int(2*scale) - 3, anchor_y + (row_h - bq_surf.get_height()) // 2 - 2))
+        bq_w = bq_surf.get_width() + int(8 * scale)
+        bq_h = row_h - int(6 * scale)
+        bq_pill = pygame.Surface((bq_w, bq_h), pygame.SRCALPHA)
+        bq_pill.fill((35, 30, 20, 220))
+        screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
+        screen.blit(bq_surf, (cx + int(4*scale), anchor_y + (row_h - bq_surf.get_height()) // 2))
+                
     # Frame advantage display
     adv_anchor_x = anchor_x + total_w - popup_max_w - int(6 * scale)
     adv_events = slot_anim["adv_events"]
@@ -749,30 +773,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         # Clean up dead events
         slot_anim["adv_events"] = [e for e in adv_events if e["life"] > 0]
 
-    # Baroque badge
-    if show_baroque_badge:
-        bq_text = f"BBQ {display_pct:.1f}%"
-        base_text = font_sm.render(bq_text, True, (255, 255, 255))
-        rainbow = pygame.Surface(base_text.get_size(), pygame.SRCALPHA)
-        t = time.time() * 0.4
-        for x in range(base_text.get_width()):
-            phase = (x / base_text.get_width() + t) % 1.0
-            r = int(200 + 55 * math.sin(2 * math.pi * phase))
-            g = int(160 + 55 * math.sin(2 * math.pi * (phase + 0.33)))
-            b = int(255)
-            pygame.draw.line(rainbow, (r, g, b, 255), (x, 0), (x, base_text.get_height()))
-        base_text.blit(rainbow, (0, 0), special_flags=pygame.BLEND_MULT)
-        bq_surf = base_text
-        glow = pygame.Surface((bq_surf.get_width()+6, bq_surf.get_height()+4), pygame.SRCALPHA)
-        glow.fill((80, 40, 10, 120))
-        screen.blit(glow, (cx + int(2*scale) - 3, anchor_y + (row_h - bq_surf.get_height()) // 2 - 2))
-        bq_w = bq_surf.get_width() + int(8 * scale)
-        bq_h = row_h - int(6 * scale)
-        bq_pill = pygame.Surface((bq_w, bq_h), pygame.SRCALPHA)
-        bq_pill.fill((35, 30, 20, 220))
-        screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
-        screen.blit(bq_surf, (cx + int(4*scale), anchor_y + (row_h - bq_surf.get_height()) // 2))
-        adv_anchor_x = cx + baroque_badge_w + sep
+
     return total_w
 
 def _compute_active_slots(slots: dict) -> set[str]:
