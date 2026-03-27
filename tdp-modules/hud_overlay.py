@@ -526,9 +526,9 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         + badge_w + name_gap
         + name_w + sep
         + font_sm.size("HP")[0] + int(4*scale) + bar_w + int(4*scale) + hp_num_s.get_width() + sep
-        + popup_max_w
+        
         + font_sm.size("M")[0] + int(4*scale) + meter_w + int(4*scale) + meter_num_s.get_width() + sep
-        + popup_max_w
+        
         + move_surf.get_width() + sep
         + baroque_badge_w
         + sep
@@ -625,7 +625,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     screen.blit(hp_num_s, (cx, sm_bot))
     cx += hp_num_s.get_width() + sep
     hp_anchor_x = cx
-    cx += popup_max_w
+    
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
     lbl = font_sm.render("M", True, COL_TEXT_DIM)
@@ -636,7 +636,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     screen.blit(meter_num_s, (cx, sm_bot))
     cx += meter_num_s.get_width() + sep
     meter_anchor_x = cx
-    cx += popup_max_w
+    
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
     screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
