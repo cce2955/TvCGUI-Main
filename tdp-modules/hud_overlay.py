@@ -128,6 +128,8 @@ def _get_slot_anim(slot_label: str):
         "last_hit_damage": 0,
         "damage_timer": 0,
         "damage_history": [], 
+        "damage_events": [],   
+        
     })
     return s
 def _draw_meter_pips_animated(screen, x, y,
@@ -410,13 +412,16 @@ def _draw_slot_row(screen: pygame.Surface,
             slot_anim["last_hit_damage"] = dmg
             slot_anim["damage_timer"] = 45
 
-            
-            hist = slot_anim["damage_history"]
-            hist.insert(0, int(dmg))
+            events = slot_anim["damage_events"]
 
-            # keep only last 5 hits
-            if len(hist) > 2:
-                hist.pop()
+            events.insert(0, {
+                "value": int(dmg),
+                "life": 1.0,        # 1 → 0 fade
+                "x_offset": -20     # slide in from left
+            })
+
+            if len(events) > 5:
+                events.pop()
 
     slot_anim["prev_hp"] = hp_cur
 
@@ -626,56 +631,50 @@ def _draw_slot_row(screen: pygame.Surface,
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
         # Damage display
     if show_damage:
-        hist = slot_anim["damage_history"]
+        events = slot_anim["damage_events"]
 
         dx = cx
-        max_w = int(140 * scale)
-        used = 0
-        gap = int(4 * scale)
+        gap = int(6 * scale)
 
-        for i, dmg in enumerate(hist):
+        for i, ev in enumerate(events):
+            dmg = ev["value"]
+
+            # fade + slide update
+            ev["life"] -= 0.025
+            ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
+
+            if ev["life"] <= 0:
+                continue
+
             is_newest = (i == 0)
 
-            if is_newest:
-                col = (255, 80, 80)
-                dmg_font = font
-            else:
-                col = (180, 70, 70)
-                dmg_font = font_sm
+            # color + alpha fade
+            base_col = (255, 80, 80) if is_newest else (180, 70, 70)
+            alpha = int(255 * ev["life"])
 
+            dmg_font = font if is_newest else font_sm
             dmg_text = f"-{dmg}"
-            dmg_surf = dmg_font.render(dmg_text, True, col)
+
+            dmg_surf = dmg_font.render(dmg_text, True, base_col)
+            dmg_surf.set_alpha(alpha)
 
             w = dmg_surf.get_width()
             h = dmg_surf.get_height()
 
+            # background
             pad_x = int(4 * scale)
             pad_y = int(2 * scale)
 
             bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
-            bg.fill((40, 0, 0, 200) if is_newest else (30, 0, 0, 140))
+            bg.fill((40, 0, 0, int(180 * ev["life"])))
 
-            # stop if overflow
-            if used + w > max_w:
-                break
+            draw_x = dx + int(ev["x_offset"])
 
-            
-
-            dx += w + gap
-            used += w + gap   
-            w = dmg_surf.get_width()
-
-            if used + w > max_w:
-                break
-
-            screen.blit(
-                dmg_surf,
-                (dx, mid_y - dmg_surf.get_height() // 2)
-            )
+            screen.blit(bg, (draw_x - pad_x, mid_y - h//2 - pad_y))
+            screen.blit(dmg_surf, (draw_x, mid_y - h // 2))
 
             dx += w + gap
-            used += w + gap
-
+        
         cx = dx + sep
 
     # Baroque badge (ready OR frozen)
