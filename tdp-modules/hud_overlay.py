@@ -116,7 +116,14 @@ def _get_slot_anim(slot_label: str):
         "alpha": 0.0,
         "meter_display": 0.0,
         "pip_values": [0.0] * 5,
-        "present": False,   # <-- ADD THIS
+        "present": False,
+
+        
+        "baroque_last_pct": 0.0,
+        "baroque_display_pct": 0.0,
+        "baroque_freeze_timer": 0,
+        "baroque_prev_ready": False,
+        "baroque_prev_cancel": False,
     })
     return s
 def _draw_meter_pips_animated(screen, x, y,
@@ -445,19 +452,48 @@ def _draw_slot_row(screen: pygame.Surface,
     baroque_ready = snap.get("baroque_ready_local", False) and not is_dead
     baroque_pct   = snap.get("baroque_red_pct_max", 0.0)
 
+    # Use the ACTUAL "spent/used" flag key from your JSON here.
+    # If your producer uses a different name, replace baroque_used_flag with that exact key.
+    baroque_used = bool(
+        snap.get("baroque_used_flag", False)
+        or snap.get("baroque_cancel_flag", False)
+    )
+
+    # While ready → keep updating last value
+    if baroque_ready:
+        slot_anim["baroque_last_pct"] = baroque_pct
+        display_pct = baroque_pct
+        show_baroque_badge = True
+        slot_anim["baroque_freeze_timer"] = 0
+
+    else:
+        # If we JUST lost ready → start freeze
+        if slot_anim["baroque_prev_ready"]:
+            slot_anim["baroque_display_pct"] = slot_anim["baroque_last_pct"]
+            slot_anim["baroque_freeze_timer"] = 120
+
+        if slot_anim["baroque_freeze_timer"] > 0:
+            display_pct = slot_anim["baroque_display_pct"]
+            show_baroque_badge = True
+            slot_anim["baroque_freeze_timer"] -= 1
+        else:
+            display_pct = 0.0
+            show_baroque_badge = False
+
+    slot_anim["baroque_prev_ready"] = baroque_ready
     # ── Total row width ──────────────────────────────────────────────────
     sep       = int(10 * scale)  # section separator gap
     label_sm  = font_sm.render("HP", True, COL_TEXT_DIM)
     label_h   = label_sm.get_height()
 
     baroque_badge_w = 0
-    if baroque_ready:
-        bq_text     = f"◆ {baroque_pct:.1f}%"
-        bq_surf     = font_sm.render(bq_text, True, COL_BAROQUE_ON)
+    if show_baroque_badge:
+        bq_text = f"◆ {display_pct:.1f}%"
+        bq_surf = font_sm.render(bq_text, True, COL_BAROQUE_ON)
         baroque_badge_w = bq_surf.get_width() + int(10 * scale)
 
     total_w = (
-        acc_w + pad
+         acc_w + pad
         + badge_w + name_gap
         + name_w + sep
         + font_sm.size("HP")[0] + int(4 * scale) + bar_w + int(4 * scale) + hp_num_s.get_width() + sep
@@ -540,19 +576,22 @@ def _draw_slot_row(screen: pygame.Surface,
     screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
     cx += move_surf.get_width() + sep
 
-    # Baroque badge (only when active)
-    if baroque_ready:
-        bq_text = f"◆ {baroque_pct:.1f}%"
+    # Baroque badge (ready OR frozen)
+    if show_baroque_badge:
+        bq_text = f"◆ {display_pct:.1f}%"
         bq_surf = font_sm.render(bq_text, True, COL_BAROQUE_ON)
         bq_w    = bq_surf.get_width() + int(8 * scale)
         bq_h    = row_h - int(6 * scale)
+
         bq_pill = pygame.Surface((bq_w, bq_h), pygame.SRCALPHA)
         bq_pill.fill((*COL_BAROQUE_BG, 220))
+
         screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
-        screen.blit(bq_surf, (cx + int(4 * scale),
-                               anchor_y + (row_h - bq_surf.get_height()) // 2))
-
-
+        screen.blit(
+            bq_surf,
+            (cx + int(4 * scale),
+             anchor_y + (row_h - bq_surf.get_height()) // 2)
+        )
 def _compute_active_slots(slots: dict) -> set[str]:
     """
     For each team, determine which slot is the active (on-screen) character.
