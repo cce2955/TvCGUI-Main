@@ -371,6 +371,8 @@
 # Batsu (ID: 14)
 259,0x103,2B,2B,2B,yes,14
 260,0x104,2B,2B,2B,yes,14
+272,0x104,Tardy Counter B,2B,2B,yes,14
+273,0x104,Tardy Counter C,2B,2B,yes,14
 304,0x130,Guts A,Guts A,Guts A,yes,14
 305,0x131,Guts Bullet B,Guts Bullet B,Guts Bullet B,yes,14
 306,0x132,Guts Bullet C,Guts Bullet C,Guts Bullet C,yes,14
@@ -388,6 +390,7 @@
 323,0x138,Air Divekick A,Guts Upper C,Guts Upper C,yes,14
 324,0x138,Air Divekick B,Guts Upper C,Guts Upper C,yes,14
 325,0x138,Air Divekick C,Guts Upper C,Guts Upper C,yes,14
+326,0x138,Divekick recovery,Guts Upper C,Guts Upper C,yes,14
 327,0x138,Divekick bounce,Guts Upper C,Guts Upper C,yes,14
 328,0x138,Divekick,Guts Upper C,Guts Upper C,yes,14
 338,0x138,Batsu Air Thrown,Guts Upper C,Guts Upper C,yes,14
@@ -576,6 +579,9 @@
 320,0x140,Mop up Charge B,Mop up Charge B,Mop up Charge B,yes,19
 321,0x141,Mop Up Charge C,Mop Up Charge C,Mop Up Charge C,yes,19
 322,0x141,Charge up!,Mop Up Charge C,Mop Up Charge C,yes,19
+330,0x141,Roll Swing A,Mop Up Charge C,Mop Up Charge C,yes,19
+331,0x141,Roll Swing B,Mop Up Charge C,Mop Up Charge C,yes,19
+332,0x141,Roll Swing C,Mop Up Charge C,Mop Up Charge C,yes,19
 352,0x161,Healing,Mop up Turbo,Mop up Turbo,yes,19
 353,0x161,Mop up Turbo,Mop up Turbo,Mop up Turbo,yes,19
 368,0x170,Oh no  you didn't,Oh no  you didn't,Oh no  you didn't,yes,19
@@ -858,6 +864,7 @@
 49,0x1,Crouching Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 50,0x100,Air block,5A,5A,yes,100
 52,0x100,Air pushblock,5A,5A,yes,100
+53,0x100,Crouch pushblock,5A,5A,yes,100
 55,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 56,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 57,0x1,Crouch hit reaction,Intro Pose Anchor,Intro Pose Anchor,yes,100
@@ -960,6 +967,7 @@
 575,0x1,Taunt,Match Start Anchor,Match Start Anchor,yes,100
 4562,0x1,forward throw,forward throw,forward throw,yes,100
 4565,0x1,back throw,back throw,back throw,yes,100
+4571,0x1,Air back throw,back throw,back throw,yes,100
 4610,0x1,Friender Bite,Friender Bite,Friender Bite,yes,100
 4615,0x1,Hitgrab,Hitgrab,Hitgrab,yes,100
 4609,0x1,Captured,Captured,Captured,yes,100
