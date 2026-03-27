@@ -368,6 +368,22 @@ def _draw_meter_pips(screen, x, y, pip_w, pip_h, pip_gap, meter_val, is_dead):
             col = COL_METER_EMPTY
         pygame.draw.rect(screen, col, (px, y, pip_w, pip_h), border_radius=1)
 
+def _draw_divider(screen, x, y, row_h, scale, alpha=220):
+    w = max(2, int(2 * scale))
+    h = int(row_h * 0.7)
+
+    dy = (row_h - h) // 2
+
+    # main line
+    surf = pygame.Surface((w, h), pygame.SRCALPHA)
+    surf.fill((220, 220, 220, alpha))
+    screen.blit(surf, (x, y + dy))
+
+    # soft glow behind it
+    glow = pygame.Surface((w + 2, h + 4), pygame.SRCALPHA)
+    glow.fill((180, 180, 180, 80))
+    screen.blit(glow, (x - 1, y + dy - 2))
+
 
 def _draw_slot_row(screen: pygame.Surface,
                    font: pygame.font.Font,
@@ -394,7 +410,7 @@ def _draw_slot_row(screen: pygame.Surface,
             slot_anim["last_hit_damage"] = dmg
             slot_anim["damage_timer"] = 45
 
-            # 🔥 push into history
+            
             hist = slot_anim["damage_history"]
             hist.insert(0, int(dmg))
 
@@ -572,7 +588,7 @@ def _draw_slot_row(screen: pygame.Surface,
     # Character name
     screen.blit(name_surf, (cx, text_y))
     cx += name_w + sep
-
+    _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
     # HP section
     lbl = font_sm.render("HP", True, COL_TEXT_DIM)
     screen.blit(lbl, (cx, sm_top))
@@ -581,7 +597,7 @@ def _draw_slot_row(screen: pygame.Surface,
     cx += bar_w + int(4 * scale)
     screen.blit(hp_num_s, (cx, sm_bot))
     cx += hp_num_s.get_width() + sep
-
+    _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
     # Meter section
     lbl = font_sm.render("M", True, COL_TEXT_DIM)
     screen.blit(lbl, (cx, sm_top))
@@ -602,10 +618,12 @@ def _draw_slot_row(screen: pygame.Surface,
     cx += meter_w + int(4 * scale)
     screen.blit(meter_num_s, (cx, sm_bot))
     cx += meter_num_s.get_width() + sep
+    _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
     # Move label
     screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
     cx += move_surf.get_width() + sep
+    _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
         # Damage display
     if show_damage:
         hist = slot_anim["damage_history"]
@@ -618,41 +636,33 @@ def _draw_slot_row(screen: pygame.Surface,
         for i, dmg in enumerate(hist):
             is_newest = (i == 0)
 
-            
             if is_newest:
-                col = (255, 80, 80)   # bright red
+                col = (255, 80, 80)
+                dmg_font = font
             else:
-                col = (180, 70, 70)   # dimmer
+                col = (180, 70, 70)
+                dmg_font = font_sm
 
             dmg_text = f"-{dmg}"
-
-            
-            dmg_font = font if is_newest else font_sm
             dmg_surf = dmg_font.render(dmg_text, True, col)
 
             w = dmg_surf.get_width()
             h = dmg_surf.get_height()
 
-            
             pad_x = int(4 * scale)
             pad_y = int(2 * scale)
 
             bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
-
-            if is_newest:
-                bg.fill((40, 0, 0, 200))   
-            else:
-                bg.fill((30, 0, 0, 140))   
+            bg.fill((40, 0, 0, 200) if is_newest else (30, 0, 0, 140))
 
             # stop if overflow
             if used + w > max_w:
                 break
 
-            screen.blit(bg, (dx - pad_x, mid_y - h//2 - pad_y))
-            screen.blit(dmg_surf, (dx, mid_y - h // 2))
+            
 
             dx += w + gap
-            used += w + gap
+            used += w + gap   
             w = dmg_surf.get_width()
 
             if used + w > max_w:
