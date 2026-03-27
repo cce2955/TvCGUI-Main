@@ -608,8 +608,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     popup_y = anchor_y + row_h + int(4 * scale)
 
     damage_y = popup_y
-    meter_y  = popup_y + int(10 * scale)
-    adv_y    = popup_y + int(20 * scale)
+    meter_y  = popup_y
+    adv_y    = popup_y
     sm_top = anchor_y + int(2 * scale)
     sm_bot = anchor_y + row_h - int(2 * scale) - font_sm.get_height()
 
