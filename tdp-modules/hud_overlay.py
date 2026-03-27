@@ -519,7 +519,7 @@ def _draw_slot_row(screen: pygame.Surface,
 
     baroque_badge_w = 0
     if show_baroque_badge:
-        bq_text = f"◆ {display_pct:.1f}%"
+        bq_text = f"BBQ {display_pct:.1f}%"
         bq_surf = font_sm.render(bq_text, True, (255, 255, 255))
         baroque_badge_w = bq_surf.get_width() + int(10 * scale)
 
@@ -670,7 +670,7 @@ def _draw_slot_row(screen: pygame.Surface,
 
     # Baroque badge (ready OR frozen)
     if show_baroque_badge:
-        bq_text = f"◆ {display_pct:.1f}%"
+        bq_text = f"BBQ {display_pct:.1f}%"
         # render white base
         base_text = font_sm.render(bq_text, True, (255, 255, 255))
 
@@ -691,11 +691,17 @@ def _draw_slot_row(screen: pygame.Surface,
         base_text.blit(rainbow, (0, 0), special_flags=pygame.BLEND_MULT)
 
         bq_surf = base_text
+        
+        glow = pygame.Surface((bq_surf.get_width()+6, bq_surf.get_height()+4), pygame.SRCALPHA)
+        glow.fill((80, 40, 10, 120))  # warm glow
+
+        screen.blit(glow, (cx + int(2 * scale) - 3,
+                        anchor_y + (row_h - bq_surf.get_height()) // 2 - 2))
         bq_w    = bq_surf.get_width() + int(8 * scale)
         bq_h    = row_h - int(6 * scale)
 
         bq_pill = pygame.Surface((bq_w, bq_h), pygame.SRCALPHA)
-        bq_pill.fill((25, 25, 25, 200))     
+        bq_pill.fill((35, 30, 20, 220))
         screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
         screen.blit(
             bq_surf,

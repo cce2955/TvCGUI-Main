@@ -858,6 +858,7 @@
 49,0x1,Crouching Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 50,0x100,Air block,5A,5A,yes,100
 50,0x100,Air pushblock,5A,5A,yes,100
+52,0x100,Air pushblock,5A,5A,yes,100
 55,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 56,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 57,0x1,Crouch hit reaction,Intro Pose Anchor,Intro Pose Anchor,yes,100
