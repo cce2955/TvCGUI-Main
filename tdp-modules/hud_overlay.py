@@ -232,6 +232,8 @@ def _get_slot_anim(slot_label: str):
         "damage_timer": 0,
         "damage_events": [],
         "adv_events": [],
+        "prev_meter": None,
+        "meter_events": [],
     })
 
 # ---------------------------------------------------------------------------
@@ -438,6 +440,19 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         meter_str = f"{raw_meter:.0f}"
     except (TypeError, ValueError):
         meter_f = 0; meter_str = "---"
+    # Meter gain tracking
+    prev_meter = slot_anim["prev_meter"]
+    cur_meter = raw_meter if meter_val is not None else 0
+
+    if prev_meter is not None and cur_meter > prev_meter:
+        gain = int(cur_meter - prev_meter)
+        if gain > 0:
+            events = slot_anim["meter_events"]
+            events.insert(0, {"value": gain, "life": 1.0, "x_offset": 20})
+            if len(events) > 5:
+                events.pop()
+
+    slot_anim["prev_meter"] = cur_meter        
     meter_num_s = font_sm.render(meter_str, True, text_col)
 
     move_id  = snap.get("mv_id_display")
@@ -612,7 +627,47 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             screen.blit(dmg_surf, (draw_x, mid_y - h // 2))
             dx += w + gap
         cx = dx + sep
+    # Meter gain display
+    meter_events = slot_anim["meter_events"]
+    if meter_events:
+        dx = cx
+        gap = int(6 * scale)
+        alive = False
 
+        for i, ev in enumerate(meter_events):
+            ev["life"] -= 0.025
+            ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
+
+            if ev["life"] <= 0:
+                continue
+
+            alive = True
+
+            base_col = (80, 160, 255) if i == 0 else (60, 120, 200)
+            txt = f"+{ev['value']}"
+            alpha = int(255 * ev["life"])
+
+            m_font = font if i == 0 else font_sm
+            surf = m_font.render(txt, True, base_col)
+            surf.set_alpha(alpha)
+
+            w = surf.get_width(); h = surf.get_height()
+            pad_x = int(4 * scale); pad_y = int(2 * scale)
+
+            bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
+            bg.fill((0, 20, 50, int(180 * ev["life"])))
+
+            draw_x = dx + int(ev["x_offset"])
+
+            screen.blit(bg, (draw_x - pad_x, mid_y - h//2 - pad_y))
+            screen.blit(surf, (draw_x, mid_y - h // 2))
+
+            dx += w + gap
+
+        if alive:
+            cx = dx + sep
+
+        slot_anim["meter_events"] = [e for e in meter_events if e["life"] > 0]    
     # Frame advantage display
     adv_events = slot_anim["adv_events"]
     if adv_events:
