@@ -420,6 +420,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     pip_gap = max(1, int(2 * scale))
     meter_w = 5 * pip_w + 4 * pip_gap
     sep     = int(10 * scale)
+    popup_max_w = font.size("-9999")[0] + int(12 * scale)
 
     char_name = snap.get("name") or "???"
     name_surf = font.render(char_name, True, name_col)
@@ -502,10 +503,14 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         + badge_w + name_gap
         + name_w + sep
         + font_sm.size("HP")[0] + int(4*scale) + bar_w + int(4*scale) + hp_num_s.get_width() + sep
+        + popup_max_w
         + font_sm.size("M")[0] + int(4*scale) + meter_w + int(4*scale) + meter_num_s.get_width() + sep
+        + popup_max_w
         + move_surf.get_width() + sep
-        + adv_w
         + baroque_badge_w
+        + sep
+        + popup_max_w
+        + adv_w
         + pad
     )
     if measure_only:
@@ -573,6 +578,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
     cx    = badge_x + badge_w + name_gap
     mid_y = anchor_y + row_h // 2
+    popup_y = anchor_y + row_h + int(4 * scale)
     sm_top = anchor_y + int(2 * scale)
     sm_bot = anchor_y + row_h - int(2 * scale) - font_sm.get_height()
 
@@ -587,6 +593,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     cx += bar_w + int(4 * scale)
     screen.blit(hp_num_s, (cx, sm_bot))
     cx += hp_num_s.get_width() + sep
+    hp_anchor_x = cx
+    cx += popup_max_w
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
     lbl = font_sm.render("M", True, COL_TEXT_DIM)
@@ -596,6 +604,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     cx += meter_w + int(4 * scale)
     screen.blit(meter_num_s, (cx, sm_bot))
     cx += meter_num_s.get_width() + sep
+    meter_anchor_x = cx
+    cx += popup_max_w
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
     screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
@@ -604,7 +614,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
     # Damage display
     if show_damage:
-        dx = cx
+        dx = hp_anchor_x
         gap = int(6 * scale)
         for i, ev in enumerate(slot_anim["damage_events"]):
             ev["life"] -= 0.025
@@ -623,14 +633,14 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
             bg.fill((40, 0, 0, int(180 * ev["life"])))
             draw_x = dx + int(ev["x_offset"])
-            screen.blit(bg, (draw_x - pad_x, mid_y - h//2 - pad_y))
-            screen.blit(dmg_surf, (draw_x, mid_y - h // 2))
+            screen.blit(bg, (draw_x - pad_x, popup_y))
+            screen.blit(dmg_surf, (draw_x, popup_y + pad_y))
             dx += w + gap
         cx = dx + sep
     # Meter gain display
     meter_events = slot_anim["meter_events"]
     if meter_events:
-        dx = cx
+        dx = meter_anchor_x
         gap = int(6 * scale)
         alive = False
 
@@ -659,8 +669,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
             draw_x = dx + int(ev["x_offset"])
 
-            screen.blit(bg, (draw_x - pad_x, mid_y - h//2 - pad_y))
-            screen.blit(surf, (draw_x, mid_y - h // 2))
+            screen.blit(bg, (draw_x - pad_x, popup_y))
+            screen.blit(surf, (draw_x, popup_y + pad_y))
 
             dx += w + gap
 
@@ -669,9 +679,11 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
         slot_anim["meter_events"] = [e for e in meter_events if e["life"] > 0]    
     # Frame advantage display
+    adv_anchor_x = cx + sep
+    cx += popup_max_w
     adv_events = slot_anim["adv_events"]
     if adv_events:
-        dx = cx
+        dx = adv_anchor_x
         gap = int(6 * scale)
         alive = False
         for i, ev in enumerate(adv_events):
@@ -693,8 +705,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
             bg.fill((*bg_col, int(180 * ev["life"])))
             draw_x = dx + int(ev["x_offset"])
-            screen.blit(bg, (draw_x - pad_x, mid_y - h//2 - pad_y))
-            screen.blit(adv_surf, (draw_x, mid_y - h // 2))
+            screen.blit(bg, (draw_x - pad_x, popup_y))
+            screen.blit(adv_surf, (draw_x, popup_y + pad_y))
             dx += w + gap
         if alive:
             cx = dx + sep
@@ -724,6 +736,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         bq_pill.fill((35, 30, 20, 220))
         screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
         screen.blit(bq_surf, (cx + int(4*scale), anchor_y + (row_h - bq_surf.get_height()) // 2))
+        adv_anchor_x = cx + baroque_badge_w + sep
     return total_w
 
 def _compute_active_slots(slots: dict) -> set[str]:
@@ -751,6 +764,7 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
     _anim_state["overlay_alpha"] = _approach(_anim_state["overlay_alpha"], 1.0, FADE_SPEED, dt)
     overlay_alpha = _anim_state["overlay_alpha"]
     row_h  = max(14, int(BASE_ROW_H * scale))
+    row_gap = int(14 * scale)
     active = _compute_active_slots(slots)
 
     for slot_label, (side, base_x, base_y) in SLOT_LAYOUT.items():
@@ -768,7 +782,7 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
         if not snap:
             continue
 
-        scaled_y = int(base_y * scale)
+        scaled_y = int(base_y * scale) + (row_gap if slot_label.endswith("C2") else 0)
 
         # FIRST PASS: measure width
         row_w = _draw_slot_row(screen, font, font_sm, slot_label, snap,
