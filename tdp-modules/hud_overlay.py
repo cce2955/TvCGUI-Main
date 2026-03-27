@@ -88,6 +88,13 @@ PASSIVE_LABELS = {
 SCAN_INTERVAL = 1.0   # seconds between re-checks when idle
 
 _display_slots: dict = {}
+_adv = {
+    "state": 0,        # 0 idle, 1 tracking, 2 counting
+    "first_end": None,
+    "first_slot": None,
+    "value": None,
+}
+_frame = 0
 # ---------------------------------------------------------------------------
 # Animation system
 # ---------------------------------------------------------------------------
@@ -128,7 +135,8 @@ def _get_slot_anim(slot_label: str):
         "last_hit_damage": 0,
         "damage_timer": 0,
         "damage_history": [], 
-        "damage_events": [],   
+        "damage_events": [], 
+        "adv_events": [],  
         
     })
     return s
@@ -493,6 +501,88 @@ def _draw_slot_row(screen: pygame.Surface,
 
     # Move label
     move_id    = snap.get("mv_id_display")
+    # --- SIMPLE ADV TRACK ---
+    def is_attack(x):
+        return x is not None and 256 <= int(x) <= 512
+
+    def is_block(x):
+        return x is not None and int(x) in {48, 49, 50}
+    def is_actionable(x):
+        return x is not None and not (256 <= int(x) <= 512) and int(x) not in {48, 49, 50}
+    p1 = _display_slots.get("P1-C1", {}).get("mv_id_display")
+    p2 = _display_slots.get("P2-C1", {}).get("mv_id_display")
+
+    # normalize
+    p1 = int(p1) if p1 is not None else None
+    p2 = int(p2) if p2 is not None else None
+
+    # --- STATE MACHINE (FIXED CLEAN VERSION) ---
+
+    if _adv["state"] == 0:
+        if is_attack(p1) and is_block(p2):
+            _adv["state"] = 1
+            _adv["first_end"] = None
+            _adv["first_slot"] = None
+
+    elif _adv["state"] == 1:
+        # detect FIRST to become actionable
+
+        if is_actionable(p1) and not is_actionable(p2):
+            _adv["state"] = 2
+            _adv["first_end"] = _frame
+            _adv["first_slot"] = "P1"
+
+        elif is_actionable(p2) and not is_actionable(p1):
+            _adv["state"] = 2
+            _adv["first_end"] = _frame
+            _adv["first_slot"] = "P2"
+
+        elif is_actionable(p1) and is_actionable(p2):
+            # same frame
+            _adv["value"] = 0
+
+            events = _get_slot_anim("P1-C1")["adv_events"]
+            events.insert(0, {"value": 0, "life": 1.0, "x_offset": 20})
+            if len(events) > 3:
+                events.pop()
+
+            print("[ADV] 0")
+            _adv["state"] = 0
+
+
+    elif _adv["state"] == 2:
+        # wait for SECOND
+
+        if _adv["first_slot"] == "P1":
+            if is_actionable(p2):
+                diff = _frame - _adv["first_end"]
+
+                # attacker ended first → PLUS
+                _adv["value"] = diff
+
+                events = _get_slot_anim("P1-C1")["adv_events"]
+                events.insert(0, {"value": int(diff), "life": 1.0, "x_offset": 20})
+                if len(events) > 3:
+                    events.pop()
+
+                print(f"[ADV] +{diff}")
+                _adv["state"] = 0
+
+        elif _adv["first_slot"] == "P2":
+            if is_actionable(p1):
+                diff = _frame - _adv["first_end"]
+
+                # defender ended first → MINUS
+                _adv["value"] = -diff
+
+                events = _get_slot_anim("P1-C1")["adv_events"]
+                events.insert(0, {"value": int(-diff), "life": 1.0, "x_offset": 20})
+                if len(events) > 3:
+                    events.pop()
+
+                print(f"[ADV] -{diff}")
+                _adv["state"] = 0
+
     mv_label   = (snap.get("mv_label") or "").strip()
     if not mv_label and move_id is not None:
         mv_label = f"0x{int(move_id):04X}"
@@ -620,11 +710,13 @@ def _draw_slot_row(screen: pygame.Surface,
         pip_w, pip_h, pip_gap,
         slot_anim, is_dead
     )
+    
     cx += meter_w + int(4 * scale)
     screen.blit(meter_num_s, (cx, sm_bot))
     cx += meter_num_s.get_width() + sep
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
-
+    # --- DRAW ADV ---
+    screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
     # Move label
     screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
     cx += move_surf.get_width() + sep
@@ -632,7 +724,7 @@ def _draw_slot_row(screen: pygame.Surface,
         # Damage display
     if show_damage:
         events = slot_anim["damage_events"]
-
+    
         dx = cx
         gap = int(6 * scale)
 
@@ -676,7 +768,54 @@ def _draw_slot_row(screen: pygame.Surface,
             dx += w + gap
         
         cx = dx + sep
+    # --- ADV DISPLAY ---
+    adv_events = slot_anim["adv_events"]
 
+    if adv_events:
+        dx = cx
+        gap = int(6 * scale)
+
+        for i, ev in enumerate(adv_events):
+            val = ev["value"]
+
+            ev["life"] -= 0.025
+            ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
+
+            if ev["life"] <= 0:
+                continue
+
+            is_newest = (i == 0)
+
+            if val >= 0:
+                base_col = (80, 255, 120) if is_newest else (60, 180, 90)
+                txt = f"+{val}"
+            else:
+                base_col = (255, 80, 80) if is_newest else (180, 70, 70)
+                txt = f"{val}"
+
+            alpha = int(255 * ev["life"])
+
+            adv_font = font if is_newest else font_sm
+            adv_surf = adv_font.render(txt, True, base_col)
+            adv_surf.set_alpha(alpha)
+
+            w = adv_surf.get_width()
+            h = adv_surf.get_height()
+
+            pad_x = int(4 * scale)
+            pad_y = int(2 * scale)
+
+            bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
+            bg.fill((0, 30, 0, int(180 * ev["life"])) if val >= 0 else (40, 0, 0, int(180 * ev["life"])))
+
+            draw_x = dx + int(ev["x_offset"])
+
+            screen.blit(bg, (draw_x - pad_x, mid_y - h//2 - pad_y))
+            screen.blit(adv_surf, (draw_x, mid_y - h // 2))
+
+            dx += w + gap
+
+        cx = dx + sep
     # Baroque badge (ready OR frozen)
     if show_baroque_badge:
         bq_text = f"BBQ {display_pct:.1f}%"
@@ -772,7 +911,7 @@ def draw_overlay(screen: pygame.Surface,
         target_alpha = 1.0 if slot_anim["present"] else 0.0
         slot_anim["alpha"] = _approach(slot_anim["alpha"], target_alpha, FADE_SPEED, dt)
 
-        # 🔥 THIS IS THE CORRECT SPOT
+        
         if slot_anim["alpha"] <= 0.01 and not slot_anim["present"]:
             if slot_label in _display_slots:
                 del _display_slots[slot_label]
@@ -835,6 +974,8 @@ def main() -> None:
                     running = False
 
         dt = clock.tick(TARGET_FPS) / 1000.0
+        global _frame
+        _frame += 1
 
         new_slots = read_slot_data()
 
