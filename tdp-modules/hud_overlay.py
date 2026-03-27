@@ -59,7 +59,7 @@ COL_METER_FULL   = ( 70, 140, 255)
 COL_METER_EMPTY  = ( 35,  35,  50)
 COL_BAROQUE_ON   = (255, 200,  60)
 COL_BAROQUE_BG   = (100,  60,   8)
-COL_ACTIVE_GLOW  = (255, 230, 100)
+
 BG_ALPHA         = 200
 
 ASSIST_STANDBY_IDS = {430, 432, 433}
@@ -520,15 +520,16 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     if is_active_char and not is_dead:
         pygame.draw.rect(pill, (*slot_col, 120), (0, 0, total_w, row_h), 1)
 
-        # scanning line (neo-futurist sweep)
-        t = (time.time() * 120) % total_w
+        # scanning line (meter-influenced speed)
+        speed = 120 + (slot_anim["meter_display"] * 10)
+        t = (time.time() * speed) % total_w
         scan_x = int(t)
 
         scan = pygame.Surface((6, row_h), pygame.SRCALPHA)
         scan.fill((*slot_col, 40))
         pill.blit(scan, (scan_x, 0))
 
-    screen.blit(pill, (anchor_x, anchor_y)) 
+    screen.blit(pill, (anchor_x, anchor_y))
 
     if is_active_char and not is_dead:
         pygame.draw.rect(screen, (*slot_col, 160), (anchor_x, anchor_y, total_w, row_h), 1, border_radius=2)
@@ -583,7 +584,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             ev["life"] -= 0.025
             # snap in faster, then settle
             speed = 240 if abs(ev["x_offset"]) > 5 else 80
-            ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
+            ev["x_offset"] = _approach(ev["x_offset"], 0, speed, 1/60.0)
             if ev["life"] <= 0:
                 continue
             base_col = (255, 80, 80) if i == 0 else (180, 70, 70)
