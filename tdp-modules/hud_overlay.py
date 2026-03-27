@@ -391,13 +391,36 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             slot_anim["last_hit_damage"] = dmg
             slot_anim["damage_timer"] = 45
             events = slot_anim["damage_events"]
-            events.insert(0, {"value": int(dmg), "life": 1.0, "x_offset": -20})
+            events.insert(0, {"value": int(dmg), "life": 1.0, "x_offset": -20, "type": "self"})
             if len(events) > 5:
                 events.pop()
+
+            # Mirror damage to opposing active slot (green on your side)
+            opponent = None
+            if slot_label.startswith("P1"):
+                opponent = _get_active_slot("P2")
+            else:
+                opponent = _get_active_slot("P1")
+
+            if opponent:
+                opp_anim = _get_slot_anim(opponent)
+                opp_events = opp_anim["damage_events"]
+                opp_events.insert(0, {
+                    "value": int(dmg),
+                    "life": 1.0,
+                    "x_offset": 20,
+                    "type": "opponent"
+                })
+                if len(opp_events) > 5:
+                    opp_events.pop()
     slot_anim["prev_hp"] = hp_cur
 
-    show_damage = slot_anim["damage_timer"] > 0
-    if show_damage:
+    show_damage = (
+        slot_anim["damage_timer"] > 0
+        or any(ev["life"] > 0 for ev in slot_anim["damage_events"])
+    )
+
+    if slot_anim["damage_timer"] > 0:
         slot_anim["damage_timer"] -= 1
 
     # Colors
@@ -631,7 +654,10 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             ev["x_offset"] = _approach(ev["x_offset"], 0, speed, 1/60.0)
             if ev["life"] <= 0:
                 continue
-            base_col = (255, 80, 80) if i == 0 else (180, 70, 70)
+            if ev.get("type") == "opponent":
+                base_col = (80, 255, 120) if i == 0 else (60, 200, 100)
+            else:
+                base_col = (255, 80, 80) if i == 0 else (180, 70, 70)
             alpha = int(255 * ev["life"])
             dmg_font = font if i == 0 else font_sm
             dmg_surf = dmg_font.render(f"-{ev['value']}", True, base_col)
@@ -640,7 +666,10 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             pad_x = int(4 * scale); pad_y = int(2 * scale)
             bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
             bg.fill((40, 0, 0, int(180 * ev["life"])))
-            draw_x = dx + int(ev["x_offset"])
+            if ev.get("type") == "opponent":
+                draw_x = dx + int(ev["x_offset"]) + int(30 * scale)
+            else:
+                draw_x = dx + int(ev["x_offset"])
             screen.blit(bg, (draw_x - pad_x, damage_y))
             screen.blit(dmg_surf, (draw_x, damage_y + pad_y))
             dx += w + gap
