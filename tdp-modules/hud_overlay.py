@@ -36,12 +36,11 @@ BASE_ROW_H      = 22
 BG_ALPHA        = 180
 
 SLOT_LAYOUT = {
-    "P1-C1": (  28,   178),
-    "P1-C2": (  28,   207),
-    "P2-C1": ( 712,   178),
-    "P2-C2": ( 712,   207),
+    "P1-C1": ("left",  28, 178),
+    "P1-C2": ("left",  28, 207),
+    "P2-C1": ("right", 28, 178),
+    "P2-C2": ("right", 28, 207),
 }
-
 SLOT_COLORS = {
     "P1-C1": (255, 100, 100),
     "P1-C2": (255, 150, 120),
@@ -159,8 +158,8 @@ def _update_adv() -> None:
                 st["first_slot"] = None
 
         elif st["state"] == 1:
-            # New attack started — reset
-            if prev_a is not None and _is_attacking(a_mv) and _is_attacking(prev_a) and a_mv != prev_a:
+            # Reset if a NEW attack starts while opponent is still stuck
+            if _is_attacking(a_mv) and not _is_attacking(prev_a) and _is_stuck(v_mv):
                 st["state"] = 0
                 continue
 
@@ -179,9 +178,10 @@ def _update_adv() -> None:
                 st["state"] = 2
                 st["first_end"] = _frame
                 st["first_slot"] = "V"
-
+        
         elif st["state"] == 2:
-            if prev_a is not None and _is_attacking(a_mv) and _is_attacking(prev_a) and a_mv != prev_a:
+            # Reset if a NEW attack starts while opponent is still stuck
+            if _is_attacking(a_mv) and not _is_attacking(prev_a) and _is_stuck(v_mv):
                 st["state"] = 0
                 continue
 
@@ -365,7 +365,8 @@ def _draw_divider(screen, x, y, row_h, scale, alpha=220):
 
 def _draw_slot_row(screen, font, font_sm, slot_label, snap,
                    anchor_x, anchor_y, row_h, scale,
-                   is_active_char, slot_anim, overlay_alpha) -> None:
+                   is_active_char, slot_anim, overlay_alpha,
+                   measure_only=False):
 
     slot_col = SLOT_COLORS.get(slot_label, (200, 200, 200))
     hp_cur   = snap.get("cur") or 0
@@ -484,11 +485,40 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         + baroque_badge_w
         + pad
     )
+    if measure_only:
+        return total_w
 
-    # Background pill
+    # Background pill (neo-futurist metallic)
     pill = pygame.Surface((total_w, row_h), pygame.SRCALPHA)
-    pill.fill((10, 10, 10, int(BG_ALPHA * slot_anim["alpha"] * overlay_alpha)))
-    screen.blit(pill, (anchor_x, anchor_y))
+
+    base_alpha = int(BG_ALPHA * slot_anim["alpha"] * overlay_alpha)
+
+    # metallic gradient (cool gray, slightly blue)
+    for y in range(row_h):
+        t = y / row_h
+        shade = int(18 + 18 * (1 - t))  # tighter range, less contrast
+        pygame.draw.line(pill, (shade, shade + 2, shade + 4, base_alpha), (0, y), (total_w, y))
+
+    # subtle scanline sheen (barely visible)
+    for y in range(0, row_h, 2):
+        pygame.draw.line(pill, (255, 255, 255, 8), (0, y), (total_w, y))
+
+    # thin top edge highlight (metal reflection)
+    pygame.draw.line(pill, (200, 220, 255, int(30 * overlay_alpha)), (0, 0), (total_w, 0))
+
+    # ultra-thin bottom shadow
+    pygame.draw.line(pill, (0, 0, 0, int(80 * overlay_alpha)), (0, row_h - 1), (total_w, row_h - 1))
+
+    # ACTIVE: replace glow with precision edge accent
+    if is_active_char and not is_dead:
+        pygame.draw.rect(
+            pill,
+            (*slot_col, 120),
+            (0, 0, total_w, row_h),
+            1  # thin border only
+        )
+
+    screen.blit(pill, (anchor_x, anchor_y)) 
 
     if is_active_char and not is_dead:
         pygame.draw.rect(screen, (*slot_col, 160), (anchor_x, anchor_y, total_w, row_h), 1, border_radius=2)
@@ -614,7 +644,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         bq_pill.fill((35, 30, 20, 220))
         screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
         screen.blit(bq_surf, (cx + int(4*scale), anchor_y + (row_h - bq_surf.get_height()) // 2))
-
+    return total_w
 
 def _compute_active_slots(slots: dict) -> set[str]:
     active = set()
@@ -643,7 +673,7 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
     row_h  = max(14, int(BASE_ROW_H * scale))
     active = _compute_active_slots(slots)
 
-    for slot_label, (base_x, base_y) in SLOT_LAYOUT.items():
+    for slot_label, (side, base_x, base_y) in SLOT_LAYOUT.items():
         snap      = slots.get(slot_label)
         slot_anim = _get_slot_anim(slot_label)
 
@@ -658,11 +688,25 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
         if not snap:
             continue
 
+        scaled_y = int(base_y * scale)
+
+        # FIRST PASS: measure width
+        row_w = _draw_slot_row(screen, font, font_sm, slot_label, snap,
+                                    0, scaled_y,
+                                    row_h, scale, slot_label in active,
+                                    slot_anim, overlay_alpha,
+                                    measure_only=True)
+        # COMPUTE PROPER X BASED ON SIDE
+        if side == "right":
+            anchor_x = screen.get_width() - int(base_x * scale) - row_w
+        else:
+            anchor_x = int(base_x * scale)
+
+        # SECOND PASS: draw in correct place
         _draw_slot_row(screen, font, font_sm, slot_label, snap,
-                       int(base_x * scale), int(base_y * scale),
+                       anchor_x, scaled_y,
                        row_h, scale, slot_label in active,
                        slot_anim, overlay_alpha)
-
 
 # ---------------------------------------------------------------------------
 # Main
