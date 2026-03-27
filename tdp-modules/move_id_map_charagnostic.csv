@@ -857,7 +857,6 @@
 48,0x1,Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 49,0x1,Crouching Block,Intro Pose Anchor,Intro Pose Anchor,yes,100
 50,0x100,Air block,5A,5A,yes,100
-50,0x100,Air pushblock,5A,5A,yes,100
 52,0x100,Air pushblock,5A,5A,yes,100
 55,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
 56,0x1,Puddle Slip?,Intro Pose Anchor,Intro Pose Anchor,yes,100
@@ -951,6 +950,7 @@
 445,0x1,Match Start Leave,Match Start Point,Match Start Point,yes,100
 446,0x1,Match Start Swap,Match Start Anchor,Match Start Anchor,yes,100
 447,0x1,Match Start Anchor,Match Start Anchor,Match Start Anchor,yes,100
+448,0x1,Megacrash,Match Start Anchor,Match Start Anchor,yes,100
 449,0x1,Crumple,Match Start Anchor,Match Start Anchor,yes,100
 465,0x1,Forward Throw,Match Start Anchor,Match Start Anchor,yes,100
 468,0x1,Back Throw,Match Start Anchor,Match Start Anchor,yes,100

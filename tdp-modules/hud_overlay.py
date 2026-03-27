@@ -74,7 +74,7 @@ PASSIVE_LABELS = {
 }
 
 # Move IDs that mean the character is in hitstun / blockstun
-REACTION_IDS = {48, 49, 50, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
+REACTION_IDS = {48, 49, 50, 51, 52, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
 
 # ---------------------------------------------------------------------------
 # Global state

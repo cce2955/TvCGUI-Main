@@ -158,7 +158,7 @@ def move_label_for(aid, cid, move_map, global_map):
     if aid is None:
         return "FLAG_NONE"
 
-    # universal stuff you already recognized
+    
     if aid == 48:
         return "BLOCK"
     if aid == 51:
