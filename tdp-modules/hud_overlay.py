@@ -155,20 +155,19 @@ def _update_adv() -> None:
 
         if st["state"] == 0:
             if _is_attacking(a_mv) and _is_stuck(v_mv):
-                st["state"] = 1
-                st["first_end"] = None
+                st["state"]      = 1
+                st["first_end"]  = None
                 st["first_slot"] = None
 
         elif st["state"] == 1:
-            # Reset if a NEW attack starts (was not attacking last frame)
-            if _is_attacking(a_mv) and not _is_attacking(prev_a) and _is_stuck(v_mv):
-                st["state"] = 0
-                continue
-
-            # Blockstring: attacker switched move ID mid-attack — reset timer, stay in state 1
-            if _is_attacking(a_mv) and a_mv != prev_a and _is_stuck(v_mv):
-                st["first_end"] = None
+            # New hit or move-id change — reset timer, stay tracking
+            if _is_attacking(a_mv) and _is_stuck(v_mv) and (
+                not _is_attacking(prev_a) or a_mv != prev_a
+            ):
+                st["first_end"]  = None
                 st["first_slot"] = None
+                if not _is_attacking(prev_a):
+                    st["state"] = 0
                 continue
 
             a_act = _is_actionable(a_mv)
@@ -179,25 +178,27 @@ def _update_adv() -> None:
                 _push_adv(v_slot,  0)
                 st["state"] = 0
             elif a_act:
-                st["state"] = 2
-                st["first_end"] = _frame
+                st["state"]      = 2
+                st["first_end"]  = _frame
                 st["first_slot"] = "A"
             elif v_act:
-                st["state"] = 2
-                st["first_end"] = _frame
+                st["state"]      = 2
+                st["first_end"]  = _frame
                 st["first_slot"] = "V"
 
         elif st["state"] == 2:
-            # Reset if a NEW attack starts (was not attacking last frame)
-            if _is_attacking(a_mv) and not _is_attacking(prev_a) and _is_stuck(v_mv):
-                st["state"] = 0
+            # Attacker hit again before adv resolved — discard stale timer, restart
+            if _is_attacking(a_mv) and _is_stuck(v_mv):
+                st["first_end"]  = None
+                st["first_slot"] = None
+                st["state"]      = 1 if _is_attacking(prev_a) else 0
                 continue
 
-            # Blockstring: attacker switched move ID while opponent still stuck — restart timer
-            if _is_attacking(a_mv) and a_mv != prev_a and _is_stuck(v_mv):
-                st["first_end"] = None
-                st["first_slot"] = None
-                st["state"] = 1
+            # Attacker went idle for a frame but victim still stuck — they're in a
+            # blockstring gap. Don't resolve yet; if they start attacking again,
+            # state 1 above will catch it. If victim recovers first we resolve below.
+            if st["first_slot"] == "A" and _is_stuck(v_mv) and not _is_attacking(a_mv):
+                # attacker is in gap — wait, don't commit yet
                 continue
 
             if st["first_slot"] == "A" and _is_actionable(v_mv):
