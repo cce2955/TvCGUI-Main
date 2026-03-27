@@ -160,9 +160,15 @@ def _update_adv() -> None:
                 st["first_slot"] = None
 
         elif st["state"] == 1:
-            # Reset if a NEW attack starts while opponent is still stuck
+            # Reset if a NEW attack starts (was not attacking last frame)
             if _is_attacking(a_mv) and not _is_attacking(prev_a) and _is_stuck(v_mv):
                 st["state"] = 0
+                continue
+
+            # Blockstring: attacker switched move ID mid-attack — reset timer, stay in state 1
+            if _is_attacking(a_mv) and a_mv != prev_a and _is_stuck(v_mv):
+                st["first_end"] = None
+                st["first_slot"] = None
                 continue
 
             a_act = _is_actionable(a_mv)
@@ -180,11 +186,18 @@ def _update_adv() -> None:
                 st["state"] = 2
                 st["first_end"] = _frame
                 st["first_slot"] = "V"
-        
+
         elif st["state"] == 2:
-            # Reset if a NEW attack starts while opponent is still stuck
+            # Reset if a NEW attack starts (was not attacking last frame)
             if _is_attacking(a_mv) and not _is_attacking(prev_a) and _is_stuck(v_mv):
                 st["state"] = 0
+                continue
+
+            # Blockstring: attacker switched move ID while opponent still stuck — restart timer
+            if _is_attacking(a_mv) and a_mv != prev_a and _is_stuck(v_mv):
+                st["first_end"] = None
+                st["first_slot"] = None
+                st["state"] = 1
                 continue
 
             if st["first_slot"] == "A" and _is_actionable(v_mv):
@@ -338,14 +351,12 @@ def _draw_hp_bar(screen, x, y, bar_w, bar_h, hp_cur, hp_max, is_dead):
         frac = max(0.0, min(1.0, hp_cur / hp_max))
         fill_w = max(1, int(bar_w * frac))
         bar_col = COL_HP_DEAD if is_dead else (COL_HP_LOW if frac <= 0.30 else COL_HP_HIGH)
-
         pygame.draw.rect(screen, bar_col, (x, y, fill_w, bar_h), border_radius=2)
-
-        # micro flash (correct scope)
         if not is_dead:
             flash = pygame.Surface((fill_w, bar_h), pygame.SRCALPHA)
             flash.fill((255, 255, 255, 18))
             screen.blit(flash, (x, y))
+
 def _draw_meter_pips_animated(screen, x, y, pip_w, pip_h, pip_gap, slot_anim, is_dead):
     meter_val = slot_anim["meter_display"]
     for i in range(5):
@@ -395,7 +406,6 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             if len(events) > 5:
                 events.pop()
 
-            # Mirror damage to opposing active slot (green on your side)
             opponent = None
             if slot_label.startswith("P1"):
                 opponent = _get_active_slot("P2")
@@ -432,25 +442,24 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         name_col = text_col = COL_TEXT
 
     # Layout
-    pad     = int(6  * scale)
-    acc_w   = int(3  * scale)
-    badge_w = int(26 * scale)
-    name_gap = int(6 * scale)
-    bar_w   = int(80 * scale)
-    bar_h   = max(4, int(6 * scale))
-    pip_w   = max(4, int(8 * scale))
-    pip_h   = max(4, int(8 * scale))
-    pip_gap = max(1, int(2 * scale))
-    meter_w = 5 * pip_w + 4 * pip_gap
-    sep     = int(10 * scale)
-    popup_max_w = font.size("-9999")[0] + int(12 * scale)
+    pad      = int(6  * scale)
+    acc_w    = int(3  * scale)
+    badge_w  = int(26 * scale)
+    name_gap = int(6  * scale)
+    bar_w    = int(80 * scale)
+    bar_h    = max(4, int(6 * scale))
+    pip_w    = max(4, int(8 * scale))
+    pip_h    = max(4, int(8 * scale))
+    pip_gap  = max(1, int(2 * scale))
+    meter_w  = 5 * pip_w + 4 * pip_gap
+    sep      = int(10 * scale)
 
     char_name = snap.get("name") or "???"
     name_surf = font.render(char_name, True, name_col)
     name_w    = name_surf.get_width()
 
-    hp_str    = f"{int(hp_cur)}/{int(hp_max)}"
-    hp_num_s  = font_sm.render(hp_str, True, text_col)
+    hp_str   = f"{int(hp_cur)}/{int(hp_max)}"
+    hp_num_s = font_sm.render(hp_str, True, text_col)
 
     meter_val = snap.get("meter")
     try:
@@ -464,10 +473,10 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         meter_str = f"{raw_meter:.0f}"
     except (TypeError, ValueError):
         meter_f = 0; meter_str = "---"
+
     # Meter gain tracking
     prev_meter = slot_anim["prev_meter"]
-    cur_meter = raw_meter if meter_val is not None else 0
-
+    cur_meter  = raw_meter if meter_val is not None else 0
     if prev_meter is not None and cur_meter > prev_meter:
         gain = int(cur_meter - prev_meter)
         if gain > 0:
@@ -475,8 +484,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             events.insert(0, {"value": gain, "life": 1.0, "x_offset": 20})
             if len(events) > 5:
                 events.pop()
+    slot_anim["prev_meter"] = cur_meter
 
-    slot_anim["prev_meter"] = cur_meter        
     meter_num_s = font_sm.render(meter_str, True, text_col)
 
     move_id  = snap.get("mv_id_display")
@@ -513,27 +522,22 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         bq_surf_tmp = font_sm.render(f"BBQ {display_pct:.1f}%", True, (255, 255, 255))
         baroque_badge_w = bq_surf_tmp.get_width() + int(10 * scale)
 
-    # Check if we have adv events to show (for width calculation)
-    adv_events_live = [e for e in slot_anim["adv_events"] if e["life"] > 0]
-    adv_w = 0
-    if adv_events_live:
-        ev = adv_events_live[0]
-        txt = f"+{ev['value']}" if ev["value"] >= 0 else str(ev["value"])
-        adv_w = font.size(txt)[0] + sep
+    # Determine live popup events for width calculation
+    adv_events_live    = [e for e in slot_anim["adv_events"]    if e["life"] > 0]
+    damage_events_live = [e for e in slot_anim["damage_events"] if e["life"] > 0]
+    meter_events_live  = [e for e in slot_anim["meter_events"]  if e["life"] > 0]
+    has_popups = bool(adv_events_live or damage_events_live or meter_events_live or show_baroque_badge)
+    popup_max_w = (font.size("-9999")[0] + int(12 * scale)) if has_popups else 0
 
     total_w = (
         acc_w + pad
         + badge_w + name_gap
         + name_w + sep
         + font_sm.size("HP")[0] + int(4*scale) + bar_w + int(4*scale) + hp_num_s.get_width() + sep
-        
-        + font_sm.size("M")[0] + int(4*scale) + meter_w + int(4*scale) + meter_num_s.get_width() + sep
-        
+        + font_sm.size("M")[0]  + int(4*scale) + meter_w + int(4*scale) + meter_num_s.get_width() + sep
         + move_surf.get_width() + sep
-        + baroque_badge_w
-        + sep
+        + (baroque_badge_w + sep if show_baroque_badge else 0)
         + popup_max_w
-        + adv_w
         + pad
     )
 
@@ -545,43 +549,24 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
     # Background pill (neo-futurist metallic)
     pill = pygame.Surface((total_w, row_h), pygame.SRCALPHA)
-
     base_alpha = int(BG_ALPHA * slot_anim["alpha"] * overlay_alpha)
 
-    # metallic gradient (cool gray, slightly blue)
     for y in range(row_h):
-        t = y / row_h
-        shade = int(18 + 18 * (1 - t))  # tighter range, less contrast
+        shade = int(18 + 18 * (1 - y / row_h))
         pygame.draw.line(pill, (shade, shade + 2, shade + 4, base_alpha), (0, y), (total_w, y))
 
-    # subtle scanline sheen (barely visible)
     for y in range(0, row_h, 2):
         pygame.draw.line(pill, (255, 255, 255, 8), (0, y), (total_w, y))
 
-    # thin top edge highlight (metal reflection)
     pygame.draw.line(pill, (200, 220, 255, int(30 * overlay_alpha)), (0, 0), (total_w, 0))
-    # ultra-thin bottom shadow
     pygame.draw.line(pill, (0, 0, 0, int(80 * overlay_alpha)), (0, row_h - 1), (total_w, row_h - 1))
 
-    # ACTIVE: precision edge + scanning sweep
     if is_active_char and not is_dead:
         pygame.draw.rect(pill, (*slot_col, 120), (0, 0, total_w, row_h), 1)
 
-        # scanning line (meter-influenced speed)
-        pygame.draw.rect(pill, (*slot_col, 120), (0, 0, total_w, row_h), 1)
-
-        # scanning line (directional + meter-influenced)
-        speed = 120 + (slot_anim["meter_display"] * 10)
-        t = (time.time() * speed) % total_w
-
-        if slot_label.startswith("P1"):
-            scan_x = int(t)  # left → right
-        else:
-            scan_x = int(total_w - t)  # right → left
-
-        scan = pygame.Surface((6, row_h), pygame.SRCALPHA)
-        scan.fill((*slot_col, 40))
-        pill.blit(scan, (scan_x, 0))
+        speed  = 120 + (slot_anim["meter_display"] * 10)
+        t      = (time.time() * speed) % total_w
+        scan_x = int(t) if slot_label.startswith("P1") else int(total_w - t)
 
         scan = pygame.Surface((6, row_h), pygame.SRCALPHA)
         scan.fill((*slot_col, 40))
@@ -603,15 +588,15 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     screen.blit(bs, (badge_x + (badge_w - bs.get_width()) // 2,
                      anchor_y + (row_h - bs.get_height()) // 2))
 
-    cx    = badge_x + badge_w + name_gap
-    mid_y = anchor_y + row_h // 2
+    cx     = badge_x + badge_w + name_gap
+    mid_y  = anchor_y + row_h // 2
     popup_y = anchor_y + row_h + int(4 * scale)
 
     damage_y = popup_y
     meter_y  = popup_y
     adv_y    = popup_y
-    sm_top = anchor_y + int(2 * scale)
-    sm_bot = anchor_y + row_h - int(2 * scale) - font_sm.get_height()
+    sm_top   = anchor_y + int(2 * scale)
+    sm_bot   = anchor_y + row_h - int(2 * scale) - font_sm.get_height()
 
     screen.blit(name_surf, (cx, mid_y - font.get_height() // 2))
     cx += name_w + sep
@@ -620,12 +605,11 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     lbl = font_sm.render("HP", True, COL_TEXT_DIM)
     screen.blit(lbl, (cx, sm_top))
     _draw_hp_bar(screen, cx, mid_y - bar_h // 2, bar_w, bar_h, hp_cur, hp_max, is_dead)
-
     cx += bar_w + int(4 * scale)
     screen.blit(hp_num_s, (cx, sm_bot))
     cx += hp_num_s.get_width() + sep
     hp_anchor_x = cx
-    
+
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
     lbl = font_sm.render("M", True, COL_TEXT_DIM)
@@ -636,145 +620,117 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     screen.blit(meter_num_s, (cx, sm_bot))
     cx += meter_num_s.get_width() + sep
     meter_anchor_x = cx
-    
+
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
     screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
     cx += move_surf.get_width() + sep
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
-    # Damage display
+    # Damage popup
     if show_damage:
-        dx = hp_anchor_x
+        dx  = hp_anchor_x
         gap = int(6 * scale)
         for i, ev in enumerate(slot_anim["damage_events"]):
             ev["life"] -= 0.010
-            # snap in faster, then settle
             speed = 240 if abs(ev["x_offset"]) > 5 else 80
             ev["x_offset"] = _approach(ev["x_offset"], 0, speed, 1/60.0)
             if ev["life"] <= 0:
                 continue
-            if ev.get("type") == "opponent":
-                base_col = (80, 255, 120) if i == 0 else (60, 200, 100)
-            else:
-                base_col = (255, 80, 80) if i == 0 else (180, 70, 70)
-            alpha = int(255 * ev["life"])
+            base_col = (80, 255, 120) if ev.get("type") == "opponent" else (255, 80, 80)
+            if i > 0:
+                base_col = tuple(int(c * 0.75) for c in base_col)
+            alpha    = int(255 * ev["life"])
             dmg_font = font if i == 0 else font_sm
             dmg_surf = dmg_font.render(f"-{ev['value']}", True, base_col)
             dmg_surf.set_alpha(alpha)
             w = dmg_surf.get_width(); h = dmg_surf.get_height()
             pad_x = int(4 * scale); pad_y = int(2 * scale)
-            bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
-            bg.fill((40, 0, 0, int(180 * ev["life"])))
-            if ev.get("type") == "opponent":
-                draw_x = dx + int(ev["x_offset"]) + int(30 * scale)
-            else:
-                draw_x = dx + int(ev["x_offset"])
-            screen.blit(bg, (draw_x - pad_x, damage_y))
-            screen.blit(dmg_surf, (draw_x, damage_y + pad_y))
+            bg = pygame.Surface((w + pad_x * 2, h + pad_y * 2), pygame.SRCALPHA)
+            bg.fill((20, 0, 0, int(180 * ev["life"])))
+            draw_x = dx + int(ev["x_offset"]) + (int(30 * scale) if ev.get("type") == "opponent" else 0)
+            screen.blit(bg, (draw_x - pad_x, damage_y - pad_y))
+            screen.blit(dmg_surf, (draw_x, damage_y))
             dx += w + gap
-        cx = dx + sep
-    # Meter gain display
+
+    # Meter gain popup
     meter_events = slot_anim["meter_events"]
     if meter_events:
-        dx = meter_anchor_x
+        dx  = meter_anchor_x
         gap = int(6 * scale)
-        alive = False
-
         for i, ev in enumerate(meter_events):
             ev["life"] -= 0.010
             ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
-
             if ev["life"] <= 0:
                 continue
-
-            alive = True
-
             base_col = (80, 160, 255) if i == 0 else (60, 120, 200)
-            txt = f"+{ev['value']}"
-            alpha = int(255 * ev["life"])
-
-            m_font = font if i == 0 else font_sm
-            surf = m_font.render(txt, True, base_col)
+            alpha    = int(255 * ev["life"])
+            m_font   = font if i == 0 else font_sm
+            surf     = m_font.render(f"+{ev['value']}", True, base_col)
             surf.set_alpha(alpha)
-
             w = surf.get_width(); h = surf.get_height()
             pad_x = int(4 * scale); pad_y = int(2 * scale)
-
-            bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
+            bg = pygame.Surface((w + pad_x * 2, h + pad_y * 2), pygame.SRCALPHA)
             bg.fill((0, 20, 50, int(180 * ev["life"])))
-
             draw_x = dx + int(ev["x_offset"])
-
-            screen.blit(bg, (draw_x - pad_x, meter_y))
-            screen.blit(surf, (draw_x, meter_y + pad_y))
-
+            screen.blit(bg, (draw_x - pad_x, meter_y - pad_y))
+            screen.blit(surf, (draw_x, meter_y))
             dx += w + gap
+        slot_anim["meter_events"] = [e for e in meter_events if e["life"] > 0]
 
-        if alive:
-            cx = dx + sep
-
-        slot_anim["meter_events"] = [e for e in meter_events if e["life"] > 0]    
     # Baroque badge
     if show_baroque_badge:
-        bq_text = f"BBQ {display_pct:.1f}%"
-        base_text = font_sm.render(bq_text, True, (255, 255, 255))
-        rainbow = pygame.Surface(base_text.get_size(), pygame.SRCALPHA)
+        bq_text  = f"BBQ {display_pct:.1f}%"
+        bq_base  = font_sm.render(bq_text, True, (255, 255, 255))
+        rainbow  = pygame.Surface(bq_base.get_size(), pygame.SRCALPHA)
         t = time.time() * 0.4
-        for x in range(base_text.get_width()):
-            phase = (x / base_text.get_width() + t) % 1.0
+        for x in range(bq_base.get_width()):
+            phase = (x / bq_base.get_width() + t) % 1.0
             r = int(200 + 55 * math.sin(2 * math.pi * phase))
             g = int(160 + 55 * math.sin(2 * math.pi * (phase + 0.33)))
-            b = int(255)
-            pygame.draw.line(rainbow, (r, g, b, 255), (x, 0), (x, base_text.get_height()))
-        base_text.blit(rainbow, (0, 0), special_flags=pygame.BLEND_MULT)
-        bq_surf = base_text
-        glow = pygame.Surface((bq_surf.get_width()+6, bq_surf.get_height()+4), pygame.SRCALPHA)
-        glow.fill((80, 40, 10, 120))
-        screen.blit(glow, (cx + int(2*scale) - 3, anchor_y + (row_h - bq_surf.get_height()) // 2 - 2))
-        bq_w = bq_surf.get_width() + int(8 * scale)
-        bq_h = row_h - int(6 * scale)
+            pygame.draw.line(rainbow, (r, g, 255, 255), (x, 0), (x, bq_base.get_height()))
+        bq_base.blit(rainbow, (0, 0), special_flags=pygame.BLEND_MULT)
+        bq_surf = bq_base
+
+        bq_w    = bq_surf.get_width() + int(8 * scale)
+        bq_h    = row_h - int(6 * scale)
         bq_pill = pygame.Surface((bq_w, bq_h), pygame.SRCALPHA)
         bq_pill.fill((35, 30, 20, 220))
         screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
-        screen.blit(bq_surf, (cx + int(4*scale), anchor_y + (row_h - bq_surf.get_height()) // 2))
-                
-    # Frame advantage display
+        screen.blit(bq_surf, (cx + int(4 * scale), anchor_y + (row_h - bq_surf.get_height()) // 2))
+        cx += bq_w + sep
+
+    # Frame advantage popup
     adv_anchor_x = anchor_x + total_w - popup_max_w - int(6 * scale)
-    adv_events = slot_anim["adv_events"]
+    adv_events   = slot_anim["adv_events"]
     if adv_events:
-        dx = adv_anchor_x
+        dx  = adv_anchor_x
         gap = int(6 * scale)
-        alive = False
         for i, ev in enumerate(adv_events):
             ev["life"] -= 0.010
             ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
             if ev["life"] <= 0:
                 continue
-            alive = True
-            val = ev["value"]
+            val      = ev["value"]
             base_col = (80, 255, 120) if val > 0 else ((255, 80, 80) if val < 0 else (200, 200, 200))
-            txt = f"+{val}" if val > 0 else str(val)
-            alpha = int(255 * ev["life"])
+            txt      = f"+{val}" if val > 0 else str(val)
+            alpha    = int(255 * ev["life"])
             adv_font = font if i == 0 else font_sm
             adv_surf = adv_font.render(txt, True, base_col)
             adv_surf.set_alpha(alpha)
             w = adv_surf.get_width(); h = adv_surf.get_height()
             pad_x = int(4 * scale); pad_y = int(2 * scale)
             bg_col = (0, 30, 0) if val > 0 else ((40, 0, 0) if val < 0 else (20, 20, 20))
-            bg = pygame.Surface((w + pad_x*2, h + pad_y*2), pygame.SRCALPHA)
+            bg = pygame.Surface((w + pad_x * 2, h + pad_y * 2), pygame.SRCALPHA)
             bg.fill((*bg_col, int(180 * ev["life"])))
             draw_x = dx + int(ev["x_offset"])
-            screen.blit(bg, (draw_x - pad_x, adv_y))
-            screen.blit(adv_surf, (draw_x, adv_y + pad_y))
+            screen.blit(bg, (draw_x - pad_x, adv_y - pad_y))
+            screen.blit(adv_surf, (draw_x, adv_y))
             dx += w + gap
-        if alive:
-            cx = dx + sep
-        # Clean up dead events
         slot_anim["adv_events"] = [e for e in adv_events if e["life"] > 0]
 
-
     return total_w
+
 
 def _compute_active_slots(slots: dict) -> set[str]:
     active = set()
@@ -800,9 +756,9 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
     screen.fill(COLORKEY)
     _anim_state["overlay_alpha"] = _approach(_anim_state["overlay_alpha"], 1.0, FADE_SPEED, dt)
     overlay_alpha = _anim_state["overlay_alpha"]
-    row_h  = max(14, int(BASE_ROW_H * scale))
+    row_h   = max(14, int(BASE_ROW_H * scale))
     row_gap = int(14 * scale)
-    active = _compute_active_slots(slots)
+    active  = _compute_active_slots(slots)
 
     for slot_label, (side, base_x, base_y) in SLOT_LAYOUT.items():
         snap      = slots.get(slot_label)
@@ -821,22 +777,19 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
 
         scaled_y = int(base_y * scale) + (row_gap if slot_label.endswith("C2") else 0)
 
-        # FIRST PASS: measure width
+        # First pass: measure width
         row_w = _draw_slot_row(screen, font, font_sm, slot_label, snap,
-                                    0, scaled_y,
-                                    row_h, scale, slot_label in active,
-                                    slot_anim, overlay_alpha,
-                                    measure_only=True)
-        # COMPUTE PROPER X BASED ON SIDE
+                               0, scaled_y, row_h, scale, slot_label in active,
+                               slot_anim, overlay_alpha, measure_only=True)
+
         if side == "right":
             anchor_x = screen.get_width() - int(base_x * scale) - row_w
         else:
             anchor_x = int(base_x * scale)
 
-        # SECOND PASS: draw in correct place
+        # Second pass: draw
         _draw_slot_row(screen, font, font_sm, slot_label, snap,
-                       anchor_x, scaled_y,
-                       row_h, scale, slot_label in active,
+                       anchor_x, scaled_y, row_h, scale, slot_label in active,
                        slot_anim, overlay_alpha)
 
 # ---------------------------------------------------------------------------
@@ -890,10 +843,9 @@ def main() -> None:
             _get_slot_anim(slot_label)["present"] = slot_label in new_slots
 
         for k, v in new_slots.items():
-            if isinstance(v, dict):   # skip the _adv_display top-level key
+            if isinstance(v, dict):
                 _display_slots[k] = v
 
-        # Run advantage tracker once per frame (not per slot)
         _update_adv()
 
         draw_overlay(screen, font, font_sm, _display_slots, scale, dt)
