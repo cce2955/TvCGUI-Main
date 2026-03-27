@@ -516,6 +516,12 @@ def _draw_slot_row(screen: pygame.Surface,
     p1 = int(p1) if p1 is not None else None
     p2 = int(p2) if p2 is not None else None
 
+    # --- TRACK PREVIOUS MOVE IDS ---
+    prev_p1 = _adv.get("prev_p1")
+    prev_p2 = _adv.get("prev_p2")
+
+    _adv["prev_p1"] = p1
+    _adv["prev_p2"] = p2
     # --- STATE MACHINE (FIXED CLEAN VERSION) ---
 
     if _adv["state"] == 0:
@@ -526,6 +532,11 @@ def _draw_slot_row(screen: pygame.Surface,
 
     elif _adv["state"] == 1:
         # detect FIRST to become actionable
+        if prev_p1 is not None and is_attack(p1) and is_attack(prev_p1) and p1 != prev_p1:
+            _adv["state"] = 1
+            _adv["first_end"] = None
+            _adv["first_slot"] = None
+            return
 
         if is_actionable(p1) and not is_actionable(p2):
             _adv["state"] = 2
@@ -552,6 +563,12 @@ def _draw_slot_row(screen: pygame.Surface,
 
     elif _adv["state"] == 2:
         # wait for SECOND
+        if prev_p1 is not None and is_attack(p1) and is_attack(prev_p1) and p1 != prev_p1:
+            _adv["state"] = 1
+            _adv["first_end"] = None
+            _adv["first_slot"] = None
+            return
+
 
         if _adv["first_slot"] == "P1":
             if is_actionable(p2):
