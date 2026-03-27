@@ -334,8 +334,14 @@ def _draw_hp_bar(screen, x, y, bar_w, bar_h, hp_cur, hp_max, is_dead):
         frac = max(0.0, min(1.0, hp_cur / hp_max))
         fill_w = max(1, int(bar_w * frac))
         bar_col = COL_HP_DEAD if is_dead else (COL_HP_LOW if frac <= 0.30 else COL_HP_HIGH)
+
         pygame.draw.rect(screen, bar_col, (x, y, fill_w, bar_h), border_radius=2)
 
+        # micro flash (correct scope)
+        if not is_dead:
+            flash = pygame.Surface((fill_w, bar_h), pygame.SRCALPHA)
+            flash.fill((255, 255, 255, 18))
+            screen.blit(flash, (x, y))
 def _draw_meter_pips_animated(screen, x, y, pip_w, pip_h, pip_gap, slot_anim, is_dead):
     meter_val = slot_anim["meter_display"]
     for i in range(5):
@@ -343,7 +349,7 @@ def _draw_meter_pips_animated(screen, x, y, pip_w, pip_h, pip_gap, slot_anim, is
         target = 1.0 if i < int(meter_val) else 0.0
         slot_anim["pip_values"][i] = _approach(slot_anim["pip_values"][i], target, PIP_SPEED, 1/60.0)
         v = slot_anim["pip_values"][i]
-        scale = 0.8 + 0.2 * v
+        scale = 0.75 + 0.25 * v
         w = int(pip_w * scale); h = int(pip_h * scale)
         ox = (pip_w - w) // 2; oy = (pip_h - h) // 2
         col = COL_METER_EMPTY if is_dead else tuple(
@@ -505,18 +511,20 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
     # thin top edge highlight (metal reflection)
     pygame.draw.line(pill, (200, 220, 255, int(30 * overlay_alpha)), (0, 0), (total_w, 0))
-
     # ultra-thin bottom shadow
     pygame.draw.line(pill, (0, 0, 0, int(80 * overlay_alpha)), (0, row_h - 1), (total_w, row_h - 1))
 
-    # ACTIVE: replace glow with precision edge accent
+    # ACTIVE: precision edge + scanning sweep
     if is_active_char and not is_dead:
-        pygame.draw.rect(
-            pill,
-            (*slot_col, 120),
-            (0, 0, total_w, row_h),
-            1  # thin border only
-        )
+        pygame.draw.rect(pill, (*slot_col, 120), (0, 0, total_w, row_h), 1)
+
+        # scanning line (neo-futurist sweep)
+        t = (time.time() * 120) % total_w
+        scan_x = int(t)
+
+        scan = pygame.Surface((6, row_h), pygame.SRCALPHA)
+        scan.fill((*slot_col, 40))
+        pill.blit(scan, (scan_x, 0))
 
     screen.blit(pill, (anchor_x, anchor_y)) 
 
@@ -546,6 +554,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     lbl = font_sm.render("HP", True, COL_TEXT_DIM)
     screen.blit(lbl, (cx, sm_top))
     _draw_hp_bar(screen, cx, mid_y - bar_h // 2, bar_w, bar_h, hp_cur, hp_max, is_dead)
+
     cx += bar_w + int(4 * scale)
     screen.blit(hp_num_s, (cx, sm_bot))
     cx += hp_num_s.get_width() + sep
@@ -570,6 +579,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         gap = int(6 * scale)
         for i, ev in enumerate(slot_anim["damage_events"]):
             ev["life"] -= 0.025
+            # snap in faster, then settle
+            speed = 240 if abs(ev["x_offset"]) > 5 else 80
             ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
             if ev["life"] <= 0:
                 continue
