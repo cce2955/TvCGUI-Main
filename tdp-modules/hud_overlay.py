@@ -52,16 +52,39 @@ SLOT_LAYOUT = {
     "P2-C2": ( 712,   207),
 }
 
+# Team accent colors
 SLOT_COLORS = {
-    "P1-C1": (255, 110, 110),
-    "P1-C2": (255, 160, 130),
-    "P2-C1": (110, 170, 255),
-    "P2-C2": (130, 200, 255),
+    "P1-C1": (255, 100, 100),
+    "P1-C2": (255, 150, 120),
+    "P2-C1": ( 90, 160, 255),
+    "P2-C2": (120, 190, 255),
 }
 
-COL_TEXT        = (220, 220, 220)
-COL_BAROQUE_ON  = (255, 200, 60)
-COL_BAROQUE_OFF = (150, 150, 150)
+COL_TEXT         = (220, 220, 220)
+COL_TEXT_DIM     = (120, 120, 120)   # passive state text
+COL_DEAD         = ( 90,  90,  90)   # KO'd character
+COL_HP_HIGH      = ( 60, 200,  90)   # HP bar > 30%
+COL_HP_LOW       = (220,  60,  60)   # HP bar <= 30%
+COL_HP_DEAD      = ( 70,  70,  70)   # HP bar when KO'd
+COL_HP_BG        = ( 40,  40,  40)   # HP bar background
+COL_METER_FULL   = ( 70, 140, 255)   # filled pip
+COL_METER_EMPTY  = ( 35,  35,  50)   # empty pip
+COL_BAROQUE_ON   = (255, 200,  60)
+COL_BAROQUE_BG   = (100,  60,   8)   # amber badge bg
+COL_ACTIVE_GLOW  = (255, 230, 100)   # active character highlight
+BG_ALPHA         = 200
+
+# Move IDs for assist/DHC off-screen states
+ASSIST_STANDBY_IDS = {430, 432, 433}
+ASSIST_ATTACK_IDS  = {420, 426, 427, 428}
+ASSIST_OFF_IDS     = ASSIST_STANDBY_IDS | ASSIST_ATTACK_IDS
+
+# Move labels that are passive — dim the move text
+PASSIVE_LABELS = {
+    "idle", "crouched", "couching", "standing", "jump", "jump forward",
+    "jump back", "landing", "rising", "assist standby", "assist leave",
+    "assist attack", "assist taunt", "tag out", "tag in",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -197,87 +220,273 @@ def read_slot_data() -> dict:
 # Drawing
 # ---------------------------------------------------------------------------
 
-def make_font(size: int) -> pygame.font.Font:
-    """Return a Consolas font at the given size, with fallback."""
+def make_font(size: int, bold: bool = True) -> pygame.font.Font:
     try:
-        return pygame.font.SysFont("consolas", max(8, size), bold=True)
+        return pygame.font.SysFont("consolas", max(8, size), bold=bold)
     except Exception:
         return pygame.font.Font(None, max(8, size))
 
 
-def _draw_slot_row(screen: pygame.Surface, font: pygame.font.Font,
-                   slot_label: str, snap: dict,
-                   anchor_x: int, anchor_y: int, row_h: int, scale: float) -> None:
-    """Draw a single compact fighter row at the given screen-space anchor."""
+def _is_active(snap: dict) -> bool:
+    """True if this slot is the on-screen active fighter (not assist/standby)."""
+    move_id = snap.get("mv_id_display")
+    if move_id is None:
+        return True
+    return int(move_id) not in ASSIST_OFF_IDS
 
-    char_name = snap.get("name") or "???"
 
-    hp_cur = snap.get("cur")
-    hp_max = snap.get("max")
-    hp_str = (
-        f"{int(hp_cur)}/{int(hp_max)}"
-        if hp_cur is not None and hp_max
-        else "---"
-    )
+def _partner_slot(slot_label: str) -> str:
+    """Return the other character slot on the same team."""
+    return {
+        "P1-C1": "P1-C2",
+        "P1-C2": "P1-C1",
+        "P2-C1": "P2-C2",
+        "P2-C2": "P2-C1",
+    }.get(slot_label, "")
 
-    meter_val = snap.get("meter")
+
+def _draw_hp_bar(screen, x, y, bar_w, bar_h, hp_cur, hp_max, is_dead):
+    """Draw a proportional HP bar with color coding."""
+    pygame.draw.rect(screen, COL_HP_BG, (x, y, bar_w, bar_h), border_radius=2)
+    if hp_max and hp_max > 0:
+        frac = max(0.0, min(1.0, hp_cur / hp_max))
+        fill_w = max(1, int(bar_w * frac))
+        if is_dead:
+            bar_col = COL_HP_DEAD
+        elif frac <= 0.30:
+            bar_col = COL_HP_LOW
+        else:
+            bar_col = COL_HP_HIGH
+        pygame.draw.rect(screen, bar_col, (x, y, fill_w, bar_h), border_radius=2)
+
+
+def _draw_meter_pips(screen, x, y, pip_w, pip_h, pip_gap, meter_val, is_dead):
+    """Draw 5 meter pips (TvC max = 5 bars)."""
+    MAX_PIPS = 5
     try:
-        meter_str = f"{float(meter_val):.2f}" if meter_val is not None else "---"
+        bars = float(meter_val) if meter_val is not None else 0.0
     except (TypeError, ValueError):
-        meter_str = str(meter_val)
+        bars = 0.0
 
-    move_id  = snap.get("mv_id_display")
-    mv_label = snap.get("mv_label") or ""
-    if move_id is not None:
-        move_str = f"0x{int(move_id):04X}"
-        if mv_label:
-            move_str += f" {mv_label}"
+    full_pips  = int(bars)
+    partial    = bars - full_pips
+
+    for i in range(MAX_PIPS):
+        px = x + i * (pip_w + pip_gap)
+        if is_dead:
+            col = COL_METER_EMPTY
+        elif i < full_pips:
+            col = COL_METER_FULL
+        elif i == full_pips and partial > 0.05:
+            # Partial pip: interpolate brightness
+            t = partial
+            col = tuple(int(COL_METER_EMPTY[c] + (COL_METER_FULL[c] - COL_METER_EMPTY[c]) * t)
+                        for c in range(3))
+        else:
+            col = COL_METER_EMPTY
+        pygame.draw.rect(screen, col, (px, y, pip_w, pip_h), border_radius=1)
+
+
+def _draw_slot_row(screen: pygame.Surface,
+                   font: pygame.font.Font,
+                   font_sm: pygame.font.Font,
+                   slot_label: str,
+                   snap: dict,
+                   anchor_x: int, anchor_y: int,
+                   row_h: int, scale: float,
+                   is_active_char: bool) -> None:
+    """Draw one polished fighter row."""
+
+    slot_col  = SLOT_COLORS.get(slot_label, (200, 200, 200))
+    hp_cur    = snap.get("cur") or 0
+    hp_max    = snap.get("max") or 1
+    is_dead   = (hp_cur <= 0)
+
+    # Dim everything when dead
+    if is_dead:
+        name_col = COL_DEAD
+        text_col = COL_DEAD
+    elif not is_active_char:
+        name_col = COL_TEXT_DIM
+        text_col = COL_TEXT_DIM
     else:
-        move_str = "---"
+        name_col = COL_TEXT
+        text_col = COL_TEXT
 
-    baroque_ready = snap.get("baroque_ready_local", False)
+    # ── Layout measurements ──────────────────────────────────────────────
+    pad        = int(6  * scale)
+    acc_w      = int(3  * scale)          # left accent bar width
+    badge_w    = int(26 * scale)          # C1/C2 badge
+    name_gap   = int(6  * scale)
+    bar_w      = int(80 * scale)          # HP bar width
+    bar_h      = max(4, int(6 * scale))
+    pip_w      = max(4, int(8  * scale))  # meter pip
+    pip_h      = max(4, int(8  * scale))
+    pip_gap    = max(1, int(2  * scale))
+    meter_w    = 5 * pip_w + 4 * pip_gap
+
+    char_name  = snap.get("name") or "???"
+    name_surf  = font.render(char_name, True, name_col)
+    name_w     = name_surf.get_width()
+
+    # HP number
+    hp_str     = f"{int(hp_cur)}/{int(hp_max)}"
+    hp_num_s   = font_sm.render(hp_str, True, text_col)
+
+    # Meter value
+    meter_val  = snap.get("meter")
+    try:
+        meter_f  = float(meter_val) if meter_val is not None else 0.0
+        meter_str = f"{meter_f:.2f}"
+    except (TypeError, ValueError):
+        meter_f  = 0.0
+        meter_str = "---"
+    meter_num_s = font_sm.render(meter_str, True, text_col)
+
+    # Move label
+    move_id    = snap.get("mv_id_display")
+    mv_label   = (snap.get("mv_label") or "").strip()
+    if not mv_label and move_id is not None:
+        mv_label = f"0x{int(move_id):04X}"
+    is_passive = mv_label.lower() in PASSIVE_LABELS
+    move_col   = COL_TEXT_DIM if (is_passive or not is_active_char or is_dead) else COL_TEXT
+    move_surf  = font_sm.render(mv_label or "---", True, move_col)
+
+    # Baroque
+    baroque_ready = snap.get("baroque_ready_local", False) and not is_dead
     baroque_pct   = snap.get("baroque_red_pct_max", 0.0)
-    baroque_str   = f"READY {baroque_pct:.1f}%" if baroque_ready else "---"
-    baroque_col   = COL_BAROQUE_ON if baroque_ready else COL_BAROQUE_OFF
-    slot_col      = SLOT_COLORS.get(slot_label, (200, 200, 200))
 
-    seg_slot    = f"[{slot_label}]"
-    seg_name    = f" {char_name}"
-    seg_stats   = f"  HP:{hp_str}  Meter:{meter_str}  Move:{move_str}  Baroque:"
-    seg_baroque = baroque_str
+    # ── Total row width ──────────────────────────────────────────────────
+    sep       = int(10 * scale)  # section separator gap
+    label_sm  = font_sm.render("HP", True, COL_TEXT_DIM)
+    label_h   = label_sm.get_height()
+
+    baroque_badge_w = 0
+    if baroque_ready:
+        bq_text     = f"◆ {baroque_pct:.1f}%"
+        bq_surf     = font_sm.render(bq_text, True, COL_BAROQUE_ON)
+        baroque_badge_w = bq_surf.get_width() + int(10 * scale)
 
     total_w = (
-        font.size(seg_slot)[0]
-        + font.size(seg_name)[0]
-        + font.size(seg_stats)[0]
-        + font.size(seg_baroque)[0]
-        + int(12 * scale)
+        acc_w + pad
+        + badge_w + name_gap
+        + name_w + sep
+        + font_sm.size("HP")[0] + int(4 * scale) + bar_w + int(4 * scale) + hp_num_s.get_width() + sep
+        + font_sm.size("M")[0] + int(4 * scale) + meter_w + int(4 * scale) + meter_num_s.get_width() + sep
+        + move_surf.get_width() + sep
+        + baroque_badge_w
+        + pad
     )
 
-    pill = pygame.Surface((total_w, row_h), pygame.SRCALPHA)
-    pill.fill((10, 10, 10, BG_ALPHA))
-    screen.blit(pill, (anchor_x - 4, anchor_y - 1))
+    # ── Background pill ──────────────────────────────────────────────────
+    bg_col = (10, 10, 10)
+    pill   = pygame.Surface((total_w, row_h), pygame.SRCALPHA)
+    pill.fill((*bg_col, BG_ALPHA))
+    screen.blit(pill, (anchor_x, anchor_y))
 
-    cx     = anchor_x
-    text_y = anchor_y + max(1, (row_h - font.get_height()) // 2)
+    # Active highlight border
+    if is_active_char and not is_dead:
+        pygame.draw.rect(screen, (*slot_col, 160),
+                         (anchor_x, anchor_y, total_w, row_h), 1, border_radius=2)
 
-    for text, color in (
-        (seg_slot,    slot_col),
-        (seg_name,    COL_TEXT),
-        (seg_stats,   COL_TEXT),
-        (seg_baroque, baroque_col),
-    ):
-        s = font.render(text, True, color)
-        screen.blit(s, (cx, text_y))
-        cx += s.get_width()
+    # Left accent bar
+    pygame.draw.rect(screen, slot_col,
+                     (anchor_x, anchor_y, acc_w, row_h), border_radius=1)
+
+    # C1/C2 badge
+    badge_x   = anchor_x + acc_w + pad
+    badge_col = slot_col if is_active_char and not is_dead else COL_DEAD
+    pygame.draw.rect(screen, (*badge_col, 200),
+                     (badge_x, anchor_y + int(3*scale), badge_w, row_h - int(6*scale)),
+                     border_radius=2)
+    badge_label = "C1" if slot_label.endswith("C1") else "C2"
+    bs = font_sm.render(badge_label, True, (240, 240, 240))
+    screen.blit(bs, (badge_x + (badge_w - bs.get_width()) // 2,
+                     anchor_y + (row_h - bs.get_height()) // 2))
+
+    cx      = badge_x + badge_w + name_gap
+    mid_y   = anchor_y + row_h // 2
+    text_y  = mid_y - font.get_height() // 2
+    sm_top  = anchor_y + int(2 * scale)
+    sm_bot  = anchor_y + row_h - int(2 * scale) - font_sm.get_height()
+
+    # Character name
+    screen.blit(name_surf, (cx, text_y))
+    cx += name_w + sep
+
+    # HP section
+    lbl = font_sm.render("HP", True, COL_TEXT_DIM)
+    screen.blit(lbl, (cx, sm_top))
+    bar_y = mid_y - bar_h // 2
+    _draw_hp_bar(screen, cx, bar_y, bar_w, bar_h, hp_cur, hp_max, is_dead)
+    cx += bar_w + int(4 * scale)
+    screen.blit(hp_num_s, (cx, sm_bot))
+    cx += hp_num_s.get_width() + sep
+
+    # Meter section
+    lbl = font_sm.render("M", True, COL_TEXT_DIM)
+    screen.blit(lbl, (cx, sm_top))
+    pip_y = mid_y - pip_h // 2
+    _draw_meter_pips(screen, cx, pip_y, pip_w, pip_h, pip_gap, meter_f, is_dead)
+    cx += meter_w + int(4 * scale)
+    screen.blit(meter_num_s, (cx, sm_bot))
+    cx += meter_num_s.get_width() + sep
+
+    # Move label
+    screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
+    cx += move_surf.get_width() + sep
+
+    # Baroque badge (only when active)
+    if baroque_ready:
+        bq_text = f"◆ {baroque_pct:.1f}%"
+        bq_surf = font_sm.render(bq_text, True, COL_BAROQUE_ON)
+        bq_w    = bq_surf.get_width() + int(8 * scale)
+        bq_h    = row_h - int(6 * scale)
+        bq_pill = pygame.Surface((bq_w, bq_h), pygame.SRCALPHA)
+        bq_pill.fill((*COL_BAROQUE_BG, 220))
+        screen.blit(bq_pill, (cx, anchor_y + int(3 * scale)))
+        screen.blit(bq_surf, (cx + int(4 * scale),
+                               anchor_y + (row_h - bq_surf.get_height()) // 2))
 
 
-def draw_overlay(screen: pygame.Surface, font: pygame.font.Font,
+def _compute_active_slots(slots: dict) -> set[str]:
+    """
+    For each team, determine which slot is the active (on-screen) character.
+    If C2 is in an assist-off state, C1 is active (and vice versa).
+    If both are on-screen (or neither), both are treated as active.
+    """
+    active = set()
+    for team, (c1, c2) in (("P1", ("P1-C1", "P1-C2")), ("P2", ("P2-C1", "P2-C2"))):
+        s1 = slots.get(c1)
+        s2 = slots.get(c2)
+
+        if s1 and not s2:
+            active.add(c1)
+        elif s2 and not s1:
+            active.add(c2)
+        elif s1 and s2:
+            c1_off = int(s1.get("mv_id_display") or 0) in ASSIST_OFF_IDS
+            c2_off = int(s2.get("mv_id_display") or 0) in ASSIST_OFF_IDS
+            if c2_off and not c1_off:
+                active.add(c1)   # C1 is on screen
+            elif c1_off and not c2_off:
+                active.add(c2)   # C2 is on screen (unusual but possible)
+            else:
+                active.add(c1)   # both or neither — highlight C1 by default
+                active.add(c2)
+
+    return active
+
+
+def draw_overlay(screen: pygame.Surface,
+                 font: pygame.font.Font,
+                 font_sm: pygame.font.Font,
                  slots: dict, scale: float) -> None:
     """Clear to colorkey then draw each slot row at its bar-aligned position."""
     screen.fill(COLORKEY)
 
-    row_h = max(12, int(BASE_ROW_H * scale))
+    row_h   = max(14, int(BASE_ROW_H * scale))
+    active  = _compute_active_slots(slots)
 
     for slot_label, (base_x, base_y) in SLOT_LAYOUT.items():
         snap = slots.get(slot_label)
@@ -286,8 +495,10 @@ def draw_overlay(screen: pygame.Surface, font: pygame.font.Font,
 
         ax = int(base_x * scale)
         ay = int(base_y * scale)
+        is_active_char = slot_label in active
 
-        _draw_slot_row(screen, font, slot_label, snap, ax, ay, row_h, scale)
+        _draw_slot_row(screen, font, font_sm, slot_label, snap,
+                       ax, ay, row_h, scale, is_active_char)
 
 
 # ---------------------------------------------------------------------------
@@ -311,8 +522,9 @@ def main() -> None:
     win32gui.SetWindowLong(overlay_hwnd, win32con.GWL_HWNDPARENT, dolphin_hwnd)
 
     cur_w, cur_h = BASE_W, BASE_H
-    scale = 1.0
-    font = make_font(BASE_FONT_SIZE)
+    scale   = 1.0
+    font    = make_font(BASE_FONT_SIZE, bold=True)
+    font_sm = make_font(int(BASE_FONT_SIZE * 0.78), bold=False)
 
     clock = pygame.time.Clock()
     running = True
@@ -322,11 +534,10 @@ def main() -> None:
 
         if w > 0 and h > 0 and (w, h) != (cur_w, cur_h):
             cur_w, cur_h = w, h
-            screen = pygame.display.set_mode((w, h), pygame.SRCALPHA)
-            # Scale by the shorter axis so the overlay fits regardless of
-            # widescreen / 4:3 / integer-scaled etc.
-            scale = min(w / BASE_W, h / BASE_H)
-            font  = make_font(int(BASE_FONT_SIZE * scale))
+            screen  = pygame.display.set_mode((w, h), pygame.SRCALPHA)
+            scale   = min(w / BASE_W, h / BASE_H)
+            font    = make_font(int(BASE_FONT_SIZE * scale), bold=True)
+            font_sm = make_font(int(BASE_FONT_SIZE * scale * 0.78), bold=False)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -336,7 +547,7 @@ def main() -> None:
                     running = False
 
         slots = read_slot_data()
-        draw_overlay(screen, font, slots, scale)
+        draw_overlay(screen, font, font_sm, slots, scale)
         pygame.display.flip()
         clock.tick(TARGET_FPS)
 
