@@ -85,8 +85,75 @@ PASSIVE_LABELS = {
     "jump back", "landing", "rising", "assist standby", "assist leave",
     "assist attack", "assist taunt", "tag out", "tag in",
 }
+# ---------------------------------------------------------------------------
+# Animation system
+# ---------------------------------------------------------------------------
+
+ANIM_SPEED = 10.0        # global responsiveness
+FADE_SPEED = 6.0         # overlay fade
+PIP_SPEED  = 12.0        # pip animation
+
+_anim_state = {
+    "overlay_alpha": 0.0,
+    "slots": {},   # slot_label -> {alpha, meter_display, pip_values[5]}
+}
 
 
+def _approach(current: float, target: float, speed: float, dt: float) -> float:
+    if current < target:
+        current += speed * dt
+        return min(current, target)
+    else:
+        current -= speed * dt
+        return max(current, target)
+
+
+def _get_slot_anim(slot_label: str):
+    s = _anim_state["slots"].setdefault(slot_label, {
+        "alpha": 0.0,
+        "meter_display": 0.0,
+        "pip_values": [0.0] * 5,
+    })
+    return s
+def _draw_meter_pips_animated(screen, x, y,
+                              pip_w, pip_h, pip_gap,
+                              slot_anim, is_dead):
+
+    meter_val = slot_anim["meter_display"]
+
+    for i in range(5):
+        px = x + i * (pip_w + pip_gap)
+
+        target = 1.0 if i < int(meter_val) else 0.0
+
+        slot_anim["pip_values"][i] = _approach(
+            slot_anim["pip_values"][i],
+            target,
+            PIP_SPEED,
+            1/60.0
+        )
+
+        v = slot_anim["pip_values"][i]
+
+        scale = 0.8 + 0.2 * v
+        w = int(pip_w * scale)
+        h = int(pip_h * scale)
+
+        offset_x = (pip_w - w) // 2
+        offset_y = (pip_h - h) // 2
+
+        if is_dead:
+            col = COL_METER_EMPTY
+        else:
+            col = tuple(int(COL_METER_EMPTY[c] + (COL_METER_FULL[c] - COL_METER_EMPTY[c]) * v)
+                        for c in range(3))
+
+        pygame.draw.rect(
+            screen,
+            col,
+            (px + offset_x, y + offset_y, w, h),
+            border_radius=1
+        )
 # ---------------------------------------------------------------------------
 # DPI awareness (matches hitboxesscaling.py)
 # ---------------------------------------------------------------------------
@@ -294,7 +361,8 @@ def _draw_slot_row(screen: pygame.Surface,
                    snap: dict,
                    anchor_x: int, anchor_y: int,
                    row_h: int, scale: float,
-                   is_active_char: bool) -> None:
+                   is_active_char: bool,
+                   slot_anim, overlay_alpha) -> None:
     """Draw one polished fighter row."""
 
     slot_col  = SLOT_COLORS.get(slot_label, (200, 200, 200))
@@ -398,7 +466,10 @@ def _draw_slot_row(screen: pygame.Surface,
     # ── Background pill ──────────────────────────────────────────────────
     bg_col = (10, 10, 10)
     pill   = pygame.Surface((total_w, row_h), pygame.SRCALPHA)
-    pill.fill((*bg_col, BG_ALPHA))
+
+    final_alpha = int(BG_ALPHA * slot_anim["alpha"] * overlay_alpha)
+    pill.fill((*bg_col, final_alpha))
+
     screen.blit(pill, (anchor_x, anchor_y))
 
     # Active highlight border
@@ -444,7 +515,19 @@ def _draw_slot_row(screen: pygame.Surface,
     lbl = font_sm.render("M", True, COL_TEXT_DIM)
     screen.blit(lbl, (cx, sm_top))
     pip_y = mid_y - pip_h // 2
-    _draw_meter_pips(screen, cx, pip_y, pip_w, pip_h, pip_gap, meter_f, is_dead)
+
+    slot_anim["meter_display"] = _approach(
+        slot_anim["meter_display"],
+        meter_f,
+        PIP_SPEED,
+        1/60.0
+    )
+
+    _draw_meter_pips_animated(
+        screen, cx, pip_y,
+        pip_w, pip_h, pip_gap,
+        slot_anim, is_dead
+    )
     cx += meter_w + int(4 * scale)
     screen.blit(meter_num_s, (cx, sm_bot))
     cx += meter_num_s.get_width() + sep
@@ -498,16 +581,33 @@ def _compute_active_slots(slots: dict) -> set[str]:
 def draw_overlay(screen: pygame.Surface,
                  font: pygame.font.Font,
                  font_sm: pygame.font.Font,
-                 slots: dict, scale: float) -> None:
+                 slots: dict, scale: float, dt: float) -> None:
     """Clear to colorkey then draw each slot row at its bar-aligned position."""
     screen.fill(COLORKEY)
+
+    has_any_slots = bool(slots)
+    _anim_state["overlay_alpha"] = _approach(
+        _anim_state["overlay_alpha"],
+        1.0 if has_any_slots else 0.0,
+        FADE_SPEED,
+        dt
+    )
+
+    overlay_alpha = _anim_state["overlay_alpha"]
+    if overlay_alpha <= 0.01:
+        return
 
     row_h   = max(14, int(BASE_ROW_H * scale))
     active  = _compute_active_slots(slots)
 
     for slot_label, (base_x, base_y) in SLOT_LAYOUT.items():
         snap = slots.get(slot_label)
-        if not snap:
+        slot_anim = _get_slot_anim(slot_label)
+
+        target_alpha = 1.0 if snap else 0.0
+        slot_anim["alpha"] = _approach(slot_anim["alpha"], target_alpha, FADE_SPEED, dt)
+
+        if slot_anim["alpha"] <= 0.01:
             continue
 
         ax = int(base_x * scale)
@@ -515,8 +615,8 @@ def draw_overlay(screen: pygame.Surface,
         is_active_char = slot_label in active
 
         _draw_slot_row(screen, font, font_sm, slot_label, snap,
-                       ax, ay, row_h, scale, is_active_char)
-
+                       ax, ay, row_h, scale, is_active_char,
+                       slot_anim, overlay_alpha)
 
 # ---------------------------------------------------------------------------
 # Main
@@ -564,9 +664,9 @@ def main() -> None:
                     running = False
 
         slots = read_slot_data()
-        draw_overlay(screen, font, font_sm, slots, scale)
+        dt = clock.tick(TARGET_FPS) / 1000.0
+        draw_overlay(screen, font, font_sm, slots, scale, dt)
         pygame.display.flip()
-        clock.tick(TARGET_FPS)
 
     pygame.quit()
 
