@@ -552,7 +552,7 @@ def _draw_slot_row(screen: pygame.Surface,
             # same frame
             _adv["value"] = 0
 
-            events = _get_slot_anim("P1-C1")["adv_events"]
+            events = slot_anim["adv_events"]
             events.insert(0, {"value": 0, "life": 1.0, "x_offset": 20})
             if len(events) > 3:
                 events.pop()
@@ -577,7 +577,8 @@ def _draw_slot_row(screen: pygame.Surface,
                 # attacker ended first → PLUS
                 _adv["value"] = diff
 
-                events = _get_slot_anim("P1-C1")["adv_events"]
+                events = slot_anim["adv_events"]
+                events.insert(0, {"value": int(diff), "life": 1.0, "x_offset": 20})
                 events.insert(0, {"value": int(diff), "life": 1.0, "x_offset": 20})
                 if len(events) > 3:
                     events.pop()
@@ -592,7 +593,7 @@ def _draw_slot_row(screen: pygame.Surface,
                 # defender ended first → MINUS
                 _adv["value"] = -diff
 
-                events = _get_slot_anim("P1-C1")["adv_events"]
+                events = slot_anim["adv_events"]
                 events.insert(0, {"value": int(-diff), "life": 1.0, "x_offset": 20})
                 if len(events) > 3:
                     events.pop()
