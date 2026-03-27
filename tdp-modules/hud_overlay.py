@@ -85,6 +85,9 @@ PASSIVE_LABELS = {
     "jump back", "landing", "rising", "assist standby", "assist leave",
     "assist attack", "assist taunt", "tag out", "tag in",
 }
+SCAN_INTERVAL = 1.0   # seconds between re-checks when idle
+
+_display_slots: dict = {}
 # ---------------------------------------------------------------------------
 # Animation system
 # ---------------------------------------------------------------------------
@@ -92,12 +95,12 @@ PASSIVE_LABELS = {
 ANIM_SPEED = 10.0        # global responsiveness
 FADE_SPEED = 6.0         # overlay fade
 PIP_SPEED  = 12.0        # pip animation
-
 _anim_state = {
     "overlay_alpha": 0.0,
-    "slots": {},   # slot_label -> {alpha, meter_display, pip_values[5]}
+    "slots": {},
+    "idle_timer": 0.0,
+    "has_seen_slots": False,
 }
-
 
 def _approach(current: float, target: float, speed: float, dt: float) -> float:
     if current < target:
@@ -113,6 +116,7 @@ def _get_slot_anim(slot_label: str):
         "alpha": 0.0,
         "meter_display": 0.0,
         "pip_values": [0.0] * 5,
+        "present": False,   # <-- ADD THIS
     })
     return s
 def _draw_meter_pips_animated(screen, x, y,
@@ -585,27 +589,30 @@ def draw_overlay(screen: pygame.Surface,
     """Clear to colorkey then draw each slot row at its bar-aligned position."""
     screen.fill(COLORKEY)
 
-    has_any_slots = bool(slots)
+    # Overlay is ALWAYS visible
     _anim_state["overlay_alpha"] = _approach(
         _anim_state["overlay_alpha"],
-        1.0 if has_any_slots else 0.0,
+        1.0,
         FADE_SPEED,
         dt
     )
 
     overlay_alpha = _anim_state["overlay_alpha"]
-    if overlay_alpha <= 0.01:
-        return
 
     row_h   = max(14, int(BASE_ROW_H * scale))
     active  = _compute_active_slots(slots)
-
     for slot_label, (base_x, base_y) in SLOT_LAYOUT.items():
         snap = slots.get(slot_label)
         slot_anim = _get_slot_anim(slot_label)
 
-        target_alpha = 1.0 if snap else 0.0
+        target_alpha = 1.0 if slot_anim["present"] else 0.0
         slot_anim["alpha"] = _approach(slot_anim["alpha"], target_alpha, FADE_SPEED, dt)
+
+        # 🔥 THIS IS THE CORRECT SPOT
+        if slot_anim["alpha"] <= 0.01 and not slot_anim["present"]:
+            if slot_label in _display_slots:
+                del _display_slots[slot_label]
+            continue
 
         if slot_anim["alpha"] <= 0.01:
             continue
@@ -645,7 +652,7 @@ def main() -> None:
 
     clock = pygame.time.Clock()
     running = True
-
+    slots = {}
     while running:
         w, h = sync_overlay_to_dolphin(dolphin_hwnd, overlay_hwnd)
 
@@ -663,8 +670,20 @@ def main() -> None:
                 if event.key == pygame.K_ESCAPE:
                     running = False
 
-        slots = read_slot_data()
         dt = clock.tick(TARGET_FPS) / 1000.0
+
+        new_slots = read_slot_data()
+
+        # Update presence flags
+        for slot_label in SLOT_LAYOUT.keys():
+            slot_anim = _get_slot_anim(slot_label)
+            slot_anim["present"] = slot_label in new_slots
+
+        # Update display data ONLY for active slots
+        for k, v in new_slots.items():
+            _display_slots[k] = v
+
+        slots = _display_slots
         draw_overlay(screen, font, font_sm, slots, scale, dt)
         pygame.display.flip()
 
