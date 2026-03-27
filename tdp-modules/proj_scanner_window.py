@@ -21,7 +21,8 @@ PROJ_IDS_FILE = "projectile_ids.json"
 
 FIELD_OFFSETS = {
     "radius":      0x02C,  # f32 — projectile hitbox radius
-    "aerial_kb_x": 0x024,  # f32 — aerial knockback X
+    "aerial_kb_x": 0x024,  # f32 — arc/knockback (was mislabeled; confirmed -3.0 = YatterSwing arc)
+    "aerial_kb_y": 0x028,  # f32 — aerial knockback Y (8.0 for YatterSwing)
     "c042":        0x042,  # u16 — always 10
     "type":        0x050,  # u8  — 3=linear, 4=physics
     "id":          0x052,  # u16 — projectile type ID
@@ -229,7 +230,7 @@ def _write_dmg(addr: int, new_dmg: int, fmt: str) -> bool:
 # Blank fields template for opcode-scan hits (no suffix-block fields)
 # ---------------------------------------------------------------------------
 _OPCODE_HIT_FIELDS = {
-    "radius": "?", "speed": "?", "accel": "?", "aerial_kb_x": "?",
+    "radius": "?", "speed": "?", "accel": "?", "aerial_kb_x": "?", "aerial_kb_y": "?",
     "arc": "?", "arc2": "?", "hitbox": "?", "type": "?", "id": "?",
     "lifetime": "?", "hb_size": "?",
     "vel2_x": "?", "vel2_y": "?", "vel2_s": "?",
@@ -346,6 +347,7 @@ def _run_scan(active_keys, progress_cb, done_cb):
                 fields = {
                     "radius":      _read_f32(a + FIELD_OFFSETS["radius"]),
                     "aerial_kb_x": _read_f32(a + FIELD_OFFSETS["aerial_kb_x"]),
+                    "aerial_kb_y": _read_f32(a + FIELD_OFFSETS["aerial_kb_y"]),
                     "type":        _read_u16(a + FIELD_OFFSETS["type"]),
                     "id":          _read_u16(a + FIELD_OFFSETS["id"]),
                     "lifetime":    _read_u16(a + FIELD_OFFSETS["lifetime"]),
@@ -442,6 +444,7 @@ _COLS = [
     ("speed",        "Speed",     "speed",       True),
     ("accel",        "Accel",     "accel",       True),
     ("aerial_kb_x",  "Air KB X",  "aerial_kb_x", True),
+    ("aerial_kb_y",  "Air KB Y",  "aerial_kb_y", True),
     ("arc",          "Arc",       "arc",         True),
     ("arc2",         "Arc2",      "arc2",        True),
     ("hitbox",       "Hitbox",    "hitbox",      True),
@@ -601,7 +604,7 @@ class ProjScannerWindow:
                 type_str = _TYPE_LABELS.get(h["type"], str(h["type"]) if h["type"] is not None else "")
                 iid = self._tree.insert("", "end", values=(
                     f"0x{h['addr']:08X}", h["key"], h["move"], h["dmg"],
-                    h["radius"], h["speed"], h["accel"], h["aerial_kb_x"],
+                    h["radius"], h["speed"], h["accel"], h["aerial_kb_x"], h["aerial_kb_y"],
                     h["arc"], h["arc2"], h["hitbox"],
                     type_str, h["id"], h["lifetime"], h["hb_size"],
                     h.get("fmt", ""),

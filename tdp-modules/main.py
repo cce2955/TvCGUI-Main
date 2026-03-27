@@ -799,6 +799,64 @@ def main():
     # Frame counter
     frame_idx = 0
 
+    # HUD overlay subprocess (Dolphin-parented transparent window)
+    HUD_OVERLAY_DATA_FILE = "hud_overlay_data.json"
+    hud_overlay_proc = None
+    hud_overlay_active = False
+
+    def _write_hud_overlay_data(snaps_dict: dict) -> None:
+        """Serialise per-slot snap data to disk for hud_overlay.py to read."""
+        payload = {}
+        for slot_label, snap in snaps_dict.items():
+            payload[slot_label] = {
+                "name":                snap.get("name"),
+                "cur":                 snap.get("cur"),
+                "max":                 snap.get("max"),
+                "meter":               snap.get("meter"),
+                "mv_id_display":       snap.get("mv_id_display"),
+                "mv_label":            snap.get("mv_label"),
+                "baroque_ready_local": snap.get("baroque_ready_local", False),
+                "baroque_red_pct_max": snap.get("baroque_red_pct_max", 0.0),
+            }
+        try:
+            with open(HUD_OVERLAY_DATA_FILE, "w") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+
+    def _launch_hud_overlay() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        try:
+            hud_overlay_proc = subprocess.Popen(
+                [sys.executable, "hud_overlay.py"],
+                creationflags=(
+                    subprocess.CREATE_NEW_CONSOLE
+                    if sys.platform == "win32"
+                    else 0
+                ),
+            )
+            hud_overlay_active = True
+            if sys.platform == "win32":
+                import ctypes
+                hwnd = pygame.display.get_wm_info().get("window")
+                if hwnd:
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception as e:
+            print(f"[hud_overlay] failed to launch: {e}")
+
+    def _stop_hud_overlay() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        if hud_overlay_proc and hud_overlay_proc.poll() is None:
+            hud_overlay_proc.terminate()
+        hud_overlay_proc = None
+        hud_overlay_active = False
+
+    def _check_hud_overlay_proc() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        if hud_overlay_proc and hud_overlay_proc.poll() is not None:
+            hud_overlay_proc = None
+            hud_overlay_active = False
+
     running = True
 
     # Debug overlay caching
@@ -1362,6 +1420,25 @@ def main():
         pygame.draw.rect(screen, (200, 200, 200), ps_btn_rect, 1, border_radius=3)
         screen.blit(smallfont.render("Proj Scanner", True, (230, 230, 230)),
                     (PS_BTN_X + 6, HB_BTN_Y + 4))
+
+        # HUD Overlay button (launches hud_overlay.py on Dolphin)
+        _check_hud_overlay_proc()
+        HUD_BTN_X = PS_BTN_X + PS_BTN_W + 8
+        HUD_BTN_W, HUD_BTN_H = 140, 22
+        hud_btn_rect = pygame.Rect(HUD_BTN_X, HB_BTN_Y, HUD_BTN_W, HUD_BTN_H)
+        if hud_overlay_active:
+            hud_btn_col = (160, 110, 30)
+            hud_btn_label = "HUD Overlay: ON"
+        else:
+            hud_btn_col = (80, 80, 80)
+            hud_btn_label = "HUD Overlay"
+        if hud_btn_rect.collidepoint(mx_h, my_h):
+            hud_btn_col = tuple(min(255, c + 30) for c in hud_btn_col)
+        pygame.draw.rect(screen, hud_btn_col, hud_btn_rect, border_radius=3)
+        pygame.draw.rect(screen, (200, 200, 200), hud_btn_rect, 1, border_radius=3)
+        screen.blit(smallfont.render(hud_btn_label, True, (230, 230, 230)),
+                    (HUD_BTN_X + 6, HB_BTN_Y + 4))
+
         hb_filter_rects = {}
         # Slot filter checkboxes (only shown when active)
         fx = HB_BTN_X
@@ -1517,6 +1594,10 @@ def main():
         scan_surf.set_alpha(255)
         screen.blit(scan_surf, (scan_rect.x, int(y)))
 
+        # Feed live data to hud_overlay.py subprocess
+        if hud_overlay_active:
+            _write_hud_overlay_data(render_snap_by_slot)
+
         pygame.display.flip()
 
         # -----------------------------
@@ -1542,6 +1623,14 @@ def main():
                             for s in [render_snap_by_slot.get(slot)]
                             if s and s.get("name")]
                 open_proj_scanner_window(_get_active_chars)
+                mouse_clicked_pos = None
+                continue
+
+            elif hud_btn_rect.collidepoint(mx, my):
+                if hud_overlay_active:
+                    _stop_hud_overlay()
+                else:
+                    _launch_hud_overlay()
                 mouse_clicked_pos = None
                 continue
 
@@ -1811,6 +1900,11 @@ def main():
     if hitbox_proc and hitbox_proc.poll() is None:
         try:
             hitbox_proc.terminate()
+        except Exception:
+            pass
+    if hud_overlay_proc and hud_overlay_proc.poll() is None:
+        try:
+            hud_overlay_proc.terminate()
         except Exception:
             pass
     pygame.quit()
