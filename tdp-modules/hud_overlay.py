@@ -39,12 +39,18 @@ BASE_W          = 1280
 BASE_H          = 720
 BASE_FONT_SIZE  = 14
 BASE_ROW_H      = 22           # height of each fighter row
-BASE_ROW_PAD    = 4            # vertical gap between rows
-BASE_OVL_X      = 10           # left anchor
-BASE_OVL_Y      = 10           # top anchor
 BG_ALPHA        = 180          # background pill transparency (0-255)
 
-SLOT_ORDER  = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
+# Per-slot anchor points in 720p units, measured from the TvC UI.
+# X: left edge of the row text. Y: just below the character's health bar.
+# Tweak these to fine-tune position without touching anything else.
+SLOT_LAYOUT = {
+    #  slot       x      y
+    "P1-C1": (  28,   178),
+    "P1-C2": (  28,   207),
+    "P2-C1": ( 712,   178),
+    "P2-C2": ( 712,   207),
+}
 
 SLOT_COLORS = {
     "P1-C1": (255, 110, 110),
@@ -199,94 +205,89 @@ def make_font(size: int) -> pygame.font.Font:
         return pygame.font.Font(None, max(8, size))
 
 
+def _draw_slot_row(screen: pygame.Surface, font: pygame.font.Font,
+                   slot_label: str, snap: dict,
+                   anchor_x: int, anchor_y: int, row_h: int, scale: float) -> None:
+    """Draw a single compact fighter row at the given screen-space anchor."""
+
+    char_name = snap.get("name") or "???"
+
+    hp_cur = snap.get("cur")
+    hp_max = snap.get("max")
+    hp_str = (
+        f"{int(hp_cur)}/{int(hp_max)}"
+        if hp_cur is not None and hp_max
+        else "---"
+    )
+
+    meter_val = snap.get("meter")
+    try:
+        meter_str = f"{float(meter_val):.2f}" if meter_val is not None else "---"
+    except (TypeError, ValueError):
+        meter_str = str(meter_val)
+
+    move_id  = snap.get("mv_id_display")
+    mv_label = snap.get("mv_label") or ""
+    if move_id is not None:
+        move_str = f"0x{int(move_id):04X}"
+        if mv_label:
+            move_str += f" {mv_label}"
+    else:
+        move_str = "---"
+
+    baroque_ready = snap.get("baroque_ready_local", False)
+    baroque_pct   = snap.get("baroque_red_pct_max", 0.0)
+    baroque_str   = f"READY {baroque_pct:.1f}%" if baroque_ready else "---"
+    baroque_col   = COL_BAROQUE_ON if baroque_ready else COL_BAROQUE_OFF
+    slot_col      = SLOT_COLORS.get(slot_label, (200, 200, 200))
+
+    seg_slot    = f"[{slot_label}]"
+    seg_name    = f" {char_name}"
+    seg_stats   = f"  HP:{hp_str}  Meter:{meter_str}  Move:{move_str}  Baroque:"
+    seg_baroque = baroque_str
+
+    total_w = (
+        font.size(seg_slot)[0]
+        + font.size(seg_name)[0]
+        + font.size(seg_stats)[0]
+        + font.size(seg_baroque)[0]
+        + int(12 * scale)
+    )
+
+    pill = pygame.Surface((total_w, row_h), pygame.SRCALPHA)
+    pill.fill((10, 10, 10, BG_ALPHA))
+    screen.blit(pill, (anchor_x - 4, anchor_y - 1))
+
+    cx     = anchor_x
+    text_y = anchor_y + max(1, (row_h - font.get_height()) // 2)
+
+    for text, color in (
+        (seg_slot,    slot_col),
+        (seg_name,    COL_TEXT),
+        (seg_stats,   COL_TEXT),
+        (seg_baroque, baroque_col),
+    ):
+        s = font.render(text, True, color)
+        screen.blit(s, (cx, text_y))
+        cx += s.get_width()
+
+
 def draw_overlay(screen: pygame.Surface, font: pygame.font.Font,
                  slots: dict, scale: float) -> None:
-    """Clear to colorkey then draw one compact row per active slot."""
+    """Clear to colorkey then draw each slot row at its bar-aligned position."""
     screen.fill(COLORKEY)
 
-    row_h   = max(12, int(BASE_ROW_H  * scale))
-    row_pad = max(2,  int(BASE_ROW_PAD * scale))
-    ovl_x   = max(4,  int(BASE_OVL_X  * scale))
-    ovl_y   = max(4,  int(BASE_OVL_Y  * scale))
+    row_h = max(12, int(BASE_ROW_H * scale))
 
-    row_y = ovl_y
-    for slot_label in SLOT_ORDER:
+    for slot_label, (base_x, base_y) in SLOT_LAYOUT.items():
         snap = slots.get(slot_label)
         if not snap:
             continue
 
-        # --- gather values ---
-        char_name   = snap.get("name") or "???"
-        hp_cur      = snap.get("cur")
-        hp_max      = snap.get("max")
-        hp_str      = (
-            f"{int(hp_cur)}/{int(hp_max)}"
-            if hp_cur is not None and hp_max
-            else "---"
-        )
+        ax = int(base_x * scale)
+        ay = int(base_y * scale)
 
-        meter_val = snap.get("meter")
-        try:
-            meter_str = f"{float(meter_val):.2f}" if meter_val is not None else "---"
-        except (TypeError, ValueError):
-            meter_str = str(meter_val)
-
-        move_id   = snap.get("mv_id_display")
-        mv_label  = snap.get("mv_label") or ""
-        if move_id is not None:
-            move_str = f"0x{int(move_id):04X}"
-            if mv_label:
-                move_str += f" {mv_label}"
-        else:
-            move_str = "---"
-
-        baroque_ready = snap.get("baroque_ready_local", False)
-        baroque_pct   = snap.get("baroque_red_pct_max", 0.0)
-        baroque_str   = f"READY {baroque_pct:.1f}%" if baroque_ready else "---"
-        baroque_col   = COL_BAROQUE_ON if baroque_ready else COL_BAROQUE_OFF
-
-        slot_col  = SLOT_COLORS.get(slot_label, (200, 200, 200))
-
-        # --- build text segments ---
-        seg_slot    = f"[{slot_label}]"
-        seg_name    = f" {char_name}"
-        seg_stats   = f"  HP:{hp_str}  Meter:{meter_str}  Move:{move_str}  Baroque:"
-        seg_baroque = baroque_str
-
-        # --- measure total width for background pill ---
-        total_w = (
-            font.size(seg_slot)[0]
-            + font.size(seg_name)[0]
-            + font.size(seg_stats)[0]
-            + font.size(seg_baroque)[0]
-            + int(12 * scale)
-        )
-
-        # --- background pill ---
-        pill = pygame.Surface((total_w, row_h), pygame.SRCALPHA)
-        pill.fill((10, 10, 10, BG_ALPHA))
-        screen.blit(pill, (ovl_x - 4, row_y - 1))
-
-        # --- render text segments ---
-        cx = ovl_x
-        text_y = row_y + max(1, (row_h - font.get_height()) // 2)
-
-        s = font.render(seg_slot, True, slot_col)
-        screen.blit(s, (cx, text_y))
-        cx += s.get_width()
-
-        s = font.render(seg_name, True, COL_TEXT)
-        screen.blit(s, (cx, text_y))
-        cx += s.get_width()
-
-        s = font.render(seg_stats, True, COL_TEXT)
-        screen.blit(s, (cx, text_y))
-        cx += s.get_width()
-
-        s = font.render(seg_baroque, True, baroque_col)
-        screen.blit(s, (cx, text_y))
-
-        row_y += row_h + row_pad
+        _draw_slot_row(screen, font, slot_label, snap, ax, ay, row_h, scale)
 
 
 # ---------------------------------------------------------------------------
