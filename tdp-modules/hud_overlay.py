@@ -625,7 +625,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         dx = hp_anchor_x
         gap = int(6 * scale)
         for i, ev in enumerate(slot_anim["damage_events"]):
-            ev["life"] -= 0.025
+            ev["life"] -= 0.010
             # snap in faster, then settle
             speed = 240 if abs(ev["x_offset"]) > 5 else 80
             ev["x_offset"] = _approach(ev["x_offset"], 0, speed, 1/60.0)
@@ -653,7 +653,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         alive = False
 
         for i, ev in enumerate(meter_events):
-            ev["life"] -= 0.025
+            ev["life"] -= 0.010
             ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
 
             if ev["life"] <= 0:
@@ -695,7 +695,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         gap = int(6 * scale)
         alive = False
         for i, ev in enumerate(adv_events):
-            ev["life"] -= 0.018
+            ev["life"] -= 0.010
             ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
             if ev["life"] <= 0:
                 continue
