@@ -716,8 +716,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
         slot_anim["meter_events"] = [e for e in meter_events if e["life"] > 0]    
     # Frame advantage display
-    adv_anchor_x = cx + sep
-    cx += popup_max_w
+    adv_anchor_x = anchor_x + total_w - popup_max_w - int(6 * scale)
     adv_events = slot_anim["adv_events"]
     if adv_events:
         dx = adv_anchor_x
