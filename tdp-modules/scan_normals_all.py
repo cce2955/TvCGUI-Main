@@ -773,7 +773,10 @@ def scan_once():
     hook()
 
     slots_info = read_slots()
-    mem = rbytes(MEM2_LO, MEM2_HI - MEM2_LO)
+
+    # Reduced MEM2 window (instead of full 64MB+)
+    mem_size = 0x1000000  # 24MB (safe middle ground)
+    mem = rbytes(MEM2_LO, mem_size)
 
     tails = find_all_tails(mem)
     clusters = cluster_tails(tails)
@@ -794,7 +797,7 @@ def scan_once():
         start_off = max(0, tails_in_cluster[0] - CLUSTER_PAD_BACK)
 
         if c_idx + 1 < len(clusters):
-            end_off = clusters[c_idx + 1][0]
+            end_off = min(clusters[c_idx + 1][0], len(mem))
         else:
             end_off = min(len(mem), start_off + 0x8000)
 
