@@ -774,14 +774,18 @@ def scan_once():
 
     slots_info = read_slots()
 
-    # Reduced MEM2 window (instead of full 64MB+)
-    mem_size = 0x1000000  # 24MB (safe middle ground)
-    mem = rbytes(MEM2_LO, mem_size)
+    # FD band 
+    FD_LO = 0x90750000
+    FD_HI = 0x91000000
+
+    mem = rbytes(FD_LO, FD_HI - FD_LO)
 
     tails = find_all_tails(mem)
     clusters = cluster_tails(tails)
-
+    # map clusters → slots (original behavior preserved)
     cluster_to_slot = [0, 2, 1, 3]
+
+    # limit cluster processing
     max_chars = min(4, len(clusters))
 
     # Initialize result for 4 slots (stable indexing)
@@ -802,7 +806,7 @@ def scan_once():
             end_off = min(len(mem), start_off + 0x8000)
 
         buf = mem[start_off:end_off]
-        base_abs = MEM2_LO + start_off
+        base_abs = FD_LO + start_off
 
         moves = collect_move_anchors(buf, base_abs)
         blocks = collect_blocks(buf, base_abs)
@@ -837,33 +841,28 @@ def scan_once():
         best_moves = base_moves
         best_specials = count_special_like(base_moves)
 
-        for scan_len in SLOT_SCAN_LENS:
-            base_moves = result[slot_idx].get("moves", [])
-            best_moves = base_moves
-            best_specials = count_special_like(base_moves)
+        # === SINGLE PASS (true replacement) ===
+        scan_len = SLOT_SCAN_LENS[1]  # 0x50000
 
-            # === SINGLE PASS (replaces SLOT_SCAN_LENS loop) ===
-            scan_len = SLOT_SCAN_LENS[1]  # middle size (0x50000)
+        start_abs = max(FD_LO, base_ptr - SLOT_SCAN_BEFORE)
+        end_abs = min(FD_HI, start_abs + scan_len)
 
-            start_abs = max(MEM2_LO, base_ptr - SLOT_SCAN_BEFORE)
-            end_abs = min(MEM2_HI, start_abs + scan_len)
+        start_off = start_abs - FD_LO
+        end_off = end_abs - FD_LO
 
-            start_off = start_abs - MEM2_LO
-            end_off = end_abs - MEM2_LO
+        buf2 = mem[start_off:end_off]
+        extra_moves = collect_move_anchors(buf2, start_abs)
 
-            buf2 = mem[start_off:end_off]
-            extra_moves = collect_move_anchors(buf2, start_abs)
+        merged = merge_by_abs(base_moves, extra_moves)
+        sp = count_special_like(merged)
 
-            merged = merge_by_abs(base_moves, extra_moves)
-            sp = count_special_like(merged)
+        if sp > best_specials:
+            best_moves = merged
+            best_specials = sp
 
-            if sp > best_specials:
-                best_moves = merged
-                best_specials = sp
+        merged_sorted = sorted(best_moves, key=sort_key)
 
-            merged_sorted = sorted(best_moves, key=sort_key)
-
-            result[slot_idx]["slot_label"] = slot_label
-            result[slot_idx]["char_name"] = cname
-            result[slot_idx]["moves"] = merged_sorted
+        result[slot_idx]["slot_label"] = slot_label
+        result[slot_idx]["char_name"] = cname
+        result[slot_idx]["moves"] = merged_sorted
     return result

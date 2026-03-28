@@ -826,6 +826,33 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         move_abs = mv.get("abs")
         if not move_abs:
             return
+        # === COLLECT REGION HITS (FD band learning) ===
+        addr_hits = []
+
+        if mv.get("abs"):
+            addr_hits.append(mv["abs"])
+
+        if mv.get("speed_mod_addr"):
+            addr_hits.append(mv["speed_mod_addr"])
+
+        if mv.get("combo_kb_mod_addr"):
+            addr_hits.append(mv["combo_kb_mod_addr"])
+
+        if mv.get("superbg_addr"):
+            addr_hits.append(mv["superbg_addr"])
+
+        if mv.get("damage_addr"):
+            addr_hits.append(mv["damage_addr"])
+
+        if mv.get("active_addr"):
+            addr_hits.append(mv["active_addr"])
+
+        # global collector
+        try:
+            from fd_window import FD_REGION_HITS
+            FD_REGION_HITS.extend(addr_hits)
+        except Exception:
+            pass
         try:
             from dolphin_io import rbytes
             addr, cur, sig = find_speed_mod_addr(move_abs, rbytes)
@@ -879,9 +906,82 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             mv = self.move_to_tree_item.get(item_id)
             if not mv:
                 continue
+            mv = self.move_to_tree_item.get(item_id)
+            if not mv:
+                continue
             move_abs = mv.get("abs")
             if not move_abs:
                 continue
+
+            # === COLLECT + APPEND REGION HITS ===
+            try:
+                import os
+                base_dir = os.path.dirname(__file__)
+                path = os.path.join(base_dir, "fd_region_hits.txt")
+
+                hits = []
+
+                if mv.get("abs"):
+                    hits.append(mv["abs"])
+
+                if mv.get("speed_mod_addr"):
+                    hits.append(mv["speed_mod_addr"])
+
+                if mv.get("combo_kb_mod_addr"):
+                    hits.append(mv["combo_kb_mod_addr"])
+
+                if mv.get("superbg_addr"):
+                    hits.append(mv["superbg_addr"])
+
+                if mv.get("damage_addr"):
+                    hits.append(mv["damage_addr"])
+
+                if mv.get("active_addr"):
+                    hits.append(mv["active_addr"])
+
+                if mv.get("proj_tpl"):
+                    hits.append(mv["proj_tpl"])
+
+                if hits:
+                    print(f"[FD] writing {len(hits)} hits -> {path}")
+                    with open(path, "a") as f:
+                        for h in hits:
+                            f.write(f"{h}\n")
+
+            except Exception as e:
+                print("[FD] write failed:", e)
+                        # === COLLECT + APPEND REGION HITS ===
+            try:
+                hits = []
+
+                if mv.get("abs"):
+                    hits.append(mv["abs"])
+
+                if mv.get("speed_mod_addr"):
+                    hits.append(mv["speed_mod_addr"])
+
+                if mv.get("combo_kb_mod_addr"):
+                    hits.append(mv["combo_kb_mod_addr"])
+
+                if mv.get("superbg_addr"):
+                    hits.append(mv["superbg_addr"])
+
+                if mv.get("damage_addr"):
+                    hits.append(mv["damage_addr"])
+
+                if mv.get("active_addr"):
+                    hits.append(mv["active_addr"])
+
+                if mv.get("proj_tpl"):
+                    hits.append(mv["proj_tpl"])
+
+                if hits:
+                    print("WRITING REGION HITS")
+                    with open("fd_region_hits.txt", "a") as f:
+                        for h in hits:
+                            f.write(f"{h}\n")
+            except Exception:
+                pass
 
             hb_cands = U.scan_hitbox_candidates(move_abs)
             hb_off, hb_val = U.select_primary_hitbox(hb_cands)
