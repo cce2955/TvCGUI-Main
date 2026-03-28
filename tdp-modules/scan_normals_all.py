@@ -838,6 +838,13 @@ def scan_once():
         best_specials = count_special_like(base_moves)
 
         for scan_len in SLOT_SCAN_LENS:
+            base_moves = result[slot_idx].get("moves", [])
+            best_moves = base_moves
+            best_specials = count_special_like(base_moves)
+
+            # === SINGLE PASS (replaces SLOT_SCAN_LENS loop) ===
+            scan_len = SLOT_SCAN_LENS[1]  # middle size (0x50000)
+
             start_abs = max(MEM2_LO, base_ptr - SLOT_SCAN_BEFORE)
             end_abs = min(MEM2_HI, start_abs + scan_len)
 
@@ -854,10 +861,9 @@ def scan_once():
                 best_moves = merged
                 best_specials = sp
 
-        merged_sorted = sorted(best_moves, key=sort_key)
+            merged_sorted = sorted(best_moves, key=sort_key)
 
-        result[slot_idx]["slot_label"] = slot_label
-        result[slot_idx]["char_name"] = cname
-        result[slot_idx]["moves"] = merged_sorted
-
+            result[slot_idx]["slot_label"] = slot_label
+            result[slot_idx]["char_name"] = cname
+            result[slot_idx]["moves"] = merged_sorted
     return result
