@@ -115,7 +115,7 @@
     { "move": "Assist (Kiss)", "dmg": 2000 },
 
     { "move": "Aizuwakamatzu Punch", "dmg": 880 },
-    { "move": "Piglet Flare-up", "dmg": 3776 },
+    { "move": "Piglet Flare-up", "dmg": 1280 },
     
 
     { "move": "Rock Abandon (Ground)", "dmg": 4480 },
@@ -165,6 +165,8 @@
 
 
     { "move": "Cactus Bunker", "dmg": 2800 },
+    { "move": "Wild Lasso", "dmg": 1300 },
+    { "move": "Savage Shot", "dmg": 1000 },
 
     { "move": "Condor Magnum", "dmg": 12223 },
 

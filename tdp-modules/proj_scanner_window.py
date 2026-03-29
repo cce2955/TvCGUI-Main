@@ -9,9 +9,12 @@ except Exception:
     rbytes = None
     wbytes = None
 
-# Full 12-byte signature — damage word + 0C sentinel + FF FF FF FF guard.
-# Pattern:  00 00 XX YY  00 00 00 0C  FF FF FF FF
-# We search for the 8-byte tail and verify the 4 bytes before it.
+# ---------------------------------------------------------------------------
+# Scan parameters
+# ---------------------------------------------------------------------------
+# The suffix we search for in the template/template2 path.
+# Full 12-byte signature:  00 00 XX YY  00 00 00 0C  <discriminator>
+# We find _SUFFIX, then look 4 bytes back for the damage word.
 _SUFFIX    = b"\x00\x00\x00\x0C"
 SCAN_START = 0x90000000
 SCAN_END   = 0x94000000
@@ -19,23 +22,47 @@ SCAN_BLOCK = 0x40000
 PROJ_MAP_FILE = "projectilemap.json"
 PROJ_IDS_FILE = "projectile_ids.json"
 
+# ---------------------------------------------------------------------------
+# Field offsets — corrected against MEM2 analysis notes
+# ---------------------------------------------------------------------------
+# All offsets are relative to the record base (the 00 00 XX YY word, i.e.
+# 4 bytes before _SUFFIX).
+#
+# Notes-confirmed corrections vs. previous version:
+#   type     0x050 (u16) → 0x051 (u8)   [notes: u8 @ +0x51]
+#   lifetime 0x05A (u16) → 0x05B (u8)   [notes: u8 @ +0x5B]
+#   aerial_kb_x/y renamed kb_x/kb_y — the notes confirm these are general
+#     knockback components, not aerial-specific.
+#
+# Validation-gate constants (checked before any field is read):
+#   u16 @ +0x42 must == 10
+#   u32 @ +0x04 must == 0x0000000C      (already implied by _SUFFIX hit)
+#   f32 @ +0x84 must == 1.0
+#   f32 @ +0x8C must == 100.0
+#   u16 @ +0x6E must == 1024
+#
+# Discriminator at u32 @ +0x08:
+#   0xFFFFFFFF          → "template"
+#   0x00000000 or 0x01  → "template2"
+#   anything else       → "script(0xNN)"  where NN = high byte of c[0]
+
 FIELD_OFFSETS = {
-    "radius":      0x02C,  # f32 — projectile hitbox radius
-    "aerial_kb_x": 0x024,  # f32 — arc/knockback (was mislabeled; confirmed -3.0 = YatterSwing arc)
-    "aerial_kb_y": 0x028,  # f32 — aerial knockback Y (8.0 for YatterSwing)
-    "c042":        0x042,  # u16 — always 10
-    "type":        0x050,  # u8  — 3=linear, 4=physics
-    "id":          0x052,  # u16 — projectile type ID
-    "lifetime":    0x05A,  # u8  — active frames / lifetime
-    "hb_size":     0x06E,  # u16 — hitbox size
-    "speed":       0x080,  # f32 — speed scalar (template blocks)
-    "accel":       0x084,  # f32 — always 1.0
-    "hitbox":      0x08C,  # f32 — hitbox radius (100.0 standard)
-    "arc":         0x090,  # f32 — arc/gravity (Roll only)
-    "arc2":        0x094,  # f32 — arc modifier (Roll only)
-    "vel2_x":      0x0D4,
-    "vel2_y":      0x0D8,
-    "vel2_s":      0x0DC,
+    "radius":   0x02C,  # f32 — hitbox radius (notes: consistently 1.0)
+    "kb_x":     0x024,  # f32 — knockback X component  (was aerial_kb_x)
+    "kb_y":     0x028,  # f32 — knockback Y component  (was aerial_kb_y)
+    "c042":     0x042,  # u16 — validation constant, always 10
+    "type":     0x051,  # u8  — type family: 3=Linear, 4=Physics  (CORRECTED +0x050→+0x051)
+    "id":       0x052,  # u16 — projectile type ID
+    "lifetime": 0x05B,  # u8  — active frames / lifetime           (CORRECTED +0x05A→+0x05B)
+    "hb_size":  0x06E,  # u16 — hitbox size (validation constant: 1024)
+    "speed":    0x080,  # f32 — speed scalar
+    "accel":    0x084,  # f32 — validation constant, always 1.0
+    "hitbox":   0x08C,  # f32 — hitbox radius (validation constant: 100.0)
+    "arc":      0x090,  # f32 — arc/gravity (Roll-specific)
+    "arc2":     0x094,  # f32 — arc modifier (Roll-specific)
+    "vel2_x":   0x0D4,
+    "vel2_y":   0x0D8,
+    "vel2_s":   0x0DC,
     "u01": 0x10,
     "u02": 0x14,
     "u03": 0x18,
@@ -47,6 +74,16 @@ FIELD_OFFSETS = {
     "u09": 0x72,
 }
 
+# Validation-gate field addresses (relative to record base)
+_VALID_C042    = 0x042   # u16 == 10
+_VALID_ACCEL   = 0x084   # f32 == 1.0
+_VALID_HITBOX  = 0x08C   # f32 == 100.0
+_VALID_HBSIZE  = 0x06E   # u16 == 1024
+_DISCRIMINATOR = 0x008   # u32: 0xFFFFFFFF=template, 0/1=template2
+
+# ---------------------------------------------------------------------------
+# Character / signature tables
+# ---------------------------------------------------------------------------
 _NAME_TO_KEY = {
     "Ryu": "RYU", "Chun-Li": "CHUN", "Jun the Swan": "JUN",
     "Ken the Eagle": "KEN", "Alex": "ALEX", "Batsu": "BATSU",
@@ -71,7 +108,7 @@ CHAR_SIG_OFFSETS = {
     "JUN": "c",
 }
 
-_SIG_C_TO_KEYS: dict[bytes, list[str]] = {}
+_SIG_C_TO_KEYS:   dict[bytes, list[str]] = {}
 _SIG_PRE_TO_KEYS: dict[bytes, list[str]] = {}
 
 for _k, _sigs in CHAR_SIGS.items():
@@ -81,47 +118,269 @@ for _k, _sigs in CHAR_SIGS.items():
 
 # ---------------------------------------------------------------------------
 # Script opcode table
-#
-# Maps a 2-byte opcode (found at the scan hit position) to:
-#   fmt_name   — the format string shown in the Fmt column
-#   dmg_offset — byte offset from hit address to the 2-byte damage field
-#
-# The suffix-scan path produces "template" / "template2" / "script(0xNN)"
-# names via _fmt_for_suffix_block(); those are NOT listed here because they
-# don't have a leading opcode signature to search for.
 # ---------------------------------------------------------------------------
 SCRIPT_OPCODES: dict[bytes, dict] = {
     b"\x05\x2B": {
         "fmt_name":   "script(0x052B)",
-        "dmg_offset": 4,   # damage is at hit+4..hit+5  (was "actor" logic)
+        "dmg_offset": 4,
     },
-    # Add further opcodes here as they are identified, e.g.:
-    # b"\x05\x2C": {"fmt_name": "script(0x052C)", "dmg_offset": 4},
 }
 
-# Convenience: the offset to use when writing damage for a given fmt string.
-# Suffix-scan blocks always use offset 2; opcode-scan blocks vary per opcode.
 def _dmg_write_offset(fmt: str) -> int:
     for info in SCRIPT_OPCODES.values():
         if info["fmt_name"] == fmt:
             return info["dmg_offset"]
-    return 2  # default for template / template2 / script(0xNN) suffix blocks
+    return 2  # default for template / template2
+
+# ---------------------------------------------------------------------------
+# chr_tbl param table — authoritative damage addresses for script-mode hits
+#
+# Each slot has a 16-byte parameter-entry table at a fixed offset from its
+# chr_tbl_base.  The damage is a u32 big-endian at entry+0x00 (NOT u16 at +2).
+#
+#   chr_tbl_base + 0x25E0  →  u32 damage for the 2400-class entry (Spree/Attack)
+#   chr_tbl_base + 0x2640  →  u32 damage for the 3200-class entry (Fall)
+#
+# Per-slot exact addresses (precomputed for fast lookup):
+#   slot 0  chr_tbl 0x90896640  →  spree 0x90898C20  / fall 0x90898C80
+#   slot 1  chr_tbl 0x908F1920  →  spree 0x908F3F00  / fall 0x908F3F60
+#   slot 2  chr_tbl 0x909478E0  →  spree 0x90949EC0  / fall 0x90949F20
+#   slot 3  chr_tbl 0x9099D9C0  →  spree 0x9099FFA0  / fall 0x909A0000
+#
+# Ownership: a hit address belongs to a slot when
+#   chr_tbl_base <= hit_addr < chr_tbl_base + _CHR_TBL_SLOT_SIZE
+# ---------------------------------------------------------------------------
+_SCRIPT_DMG_OFFSETS: dict[int, int] = {
+    2400: 0x25E0,   # u32 at entry start (Spree/Attack)
+    3200: 0x2640,   # u32 at entry start (Fall)
+}
+
+_CHR_TBL_BASES = [
+    0x90896640,   # slot 0
+    0x908F1920,   # slot 1  (owns Frank West / Zombie addresses)
+    0x909478E0,   # slot 2
+    0x9099D9C0,   # slot 3
+]
+_CHR_TBL_SLOT_SIZE = 0x80000
+
+# Frank West's character ID in the game's roster.
+FRANK_CHAR_ID = 30   # 0x1E
+
+# Fighter base addresses for each slot — char_id is read from base + 0x14.
+# These are the same bases established in the slot/scanner work.
+_FIGHTER_BASES = [
+    0x9246B9C0,   # slot 0
+    0x927EB9E0,   # slot 1
+    0x92B6BA00,   # slot 2
+    0x92EEBA20,   # slot 3
+]
+_CHAR_ID_OFF = 0x14   # offset within fighter base where char_id (u32 BE) lives
+
+# chr_tbl_base → slot index, for mapping ownership back to fighter bases
+_CHR_TBL_TO_SLOT = {
+    0x90896640: 0,
+    0x908F1920: 1,
+    0x909478E0: 2,
+    0x9099D9C0: 3,
+}
 
 
+def _read_slot_char_ids() -> dict[int, int]:
+    """
+    Read the live char_id for each slot from its fighter base + 0x14.
+    Returns a dict of {chr_tbl_base: char_id}.
+    Returns an empty dict if rbytes is unavailable.
+    """
+    result: dict[int, int] = {}
+    if rbytes is None:
+        return result
+    for slot_idx, (chr_tbl_base, _, _) in enumerate(_CHR_TBL_RANGES):  # noqa
+        fighter_base = _FIGHTER_BASES[slot_idx]
+        try:
+            b = rbytes(fighter_base + _CHAR_ID_OFF, 4)
+            if b and len(b) == 4:
+                cid = struct.unpack(">I", b)[0]
+                result[chr_tbl_base] = cid
+        except Exception:
+            pass
+    return result
+
+
+def _resolve_script_dmg_addr(hit_addr: int, dmg: int) -> int | None:
+    """
+    For a script-cluster hit, return the authoritative u32 param-table address
+    for this damage value within the owning slot's chr_tbl region.
+    Returns None if no mapping exists or no slot owns hit_addr.
+    """
+    off = _SCRIPT_DMG_OFFSETS.get(dmg)
+    if off is None:
+        return None
+    base = _owning_chr_tbl(hit_addr)
+    if base is None:
+        return None
+    return base + off
+
+
+def _write_u32(addr: int, val: int) -> bool:
+    """Write a big-endian u32 — used for the zombie param-table entries."""
+    if wbytes is None:
+        return False
+    try:
+        return bool(wbytes(addr, struct.pack(">I", val)))
+    except Exception as e:
+        print(f"[proj_scanner] write u32 failed: {e}")
+        return False
+
+# ---------------------------------------------------------------------------
+# Template format classification
+#
+# Uses the u32 discriminator at base+0x08, exactly as the notes specify:
+#   0xFFFFFFFF          → "template"
+#   0x00000000 / 0x01   → "template2"
+#   anything else       → "script(0xNN)"
+# ---------------------------------------------------------------------------
+def _classify_discriminator(after4: bytes) -> str:
+    """after4 = 4 bytes starting at base+0x08 (the 4 bytes after _SUFFIX)."""
+    if len(after4) < 4:
+        return "script(?)"
+    disc = struct.unpack_from(">I", after4)[0]
+    if disc == 0xFFFFFFFF:
+        return "template"
+    if disc in (0x00000000, 0x00000001):
+        return "template2"
+    return f"script(0x{(after4[0]):02X})"
+
+
+# ---------------------------------------------------------------------------
+# Validation gate for template / template2 records
+#
+# All five conditions from the notes must hold before any field is trusted.
+# Returns True only if the record passes every check.
+# ---------------------------------------------------------------------------
+def _validate_template(data: bytes, base_off: int) -> bool:
+    """
+    base_off is the offset within `data` of the record base
+    (the 00 00 XX YY word, i.e. 4 bytes before the _SUFFIX match).
+
+    Checks:
+      1. u16 @ +0x42 == 10
+      2. f32 @ +0x84 == 1.0
+      3. f32 @ +0x8C == 100.0
+      4. u16 @ +0x6E == 1024
+      5. u32 @ +0x08 is a known discriminator (0xFFFFFFFF, 0, or 1)
+    """
+    end = len(data)
+
+    def u16(off: int) -> int | None:
+        o = base_off + off
+        if o + 2 > end:
+            return None
+        return struct.unpack_from(">H", data, o)[0]
+
+    def u32(off: int) -> int | None:
+        o = base_off + off
+        if o + 4 > end:
+            return None
+        return struct.unpack_from(">I", data, o)[0]
+
+    def f32(off: int) -> float | None:
+        o = base_off + off
+        if o + 4 > end:
+            return None
+        return struct.unpack_from(">f", data, o)[0]
+
+    if u16(_VALID_C042) != 10:
+        return False
+    accel = f32(_VALID_ACCEL)
+    if accel is None or abs(accel - 1.0) > 1e-4:
+        return False
+    hb = f32(_VALID_HITBOX)
+    if hb is None or abs(hb - 100.0) > 0.1:
+        return False
+    if u16(_VALID_HBSIZE) != 1024:
+        return False
+    disc = u32(_DISCRIMINATOR)
+    if disc not in (0xFFFFFFFF, 0x00000000, 0x00000001):
+        return False
+
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Clustering helpers
+#
+# Groups validated template records by (proj_id, type_family) first, then by
+# (damage, speed, kb_x, kb_y) to identify tiers/variants — exactly the
+# workflow described in the notes.
+# ---------------------------------------------------------------------------
+def _cluster_key(h: dict) -> tuple:
+    """Primary cluster key: (proj_id, type_family)."""
+    try:
+        pid = int(h.get("id", 0))
+    except (ValueError, TypeError):
+        pid = 0
+    try:
+        tf = int(h.get("type", 0))
+    except (ValueError, TypeError):
+        tf = 0
+    return (pid, tf)
+
+
+def _tier_key(h: dict) -> tuple:
+    """Secondary cluster key within a family: (damage, speed_rounded, kb_x_rounded, kb_y_rounded)."""
+    def _f(v, decimals=1):
+        try:
+            return round(float(v), decimals)
+        except (ValueError, TypeError):
+            return 0.0
+    return (h.get("dmg", 0), _f(h.get("speed")), _f(h.get("kb_x")), _f(h.get("kb_y")))
+
+
+def _annotate_clusters(hits: list[dict]) -> None:
+    """
+    Tag each template/template2 hit with a 'cluster' string of the form
+    'ID:0xNNNN TF:N tier:M/T' so the UI can show grouping without a
+    separate column explosion.
+
+    Script/opcode hits are tagged 'script' — no cluster analysis.
+    """
+    from collections import defaultdict
+
+    # Separate template hits from opcode hits
+    tmpl_hits  = [h for h in hits if h.get("fmt") in ("template", "template2")]
+    other_hits = [h for h in hits if h not in tmpl_hits]
+
+    # Group by primary key
+    families: dict[tuple, list[dict]] = defaultdict(list)
+    for h in tmpl_hits:
+        families[_cluster_key(h)].append(h)
+
+    for ck, members in families.items():
+        pid, tf = ck
+        # Group by tier within the family
+        tiers: dict[tuple, list[dict]] = defaultdict(list)
+        for h in members:
+            tiers[_tier_key(h)].append(h)
+        total_tiers = len(tiers)
+        tier_num    = 0
+        for tk_, tier_members in tiers.items():
+            tier_num += 1
+            label = f"ID:0x{pid:04X} TF:{tf} tier:{tier_num}/{total_tiers}"
+            for h in tier_members:
+                h["cluster"] = label
+
+    for h in other_hits:
+        h["cluster"] = "script"
+
+
+# ---------------------------------------------------------------------------
+# Helper lookup builders
+# ---------------------------------------------------------------------------
 def _keys_for_block(c_word: bytes, pre_word: bytes) -> list[str]:
     keys = set()
     keys.update(_SIG_C_TO_KEYS.get(bytes(c_word), []))
     keys.update(_SIG_PRE_TO_KEYS.get(bytes(pre_word), []))
     return list(keys)
-
-
-def _fmt_for_suffix_block(c: bytes, after: bytes) -> str:
-    """Derive the format label for a suffix-scan hit from its surrounding bytes."""
-    if after == b'\xFF\xFF\xFF\xFF':
-        return "template"
-    if c[0] == 0x00:
-        return "template2"
-    return f"script(0x{c[0]:02X})"
 
 
 def _load_map():
@@ -152,59 +411,50 @@ def _build_lookup(proj_map, active_keys):
     return lookup
 
 
-# ---------------------------------------------------------------------------
-# Memory helpers
-# ---------------------------------------------------------------------------
 
+
+
+# ---------------------------------------------------------------------------
+# Memory helpers (live Dolphin reads)
+# ---------------------------------------------------------------------------
 def _read_u8(addr: int) -> str:
-    if rbytes is None:
-        return "?"
+    if rbytes is None: return "?"
     try:
         b = rbytes(addr, 1)
-        if b and len(b) == 1:
-            return str(b[0])
+        return str(b[0]) if b and len(b) == 1 else "?"
     except Exception:
-        pass
-    return "?"
+        return "?"
 
 def _read_u16(addr: int) -> str:
-    if rbytes is None:
-        return "?"
+    if rbytes is None: return "?"
     try:
         b = rbytes(addr, 2)
-        if b and len(b) == 2:
-            return str((b[0] << 8) | b[1])
+        return str((b[0] << 8) | b[1]) if b and len(b) == 2 else "?"
     except Exception:
-        pass
-    return "?"
+        return "?"
 
 def _read_u16_hex(addr: int) -> str:
-    if rbytes is None:
-        return "?"
+    if rbytes is None: return "?"
     try:
         b = rbytes(addr, 2)
         if b and len(b) == 2:
-            v = (b[0] << 8) | b[1]
-            return f"0x{v:04X}"
+            return f"0x{(b[0] << 8) | b[1]:04X}"
     except Exception:
         pass
     return "?"
 
 def _read_f32(addr: int) -> str:
-    if rbytes is None:
-        return "?"
+    if rbytes is None: return "?"
     try:
         b = rbytes(addr, 4)
         if b and len(b) == 4:
-            v = struct.unpack(">f", b)[0]
-            return f"{v:.4f}"
+            return f"{struct.unpack('>f', b)[0]:.4f}"
     except Exception:
         pass
     return "?"
 
 def _write_u16(addr: int, val: int) -> bool:
-    if wbytes is None:
-        return False
+    if wbytes is None: return False
     try:
         return bool(wbytes(addr, bytes([(val >> 8) & 0xFF, val & 0xFF])))
     except Exception as e:
@@ -212,8 +462,7 @@ def _write_u16(addr: int, val: int) -> bool:
         return False
 
 def _write_f32(addr: int, val: float) -> bool:
-    if wbytes is None:
-        return False
+    if wbytes is None: return False
     try:
         return bool(wbytes(addr, struct.pack(">f", val)))
     except Exception as e:
@@ -221,30 +470,28 @@ def _write_f32(addr: int, val: float) -> bool:
         return False
 
 def _write_dmg(addr: int, new_dmg: int, fmt: str) -> bool:
-    """Write a damage value to the correct offset for the given format."""
-    offset = _dmg_write_offset(fmt)
-    return _write_u16(addr + offset, new_dmg)
+    return _write_u16(addr + _dmg_write_offset(fmt), new_dmg)
 
 
 # ---------------------------------------------------------------------------
-# Blank fields template for opcode-scan hits (no suffix-block fields)
+# Blank fields for opcode-scan hits
 # ---------------------------------------------------------------------------
 _OPCODE_HIT_FIELDS = {
-    "radius": "?", "speed": "?", "accel": "?", "aerial_kb_x": "?", "aerial_kb_y": "?",
+    "radius": "?", "speed": "?", "accel": "?", "kb_x": "?", "kb_y": "?",
     "arc": "?", "arc2": "?", "hitbox": "?", "type": "?", "id": "?",
     "lifetime": "?", "hb_size": "?",
     "vel2_x": "?", "vel2_y": "?", "vel2_s": "?",
     "u01": "?", "u02": "?", "u03": "?",
     "u04": "?", "u05": "?", "u06": "?",
     "u07": "?", "u08": "?", "u09": "?",
+    "cluster": "script",
 }
 
 
-def _scan_opcode_blocks(data, base_addr, hits, lookup):
-    """
-    Search for all known SCRIPT_OPCODES signatures within a data block and
-    emit hits.  This replaces the old _scan_actor_blocks / 'actor' special case.
-    """
+# ---------------------------------------------------------------------------
+# Opcode-scan pass  (05 2B and any future SCRIPT_OPCODES entries)
+# ---------------------------------------------------------------------------
+def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict) -> None:
     for sig, info in SCRIPT_OPCODES.items():
         fmt_name   = info["fmt_name"]
         dmg_offset = info["dmg_offset"]
@@ -256,20 +503,14 @@ def _scan_opcode_blocks(data, base_addr, hits, lookup):
                 break
             pos = idx + 1
 
-            # Need at least dmg_offset+2 bytes after the opcode start
             if idx + dmg_offset + 2 > len(data):
                 continue
 
-            hi = data[idx + dmg_offset]
-            lo = data[idx + dmg_offset + 1]
-            dmg = (hi << 8) | lo
-
+            dmg = (data[idx + dmg_offset] << 8) | data[idx + dmg_offset + 1]
             if dmg < 500 or dmg > 20000:
                 continue
 
             addr = base_addr + idx
-
-            # Script-block debug fields (opcode context, not suffix-block fields)
             extra = {
                 "preA":   _read_u8(addr - 2),
                 "preB":   _read_u8(addr - 1),
@@ -286,6 +527,7 @@ def _scan_opcode_blocks(data, base_addr, hits, lookup):
                 "addr": addr,
                 "dmg":  dmg,
                 "fmt":  fmt_name,
+                "dmg_write_addr": _resolve_script_dmg_addr(addr, dmg) or (addr + dmg_offset),
                 **_OPCODE_HIT_FIELDS,
                 **extra,
             }
@@ -297,7 +539,239 @@ def _scan_opcode_blocks(data, base_addr, hits, lookup):
                 hits.append({**base_hit, "key": "?", "move": "Unknown"})
 
 
-def _run_scan(active_keys, progress_cb, done_cb):
+# ---------------------------------------------------------------------------
+# Suffix-scan pass  (template / template2 / script(0xNN))
+# ---------------------------------------------------------------------------
+def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
+                         lookup: dict, id_map: dict) -> None:
+    pos = 0
+    while True:
+        idx = data.find(_SUFFIX, pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+
+        if idx < 4:
+            continue
+
+        c = data[idx - 4:idx]          # the 4 bytes before _SUFFIX  (00 00 XX YY)
+        if c[1]:                        # byte 1 must be 0x00
+            continue
+        dmg = (c[2] << 8) | c[3]
+        if not dmg:
+            continue
+
+        base_off = idx - 4             # offset of record base within `data`
+
+        # ── Validation gate ────────────────────────────────────────────────
+        # Only apply to template/template2 candidates (discriminator check is
+        # part of _validate_template so we can use it to gate both fmt and
+        # field reads in one pass).
+        after4 = data[idx + 4:idx + 8] if idx + 8 <= len(data) else b''
+        fmt    = _classify_discriminator(after4)
+
+        if fmt in ("template", "template2"):
+            if not _validate_template(data, base_off):
+                continue   # ← false positive eliminated
+
+        a = base_addr + base_off
+
+        pre8     = data[idx - 8:idx - 4] if idx >= 8 else b''
+        sig_keys = _keys_for_block(c, pre8)
+
+        # Only template/template2 get full field reads; script variants
+        # keep "?" for structural fields.
+        if fmt in ("template", "template2"):
+            fields = {
+                "radius":   _read_f32(a + FIELD_OFFSETS["radius"]),
+                "kb_x":     _read_f32(a + FIELD_OFFSETS["kb_x"]),
+                "kb_y":     _read_f32(a + FIELD_OFFSETS["kb_y"]),
+                "type":     _read_u8(a  + FIELD_OFFSETS["type"]),    # u8, corrected offset
+                "id":       _read_u16(a + FIELD_OFFSETS["id"]),
+                "lifetime": _read_u8(a  + FIELD_OFFSETS["lifetime"]), # u8, corrected offset
+                "hb_size":  _read_u16(a + FIELD_OFFSETS["hb_size"]),
+                "speed":    _read_f32(a + FIELD_OFFSETS["speed"]),
+                "accel":    _read_f32(a + FIELD_OFFSETS["accel"]),
+                "hitbox":   _read_f32(a + FIELD_OFFSETS["hitbox"]),
+                "arc":      _read_f32(a + FIELD_OFFSETS["arc"]),
+                "arc2":     _read_f32(a + FIELD_OFFSETS["arc2"]),
+                "vel2_x":   _read_f32(a + FIELD_OFFSETS["vel2_x"]),
+                "vel2_y":   _read_f32(a + FIELD_OFFSETS["vel2_y"]),
+                "vel2_s":   _read_f32(a + FIELD_OFFSETS["vel2_s"]),
+                "u01":      _read_f32(a + FIELD_OFFSETS["u01"]),
+                "u02":      _read_f32(a + FIELD_OFFSETS["u02"]),
+                "u03":      _read_f32(a + FIELD_OFFSETS["u03"]),
+                "u04":      _read_u16(a + FIELD_OFFSETS["u04"]),
+                "u05":      _read_u16(a + FIELD_OFFSETS["u05"]),
+                "u06":      _read_u16(a + FIELD_OFFSETS["u06"]),
+                "u07":      _read_u16(a + FIELD_OFFSETS["u07"]),
+                "u08":      _read_u16(a + FIELD_OFFSETS["u08"]),
+                "u09":      _read_u16(a + FIELD_OFFSETS["u09"]),
+                # opcode-context columns N/A for suffix-scan hits
+                "preA": "?", "preB": "?",
+                "opcode": "?", "param1": "?", "param2": "?", "param3": "?",
+                "f32_1": "?", "f32_2": "?", "f32_3": "?",
+                "cluster": "",  # filled in by _annotate_clusters after scan
+            }
+        else:
+            fields = {**_OPCODE_HIT_FIELDS, "cluster": "script"}
+
+        if dmg in lookup:
+            matches = lookup[dmg]
+            if len({k for k, _ in matches}) > 1:
+                proj_id = fields.get("id")
+                try:
+                    pid_int = int(proj_id)
+                except (TypeError, ValueError):
+                    pid_int = None
+                if pid_int is not None:
+                    id_matches = [
+                        (k, mv) for k, mv in matches
+                        if id_map.get(k, {}).get(mv) == pid_int
+                    ]
+                    if id_matches:
+                        matches = id_matches
+
+            for key, mv in matches:
+                hits.append({"addr": a, "key": key, "move": mv,
+                             "dmg": dmg, "fmt": fmt,
+                             "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
+                             **fields})
+
+        elif dmg >= 500:
+            # Unknown — cluster label (filled by _annotate_clusters) gives
+            # the proj-ID family so the user can attribute it manually.
+            hits.append({"addr": a, "key": "?", "move": "Unknown",
+                         "dmg": dmg, "fmt": fmt,
+                         "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
+                         **fields})
+
+
+# ---------------------------------------------------------------------------
+# Zombie canonical block scanner
+#
+# The authoritative spawn-like signature for Zombie Spree/Attack/Fall is:
+#   2C 11 02 3F  (block start marker)
+#   followed within 0x40 bytes by:
+#   04 01 02 3F 00 00 00 XX  (where XX is the variant byte)
+#
+# Only variants 0x36–0x3B are valid Zombie spawn variants per the notes.
+# Anything outside this range is noise from other characters' scripts.
+#
+# Deduplication: one row per (chr_tbl_base, variant) across the full scan.
+# ---------------------------------------------------------------------------
+_ZOMBIE_BLOCK_SIG  = b"\x2C\x11\x02\x3F"
+_ZOMBIE_INNER_SIG  = b"\x04\x01\x02\x3F\x00\x00\x00"
+_ZOMBIE_INNER_LOOK = 0x40
+_ZOMBIE_VARIANT_MIN = 0x36
+_ZOMBIE_VARIANT_MAX = 0x3B
+
+_ZOMBIE_VARIANT_NAMES: dict[int, str] = {
+    0x36: "Zombie Spree (v0x36)",
+    0x37: "Zombie Spree (v0x37)",
+    0x38: "Zombie Spree (v0x38)",
+    0x39: "Zombie Spree (v0x39)",
+    0x3A: "Zombie Spree (v0x3A)",
+    0x3B: "Zombie Spree (v0x3B)",
+}
+
+# Exact per-slot ownership ranges derived from chr_tbl analysis notes.
+# Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
+# Using tight bounds prevents cross-slot false positives.
+_CHR_TBL_RANGES = [
+    (0x90896640, 0x90896640, 0x908C94C0 + 0x2000),   # slot 0
+    (0x908F1920, 0x908F1920, 0x9092B634 + 0x2000),   # slot 1 — Frank
+    (0x909478E0, 0x909478E0, 0x9097E310 + 0x2000),   # slot 2
+    (0x9099D9C0, 0x9099D9C0, 0x909DECAC + 0x2000),   # slot 3
+]
+
+
+def _owning_chr_tbl(addr: int) -> int | None:
+    """Return the chr_tbl_base for the slot that owns addr, using tight bounds."""
+    for base, lo, hi in _CHR_TBL_RANGES:
+        if lo <= addr < hi:
+            return base
+    return None
+
+
+def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
+                         lookup: dict, seen_variants: set,
+                         slot_char_ids: dict | None = None) -> None:
+    """
+    Single-pass scan for canonical Zombie spawn blocks.
+    Emits one hit per unique (chr_tbl_base, variant) pair,
+    but only for slots where Frank West (char_id 30) is actually loaded.
+    If slot_char_ids is None or empty (offline/no live data), emits for all slots.
+    """
+    frank_only = bool(slot_char_ids)   # if we have live data, enforce the gate
+
+    pos = 0
+    while True:
+        idx = data.find(_ZOMBIE_BLOCK_SIG, pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+
+        window_end   = min(idx + len(_ZOMBIE_BLOCK_SIG) + _ZOMBIE_INNER_LOOK, len(data))
+        inner_search = data[idx:window_end]
+        inner_idx    = inner_search.find(_ZOMBIE_INNER_SIG)
+        if inner_idx < 0:
+            continue
+
+        variant_off = idx + inner_idx + len(_ZOMBIE_INNER_SIG)
+        if variant_off >= len(data):
+            continue
+        variant = data[variant_off]
+
+        if not (_ZOMBIE_VARIANT_MIN <= variant <= _ZOMBIE_VARIANT_MAX):
+            continue
+
+        block_abs    = base_addr + idx
+        chr_tbl_base = _owning_chr_tbl(block_abs)
+        if chr_tbl_base is None:
+            continue
+
+        # Gate: only emit if this slot actually has Frank loaded.
+        if frank_only:
+            cid = slot_char_ids.get(chr_tbl_base)
+            if cid != FRANK_CHAR_ID:
+                continue
+
+        dedup_key = (chr_tbl_base, variant)
+        if dedup_key in seen_variants:
+            continue
+        seen_variants.add(dedup_key)
+
+        dmg_write = chr_tbl_base + _SCRIPT_DMG_OFFSETS.get(2400, 0x25E0)
+        dmg = 2400
+        if rbytes is not None:
+            try:
+                b = rbytes(dmg_write, 4)
+                if b and len(b) == 4:
+                    v = struct.unpack(">I", b)[0]
+                    if 1 <= v <= 20000:
+                        dmg = v
+            except Exception:
+                pass
+
+        move_label = _ZOMBIE_VARIANT_NAMES.get(variant, f"Zombie Spree (v0x{variant:02X})")
+
+        hits.append({
+            "addr":           block_abs,
+            "key":            "FRANK",
+            "move":           move_label,
+            "dmg":            dmg,
+            "fmt":            "zombie_block",
+            "dmg_write_addr": dmg_write,
+            **_OPCODE_HIT_FIELDS,
+            "cluster": f"zombie v0x{variant:02X} @ 0x{chr_tbl_base:08X}",
+        })
+
+
+# ---------------------------------------------------------------------------
+# Main scan thread
+# ---------------------------------------------------------------------------
+def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
     if rbytes is None:
         done_cb([]); return
 
@@ -305,9 +779,13 @@ def _run_scan(active_keys, progress_cb, done_cb):
     id_map   = _load_ids()
     lookup   = _build_lookup(proj_map, active_keys)
 
+    # Read live char_id per slot so zombie block scanner can gate on Frank.
+    slot_char_ids = _read_slot_char_ids()
+
     total = SCAN_END - SCAN_START
     hits  = []
     addr  = SCAN_START
+    seen_zombie_variants: set = set()
 
     while addr < SCAN_END:
         sz = min(SCAN_BLOCK, SCAN_END - addr)
@@ -317,93 +795,44 @@ def _run_scan(active_keys, progress_cb, done_cb):
             data = b""
 
         if data:
-            # --- opcode-scan pass (all SCRIPT_OPCODES signatures) ---
             _scan_opcode_blocks(data, addr, hits, lookup)
-
-            # --- suffix-scan pass (template / template2 / script(0xNN)) ---
-            pos = 0
-            while True:
-                idx = data.find(_SUFFIX, pos)
-                if idx < 0:
-                    break
-                pos = idx + 1
-                if idx < 4:
-                    continue
-
-                c = data[idx - 4:idx]
-                if c[1]:
-                    continue
-                dmg = (c[2] << 8) | c[3]
-                if not dmg:
-                    continue
-
-                after = data[idx + 4:idx + 8] if idx + 8 <= len(data) else b''
-                fmt   = _fmt_for_suffix_block(c, after)
-                a     = addr + idx - 4
-
-                pre8     = data[idx - 8:idx - 4] if idx >= 8 else b''
-                sig_keys = _keys_for_block(c, pre8)
-
-                fields = {
-                    "radius":      _read_f32(a + FIELD_OFFSETS["radius"]),
-                    "aerial_kb_x": _read_f32(a + FIELD_OFFSETS["aerial_kb_x"]),
-                    "aerial_kb_y": _read_f32(a + FIELD_OFFSETS["aerial_kb_y"]),
-                    "type":        _read_u16(a + FIELD_OFFSETS["type"]),
-                    "id":          _read_u16(a + FIELD_OFFSETS["id"]),
-                    "lifetime":    _read_u16(a + FIELD_OFFSETS["lifetime"]),
-                    "hb_size":     _read_u16(a + FIELD_OFFSETS["hb_size"]),
-                    "speed":       _read_f32(a + FIELD_OFFSETS["speed"]),
-                    "accel":       _read_f32(a + FIELD_OFFSETS["accel"]),
-                    "hitbox":      _read_f32(a + FIELD_OFFSETS["hitbox"]),
-                    "arc":         _read_f32(a + FIELD_OFFSETS["arc"]),
-                    "arc2":        _read_f32(a + FIELD_OFFSETS["arc2"]),
-                    "vel2_x":      _read_f32(a + FIELD_OFFSETS["vel2_x"]),
-                    "vel2_y":      _read_f32(a + FIELD_OFFSETS["vel2_y"]),
-                    "vel2_s":      _read_f32(a + FIELD_OFFSETS["vel2_s"]),
-                    "u01":         _read_f32(a + FIELD_OFFSETS["u01"]),
-                    "u02":         _read_f32(a + FIELD_OFFSETS["u02"]),
-                    "u03":         _read_f32(a + FIELD_OFFSETS["u03"]),
-                    "u04":         _read_u16(a + FIELD_OFFSETS["u04"]),
-                    "u05":         _read_u16(a + FIELD_OFFSETS["u05"]),
-                    "u06":         _read_u16(a + FIELD_OFFSETS["u06"]),
-                    "u07":         _read_u16(a + FIELD_OFFSETS["u07"]),
-                    "u08":         _read_u16(a + FIELD_OFFSETS["u08"]),
-                    "u09":         _read_u16(a + FIELD_OFFSETS["u09"]),
-                    # opcode-context columns are N/A for suffix-scan hits
-                    "preA": "?", "preB": "?",
-                    "opcode": "?", "param1": "?", "param2": "?", "param3": "?",
-                    "f32_1": "?", "f32_2": "?", "f32_3": "?",
-                }
-
-                if dmg in lookup:
-                    matches = lookup[dmg]
-
-                    # Disambiguate by projectile ID when multiple chars share a damage value
-                    if len({k for k, _ in matches}) > 1:
-                        proj_id = fields.get("id")
-                        try:
-                            proj_id_int = int(proj_id)
-                        except (TypeError, ValueError):
-                            proj_id_int = None
-
-                        if proj_id_int is not None:
-                            id_matches = [
-                                (k, mv) for k, mv in matches
-                                if id_map.get(k, {}).get(mv) == proj_id_int
-                            ]
-                            if id_matches:
-                                matches = id_matches
-
-                    for key, mv in matches:
-                        hits.append({"addr": a, "key": key, "move": mv,
-                                     "dmg": dmg, "fmt": fmt, **fields})
-
-                elif dmg >= 500:
-                    hits.append({"addr": a, "key": "?", "move": "Unknown",
-                                 "dmg": dmg, "fmt": fmt, **fields})
+            _scan_suffix_blocks(data, addr, hits, lookup, id_map)
+            _scan_zombie_blocks(data, addr, hits, lookup, seen_zombie_variants, slot_char_ids)
 
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
+
+    _annotate_clusters(hits)
+
+    # Frank slots: chr_tbl_bases where Frank is actually loaded right now.
+    frank_bases = {
+        base for base, cid in slot_char_ids.items() if cid == FRANK_CHAR_ID
+    } if slot_char_ids else set()
+
+    # Suppress 05 2B Zombie hits that have a canonical zombie_block hit
+    # in the same (Frank) slot — zombie_block rows are authoritative.
+    zombie_block_bases = {
+        _owning_chr_tbl(h["addr"])
+        for h in hits
+        if h.get("fmt") == "zombie_block"
+    } - {None}
+
+    superseded_bases = zombie_block_bases & (frank_bases or zombie_block_bases)
+
+    if superseded_bases:
+        def _is_superseded_script(h: dict) -> bool:
+            if h.get("fmt") != "script(0x052B)":
+                return False
+            if h.get("key") != "FRANK":
+                return False
+            if "Zombie" not in str(h.get("move", "")):
+                return False
+            return _owning_chr_tbl(h["addr"]) in superseded_bases
+
+        hits = [h for h in hits if not _is_superseded_script(h)]
+
+    if not show_unknowns:
+        hits = [h for h in hits if not (h.get("key") == "?" and h.get("move") == "Unknown")]
 
     _dump_hits(hits)
     done_cb(hits)
@@ -432,69 +861,69 @@ def _dump_hits(hits: list, context: int = 0x100):
 
 # ---------------------------------------------------------------------------
 # Column definitions
+# kb_x / kb_y replace aerial_kb_x / aerial_kb_y
+# cluster column added
 # ---------------------------------------------------------------------------
-
-# (col_id, header, field_key, is_float)
 _COLS = [
-    ("address",      "Address",   None,          False),
-    ("char",         "Char",      None,          False),
-    ("move",         "Move",      None,          False),
-    ("dmg",          "Damage",    "dmg",         False),
-    ("radius",       "Radius",    "radius",      True),
-    ("speed",        "Speed",     "speed",       True),
-    ("accel",        "Accel",     "accel",       True),
-    ("aerial_kb_x",  "Air KB X",  "aerial_kb_x", True),
-    ("aerial_kb_y",  "Air KB Y",  "aerial_kb_y", True),
-    ("arc",          "Arc",       "arc",         True),
-    ("arc2",         "Arc2",      "arc2",        True),
-    ("hitbox",       "Hitbox",    "hitbox",      True),
-    ("type",         "Type",      "type",        False),
-    ("id",           "ID",        "id",          False),
-    ("lifetime",     "Lifetime",  "lifetime",    False),
-    ("hb_size",      "HB Size",   "hb_size",     False),
-    ("fmt",          "Fmt",       None,          False),
-    ("preA",         "PreA",      None,          False),
-    ("preB",         "PreB",      None,          False),
-    ("opcode",       "Opcode",    None,          False),
-    ("param1",       "Param1",    None,          False),
-    ("param2",       "Param2",    None,          False),
-    ("param3",       "Param3",    None,          False),
-    ("f32_1",        "F32+8",     None,          True),
-    ("f32_2",        "F32+C",     None,          True),
-    ("f32_3",        "F32+10",    None,          True),
-    ("vel2_x",       "Vel2 X",    "vel2_x",      True),
-    ("vel2_y",       "Vel2 Y",    "vel2_y",      True),
-    ("vel2_s",       "Vel2 S",    "vel2_s",      True),
-    ("u01",          "?? 01",     "u01",         True),
-    ("u02",          "?? 02",     "u02",         True),
-    ("u03",          "?? 03",     "u03",         True),
-    ("u04",          "?? 04",     "u04",         False),
-    ("u05",          "?? 05",     "u05",         False),
-    ("u06",          "?? 06",     "u06",         False),
-    ("u07",          "?? 07",     "u07",         False),
-    ("u08",          "?? 08",     "u08",         False),
-    ("u09",          "?? 09",     "u09",         False),
+    ("address",  "Address",   None,       False),
+    ("char",     "Char",      None,       False),
+    ("move",     "Move",      None,       False),
+    ("dmg",      "Damage",    "dmg",      False),
+    ("cluster",  "Cluster",   None,       False),
+    ("radius",   "Radius",    "radius",   True),
+    ("speed",    "Speed",     "speed",    True),
+    ("accel",    "Accel",     "accel",    True),
+    ("kb_x",     "KB X",      "kb_x",     True),
+    ("kb_y",     "KB Y",      "kb_y",     True),
+    ("arc",      "Arc",       "arc",      True),
+    ("arc2",     "Arc2",      "arc2",     True),
+    ("hitbox",   "Hitbox",    "hitbox",   True),
+    ("type",     "Type",      "type",     False),
+    ("id",       "ID",        "id",       False),
+    ("lifetime", "Lifetime",  "lifetime", False),
+    ("hb_size",  "HB Size",   "hb_size",  False),
+    ("fmt",      "Fmt",       None,       False),
+    ("preA",     "PreA",      None,       False),
+    ("preB",     "PreB",      None,       False),
+    ("opcode",   "Opcode",    None,       False),
+    ("param1",   "Param1",    None,       False),
+    ("param2",   "Param2",    None,       False),
+    ("param3",   "Param3",    None,       False),
+    ("f32_1",    "F32+8",     None,       True),
+    ("f32_2",    "F32+C",     None,       True),
+    ("f32_3",    "F32+10",    None,       True),
+    ("vel2_x",   "Vel2 X",    "vel2_x",   True),
+    ("vel2_y",   "Vel2 Y",    "vel2_y",   True),
+    ("vel2_s",   "Vel2 S",    "vel2_s",   True),
+    ("u01",      "?? 01",     "u01",      True),
+    ("u02",      "?? 02",     "u02",      True),
+    ("u03",      "?? 03",     "u03",      True),
+    ("u04",      "?? 04",     "u04",      False),
+    ("u05",      "?? 05",     "u05",      False),
+    ("u06",      "?? 06",     "u06",      False),
+    ("u07",      "?? 07",     "u07",      False),
+    ("u08",      "?? 08",     "u08",      False),
+    ("u09",      "?? 09",     "u09",      False),
 ]
-_COL_IDS = [c[0] for c in _COLS]
-
-# Index of "fmt" column — used to read the format string from a row
+_COL_IDS    = [c[0] for c in _COLS]
 _FMT_COL_IDX = _COL_IDS.index("fmt")
 
 
 # ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
-
 class ProjScannerWindow:
     def __init__(self, master, get_active_fn):
         self._get_active = get_active_fn
         self._scanning   = False
         self._keys: set  = set()
         self._addr_by_iid: dict[str, int] = {}
+        self._dmg_write_by_iid: dict[str, int] = {}
+        self._show_unknowns = tk.BooleanVar(value=True)
 
         self.root = tk.Toplevel(master)
         self.root.title("Projectile Definition Scanner")
-        self.root.geometry("1000x560")
+        self.root.geometry("1100x560")
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
 
         self._build()
@@ -505,6 +934,11 @@ class ProjScannerWindow:
         top.pack(side="top", fill="x", padx=8, pady=6)
         self._active_var = tk.StringVar(value="Active: --")
         ttk.Label(top, textvariable=self._active_var).pack(side="left")
+        ttk.Checkbutton(
+            top, text="Show unknowns",
+            variable=self._show_unknowns,
+            command=self._start,
+        ).pack(side="right", padx=8)
         self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
         self._scan_btn.pack(side="right", padx=4)
 
@@ -518,16 +952,18 @@ class ProjScannerWindow:
         frame.pack(fill="both", expand=True, padx=8, pady=6)
 
         self._tree = ttk.Treeview(frame, columns=_COL_IDS, show="headings", height=24)
-        widths = {"address": 110, "char": 80, "move": 180, "dmg": 65,
-                  "speed": 75, "accel": 75, "arc": 75}
+        widths = {"address": 110, "char": 80, "move": 160, "dmg": 65,
+                  "cluster": 220, "speed": 75, "accel": 75, "arc": 75}
         self._sort_col = None
         self._sort_asc = True
+
+        col_map = {c[0]: c[1] for c in _COLS}
         for col_id, header, _, _ in _COLS:
             self._tree.heading(col_id, text=header,
                 command=lambda c=col_id: self._sort_by(c))
-            w = widths.get(col_id, 65)
-            self._tree.column(col_id, width=w, anchor="center")
-        self._tree.column("move", anchor="w")
+            self._tree.column(col_id, width=widths.get(col_id, 65), anchor="center")
+        self._tree.column("move",    anchor="w")
+        self._tree.column("cluster", anchor="w")
 
         vsb = ttk.Scrollbar(frame, orient="vertical", command=self._tree.yview)
         self._tree.configure(yscrollcommand=vsb.set)
@@ -538,7 +974,8 @@ class ProjScannerWindow:
         self._tree.bind("<Button-3>",        self._on_right_click)
 
         ttk.Label(self.root,
-                  text="Double-click Dmg/Speed/Accel/Arc/Lifetime to edit. Right-click to copy address.",
+                  text="Double-click Dmg/Speed/Accel/Arc/Lifetime to edit. "
+                       "Right-click to copy address. Cluster column groups by proj-ID + type family.",
                   foreground="gray").pack(anchor="w", padx=8, pady=(0, 4))
 
     def _auto_scan(self):
@@ -548,7 +985,8 @@ class ProjScannerWindow:
         self._start()
 
     def _start(self):
-        if self._scanning: return
+        if self._scanning:
+            return
         names = self._get_active()
         self._keys = {_NAME_TO_KEY[n] for n in names if n in _NAME_TO_KEY}
         self._active_var.set(f"Active: {', '.join(n for n in names if n) or 'none'}")
@@ -559,14 +997,18 @@ class ProjScannerWindow:
         self._scan_btn.config(state="disabled")
         self._prog.set(0)
         self._addr_by_iid.clear()
+        self._dmg_write_by_iid.clear()
         for i in self._tree.get_children():
             self._tree.delete(i)
         self._status.set("Scanning MEM2...")
-        threading.Thread(target=_run_scan,
+        threading.Thread(
+            target=_run_scan,
             args=(set(self._keys), self._on_prog, self._on_done),
-            daemon=True).start()
+            kwargs={"show_unknowns": self._show_unknowns.get()},
+            daemon=True,
+        ).start()
 
-    def _sort_by(self, col_id):
+    def _sort_by(self, col_id: str):
         if self._sort_col == col_id:
             self._sort_asc = not self._sort_asc
         else:
@@ -575,36 +1017,40 @@ class ProjScannerWindow:
 
         col_map = {c[0]: c[1] for c in _COLS}
         for cid, header, _, _ in _COLS:
-            if cid == col_id:
-                arrow = " ▲" if self._sort_asc else " ▼"
-                self._tree.heading(cid, text=header + arrow)
-            else:
-                self._tree.heading(cid, text=col_map[cid])
+            arrow = (" ▲" if self._sort_asc else " ▼") if cid == col_id else ""
+            self._tree.heading(cid, text=col_map[cid] + arrow)
 
         items = [(self._tree.set(iid, col_id), iid)
                  for iid in self._tree.get_children("")]
 
         def sort_key(val):
-            try: return (0, float(val))
-            except: return (1, val.lower())
+            try:
+                return (0, float(val))
+            except Exception:
+                return (1, str(val).lower())
 
         items.sort(key=lambda x: sort_key(x[0]), reverse=not self._sort_asc)
         for idx, (_, iid) in enumerate(items):
             self._tree.move(iid, "", idx)
 
-    def _on_prog(self, pct):
-        try: self.root.after(0, lambda: self._prog.set(pct))
-        except: pass
+    def _on_prog(self, pct: float):
+        try:
+            self.root.after(0, lambda: self._prog.set(pct))
+        except Exception:
+            pass
 
-    def _on_done(self, hits):
+    def _on_done(self, hits: list):
         def _f():
             _TYPE_LABELS = {"3": "3:Linear", "4": "4:Physics",
-                            3: "3:Linear",   4: "4:Physics"}
+                            3:   "3:Linear",   4: "4:Physics"}
             for h in hits:
-                type_str = _TYPE_LABELS.get(h["type"], str(h["type"]) if h["type"] is not None else "")
+                type_str = _TYPE_LABELS.get(h["type"], str(h["type"]))
                 iid = self._tree.insert("", "end", values=(
-                    f"0x{h['addr']:08X}", h["key"], h["move"], h["dmg"],
-                    h["radius"], h["speed"], h["accel"], h["aerial_kb_x"], h["aerial_kb_y"],
+                    f"0x{h['addr']:08X}",
+                    h["key"], h["move"], h["dmg"],
+                    h.get("cluster", ""),
+                    h["radius"], h["speed"], h["accel"],
+                    h["kb_x"], h["kb_y"],
                     h["arc"], h["arc2"], h["hitbox"],
                     type_str, h["id"], h["lifetime"], h["hb_size"],
                     h.get("fmt", ""),
@@ -617,13 +1063,20 @@ class ProjScannerWindow:
                     h["u04"], h["u05"], h["u06"],
                     h["u07"], h["u08"], h["u09"],
                 ))
-                self._addr_by_iid[iid] = h["addr"]
+                self._addr_by_iid[iid]      = h["addr"]
+                self._dmg_write_by_iid[iid] = h.get("dmg_write_addr", h["addr"] + 2)
             self._scanning = False
             self._scan_btn.config(state="normal")
             self._prog.set(100)
-            self._status.set(f"Done — {len(hits)} match(es) found. Double-click to edit.")
-        try: self.root.after(0, _f)
-        except: pass
+            n_known = sum(1 for h in hits if h.get("key") != "?")
+            n_unk   = sum(1 for h in hits if h.get("key") == "?" and h.get("move") == "Unknown")
+            self._status.set(
+                f"Done — {len(hits)} match(es): {n_known} attributed, {n_unk} unknown."
+            )
+        try:
+            self.root.after(0, _f)
+        except Exception:
+            pass
 
     def _col_index(self, event) -> int:
         col = self._tree.identify_column(event.x)
@@ -635,11 +1088,13 @@ class ProjScannerWindow:
 
     def _on_right_click(self, event):
         iid = self._tree.identify_row(event.y)
-        if not iid: return
+        if not iid:
+            return
         addr = self._addr_by_iid.get(iid)
-        if addr is None: return
+        if addr is None:
+            return
 
-        col_idx = self._col_index(event)
+        col_idx     = self._col_index(event)
         field_addr  = addr
         field_label = "base"
         if 0 <= col_idx < len(_COLS):
@@ -671,18 +1126,20 @@ class ProjScannerWindow:
     def _on_double_click(self, event):
         col_idx = self._col_index(event)
         iid     = self._tree.identify_row(event.y)
-        if not iid or col_idx < 0: return
+        if not iid or col_idx < 0:
+            return
 
         col_id, header, fkey, is_float = _COLS[col_idx]
-        if col_id in ("address", "char", "move"): return
+        if col_id in ("address", "char", "move", "cluster", "fmt"):
+            return
 
         addr = self._addr_by_iid.get(iid)
-        if addr is None: return
+        if addr is None:
+            return
 
         fmt = self._fmt_for_iid(iid)
-
         if fkey == "dmg":
-            write_addr = addr + _dmg_write_offset(fmt)
+            write_addr = self._dmg_write_by_iid.get(iid, addr + _dmg_write_offset(fmt))
         elif fkey in FIELD_OFFSETS:
             write_addr = addr + FIELD_OFFSETS[fkey]
         else:
@@ -696,47 +1153,64 @@ class ProjScannerWindow:
             f"Move: {vals[2]}\nAddress: 0x{write_addr:08X}\nCurrent: {cur_val}\n\nNew value:",
             parent=self.root, initialvalue=str(cur_val),
         )
-        if new_val is None: return
+        if new_val is None:
+            return
         new_val = new_val.strip()
 
         if is_float:
             try:
                 fval = float(new_val)
             except ValueError:
-                messagebox.showerror("Invalid", f"'{new_val}' is not a valid float.", parent=self.root)
+                messagebox.showerror("Invalid", f"'{new_val}' is not a valid float.",
+                                     parent=self.root)
                 return
             if _write_f32(write_addr, fval):
                 self._tree.set(iid, col_id, f"{fval:.4f}")
                 self._status.set(f"Wrote {fval} to 0x{write_addr:08X}")
             else:
-                messagebox.showerror("Write failed", "Could not write to Dolphin.", parent=self.root)
+                messagebox.showerror("Write failed", "Could not write to Dolphin.",
+                                     parent=self.root)
         else:
             try:
                 ival = int(new_val, 16) if new_val.startswith("0x") else int(new_val)
             except ValueError:
-                messagebox.showerror("Invalid", f"'{new_val}' is not a valid number.", parent=self.root)
+                messagebox.showerror("Invalid", f"'{new_val}' is not a valid number.",
+                                     parent=self.root)
                 return
             if not (0 <= ival <= 0xFFFF):
-                messagebox.showerror("Out of range", "Value must be 0–65535.", parent=self.root)
+                messagebox.showerror("Out of range", "Value must be 0–65535.",
+                                     parent=self.root)
                 return
+            ok = _write_dmg(addr, ival, fmt) if fkey == "dmg" else _write_u16(write_addr, ival)
+            # Script-cluster damage writes go to the u32 param table entry.
             if fkey == "dmg":
-                ok = _write_dmg(addr, ival, fmt)
+                resolved = self._dmg_write_by_iid.get(iid)
+                fallback = addr + _dmg_write_offset(fmt)
+                if resolved and resolved != fallback:
+                    ok = _write_u32(resolved, ival)
+                else:
+                    ok = _write_dmg(addr, ival, fmt)
             else:
                 ok = _write_u16(write_addr, ival)
             if ok:
                 self._tree.set(iid, col_id, ival)
                 self._status.set(f"Wrote {ival} to 0x{write_addr:08X}")
             else:
-                messagebox.showerror("Write failed", "Could not write to Dolphin.", parent=self.root)
+                messagebox.showerror("Write failed", "Could not write to Dolphin.",
+                                     parent=self.root)
 
 
+# ---------------------------------------------------------------------------
 _inst = None
 
 def open_proj_scanner_window(get_active_fn):
     def _c(master):
         global _inst
         if _inst:
-            try: _inst.root.lift(); return
-            except: pass
+            try:
+                _inst.root.lift()
+                return
+            except Exception:
+                pass
         _inst = ProjScannerWindow(master, get_active_fn)
     tk_call(_c)
