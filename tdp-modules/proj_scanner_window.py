@@ -491,7 +491,14 @@ _OPCODE_HIT_FIELDS = {
 # ---------------------------------------------------------------------------
 # Opcode-scan pass  (05 2B and any future SCRIPT_OPCODES entries)
 # ---------------------------------------------------------------------------
-def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict) -> None:
+# ---------------------------------------------------------------------------
+# Opcode-scan pass  (05 2B and any future SCRIPT_OPCODES entries)
+# ---------------------------------------------------------------------------
+def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict,
+                        slot_char_ids: dict | None = None) -> None:
+    frank_bases = {
+        base for base, cid in (slot_char_ids or {}).items() if cid == FRANK_CHAR_ID
+    }
     for sig, info in SCRIPT_OPCODES.items():
         fmt_name   = info["fmt_name"]
         dmg_offset = info["dmg_offset"]
@@ -534,6 +541,13 @@ def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict) -
 
             if dmg in lookup:
                 for key, mv in lookup[dmg]:
+                    if (
+                        key == "FRANK"
+                        and "zombie" in str(mv).lower()
+                        and _owning_chr_tbl(addr) in frank_bases
+                        and not _is_frank_zombie_fall_label(mv)
+                    ):
+                        continue
                     hits.append({**base_hit, "key": key, "move": mv})
             else:
                 hits.append({**base_hit, "key": "?", "move": "Unknown"})
@@ -542,8 +556,15 @@ def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict) -
 # ---------------------------------------------------------------------------
 # Suffix-scan pass  (template / template2 / script(0xNN))
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Suffix-scan pass  (template / template2 / script(0xNN))
+# ---------------------------------------------------------------------------
 def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
-                         lookup: dict, id_map: dict) -> None:
+                         lookup: dict, id_map: dict,
+                         slot_char_ids: dict | None = None) -> None:
+    frank_bases = {
+        base for base, cid in (slot_char_ids or {}).items() if cid == FRANK_CHAR_ID
+    }
     pos = 0
     while True:
         idx = data.find(_SUFFIX, pos)
@@ -633,6 +654,13 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                         matches = id_matches
 
             for key, mv in matches:
+                if (
+                    key == "FRANK"
+                    and "zombie" in str(mv).lower()
+                    and _owning_chr_tbl(a) in frank_bases
+                    and not _is_frank_zombie_fall_label(mv)
+                ):
+                    continue
                 hits.append({"addr": a, "key": key, "move": mv,
                              "dmg": dmg, "fmt": fmt,
                              "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
@@ -675,6 +703,9 @@ _ZOMBIE_VARIANT_NAMES: dict[int, str] = {
     0x3B: "Zombie Spree (v0x3B)",
 }
 
+_FRANK_ZOMBIE_FALL_NAMES = {"Zombie Fall", "Zombie fall"}
+_FRANK_ZOMBIE_ATTACK_OFF = 0x0B14
+_FRANK_ZOMBIE_SPREE_OFF  = 0x7C4C
 # Exact per-slot ownership ranges derived from chr_tbl analysis notes.
 # Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
 # Using tight bounds prevents cross-slot false positives.
@@ -693,6 +724,82 @@ def _owning_chr_tbl(addr: int) -> int | None:
             return base
     return None
 
+
+def _is_frank_zombie_move_label(move: str) -> bool:
+    s = str(move or "").lower()
+    return "zombie" in s
+
+def _is_frank_zombie_fall_label(move: str) -> bool:
+    return str(move or "") in _FRANK_ZOMBIE_FALL_NAMES
+
+def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
+    """
+    Frank-specific override:
+      - ignore Frank zombie move-ID association except Zombie Fall
+      - use the discovered Frank Zombie Fall row as the anchor
+      - derive Attack/Spree by fixed offsets from Fall
+    """
+    anchored_rows: list[dict] = []
+    anchor_bases: set[int] = set()
+    seen_anchor_bases: set[int] = set()
+
+    for h in hits:
+        if h.get("key") != "FRANK":
+            continue
+        if not _is_frank_zombie_fall_label(h.get("move", "")):
+            continue
+
+        base = _owning_chr_tbl(h.get("addr", 0))
+        if base is None or base in seen_anchor_bases:
+            continue
+        seen_anchor_bases.add(base)
+        anchor_bases.add(base)
+
+        fall_hit = h
+        fall_addr   = int(fall_hit["addr"])
+        attack_addr = fall_addr + _FRANK_ZOMBIE_ATTACK_OFF
+        spree_addr  = fall_addr + _FRANK_ZOMBIE_SPREE_OFF
+
+        anchored_rows.append({
+            **fall_hit,
+            "addr": fall_addr,
+            "move": "Zombie Fall",
+            "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
+            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[3200],
+        })
+        anchored_rows.append({
+            **fall_hit,
+            "addr": attack_addr,
+            "move": "Zombie Attack",
+            "dmg": 2400,
+            "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
+            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
+        })
+        anchored_rows.append({
+            **fall_hit,
+            "addr": spree_addr,
+            "move": "Zombie Spree",
+            "dmg": 2400,
+            "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
+            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
+        })
+
+    if not anchor_bases:
+        return hits
+
+    kept: list[dict] = []
+    for h in hits:
+        if (
+            h.get("key") == "FRANK"
+            and _is_frank_zombie_move_label(h.get("move", ""))
+            and _owning_chr_tbl(h.get("addr", 0)) in anchor_bases
+        ):
+            continue
+        kept.append(h)
+
+    kept.extend(anchored_rows)
+    kept.sort(key=lambda x: int(x.get("addr", 0)))
+    return kept
 
 def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
                          lookup: dict, seen_variants: set,
@@ -795,46 +902,26 @@ def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
             data = b""
 
         if data:
-            _scan_opcode_blocks(data, addr, hits, lookup)
-            _scan_suffix_blocks(data, addr, hits, lookup, id_map)
+            _scan_opcode_blocks(data, addr, hits, lookup, slot_char_ids)
+            _scan_suffix_blocks(data, addr, hits, lookup, id_map, slot_char_ids)
             _scan_zombie_blocks(data, addr, hits, lookup, seen_zombie_variants, slot_char_ids)
 
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
-
     _annotate_clusters(hits)
 
-    # Frank slots: chr_tbl_bases where Frank is actually loaded right now.
-    frank_bases = {
-        base for base, cid in slot_char_ids.items() if cid == FRANK_CHAR_ID
-    } if slot_char_ids else set()
-
-    # Suppress 05 2B Zombie hits that have a canonical zombie_block hit
-    # in the same (Frank) slot — zombie_block rows are authoritative.
-    zombie_block_bases = {
-        _owning_chr_tbl(h["addr"])
-        for h in hits
-        if h.get("fmt") == "zombie_block"
-    } - {None}
-
-    superseded_bases = zombie_block_bases & (frank_bases or zombie_block_bases)
-
-    if superseded_bases:
-        def _is_superseded_script(h: dict) -> bool:
-            if h.get("fmt") != "script(0x052B)":
-                return False
-            if h.get("key") != "FRANK":
-                return False
-            if "Zombie" not in str(h.get("move", "")):
-                return False
-            return _owning_chr_tbl(h["addr"]) in superseded_bases
-
-        hits = [h for h in hits if not _is_superseded_script(h)]
+    # Frank-specific zombie handling:
+    # ignore Frank move-ID association except Zombie Fall,
+    # then derive Attack/Spree from the discovered Fall row.
+    hits = _apply_frank_zombie_anchor(hits)
 
     if not show_unknowns:
         hits = [h for h in hits if not (h.get("key") == "?" and h.get("move") == "Unknown")]
 
     _dump_hits(hits)
+        
+
+    
     done_cb(hits)
 
 
@@ -1177,10 +1264,16 @@ class ProjScannerWindow:
                 messagebox.showerror("Invalid", f"'{new_val}' is not a valid number.",
                                      parent=self.root)
                 return
-            if not (0 <= ival <= 0xFFFF):
-                messagebox.showerror("Out of range", "Value must be 0–65535.",
-                                     parent=self.root)
-                return
+            if fkey == "dmg":
+                if not (0 <= ival <= 0xFFFFFFFF):
+                    messagebox.showerror("Out of range", "Damage must be 0–4294967295.",
+                                         parent=self.root)
+                    return
+            else:
+                if not (0 <= ival <= 0xFFFF):
+                    messagebox.showerror("Out of range", "Value must be 0–65535.",
+                                         parent=self.root)
+                    return
             ok = _write_dmg(addr, ival, fmt) if fkey == "dmg" else _write_u16(write_addr, ival)
             # Script-cluster damage writes go to the u32 param table entry.
             if fkey == "dmg":
