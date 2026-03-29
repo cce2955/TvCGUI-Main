@@ -758,7 +758,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
         fall_hit = h
         fall_addr   = int(fall_hit["addr"])
         attack_addr = fall_addr + _FRANK_ZOMBIE_ATTACK_OFF
-        spree_addr  = fall_addr + _FRANK_ZOMBIE_SPREE_OFF
+        spree_addr  = fall_addr + _FRANK_ZOMBIE_SPREE_OFF - 4
 
         anchored_rows.append({
             **fall_hit,
