@@ -12,7 +12,7 @@
 
 import os
 import csv
-
+ 
 # (char_id -> {anim_id -> name})
 _MOVE_NAMES_BY_CHAR = {}
 # generic/global normals, char_id == 100

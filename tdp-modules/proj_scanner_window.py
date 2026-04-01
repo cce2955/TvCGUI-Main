@@ -56,6 +56,18 @@ FIELD_OFFSETS = {
     "lifetime": 0x05B,  # u8  — active frames / lifetime           (CORRECTED +0x05A→+0x05B)
     "hb_size":  0x06E,  # u16 — hitbox size (validation constant: 1024)
     "speed":    0x080,  # f32 — speed scalar
+    
+    "cart_arc_l":     0x122,
+    "cart_air_kb_l":  0x12E,
+    "cart_misc_l":    0x142,
+    "cart_arc_m":     0x172,
+    "cart_air_kb_m":  0x17E,
+    "cart_misc_m":    0x192,
+    "cart_arc_h":     0x1C2,
+    "cart_air_kb_h":  0x1CE,
+    "cart_misc_h":    0x1E2,
+    "accel":    0x084,  # f32 — validation constant, always 1.0
+    "Cart Air KB?":      0x12e,  # Frank Air KB?
     "accel":    0x084,  # f32 — validation constant, always 1.0
     "hitbox":   0x08C,  # f32 — hitbox radius (validation constant: 100.0)
     "arc":      0x090,  # f32 — arc/gravity (Roll-specific)
@@ -480,6 +492,7 @@ _OPCODE_HIT_FIELDS = {
     "radius": "?", "speed": "?", "accel": "?", "kb_x": "?", "kb_y": "?",
     "arc": "?", "arc2": "?", "hitbox": "?", "type": "?", "id": "?",
     "lifetime": "?", "hb_size": "?",
+     "Cart Air KB?": "?", 
     "vel2_x": "?", "vel2_y": "?", "vel2_s": "?",
     "u01": "?", "u02": "?", "u03": "?",
     "u04": "?", "u05": "?", "u06": "?",
@@ -619,6 +632,7 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                 "vel2_x":   _read_f32(a + FIELD_OFFSETS["vel2_x"]),
                 "vel2_y":   _read_f32(a + FIELD_OFFSETS["vel2_y"]),
                 "vel2_s":   _read_f32(a + FIELD_OFFSETS["vel2_s"]),
+                  "Cart Air KB?":      _read_f32(a + FIELD_OFFSETS["Cart Air KB?"]),
                 "u01":      _read_f32(a + FIELD_OFFSETS["u01"]),
                 "u02":      _read_f32(a + FIELD_OFFSETS["u02"]),
                 "u03":      _read_f32(a + FIELD_OFFSETS["u03"]),
@@ -762,10 +776,12 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
 
         anchored_rows.append({
             **fall_hit,
-            "addr": fall_addr,
-            "move": "Zombie Fall",
+            "addr": spree_addr,
+            "move": "Zombie Spree",
+            "dmg": 2400,
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
-            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[3200],
+            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
+            "Cart Air KB?": _read_f32(spree_addr + FIELD_OFFSETS["Cart Air KB?"]),
         })
         anchored_rows.append({
             **fall_hit,
@@ -982,6 +998,7 @@ _COLS = [
     ("vel2_x",   "Vel2 X",    "vel2_x",   True),
     ("vel2_y",   "Vel2 Y",    "vel2_y",   True),
     ("vel2_s",   "Vel2 S",    "vel2_s",   True),
+    ("Cart Air KB?", "?? 10", "Cart Air KB?", True),
     ("u01",      "?? 01",     "u01",      True),
     ("u02",      "?? 02",     "u02",      True),
     ("u03",      "?? 03",     "u03",      True),
@@ -1053,12 +1070,19 @@ class ProjScannerWindow:
         self._tree.column("cluster", anchor="w")
 
         vsb = ttk.Scrollbar(frame, orient="vertical", command=self._tree.yview)
-        self._tree.configure(yscrollcommand=vsb.set)
-        self._tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="left", fill="y")
+        hsb = ttk.Scrollbar(frame, orient="horizontal", command=self._tree.xview)
+        self._tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
 
         self._tree.bind("<Double-Button-1>", self._on_double_click)
         self._tree.bind("<Button-3>",        self._on_right_click)
+
 
         ttk.Label(self.root,
                   text="Double-click Dmg/Speed/Accel/Arc/Lifetime to edit. "
@@ -1146,6 +1170,7 @@ class ProjScannerWindow:
                     h.get("param1", "?"), h.get("param2", "?"), h.get("param3", "?"),
                     h.get("f32_1", "?"), h.get("f32_2", "?"), h.get("f32_3", "?"),
                     h["vel2_x"], h["vel2_y"], h["vel2_s"],
+                     h["Cart Air KB?"],
                     h["u01"], h["u02"], h["u03"],
                     h["u04"], h["u05"], h["u06"],
                     h["u07"], h["u08"], h["u09"],
