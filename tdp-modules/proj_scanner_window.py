@@ -712,13 +712,15 @@ _FRANK_ZOMBIE_SPREE_KBY_M = 0x17E
 _FRANK_ZOMBIE_SPREE_KBY_H = 0x1CE
 
 _FRANK_ZOMBIE_SPREE_ARC_L   = 0x122
-_FRANK_ZOMBIE_SPREE_SPEED_L = 0x142
+_FRANK_ZOMBIE_SPREE_ACCEL_L = 0x142
 
 _FRANK_ZOMBIE_SPREE_ARC_M   = 0x172
-_FRANK_ZOMBIE_SPREE_SPEED_M = 0x192
+_FRANK_ZOMBIE_SPREE_ACCEL_M = 0x192
 
 _FRANK_ZOMBIE_SPREE_ARC_H   = 0x1C2
-_FRANK_ZOMBIE_SPREE_SPEED_H = 0x1E2
+_FRANK_ZOMBIE_SPREE_ACCEL_H = 0x1E2
+
+_FRANK_ZOMBIE_ATTACK_SPEED_A = 0x7E
 # Exact per-slot ownership ranges derived from chr_tbl analysis notes.
 # Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
 # Using tight bounds prevents cross-slot false positives.
@@ -776,19 +778,12 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
 
         anchored_rows.append({
             **fall_hit,
-            "addr": fall_addr,
-            "move": "Zombie Fall",
-            "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
-            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[3200],
-        })
-
-        anchored_rows.append({
-            **fall_hit,
             "addr": attack_addr,
             "move": "Zombie Attack",
             "dmg": 2400,
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
+            "speed": _read_f32(attack_addr + _FRANK_ZOMBIE_ATTACK_SPEED_A),
         })
 
         anchored_rows.append({
@@ -800,7 +795,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
             "arc":   _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ARC_L),
             "kb_y":  _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_L),
-            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_SPEED_L),
+            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ACCEL_L),
         })
 
         anchored_rows.append({
@@ -812,7 +807,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
             "arc":   _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ARC_M),
             "kb_y":  _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_M),
-            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_SPEED_M),
+            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ACCEL_M),
         })
 
         anchored_rows.append({
@@ -824,9 +819,8 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
             "arc":   _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ARC_H),
             "kb_y":  _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_H),
-            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_SPEED_H),
+            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ACCEL_H),
         })
-
     if not anchor_bases:
         return hits
 
@@ -1243,6 +1237,10 @@ class ProjScannerWindow:
                 field_addr  = addr + _dmg_write_offset(fmt)
                 field_label = "dmg"
 
+            elif move_name == "Zombie Attack" and fkey == "speed":
+                field_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
+                field_label = header
+
             elif move_name.startswith("Zombie Spree "):
                 if fkey == "kb_y":
                     if move_name == "Zombie Spree L":
@@ -1255,11 +1253,11 @@ class ProjScannerWindow:
 
                 elif fkey == "speed":
                     if move_name == "Zombie Spree L":
-                        field_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_L
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_ACCEL_L
                     elif move_name == "Zombie Spree M":
-                        field_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_M
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_ACCEL_M
                     else:
-                        field_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_H
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_ACCEL_H
                     field_label = header
 
                 elif fkey == "arc":
@@ -1316,6 +1314,9 @@ class ProjScannerWindow:
         if fkey == "dmg":
             write_addr = self._dmg_write_by_iid.get(iid, addr + _dmg_write_offset(fmt))
 
+        elif move_name == "Zombie Attack" and fkey == "speed":
+            write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
+
         elif move_name.startswith("Zombie Spree "):
             if fkey == "kb_y":
                 if move_name == "Zombie Spree L":
@@ -1327,11 +1328,11 @@ class ProjScannerWindow:
 
             elif fkey == "speed":
                 if move_name == "Zombie Spree L":
-                    write_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_L
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_ACCEL_L
                 elif move_name == "Zombie Spree M":
-                    write_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_M
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_ACCEL_M
                 else:
-                    write_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_H
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_ACCEL_H
 
             elif fkey == "arc":
                 if move_name == "Zombie Spree L":
@@ -1345,7 +1346,7 @@ class ProjScannerWindow:
                 write_addr = addr + FIELD_OFFSETS[fkey]
             else:
                 return
-
+            
         elif fkey in FIELD_OFFSETS:
             write_addr = addr + FIELD_OFFSETS[fkey]
         else:
