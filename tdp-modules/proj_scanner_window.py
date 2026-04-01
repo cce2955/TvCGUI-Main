@@ -56,18 +56,6 @@ FIELD_OFFSETS = {
     "lifetime": 0x05B,  # u8  — active frames / lifetime           (CORRECTED +0x05A→+0x05B)
     "hb_size":  0x06E,  # u16 — hitbox size (validation constant: 1024)
     "speed":    0x080,  # f32 — speed scalar
-    
-    "cart_arc_l":     0x122,
-    "cart_air_kb_l":  0x12E,
-    "cart_misc_l":    0x142,
-    "cart_arc_m":     0x172,
-    "cart_air_kb_m":  0x17E,
-    "cart_misc_m":    0x192,
-    "cart_arc_h":     0x1C2,
-    "cart_air_kb_h":  0x1CE,
-    "cart_misc_h":    0x1E2,
-    "accel":    0x084,  # f32 — validation constant, always 1.0
-    "Cart Air KB?":      0x12e,  # Frank Air KB?
     "accel":    0x084,  # f32 — validation constant, always 1.0
     "hitbox":   0x08C,  # f32 — hitbox radius (validation constant: 100.0)
     "arc":      0x090,  # f32 — arc/gravity (Roll-specific)
@@ -492,7 +480,6 @@ _OPCODE_HIT_FIELDS = {
     "radius": "?", "speed": "?", "accel": "?", "kb_x": "?", "kb_y": "?",
     "arc": "?", "arc2": "?", "hitbox": "?", "type": "?", "id": "?",
     "lifetime": "?", "hb_size": "?",
-     "Cart Air KB?": "?", 
     "vel2_x": "?", "vel2_y": "?", "vel2_s": "?",
     "u01": "?", "u02": "?", "u03": "?",
     "u04": "?", "u05": "?", "u06": "?",
@@ -629,10 +616,9 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                 "hitbox":   _read_f32(a + FIELD_OFFSETS["hitbox"]),
                 "arc":      _read_f32(a + FIELD_OFFSETS["arc"]),
                 "arc2":     _read_f32(a + FIELD_OFFSETS["arc2"]),
-                "vel2_x":   _read_f32(a + FIELD_OFFSETS["vel2_x"]),
+                          "vel2_x":   _read_f32(a + FIELD_OFFSETS["vel2_x"]),
                 "vel2_y":   _read_f32(a + FIELD_OFFSETS["vel2_y"]),
                 "vel2_s":   _read_f32(a + FIELD_OFFSETS["vel2_s"]),
-                  "Cart Air KB?":      _read_f32(a + FIELD_OFFSETS["Cart Air KB?"]),
                 "u01":      _read_f32(a + FIELD_OFFSETS["u01"]),
                 "u02":      _read_f32(a + FIELD_OFFSETS["u02"]),
                 "u03":      _read_f32(a + FIELD_OFFSETS["u03"]),
@@ -720,6 +706,10 @@ _ZOMBIE_VARIANT_NAMES: dict[int, str] = {
 _FRANK_ZOMBIE_FALL_NAMES = {"Zombie Fall", "Zombie fall"}
 _FRANK_ZOMBIE_ATTACK_OFF = 0x0B14
 _FRANK_ZOMBIE_SPREE_OFF  = 0x7C4C
+
+_FRANK_ZOMBIE_SPREE_KBY_L = 0x12E
+_FRANK_ZOMBIE_SPREE_KBY_M = 0x17E
+_FRANK_ZOMBIE_SPREE_KBY_H = 0x1CE
 # Exact per-slot ownership ranges derived from chr_tbl analysis notes.
 # Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
 # Using tight bounds prevents cross-slot false positives.
@@ -752,6 +742,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
       - ignore Frank zombie move-ID association except Zombie Fall
       - use the discovered Frank Zombie Fall row as the anchor
       - derive Attack/Spree by fixed offsets from Fall
+      - emit Zombie Spree L/M/H rows that map the discovered cart values into KB Y
     """
     anchored_rows: list[dict] = []
     anchor_bases: set[int] = set()
@@ -776,13 +767,12 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
 
         anchored_rows.append({
             **fall_hit,
-            "addr": spree_addr,
-            "move": "Zombie Spree",
-            "dmg": 2400,
+            "addr": fall_addr,
+            "move": "Zombie Fall",
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
-            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
-            "Cart Air KB?": _read_f32(spree_addr + FIELD_OFFSETS["Cart Air KB?"]),
+            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[3200],
         })
+
         anchored_rows.append({
             **fall_hit,
             "addr": attack_addr,
@@ -791,13 +781,35 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
         })
+
         anchored_rows.append({
             **fall_hit,
             "addr": spree_addr,
-            "move": "Zombie Spree",
+            "move": "Zombie Spree L",
             "dmg": 2400,
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
+            "kb_y": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_L),
+        })
+
+        anchored_rows.append({
+            **fall_hit,
+            "addr": spree_addr,
+            "move": "Zombie Spree M",
+            "dmg": 2400,
+            "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
+            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
+            "kb_y": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_M),
+        })
+
+        anchored_rows.append({
+            **fall_hit,
+            "addr": spree_addr,
+            "move": "Zombie Spree H",
+            "dmg": 2400,
+            "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
+            "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
+            "kb_y": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_H),
         })
 
     if not anchor_bases:
@@ -814,9 +826,8 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
         kept.append(h)
 
     kept.extend(anchored_rows)
-    kept.sort(key=lambda x: int(x.get("addr", 0)))
+    kept.sort(key=lambda x: (int(x.get("addr", 0)), str(x.get("move", ""))))
     return kept
-
 def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
                          lookup: dict, seen_variants: set,
                          slot_char_ids: dict | None = None) -> None:
@@ -998,7 +1009,6 @@ _COLS = [
     ("vel2_x",   "Vel2 X",    "vel2_x",   True),
     ("vel2_y",   "Vel2 Y",    "vel2_y",   True),
     ("vel2_s",   "Vel2 S",    "vel2_s",   True),
-    ("Cart Air KB?", "?? 10", "Cart Air KB?", True),
     ("u01",      "?? 01",     "u01",      True),
     ("u02",      "?? 02",     "u02",      True),
     ("u03",      "?? 03",     "u03",      True),
@@ -1168,9 +1178,8 @@ class ProjScannerWindow:
                     h.get("preA", "?"), h.get("preB", "?"),
                     h.get("opcode", "?"),
                     h.get("param1", "?"), h.get("param2", "?"), h.get("param3", "?"),
-                    h.get("f32_1", "?"), h.get("f32_2", "?"), h.get("f32_3", "?"),
+                            h.get("f32_1", "?"), h.get("f32_2", "?"), h.get("f32_3", "?"),
                     h["vel2_x"], h["vel2_y"], h["vel2_s"],
-                     h["Cart Air KB?"],
                     h["u01"], h["u02"], h["u03"],
                     h["u04"], h["u05"], h["u06"],
                     h["u07"], h["u08"], h["u09"],
@@ -1211,10 +1220,26 @@ class ProjScannerWindow:
         field_label = "base"
         if 0 <= col_idx < len(_COLS):
             col_id, header, fkey, _ = _COLS[col_idx]
+            vals = self._tree.item(iid, "values")
+            move_name = str(vals[2]) if len(vals) > 2 else ""
+
             if fkey == "dmg":
                 fmt = self._fmt_for_iid(iid)
                 field_addr  = addr + _dmg_write_offset(fmt)
                 field_label = "dmg"
+            elif fkey == "kb_y":
+                if move_name == "Zombie Spree L":
+                    field_addr  = addr + _FRANK_ZOMBIE_SPREE_KBY_L
+                    field_label = header
+                elif move_name == "Zombie Spree M":
+                    field_addr  = addr + _FRANK_ZOMBIE_SPREE_KBY_M
+                    field_label = header
+                elif move_name == "Zombie Spree H":
+                    field_addr  = addr + _FRANK_ZOMBIE_SPREE_KBY_H
+                    field_label = header
+                else:
+                    field_addr  = addr + FIELD_OFFSETS["kb_y"]
+                    field_label = header
             elif fkey and fkey in FIELD_OFFSETS:
                 field_addr  = addr + FIELD_OFFSETS[fkey]
                 field_label = header
@@ -1250,8 +1275,20 @@ class ProjScannerWindow:
             return
 
         fmt = self._fmt_for_iid(iid)
+        vals = self._tree.item(iid, "values")
+        move_name = str(vals[2]) if len(vals) > 2 else ""
+
         if fkey == "dmg":
             write_addr = self._dmg_write_by_iid.get(iid, addr + _dmg_write_offset(fmt))
+        elif fkey == "kb_y":
+            if move_name == "Zombie Spree L":
+                write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_L
+            elif move_name == "Zombie Spree M":
+                write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_M
+            elif move_name == "Zombie Spree H":
+                write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_H
+            else:
+                write_addr = addr + FIELD_OFFSETS["kb_y"]
         elif fkey in FIELD_OFFSETS:
             write_addr = addr + FIELD_OFFSETS[fkey]
         else:
