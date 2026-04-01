@@ -710,6 +710,15 @@ _FRANK_ZOMBIE_SPREE_OFF  = 0x7C4C
 _FRANK_ZOMBIE_SPREE_KBY_L = 0x12E
 _FRANK_ZOMBIE_SPREE_KBY_M = 0x17E
 _FRANK_ZOMBIE_SPREE_KBY_H = 0x1CE
+
+_FRANK_ZOMBIE_SPREE_ARC_L   = 0x122
+_FRANK_ZOMBIE_SPREE_SPEED_L = 0x142
+
+_FRANK_ZOMBIE_SPREE_ARC_M   = 0x172
+_FRANK_ZOMBIE_SPREE_SPEED_M = 0x192
+
+_FRANK_ZOMBIE_SPREE_ARC_H   = 0x1C2
+_FRANK_ZOMBIE_SPREE_SPEED_H = 0x1E2
 # Exact per-slot ownership ranges derived from chr_tbl analysis notes.
 # Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
 # Using tight bounds prevents cross-slot false positives.
@@ -742,7 +751,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
       - ignore Frank zombie move-ID association except Zombie Fall
       - use the discovered Frank Zombie Fall row as the anchor
       - derive Attack/Spree by fixed offsets from Fall
-      - emit Zombie Spree L/M/H rows that map the discovered cart values into KB Y
+      - emit Zombie Spree L/M/H rows that map the discovered bank into arc/kb_y/speed
     """
     anchored_rows: list[dict] = []
     anchor_bases: set[int] = set()
@@ -789,7 +798,9 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "dmg": 2400,
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
-            "kb_y": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_L),
+            "arc":   _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ARC_L),
+            "kb_y":  _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_L),
+            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_SPEED_L),
         })
 
         anchored_rows.append({
@@ -799,7 +810,9 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "dmg": 2400,
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
-            "kb_y": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_M),
+            "arc":   _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ARC_M),
+            "kb_y":  _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_M),
+            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_SPEED_M),
         })
 
         anchored_rows.append({
@@ -809,7 +822,9 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "dmg": 2400,
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
-            "kb_y": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_H),
+            "arc":   _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ARC_H),
+            "kb_y":  _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_H),
+            "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_SPEED_H),
         })
 
     if not anchor_bases:
@@ -1227,19 +1242,39 @@ class ProjScannerWindow:
                 fmt = self._fmt_for_iid(iid)
                 field_addr  = addr + _dmg_write_offset(fmt)
                 field_label = "dmg"
-            elif fkey == "kb_y":
-                if move_name == "Zombie Spree L":
-                    field_addr  = addr + _FRANK_ZOMBIE_SPREE_KBY_L
+
+            elif move_name.startswith("Zombie Spree "):
+                if fkey == "kb_y":
+                    if move_name == "Zombie Spree L":
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_L
+                    elif move_name == "Zombie Spree M":
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_M
+                    else:
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_H
                     field_label = header
-                elif move_name == "Zombie Spree M":
-                    field_addr  = addr + _FRANK_ZOMBIE_SPREE_KBY_M
+
+                elif fkey == "speed":
+                    if move_name == "Zombie Spree L":
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_L
+                    elif move_name == "Zombie Spree M":
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_M
+                    else:
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_H
                     field_label = header
-                elif move_name == "Zombie Spree H":
-                    field_addr  = addr + _FRANK_ZOMBIE_SPREE_KBY_H
+
+                elif fkey == "arc":
+                    if move_name == "Zombie Spree L":
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_ARC_L
+                    elif move_name == "Zombie Spree M":
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_ARC_M
+                    else:
+                        field_addr = addr + _FRANK_ZOMBIE_SPREE_ARC_H
                     field_label = header
-                else:
-                    field_addr  = addr + FIELD_OFFSETS["kb_y"]
+
+                elif fkey and fkey in FIELD_OFFSETS:
+                    field_addr  = addr + FIELD_OFFSETS[fkey]
                     field_label = header
+
             elif fkey and fkey in FIELD_OFFSETS:
                 field_addr  = addr + FIELD_OFFSETS[fkey]
                 field_label = header
@@ -1280,15 +1315,37 @@ class ProjScannerWindow:
 
         if fkey == "dmg":
             write_addr = self._dmg_write_by_iid.get(iid, addr + _dmg_write_offset(fmt))
-        elif fkey == "kb_y":
-            if move_name == "Zombie Spree L":
-                write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_L
-            elif move_name == "Zombie Spree M":
-                write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_M
-            elif move_name == "Zombie Spree H":
-                write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_H
+
+        elif move_name.startswith("Zombie Spree "):
+            if fkey == "kb_y":
+                if move_name == "Zombie Spree L":
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_L
+                elif move_name == "Zombie Spree M":
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_M
+                else:
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_KBY_H
+
+            elif fkey == "speed":
+                if move_name == "Zombie Spree L":
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_L
+                elif move_name == "Zombie Spree M":
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_M
+                else:
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_SPEED_H
+
+            elif fkey == "arc":
+                if move_name == "Zombie Spree L":
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_ARC_L
+                elif move_name == "Zombie Spree M":
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_ARC_M
+                else:
+                    write_addr = addr + _FRANK_ZOMBIE_SPREE_ARC_H
+
+            elif fkey in FIELD_OFFSETS:
+                write_addr = addr + FIELD_OFFSETS[fkey]
             else:
-                write_addr = addr + FIELD_OFFSETS["kb_y"]
+                return
+
         elif fkey in FIELD_OFFSETS:
             write_addr = addr + FIELD_OFFSETS[fkey]
         else:
