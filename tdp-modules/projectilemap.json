@@ -137,8 +137,6 @@
     { "move": "Mound Blast", "dmg": 4511 },
 
     { "move": "Bat Super ", "dmg": 15155 },
-    { "move": "Robot Hand", "dmg": 2400 },
-    { "move": "Robot Sword ", "dmg": 5200 },
     { "move": "Robo Beam ", "dmg": 34400 }
     
   ],
@@ -203,10 +201,10 @@
 
     { "move": "Crash Intrude", "dmg": 9958 },
 
-    { "move": "Voltekka", "dmg": 13987 },
+    { "move": "Voltekka", "dmg": 1680 },
 
     { "move": "Omnidirectional Super Voltekka", "dmg": 22051 },
-    { "move": "Omnidirectional Super Voltekka (Missed)", "dmg": 20350 }
+    { "move": "Omnidirectional Super Voltekka (Missed)", "dmg": 1880 }
   ],
   "YATTER1": [
     { "move": "Kendamagic (Ground)", "dmg": 2800 },
