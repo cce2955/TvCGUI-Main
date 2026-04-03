@@ -60,7 +60,8 @@
 
   "MORRIGAN": [
     { "move": "Finishing Shower", "dmg": 14231 },
-    { "move": "Soul Fist", "dmg": 2080 }
+    { "move": "Soul Fist", "dmg": 2080 },
+    { "move": "Valkyrie Turn", "dmg": 960 }
   ],
   "ROLL": [
     { "move": "Roll Splash", "dmg": 1200 },
