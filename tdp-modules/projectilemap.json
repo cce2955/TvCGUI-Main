@@ -5,13 +5,13 @@
     { "move": "Hadouken H", "dmg": 3200 },
     { "move": "Assist", "dmg": 3200 },
 
-    { "move": "Shinkuu Hadouken", "dmg": 8887 }
+    { "move": "Shinkuu Hadouken", "dmg": 720 }
   ],
 
   "CHUN": [
     { "move": "Kikoken", "dmg": 2400 },
 
-    { "move": "Kikosho", "dmg": 9686 },
+    { "move": "Kikosho", "dmg": 960 },
     { "move": "Shichisei Senkukyaku (j.)", "dmg": 20800 }
   ],
 

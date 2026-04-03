@@ -409,7 +409,46 @@ def _load_ids():
     except Exception as e:
         print(f"[proj_scanner] {e}")
         return {}
+def _build_char_damage_map(proj_map):
+    out = {}
+    for key, moves in proj_map.items():
+        dmg_map = {}
+        for entry in moves:
+            dmg = int(entry.get("dmg", 0))
+            if dmg:
+                dmg_map.setdefault(dmg, []).append(entry.get("move", "?"))
+        out[key] = dmg_map
+    return out
 
+
+# Fill this with your live roster IDs.
+# Example: FRANK is already known to be 30.
+# Live roster char_id -> projectile-map key
+CHAR_ID_TO_KEY = {
+    1:  "RYU",
+    2:  "CHUN",
+    3:  "ALEX",
+    4:  "ROLL",
+    5:  "MORRIGAN",
+    6:  "PTX",
+    7:  "BATSU",
+    8:  "SAKI",
+    9:  "KEN",
+    10: "JUN",
+    11: "LIGHTAN",
+    12: "TEKKAMAN",
+    13: "DORONJO",
+    14: "YATTER1",
+    15: "CASSHAN",
+    16: "ZERO",
+    17: "YATTER2",
+    18: "IPPATSMAN",
+    19: "VJOE",
+    20: "JOE",
+    21: "BLADE",
+    22: "VOLNUTT",
+    30: "FRANK",
+}
 def _build_lookup(proj_map, active_keys):
     lookup = {}
     for key, moves in proj_map.items():
@@ -420,7 +459,6 @@ def _build_lookup(proj_map, active_keys):
             if dmg:
                 lookup.setdefault(dmg, []).append((key, entry.get("move", "?")))
     return lookup
-
 
 
 
@@ -499,7 +537,6 @@ _OPCODE_HIT_FIELDS = {
     "u07": "?", "u08": "?", "u09": "?",
     "cluster": "script",
 }
-
 
 
 # ---------------------------------------------------------------------------
@@ -822,20 +859,43 @@ _FRANK_ZOMBIE_FALL_SPAWN_Y_OFF = 0xA6
 # Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
 # Using tight bounds prevents cross-slot false positives.
 _CHR_TBL_RANGES = [
-    (0x90896640, 0x90896640, 0x908C94C0 + 0x2000),   # slot 0
+    (0x90896640, 0x90896640, 0x908D2000),            # slot 0
     (0x908F1920, 0x908F1920, 0x9092B634 + 0x2000),   # slot 1
     (0x909478E0, 0x909478E0, 0x909BE310 + 0x2000),   # slot 2
     (0x9099D9C0, 0x9099D9C0, 0x909DECAC + 0x2000),   # slot 3
 ]
 
 def _owning_chr_tbl(addr: int) -> int | None:
-    """Return the chr_tbl_base for the slot that owns addr, using tight bounds."""
-    for base, lo, hi in _CHR_TBL_RANGES:
-        if lo <= addr < hi:
-            return base
-    return None
+    """
+    Dynamic ownership:
+    assign the hit to the closest chr_tbl base within a sane forward window.
+    This avoids hardcoding slot-specific end ranges that can miss valid data.
+    """
+    best_base = None
+    best_dist = None
 
+    for base in _CHR_TBL_BASES:
+        if addr < base:
+            continue
+        dist = addr - base
+        if dist > 0x90000:   # generous window; adjust if needed
+            continue
+        if best_dist is None or dist < best_dist:
+            best_dist = dist
+            best_base = base
 
+    return best_base
+
+def _key_for_hit_addr(addr: int, slot_char_ids: dict[int, int] | None) -> str | None:
+    if not slot_char_ids:
+        return None
+    base = _owning_chr_tbl(addr)
+    if base is None:
+        return None
+    cid = slot_char_ids.get(base)
+    if cid is None:
+        return None
+    return CHAR_ID_TO_KEY.get(cid)
 def _is_frank_zombie_move_label(move: str) -> bool:
     s = str(move or "").lower()
     return "zombie" in s
@@ -973,7 +1033,42 @@ def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
     Raw zombie spree variants stay suppressed.
     """
     return
-def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
+def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
+                      slot_char_ids: dict[int, int] | None,
+                      addr: int, dmg, fmt: str, dmg_write_addr: int,
+                      cluster: str, extra: dict | None = None):
+    base = {
+        "addr": addr,
+        "dmg": dmg,
+        "fmt": fmt,
+        "dmg_write_addr": dmg_write_addr,
+        **_OPCODE_HIT_FIELDS,
+        "cluster": cluster,
+    }
+    if extra:
+        base.update(extra)
+
+    # Prefer slot-owned character resolution first.
+    if isinstance(dmg, int):
+        slot_key = _key_for_hit_addr(addr, slot_char_ids)
+        print(f"[super-attr] addr=0x{addr:08X} dmg={dmg} slot_key={slot_key}")
+        if slot_key is not None:
+            moves = char_damage_map.get(slot_key, {}).get(dmg, [])
+            if moves:
+                for mv in moves:
+                    hits.append({**base, "key": slot_key, "move": mv})
+                return
+
+        # Fallback to the old global lookup if slot mapping is missing.
+        if dmg in lookup:
+            for key, mv in lookup[dmg]:
+                hits.append({**base, "key": key, "move": mv})
+            return
+
+    hits.append({**base, "key": "?", "move": "Super Struct Candidate"})
+def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
+                              lookup: dict, char_damage_map: dict,
+                              slot_char_ids: dict[int, int] | None) -> None:
     # ── Pass 1: original sig  00 00 0C 00 00 00 23 00 ─────────────────────
     pos = 0
     while True:
@@ -1001,16 +1096,11 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
             except Exception:
                 pass
 
-        hits.append({
-            "addr": block_addr,
-            "key": "?",
-            "move": "Super Struct Candidate",
-            "dmg": dmg,
-            "fmt": "super_struct",
-            "dmg_write_addr": dmg_addr,
-            **_OPCODE_HIT_FIELDS,
-            "cluster": f"super struct @ 0x{block_addr:08X}",
-        })
+        _append_super_hit(
+            hits, lookup, char_damage_map, slot_char_ids,
+            block_addr, dmg, "super_struct", dmg_addr,
+            f"super struct @ 0x{block_addr:08X}"
+        )
 
     # ── Pass 2: wildcard sig  ?? 23 00 00 00 [dmg hi] [dmg lo] 00 00 00 00
     pos = 0
@@ -1029,24 +1119,20 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
             continue
 
         dmg = (data[dmg_off] << 8) | data[dmg_off + 1]
-        if not (500 <= dmg <= 20000):
+        if not (2 <= dmg <= 20000):
             continue
-
+        
         if data[dmg_off + 2 : dmg_off + 6] != b"\x00\x00\x00\x00":
             continue
 
         dmg_addr = base_addr + dmg_off
 
-        hits.append({
-            "addr": block_addr,
-            "key": "?",
-            "move": "Super Struct Candidate",
-            "dmg": dmg,
-            "fmt": "super_struct",
-            "dmg_write_addr": dmg_addr,
-            **_OPCODE_HIT_FIELDS,
-            "cluster": f"super struct2 @ 0x{block_addr:08X}",
-        })
+        _append_super_hit(
+            hits, lookup, char_damage_map, slot_char_ids,
+            block_addr, dmg, "super_struct", dmg_addr,
+            f"super struct2 @ 0x{block_addr:08X}"
+        )
+
 
     # ── Pass 3: alt card  01 23 00 00 [dmg hi] [dmg lo]
     pos = 0
@@ -1066,20 +1152,46 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
         if not (500 <= dmg <= 20000):
             continue
 
-        hits.append({
-            "addr": block_addr,
-            "key": "?",
-            "move": "Super Struct Candidate",
-            "dmg": dmg,
-            "fmt": "super_struct_card",
-            "dmg_write_addr": base_addr + idx + 4,
-            **_OPCODE_HIT_FIELDS,
-            "opcode": _read_u16_hex(block_addr),
-            "param1": _read_u16_hex(block_addr + 2),
-            "param2": _read_u16_hex(block_addr + 4),
-            "param3": _read_u16_hex(block_addr + 6),
-            "cluster": f"super card @ 0x{block_addr:08X}",
-        })
+        _append_super_hit(
+            hits, lookup, char_damage_map, slot_char_ids,
+            block_addr, dmg, "super_struct_card", base_addr + idx + 4,
+            f"super card @ 0x{block_addr:08X}",
+            {
+                "opcode": _read_u16_hex(block_addr),
+                "param1": _read_u16_hex(block_addr + 2),
+                "param2": _read_u16_hex(block_addr + 4),
+                "param3": _read_u16_hex(block_addr + 6),
+            }
+        )
+
+    # ── Pass 4: shifted alt card  00 23 00 00 [dmg hi] [dmg lo] ...
+    pos = 0
+    while True:
+        idx = data.find(b"\x00\x23\x00\x00", pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+
+        block_addr = base_addr + idx
+        if _owning_chr_tbl(block_addr) is None:
+            continue
+        if idx + 8 > len(data):
+            continue
+        dmg = (data[idx + 4] << 8) | data[idx + 5]
+        if not (500 <= dmg <= 20000):
+            continue
+
+        _append_super_hit(
+            hits, lookup, char_damage_map, slot_char_ids,
+            block_addr, dmg, "super_struct_card2", base_addr + idx + 4,
+            f"super card2 @ 0x{block_addr:08X}",
+            {
+                "opcode": _read_u16_hex(block_addr),
+                "param1": _read_u16_hex(block_addr + 2),
+                "param2": _read_u16_hex(block_addr + 4),
+                "param3": _read_u16_hex(block_addr + 6),
+            }
+        )
  
 def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
     if rbytes is None:
@@ -1088,6 +1200,7 @@ def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
     proj_map = _load_map()
     id_map   = _load_ids()
     lookup   = _build_lookup(proj_map, active_keys)
+    char_damage_map = _build_char_damage_map(proj_map)
 
     # Read live char_id per slot so zombie block scanner can gate on Frank.
     slot_char_ids = _read_slot_char_ids()
@@ -1108,7 +1221,7 @@ def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
             _scan_opcode_blocks(data, addr, hits, lookup, slot_char_ids)
             _scan_suffix_blocks(data, addr, hits, lookup, id_map, slot_char_ids)
             _scan_zombie_blocks(data, addr, hits, lookup, seen_zombie_variants, slot_char_ids)
-            _scan_super_struct_blocks(data, addr, hits)
+            _scan_super_struct_blocks(data, addr, hits, lookup, char_damage_map, slot_char_ids)
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
     _annotate_clusters(hits)
@@ -1131,7 +1244,10 @@ def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
 def _dump_hits(hits: list, context: int = 0x100):
     if rbytes is None or not hits:
         return
-    super_hits = [h for h in hits if h.get("fmt") in ("super_struct", "super_struct_card")]
+    super_hits = [
+        h for h in hits
+        if h.get("fmt") in ("super_struct", "super_struct_card", "super_struct_card2")
+    ]
     if not super_hits:
         return
     try:
@@ -1589,7 +1705,7 @@ class ProjScannerWindow:
                 resolved = self._dmg_write_by_iid.get(iid)
                 fallback = addr + _dmg_write_offset(fmt)
 
-                if fmt in ("super_struct", "super_struct_card") and resolved is not None:
+                if fmt in ("super_struct", "super_struct_card", "super_struct_card2") and resolved is not None:
                     if not (0 <= ival <= 0xFFFF):
                         messagebox.showerror("Out of range", "Damage must be 0–65535.",
                                             parent=self.root)
