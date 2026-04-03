@@ -479,6 +479,7 @@ def _write_dmg(addr: int, new_dmg: int, fmt: str) -> bool:
 _OPCODE_HIT_FIELDS = {
     "radius": "?", "speed": "?", "accel": "?", "kb_x": "?", "kb_y": "?",
     "arc": "?", "arc2": "?", "hitbox": "?", "type": "?", "id": "?",
+    "spawn_x": "?",
     "lifetime": "?", "hb_size": "?",
     "vel2_x": "?", "vel2_y": "?", "vel2_s": "?",
     "u01": "?", "u02": "?", "u03": "?",
@@ -721,6 +722,9 @@ _FRANK_ZOMBIE_SPREE_ARC_H   = 0x1C2
 _FRANK_ZOMBIE_SPREE_ACCEL_H = 0x1E2
 
 _FRANK_ZOMBIE_ATTACK_SPEED_A = 0x7E
+_FRANK_ZOMBIE_ATTACK_SPEED_A = 0x7E
+_FRANK_ZOMBIE_ATTACK_ACCEL_A = 0x92
+_FRANK_ZOMBIE_ATTACK_SPAWN_X = 0x159
 # Exact per-slot ownership ranges derived from chr_tbl analysis notes.
 # Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
 # Using tight bounds prevents cross-slot false positives.
@@ -775,7 +779,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
         fall_addr   = int(fall_hit["addr"])
         attack_addr = fall_addr + _FRANK_ZOMBIE_ATTACK_OFF
         spree_addr  = fall_addr + _FRANK_ZOMBIE_SPREE_OFF - 4
-
+        
         anchored_rows.append({
             **fall_hit,
             "addr": attack_addr,
@@ -783,7 +787,9 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "dmg": 2400,
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
             "dmg_write_addr": base + _SCRIPT_DMG_OFFSETS[2400],
-            "speed": _read_f32(attack_addr + _FRANK_ZOMBIE_ATTACK_SPEED_A),
+            "speed":   _read_f32(attack_addr + _FRANK_ZOMBIE_ATTACK_SPEED_A),
+            "accel":   _read_f32(attack_addr + _FRANK_ZOMBIE_ATTACK_ACCEL_A),
+            "spawn_x": _read_u8(attack_addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X),
         })
 
         anchored_rows.append({
@@ -1002,6 +1008,7 @@ _COLS = [
     ("arc2",     "Arc2",      "arc2",     True),
     ("hitbox",   "Hitbox",    "hitbox",   True),
     ("type",     "Type",      "type",     False),
+    ("spawn_x",  "Spawn X",   "spawn_x",  False),
     ("id",       "ID",        "id",       False),
     ("lifetime", "Lifetime",  "lifetime", False),
     ("hb_size",  "HB Size",   "hb_size",  False),
@@ -1182,12 +1189,12 @@ class ProjScannerWindow:
                     h["radius"], h["speed"], h["accel"],
                     h["kb_x"], h["kb_y"],
                     h["arc"], h["arc2"], h["hitbox"],
-                    type_str, h["id"], h["lifetime"], h["hb_size"],
+                    type_str, h.get("spawn_x", "?"), h["id"], h["lifetime"], h["hb_size"],
                     h.get("fmt", ""),
                     h.get("preA", "?"), h.get("preB", "?"),
                     h.get("opcode", "?"),
                     h.get("param1", "?"), h.get("param2", "?"), h.get("param3", "?"),
-                            h.get("f32_1", "?"), h.get("f32_2", "?"), h.get("f32_3", "?"),
+                    h.get("f32_1", "?"), h.get("f32_2", "?"), h.get("f32_3", "?"),
                     h["vel2_x"], h["vel2_y"], h["vel2_s"],
                     h["u01"], h["u02"], h["u03"],
                     h["u04"], h["u05"], h["u06"],
@@ -1240,7 +1247,13 @@ class ProjScannerWindow:
             elif move_name == "Zombie Attack" and fkey == "speed":
                 field_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
                 field_label = header
+            elif move_name == "Zombie Attack" and fkey == "accel":
+                field_addr = addr + _FRANK_ZOMBIE_ATTACK_ACCEL_A
+                field_label = header
 
+            elif move_name == "Zombie Attack" and fkey == "spawn_x":
+                field_addr = addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X
+                field_label = header
             elif move_name.startswith("Zombie Spree "):
                 if fkey == "kb_y":
                     if move_name == "Zombie Spree L":
@@ -1317,6 +1330,11 @@ class ProjScannerWindow:
         elif move_name == "Zombie Attack" and fkey == "speed":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
 
+        elif move_name == "Zombie Attack" and fkey == "accel":
+            write_addr = addr + _FRANK_ZOMBIE_ATTACK_ACCEL_A
+
+        elif move_name == "Zombie Attack" and fkey == "spawn_x":
+            write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X
         elif move_name.startswith("Zombie Spree "):
             if fkey == "kb_y":
                 if move_name == "Zombie Spree L":
@@ -1390,12 +1408,16 @@ class ProjScannerWindow:
                                          parent=self.root)
                     return
             else:
-                if not (0 <= ival <= 0xFFFF):
+                if fkey == "spawn_x":
+                    if not (0 <= ival <= 0xFF):
+                        messagebox.showerror("Out of range", "Spawn X must be 0–255.",
+                                             parent=self.root)
+                        return
+                elif not (0 <= ival <= 0xFFFF):
                     messagebox.showerror("Out of range", "Value must be 0–65535.",
                                          parent=self.root)
                     return
-            ok = _write_dmg(addr, ival, fmt) if fkey == "dmg" else _write_u16(write_addr, ival)
-            # Script-cluster damage writes go to the u32 param table entry.
+
             if fkey == "dmg":
                 resolved = self._dmg_write_by_iid.get(iid)
                 fallback = addr + _dmg_write_offset(fmt)
@@ -1403,6 +1425,8 @@ class ProjScannerWindow:
                     ok = _write_u32(resolved, ival)
                 else:
                     ok = _write_dmg(addr, ival, fmt)
+            elif fkey == "spawn_x":
+                ok = bool(wbytes(write_addr, bytes([ival]))) if wbytes is not None else False
             else:
                 ok = _write_u16(write_addr, ival)
             if ok:
