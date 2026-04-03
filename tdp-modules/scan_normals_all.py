@@ -14,37 +14,23 @@ CLUSTER_GAP   = 0x4000
 CLUSTER_PAD_BACK = 0x400
 LOOKAHEAD_AFTER_HDR = 0x80
 
-# ── chr_tbl pointer-table constants (from MEM2 analysis) ────────────────────
-# The pointer to the chr_tbl block lives at fighter_base + 0x1E0.
 CHR_TBL_PTR_OFF       = 0x1E0
-# "chr_tbl\n" is stored at chr_tbl_base - 0x18.
 CHR_TBL_LABEL_REL     = -0x18
-# The table is always exactly 705 u32 entries = 0xB04 bytes.
-CHR_TBL_LEN_BYTES     = 0xB04       # 705 * 4
+CHR_TBL_LEN_BYTES     = 0xB04
 CHR_TBL_NUM_ENTRIES   = 705
-# entry[704] must be 0xFFFFFFFF (sentinel).
 CHR_TBL_SENTINEL_REL  = 0xB00
-# Immediately after the table: "chr_act\n".
 CHR_ACT_LABEL_REL     = 0xB04
-# entry[0] value observed in every slot: 0x3600.
 CHR_TBL_ENTRY0_VAL    = 0x3600
-# Move data start = chr_tbl_base + entry[0].
 MOVE_DATA_START_OFF   = 0x3600
 
-# Slot-stride facts: each slot base is 0x380020 bytes after the previous.
 SLOT_STRIDE = 0x380020
 
-# Slot-ID fields embedded inside each fighter base.
 SLOT_ID_OFF_A = 0x04
 SLOT_ID_OFF_B = 0x08
 
-# How far to scan inside the fighter-base struct when +0x1E0 fails.
 FIGHTER_BASE_SCAN_RANGE = 0x400
-
-# How far to backtrack (in bytes) when a scan lands mid-block.
 BACKTRACK_MAX = 0x20000
 
-# ── move-record scanning ─────────────────────────────────────────────────────
 ANIM_HDR = [
     0x04, 0x01, 0x60, 0x00,
     0x00, 0x00, 0x01, 0xE8,
@@ -71,7 +57,6 @@ SUPER_END_HDR = [
     0x00, 0x00, 0x12, 0x18, 0x3F,
 ]
 
-# Normal animation ID mapping
 ANIM_MAP = {
     0x00: "5A", 0x01: "5B", 0x02: "5C",
     0x03: "2A", 0x04: "2B", 0x05: "2C",
@@ -81,7 +66,6 @@ ANIM_MAP = {
 }
 NORMAL_IDS = set(ANIM_MAP.keys())
 
-# Meter defaults
 DEFAULT_METER = {
     0x00: 0x32, 0x03: 0x32, 0x09: 0x32,
     0x01: 0x64, 0x04: 0x64, 0x0A: 0x64,
@@ -90,7 +74,6 @@ DEFAULT_METER = {
 }
 SPECIAL_DEFAULT_METER = 0xC8
 
-# ── dynamic block patterns ───────────────────────────────────────────────────
 ACTIVE_HDR = [
     0x20, 0x35, 0x01, 0x20,
     0x3F, 0x00, 0x00, 0x00,
@@ -98,12 +81,12 @@ ACTIVE_HDR = [
 ACTIVE_TOTAL_LEN = 20
 
 INLINE_ACTIVE_HDR = [
-    0x3F, 0x00, 0x00, 0x00,  # 0–3
-    None,                    # start frame
+    0x3F, 0x00, 0x00, 0x00,
+    None,
     0x11, 0x16, 0x20, 0x00,
     0x11, 0x22, 0x60, 0x00,
     0x00, 0x00, 0x00,
-    None,                    # end frame
+    None,
 ]
 INLINE_ACTIVE_LEN = 17
 INLINE_ACTIVE_OFF = 0xB0
@@ -153,13 +136,17 @@ PAIR_RANGE = 0x600
 HITBOX_OFF_X = 0x40
 HITBOX_OFF_Y = 0x48
 
+FIGHTER_READ_SIZE = 0x400
+CHR_TBL_READ_PAD_BEFORE = 0x18
+CHR_TBL_READ_SIZE = CHR_TBL_READ_PAD_BEFORE + CHR_TBL_LEN_BYTES + 0x08
+SLOT_REGION_PAD = 0x2000
+
 
 # ============================================================
 # Low-level helpers
 # ============================================================
 
 def rd_u32_be(buf: bytes, off: int) -> int:
-    """Read a big-endian u32 from a byte buffer at offset."""
     return struct.unpack_from(">I", buf, off)[0]
 
 
@@ -184,52 +171,50 @@ def is_mem2_addr(v: int) -> bool:
 
 
 def abs_to_file_off(abs_addr: int, mem_base: int) -> int:
-    """Convert an absolute MEM2 address to an offset within a loaded buffer."""
     return abs_addr - mem_base
 
 
+def safe_rbytes(addr: int, size: int) -> bytes:
+    if size <= 0:
+        return b""
+    if addr < MEM2_LO:
+        size -= (MEM2_LO - addr)
+        addr = MEM2_LO
+    if addr >= MEM2_HI or size <= 0:
+        return b""
+    max_size = MEM2_HI - addr
+    size = min(size, max_size)
+    return rbytes(addr, size)
+
+
 # ============================================================
-# chr_tbl pointer-table validation and resolution
+# chr_tbl validation / resolution
 # ============================================================
 
 def validate_chr_tbl(buf: bytes, mem_base: int, cand_abs: int) -> bool:
-    """
-    Validate that cand_abs is the true base of a chr_tbl block.
-
-    All five conditions must hold (from MEM2 analysis notes):
-      1. cand_abs is 0x20-aligned.
-      2. "chr_tbl\\n" appears at cand_abs - 0x18.
-      3. entry[0] == 0x3600.
-      4. entry[704] == 0xFFFFFFFF  (sentinel at +0xB00).
-      5. "chr_act\\n" immediately follows the table at +0xB04.
-    """
     if cand_abs % 0x20 != 0:
         return False
 
     cand_off = abs_to_file_off(cand_abs, mem_base)
 
-    # Label check at -0x18
-    label_off = cand_off + CHR_TBL_LABEL_REL   # cand_off - 0x18
+    label_off = cand_off + CHR_TBL_LABEL_REL
     if label_off < 0 or label_off + 8 > len(buf):
         return False
     if buf[label_off:label_off + 8] != b"chr_tbl\n":
         return False
 
-    # entry[0] == 0x3600
     if cand_off + 4 > len(buf):
         return False
     if rd_u32_be(buf, cand_off) != CHR_TBL_ENTRY0_VAL:
         return False
 
-    # sentinel entry[704] == 0xFFFFFFFF
-    sent_off = cand_off + CHR_TBL_SENTINEL_REL   # +0xB00
+    sent_off = cand_off + CHR_TBL_SENTINEL_REL
     if sent_off + 4 > len(buf):
         return False
     if rd_u32_be(buf, sent_off) != 0xFFFFFFFF:
         return False
 
-    # "chr_act\n" at +0xB04
-    act_off = cand_off + CHR_ACT_LABEL_REL       # +0xB04
+    act_off = cand_off + CHR_ACT_LABEL_REL
     if act_off + 8 > len(buf):
         return False
     if buf[act_off:act_off + 8] != b"chr_act\n":
@@ -239,99 +224,67 @@ def validate_chr_tbl(buf: bytes, mem_base: int, cand_abs: int) -> bool:
 
 
 def resolve_chr_tbl(buf: bytes, mem_base: int, fighter_base_abs: int) -> Optional[int]:
-    """
-    Primary path: read the pointer stored at fighter_base + 0x1E0,
-    validate it as a chr_tbl base. Returns absolute address or None.
-
-    Falls back to scanning the first FIGHTER_BASE_SCAN_RANGE bytes of
-    the fighter struct for any valid MEM2 pointer that passes validation.
-    """
     fb_off = abs_to_file_off(fighter_base_abs, mem_base)
     if fb_off < 0 or fb_off >= len(buf):
         return None
 
-    # Primary: +0x1E0
     ptr_off = fb_off + CHR_TBL_PTR_OFF
     if ptr_off + 4 <= len(buf):
         cand = rd_u32_be(buf, ptr_off)
-        if is_mem2_addr(cand) and validate_chr_tbl(buf, mem_base, cand):
+        if is_mem2_addr(cand):
             return cand
 
-    # Fallback: scan struct for any MEM2 pointer that validates
     for delta in range(0, FIGHTER_BASE_SCAN_RANGE, 4):
         off = fb_off + delta
         if off + 4 > len(buf):
             break
         cand = rd_u32_be(buf, off)
-        if is_mem2_addr(cand) and validate_chr_tbl(buf, mem_base, cand):
+        if is_mem2_addr(cand):
             return cand
 
     return None
 
 
-def backtrack_to_chr_tbl(buf: bytes, mem_base: int, any_abs: int) -> Optional[int]:
-    """
-    Given an address that landed somewhere inside a chr_tbl block (e.g. a
-    mid-struct pattern match), walk backwards in 4-byte steps until a valid
-    chr_tbl base is found.  Used as a last-resort recovery after a global scan
-    lands on a move-record header instead of the table start.
-    """
-    start = (any_abs // 4) * 4   # align down to 4-byte boundary
-    for back in range(0, BACKTRACK_MAX, 4):
-        cand = start - back
-        if cand < mem_base:
-            break
-        if validate_chr_tbl(buf, mem_base, cand):
+def read_and_validate_chr_tbl(chr_tbl_abs: int) -> Optional[bytes]:
+    start = chr_tbl_abs - CHR_TBL_READ_PAD_BEFORE
+    buf = safe_rbytes(start, CHR_TBL_READ_SIZE)
+    if not buf:
+        return None
+    if not validate_chr_tbl(buf, start, chr_tbl_abs):
+        return None
+    return buf
+
+
+def resolve_chr_tbl_from_live_memory(fighter_base_abs: int) -> Optional[int]:
+    fighter_buf = safe_rbytes(fighter_base_abs, FIGHTER_READ_SIZE)
+    if not fighter_buf:
+        return None
+
+    cand = resolve_chr_tbl(fighter_buf, fighter_base_abs, fighter_base_abs)
+    if cand is not None:
+        if read_and_validate_chr_tbl(cand) is not None:
             return cand
+
+    ptr_off = CHR_TBL_PTR_OFF
+    if ptr_off + 4 <= len(fighter_buf):
+        raw = rd_u32_be(fighter_buf, ptr_off)
+        if is_mem2_addr(raw):
+            if read_and_validate_chr_tbl(raw) is not None:
+                return raw
+
+    for delta in range(0, FIGHTER_BASE_SCAN_RANGE, 4):
+        off = delta
+        if off + 4 > len(fighter_buf):
+            break
+        raw = rd_u32_be(fighter_buf, off)
+        if is_mem2_addr(raw):
+            if read_and_validate_chr_tbl(raw) is not None:
+                return raw
+
     return None
 
-
-def global_scan_chr_tbl(buf: bytes, mem_base: int,
-                         fighter_base_abs: Optional[int] = None) -> Optional[int]:
-    """
-    Last-resort global scan: find every occurrence of b"chr_tbl\\n" in the
-    buffer, convert to candidate base (hit + 0x18), validate, and return the
-    best match (closest to fighter_base_abs if known).
-    """
-    label = b"chr_tbl\n"
-    best: Optional[int] = None
-    best_dist: int = 0x7FFFFFFF
-
-    p = 0
-    while True:
-        idx = buf.find(label, p)
-        if idx == -1:
-            break
-        cand_abs = mem_base + idx + 0x18
-        if validate_chr_tbl(buf, mem_base, cand_abs):
-            if fighter_base_abs is not None:
-                dist = abs(cand_abs - fighter_base_abs)
-                if dist < best_dist:
-                    best_dist = dist
-                    best = cand_abs
-            else:
-                best = cand_abs   # return first valid hit if no proximity hint
-                break
-        p = idx + 1
-
-    return best
-
-
-# ============================================================
-# chr_tbl move-table parser
-# ============================================================
 
 def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
-    """
-    Parse the 705-entry chr_tbl offset table.
-
-    Returns a list of absolute addresses for every non-null, non-sentinel
-    entry.  The table is strictly bounded: exactly 705 u32 entries, ending
-    with 0xFFFFFFFF at index 704.  Entry values are offsets relative to
-    chr_tbl_abs.  This function enforces all hard bounds and ignores any
-    value that looks structurally invalid (zero, already-sentinel, unaligned,
-    or below MOVE_DATA_START_OFF).
-    """
     tbl_off = abs_to_file_off(chr_tbl_abs, mem_base)
     if tbl_off < 0 or tbl_off + CHR_TBL_LEN_BYTES > len(buf):
         return []
@@ -340,12 +293,9 @@ def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
     for i in range(CHR_TBL_NUM_ENTRIES):
         entry = rd_u32_be(buf, tbl_off + i * 4)
 
-        # Sentinel must be at index 704; stop unconditionally here.
         if i == CHR_TBL_NUM_ENTRIES - 1:
-            # (sentinel already validated in validate_chr_tbl, so just stop)
             break
 
-        # Skip null, sentinel-like, unaligned, or below move data start.
         if entry == 0 or entry == 0xFFFFFFFF:
             continue
         if entry % 4 != 0:
@@ -365,7 +315,6 @@ def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
 # ============================================================
 
 def read_slots_from_constants() -> List[Tuple[str, int, Optional[int], str]]:
-    """Read the four fighter base addresses from the SLOTS constant table."""
     out: List[Tuple[str, int, Optional[int], str]] = []
     for label, ptr, _tag in SLOTS:
         base = rd32(ptr) or 0
@@ -381,20 +330,16 @@ def read_slots_from_constants() -> List[Tuple[str, int, Optional[int], str]]:
 
 def verify_slot_id(buf: bytes, mem_base: int,
                    fighter_base_abs: int, expected_slot: int) -> bool:
-    """
-    Optional sanity check: confirm that the slot-ID fields embedded in the
-    fighter struct (+0x04 and +0x08) match expected_slot.
-    """
     fb_off = abs_to_file_off(fighter_base_abs, mem_base)
     if fb_off < 0 or fb_off + 0x0C > len(buf):
-        return True   # can't verify → don't reject
+        return True
     id_a = rd_u32_be(buf, fb_off + SLOT_ID_OFF_A)
     id_b = rd_u32_be(buf, fb_off + SLOT_ID_OFF_B)
     return (id_a == expected_slot) and (id_b == expected_slot)
 
 
 # ============================================================
-# Move-record scanning utilities  (unchanged in logic)
+# Move-record scanning utilities
 # ============================================================
 
 def get_anim_id_after_hdr_strict(buf: bytes, hdr_pos: int) -> Optional[int]:
@@ -455,7 +400,7 @@ def looks_like_real_move_anchor(buf: bytes, pos: int) -> bool:
 
 
 # ============================================================
-# Data block parsers  (unchanged)
+# Data block parsers
 # ============================================================
 
 def parse_active_frames(buf: bytes, pos: int) -> Optional[Tuple[int, int]]:
@@ -541,21 +486,11 @@ def pick_best_block(mv_abs: int, blocks: List[Tuple[int, Any]],
 
 
 # ============================================================
-# Move anchor collection  (region-based, uses chr_tbl addresses)
+# Move anchor collection
 # ============================================================
 
 def collect_move_anchors(buf: bytes, base_abs: int,
-                          tbl_move_addrs: Optional[List[int]] = None
-                          ) -> List[Dict[str, Any]]:
-    """
-    Collect move anchors by scanning the region buffer [base_abs, base_abs+len(buf)).
-
-    If tbl_move_addrs is provided (absolute addresses from parse_chr_tbl),
-    those are seeded directly as canonical anchors before pattern scanning.
-    Pattern scanning still runs over the same buffer to catch anything the
-    table doesn't cover (e.g. dynamic super entries), but table-seeded addrs
-    are never discarded.
-    """
+                         tbl_move_addrs: Optional[List[int]] = None) -> List[Dict[str, Any]]:
     moves: List[Dict[str, Any]] = []
     seen_abs: set = set()
 
@@ -565,15 +500,12 @@ def collect_move_anchors(buf: bytes, base_abs: int,
         seen_abs.add(abs_addr)
         moves.append({"kind": kind, "abs": abs_addr, "id": aid})
 
-    # ── Seed from chr_tbl offset table (highest priority) ─────────────────
     if tbl_move_addrs:
         for mv_abs in tbl_move_addrs:
-            # Infer kind/id by peeking at the bytes at that address.
             off = mv_abs - base_abs
             if 0 <= off < len(buf) - 4:
                 aid = get_anim_id_after_hdr_strict(buf, off)
                 if aid is None:
-                    # Try a short local scan for an anim4 token
                     window = min(off + LOOKAHEAD_AFTER_HDR, len(buf))
                     for p in range(off, window - 4 + 1):
                         op  = buf[p + 2]
@@ -584,14 +516,11 @@ def collect_move_anchors(buf: bytes, base_abs: int,
                             if 1 <= candidate <= 0x0500:
                                 aid = candidate
                                 break
-                kind = ("normal"
-                        if (aid and (aid & 0xFF) in NORMAL_IDS)
-                        else "special")
+                kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
                 add_mv(kind, mv_abs, aid)
             else:
                 add_mv("special", mv_abs, None)
 
-    # ── Pattern scan over the full region buffer ───────────────────────────
     i = 0
     while i < len(buf):
         if match_bytes(buf, i, SUPER_END_HDR):
@@ -605,9 +534,8 @@ def collect_move_anchors(buf: bytes, base_abs: int,
             p = s0
             while p < s1:
                 if match_bytes(buf, p, ANIM_HDR):
-                    aid  = get_anim_id_after_hdr_strict(buf, p)
-                    kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS)
-                            else "special")
+                    aid = get_anim_id_after_hdr_strict(buf, p)
+                    kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
                     add_mv(kind, base_abs + p, aid)
                     p += len(ANIM_HDR)
                     continue
@@ -621,9 +549,8 @@ def collect_move_anchors(buf: bytes, base_abs: int,
             p = s0
             while p < s1:
                 if match_bytes(buf, p, ANIM_HDR):
-                    aid  = get_anim_id_after_hdr_strict(buf, p)
-                    kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS)
-                            else "special")
+                    aid = get_anim_id_after_hdr_strict(buf, p)
+                    kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
                     add_mv(kind, base_abs + p, aid)
                     p += len(ANIM_HDR)
                     continue
@@ -632,9 +559,8 @@ def collect_move_anchors(buf: bytes, base_abs: int,
             continue
 
         if match_bytes(buf, i, ANIM_HDR):
-            aid  = get_anim_id_after_hdr_strict(buf, i)
-            kind = ("normal" if (aid and (aid & 0xFF) in NORMAL_IDS)
-                    else "special")
+            aid = get_anim_id_after_hdr_strict(buf, i)
+            kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
             add_mv(kind, base_abs + i, aid)
             i += len(ANIM_HDR)
             continue
@@ -649,18 +575,17 @@ def collect_move_anchors(buf: bytes, base_abs: int,
 
         i += 1
 
-    # Pass 1B: raw anim4 sweep
     for pos, aid in find_strict_anim4(buf):
         if not looks_like_real_move_anchor(buf, pos):
             continue
-        kind = ("normal" if (aid & 0xFF) in NORMAL_IDS else "special")
+        kind = "normal" if (aid & 0xFF) in NORMAL_IDS else "special"
         add_mv(kind, base_abs + pos, aid)
 
     return moves
 
 
 # ============================================================
-# Block collection for a region  (unchanged)
+# Block collection
 # ============================================================
 
 def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
@@ -768,7 +693,7 @@ def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
 
 
 # ============================================================
-# Field attachment  (unchanged logic, receives same dicts)
+# Field attachment
 # ============================================================
 
 def attach_move_fields(moves: List[Dict[str, Any]],
@@ -788,9 +713,7 @@ def attach_move_fields(moves: List[Dict[str, Any]],
         mv_abs  = mv.get("abs") or 0
         aid_low = (aid & 0xFF) if aid is not None else None
 
-        mv["meter"] = (DEFAULT_METER.get(aid_low)
-                       if mv.get("kind") == "normal"
-                       else SPECIAL_DEFAULT_METER)
+        mv["meter"] = DEFAULT_METER.get(aid_low) if mv.get("kind") == "normal" else SPECIAL_DEFAULT_METER
 
         mblk = pick_best_block(mv_abs, meters)
         mv["meter_addr"] = None
@@ -880,11 +803,11 @@ def attach_move_fields(moves: List[Dict[str, Any]],
 
 
 # ============================================================
-# Sorting / merging helpers
+# Sorting helpers
 # ============================================================
 
 def sort_key(m: Dict[str, Any]) -> Tuple[int, int, int]:
-    aid     = m.get("id")
+    aid      = m.get("id")
     abs_addr = m.get("abs") or 0
     if aid is None:
         return (2, 0xFFFF, abs_addr)
@@ -912,32 +835,19 @@ def count_special_like(moves_list: List[Dict[str, Any]]) -> int:
 
 
 # ============================================================
-# Per-slot scan region derived from chr_tbl boundaries
+# Per-slot region from chr_tbl bytes
 # ============================================================
 
-def slot_scan_region(chr_tbl_abs: int,
-                     buf: bytes,
-                     mem_base: int) -> Tuple[int, int]:
-    """
-    Derive the scan region for a slot directly from its chr_tbl base.
-
-    The move data starts at chr_tbl_abs + MOVE_DATA_START_OFF (= +0x3600).
-    The furthest move address is chr_tbl_abs + max_offset, where max_offset is
-    the largest non-sentinel entry in the table.
-
-    We add a small pad on the high end for inline blocks that live just past
-    the last move record.
-    """
-    PAD = 0x2000
-
-    tbl_off = abs_to_file_off(chr_tbl_abs, mem_base)
+def slot_scan_region_from_tbl(tbl_buf: bytes,
+                              tbl_mem_base: int,
+                              chr_tbl_abs: int) -> Tuple[int, int]:
+    tbl_off = abs_to_file_off(chr_tbl_abs, tbl_mem_base)
     if tbl_off < 0:
-        # fallback: generic window
         return (chr_tbl_abs, chr_tbl_abs + 0x80000)
 
     max_offset = 0
-    for i in range(CHR_TBL_NUM_ENTRIES - 1):   # skip sentinel at 704
-        entry = rd_u32_be(buf, tbl_off + i * 4)
+    for i in range(CHR_TBL_NUM_ENTRIES - 1):
+        entry = rd_u32_be(tbl_buf, tbl_off + i * 4)
         if entry in (0, 0xFFFFFFFF):
             continue
         if entry % 4 != 0 or entry < MOVE_DATA_START_OFF:
@@ -945,15 +855,15 @@ def slot_scan_region(chr_tbl_abs: int,
         if entry > max_offset:
             max_offset = entry
 
-    region_start = chr_tbl_abs                          # include chr_tbl header
-    region_end   = chr_tbl_abs + max_offset + PAD
-    region_end   = min(region_end, mem_base + len(buf)) # clamp to buffer
+    region_start = chr_tbl_abs
+    region_end = chr_tbl_abs + max_offset + SLOT_REGION_PAD
+    region_end = min(region_end, MEM2_HI)
 
     return (region_start, region_end)
 
 
 # ============================================================
-# MAIN SCAN  —  pointer-table driven
+# MAIN SCAN
 # ============================================================
 
 def scan_once():
@@ -961,73 +871,58 @@ def scan_once():
 
     slots_info = read_slots_from_constants()
 
-    # Load the full MEM2 range that covers all fighter bases and their move data.
-    # The four fighter bases span from 0x9246B9C0 to 0x92EEBA20+struct_size,
-    # and their move data can reach up to ~0x909DECAC (per the analysis table).
-    # We load a conservative window that covers all of it comfortably.
-    MEM_BASE = MEM2_LO                              # 0x90000000
-    MEM_SIZE = MEM2_HI - MEM2_LO                   # full 64 MiB
-    mem = rbytes(MEM_BASE, MEM_SIZE)
-
     result: List[Dict[str, Any]] = []
     for _ in range(4):
-        result.append({"slot_label": "", "char_name": "", "moves": [],
-                        "chr_tbl_abs": None, "tbl_move_count": 0})
+        result.append({
+            "slot_label": "",
+            "char_name": "",
+            "moves": [],
+            "chr_tbl_abs": None,
+            "tbl_move_count": 0,
+        })
 
     for slot_idx, (slot_label, fighter_base_abs, cid, cname) in enumerate(slots_info):
+        result[slot_idx]["slot_label"] = slot_label
+        result[slot_idx]["char_name"] = cname
+
         if not fighter_base_abs or not is_mem2_addr(fighter_base_abs):
-            result[slot_idx].update({"slot_label": slot_label, "char_name": cname})
             continue
 
-        # ── Step 1: resolve chr_tbl via fighter_base + 0x1E0 ─────────────
-        chr_tbl_abs = resolve_chr_tbl(mem, MEM_BASE, fighter_base_abs)
-
-        # ── Step 2: fallback – global scan anchored near fighter_base ─────
-        if chr_tbl_abs is None:
-            chr_tbl_abs = global_scan_chr_tbl(mem, MEM_BASE, fighter_base_abs)
-
-        if chr_tbl_abs is None:
-            # Completely failed to find a chr_tbl for this slot.
-            result[slot_idx].update({"slot_label": slot_label, "char_name": cname})
+        fighter_buf = safe_rbytes(fighter_base_abs, FIGHTER_READ_SIZE)
+        if not fighter_buf:
             continue
 
-        # ── Step 3: optional slot-ID sanity check ─────────────────────────
-        verify_slot_id(mem, MEM_BASE, fighter_base_abs, slot_idx)
-        # (we don't abort on mismatch — just trust the pointer chain)
+        verify_slot_id(fighter_buf, fighter_base_abs, fighter_base_abs, slot_idx)
 
-        # ── Step 4: parse the 705-entry offset table → absolute addresses ─
-        tbl_move_addrs = parse_chr_tbl(mem, MEM_BASE, chr_tbl_abs)
+        chr_tbl_abs = resolve_chr_tbl_from_live_memory(fighter_base_abs)
+        if chr_tbl_abs is None:
+            continue
 
-        # ── Step 5: derive tight scan region from chr_tbl bounds ──────────
-        region_start, region_end = slot_scan_region(chr_tbl_abs, mem, MEM_BASE)
+        tbl_start = chr_tbl_abs - CHR_TBL_READ_PAD_BEFORE
+        tbl_buf = safe_rbytes(tbl_start, CHR_TBL_READ_SIZE)
+        if not tbl_buf:
+            continue
+        if not validate_chr_tbl(tbl_buf, tbl_start, chr_tbl_abs):
+            continue
 
-        start_off = abs_to_file_off(region_start, MEM_BASE)
-        end_off   = abs_to_file_off(region_end,   MEM_BASE)
-        start_off = max(0, start_off)
-        end_off   = min(len(mem), end_off)
+        tbl_move_addrs = parse_chr_tbl(tbl_buf, tbl_start, chr_tbl_abs)
+        region_start, region_end = slot_scan_region_from_tbl(tbl_buf, tbl_start, chr_tbl_abs)
 
-        buf_slice = mem[start_off:end_off]
-        slice_base_abs = MEM_BASE + start_off
+        region_buf = safe_rbytes(region_start, region_end - region_start)
+        if not region_buf:
+            continue
 
-        # ── Step 6: collect move anchors, seeding from tbl_move_addrs ─────
-        # Filter table addresses to those that fall within our slice.
-        in_slice = [a for a in tbl_move_addrs
-                    if slice_base_abs <= a < slice_base_abs + len(buf_slice)]
+        in_slice = [a for a in tbl_move_addrs if region_start <= a < region_end]
 
-        moves = collect_move_anchors(buf_slice, slice_base_abs,
-                                     tbl_move_addrs=in_slice)
-
-        # ── Step 7: collect and attach data blocks ─────────────────────────
-        blocks = collect_blocks(buf_slice, slice_base_abs)
-        attach_move_fields(moves, buf_slice, slice_base_abs, blocks)
-
-        moves_sorted = sorted(moves, key=sort_key)
+        moves = collect_move_anchors(region_buf, region_start, tbl_move_addrs=in_slice)
+        blocks = collect_blocks(region_buf, region_start)
+        attach_move_fields(moves, region_buf, region_start, blocks)
 
         result[slot_idx] = {
-            "slot_label":    slot_label,
-            "char_name":     cname,
-            "moves":         moves_sorted,
-            "chr_tbl_abs":   chr_tbl_abs,
+            "slot_label": slot_label,
+            "char_name": cname,
+            "moves": sorted(moves, key=sort_key),
+            "chr_tbl_abs": chr_tbl_abs,
             "tbl_move_count": len(tbl_move_addrs),
         }
 
