@@ -8,7 +8,11 @@ try:
 except Exception:
     rbytes = None
     wbytes = None
-
+SUPER_STRUCT_SIG = b"\x00\x00\x0C\x00\x00\x00\x23\x00"
+SUPER_VERIFY_A   = b"\x00\x00\x04\x00\x00\x00\xFF\xFF\xFF\xFF"
+SUPER_VERIFY_B   = b"\x3F\x80\x00\x00"
+SUPER_VERIFY_LOOK = 0x120
+_SUPER_STRUCT_DMG_OFF = 0x09
 # ---------------------------------------------------------------------------
 # Scan parameters
 # ---------------------------------------------------------------------------
@@ -480,6 +484,7 @@ _OPCODE_HIT_FIELDS = {
     "radius": "?", "speed": "?", "accel": "?", "kb_x": "?", "kb_y": "?",
     "arc": "?", "arc2": "?", "hitbox": "?", "type": "?", "id": "?",
     "spawn_x": "?",
+    "spawn_y": "?",
     "lifetime": "?", "hb_size": "?",
     "vel2_x": "?", "vel2_y": "?", "vel2_s": "?",
     "u01": "?", "u02": "?", "u03": "?",
@@ -727,6 +732,7 @@ _FRANK_ZOMBIE_ATTACK_SPEED_A = 0x7E
 _FRANK_ZOMBIE_ATTACK_ACCEL_A = 0x92
 _FRANK_ZOMBIE_ATTACK_SPAWN_X = 0x159
 _FRANK_ZOMBIE_FALL_DMG_OFF = 0x04
+_FRANK_ZOMBIE_FALL_SPAWN_Y_OFF = 0xA6
 # Exact per-slot ownership ranges derived from chr_tbl analysis notes.
 # Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
 # Using tight bounds prevents cross-slot false positives.
@@ -805,6 +811,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "dmg": 3200,
             "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
             "dmg_write_addr": fall_addr + _FRANK_ZOMBIE_FALL_DMG_OFF,
+            "spawn_y": _read_f32(fall_addr + _FRANK_ZOMBIE_FALL_SPAWN_Y_OFF),
         })
 
         anchored_rows.append({
@@ -818,7 +825,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "accel":   _read_f32(attack_addr + _FRANK_ZOMBIE_ATTACK_ACCEL_A),
             "spawn_x": _read_u8(attack_addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X),
         })
-
+        
         anchored_rows.append({
             **fall_hit,
             "addr": spree_addr,
@@ -882,6 +889,50 @@ def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
     Raw zombie spree variants stay suppressed.
     """
     return
+def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
+    """
+    Agnostic structural scan for super-like blocks.
+    This only finds candidate blocks and emits placeholder rows.
+    It does not assume character or move yet.
+    """
+    pos = 0
+    while True:
+        idx = data.find(SUPER_STRUCT_SIG, pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+
+        block_addr = base_addr + idx
+        dmg_addr = block_addr + _SUPER_STRUCT_DMG_OFF
+        dmg = "?"
+        if rbytes is not None:
+            try:
+                b = rbytes(dmg_addr, 2)
+                if b and len(b) == 2:
+                    dmg = (b[0] << 8) | b[1]
+            except Exception:
+                pass
+
+        window_end = min(idx + SUPER_VERIFY_LOOK, len(data))
+        window = data[idx:window_end]
+
+        has_a = SUPER_VERIFY_A in window
+        has_b = SUPER_VERIFY_B in window
+        print(f"[super] anchor @ 0x{block_addr:08X} has_a={has_a} has_b={has_b}")
+
+        if not (has_a or has_b):
+            continue
+
+        hits.append({
+            "addr": block_addr,
+            "key": "?",
+            "move": "Super Struct Candidate",
+            "dmg": dmg,
+            "fmt": "super_struct",
+            "dmg_write_addr": dmg_addr,
+            **_OPCODE_HIT_FIELDS,
+            "cluster": f"super struct @ 0x{block_addr:08X}",
+        })
 def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
     if rbytes is None:
         done_cb([]); return
@@ -909,7 +960,7 @@ def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
             _scan_opcode_blocks(data, addr, hits, lookup, slot_char_ids)
             _scan_suffix_blocks(data, addr, hits, lookup, id_map, slot_char_ids)
             _scan_zombie_blocks(data, addr, hits, lookup, seen_zombie_variants, slot_char_ids)
-
+            _scan_super_struct_blocks(data, addr, hits)
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
     _annotate_clusters(hits)
@@ -968,9 +1019,10 @@ _COLS = [
     ("kb_y",     "KB Y",      "kb_y",     True),
     ("arc",      "Arc",       "arc",      True),
     ("arc2",     "Arc2",      "arc2",     True),
+    ("spawn_x",  "Spawn X",   "spawn_x",  False),
+    ("spawn_y",  "Spawn Y",   "spawn_y",  True),
     ("hitbox",   "Hitbox",    "hitbox",   True),
     ("type",     "Type",      "type",     False),
-    ("spawn_x",  "Spawn X",   "spawn_x",  False),
     ("id",       "ID",        "id",       False),
     ("lifetime", "Lifetime",  "lifetime", False),
     ("hb_size",  "HB Size",   "hb_size",  False),
@@ -1150,8 +1202,9 @@ class ProjScannerWindow:
                     h.get("cluster", ""),
                     h["radius"], h["speed"], h["accel"],
                     h["kb_x"], h["kb_y"],
-                    h["arc"], h["arc2"], h["hitbox"],
-                    type_str, h.get("spawn_x", "?"), h["id"], h["lifetime"], h["hb_size"],
+                    h["arc"], h["arc2"],
+                    h.get("spawn_x", "?"), h.get("spawn_y", "?"), h["hitbox"],
+                    type_str, h["id"], h["lifetime"], h["hb_size"],
                     h.get("fmt", ""),
                     h.get("preA", "?"), h.get("preB", "?"),
                     h.get("opcode", "?"),
@@ -1202,9 +1255,11 @@ class ProjScannerWindow:
             move_name = str(vals[2]) if len(vals) > 2 else ""
 
             if fkey == "dmg":
-                fmt = self._fmt_for_iid(iid)
-                field_addr  = addr + _dmg_write_offset(fmt)
+                field_addr = self._dmg_write_by_iid.get(iid, addr + _dmg_write_offset(self._fmt_for_iid(iid)))
                 field_label = "dmg"
+            elif move_name == "Zombie Fall" and fkey == "spawn_y":
+                field_addr = addr + _FRANK_ZOMBIE_FALL_SPAWN_Y_OFF
+                field_label = header
 
             elif move_name == "Zombie Attack" and fkey == "speed":
                 field_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
@@ -1288,7 +1343,8 @@ class ProjScannerWindow:
 
         if fkey == "dmg":
             write_addr = self._dmg_write_by_iid.get(iid, addr + _dmg_write_offset(fmt))
-
+        elif move_name == "Zombie Fall" and fkey == "spawn_y":
+            write_addr = addr + _FRANK_ZOMBIE_FALL_SPAWN_Y_OFF
         elif move_name == "Zombie Attack" and fkey == "speed":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
 
@@ -1383,8 +1439,17 @@ class ProjScannerWindow:
             if fkey == "dmg":
                 resolved = self._dmg_write_by_iid.get(iid)
                 fallback = addr + _dmg_write_offset(fmt)
-                if resolved and resolved != fallback:
+
+                if fmt == "super_struct" and resolved is not None:
+                    if not (0 <= ival <= 0xFFFF):
+                        messagebox.showerror("Out of range", "Damage must be 0–65535.",
+                                            parent=self.root)
+                        return
+                    ok = _write_u16(resolved, ival)
+
+                elif resolved and resolved != fallback:
                     ok = _write_u32(resolved, ival)
+
                 else:
                     ok = _write_dmg(addr, ival, fmt)
             elif fkey == "spawn_x":
