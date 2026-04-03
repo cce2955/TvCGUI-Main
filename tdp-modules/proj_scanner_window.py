@@ -13,7 +13,15 @@ SUPER_VERIFY_A   = b"\x00\x00\x04\x00\x00\x00\xFF\xFF\xFF\xFF"
 SUPER_VERIFY_B   = b"\x3F\x80\x00\x00"
 SUPER_VERIFY_LOOK = 0x120
 _SUPER_STRUCT_DMG_OFF = 0x09
-
+# Shinkuu / super-card experimental offsets from local base
+_SUPER_EX_OFFSETS = {
+    "ex060": 0x060,
+    "ex090": 0x090,
+    "ex094": 0x094,
+    "ex09c": 0x09C,
+    "ex0d4": 0x0D4,
+    "ex0e4": 0x0E4,
+}
 # ---------------------------------------------------------------------------
 # Scan parameters
 # ---------------------------------------------------------------------------
@@ -538,6 +546,8 @@ _OPCODE_HIT_FIELDS = {
     "u04": "?", "u05": "?", "u06": "?",
     "u07": "?", "u08": "?", "u09": "?",
     "cluster": "script",
+    "ex060": "?", "ex090": "?", "ex094": "?",
+    "ex09c": "?", "ex0d4": "?", "ex0e4": "?",
 }
 
 
@@ -1049,6 +1059,16 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
     }
     if extra:
         hit_base.update(extra)
+    if fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
+        ex_base = _super_ex_base(addr, fmt)
+        hit_base.update({
+            "ex060": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex060"]),
+            "ex090": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex090"]),
+            "ex094": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex094"]),
+            "ex09c": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex09c"]),
+            "ex0d4": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex0d4"]),
+            "ex0e4": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex0e4"]),
+        })
 
     # Prefer slot-owned character resolution first.
     if isinstance(dmg, int):
@@ -1063,6 +1083,7 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
                     hits.append({**hit_base, "key": slot_key, "move": mv})
                 return
 
+
         # Fallback to the old global lookup if slot mapping is missing.
         if dmg in lookup:
             for key, mv in lookup[dmg]:
@@ -1070,6 +1091,17 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
             return
 
     hits.append({**hit_base, "key": "?", "move": "Super Struct Candidate"})
+
+
+def _super_ex_base(addr: int, fmt: str) -> int:
+    if fmt == "super_struct":
+        return addr - 0x09
+    if fmt == "super_struct_card":
+        return addr - 0x0E
+    if fmt == "super_struct_card2":
+        return addr - 0x0C
+    return addr
+
 def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
                               lookup: dict, char_damage_map: dict,
                               slot_char_ids: dict[int, int] | None) -> None:
@@ -1292,6 +1324,12 @@ _COLS = [
     ("spawn_y",  "Spawn Y",   "spawn_y",  True),
     ("hitbox",   "Hitbox",    "hitbox",   True),
     ("type",     "Type",      "type",     False),
+    ("ex060",    "EX 060",    "ex060",    True),
+    ("ex090",    "EX 090",    "ex090",    True),
+    ("ex094",    "EX 094",    "ex094",    True),
+    ("ex09c",    "EX 09C",    "ex09c",    True),
+    ("ex0d4",    "EX 0D4",    "ex0d4",    True),
+    ("ex0e4",    "EX 0E4",    "ex0e4",    True),
     ("id",       "ID",        "id",       False),
     ("lifetime", "Lifetime",  "lifetime", False),
     ("hb_size",  "HB Size",   "hb_size",  False),
@@ -1473,7 +1511,14 @@ class ProjScannerWindow:
                     h["kb_x"], h["kb_y"],
                     h["arc"], h["arc2"],
                     h.get("spawn_x", "?"), h.get("spawn_y", "?"), h["hitbox"],
-                    type_str, h["id"], h["lifetime"], h["hb_size"],
+                    type_str,
+                    h.get("ex060", "?"),
+                    h.get("ex090", "?"),
+                    h.get("ex094", "?"),
+                    h.get("ex09c", "?"),
+                    h.get("ex0d4", "?"),
+                    h.get("ex0e4", "?"),
+                    h["id"], h["lifetime"], h["hb_size"],
                     h.get("fmt", ""),
                     h.get("preA", "?"), h.get("preB", "?"),
                     h.get("opcode", "?"),
@@ -1540,6 +1585,9 @@ class ProjScannerWindow:
             elif move_name == "Zombie Attack" and fkey == "spawn_x":
                 field_addr = addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X
                 field_label = header
+            elif fkey in _SUPER_EX_OFFSETS and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2"):
+                ex_base = _super_ex_base(addr, self._fmt_for_iid(iid))
+                field_addr = ex_base + _SUPER_EX_OFFSETS[fkey]
             elif move_name.startswith("Zombie Spree "):
                 if fkey == "kb_y":
                     if move_name == "Zombie Spree L":
@@ -1616,7 +1664,8 @@ class ProjScannerWindow:
             write_addr = addr + _FRANK_ZOMBIE_FALL_SPAWN_Y_OFF
         elif move_name == "Zombie Attack" and fkey == "speed":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
-
+        elif fkey in _SUPER_EX_OFFSETS and fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
+            write_addr = addr + _SUPER_EX_OFFSETS[fkey]    
         elif move_name == "Zombie Attack" and fkey == "accel":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_ACCEL_A
 
