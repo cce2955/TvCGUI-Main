@@ -705,6 +705,7 @@ _ZOMBIE_VARIANT_NAMES: dict[int, str] = {
 }
 
 _FRANK_ZOMBIE_FALL_NAMES = {"Zombie Fall", "Zombie fall"}
+_FRANK_ZOMBIE_FALL_OFF = 0x19BE
 _FRANK_ZOMBIE_ATTACK_OFF = 0x0B14
 _FRANK_ZOMBIE_SPREE_OFF  = 0x7C4C
 
@@ -725,6 +726,7 @@ _FRANK_ZOMBIE_ATTACK_SPEED_A = 0x7E
 _FRANK_ZOMBIE_ATTACK_SPEED_A = 0x7E
 _FRANK_ZOMBIE_ATTACK_ACCEL_A = 0x92
 _FRANK_ZOMBIE_ATTACK_SPAWN_X = 0x159
+_FRANK_ZOMBIE_FALL_DMG_OFF = 0x04
 # Exact per-slot ownership ranges derived from chr_tbl analysis notes.
 # Each tuple is (chr_tbl_base, move_data_start, max_referenced_addr + slack).
 # Using tight bounds prevents cross-slot false positives.
@@ -754,32 +756,57 @@ def _is_frank_zombie_fall_label(move: str) -> bool:
 def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
     """
     Frank-specific override:
-      - ignore Frank zombie move-ID association except Zombie Fall
-      - use the discovered Frank Zombie Fall row as the anchor
-      - derive Attack/Spree by fixed offsets from Fall
-      - emit Zombie Spree L/M/H rows that map the discovered bank into arc/kb_y/speed
+      - if a real Zombie Fall row exists, use it as anchor
+      - otherwise synthesize Zombie Fall from the owning chr_tbl base
+      - derive Attack/Spree from Fall
     """
     anchored_rows: list[dict] = []
     anchor_bases: set[int] = set()
-    seen_anchor_bases: set[int] = set()
+    fall_by_base: dict[int, dict] = {}
+    zombie_base_seed: dict[int, dict] = {}
 
     for h in hits:
         if h.get("key") != "FRANK":
             continue
-        if not _is_frank_zombie_fall_label(h.get("move", "")):
-            continue
 
         base = _owning_chr_tbl(h.get("addr", 0))
-        if base is None or base in seen_anchor_bases:
+        if base is None:
             continue
-        seen_anchor_bases.add(base)
-        anchor_bases.add(base)
 
-        fall_hit = h
+        if _is_frank_zombie_move_label(h.get("move", "")):
+            zombie_base_seed.setdefault(base, h)
+
+        if _is_frank_zombie_fall_label(h.get("move", "")):
+            fall_by_base.setdefault(base, h)
+
+    for base, seed in zombie_base_seed.items():
+        fall_hit = fall_by_base.get(base)
+        if fall_hit is None:
+            fall_addr = base + _FRANK_ZOMBIE_FALL_OFF
+            fall_hit = {
+                **seed,
+                "addr": fall_addr,
+                "move": "Zombie Fall",
+                "dmg": 3200,
+                "fmt": "frank_zoml",
+                "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
+                "dmg_write_addr": fall_addr + _FRANK_ZOMBIE_FALL_DMG_OFF,
+            }
+
+        anchor_bases.add(base)
         fall_addr   = int(fall_hit["addr"])
         attack_addr = fall_addr + _FRANK_ZOMBIE_ATTACK_OFF
         spree_addr  = fall_addr + _FRANK_ZOMBIE_SPREE_OFF - 4
-        
+
+        anchored_rows.append({
+            **fall_hit,
+            "addr": fall_addr,
+            "move": "Zombie Fall",
+            "dmg": 3200,
+            "cluster": f"frank zombie anchor @ 0x{fall_addr:08X}",
+            "dmg_write_addr": fall_addr + _FRANK_ZOMBIE_FALL_DMG_OFF,
+        })
+
         anchored_rows.append({
             **fall_hit,
             "addr": attack_addr,
@@ -827,6 +854,7 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
             "kb_y":  _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_KBY_H),
             "speed": _read_f32(spree_addr + _FRANK_ZOMBIE_SPREE_ACCEL_H),
         })
+
     if not anchor_bases:
         return hits
 
@@ -843,21 +871,17 @@ def _apply_frank_zombie_anchor(hits: list[dict]) -> list[dict]:
     kept.extend(anchored_rows)
     kept.sort(key=lambda x: (int(x.get("addr", 0)), str(x.get("move", ""))))
     return kept
+# ---------------------------------------------------------------------------
+# Main scan thread
+# ---------------------------------------------------------------------------
 def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
                          lookup: dict, seen_variants: set,
                          slot_char_ids: dict | None = None) -> None:
     """
     Disabled for now.
-
-    The raw Zombie Spree variant rows (v0x36..v0x3B) are useless in the GUI
-    and only add clutter. Frank zombie rows should come from the normal scan
-    paths plus the anchor logic, not from these synthetic variant rows.
+    Raw zombie spree variants stay suppressed.
     """
     return
-
-# ---------------------------------------------------------------------------
-# Main scan thread
-# ---------------------------------------------------------------------------
 def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
     if rbytes is None:
         done_cb([]); return
