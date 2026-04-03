@@ -484,7 +484,37 @@ def pick_best_block(mv_abs: int, blocks: List[Tuple[int, Any]],
             best, best_dist = (addr, data), d
     return best
 
+def _advance_block_cursor(mv_abs: int,
+                          blocks: List[Tuple[int, Any]],
+                          idx: int,
+                          rng: int = PAIR_RANGE) -> int:
+    n = len(blocks)
+    while idx + 1 < n and blocks[idx + 1][0] <= mv_abs:
+        idx += 1
+    return idx
 
+
+def pick_best_block_from_idx(mv_abs: int,
+                             blocks: List[Tuple[int, Any]],
+                             idx: int,
+                             rng: int = PAIR_RANGE) -> Tuple[Optional[Tuple[int, Any]], int]:
+    if not blocks:
+        return None, 0
+
+    idx = _advance_block_cursor(mv_abs, blocks, idx, rng)
+
+    best: Optional[Tuple[int, Any]] = None
+    best_dist: Optional[int] = None
+
+    for cand_idx in (idx - 1, idx, idx + 1, idx + 2):
+        if 0 <= cand_idx < len(blocks):
+            addr, data = blocks[cand_idx]
+            d = abs(addr - mv_abs)
+            if d <= rng and (best_dist is None or d < best_dist):
+                best = (addr, data)
+                best_dist = d
+
+    return best, idx
 # ============================================================
 # Move anchor collection
 # ============================================================
@@ -690,8 +720,6 @@ def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
         "kb_blocks": kb_blocks,
         "stun_blocks": stun_blocks,
     }
-
-
 # ============================================================
 # Field attachment
 # ============================================================
@@ -699,14 +727,25 @@ def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
 def attach_move_fields(moves: List[Dict[str, Any]],
                        buf: bytes, base_abs: int,
                        blocks: Dict[str, Any]) -> None:
-    meters               = blocks["meters"]
-    active_blocks        = blocks["active_blocks"]
-    inline_active_blocks = blocks["inline_active_blocks"]
-    dmg_blocks           = blocks["dmg_blocks"]
-    atkprop_blocks       = blocks["atkprop_blocks"]
-    hitreact_blocks      = blocks["hitreact_blocks"]
-    kb_blocks            = blocks["kb_blocks"]
-    stun_blocks          = blocks["stun_blocks"]
+    meters               = sorted(blocks["meters"], key=lambda x: x[0])
+    active_blocks        = sorted(blocks["active_blocks"], key=lambda x: x[0])
+    inline_active_blocks = sorted(blocks["inline_active_blocks"], key=lambda x: x[0])
+    dmg_blocks           = sorted(blocks["dmg_blocks"], key=lambda x: x[0])
+    atkprop_blocks       = sorted(blocks["atkprop_blocks"], key=lambda x: x[0])
+    hitreact_blocks      = sorted(blocks["hitreact_blocks"], key=lambda x: x[0])
+    kb_blocks            = sorted(blocks["kb_blocks"], key=lambda x: x[0])
+    stun_blocks          = sorted(blocks["stun_blocks"], key=lambda x: x[0])
+
+    meter_idx = 0
+    active_idx = 0
+    inline_idx = 0
+    dmg_idx = 0
+    atkprop_idx = 0
+    hitreact_idx = 0
+    kb_idx = 0
+    stun_idx = 0
+
+    moves.sort(key=lambda m: m.get("abs") or 0)
 
     for mv in moves:
         aid     = mv.get("id")
@@ -715,20 +754,20 @@ def attach_move_fields(moves: List[Dict[str, Any]],
 
         mv["meter"] = DEFAULT_METER.get(aid_low) if mv.get("kind") == "normal" else SPECIAL_DEFAULT_METER
 
-        mblk = pick_best_block(mv_abs, meters)
+        mblk, meter_idx = pick_best_block_from_idx(mv_abs, meters, meter_idx)
         mv["meter_addr"] = None
         if mblk:
             mv["meter"] = mblk[1]
             mv["meter_addr"] = mblk[0]
 
         mv["active_start"] = mv["active_end"] = mv["active_addr"] = None
-        ablk = pick_best_block(mv_abs, active_blocks)
+        ablk, active_idx = pick_best_block_from_idx(mv_abs, active_blocks, active_idx)
         if ablk:
             mv["active_start"], mv["active_end"] = ablk[1]
             mv["active_addr"] = ablk[0]
 
         mv["active2_start"] = mv["active2_end"] = mv["active2_addr"] = None
-        rel        = mv_abs - base_abs
+        rel = mv_abs - base_abs
         inline_off = rel + INLINE_ACTIVE_OFF
         if 0 <= inline_off < len(buf) - INLINE_ACTIVE_LEN:
             a2 = parse_inline_active(buf, inline_off)
@@ -736,37 +775,37 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                 mv["active2_start"], mv["active2_end"] = a2
                 mv["active2_addr"] = base_abs + inline_off
         if mv["active2_start"] is None:
-            a2blk = pick_best_block(mv_abs, inline_active_blocks)
+            a2blk, inline_idx = pick_best_block_from_idx(mv_abs, inline_active_blocks, inline_idx)
             if a2blk:
                 mv["active2_start"], mv["active2_end"] = a2blk[1]
                 mv["active2_addr"] = a2blk[0]
 
         mv["damage"] = mv["damage_flag"] = mv["damage_addr"] = None
-        dblk = pick_best_block(mv_abs, dmg_blocks)
+        dblk, dmg_idx = pick_best_block_from_idx(mv_abs, dmg_blocks, dmg_idx)
         if dblk:
             mv["damage"], mv["damage_flag"] = dblk[1]
             mv["damage_addr"] = dblk[0]
 
         mv["attack_property"] = mv["atkprop_addr"] = None
-        apblk = pick_best_block(mv_abs, atkprop_blocks)
+        apblk, atkprop_idx = pick_best_block_from_idx(mv_abs, atkprop_blocks, atkprop_idx)
         if apblk:
             mv["attack_property"] = apblk[1]
-            mv["atkprop_addr"]    = apblk[0]
+            mv["atkprop_addr"] = apblk[0]
 
         mv["hit_reaction"] = mv["hit_reaction_addr"] = None
-        hrblk = pick_best_block(mv_abs, hitreact_blocks)
+        hrblk, hitreact_idx = pick_best_block_from_idx(mv_abs, hitreact_blocks, hitreact_idx)
         if hrblk:
-            mv["hit_reaction"]      = hrblk[1]
+            mv["hit_reaction"] = hrblk[1]
             mv["hit_reaction_addr"] = hrblk[0] + HITREACTION_CODE_OFF
 
         mv["kb0"] = mv["kb1"] = mv["kb_traj"] = mv["knockback_addr"] = None
-        kbblk = pick_best_block(mv_abs, kb_blocks)
+        kbblk, kb_idx = pick_best_block_from_idx(mv_abs, kb_blocks, kb_idx)
         if kbblk:
             mv["kb0"], mv["kb1"], mv["kb_traj"] = kbblk[1]
             mv["knockback_addr"] = kbblk[0]
 
         mv["hitstun"] = mv["blockstun"] = mv["hitstop"] = mv["stun_addr"] = None
-        sblk = pick_best_block(mv_abs, stun_blocks)
+        sblk, stun_idx = pick_best_block_from_idx(mv_abs, stun_blocks, stun_idx)
         if sblk:
             mv["hitstun"], mv["blockstun"], mv["hitstop"] = sblk[1]
             mv["stun_addr"] = sblk[0]
@@ -786,11 +825,11 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                 pass
 
         total_frames = mv.get("speed") or 0x3C
-        a_end    = mv.get("active_end")
+        a_end = mv.get("active_end")
         recovery = max(0, total_frames - a_end) if a_end else 12
         hs = mv.get("hitstun") or 0
         bs = mv.get("blockstun") or 0
-        mv["adv_hit"]   = hs - recovery
+        mv["adv_hit"] = hs - recovery
         mv["adv_block"] = bs - recovery
 
         if aid is None:
@@ -800,7 +839,6 @@ def attach_move_fields(moves: List[Dict[str, Any]],
             if not name:
                 name = ANIM_MAP.get(aid & 0xFF)
             mv["move_name"] = name if name else f"anim_{aid:04X}"
-
 
 # ============================================================
 # Sorting helpers
