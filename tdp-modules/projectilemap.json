@@ -41,7 +41,8 @@
   "FRANK": [
     { "move": "Zombie Spree", "dmg": 2400 },
     { "move": "Zombie Attack", "dmg": 2400 },
-    { "move": "Zombie Fall", "dmg": 3200 }
+    { "move": "Zombie Fall", "dmg": 3200 },
+    { "move": "Real Megabuster", "dmg": 820 }
   ],
     "VOLNUTT": [
     { "move": "C", "dmg": 1280 },

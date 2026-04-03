@@ -205,6 +205,7 @@ def _read_slot_char_ids() -> dict[int, int]:
             b = rbytes(fighter_base + _CHAR_ID_OFF, 4)
             if b and len(b) == 4:
                 cid = struct.unpack(">I", b)[0]
+                print(f"[slot-char] slot={slot_idx} chr_tbl=0x{chr_tbl_base:08X} fighter=0x{fighter_base:08X} cid={cid}")
                 result[chr_tbl_base] = cid
         except Exception:
             pass
@@ -1037,7 +1038,7 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
                       slot_char_ids: dict[int, int] | None,
                       addr: int, dmg, fmt: str, dmg_write_addr: int,
                       cluster: str, extra: dict | None = None):
-    base = {
+    hit_base = {
         "addr": addr,
         "dmg": dmg,
         "fmt": fmt,
@@ -1046,26 +1047,28 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
         "cluster": cluster,
     }
     if extra:
-        base.update(extra)
+        hit_base.update(extra)
 
     # Prefer slot-owned character resolution first.
     if isinstance(dmg, int):
+        owner_base = _owning_chr_tbl(addr)
+        cid = slot_char_ids.get(owner_base) if (slot_char_ids and owner_base is not None) else None
         slot_key = _key_for_hit_addr(addr, slot_char_ids)
-        print(f"[super-attr] addr=0x{addr:08X} dmg={dmg} slot_key={slot_key}")
+        print(f"[super-attr] addr=0x{addr:08X} base={hex(owner_base) if owner_base else None} cid={cid} dmg={dmg} slot_key={slot_key}")
         if slot_key is not None:
             moves = char_damage_map.get(slot_key, {}).get(dmg, [])
             if moves:
                 for mv in moves:
-                    hits.append({**base, "key": slot_key, "move": mv})
+                    hits.append({**hit_base, "key": slot_key, "move": mv})
                 return
 
         # Fallback to the old global lookup if slot mapping is missing.
         if dmg in lookup:
             for key, mv in lookup[dmg]:
-                hits.append({**base, "key": key, "move": mv})
+                hits.append({**hit_base, "key": key, "move": mv})
             return
 
-    hits.append({**base, "key": "?", "move": "Super Struct Candidate"})
+    hits.append({**hit_base, "key": "?", "move": "Super Struct Candidate"})
 def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
                               lookup: dict, char_damage_map: dict,
                               slot_char_ids: dict[int, int] | None) -> None:
