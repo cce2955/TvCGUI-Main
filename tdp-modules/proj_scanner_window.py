@@ -563,7 +563,7 @@ def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict,
                 continue
 
             dmg = (data[idx + dmg_offset] << 8) | data[idx + dmg_offset + 1]
-            if dmg < 500 or dmg > 20000:
+            if dmg < 2 or dmg > 20000:
                 continue
 
             addr = base_addr + idx

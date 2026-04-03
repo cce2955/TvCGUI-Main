@@ -35,7 +35,8 @@
   "BATSU": [
     { "move": "Guts Bullet L", "dmg": 2848 },
     { "move": "Guts Bullet M", "dmg": 3076 },
-    { "move": "Guts Bullet H", "dmg": 3288 }
+    { "move": "Guts Bullet H", "dmg": 3288 },
+    { "move": "Super Guts Bullet", "dmg": 1120 }
   ],
 
   "FRANK": [
@@ -78,7 +79,7 @@
     { "move": "Grenade hit", "dmg": 400 },
     { "move": "Laser", "dmg": 560 },
     { "move": "Grenade", "dmg": 3200 },
-    { "move": "Super", "dmg": 1180},
+    { "move": "Positron Storm", "dmg": 1180},
     { "move": "Shell", "dmg": 10000},
     { "move": "Buck", "dmg": 960},
     { "move": "Pulse", "dmg": 480},
@@ -99,11 +100,12 @@
 
     { "move": "Blaster 1", "dmg": 1080 },
     { "move": "Blaster 2", "dmg": 3000 },
-    { "move": "Blaster 3", "dmg": 1150 }
+    { "move": "Blaster 3", "dmg": 1150 },
+    { "move": "Rekkoha", "dmg": 3060 }
   ],
  "CASSHAN": [
     { "move": "Boulder Chop", "dmg": 4004 },
-    { "move": "Brutal Ax", "dmg": 10005 },
+    { "move": "Brutal Ax", "dmg": 1440 },
 
     { "move": "Friender Call A", "dmg": 3600 },
     { "move": "Friender Call B", "dmg": 800 },
@@ -183,7 +185,8 @@
     { "move": "Tek Lancer", "dmg": 1620 },
     { "move": "Tek Lancer", "dmg": 1440 },
 
-    { "move": "Voltekka (Ground)", "dmg": 16696 },
+    { "move": "Voltekka (Ground)", "dmg": 1280 },
+    { "move": "Disco Ball", "dmg": 1760 },
     { "move": "Voltekka (Air)", "dmg": 17115 },
 
     { "move": "Super Spinning Tek Lancer", "dmg": 23000 }
@@ -215,8 +218,8 @@
     { "move": "Yattershock (Medium)", "dmg": 3137 },
     { "move": "Yattershock (Heavy)", "dmg": 3857 },
 
-    { "move": "Yatterwan Special Attack", "dmg": 14736 },
-    { "move": "Yatter Wan Flame", "dmg": 14736 }
+    { "move": "Yatterwan Special Attack", "dmg": 1520 },
+    { "move": "Yatter Wan Flame", "dmg": 1860 }
   ],
 
   "YATTER2": [
@@ -234,6 +237,9 @@
 
     { "move": "This Week's Surprise Robots (Base)", "dmg": 21745 },
     { "move": "This Week's Surprise Robots (Mashed)", "dmg": 45359 }
+  ], 
+  "KARAS": [
+    { "move": "Chain", "dmg": 800 }
   ],
   "LIGHTAN": [
  
