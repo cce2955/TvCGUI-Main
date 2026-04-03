@@ -847,75 +847,13 @@ def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
                          lookup: dict, seen_variants: set,
                          slot_char_ids: dict | None = None) -> None:
     """
-    Single-pass scan for canonical Zombie spawn blocks.
-    Emits one hit per unique (chr_tbl_base, variant) pair,
-    but only for slots where Frank West (char_id 30) is actually loaded.
-    If slot_char_ids is None or empty (offline/no live data), emits for all slots.
+    Disabled for now.
+
+    The raw Zombie Spree variant rows (v0x36..v0x3B) are useless in the GUI
+    and only add clutter. Frank zombie rows should come from the normal scan
+    paths plus the anchor logic, not from these synthetic variant rows.
     """
-    frank_only = bool(slot_char_ids)   # if we have live data, enforce the gate
-
-    pos = 0
-    while True:
-        idx = data.find(_ZOMBIE_BLOCK_SIG, pos)
-        if idx < 0:
-            break
-        pos = idx + 1
-
-        window_end   = min(idx + len(_ZOMBIE_BLOCK_SIG) + _ZOMBIE_INNER_LOOK, len(data))
-        inner_search = data[idx:window_end]
-        inner_idx    = inner_search.find(_ZOMBIE_INNER_SIG)
-        if inner_idx < 0:
-            continue
-
-        variant_off = idx + inner_idx + len(_ZOMBIE_INNER_SIG)
-        if variant_off >= len(data):
-            continue
-        variant = data[variant_off]
-
-        if not (_ZOMBIE_VARIANT_MIN <= variant <= _ZOMBIE_VARIANT_MAX):
-            continue
-
-        block_abs    = base_addr + idx
-        chr_tbl_base = _owning_chr_tbl(block_abs)
-        if chr_tbl_base is None:
-            continue
-
-        # Gate: only emit if this slot actually has Frank loaded.
-        if frank_only:
-            cid = slot_char_ids.get(chr_tbl_base)
-            if cid != FRANK_CHAR_ID:
-                continue
-
-        dedup_key = (chr_tbl_base, variant)
-        if dedup_key in seen_variants:
-            continue
-        seen_variants.add(dedup_key)
-
-        dmg_write = chr_tbl_base + _SCRIPT_DMG_OFFSETS.get(2400, 0x25E0)
-        dmg = 2400
-        if rbytes is not None:
-            try:
-                b = rbytes(dmg_write, 4)
-                if b and len(b) == 4:
-                    v = struct.unpack(">I", b)[0]
-                    if 1 <= v <= 20000:
-                        dmg = v
-            except Exception:
-                pass
-
-        move_label = _ZOMBIE_VARIANT_NAMES.get(variant, f"Zombie Spree (v0x{variant:02X})")
-
-        hits.append({
-            "addr":           block_abs,
-            "key":            "FRANK",
-            "move":           move_label,
-            "dmg":            dmg,
-            "fmt":            "zombie_block",
-            "dmg_write_addr": dmg_write,
-            **_OPCODE_HIT_FIELDS,
-            "cluster": f"zombie v0x{variant:02X} @ 0x{chr_tbl_base:08X}",
-        })
-
+    return
 
 # ---------------------------------------------------------------------------
 # Main scan thread
