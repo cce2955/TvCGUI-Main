@@ -243,17 +243,26 @@
   ],
   "LIGHTAN": [
  
-    { "move": "Gold Quake (Light)", "dmg": 8120 },
-    { "move": "Gold Quake (Medium)", "dmg": 9300 },
-    { "move": "Gold Quake (Heavy)", "dmg": 10280 }
+    { "move": "Gold Quake (Light)", "dmg": 2800 },
+    { "move": "Gold Quake (Medium)", "dmg": 3600 },
+    { "move": "Gold Quake (Heavy)", "dmg": 4200 },
+    { "move": "Tank Slice L", "dmg": 3120 },
+    { "move": "Tank Slice M", "dmg": 3360 },
+    { "move": "Tank Slice H", "dmg": 3600 },
+    { "move": "Battleship L", "dmg": 4800 },
+    { "move": "Battleship M", "dmg": 5600 },
+    { "move": "Battleship H", "dmg": 6400 }
   ],
   "PTX": [
     { "move": "Missle", "dmg": 1040 },
-    { "move": "Missle", "dmg": 7223} ,
+    { "move": "Missile", "dmg": 7223} ,
     { "move": "Gatling", "dmg": 800}, 
     { "move": "Gatling", "dmg": 1600},
     { "move": "Gatling", "dmg": 5557},
+    { "move": "Shotgun", "dmg": 800},
     { "move": "Shotgun", "dmg": 2080},
-    { "move": "Shotgun", "dmg": 7695}
+    { "move": "Shotgun", "dmg": 7695},
+    { "move": "Tactical Calibe", "dmg": 2400}
+    
   ]
 }
