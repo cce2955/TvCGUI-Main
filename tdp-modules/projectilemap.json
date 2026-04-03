@@ -233,7 +233,7 @@
 
     { "move": "Super Passion (Level 1)", "dmg": 1200 },
     { "move": "Super Passion (Level 2)", "dmg": 1500 },
-    { "move": "Super Passion (Level 3)", "dmg": 3200 },
+    { "move": "Super Passion (Level 3)", "dmg": 1600 },
 
     { "move": "This Week's Surprise Robots (Base)", "dmg": 21745 },
     { "move": "This Week's Surprise Robots (Mashed)", "dmg": 45359 }
