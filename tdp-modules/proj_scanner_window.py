@@ -13,8 +13,10 @@ SUPER_VERIFY_A   = b"\x00\x00\x04\x00\x00\x00\xFF\xFF\xFF\xFF"
 SUPER_VERIFY_B   = b"\x3F\x80\x00\x00"
 SUPER_VERIFY_LOOK = 0x120
 _SUPER_STRUCT_DMG_OFF = 0x09
+
 # Shinkuu / super-card experimental offsets from local base
 _SUPER_EX_OFFSETS = {
+    "ex03c": 0x03C,
     "ex060": 0x060,
     "ex090": 0x090,
     "ex094": 0x094,
@@ -22,6 +24,8 @@ _SUPER_EX_OFFSETS = {
     "ex0d4": 0x0D4,
     "ex0e4": 0x0E4,
 }
+
+
 # ---------------------------------------------------------------------------
 # Scan parameters
 # ---------------------------------------------------------------------------
@@ -546,7 +550,7 @@ _OPCODE_HIT_FIELDS = {
     "u04": "?", "u05": "?", "u06": "?",
     "u07": "?", "u08": "?", "u09": "?",
     "cluster": "script",
-    "ex060": "?", "ex090": "?", "ex094": "?",
+    "ex03c": "?", "ex060": "?", "ex090": "?", "ex094": "?",
     "ex09c": "?", "ex0d4": "?", "ex0e4": "?",
 }
 
@@ -1061,7 +1065,9 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
         hit_base.update(extra)
     if fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
         ex_base = _super_ex_base(addr, fmt)
+        ex03c = _read_f32(ex_base + _SUPER_EX_OFFSETS["ex03c"])
         hit_base.update({
+            "ex03c": ex03c,
             "ex060": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex060"]),
             "ex090": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex090"]),
             "ex094": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex094"]),
@@ -1069,7 +1075,9 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
             "ex0d4": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex0d4"]),
             "ex0e4": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex0e4"]),
         })
+        hit_base["hitbox"] = ex03c
 
+    # Prefer slot-owned character resolution first.
     # Prefer slot-owned character resolution first.
     if isinstance(dmg, int):
         owner_base = _owning_chr_tbl(addr)
@@ -1324,6 +1332,7 @@ _COLS = [
     ("spawn_y",  "Spawn Y",   "spawn_y",  True),
     ("hitbox",   "Hitbox",    "hitbox",   True),
     ("type",     "Type",      "type",     False),
+    ("ex03c",    "EX 03C",    "ex03c",    True),
     ("ex060",    "EX 060",    "ex060",    True),
     ("ex090",    "EX 090",    "ex090",    True),
     ("ex094",    "EX 094",    "ex094",    True),
@@ -1512,6 +1521,7 @@ class ProjScannerWindow:
                     h["arc"], h["arc2"],
                     h.get("spawn_x", "?"), h.get("spawn_y", "?"), h["hitbox"],
                     type_str,
+                    h.get("ex03c", "?"),
                     h.get("ex060", "?"),
                     h.get("ex090", "?"),
                     h.get("ex094", "?"),
@@ -1584,6 +1594,10 @@ class ProjScannerWindow:
 
             elif move_name == "Zombie Attack" and fkey == "spawn_x":
                 field_addr = addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X
+                field_label = header
+            elif fkey == "hitbox" and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2"):
+                ex_base = _super_ex_base(addr, self._fmt_for_iid(iid))
+                field_addr = ex_base + _SUPER_EX_OFFSETS["ex03c"]
                 field_label = header
             elif fkey in _SUPER_EX_OFFSETS and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2"):
                 ex_base = _super_ex_base(addr, self._fmt_for_iid(iid))
@@ -1664,8 +1678,12 @@ class ProjScannerWindow:
             write_addr = addr + _FRANK_ZOMBIE_FALL_SPAWN_Y_OFF
         elif move_name == "Zombie Attack" and fkey == "speed":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
+        elif fkey == "hitbox" and fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
+            ex_base = _super_ex_base(addr, fmt)
+            write_addr = ex_base + _SUPER_EX_OFFSETS["ex03c"]
         elif fkey in _SUPER_EX_OFFSETS and fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
-            write_addr = addr + _SUPER_EX_OFFSETS[fkey]    
+            ex_base = _super_ex_base(addr, fmt)
+            write_addr = ex_base + _SUPER_EX_OFFSETS[fkey]
         elif move_name == "Zombie Attack" and fkey == "accel":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_ACCEL_A
 
