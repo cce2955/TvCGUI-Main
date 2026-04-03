@@ -13,6 +13,7 @@ SUPER_VERIFY_A   = b"\x00\x00\x04\x00\x00\x00\xFF\xFF\xFF\xFF"
 SUPER_VERIFY_B   = b"\x3F\x80\x00\x00"
 SUPER_VERIFY_LOOK = 0x120
 _SUPER_STRUCT_DMG_OFF = 0x09
+
 # ---------------------------------------------------------------------------
 # Scan parameters
 # ---------------------------------------------------------------------------
@@ -266,9 +267,9 @@ def _validate_template(data: bytes, base_off: int) -> bool:
     base_off is the offset within `data` of the record base
     (the 00 00 XX YY word, i.e. 4 bytes before the _SUFFIX match).
 
-    Checks:
+    Relaxed checks:
       1. u16 @ +0x42 == 10
-      2. f32 @ +0x84 == 1.0
+      2. f32 @ +0x84 == 1.0 OR 0.75
       3. f32 @ +0x8C == 100.0
       4. u16 @ +0x6E == 1024
       5. u32 @ +0x08 is a known discriminator (0xFFFFFFFF, 0, or 1)
@@ -295,21 +296,27 @@ def _validate_template(data: bytes, base_off: int) -> bool:
 
     if u16(_VALID_C042) != 10:
         return False
+
     accel = f32(_VALID_ACCEL)
-    if accel is None or abs(accel - 1.0) > 1e-4:
+    if accel is None:
         return False
+    if not (abs(accel - 1.0) <= 1e-4 or abs(accel - 0.75) <= 1e-4):
+        return False
+
     hb = f32(_VALID_HITBOX)
     if hb is None or abs(hb - 100.0) > 0.1:
         return False
+
     if u16(_VALID_HBSIZE) != 1024:
         return False
+
     disc = u32(_DISCRIMINATOR)
     if disc not in (0xFFFFFFFF, 0x00000000, 0x00000001):
         return False
 
     return True
 
-
+    
 # ---------------------------------------------------------------------------
 # Clustering helpers
 #
@@ -494,9 +501,7 @@ _OPCODE_HIT_FIELDS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Opcode-scan pass  (05 2B and any future SCRIPT_OPCODES entries)
-# ---------------------------------------------------------------------------
+
 # ---------------------------------------------------------------------------
 # Opcode-scan pass  (05 2B and any future SCRIPT_OPCODES entries)
 # ---------------------------------------------------------------------------
@@ -562,9 +567,63 @@ def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict,
 # ---------------------------------------------------------------------------
 # Suffix-scan pass  (template / template2 / script(0xNN))
 # ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-# Suffix-scan pass  (template / template2 / script(0xNN))
-# ---------------------------------------------------------------------------
+def _is_super_like_block(data: bytes, base_off: int) -> bool:
+    """
+    Permissive secondary filter for super/script-like blocks.
+    This does NOT try to enforce the normal projectile template rules.
+    """
+    end = len(data)
+
+    def u16(off: int) -> int | None:
+        o = base_off + off
+        if o + 2 > end:
+            return None
+        return struct.unpack_from(">H", data, o)[0]
+
+    def u32(off: int) -> int | None:
+        o = base_off + off
+        if o + 4 > end:
+            return None
+        return struct.unpack_from(">I", data, o)[0]
+
+    def f32(off: int) -> float | None:
+        o = base_off + off
+        if o + 4 > end:
+            return None
+        return struct.unpack_from(">f", data, o)[0]
+
+    disc = u32(_DISCRIMINATOR)
+    if disc is None:
+        return False
+
+    # Let the regular template/template2 path own those.
+    if disc in (0xFFFFFFFF, 0x00000000, 0x00000001):
+        return False
+
+    dmg = u16(0x02)
+    if dmg is None or not (500 <= dmg <= 20000):
+        return False
+
+    plausible = 0
+
+    hb = f32(_VALID_HITBOX)
+    if hb is not None and 0.0 <= hb <= 300.0:
+        plausible += 1
+
+    accel = f32(_VALID_ACCEL)
+    if accel is not None and -10.0 <= accel <= 10.0:
+        plausible += 1
+
+    hb_size = u16(_VALID_HBSIZE)
+    if hb_size is not None and 0 <= hb_size <= 4096:
+        plausible += 1
+
+    c042 = u16(_VALID_C042)
+    if c042 is not None and 0 <= c042 <= 64:
+        plausible += 1
+
+    return plausible >= 2
+
 def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                          lookup: dict, id_map: dict,
                          slot_char_ids: dict | None = None) -> None:
@@ -581,48 +640,60 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
         if idx < 4:
             continue
 
-        c = data[idx - 4:idx]          # the 4 bytes before _SUFFIX  (00 00 XX YY)
-        if c[1]:                        # byte 1 must be 0x00
+        c = data[idx - 4:idx]
+        if c[1]:
             continue
+
         dmg = (c[2] << 8) | c[3]
         if not dmg:
             continue
 
-        base_off = idx - 4             # offset of record base within `data`
-
-        # ── Validation gate ────────────────────────────────────────────────
-        # Only apply to template/template2 candidates (discriminator check is
-        # part of _validate_template so we can use it to gate both fmt and
-        # field reads in one pass).
-        after4 = data[idx + 4:idx + 8] if idx + 8 <= len(data) else b''
-        fmt    = _classify_discriminator(after4)
-
-        if fmt in ("template", "template2"):
-            if not _validate_template(data, base_off):
-                continue   # ← false positive eliminated
-
+        base_off = idx - 4
         a = base_addr + base_off
 
-        pre8     = data[idx - 8:idx - 4] if idx >= 8 else b''
+        after4 = data[idx + 4:idx + 8] if idx + 8 <= len(data) else b""
+        fmt = _classify_discriminator(after4)
+
+        is_template_ok = False
+        is_super_ok = False
+
+        if fmt in ("template", "template2"):
+            ok = _validate_template(data, base_off)
+            if not ok:
+                print(f"[gate] reject @ 0x{a:08X} fmt={fmt}")
+                print(f"  +0x42={struct.unpack_from('>H', data, base_off + 0x42)[0] if base_off + 0x44 <= len(data) else 'OOB'}")
+                print(f"  +0x6E={struct.unpack_from('>H', data, base_off + 0x6E)[0] if base_off + 0x70 <= len(data) else 'OOB'}")
+                print(f"  +0x84={struct.unpack_from('>f', data, base_off + 0x84)[0] if base_off + 0x88 <= len(data) else 'OOB'}")
+                print(f"  +0x8C={struct.unpack_from('>f', data, base_off + 0x8C)[0] if base_off + 0x90 <= len(data) else 'OOB'}")
+                print(f"  +0x08=0x{struct.unpack_from('>I', data, base_off + 0x08)[0]:08X}" if base_off + 0x0C <= len(data) else "  +0x08=OOB")
+                continue
+            is_template_ok = True
+        else:
+            # New parallel permissive path for supers / script-like blocks
+            if _owning_chr_tbl(a) is not None and _is_super_like_block(data, base_off):
+                is_super_ok = True
+                fmt = "super_like"
+            else:
+                continue
+
+        pre8 = data[idx - 8:idx - 4] if idx >= 8 else b""
         sig_keys = _keys_for_block(c, pre8)
 
-        # Only template/template2 get full field reads; script variants
-        # keep "?" for structural fields.
-        if fmt in ("template", "template2"):
+        if is_template_ok:
             fields = {
                 "radius":   _read_f32(a + FIELD_OFFSETS["radius"]),
                 "kb_x":     _read_f32(a + FIELD_OFFSETS["kb_x"]),
                 "kb_y":     _read_f32(a + FIELD_OFFSETS["kb_y"]),
-                "type":     _read_u8(a  + FIELD_OFFSETS["type"]),    # u8, corrected offset
+                "type":     _read_u8(a  + FIELD_OFFSETS["type"]),
                 "id":       _read_u16(a + FIELD_OFFSETS["id"]),
-                "lifetime": _read_u8(a  + FIELD_OFFSETS["lifetime"]), # u8, corrected offset
+                "lifetime": _read_u8(a  + FIELD_OFFSETS["lifetime"]),
                 "hb_size":  _read_u16(a + FIELD_OFFSETS["hb_size"]),
                 "speed":    _read_f32(a + FIELD_OFFSETS["speed"]),
                 "accel":    _read_f32(a + FIELD_OFFSETS["accel"]),
                 "hitbox":   _read_f32(a + FIELD_OFFSETS["hitbox"]),
                 "arc":      _read_f32(a + FIELD_OFFSETS["arc"]),
                 "arc2":     _read_f32(a + FIELD_OFFSETS["arc2"]),
-                          "vel2_x":   _read_f32(a + FIELD_OFFSETS["vel2_x"]),
+                "vel2_x":   _read_f32(a + FIELD_OFFSETS["vel2_x"]),
                 "vel2_y":   _read_f32(a + FIELD_OFFSETS["vel2_y"]),
                 "vel2_s":   _read_f32(a + FIELD_OFFSETS["vel2_s"]),
                 "u01":      _read_f32(a + FIELD_OFFSETS["u01"]),
@@ -634,14 +705,22 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                 "u07":      _read_u16(a + FIELD_OFFSETS["u07"]),
                 "u08":      _read_u16(a + FIELD_OFFSETS["u08"]),
                 "u09":      _read_u16(a + FIELD_OFFSETS["u09"]),
-                # opcode-context columns N/A for suffix-scan hits
                 "preA": "?", "preB": "?",
                 "opcode": "?", "param1": "?", "param2": "?", "param3": "?",
                 "f32_1": "?", "f32_2": "?", "f32_3": "?",
-                "cluster": "",  # filled in by _annotate_clusters after scan
+                "cluster": "",
             }
         else:
-            fields = {**_OPCODE_HIT_FIELDS, "cluster": "script"}
+            # super_like path: do not force all projectile fields to mean anything
+            fields = {
+                **_OPCODE_HIT_FIELDS,
+                "speed":  _read_f32(a + FIELD_OFFSETS["speed"]),
+                "accel":  _read_f32(a + FIELD_OFFSETS["accel"]),
+                "hitbox": _read_f32(a + FIELD_OFFSETS["hitbox"]),
+                "type":   _read_u8(a + FIELD_OFFSETS["type"]),
+                "id":     _read_u16(a + FIELD_OFFSETS["id"]),
+                "cluster": "super_like",
+            }
 
         if dmg in lookup:
             matches = lookup[dmg]
@@ -667,20 +746,26 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                     and not _is_frank_zombie_fall_label(mv)
                 ):
                     continue
-                hits.append({"addr": a, "key": key, "move": mv,
-                             "dmg": dmg, "fmt": fmt,
-                             "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
-                             **fields})
+                hits.append({
+                    "addr": a,
+                    "key": key,
+                    "move": mv,
+                    "dmg": dmg,
+                    "fmt": fmt,
+                    "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
+                    **fields
+                })
 
         elif dmg >= 500:
-            # Unknown — cluster label (filled by _annotate_clusters) gives
-            # the proj-ID family so the user can attribute it manually.
-            hits.append({"addr": a, "key": "?", "move": "Unknown",
-                         "dmg": dmg, "fmt": fmt,
-                         "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
-                         **fields})
-
-
+            hits.append({
+                "addr": a,
+                "key": "?",
+                "move": "Unknown",
+                "dmg": dmg,
+                "fmt": fmt,
+                "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
+                **fields
+            })
 # ---------------------------------------------------------------------------
 # Zombie canonical block scanner
 #
@@ -738,11 +823,10 @@ _FRANK_ZOMBIE_FALL_SPAWN_Y_OFF = 0xA6
 # Using tight bounds prevents cross-slot false positives.
 _CHR_TBL_RANGES = [
     (0x90896640, 0x90896640, 0x908C94C0 + 0x2000),   # slot 0
-    (0x908F1920, 0x908F1920, 0x9092B634 + 0x2000),   # slot 1 — Frank
-    (0x909478E0, 0x909478E0, 0x9097E310 + 0x2000),   # slot 2
+    (0x908F1920, 0x908F1920, 0x9092B634 + 0x2000),   # slot 1
+    (0x909478E0, 0x909478E0, 0x909BE310 + 0x2000),   # slot 2
     (0x9099D9C0, 0x9099D9C0, 0x909DECAC + 0x2000),   # slot 3
 ]
-
 
 def _owning_chr_tbl(addr: int) -> int | None:
     """Return the chr_tbl_base for the slot that owns addr, using tight bounds."""
@@ -890,11 +974,7 @@ def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
     """
     return
 def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
-    """
-    Agnostic structural scan for super-like blocks.
-    This only finds candidate blocks and emits placeholder rows.
-    It does not assume character or move yet.
-    """
+    # ── Pass 1: original sig  00 00 0C 00 00 00 23 00 ─────────────────────
     pos = 0
     while True:
         idx = data.find(SUPER_STRUCT_SIG, pos)
@@ -903,6 +983,14 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
         pos = idx + 1
 
         block_addr = base_addr + idx
+        if _owning_chr_tbl(block_addr) is None:
+            continue
+
+        window_end = min(idx + SUPER_VERIFY_LOOK, len(data))
+        window = data[idx:window_end]
+        if not (SUPER_VERIFY_A in window or SUPER_VERIFY_B in window):
+            continue
+
         dmg_addr = block_addr + _SUPER_STRUCT_DMG_OFF
         dmg = "?"
         if rbytes is not None:
@@ -912,16 +1000,6 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
                     dmg = (b[0] << 8) | b[1]
             except Exception:
                 pass
-
-        window_end = min(idx + SUPER_VERIFY_LOOK, len(data))
-        window = data[idx:window_end]
-
-        has_a = SUPER_VERIFY_A in window
-        has_b = SUPER_VERIFY_B in window
-        print(f"[super] anchor @ 0x{block_addr:08X} has_a={has_a} has_b={has_b}")
-
-        if not (has_a or has_b):
-            continue
 
         hits.append({
             "addr": block_addr,
@@ -933,6 +1011,76 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list) -> None:
             **_OPCODE_HIT_FIELDS,
             "cluster": f"super struct @ 0x{block_addr:08X}",
         })
+
+    # ── Pass 2: wildcard sig  ?? 23 00 00 00 [dmg hi] [dmg lo] 00 00 00 00
+    pos = 0
+    while True:
+        idx = data.find(b"\x23\x00\x00\x00", pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+
+        block_addr = base_addr + idx
+        if _owning_chr_tbl(block_addr) is None:
+            continue
+
+        dmg_off = idx + 4
+        if dmg_off + 6 > len(data):
+            continue
+
+        dmg = (data[dmg_off] << 8) | data[dmg_off + 1]
+        if not (500 <= dmg <= 20000):
+            continue
+
+        if data[dmg_off + 2 : dmg_off + 6] != b"\x00\x00\x00\x00":
+            continue
+
+        dmg_addr = base_addr + dmg_off
+
+        hits.append({
+            "addr": block_addr,
+            "key": "?",
+            "move": "Super Struct Candidate",
+            "dmg": dmg,
+            "fmt": "super_struct",
+            "dmg_write_addr": dmg_addr,
+            **_OPCODE_HIT_FIELDS,
+            "cluster": f"super struct2 @ 0x{block_addr:08X}",
+        })
+
+    # ── Pass 3: alt card  01 23 00 00 [dmg hi] [dmg lo]
+    pos = 0
+    while True:
+        idx = data.find(b"\x01\x23\x00\x00", pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+
+        block_addr = base_addr + idx
+        if _owning_chr_tbl(block_addr) is None:
+            continue
+        if idx + 8 > len(data):
+            continue
+
+        dmg = (data[idx + 4] << 8) | data[idx + 5]
+        if not (500 <= dmg <= 20000):
+            continue
+
+        hits.append({
+            "addr": block_addr,
+            "key": "?",
+            "move": "Super Struct Candidate",
+            "dmg": dmg,
+            "fmt": "super_struct_card",
+            "dmg_write_addr": base_addr + idx + 4,
+            **_OPCODE_HIT_FIELDS,
+            "opcode": _read_u16_hex(block_addr),
+            "param1": _read_u16_hex(block_addr + 2),
+            "param2": _read_u16_hex(block_addr + 4),
+            "param3": _read_u16_hex(block_addr + 6),
+            "cluster": f"super card @ 0x{block_addr:08X}",
+        })
+ 
 def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
     if rbytes is None:
         done_cb([]); return
@@ -983,9 +1131,12 @@ def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
 def _dump_hits(hits: list, context: int = 0x100):
     if rbytes is None or not hits:
         return
+    super_hits = [h for h in hits if h.get("fmt") in ("super_struct", "super_struct_card")]
+    if not super_hits:
+        return
     try:
         with open("proj_dump.bin", "wb") as f:
-            for h in hits:
+            for h in super_hits:
                 base = max(h["addr"] - context, SCAN_START)
                 size = min(context * 2, SCAN_END - base)
                 try:
@@ -996,11 +1147,9 @@ def _dump_hits(hits: list, context: int = 0x100):
                 f.write(h["addr"].to_bytes(4, "big"))
                 f.write(len(data).to_bytes(4, "big"))
                 f.write(data)
-        print(f"[proj_scanner] dumped {len(hits)} context block(s) to proj_dump.bin")
+        print(f"[proj_scanner] dumped {len(super_hits)} super_struct hit(s) to proj_dump.bin")
     except Exception as e:
         print(f"[proj_scanner] dump failed: {e}")
-
-
 # ---------------------------------------------------------------------------
 # Column definitions
 # kb_x / kb_y replace aerial_kb_x / aerial_kb_y
@@ -1440,7 +1589,7 @@ class ProjScannerWindow:
                 resolved = self._dmg_write_by_iid.get(iid)
                 fallback = addr + _dmg_write_offset(fmt)
 
-                if fmt == "super_struct" and resolved is not None:
+                if fmt in ("super_struct", "super_struct_card") and resolved is not None:
                     if not (0 <= ival <= 0xFFFF):
                         messagebox.showerror("Out of range", "Damage must be 0–65535.",
                                             parent=self.root)
