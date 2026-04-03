@@ -104,7 +104,7 @@
     { "move": "Rekkoha", "dmg": 3060 }
   ],
  "CASSHAN": [
-    { "move": "Boulder Chop", "dmg": 4004 },
+    { "move": "Boulder Chop", "dmg": 1040 },
     { "move": "Brutal Ax", "dmg": 1440 },
 
     { "move": "Friender Call A", "dmg": 3600 },
