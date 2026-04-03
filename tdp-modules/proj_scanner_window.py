@@ -116,13 +116,13 @@ _NAME_TO_KEY = {
 CHAR_SIGS = {
     "KEN": [b"\x00\x00\x00\x09"],
     "RYU": [b"\x00\x04\x01\x02"],
-    "JUN": [b"\x00\x04\x00\x82", b"\x00\x00\x01\x0C"],
+    
 }
 
 CHAR_SIG_OFFSETS = {
     "KEN": "pre",
     "RYU": "c",
-    "JUN": "c",
+    
 }
 
 _SIG_C_TO_KEYS:   dict[bytes, list[str]] = {}
@@ -275,18 +275,7 @@ def _classify_discriminator(after4: bytes) -> str:
 # All five conditions from the notes must hold before any field is trusted.
 # Returns True only if the record passes every check.
 # ---------------------------------------------------------------------------
-def _validate_template(data: bytes, base_off: int) -> bool:
-    """
-    base_off is the offset within `data` of the record base
-    (the 00 00 XX YY word, i.e. 4 bytes before the _SUFFIX match).
-
-    Relaxed checks:
-      1. u16 @ +0x42 == 10
-      2. f32 @ +0x84 == 1.0 OR 0.75
-      3. f32 @ +0x8C == 100.0
-      4. u16 @ +0x6E == 1024
-      5. u32 @ +0x08 is a known discriminator (0xFFFFFFFF, 0, or 1)
-    """
+def _validate_template(data: bytes, base_off: int, relaxed: bool = False) -> bool:
     end = len(data)
 
     def u16(off: int) -> int | None:
@@ -307,29 +296,33 @@ def _validate_template(data: bytes, base_off: int) -> bool:
             return None
         return struct.unpack_from(">f", data, o)[0]
 
-    if u16(_VALID_C042) != 10:
+    if not relaxed and u16(_VALID_C042) != 10:
         return False
 
     accel = f32(_VALID_ACCEL)
     if accel is None:
         return False
-    if not (abs(accel - 1.0) <= 1e-4 or abs(accel - 0.75) <= 1e-4):
-        return False
+    if not relaxed:
+        if not (abs(accel - 1.0) <= 1e-4 or abs(accel - 0.75) <= 1e-4):
+            return False
+    else:
+        if not (-100.0 <= accel <= 100.0):
+            return False
 
     hb = f32(_VALID_HITBOX)
-    if hb is None or abs(hb - 100.0) > 0.1:
+    if hb is None:
+        return False
+    if not relaxed and abs(hb - 100.0) > 0.1:
         return False
 
-    if u16(_VALID_HBSIZE) != 1024:
+    if not relaxed and u16(_VALID_HBSIZE) != 1024:
         return False
 
     disc = u32(_DISCRIMINATOR)
     if disc not in (0xFFFFFFFF, 0x00000000, 0x00000001):
         return False
 
-    return True
-
-    
+    return True    
 # ---------------------------------------------------------------------------
 # Clustering helpers
 #
@@ -593,6 +586,11 @@ def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict,
                 "f32_2":  _read_f32(addr + 12),
                 "f32_3":  _read_f32(addr + 16),
             }
+            c_word = b""
+            if addr >= base_addr + 4:
+                c_word = data[idx - 4:idx]
+            pre_word = data[idx - 8:idx - 4] if idx >= 8 else b""
+            sig_keys = _keys_for_block(c_word, pre_word)
 
             base_hit = {
                 "addr": addr,
@@ -603,8 +601,31 @@ def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict,
                 **extra,
             }
 
+            slot_key = _key_for_hit_addr(addr, slot_char_ids)
+
+            if slot_key is not None:
+                slot_matches = [(k, mv) for k, mv in lookup.get(dmg, []) if k == slot_key]
+                if slot_matches:
+                    for key, mv in slot_matches:
+                        if (
+                            key == "FRANK"
+                            and "zombie" in str(mv).lower()
+                            and _owning_chr_tbl(addr) in frank_bases
+                            and not _is_frank_zombie_fall_label(mv)
+                        ):
+                            continue
+                        hits.append({**base_hit, "key": key, "move": mv})
+                    continue
+
             if dmg in lookup:
-                for key, mv in lookup[dmg]:
+                matches = lookup[dmg]
+
+                if sig_keys:
+                    sig_matches = [(k, mv) for k, mv in matches if k in sig_keys]
+                    if sig_matches:
+                        matches = sig_matches
+
+                for key, mv in matches:
                     if (
                         key == "FRANK"
                         and "zombie" in str(mv).lower()
@@ -613,9 +634,11 @@ def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict,
                     ):
                         continue
                     hits.append({**base_hit, "key": key, "move": mv})
+            elif sig_keys and dmg >= 1:
+                for key in sig_keys:
+                    hits.append({**base_hit, "key": key, "move": "Signature Match"})
             else:
                 hits.append({**base_hit, "key": "?", "move": "Unknown"})
-
 
 # ---------------------------------------------------------------------------
 # Suffix-scan pass  (template / template2 / script(0xNN))
@@ -694,8 +717,8 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
             continue
 
         c = data[idx - 4:idx]
-        if c[1]:
-            continue
+        pre8 = data[idx - 8:idx - 4] if idx >= 8 else b""
+        sig_keys = _keys_for_block(c, pre8)
 
         dmg = (c[2] << 8) | c[3]
         if not dmg:
@@ -711,15 +734,11 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
         is_super_ok = False
 
         if fmt in ("template", "template2"):
-            ok = _validate_template(data, base_off)
-            if not ok:
-                print(f"[gate] reject @ 0x{a:08X} fmt={fmt}")
-                print(f"  +0x42={struct.unpack_from('>H', data, base_off + 0x42)[0] if base_off + 0x44 <= len(data) else 'OOB'}")
-                print(f"  +0x6E={struct.unpack_from('>H', data, base_off + 0x6E)[0] if base_off + 0x70 <= len(data) else 'OOB'}")
-                print(f"  +0x84={struct.unpack_from('>f', data, base_off + 0x84)[0] if base_off + 0x88 <= len(data) else 'OOB'}")
-                print(f"  +0x8C={struct.unpack_from('>f', data, base_off + 0x8C)[0] if base_off + 0x90 <= len(data) else 'OOB'}")
-                print(f"  +0x08=0x{struct.unpack_from('>I', data, base_off + 0x08)[0]:08X}" if base_off + 0x0C <= len(data) else "  +0x08=OOB")
-                continue
+            slot_owned = _owning_chr_tbl(a) is not None
+            if not slot_owned:
+                ok = _validate_template(data, base_off)
+                if not ok:
+                    continue
             is_template_ok = True
         else:
             # New parallel permissive path for supers / script-like blocks
@@ -729,8 +748,6 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
             else:
                 continue
 
-        pre8 = data[idx - 8:idx - 4] if idx >= 8 else b""
-        sig_keys = _keys_for_block(c, pre8)
 
         if is_template_ok:
             fields = {
@@ -775,8 +792,55 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                 "cluster": "super_like",
             }
 
+        slot_key = _key_for_hit_addr(a, slot_char_ids)
+
+        if slot_key is not None:
+            slot_matches = [(k, mv) for k, mv in lookup.get(dmg, []) if k == slot_key]
+            if slot_matches:
+                matches = slot_matches
+
+                if len({k for k, _ in matches}) > 1:
+                    proj_id = fields.get("id")
+                    try:
+                        pid_int = int(proj_id)
+                    except (TypeError, ValueError):
+                        pid_int = None
+                    if pid_int is not None:
+                        id_matches = [
+                            (k, mv) for k, mv in matches
+                            if id_map.get(k, {}).get(mv) == pid_int
+                        ]
+                        if id_matches:
+                            matches = id_matches
+
+                for key, mv in matches:
+                    if (
+                        key == "FRANK"
+                        and "zombie" in str(mv).lower()
+                        and _owning_chr_tbl(a) in frank_bases
+                        and not _is_frank_zombie_fall_label(mv)
+                    ):
+                        continue
+                    hits.append({
+                        "addr": a,
+                        "key": key,
+                        "move": mv,
+                        "dmg": dmg,
+                        "fmt": fmt,
+                        "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
+                        **fields
+                    })
+                continue
+        is_slot_owned = _owning_chr_tbl(a) is not None
+        ok = _validate_template(data, base_off, relaxed=is_slot_owned)
         if dmg in lookup:
             matches = lookup[dmg]
+
+            if sig_keys:
+                sig_matches = [(k, mv) for k, mv in matches if k in sig_keys]
+                if sig_matches:
+                    matches = sig_matches
+
             if len({k for k, _ in matches}) > 1:
                 proj_id = fields.get("id")
                 try:
@@ -803,6 +867,18 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                     "addr": a,
                     "key": key,
                     "move": mv,
+                    "dmg": dmg,
+                    "fmt": fmt,
+                    "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
+                    **fields
+                })
+
+        elif sig_keys and dmg >= 1:
+            for key in sig_keys:
+                hits.append({
+                    "addr": a,
+                    "key": key,
+                    "move": "Signature Match",
                     "dmg": dmg,
                     "fmt": fmt,
                     "dmg_write_addr": _resolve_script_dmg_addr(a, dmg) or (a + 2),
