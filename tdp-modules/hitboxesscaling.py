@@ -288,7 +288,7 @@ DISPLAY = DisplayConfig(
     zoom=1.0,
     center_y_offset_px=0,
     max_radius_units=8.0,
-    fps=60,
+    fps=30,
     show_debug_axes=False,
 )
 
@@ -317,6 +317,12 @@ COL_DIM     = (120, 120, 120)
 COL_BG      = (0, 0, 0)
 COL_DEBUG   = (0, 255, 0)
 COL_PROJ    = (100, 220, 255)   # cyan for projectiles
+
+SHOW_HITBOX_LABELS = False
+SHOW_PROJECTILE_LABELS = False
+
+
+
 
 
 # ----------------------------
@@ -837,7 +843,7 @@ class Overlay:
             pygame.draw.line(cross_s, (*cross_col, 190), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
             self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
 
-        if rpx >= 12 and self.font_small is not None:
+        if SHOW_HITBOX_LABELS and rpx >= 12 and self.font_small is not None:
             txt = self.font_small.render(label, True, color[:3])
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
@@ -874,7 +880,7 @@ class Overlay:
         )
         self.screen.blit(dia_s, (sx - d - 1, sy - d - 1))
 
-        if rpx >= 10 and self.font_small is not None:
+        if SHOW_PROJECTILE_LABELS and rpx >= 10 and self.font_small is not None:
             txt = self.font_small.render(f"{label} r={r:.2f}", True, (*color[:3], 150))
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
