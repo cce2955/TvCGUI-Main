@@ -982,6 +982,8 @@ def main():
     special_restore_addr = None
     special_restore_ts = 0.0
     special_restore_orig = 0
+    # Start HUD overlay by default on launch
+    _launch_hud_overlay()
 
     # -----------------------------------------------------------------------
     # Main loop
