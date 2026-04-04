@@ -57,7 +57,7 @@ _slot_move_state: Dict[str, dict] = {}
 # TvC runs at 30fps internally; overlay runs at 60fps.
 # Frame counts from scan_normals are in 30fps ticks.
 # We divide our internal counter by 2 when comparing.
-OVERLAY_FPS_DIVISOR = 2
+OVERLAY_FPS_DIVISOR = 1
 
 
 def _read_hud_data() -> Dict[str, dict]:
@@ -81,7 +81,7 @@ def _update_move_state(slot_label: str, hud_data: dict) -> dict:
 
     state = _slot_move_state.get(slot_label)
 
-    if state is None or cur_id != state.get("move_id"):
+    if state is None:
         state = {
             "move_id": cur_id,
             "frame": 0,
@@ -90,25 +90,46 @@ def _update_move_state(slot_label: str, hud_data: dict) -> dict:
             "has_data": (active_start is not None and active_end is not None),
             "active_start": active_start,
             "active_end": active_end,
+            "armed": (cur_id is not None),
         }
     else:
-        state["frame"] += 1
-        state["game_frame"] = state["frame"] // OVERLAY_FPS_DIVISOR
+        prev_phase = state.get("phase", "idle")
+        prev_move_id = state.get("move_id")
 
-        # Only replace frame-data window when new valid data exists.
-        if active_start is not None and active_end is not None:
-            state["has_data"] = True
+        same_move_restarted = (
+            cur_id is not None
+            and cur_id == prev_move_id
+            and prev_phase == "recovery"
+        )
+
+        if cur_id != prev_move_id or same_move_restarted:
+            state["move_id"] = cur_id
+            state["frame"] = 0
+            state["game_frame"] = 0
+            state["phase"] = "idle" if cur_id is None else "startup"
+            state["has_data"] = (active_start is not None and active_end is not None)
             state["active_start"] = active_start
             state["active_end"] = active_end
+            state["armed"] = (cur_id is not None)
+        else:
+            state["frame"] += 1
+            state["game_frame"] = state["frame"] // OVERLAY_FPS_DIVISOR
+
+            if active_start is not None and active_end is not None:
+                state["has_data"] = True
+                state["active_start"] = active_start
+                state["active_end"] = active_end
 
     if cur_id is None:
         state["phase"] = "idle"
+        state["armed"] = False
     elif state.get("has_data") and state.get("active_start") is not None and state.get("active_end") is not None:
         gf = state["game_frame"]
-        if gf < state["active_start"]:
-            state["phase"] = "startup"
-        elif gf <= state["active_end"]:
+
+        if state["active_start"] <= gf <= state["active_end"]:
             state["phase"] = "active"
+        elif gf < state["active_start"]:
+            state["phase"] = "startup"
         else:
             state["phase"] = "recovery"
     else:
@@ -1027,7 +1048,8 @@ def main():
                 and not any(k in mv_label for k in non_attack_keywords)
             )
 
-            phase = "attack" if is_attack_move else "non-attack"
+            move_state = _update_move_state(hud_key, hud_data) if is_attack_move else None
+            phase = move_state["phase"] if move_state else "non-attack"
             slot_phases[name] = phase
 
             boxes   = read_hitboxes(base, HITBOX)
@@ -1044,7 +1066,7 @@ def main():
                     base_color = palette[i % len(palette)]
                     overlay.draw_hitbox(
                         x, y, 0, r, base_color, f"{name}[{i}]",
-                        is_active=(flag == 0x53)
+                        is_active=(phase == "active")
                     )
 
             counts[name] = active
