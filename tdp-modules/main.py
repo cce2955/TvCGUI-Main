@@ -804,19 +804,35 @@ def main():
     hud_overlay_proc = None
     hud_overlay_active = False
 
-    def _write_hud_overlay_data(snaps_dict: dict) -> None:
-        """Serialise per-slot snap data to disk for hud_overlay.py to read."""
+    def _write_hud_overlay_data(snaps_dict: dict, scan_normals=None) -> None:
         payload = {}
         for slot_label, snap in snaps_dict.items():
+            cur_anim  = snap.get("attA") or snap.get("attB")
+            mv_label  = snap.get("mv_label")
+            active_start = None
+            active_end   = None
+
+            if scan_normals and cur_anim is not None:
+                for slot_data in scan_normals:
+                    if slot_data.get("slot_label") == slot_label:
+                        for mv in slot_data.get("moves", []):
+                            if mv.get("id") == cur_anim:
+                                active_start = mv.get("active_start")
+                                active_end   = mv.get("active_end")
+                                break
+                        break
+
             payload[slot_label] = {
                 "name":                snap.get("name"),
                 "cur":                 snap.get("cur"),
                 "max":                 snap.get("max"),
                 "meter":               snap.get("meter"),
-                "mv_id_display":       snap.get("mv_id_display"),
-                "mv_label":            snap.get("mv_label"),
+                "mv_id_display":       cur_anim,
+                "mv_label":            mv_label,
                 "baroque_ready_local": snap.get("baroque_ready_local", False),
                 "baroque_red_pct_max": snap.get("baroque_red_pct_max", 0.0),
+                "active_start":        active_start,
+                "active_end":          active_end,
             }
         try:
             with open(HUD_OVERLAY_DATA_FILE, "w") as f:
@@ -1595,8 +1611,8 @@ def main():
         screen.blit(scan_surf, (scan_rect.x, int(y)))
 
         # Feed live data to hud_overlay.py subprocess
-        if hud_overlay_active:
-            _write_hud_overlay_data(render_snap_by_slot)
+        # Always feed live move/frame data for overlays that depend on it
+        _write_hud_overlay_data(render_snap_by_slot, last_scan_normals)
 
         pygame.display.flip()
 

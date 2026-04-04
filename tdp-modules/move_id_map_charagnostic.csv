@@ -837,7 +837,7 @@
 7,0x1,back dash,back dash,back dash,yes,100
 8,0x1,air dash,back dash,back dash,yes,100
 9,0x1,rising,rising,rising,yes,100
-10,0x1,couching,couching,couching,yes,100
+10,0x1,crouching,couching,couching,yes,100
 11,0x1,crouched,crouched,crouched,yes,100
 13,0x1,Landing,crouched,crouched,yes,100
 14,0x1,Turn around,crouched,crouched,yes,100
