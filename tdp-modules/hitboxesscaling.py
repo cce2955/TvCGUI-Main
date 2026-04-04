@@ -54,9 +54,9 @@ _last_hud_mtime = 0.0
 # phase: "idle" | "startup" | "active" | "recovery"
 _slot_move_state: Dict[str, dict] = {}
 
-# TvC runs at 30fps internally; overlay runs at 60fps.
-# Frame counts from scan_normals are in 30fps ticks.
-# We divide our internal counter by 2 when comparing.
+# Overlay timing uses a 1:1 frame counter right now.
+# active_start / active_end are compared directly against that counter.
+# If scan_normals timing is ever reinterpreted differently, adjust this divisor.
 OVERLAY_FPS_DIVISOR = 1
 
 
@@ -796,6 +796,11 @@ class Overlay:
         r = min(r, self.cfg.max_radius_units)
         sx, sy, depth, focal = self.world_to_screen(x, y, z)
         rpx = max(2, int((r / depth) * focal))
+
+        # Reduce cache churn and huge alpha-surface cost at high resolutions.
+        rpx = max(2, (rpx // 4) * 4)
+        rpx = min(rpx, 160)
+
         if rpx <= 0 or rpx > 5000:
             return None
         return sx, sy, rpx
@@ -806,28 +811,31 @@ class Overlay:
             return
         sx, sy, rpx = result
         r_c, g_c, b_c = color[:3]
-        pad  = 6
-        surf = _get_cached_hitbox_surface(rpx, (r_c, g_c, b_c), is_active)
-        cx = cy = rpx + pad
 
         if is_active:
+            pad  = 6
+            surf = _get_cached_hitbox_surface(rpx, (r_c, g_c, b_c), True)
+            cx = cy = rpx + pad
+
             pygame.draw.circle(surf, (r_c, g_c, b_c, 55),  (cx, cy), rpx + 4, 4)
             pygame.draw.circle(surf, (r_c, g_c, b_c, 110), (cx, cy), rpx)
             pygame.draw.circle(surf, (r_c, g_c, b_c, 220), (cx, cy), rpx, 2)
             hi = (min(r_c + 90, 255), min(g_c + 90, 255), min(b_c + 90, 255))
             pygame.draw.circle(surf, (*hi, 150), (cx, cy), max(rpx - 3, 1), 1)
+            self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
         else:
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 55),  (cx, cy), rpx)
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 170), (cx, cy), rpx, 2)
+            fill_col = (r_c // 4, g_c // 4, b_c // 4)
+            edge_col = (r_c, g_c, b_c)
+            pygame.draw.circle(self.screen, fill_col, (sx, sy), rpx, 0)
+            pygame.draw.circle(self.screen, edge_col, (sx, sy), rpx, 2)
 
-        self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
-
-        cross_col = (min(r_c + 50, 255), min(g_c + 50, 255), min(b_c + 50, 255))
-        cs = max(4, min(9, rpx // 3))
-        cross_s = pygame.Surface((cs * 2 + 2, cs * 2 + 2), pygame.SRCALPHA)
-        pygame.draw.line(cross_s, (*cross_col, 190), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
-        pygame.draw.line(cross_s, (*cross_col, 190), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
-        self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
+        if is_active:
+            cross_col = (min(r_c + 50, 255), min(g_c + 50, 255), min(b_c + 50, 255))
+            cs = max(4, min(9, rpx // 3))
+            cross_s = pygame.Surface((cs * 2 + 2, cs * 2 + 2), pygame.SRCALPHA)
+            pygame.draw.line(cross_s, (*cross_col, 190), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
+            pygame.draw.line(cross_s, (*cross_col, 190), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
+            self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
 
         if rpx >= 12 and self.font_small is not None:
             txt = self.font_small.render(label, True, color[:3])
