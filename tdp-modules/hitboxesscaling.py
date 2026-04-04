@@ -886,25 +886,8 @@ class Overlay:
 
     def draw_hud(self, counts, motion_filter: MotionFilter,
                  node_tracker: ProjectileNodeTracker, slot_phases: Dict[str, str]):
-        if self.font_hud is None:
-            return
-        base       = " | ".join([f"{k}={v}" for k, v in counts.items()])
-        ref_str    = f"{self.ref_cam_z:.4f}" if self.ref_cam_z is not None else "none"
-        debug      = f"  |  cam_z={self.cam_z:.4f}  ref_z={ref_str}"
-        suppressed = sum(1 for s in motion_filter._states.values() if s.suppressed)
-        supp_str   = f"  |  suppressed={suppressed}"
-        active_prj = len(node_tracker.visible_nodes())
-        prj_str    = f"  |  prj={active_prj}"
-
-        # Show phase for each slot
-        phase_str = "  |  " + "  ".join(
-            f"{k}:{v}" for k, v in slot_phases.items()
-        )
-
-        hud = self.font_hud.render(
-            base + debug + supp_str + prj_str + phase_str, True, COL_DIM
-        )
-        self.screen.blit(hud, (8, 8))
+        return
+        
 
     def present(self):
         pygame.display.flip()
