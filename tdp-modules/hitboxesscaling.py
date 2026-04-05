@@ -38,7 +38,8 @@ ACTOR_MAX   = 16
 ACTOR_OFF_X = 0x5C
 ACTOR_OFF_Y = 0x6C
 ACTOR_OFF_Z = 0x7C
-
+CACHE_MANIFEST_FILE = "hitbox_surface_manifest.json"
+_seen_surface_keys: set[Tuple[int, Tuple[int, int, int], str]] = set()
 HITBOX_MAX_RENDER_RADIUS: float = 4.0
 
 # ----------------------------
@@ -58,7 +59,29 @@ _slot_move_state: Dict[str, dict] = {}
 # active_start / active_end are compared directly against that counter.
 # If scan_normals timing is ever reinterpreted differently, adjust this divisor.
 OVERLAY_FPS_DIVISOR = 1
+def prebuild_all_hitbox_surfaces() -> None:
+    colors = set()
 
+    for palette in COLORS.values():
+        for color in palette:
+            colors.add(_clamp_rgb(color))
+
+    colors.add(_clamp_rgb(COL_PROJ))
+
+    styles = (
+        STYLE_ACTIVE,
+        STYLE_INACTIVE,
+        STYLE_PROJECTILE,
+    )
+
+    count = 0
+    for rpx in range(2, 161, 4):
+        for color in colors:
+            for style in styles:
+                _get_cached_hitbox_surface(rpx, color, style)
+                count += 1
+
+    print(f"[surface prebuild] built {count} surfaces")
 
 def _read_hud_data() -> Dict[str, dict]:
     global _last_hud_mtime, _hud_data
@@ -72,7 +95,81 @@ def _read_hud_data() -> Dict[str, dict]:
         pass
     return _hud_data
 
+def _style_name(style: HitboxStyle) -> str:
+    if style == STYLE_ACTIVE:
+        return "active"
+    if style == STYLE_INACTIVE:
+        return "inactive"
+    if style == STYLE_PROJECTILE:
+        return "projectile"
+    return "unknown"
 
+
+def _style_from_name(name: str) -> HitboxStyle:
+    if name == "active":
+        return STYLE_ACTIVE
+    if name == "inactive":
+        return STYLE_INACTIVE
+    if name == "projectile":
+        return STYLE_PROJECTILE
+    raise ValueError(f"Unknown style name: {name}")
+
+
+def _record_surface_key(rpx: int, color: Tuple[int, int, int], style: HitboxStyle) -> None:
+    qr = _quantize_radius(rpx)
+    cc = _clamp_rgb(color)
+    _seen_surface_keys.add((qr, cc, _style_name(style)))
+
+
+def save_surface_manifest(path: str = CACHE_MANIFEST_FILE) -> None:
+    entries = []
+    for rpx, color, style_name in sorted(
+        _seen_surface_keys,
+        key=lambda x: (x[2], x[1], x[0]),
+    ):
+        entries.append({
+            "rpx": rpx,
+            "color": [color[0], color[1], color[2]],
+            "style": style_name,
+        })
+
+    payload = {
+        "version": 1,
+        "entries": entries,
+    }
+
+    with open(path, "w", encoding="utf-8") as f:
+        _json.dump(payload, f, indent=2)
+
+
+def load_surface_manifest(path: str = CACHE_MANIFEST_FILE) -> None:
+    if not os.path.exists(path):
+        return
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = _json.load(f)
+    except Exception as e:
+        print(f"[surface manifest] load failed: {e}")
+        return
+
+    entries = payload.get("entries", [])
+    loaded = 0
+
+    for entry in entries:
+        try:
+            rpx = int(entry["rpx"])
+            color_list = entry["color"]
+            color = (int(color_list[0]), int(color_list[1]), int(color_list[2]))
+            style = _style_from_name(str(entry["style"]))
+
+            _record_surface_key(rpx, color, style)
+            _get_cached_hitbox_surface(rpx, color, style)
+            loaded += 1
+        except Exception:
+            continue
+
+    print(f"[surface manifest] prebuilt {loaded} surfaces from disk")
 def _update_move_state(slot_label: str, hud_data: dict) -> dict:
     slot_info = hud_data.get(slot_label, {})
     cur_id = slot_info.get("mv_id_display")
@@ -329,29 +426,177 @@ SHOW_PROJECTILE_LABELS = False
 # Surface cache
 # ----------------------------
 
-_surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class HitboxStyle:
+    fill_alpha: int
+    edge_alpha: int
+    edge_width: int
+    outer_alpha: int
+    outer_width: int
+    inner_alpha: int
+    inner_width: int
+    cross_alpha: int
+    cross_size_div: int
+    cross_min: int
+    cross_max: int
+    pad: int
+    filled: bool
 
 
-def _get_cached_hitbox_surface(rpx: int, color: Tuple[int,int,int], active: bool):
-    key = (rpx, color, active)
-    if key in _surface_cache:
-        return _surface_cache[key]
+STYLE_ACTIVE = HitboxStyle(
+    fill_alpha=110,
+    edge_alpha=220,
+    edge_width=2,
+    outer_alpha=55,
+    outer_width=4,
+    inner_alpha=150,
+    inner_width=1,
+    cross_alpha=190,
+    cross_size_div=3,
+    cross_min=4,
+    cross_max=9,
+    pad=6,
+    filled=True,
+)
 
-    pad = 6
+STYLE_INACTIVE = HitboxStyle(
+    fill_alpha=55,
+    edge_alpha=220,
+    edge_width=2,
+    outer_alpha=0,
+    outer_width=0,
+    inner_alpha=0,
+    inner_width=0,
+    cross_alpha=0,
+    cross_size_div=3,
+    cross_min=4,
+    cross_max=9,
+    pad=6,
+    filled=True,
+)
+
+STYLE_PROJECTILE = HitboxStyle(
+    fill_alpha=45,
+    edge_alpha=190,
+    edge_width=1,
+    outer_alpha=55,
+    outer_width=2,
+    inner_alpha=95,
+    inner_width=1,
+    cross_alpha=200,
+    cross_size_div=3,
+    cross_min=3,
+    cross_max=7,
+    pad=8,
+    filled=True,
+)
+
+_surface_cache: Dict[Tuple[int, Tuple[int, int, int], HitboxStyle], pygame.Surface] = {}
+
+
+def _clamp_rgb(color: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    return (
+        max(0, min(255, int(color[0]))),
+        max(0, min(255, int(color[1]))),
+        max(0, min(255, int(color[2]))),
+    )
+
+
+def _quantize_radius(rpx: int) -> int:
+    # Keeps cache size sane and reduces churn.
+    # 4px buckets are fine for this overlay.
+    return max(2, min(160, int(round(rpx / 4.0)) * 4))
+
+
+def _build_cross_size(rpx: int, style: HitboxStyle) -> int:
+    return max(style.cross_min, min(style.cross_max, rpx // style.cross_size_div))
+
+
+def _make_hitbox_surface(
+    rpx: int,
+    color: Tuple[int, int, int],
+    style: HitboxStyle,
+) -> pygame.Surface:
+    rpx = _quantize_radius(rpx)
+    color = _clamp_rgb(color)
+
+    pad = style.pad
     size = rpx * 2 + pad * 2
     surf = pygame.Surface((size, size), pygame.SRCALPHA)
     cx = cy = rpx + pad
     r_c, g_c, b_c = color
 
-    if active:
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 110), (cx, cy), rpx)
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 220), (cx, cy), rpx, 2)
-    else:
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx)
+    if style.outer_alpha > 0 and style.outer_width > 0:
+        pygame.draw.circle(
+            surf,
+            (r_c, g_c, b_c, style.outer_alpha),
+            (cx, cy),
+            rpx + 4,
+            style.outer_width,
+        )
 
-    _surface_cache[key] = surf
+    if style.filled and style.fill_alpha > 0:
+        pygame.draw.circle(
+            surf,
+            (r_c, g_c, b_c, style.fill_alpha),
+            (cx, cy),
+            rpx,
+            0,
+        )
+
+    if style.edge_alpha > 0 and style.edge_width > 0:
+        pygame.draw.circle(
+            surf,
+            (r_c, g_c, b_c, style.edge_alpha),
+            (cx, cy),
+            rpx,
+            style.edge_width,
+        )
+
+    if style.inner_alpha > 0 and rpx >= 6:
+        hi = (
+            min(r_c + 90, 255),
+            min(g_c + 90, 255),
+            min(b_c + 90, 255),
+        )
+        pygame.draw.circle(
+            surf,
+            (*hi, style.inner_alpha),
+            (cx, cy),
+            max(rpx - 3, 1),
+            style.inner_width,
+        )
+
+    if style.cross_alpha > 0:
+        cs = _build_cross_size(rpx, style)
+        cross_col = (
+            min(r_c + 50, 255),
+            min(g_c + 50, 255),
+            min(b_c + 50, 255),
+            style.cross_alpha,
+        )
+        pygame.draw.line(surf, cross_col, (cx - cs, cy), (cx + cs, cy), 1)
+        pygame.draw.line(surf, cross_col, (cx, cy - cs), (cx, cy + cs), 1)
+
     return surf
 
+
+def _get_cached_hitbox_surface(
+    rpx: int,
+    color: Tuple[int, int, int],
+    style: HitboxStyle,
+) -> pygame.Surface:
+    qr = _quantize_radius(rpx)
+    cc = _clamp_rgb(color)
+    _record_surface_key(qr, cc, style)
+    key = (qr, cc, style)
+    surf = _surface_cache.get(key)
+    if surf is None:
+        surf = _make_hitbox_surface(qr, cc, style)
+        _surface_cache[key] = surf
+    return surf
 
 # ----------------------------
 # Node tracker (kept for pool scanning, used as fallback reference)
@@ -815,74 +1060,39 @@ class Overlay:
         result = self._project_hitbox(x, y, z, r)
         if result is None:
             return
+
         sx, sy, rpx = result
-        r_c, g_c, b_c = color[:3]
+        style = STYLE_ACTIVE if is_active else STYLE_INACTIVE
+        surf = _get_cached_hitbox_surface(rpx, color[:3], style)
+        pad = style.pad
+        qr = _quantize_radius(rpx)
 
-        if is_active:
-            pad  = 6
-            surf = _get_cached_hitbox_surface(rpx, (r_c, g_c, b_c), True)
-            cx = cy = rpx + pad
+        self.screen.blit(surf, (sx - qr - pad, sy - qr - pad))
 
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 55),  (cx, cy), rpx + 4, 4)
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 110), (cx, cy), rpx)
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 220), (cx, cy), rpx, 2)
-            hi = (min(r_c + 90, 255), min(g_c + 90, 255), min(b_c + 90, 255))
-            pygame.draw.circle(surf, (*hi, 150), (cx, cy), max(rpx - 3, 1), 1)
-            self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
-        else:
-            fill_col = (r_c // 4, g_c // 4, b_c // 4)
-            edge_col = (r_c, g_c, b_c)
-            pygame.draw.circle(self.screen, fill_col, (sx, sy), rpx, 0)
-            pygame.draw.circle(self.screen, edge_col, (sx, sy), rpx, 2)
-
-        if is_active:
-            cross_col = (min(r_c + 50, 255), min(g_c + 50, 255), min(b_c + 50, 255))
-            cs = max(4, min(9, rpx // 3))
-            cross_s = pygame.Surface((cs * 2 + 2, cs * 2 + 2), pygame.SRCALPHA)
-            pygame.draw.line(cross_s, (*cross_col, 190), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
-            pygame.draw.line(cross_s, (*cross_col, 190), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
-            self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
-
-        if SHOW_HITBOX_LABELS and rpx >= 12 and self.font_small is not None:
+        if SHOW_HITBOX_LABELS and qr >= 12 and self.font_small is not None:
             txt = self.font_small.render(label, True, color[:3])
-            self.screen.blit(txt, (sx + rpx + 5, sy - 8))
+            self.screen.blit(txt, (sx + qr + 5, sy - 8))
 
     def draw_projectile_hitbox(self, x, y, z, r, color, label):
         if abs(x - self.cam_x) > 30 or abs(y - self.cam_y) > 25:
             return
+
         result = self._project_hitbox(x, y, z, r)
         if result is None:
             return
+
         sx, sy, rpx = result
-        if rpx > 400:
+        qr = _quantize_radius(rpx)
+        if qr > 400:
             return
 
-        r_c, g_c, b_c = color[:3]
-        pad  = 8
-        size = rpx * 2 + pad * 2
-        surf = pygame.Surface((size, size), pygame.SRCALPHA)
-        cx = cy = rpx + pad
+        surf = _get_cached_hitbox_surface(qr, color[:3], STYLE_PROJECTILE)
+        pad = STYLE_PROJECTILE.pad
+        self.screen.blit(surf, (sx - qr - pad, sy - qr - pad))
 
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 55),  (cx, cy), rpx + 3, 2)
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 190), (cx, cy), rpx, 1)
-        if rpx >= 6:
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 95), (cx, cy), max(rpx - 3, 1), 1)
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 45), (cx, cy), rpx)
-
-        self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
-
-        d = max(3, min(7, rpx // 3))
-        dia_s = pygame.Surface((d * 2 + 3, d * 2 + 3), pygame.SRCALPHA)
-        dc = d + 1
-        pygame.draw.polygon(
-            dia_s, (r_c, g_c, b_c, 200),
-            [(dc, dc - d), (dc + d, dc), (dc, dc + d), (dc - d, dc)], 1,
-        )
-        self.screen.blit(dia_s, (sx - d - 1, sy - d - 1))
-
-        if SHOW_PROJECTILE_LABELS and rpx >= 10 and self.font_small is not None:
+        if SHOW_PROJECTILE_LABELS and qr >= 10 and self.font_small is not None:
             txt = self.font_small.render(f"{label} r={r:.2f}", True, (*color[:3], 150))
-            self.screen.blit(txt, (sx + rpx + 5, sy - 8))
+            self.screen.blit(txt, (sx + qr + 5, sy - 8))
 
     def draw_hud(self, counts, motion_filter: MotionFilter,
                  node_tracker: ProjectileNodeTracker, slot_phases: Dict[str, str]):
@@ -939,8 +1149,9 @@ def main():
         print("Dolphin not found.")
         return
 
-    overlay     = Overlay(DISPLAY)
+    overlay = Overlay(DISPLAY)
     overlay_hwnd = overlay.init_pygame()
+    prebuild_all_hitbox_surfaces()
     win32gui.SetWindowLong(overlay_hwnd, win32con.GWL_HWNDPARENT, dolphin_hwnd)
     clock = pygame.time.Clock()
 
@@ -1027,17 +1238,16 @@ def main():
                 slot_phases[name] = "off"
                 continue
 
-            # Resolve HUD key (P1->P1-C1, P2->P2-C1, P3->P1-C2, P4->P2-C2)
-            hud_key    = SLOT_TO_HUD_KEY.get(name, f"{name[0:2]}-C1")
-            slot_info  = hud_data.get(hud_key, {})
-            cur_id     = slot_info.get("mv_id_display")
-            mv_label   = (slot_info.get("mv_label") or "").strip().lower()
+            hud_key   = SLOT_TO_HUD_KEY.get(name, f"{name[0:2]}-C1")
+            slot_info = hud_data.get(hud_key, {})
+            cur_id    = slot_info.get("mv_id_display")
+            mv_label  = (slot_info.get("mv_label") or "").strip().lower()
 
             non_attack_keywords = (
                 "idle", "stand", "walk", "crouch", "jump", "landing", "land",
-                "fall", "block", "guard", "pushblock", "rising","crouching", "forward", "backward", "hitstun", "hurt",
-                "tech", "throw tech", "recovery", "wake", "taunt", "intro",
-                "win", "lose"
+                "fall", "block", "guard", "pushblock", "rising", "crouching",
+                "forward", "backward", "hitstun", "hurt", "tech", "throw tech",
+                "recovery", "wake", "taunt", "intro", "win", "lose"
             )
 
             is_attack_move = (
@@ -1049,22 +1259,30 @@ def main():
             phase = move_state["phase"] if move_state else "non-attack"
             slot_phases[name] = phase
 
-            boxes   = read_hitboxes(base, HITBOX)
-            active  = 0
+            boxes = read_hitboxes(base, HITBOX)
             palette = COLORS.get(name, [(255, 255, 255)])
+            active = 0
 
             for i, (x, y, r, flag) in enumerate(boxes):
-                if not is_attack_move:
-                    motion_filter.update(name, i, x, y, r)
+                if r <= 0.001:
                     continue
 
-                if r > 0.001:
+                base_color = palette[i % len(palette)]
+
+                if is_attack_move:
                     active += 1
-                    base_color = palette[i % len(palette)]
                     overlay.draw_hitbox(
                         x, y, 0, r, base_color, f"{name}[{i}]",
                         is_active=(phase == "active")
                     )
+                else:
+                    visible = motion_filter.update(name, i, x, y, r)
+                    if visible:
+                        active += 1
+                        overlay.draw_hitbox(
+                            x, y, 0, r, base_color, f"{name}[{i}]",
+                            is_active=False
+                        )
 
             counts[name] = active
 
@@ -1089,7 +1307,7 @@ def main():
         overlay.draw_hud(counts, motion_filter, node_tracker, slot_phases)
         overlay.present()
         clock.tick(DISPLAY.fps)
-
+    save_surface_manifest()
     pygame.quit()
 
 
@@ -1097,6 +1315,10 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
+        try:
+            save_surface_manifest()
+        except Exception:
+            pass
         import traceback
         traceback.print_exc()
         input("\n[CRASHED] Press Enter to close...")
