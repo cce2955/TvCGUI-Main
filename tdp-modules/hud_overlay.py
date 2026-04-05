@@ -250,6 +250,7 @@ def _get_slot_anim(slot_label: str):
         "meter_events": [],
         "prev_move_label": "",
         "move_events": [],
+           "move_scroll_px": 0.0,
     })
 
 
@@ -384,6 +385,37 @@ def _draw_divider(screen, x, y, row_h, scale, alpha=220):
     glow.fill((180, 180, 180, 80))
     screen.blit(glow, (x - 1, y + dy - 2))
 
+def _draw_gradient_frame(screen, rect, top_color, pulse=1.0):
+    x, y, w, h = rect
+    if w <= 2 or h <= 2:
+        return
+
+    border = max(1, int(round(pulse)))
+    frame = pygame.Surface((w, h), pygame.SRCALPHA)
+
+    for yy in range(h):
+        t = yy / max(1, h - 1)
+        r = int(top_color[0] * (1.0 - t))
+        g = int(top_color[1] * (1.0 - t))
+        b = int(top_color[2] * (1.0 - t))
+        a = int(170 + 55 * pulse)
+        col = (r, g, b, a)
+
+        if yy < border:
+            pygame.draw.line(frame, col, (0, yy), (w - 1, yy))
+        elif yy >= h - border:
+            pygame.draw.line(frame, col, (0, yy), (w - 1, yy))
+        else:
+            pygame.draw.line(frame, col, (0, yy), (border - 1, yy))
+            pygame.draw.line(frame, col, (w - border, yy), (w - 1, yy))
+
+    glow = pygame.Surface((w + 6, h + 6), pygame.SRCALPHA)
+    glow_col = (*top_color, int(45 + 45 * pulse))
+    pygame.draw.rect(glow, glow_col, (3, 3, w, h), width=max(1, border), border_radius=3)
+
+    screen.blit(glow, (x - 3, y - 3))
+    screen.blit(frame, (x, y))
+
 # ---------------------------------------------------------------------------
 # Main row renderer
 # ---------------------------------------------------------------------------
@@ -391,6 +423,7 @@ def _draw_divider(screen, x, y, row_h, scale, alpha=220):
 def _draw_slot_row(screen, font, font_sm, slot_label, snap,
                    anchor_x, anchor_y, row_h, scale,
                    is_active_char, slot_anim, overlay_alpha,
+                   dt,
                    measure_only=False):
 
     slot_col = SLOT_COLORS.get(slot_label, (200, 200, 200))
@@ -511,8 +544,9 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     ):
         move_events = slot_anim["move_events"]
         move_events.insert(0, {"text": mv_label, "life": 1.0})
-        if len(move_events) > 3:
+        if len(move_events) > 5:
             move_events.pop()
+        slot_anim["move_scroll_px"] = max(int(28 * scale), 14)
     slot_anim["prev_move_label"] = mv_label
 
     # Baroque
@@ -623,7 +657,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
     lbl = font_sm.render("HP", True, COL_TEXT_DIM)
     screen.blit(lbl, (cx, sm_top))
-    _draw_hp_bar(screen, cx, mid_y - bar_h // 2, bar_w, bar_h, hp_cur, hp_max, is_dead)
+    hp_bar_x = cx
+    _draw_hp_bar(screen, hp_bar_x, mid_y - bar_h // 2, bar_w, bar_h, hp_cur, hp_max, is_dead)
     cx += bar_w + int(4 * scale)
     screen.blit(hp_num_s, (cx, sm_bot))
     cx += hp_num_s.get_width() + sep
@@ -752,54 +787,9 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     # One-line move history under this slot's move field
     move_events = slot_anim["move_events"]
     if move_events:
-        move_list_x = move_anchor_x
-        move_list_y = anchor_y + row_h + int(6 * scale)
+        move_list_y = anchor_y + row_h + int(18 * scale)
 
-        line_life = min(ev["life"] for ev in move_events)
-        alpha = int(255 * line_life)
-
-        parts = []
-        if len(move_events) == 3:
-            parts = [
-                (move_events[2]["text"], (255, 220, 90)),   # oldest = yellow
-                (" > ", COL_TEXT),
-                (move_events[1]["text"], (80, 160, 255)),   # middle = blue
-                (" > ", COL_TEXT),
-                (move_events[0]["text"], (80, 255, 120)),   # newest = green
-            ]
-        elif len(move_events) == 2:
-            parts = [
-                (move_events[1]["text"], (80, 160, 255)),
-                (" > ", COL_TEXT),
-                (move_events[0]["text"], (80, 255, 120)),
-            ]
-        else:
-            parts = [
-                (move_events[0]["text"], (80, 255, 120)),
-            ]
-
-        rendered_parts = []
-        total_line_w = 0
-        max_line_h = 0
-        for text, color in parts:
-            surf = font_sm.render(text, True, color)
-            surf.set_alpha(alpha)
-            rendered_parts.append(surf)
-            total_line_w += surf.get_width()
-            max_line_h = max(max_line_h, surf.get_height())
-
-        pad_x = int(5 * scale)
-        pad_y = int(2 * scale)
-        bg = pygame.Surface((total_line_w + pad_x * 2, max_line_h + pad_y * 2), pygame.SRCALPHA)
-        bg.fill((12, 12, 12, int(210 * line_life)))
-        screen.blit(bg, (move_list_x - pad_x, move_list_y - pad_y))
-
-        dx = move_list_x
-        for surf in rendered_parts:
-            screen.blit(surf, (dx, move_list_y))
-            dx += surf.get_width()
-
-        # Keep the current active move pinned instead of fading it out.
+        # newest stays pinned while it is still the current live move
         newest_is_live = (
             not is_passive
             and mv_label
@@ -808,6 +798,87 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             and move_events[0]["text"] == mv_label
         )
 
+        # scroll animation for new inserts
+        slot_anim["move_scroll_px"] = _approach(
+            float(slot_anim.get("move_scroll_px", 0.0)),
+            0.0,
+            180.0,
+            dt
+        )
+        scroll_px = int(slot_anim["move_scroll_px"])
+
+        # display oldest -> newest
+        display_items = list(reversed(move_events))
+
+        parts = []
+        newest_rect_index = None
+
+        for idx, ev in enumerate(display_items):
+            recency_from_newest = len(display_items) - 1 - idx
+
+            if recency_from_newest == 0:
+                color = (80, 255, 120)    # newest = green
+            elif recency_from_newest == 1:
+                color = (80, 160, 255)    # mid = blue
+            elif recency_from_newest == 2:
+                color = (255, 220, 90)    # old = yellow
+            else:
+                color = COL_TEXT          # 4th/5th neutral
+
+            parts.append({
+                "text": ev["text"],
+                "color": color,
+                "life": ev["life"],
+                "is_newest": (recency_from_newest == 0),
+            })
+            if recency_from_newest == 0:
+                newest_rect_index = len(parts) - 1
+
+            if idx < len(display_items) - 1:
+                parts.append({
+                    "text": " > ",
+                    "color": COL_TEXT,
+                    "life": ev["life"],
+                    "is_newest": False,
+                })
+
+        line_life = min(ev["life"] for ev in move_events)
+        rendered_parts = []
+        total_line_w = 0
+        max_line_h = 0
+
+        for part in parts:
+            surf = font_sm.render(part["text"], True, part["color"])
+            rendered_parts.append((surf, part["is_newest"]))
+            total_line_w += surf.get_width()
+            max_line_h = max(max_line_h, surf.get_height())
+
+        move_list_x = badge_x - int(2 * scale) - scroll_px
+
+        pad_x = int(5 * scale)
+        pad_y = int(2 * scale)
+        bg = pygame.Surface((total_line_w + pad_x * 2, max_line_h + pad_y * 2), pygame.SRCALPHA)
+        bg.fill((12, 12, 12, 185))
+        screen.blit(bg, (move_list_x - pad_x, move_list_y - pad_y))
+        dx = move_list_x
+        newest_rect = None
+        for surf, is_newest_part in rendered_parts:
+            screen.blit(surf, (dx, move_list_y))
+            if is_newest_part:
+                newest_rect = (
+                    dx - int(3 * scale),
+                    move_list_y - int(2 * scale),
+                    surf.get_width() + int(6 * scale),
+                    surf.get_height() + int(4 * scale),
+                )
+            dx += surf.get_width()
+
+        # pulsing gradient frame around newest move only
+        if newest_rect is not None:
+            pulse = 0.85 + 0.35 * (0.5 + 0.5 * math.sin(time.time() * 6.0))
+            _draw_gradient_frame(screen, newest_rect, (80, 255, 120), pulse=pulse)
+
+        # fade only older entries; keep current active move pinned
         for i, ev in enumerate(move_events):
             if i == 0 and newest_is_live:
                 ev["life"] = 1.0
@@ -844,7 +915,7 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
     _anim_state["overlay_alpha"] = _approach(_anim_state["overlay_alpha"], 1.0, FADE_SPEED, dt)
     overlay_alpha = _anim_state["overlay_alpha"]
     row_h   = max(14, int(BASE_ROW_H * scale))
-    row_gap = int(14 * scale)
+    row_gap = int(25 * scale)
     active  = _compute_active_slots(slots)
 
     for slot_label, (side, base_x, base_y) in SLOT_LAYOUT.items():
@@ -867,7 +938,8 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
         # First pass: measure width
         row_w = _draw_slot_row(screen, font, font_sm, slot_label, snap,
                                0, scaled_y, row_h, scale, slot_label in active,
-                               slot_anim, overlay_alpha, measure_only=True)
+                               slot_anim, overlay_alpha, dt,
+                               measure_only=True)
 
         if side == "right":
             anchor_x = screen.get_width() - int(base_x * scale) - row_w
@@ -877,7 +949,7 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
         # Second pass: draw
         _draw_slot_row(screen, font, font_sm, slot_label, snap,
                        anchor_x, scaled_y, row_h, scale, slot_label in active,
-                       slot_anim, overlay_alpha)
+                       slot_anim, overlay_alpha, dt)
 
 # ---------------------------------------------------------------------------
 # Main
@@ -942,4 +1014,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        input("\n[CRASHED] Press Enter to close...")
