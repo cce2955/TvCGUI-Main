@@ -35,6 +35,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.slot_label = slot_label
         self.target_slot = target_slot
         self._sort_state = {}  # col_name -> ascending bool
+        self._assist_tables = None
+        self._assist_table_count = ""
 
         # Preserve the raw scan order for optional view sorting.
         # Tag each move dict with a stable scan index so we can return to the scanner order.
@@ -178,6 +180,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
 
 
+        ttk.Button(
+            bones_bar,
+            text="Show Bones",
+            command=self._show_bones,
+        ).pack(side="left")
         ttk.Button(
             bones_bar,
             text="Show Bones",

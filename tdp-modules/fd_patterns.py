@@ -37,8 +37,91 @@ PHASE_REC_HDR_LEN = 4
 PHASE_REC_PHASE_LEN = 4
 PHASE_REC_ANIM_LEN = 2
 PHASE_REC_TOTAL_LEN = PHASE_REC_HDR_LEN + PHASE_REC_PHASE_LEN + PHASE_REC_ANIM_LEN
+ASSIST_TABLE_SIG = bytes([
+    0x34,0x32,0x3F,0x00,0x00,0x00,0x00,0x02,
+    0x20,0x00,0x00,0x00,0x3E,0xD7,0x0A,0x3D,
+    0x00,0x00,0x00,0x00,0x34,0x32,0x3F,0x00,
+    0x00,0x00,0x00,0x03,0x20,0x00,0x00,0x00,
+])
+def find_assist_table_candidates(
+    base: int,
+    rbytes_func,
+    *,
+    scan_len: int = 0x200000  # scan a couple MB of MEM2
+) -> list[int]:
+    """
+    Scan for assist-table candidates using a strong multi-record signature.
 
+    Returns:
+        list of absolute addresses where the signature starts
+    """
+    if not base:
+        return []
 
+    try:
+        buf = rbytes_func(base, scan_len)
+    except Exception:
+        return []
+
+    if not buf:
+        return []
+
+    hits = []
+    sig = ASSIST_TABLE_SIG
+    pos = 0
+
+    while True:
+        i = buf.find(sig, pos)
+        if i < 0:
+            break
+
+        hits.append(base + i)
+        pos = i + 1
+
+    return hits
+
+def validate_assist_table(addr: int, rbytes_func) -> bool:
+    """
+    Validate a candidate region by checking for nearby structural markers.
+    """
+
+    try:
+        buf = rbytes_func(addr, 0x400)
+    except Exception:
+        return False
+
+    if not buf:
+        return False
+
+    checks = 0
+
+    # look for known structural motifs nearby
+    if b"\x04\x17\x60\x00" in buf:
+        checks += 1
+
+    if b"\x04\x01\x60\x00" in buf:
+        checks += 1
+
+    if b"\x41\x20\x2D\x13" in buf:
+        checks += 1
+
+    if b"\x11\x16\x20\x00" in buf:
+        checks += 1
+
+    if b"\x33\x03\x20\x3F" in buf:
+        checks += 1
+
+    return checks >= 2
+
+def find_assist_tables(base: int, rbytes_func) -> list[int]:
+    raw = find_assist_table_candidates(base, rbytes_func)
+
+    valid = []
+    for addr in raw:
+        if validate_assist_table(addr, rbytes_func):
+            valid.append(addr)
+
+    return valid
 def find_speed_mod_addr(
     move_abs: int,
     rbytes: Callable[[int, int], bytes],

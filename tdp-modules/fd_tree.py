@@ -124,6 +124,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "hitstun", "blockstun", "hitstop",
         "hb_main", "hb",
         "kb", "combo_kb_mod", "speed_mod", "hit_reaction",
+           "assist",
         "superbg",
         "abs",
     )
@@ -304,6 +305,7 @@ def build_tree_widget(win) -> ttk.Frame:
         ("combo_kb_mod", "Combo KB Mod"),
         ("speed_mod", "Speed Mod"),
         ("hit_reaction", "Hit Reaction"),
+         ("assist", "Assist"),
         ("superbg", "SuperBG"),
         ("abs", "Address"),
     ]
@@ -476,6 +478,8 @@ def populate_tree(win) -> None:
             v = mv.get("combo_kb_mod")
             combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
 
+        assist_txt = getattr(win, "_assist_table_count", "")
+
         speed_txt = ""
         if move_abs:
             if mv.get("speed_mod_addr") is None:
@@ -543,6 +547,7 @@ def populate_tree(win) -> None:
                 combo_txt,
                 speed_txt,
                 hr_txt,
+                  assist_txt, 
                 superbg_txt,
                 f"0x{move_abs:08X}" if move_abs else "",
             ),
