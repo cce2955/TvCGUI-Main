@@ -764,9 +764,9 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             if i == 0:
                 tier_alpha = 1.00
             elif i in (1, 2):
-                tier_alpha = 0.95
+                tier_alpha = 0.99
             else:
-                tier_alpha = 0.80
+                tier_alpha = 0.98
 
             alpha = int(255 * ev["life"] * tier_alpha)
             txt_col = COL_TEXT if i == 0 else COL_TEXT_DIM
