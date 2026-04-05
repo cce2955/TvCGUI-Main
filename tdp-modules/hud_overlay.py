@@ -511,7 +511,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     ):
         move_events = slot_anim["move_events"]
         move_events.insert(0, {"text": mv_label, "life": 1.0})
-        if len(move_events) > 3:
+        if len(move_events) > 6:
             move_events.pop()
     slot_anim["prev_move_label"] = mv_label
 
@@ -757,8 +757,16 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         move_line_h = font_sm.get_height() + int(3 * scale)
 
         compact_lines = []
+
+        # Newest move
         if len(move_events) >= 1:
-            compact_lines.append({"text": move_events[0]["text"], "life": move_events[0]["life"], "tier": 0})
+            compact_lines.append({
+                "text": move_events[0]["text"],
+                "life": move_events[0]["life"],
+                "tier": 0,
+            })
+
+        # Middle chain: 2 moves
         if len(move_events) >= 3:
             compact_lines.append({
                 "text": f"{move_events[2]['text']} > {move_events[1]['text']}",
@@ -772,15 +780,35 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
                 "tier": 1,
             })
 
+        # Oldest chain: 3 moves
+        if len(move_events) >= 6:
+            compact_lines.append({
+                "text": f"{move_events[5]['text']} > {move_events[4]['text']} > {move_events[3]['text']}",
+                "life": min(move_events[3]["life"], move_events[4]["life"], move_events[5]["life"]),
+                "tier": 2,
+            })
+        elif len(move_events) == 5:
+            compact_lines.append({
+                "text": f"{move_events[4]['text']} > {move_events[3]['text']}",
+                "life": min(move_events[3]["life"], move_events[4]["life"]),
+                "tier": 2,
+            })
+        elif len(move_events) == 4:
+            compact_lines.append({
+                "text": move_events[3]["text"],
+                "life": move_events[3]["life"],
+                "tier": 2,
+            })
+
         for i, line in enumerate(compact_lines):
             if line["tier"] == 0:
-                tier_alpha = 1.00
-                txt_col = COL_TEXT
+                txt_col = (80, 255, 120)   # green
+            elif line["tier"] == 1:
+                txt_col = (80, 160, 255)   # blue
             else:
-                tier_alpha = 0.82
-                txt_col = COL_TEXT_DIM
+                txt_col = (255, 220, 90)   # yellow
 
-            alpha = int(255 * line["life"] * tier_alpha)
+            alpha = int(255 * line["life"])
             hist_surf = font_sm.render(line["text"], True, txt_col)
             hist_surf.set_alpha(alpha)
 
@@ -790,7 +818,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             bg_h = hist_surf.get_height() + pad_y * 2
 
             bg = pygame.Surface((bg_w, bg_h), pygame.SRCALPHA)
-            bg.fill((12, 12, 12, int(210 * line["life"] * tier_alpha)))
+            bg.fill((12, 12, 12, int(210 * line["life"])))
 
             draw_y = move_list_y + i * move_line_h
             screen.blit(bg, (move_list_x - pad_x, draw_y - pad_y))
