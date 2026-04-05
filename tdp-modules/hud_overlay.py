@@ -609,7 +609,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     cx += bar_w + int(4 * scale)
     screen.blit(hp_num_s, (cx, sm_bot))
     cx += hp_num_s.get_width() + sep
-    hp_anchor_x = cx
+    hp_anchor_x = cx - int(100 * scale)
 
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
@@ -620,7 +620,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     cx += meter_w + int(4 * scale)
     screen.blit(meter_num_s, (cx, sm_bot))
     cx += meter_num_s.get_width() + sep
-    meter_anchor_x = cx
+    meter_anchor_x = cx - int(60 * scale)
 
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
