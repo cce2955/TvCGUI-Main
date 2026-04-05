@@ -45,6 +45,7 @@ ACTOR_MAX   = 16
 ACTOR_OFF_X = 0x5C
 ACTOR_OFF_Y = 0x6C
 ACTOR_OFF_Z = 0x7C
+
 # ----------------------------
 # Projectile signature scanner (kept but commented out from active use)
 # ----------------------------
@@ -90,7 +91,7 @@ PROJ_PTR_CANDIDATES = (
 )
 
 OFF_CHAR_ID = 0x14
-OFF_STATE_ID = 0x18  # replace with the real current anim/state offset if 0x18 is not correct
+OFF_STATE_ID = 0x1EA  # replace with the real current anim/state offset if 0x18 is not correct
 
 PASSIVE_STATE_IDS = {
     1,   # idle
@@ -121,17 +122,38 @@ PASSIVE_STATE_IDS = {
     53,  # crouch pushblock
 }
 
-def read_state_id(slot_base: int) -> int:
+PASSIVE_STATE_IDS = {
+    1, 2, 3,
+    6, 7, 8, 9, 10, 11, 13,
+    19, 20, 21, 22,
+    25, 28, 29, 30, 31, 35, 36,
+    48, 49, 50, 52, 53,
+}
+
+def read_state_raw(slot_base: int) -> int:
     raw = rd32(slot_base + OFF_STATE_ID)
-    if raw is None:
-        return 0
-    if raw < 0 or raw > 5000:
-        print(f"[StateReadWeird] slot_base=0x{slot_base:08X} off=0x{OFF_STATE_ID:X} raw=0x{raw:08X} ({raw})")
-    return raw
+    return 0 if raw is None else raw
+
+def decode_state_id(raw: int) -> int:
+    hi16 = (raw >> 16) & 0xFFFF
+    low16 = raw & 0xFFFF
+    low8 = raw & 0xFF
+
+    if hi16 != 0:
+        return hi16
+    if low16 != 0:
+        return low16
+    return low8
+
+def read_state_id(slot_base: int) -> int:
+    raw = read_state_raw(slot_base)
+    state_id = decode_state_id(raw)
+    return state_id
 
 def is_passive_state(state_id: int) -> bool:
     return state_id in PASSIVE_STATE_IDS
-
+_last_state_ids: Dict[str, int] = {}
+_last_state_raws: Dict[str, int] = {}
 def _read_slot_filter() -> dict:
     global _last_filter_mtime, _slot_filter
     try:
@@ -143,7 +165,22 @@ def _read_slot_filter() -> dict:
     except Exception:
         pass
     return _slot_filter
+def dump_state18(slot_name: str, slot_base: int) -> None:
+    raw = rd32(slot_base + OFF_STATE_ID)
+    raw = 0 if raw is None else raw
 
+    hi16 = (raw >> 16) & 0xFFFF
+    low16 = raw & 0xFFFF
+    low8 = raw & 0xFF
+
+    print(
+        f"[State18] {slot_name} "
+        f"addr=0x{slot_base + OFF_STATE_ID:08X} "
+        f"raw=0x{raw:08X} ({raw}) "
+        f"hi16=0x{hi16:04X} ({hi16}) "
+        f"low16=0x{low16:04X} ({low16}) "
+        f"low8=0x{low8:02X} ({low8})"
+    )
 
 def set_dpi_aware() -> None:
     try:
@@ -195,6 +232,9 @@ SLOT_BASES: Dict[str, int] = {
     "P3": 0x927EB9E0,
     "P4": 0x92EEBA20,
 }
+
+PASSIVE_HOLD_FRAMES = 3
+_slot_passive_hold: Dict[str, int] = {k: 0 for k in SLOT_BASES}
 
 HITBOX = HitboxLayout(
     struct_shift=0x4C0,
@@ -249,7 +289,8 @@ COL_PROJ = (255, 255, 255)
 
 # --- surface cache ---
 _surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
-
+def slot_passive_override(name: str, state_id: int) -> bool:
+    return is_passive_state(state_id)
 def _get_cached_hitbox_surface(rpx: int, color: Tuple[int,int,int], active: bool):
     key = (rpx, color, active)
     if key in _surface_cache:
@@ -973,7 +1014,13 @@ def resolve_projectile_pools():
             pools.append(node_base)
 
     return pools
-    return pools              
+def has_valid_state_id(raw_state: int, state_id: int) -> bool:
+    if raw_state == 0:
+        return False
+    if state_id <= 0:
+        return False
+    return True
+            
 def main():
     hook()
     dolphin_hwnd = find_dolphin_hwnd()
@@ -1047,20 +1094,38 @@ def main():
                         counts[name] = 0
                         continue
 
-                    state_id = read_state_id(base)
+                
+                    raw_state = read_state_raw(base)
+                    state_id = decode_state_id(raw_state)
                     char_id = rd32(base + OFF_CHAR_ID) or 0
+
+                    if _last_state_raws.get(name) != raw_state:
+                        dump_state18(name, base)
+                        print(
+                            f"[StateChange] {name} char_id={char_id} "
+                            f"raw=0x{raw_state:08X} "
+                            f"hi16=0x{(raw_state >> 16) & 0xFFFF:04X} ({(raw_state >> 16) & 0xFFFF}) "
+                            f"low16=0x{raw_state & 0xFFFF:04X} ({raw_state & 0xFFFF}) "
+                            f"low8=0x{raw_state & 0xFF:02X} ({raw_state & 0xFF}) "
+                            f"decoded={state_id} passive={is_passive_state(state_id)}"
+                        )
+
+                        _last_state_raws[name] = raw_state
+                        _last_state_ids[name] = state_id
                     boxes = read_hitboxes(base, HITBOX)
                     active = 0
                     palette = COLORS.get(name, [(255, 255, 255)])
 
-                    if is_passive_state(state_id):
-                        motion_filter.reset_slot(name, len(boxes))
+                    if slot_passive_override(name, state_id):
                         counts[name] = 0
                         continue
 
                     for i, (x, y, r, flag) in enumerate(boxes):
-                        if not motion_filter.update(name, i, x, y, r):
+                        visible = motion_filter.update(name, i, x, y, r)
+
+                        if not visible:
                             continue
+
                         if r > 0.001:
                             active += 1
                             base_color = palette[i % len(palette)]
