@@ -15,6 +15,7 @@ pyperclip==1.11.0
 pytest==8.4.2
 python-dateutil==2.9.0.post0
 pytz==2025.2
+pywin32==311
 rich==14.2.0
 six==1.17.0
 tzdata==2025.2
