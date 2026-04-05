@@ -253,7 +253,9 @@ def _get_slot_anim(slot_label: str):
         "meter_events": [],
         "prev_move_label": "",
         "move_events": [],
-           "move_scroll_px": 0.0,
+        "move_scroll_px": 0.0,
+        "prev_baroque_pct": None,
+        "baroque_events": [],
     })
 
 
@@ -526,6 +528,17 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
                 events.pop()
     slot_anim["prev_meter"] = cur_meter
 
+    # Baroque gain/loss tracking
+    prev_baroque_pct = slot_anim.get("prev_baroque_pct")
+    cur_baroque_pct  = float(snap.get("baroque_red_pct_max") or 0.0)
+    if prev_baroque_pct is not None and abs(cur_baroque_pct - prev_baroque_pct) >= 0.05:
+        delta = cur_baroque_pct - prev_baroque_pct
+        events = slot_anim["baroque_events"]
+        events.insert(0, {"value": delta, "life": 1.0, "x_offset": 20})
+        if len(events) > 5:
+            events.pop()
+    slot_anim["prev_baroque_pct"] = cur_baroque_pct
+
     meter_num_s = font_sm.render(meter_str, True, text_col)
 
     move_id  = snap.get("mv_id_display")
@@ -736,6 +749,43 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             screen.blit(surf, (draw_x, meter_y))
             dx += w + gap
         slot_anim["meter_events"] = [e for e in meter_events if e["life"] > 0]
+
+    # Baroque gain/loss popup
+    baroque_events = slot_anim["baroque_events"]
+    if baroque_events:
+        dx  = meter_anchor_x + int(90 * scale)
+        gap = int(6 * scale)
+        for i, ev in enumerate(baroque_events):
+            ev["life"] -= 0.010
+            ev["x_offset"] = _approach(ev["x_offset"], 0, 120, 1/60.0)
+            if ev["life"] <= 0:
+                continue
+            val = ev["value"]
+            txt = f"{val:+.1f}%"
+            alpha = int(255 * ev["life"])
+            b_font = font if i == 0 else font_sm
+
+            base = b_font.render(txt, True, (255, 255, 255))
+            rainbow = pygame.Surface(base.get_size(), pygame.SRCALPHA)
+            t = time.time() * 0.4
+            for x in range(base.get_width()):
+                phase = (x / max(1, base.get_width()) + t) % 1.0
+                r = int(200 + 55 * math.sin(2 * math.pi * phase))
+                g = int(160 + 55 * math.sin(2 * math.pi * (phase + 0.33)))
+                pygame.draw.line(rainbow, (r, g, 255, 255), (x, 0), (x, base.get_height()))
+            base.blit(rainbow, (0, 0), special_flags=pygame.BLEND_MULT)
+            surf = base
+            surf.set_alpha(alpha)
+
+            w = surf.get_width(); h = surf.get_height()
+            pad_x = int(4 * scale); pad_y = int(2 * scale)
+            bg = pygame.Surface((w + pad_x * 2, h + pad_y * 2), pygame.SRCALPHA)
+            bg.fill((45, 25, 0, int(180 * ev["life"])))
+            draw_x = dx + int(ev["x_offset"])
+            screen.blit(bg, (draw_x - pad_x, meter_y - pad_y))
+            screen.blit(surf, (draw_x, meter_y))
+            dx += w + gap
+        slot_anim["baroque_events"] = [e for e in baroque_events if e["life"] > 0]
 
     # Baroque badge
     if show_baroque_badge:
