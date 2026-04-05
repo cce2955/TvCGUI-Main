@@ -11,7 +11,18 @@ import os
 import pygame
 import win32con
 import win32gui
+import traceback
+import sys
 
+def pause_on_error(context: str, exc: BaseException) -> None:
+    print(f"\n[{context}]")
+    print(f"error={exc!r}")
+    traceback.print_exc()
+
+    try:
+        input("\nCrash detected. Press Enter to close...")
+    except EOFError:
+        pass
 from dolphin_io import hook, rd32, rbytes
 
 import json as _json
@@ -79,7 +90,47 @@ PROJ_PTR_CANDIDATES = (
 )
 
 OFF_CHAR_ID = 0x14
+OFF_STATE_ID = 0x18  # replace with the real current anim/state offset if 0x18 is not correct
 
+PASSIVE_STATE_IDS = {
+    1,   # idle
+    2,   # forward
+    3,   # backward
+    6,   # forward dash
+    7,   # back dash
+    8,   # air dash
+    9,   # rising
+    10,  # crouching
+    11,  # crouched
+    13,  # landing
+    19,  # pre jump
+    20,  # jump
+    21,  # jump forward
+    22,  # jump back
+    25,  # push block post anim
+    28,  # super jump
+    29,  # super jump
+    30,  # landing
+    31,  # pre super jump
+    35,  # air dash forward
+    36,  # air dash back
+    48,  # block
+    49,  # crouching block
+    50,  # air block
+    52,  # air pushblock
+    53,  # crouch pushblock
+}
+
+def read_state_id(slot_base: int) -> int:
+    raw = rd32(slot_base + OFF_STATE_ID)
+    if raw is None:
+        return 0
+    if raw < 0 or raw > 5000:
+        print(f"[StateReadWeird] slot_base=0x{slot_base:08X} off=0x{OFF_STATE_ID:X} raw=0x{raw:08X} ({raw})")
+    return raw
+
+def is_passive_state(state_id: int) -> bool:
+    return state_id in PASSIVE_STATE_IDS
 
 def _read_slot_filter() -> dict:
     global _last_filter_mtime, _slot_filter
@@ -949,82 +1000,122 @@ def main():
 
     running = True
     while running:
-        w, h = sync_overlay_to_dolphin(dolphin_hwnd, overlay_hwnd)
-        overlay.on_resize(w, h)
+        try:
+            w, h = sync_overlay_to_dolphin(dolphin_hwnd, overlay_hwnd)
+            overlay.on_resize(w, h)
 
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
                     running = False
-                elif event.key == pygame.K_F1:
-                    overlay.debug_axes = not overlay.debug_axes
-                elif event.key == pygame.K_F2:
-                    print("F2: signature scan disabled — using node watcher")
-                elif event.key == pygame.K_F3:
-                    node_tracker.dump_active()
-                elif event.key == pygame.K_F4:
-                    debug_dump_pools()    
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
+                    elif event.key == pygame.K_F1:
+                        overlay.debug_axes = not overlay.debug_axes
+                    elif event.key == pygame.K_F2:
+                        print("F2: signature scan disabled — using node watcher")
+                    elif event.key == pygame.K_F3:
+                        node_tracker.dump_active()
+                    elif event.key == pygame.K_F4:
+                        debug_dump_pools()
 
-        for name, base in SLOT_BASES.items():
-            cid = rd32(base + OFF_CHAR_ID) or 0
-            if _last_char_ids.get(name) != cid:
-                print(f"[CharChange] {name} char_id {_last_char_ids.get(name)} -> {cid}")
-                _last_char_ids[name] = cid
-                break
+            for name, base in SLOT_BASES.items():
+                cid = rd32(base + OFF_CHAR_ID) or 0
+                if _last_char_ids.get(name) != cid:
+                    print(f"[CharChange] {name} char_id {_last_char_ids.get(name)} -> {cid}")
+                    _last_char_ids[name] = cid
 
-        camx, camy, camz, camw = read_camera_pos(CAMERA)
-        if USE_LIVE_CAMERA:
-            overlay.cam_x = camx
-            overlay.cam_y = camy
-            overlay.cam_z = camz
+            camx, camy, camz, camw = read_camera_pos(CAMERA)
+            if USE_LIVE_CAMERA:
+                overlay.cam_x = camx
+                overlay.cam_y = camy
+                overlay.cam_z = camz
 
-        _slot_filter = _read_slot_filter()
+            slot_filter = _read_slot_filter()
 
-        if pygame.time.get_ticks() % 2 == 0:
-            update_projectile_nodes(node_tracker)
+            if pygame.time.get_ticks() % 2 == 0:
+                update_projectile_nodes(node_tracker)
 
-        overlay.clear()
-        overlay.draw_debug_axes()
+            overlay.clear()
+            overlay.draw_debug_axes()
 
-        counts = {}
-        for name, base in SLOT_BASES.items():
-            if not _slot_filter.get(name, True):
-                continue
-            boxes = read_hitboxes(base, HITBOX)
-            active = 0
-            palette = COLORS.get(name, [(255, 255, 255)])
-            for i, (x, y, r, flag) in enumerate(boxes):
-                if not motion_filter.update(name, i, x, y, r):
-                    continue
-                if r > 0.001:
-                    active += 1
-                    base_color = palette[i % len(palette)]
-                    is_active = (flag == 0x53)
-                    overlay.draw_hitbox(x, y, 0, r, base_color, f"{name}[{i}]", is_active=is_active)
-            counts[name] = active
+            counts = {}
 
-        projectiles = read_projectile_positions()
+            for name, base in SLOT_BASES.items():
+                try:
+                    if not slot_filter.get(name, True):
+                        counts[name] = 0
+                        continue
 
-        for x, y, z in projectiles:
+                    state_id = read_state_id(base)
+                    char_id = rd32(base + OFF_CHAR_ID) or 0
+                    boxes = read_hitboxes(base, HITBOX)
+                    active = 0
+                    palette = COLORS.get(name, [(255, 255, 255)])
 
-            overlay.draw_projectile_hitbox(
-                x,
-                y + PROJECTILE_Y_OFFSET,
-                z,
-                0.35,
-                COL_PROJ,
-                "PRJ"
-            )
-        if pygame.time.get_ticks() % 300 == 0:
-            motion_filter.cleanup()
+                    if is_passive_state(state_id):
+                        motion_filter.reset_slot(name, len(boxes))
+                        counts[name] = 0
+                        continue
 
-        overlay.draw_hud(counts, motion_filter, node_tracker)
-        overlay.present()
-        clock.tick(DISPLAY.fps)
+                    for i, (x, y, r, flag) in enumerate(boxes):
+                        if not motion_filter.update(name, i, x, y, r):
+                            continue
+                        if r > 0.001:
+                            active += 1
+                            base_color = palette[i % len(palette)]
+                            is_active = (flag == 0x53)
+                            overlay.draw_hitbox(
+                                x,
+                                y,
+                                0,
+                                r,
+                                base_color,
+                                f"{name}[{i}]",
+                                is_active=is_active,
+                            )
+
+                    counts[name] = active
+
+                except Exception as slot_exc:
+                    print(
+                        f"[SlotError] slot={name} base=0x{base:08X} "
+                        f"char_id={rd32(base + OFF_CHAR_ID) or 0} "
+                        f"state_id={read_state_id(base)} "
+                        f"err={slot_exc!r}"
+                    )
+                    pause_on_error(f"SlotError:{name}", slot_exc)
+                    running = False
+                    break
+                
+            projectiles = read_projectile_positions()
+            for x, y, z in projectiles:
+                overlay.draw_projectile_hitbox(
+                    x,
+                    y + PROJECTILE_Y_OFFSET,
+                    z,
+                    0.35,
+                    COL_PROJ,
+                    "PRJ",
+                )
+
+            if pygame.time.get_ticks() % 300 == 0:
+                motion_filter.cleanup()
+
+            overlay.draw_hud(counts, motion_filter, node_tracker)
+            overlay.present()
+            clock.tick(DISPLAY.fps)
+
+        except Exception as exc:
+            pause_on_error("MainLoopCrash", exc)
+            running = False
+
     pygame.quit()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        pause_on_error("FatalCrash", exc)
+        raise
