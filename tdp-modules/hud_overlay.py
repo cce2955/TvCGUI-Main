@@ -511,7 +511,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     ):
         move_events = slot_anim["move_events"]
         move_events.insert(0, {"text": mv_label, "life": 1.0})
-        if len(move_events) > 6:
+        if len(move_events) > 3:
             move_events.pop()
     slot_anim["prev_move_label"] = mv_label
 
@@ -749,80 +749,55 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             dx += w + gap
         slot_anim["adv_events"] = [e for e in adv_events if e["life"] > 0]
 
-    # Compact move history under this slot's move field
+    # One-line move history under this slot's move field
     move_events = slot_anim["move_events"]
     if move_events:
         move_list_x = move_anchor_x
         move_list_y = anchor_y + row_h + int(6 * scale)
-        move_line_h = font_sm.get_height() + int(3 * scale)
 
-        compact_lines = []
+        line_life = min(ev["life"] for ev in move_events)
+        alpha = int(255 * line_life)
 
-        # Newest move
-        if len(move_events) >= 1:
-            compact_lines.append({
-                "text": move_events[0]["text"],
-                "life": move_events[0]["life"],
-                "tier": 0,
-            })
-
-        # Middle chain: 2 moves
-        if len(move_events) >= 3:
-            compact_lines.append({
-                "text": f"{move_events[2]['text']} > {move_events[1]['text']}",
-                "life": min(move_events[1]["life"], move_events[2]["life"]),
-                "tier": 1,
-            })
+        parts = []
+        if len(move_events) == 3:
+            parts = [
+                (move_events[2]["text"], (255, 220, 90)),   # oldest = yellow
+                (" > ", COL_TEXT),
+                (move_events[1]["text"], (80, 160, 255)),   # middle = blue
+                (" > ", COL_TEXT),
+                (move_events[0]["text"], (80, 255, 120)),   # newest = green
+            ]
         elif len(move_events) == 2:
-            compact_lines.append({
-                "text": move_events[1]["text"],
-                "life": move_events[1]["life"],
-                "tier": 1,
-            })
+            parts = [
+                (move_events[1]["text"], (80, 160, 255)),
+                (" > ", COL_TEXT),
+                (move_events[0]["text"], (80, 255, 120)),
+            ]
+        else:
+            parts = [
+                (move_events[0]["text"], (80, 255, 120)),
+            ]
 
-        # Oldest chain: 3 moves
-        if len(move_events) >= 6:
-            compact_lines.append({
-                "text": f"{move_events[5]['text']} > {move_events[4]['text']} > {move_events[3]['text']}",
-                "life": min(move_events[3]["life"], move_events[4]["life"], move_events[5]["life"]),
-                "tier": 2,
-            })
-        elif len(move_events) == 5:
-            compact_lines.append({
-                "text": f"{move_events[4]['text']} > {move_events[3]['text']}",
-                "life": min(move_events[3]["life"], move_events[4]["life"]),
-                "tier": 2,
-            })
-        elif len(move_events) == 4:
-            compact_lines.append({
-                "text": move_events[3]["text"],
-                "life": move_events[3]["life"],
-                "tier": 2,
-            })
+        rendered_parts = []
+        total_line_w = 0
+        max_line_h = 0
+        for text, color in parts:
+            surf = font_sm.render(text, True, color)
+            surf.set_alpha(alpha)
+            rendered_parts.append(surf)
+            total_line_w += surf.get_width()
+            max_line_h = max(max_line_h, surf.get_height())
 
-        for i, line in enumerate(compact_lines):
-            if line["tier"] == 0:
-                txt_col = (80, 255, 120)   # green
-            elif line["tier"] == 1:
-                txt_col = (80, 160, 255)   # blue
-            else:
-                txt_col = (255, 220, 90)   # yellow
+        pad_x = int(5 * scale)
+        pad_y = int(2 * scale)
+        bg = pygame.Surface((total_line_w + pad_x * 2, max_line_h + pad_y * 2), pygame.SRCALPHA)
+        bg.fill((12, 12, 12, int(210 * line_life)))
+        screen.blit(bg, (move_list_x - pad_x, move_list_y - pad_y))
 
-            alpha = int(255 * line["life"])
-            hist_surf = font_sm.render(line["text"], True, txt_col)
-            hist_surf.set_alpha(alpha)
-
-            pad_x = int(5 * scale)
-            pad_y = int(2 * scale)
-            bg_w = hist_surf.get_width() + pad_x * 2
-            bg_h = hist_surf.get_height() + pad_y * 2
-
-            bg = pygame.Surface((bg_w, bg_h), pygame.SRCALPHA)
-            bg.fill((12, 12, 12, int(210 * line["life"])))
-
-            draw_y = move_list_y + i * move_line_h
-            screen.blit(bg, (move_list_x - pad_x, draw_y - pad_y))
-            screen.blit(hist_surf, (move_list_x, draw_y))
+        dx = move_list_x
+        for surf in rendered_parts:
+            screen.blit(surf, (dx, move_list_y))
+            dx += surf.get_width()
 
         for ev in move_events:
             ev["life"] -= 0.006
