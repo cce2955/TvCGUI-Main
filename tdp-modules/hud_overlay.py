@@ -76,6 +76,9 @@ PASSIVE_LABELS = {
 REACTION_IDS = {48, 49, 50, 51, 52, 64, 65, 66, 73,75, 79, 80, 81, 
                 82, 83, 89, 90, 92, 95, 96, 98,
                 102,105,106,113, 114,115,116, 117, 118 ,119, 160}
+BAROQUE_CANCEL_IDS = {162, 163, 164}
+
+
 
 # ---------------------------------------------------------------------------
 # Global state
@@ -530,7 +533,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     if not mv_label and move_id is not None:
         mv_label = f"0x{int(move_id):04X}"
     is_passive = mv_label.lower() in PASSIVE_LABELS
-    move_col   = COL_TEXT_DIM if (is_passive or not is_active_char or is_dead) else COL_TEXT
+    is_baroque = (move_id is not None and int(move_id) in BAROQUE_CANCEL_IDS)
+    move_col   = COL_TEXT_DIM if ((is_passive and not is_baroque) or not is_active_char or is_dead) else COL_TEXT
     move_surf  = font_sm.render(mv_label or "---", True, move_col)
 
     # Move history tracking
@@ -539,7 +543,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         mv_label
         and mv_label != "---"
         and mv_label != prev_move_label
-        and not is_passive
+        and ((not is_passive) or is_baroque)
         and not is_dead
     ):
         move_events = slot_anim["move_events"]
@@ -815,8 +819,16 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
         for idx, ev in enumerate(display_items):
             recency_from_newest = len(display_items) - 1 - idx
+            ev_is_baroque = ev["text"].lower() == "baroque cancel"
 
-            if recency_from_newest == 0:
+            if ev_is_baroque:
+                phase = (time.time() * 0.8) % 1.0
+                color = (
+                    int(200 + 55 * math.sin(2 * math.pi * phase)),
+                    int(160 + 55 * math.sin(2 * math.pi * (phase + 0.33))),
+                    255,
+                )
+            elif recency_from_newest == 0:
                 color = (80, 255, 120)    # newest = green
             elif recency_from_newest == 1:
                 color = (80, 160, 255)    # mid = blue
@@ -875,8 +887,20 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
         # pulsing gradient frame around newest move only
         if newest_rect is not None:
+            newest_text = move_events[0]["text"].lower() if move_events else ""
+            if newest_text == "baroque cancel":
+                phase = (time.time() * 0.8) % 1.0
+                frame_col = (
+                    int(200 + 55 * math.sin(2 * math.pi * phase)),
+                    int(160 + 55 * math.sin(2 * math.pi * (phase + 0.33))),
+                    255,
+                )
+            else:
+                frame_col = (80, 255, 120)
             pulse = 0.85 + 0.35 * (0.5 + 0.5 * math.sin(time.time() * 6.0))
-            _draw_gradient_frame(screen, newest_rect, (80, 255, 120), pulse=pulse)
+            _draw_gradient_frame(screen, newest_rect, frame_col, pulse=pulse)
+
+        
 
         # fade only older entries; keep current active move pinned
         for i, ev in enumerate(move_events):
