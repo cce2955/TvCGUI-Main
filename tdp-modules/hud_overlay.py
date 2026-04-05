@@ -64,7 +64,7 @@ BG_ALPHA         = 200
 
 ASSIST_STANDBY_IDS = {430, 432, 433}
 ASSIST_ATTACK_IDS  = {420, 426, 427, 428}
-ASSIST_OFF_IDS     = ASSIST_STANDBY_IDS | ASSIST_ATTACK_IDS
+ASSIST_OFF_IDS     = ASSIST_STANDBY_IDS 
 
 PASSIVE_LABELS = {
     "idle", "crouched", "couching", "standing", "jump", "jump forward",
