@@ -248,7 +248,10 @@ def _get_slot_anim(slot_label: str):
         "adv_events": [],
         "prev_meter": None,
         "meter_events": [],
+        "prev_move_label": "",
+        "move_events": [],
     })
+
 
 # ---------------------------------------------------------------------------
 # DPI / Win32
@@ -497,6 +500,21 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     move_col   = COL_TEXT_DIM if (is_passive or not is_active_char or is_dead) else COL_TEXT
     move_surf  = font_sm.render(mv_label or "---", True, move_col)
 
+    # Move history tracking
+    prev_move_label = slot_anim.get("prev_move_label", "")
+    if (
+        mv_label
+        and mv_label != "---"
+        and mv_label != prev_move_label
+        and not is_passive
+        and not is_dead
+    ):
+        move_events = slot_anim["move_events"]
+        move_events.insert(0, {"text": mv_label, "life": 1.0})
+        if len(move_events) > 5:
+            move_events.pop()
+    slot_anim["prev_move_label"] = mv_label
+
     # Baroque
     baroque_ready = snap.get("baroque_ready_local", False) and not is_dead
     baroque_pct   = snap.get("baroque_red_pct_max", 0.0)
@@ -624,7 +642,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
-    screen.blit(move_surf, (cx, mid_y - move_surf.get_height() // 2))
+    move_anchor_x = cx
+    screen.blit(move_surf, (move_anchor_x, mid_y - move_surf.get_height() // 2))
     cx += move_surf.get_width() + sep
     _draw_divider(screen, cx - sep // 2, anchor_y, row_h, scale)
 
@@ -729,6 +748,45 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             screen.blit(adv_surf, (draw_x, adv_y))
             dx += w + gap
         slot_anim["adv_events"] = [e for e in adv_events if e["life"] > 0]
+
+    # Move history list under this slot's move field
+    move_events = slot_anim["move_events"]
+    if move_events:
+        move_list_x = move_anchor_x
+        move_list_y = anchor_y + row_h + int(6 * scale)
+        move_line_h = font_sm.get_height() + int(4 * scale)
+
+        for i, ev in enumerate(move_events):
+            ev["life"] -= 0.006
+            if ev["life"] <= 0:
+                continue
+
+            if i == 0:
+                tier_alpha = 1.00
+            elif i in (1, 2):
+                tier_alpha = 0.95
+            else:
+                tier_alpha = 0.80
+
+            alpha = int(255 * ev["life"] * tier_alpha)
+            txt_col = COL_TEXT if i == 0 else COL_TEXT_DIM
+
+            hist_surf = font_sm.render(ev["text"], True, txt_col)
+            hist_surf.set_alpha(alpha)
+
+            pad_x = int(5 * scale)
+            pad_y = int(2 * scale)
+            bg_w = hist_surf.get_width() + pad_x * 2
+            bg_h = hist_surf.get_height() + pad_y * 2
+
+            bg = pygame.Surface((bg_w, bg_h), pygame.SRCALPHA)
+            bg.fill((12, 12, 12, int(210 * ev["life"] * tier_alpha)))
+
+            draw_y = move_list_y + i * move_line_h
+            screen.blit(bg, (move_list_x - pad_x, draw_y - pad_y))
+            screen.blit(hist_surf, (move_list_x, draw_y))
+
+        slot_anim["move_events"] = [e for e in move_events if e["life"] > 0]
 
     return total_w
 
