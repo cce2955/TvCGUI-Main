@@ -443,16 +443,11 @@ def populate_tree(win) -> None:
         hb_off = None
         hb_val = None
 
-        if move_abs:
-            try:
-                hb_cands = U.scan_hitbox_candidates(move_abs)
-                hb_off, hb_val = U.select_primary_hitbox(hb_cands)
-                if hb_val is not None:
-                    hb_main_txt = f"{hb_val:.1f}"
-                if hb_cands:
-                    hb_txt = U.format_candidate_list(hb_cands)
-            except Exception:
-                pass
+        # DEFER hitbox scanning (done in Refresh visible instead)
+        if mv.get("hb_r") is not None:
+            hb_main_txt = f"{mv['hb_r']:.1f}"
+        if mv.get("hb_candidates"):
+            hb_txt = U.format_candidate_list(mv["hb_candidates"])
 
         kb_parts = []
         if mv.get("kb0") is not None:
