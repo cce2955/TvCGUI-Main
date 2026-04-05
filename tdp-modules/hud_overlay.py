@@ -799,8 +799,21 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
             screen.blit(surf, (dx, move_list_y))
             dx += surf.get_width()
 
-        for ev in move_events:
-            ev["life"] -= 0.006
+        # Keep the current active move pinned instead of fading it out.
+        newest_is_live = (
+            not is_passive
+            and mv_label
+            and mv_label != "---"
+            and len(move_events) > 0
+            and move_events[0]["text"] == mv_label
+        )
+
+        for i, ev in enumerate(move_events):
+            if i == 0 and newest_is_live:
+                ev["life"] = 1.0
+            else:
+                ev["life"] -= 0.006
+
         slot_anim["move_events"] = [e for e in move_events if e["life"] > 0]
 
     return total_w
