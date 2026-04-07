@@ -648,7 +648,11 @@
 465,0x1d1,Front Throw,Front Throw,Front Throw,yes,21
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,21
 512,0x200,Oni Cutter,Oni Cutter,Oni Cutter,yes,21
-# Yami (ID: 23? 24? 25?)
+# Yami (
+# ID: 
+# 23 Phase 1
+# 24 Phase 2
+# 25 Phase 3)
 47,0x10e,Yami exploding,6M,6M,yes,23
 47,0x10e,Yami exploding,6M,6M,yes,24
 47,0x10e,Yami exploding,6M,6M,yes,25
@@ -661,9 +665,9 @@
 304,0x10e,Missles,6M,6M,yes,23
 304,0x10e,Missles Vertical,6M,6M,yes,24
 304,0x10e,Missles Vertical,6M,6M,yes,25
-352,0x10e,Missle Barrage,6M,6M,yes,23
+352,0x10e,Missle Barrage,6M,6M,yes,25
 352,0x10e,Earthquake,6M,6M,yes,24
-352,0x10e,Meter Steal,6M,6M,yes,25
+352,0x10e,Meter Steal,6M,6M,yes,23
 355,0x10e,Scorched earth,6M,6M,yes,23
 355,0x10e,Scorched earth,6M,6M,yes,24
 355,0x10e,Scorched earth,6M,6M,yes,25
