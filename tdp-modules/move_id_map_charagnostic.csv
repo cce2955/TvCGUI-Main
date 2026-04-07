@@ -115,6 +115,7 @@
 514,0x200,Tek Win Air Yank,Tek Win A,Tek Win A,yes,3
 516,0x204,Space Knights Formation Stab,Space Knights Formation Stab,Space Knights Formation Stab,yes,3
 520,0x204,Space Knights Formation,Space Knights Formation,Space Knights Formation,yes,3
+544,0x204,Space Knights Formation,Space Knights Formation,Space Knights Formation,yes,3
 354,0x160,voltekka air,voltekka air,voltekka air,yes,3
 
 # Polimar (ID: 4)
@@ -465,6 +466,7 @@
 320,0x138,Knee Smash B,Slash Elbow H,Slash Elbow H,yes,16
 321,0x138,Knee Smash C,Slash Elbow H,Slash Elbow H,yes,16
 323,0x138,Powerbomb Start/Whiff,Slash Elbow H,Slash Elbow H,yes,16
+325,0x138,Air Powerbomb Start/Whiff,Slash Elbow H,Slash Elbow H,yes,16
 352,0x160,Boomerang Raid,Boomerang Raid,Boomerang Raid,yes,16
 353,0x160,Stungun Near,Boomerang Raid,Boomerang Raid,yes,16
 354,0x160,Stungun Mid,Boomerang Raid,Boomerang Raid,yes,16
@@ -646,7 +648,34 @@
 465,0x1d1,Front Throw,Front Throw,Front Throw,yes,21
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,21
 512,0x200,Oni Cutter,Oni Cutter,Oni Cutter,yes,21
-
+# Yami (ID: 23? 24? 25?)
+47,0x10e,Yami exploding,6M,6M,yes,23
+47,0x10e,Yami exploding,6M,6M,yes,24
+47,0x10e,Yami exploding,6M,6M,yes,25
+353,0x10e,Buzzsaws,6M,6M,yes,23
+353,0x10e,Buzzsaws,6M,6M,yes,24
+353,0x10e,Buzzsaws,6M,6M,yes,25
+305,0x10e,Missles,6M,6M,yes,23
+305,0x10e,Missles,6M,6M,yes,24
+305,0x10e,Missles,6M,6M,yes,25
+304,0x10e,Missles,6M,6M,yes,23
+304,0x10e,Missles Vertical,6M,6M,yes,24
+304,0x10e,Missles Vertical,6M,6M,yes,25
+352,0x10e,Missle Barrage,6M,6M,yes,23
+352,0x10e,Earthquake,6M,6M,yes,24
+352,0x10e,Meter Steal,6M,6M,yes,25
+355,0x10e,Scorched earth,6M,6M,yes,23
+355,0x10e,Scorched earth,6M,6M,yes,24
+355,0x10e,Scorched earth,6M,6M,yes,25
+353,0x10e,Scorched earth,6M,6M,yes,23
+353,0x10e,Scorched earth,6M,6M,yes,24
+353,0x10e,Scorched earth,6M,6M,yes,25
+368,0x10e,Grab,6M,6M,yes,23
+368,0x10e,Grab,6M,6M,yes,24
+368,0x10e,Grab,6M,6M,yes,25
+512,0x10e,Grab,6M,6M,yes,23
+512,0x10e,Grab,6M,6M,yes,24
+512,0x10e,Grab,6M,6M,yes,25
 
 # Tekkaman Blade (ID: 26)
 263,0x10e,4C,6M,6M,yes,26
