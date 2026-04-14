@@ -40,7 +40,8 @@ STILL_FRAME_LIMIT: int = 4
 MOTION_FRAME_REQUIRED: int = 2
 ACTOR_TABLE = 0x80476E50
 ACTOR_MAX   = 16
-
+SHOW_HITBOX_LABELS = False
+SHOW_PROJECTILE_LABELS = False
 ACTOR_OFF_X = 0x5C
 ACTOR_OFF_Y = 0x6C
 ACTOR_OFF_Z = 0x7C
@@ -101,6 +102,7 @@ def is_passive_state(state_id: int) -> bool:
 
 _last_state_ids: Dict[str, int] = {}
 _last_state_raws: Dict[str, int] = {}
+DEBUG_STATE_CHANGES = False
 
 def _read_slot_filter() -> dict:
     global _last_filter_mtime, _slot_filter
@@ -788,8 +790,7 @@ class Overlay:
         surf = _get_cached_hitbox_surface(rpx, color[:3], is_active)
         pad = rpx + 8          # matches bake pad
         self.screen.blit(surf, (sx - pad, sy - pad))
-        SHOW_HITBOX_LABELS = False
-        SHOW_PROJECTILE_LABELS = False
+
         if SHOW_HITBOX_LABELS and rpx >= 12 and self.font_small is not None:
             txt = self.font_small.render(label, True, color[:3])
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
@@ -920,6 +921,7 @@ def main():
     total_nodes = len(resolved_pools) * PROJECTILE_NODE_COUNT
     node_tracker = ProjectileNodeTracker(total_nodes)
 
+    cached_projectiles: List[Tuple[float, float, float]] = []
     _last_char_ids: Dict[str, int] = {}
 
     running = True
@@ -975,7 +977,7 @@ def main():
                     state_id = decode_state_id(raw_state)
                     char_id = rd32(base + OFF_CHAR_ID) or 0
 
-                    if _last_state_raws.get(name) != raw_state:
+                    if DEBUG_STATE_CHANGES and _last_state_raws.get(name) != raw_state:
                         dump_state18(name, base)
                         print(
                             f"[StateChange] {name} char_id={char_id} "
@@ -985,16 +987,17 @@ def main():
                             f"low8=0x{raw_state & 0xFF:02X} ({raw_state & 0xFF}) "
                             f"decoded={state_id} passive={is_passive_state(state_id)}"
                         )
-                        _last_state_raws[name] = raw_state
-                        _last_state_ids[name] = state_id
 
-                    boxes = read_hitboxes(base, HITBOX)
-                    active = 0
-                    palette = COLORS.get(name, [(255, 255, 255)])
+                    _last_state_raws[name] = raw_state
+                    _last_state_ids[name] = state_id
 
                     if slot_passive_override(name, state_id):
                         counts[name] = 0
                         continue
+
+                    boxes = read_hitboxes(base, HITBOX)
+                    active = 0
+                    palette = COLORS.get(name, [(255, 255, 255)])
 
                     for i, (x, y, r, flag) in enumerate(boxes):
                         visible = motion_filter.update(name, i, x, y, r)
@@ -1019,8 +1022,10 @@ def main():
                     running = False
                     break
 
-            projectiles = read_projectile_positions()
-            for x, y, z in projectiles:
+            if pygame.time.get_ticks() % 2 == 0:
+                cached_projectiles = read_projectile_positions()
+
+            for x, y, z in cached_projectiles:
                 overlay.draw_projectile_hitbox(
                     x, y + PROJECTILE_Y_OFFSET, z, 0.35, COL_PROJ, "PRJ",
                 )
