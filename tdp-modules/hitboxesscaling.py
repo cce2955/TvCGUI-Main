@@ -583,10 +583,8 @@ def read_camera_pos(layout: CameraLayout):
         _rf(layout.base + layout.off_w),
     )
 
-
-def update_projectile_nodes(tracker):
+def update_projectile_nodes(tracker, pools):
     node_idx = 0
-    pools = resolve_projectile_pools()
     for pool in pools:
         for i in range(PROJECTILE_NODE_COUNT):
             node_addr = pool + i * PROJECTILE_NODE_STRIDE
@@ -775,6 +773,8 @@ class Overlay:
         r = min(r, self.cfg.max_radius_units)
         sx, sy, depth, focal = self.world_to_screen(x, y, z)
         rpx = max(2, int((r / depth) * focal))
+        rpx = max(2, (rpx // 4) * 4)
+        rpx = min(rpx, 160)
         if rpx <= 0 or rpx > 5000:
             return None
         return sx, sy, rpx
@@ -788,7 +788,9 @@ class Overlay:
         surf = _get_cached_hitbox_surface(rpx, color[:3], is_active)
         pad = rpx + 8          # matches bake pad
         self.screen.blit(surf, (sx - pad, sy - pad))
-        if rpx >= 12 and self.font_small is not None:
+        SHOW_HITBOX_LABELS = False
+        SHOW_PROJECTILE_LABELS = False
+        if SHOW_HITBOX_LABELS and rpx >= 12 and self.font_small is not None:
             txt = self.font_small.render(label, True, color[:3])
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
@@ -914,7 +916,8 @@ def main():
     print("  F3 = dump active node offset table to console")
     print("  F2 = (no-op, scan disabled)")
 
-    total_nodes = len(PROJECTILE_POOLS) * PROJECTILE_NODE_COUNT
+    resolved_pools = resolve_projectile_pools() or PROJECTILE_POOLS
+    total_nodes = len(resolved_pools) * PROJECTILE_NODE_COUNT
     node_tracker = ProjectileNodeTracker(total_nodes)
 
     _last_char_ids: Dict[str, int] = {}
@@ -955,7 +958,7 @@ def main():
             slot_filter = _read_slot_filter()
 
             if pygame.time.get_ticks() % 2 == 0:
-                update_projectile_nodes(node_tracker)
+                update_projectile_nodes(node_tracker, resolved_pools)
 
             overlay.clear()
             overlay.draw_debug_axes()
