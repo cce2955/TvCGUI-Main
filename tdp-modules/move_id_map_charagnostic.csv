@@ -657,7 +657,7 @@
 47,0x10e,Yami exploding,6M,6M,yes,24
 47,0x10e,Yami exploding,6M,6M,yes,25
 353,0x10e,Buzzsaws,6M,6M,yes,23
-353,0x10e,Buzzsaws,6M,6M,yes,24
+353,0x10e,Grabbed ya heh,6M,6M,yes,24
 353,0x10e,Buzzsaws,6M,6M,yes,25
 305,0x10e,Missles,6M,6M,yes,23
 305,0x10e,Missles,6M,6M,yes,24
@@ -1016,4 +1016,5 @@
 4621,0x1,Captured,Captured,Captured,yes,100
 4622,0x1,Captured,Captured,Captured,yes,100
 4623,0x1,Captured,Captured,Captured,yes,100
+4294967295,0xffffffff,Loading,versus screen loading flag,versus screen loading flag,yes,100
 4294967295,0xffffffff,Loading,versus screen loading flag,versus screen loading flag,yes,100
