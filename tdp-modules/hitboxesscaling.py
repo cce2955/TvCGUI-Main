@@ -987,9 +987,7 @@ class HitboxRenderer:
 
                 raw_state = read_state_raw(base)
                 state_id = decode_state_id(raw_state)
-
                 if slot_passive_override(name, state_id):
-                    counts[name] = 0
                     continue
 
                 boxes = read_hitboxes(base, HITBOX)
@@ -1036,8 +1034,7 @@ class HitboxRenderer:
             palette = COLORS.get(name, [(255, 255, 255)])
 
             for i, (x, y, r, flag) in enumerate(boxes):
-                visible = self.motion_filter.update(name, i, x, y, r)
-                if not visible or r <= 0.001:
+                if r <= 0.001:
                     continue
 
                 base_color = palette[i % len(palette)]
