@@ -933,6 +933,128 @@ class Overlay:
     def present(self):
         pygame.display.flip()
 
+class HitboxRenderer:
+    def __init__(self) -> None:
+        self.motion_filter = MotionFilter()
+        self.scanner = ProjectileScanner()
+
+        total_nodes = len(PROJECTILE_POOLS) * PROJECTILE_NODE_COUNT
+        self.node_tracker = ProjectileNodeTracker(total_nodes)
+
+        self.cached_projectiles: List[Tuple[float, float, float]] = []
+        self.last_char_ids: Dict[str, int] = {}
+        self.last_counts: Dict[str, int] = {}
+
+        self.w = DISPLAY.baseline_w
+        self.h = DISPLAY.baseline_h
+
+        self.overlay = Overlay(DISPLAY)
+        self.overlay.font_small = pygame.font.SysFont("consolas", 11)
+        self.overlay.font_hud = pygame.font.SysFont("consolas", 13, bold=True)
+
+    def on_resize(self, w: int, h: int) -> None:
+        if w <= 0 or h <= 0:
+            return
+        self.w = w
+        self.h = h
+        self.overlay.on_resize(w, h)
+        _surface_cache.clear()
+
+    def update(self, dt: float, control=None) -> None:
+        for name, base in SLOT_BASES.items():
+            cid = rd32(base + OFF_CHAR_ID) or 0
+            if self.last_char_ids.get(name) != cid:
+                print(f"[CharChange] {name} char_id {self.last_char_ids.get(name)} -> {cid}")
+                self.last_char_ids[name] = cid
+
+        if pygame.time.get_ticks() % 2 == 0:
+            pools = resolve_projectile_pools() or PROJECTILE_POOLS
+            node_idx = 0
+            for pool in pools:
+                for i in range(PROJECTILE_NODE_COUNT):
+                    node_addr = pool + i * PROJECTILE_NODE_STRIDE
+                    self.node_tracker.update_from_node(node_idx, node_addr)
+                    node_idx += 1
+
+        slot_filter = _read_slot_filter()
+        counts: Dict[str, int] = {}
+
+        for name, base in SLOT_BASES.items():
+            try:
+                if not slot_filter.get(name, True):
+                    counts[name] = 0
+                    continue
+
+                raw_state = read_state_raw(base)
+                state_id = decode_state_id(raw_state)
+
+                if slot_passive_override(name, state_id):
+                    counts[name] = 0
+                    continue
+
+                boxes = read_hitboxes(base, HITBOX)
+                active = 0
+                for i, (x, y, r, flag) in enumerate(boxes):
+                    visible = self.motion_filter.update(name, i, x, y, r)
+                    if visible and r > 0.001:
+                        active += 1
+                counts[name] = active
+
+            except Exception as slot_exc:
+                print(f"[SlotError] {name}: {slot_exc!r}")
+
+        if pygame.time.get_ticks() % 2 == 0:
+            self.cached_projectiles = read_projectile_positions()
+
+        if pygame.time.get_ticks() % 300 == 0:
+            self.motion_filter.cleanup()
+
+        self.last_counts = counts
+
+    def draw(self, screen: pygame.Surface, control=None) -> None:
+        camx, camy, camz, camw = read_camera_pos(CAMERA)
+
+        ov = self.overlay
+        ov.screen = screen
+        ov.cam_x = camx
+        ov.cam_y = camy
+        ov.cam_z = camz
+        ov.on_resize(screen.get_width(), screen.get_height())
+
+        slot_filter = _read_slot_filter()
+
+        for name, base in SLOT_BASES.items():
+            if not slot_filter.get(name, True):
+                continue
+
+            raw_state = read_state_raw(base)
+            state_id = decode_state_id(raw_state)
+            if slot_passive_override(name, state_id):
+                continue
+
+            boxes = read_hitboxes(base, HITBOX)
+            palette = COLORS.get(name, [(255, 255, 255)])
+
+            for i, (x, y, r, flag) in enumerate(boxes):
+                visible = self.motion_filter.update(name, i, x, y, r)
+                if not visible or r <= 0.001:
+                    continue
+
+                base_color = palette[i % len(palette)]
+                is_active = (flag == 0x53)
+                ov.draw_hitbox(x, y, 0, r, base_color, f"{name}[{i}]", is_active=is_active)
+
+        for x, y, z in self.cached_projectiles:
+            ov.draw_projectile_hitbox(
+                x,
+                y + PROJECTILE_Y_OFFSET,
+                z,
+                0.35,
+                COL_PROJ,
+                "PRJ",
+            )
+
+        ov.draw_hud(self.last_counts, self.motion_filter, self.node_tracker)
 
 # ----------------------------
 # Main

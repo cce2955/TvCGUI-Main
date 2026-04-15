@@ -1,0 +1,36 @@
+
+[MasterLoopCrash]
+error=error(1400, 'GetClientRect', 'Invalid window handle.')
+Traceback (most recent call last):
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 505, in run
+    w, h = sync_overlay_to_dolphin(self.dolphin_hwnd, self.overlay_hwnd)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 176, in sync_overlay_to_dolphin
+    x, y, w, h = get_client_screen_rect(dolphin_hwnd)
+                 ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 137, in get_client_screen_rect
+    left, top, right, bottom = win32gui.GetClientRect(hwnd)
+                               ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+pywintypes.error: (1400, 'GetClientRect', 'Invalid window handle.')
+
+
+[FatalCrash]
+error=AttributeError("'Overlay' object has no attribute 'on_resize'")
+Traceback (most recent call last):
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 565, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 560, in main
+    overlay.run()
+    ~~~~~~~~~~~^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 491, in run
+    self.init()
+    ~~~~~~~~~^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 364, in init
+    self.hitbox_renderer.on_resize(self.w, self.h)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\hitboxesscaling.py", line 860, in on_resize
+    self.overlay.on_resize(w, h)
+    ^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'Overlay' object has no attribute 'on_resize'
+

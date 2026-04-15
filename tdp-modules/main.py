@@ -685,7 +685,7 @@ def ensure_scan_now(last_scan_normals, last_scan_time):
     # No scan support available.
     return None, last_scan_time
 
-def main():
+def legacy_main():
     """
     Entry point for the TvC HUD runtime.
 
@@ -752,6 +752,8 @@ def main():
         scan_worker.start()
     else:
         scan_worker = None
+
+    
 
     # ----------------------------------------------------------
     # Runtime state initialization
@@ -873,6 +875,79 @@ def main():
             hud_overlay_proc = None
             hud_overlay_active = False
 
+    def _launch_hud_overlay() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        try:
+            hud_overlay_proc = subprocess.Popen(
+                [sys.executable, "hud_overlay.py"],
+                creationflags=(
+                    subprocess.CREATE_NEW_CONSOLE
+                    if sys.platform == "win32"
+                    else 0
+                ),
+            )
+            hud_overlay_active = True
+            if sys.platform == "win32":
+                import ctypes
+                hwnd = pygame.display.get_wm_info().get("window")
+                if hwnd:
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception as e:
+            print(f"[hud_overlay] failed to launch: {e}")
+
+    def _stop_hud_overlay() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        if hud_overlay_proc and hud_overlay_proc.poll() is None:
+            hud_overlay_proc.terminate()
+        hud_overlay_proc = None
+        hud_overlay_active = False
+
+    def _check_hud_overlay_proc() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        if hud_overlay_proc and hud_overlay_proc.poll() is not None:
+            hud_overlay_proc = None
+            hud_overlay_active = False
+    # ----------------------------------------------------------
+    # Master overlay subprocess management
+    # ----------------------------------------------------------
+    master_overlay_proc = None
+    master_overlay_active = False
+
+    def _launch_master_overlay():
+        nonlocal master_overlay_proc, master_overlay_active
+        try:
+            master_overlay_proc = subprocess.Popen(
+                [sys.executable, "master_overlay.py"],
+                creationflags=(
+                    subprocess.CREATE_NEW_CONSOLE
+                    if sys.platform == "win32"
+                    else 0
+                ),
+            )
+            master_overlay_active = True
+            print("[master] launched")
+        except Exception as e:
+            print(f"[master] launch failed: {e}")
+
+    def _stop_master_overlay():
+        nonlocal master_overlay_proc, master_overlay_active
+        if master_overlay_proc and master_overlay_proc.poll() is None:
+            try:
+                master_overlay_proc.terminate()
+            except Exception:
+                pass
+        master_overlay_proc = None
+        master_overlay_active = False
+        print("[master] stopped")
+
+    def _check_master_overlay_proc():
+        nonlocal master_overlay_proc, master_overlay_active
+        if master_overlay_proc and master_overlay_proc.poll() is not None:
+            master_overlay_proc = None
+            master_overlay_active = False
+            print("[master] closed")
+
+    _launch_master_overlay()
     running = True
 
     # Debug overlay caching
@@ -886,7 +961,7 @@ def main():
     hitbox_proc = None        # subprocess.Popen handle
     hitbox_active = False     # logical state flag
 
-    # Slot filter state persisted for hitbox overlay consumption
+    # Slot filter state persisted for master overlay hitbox renderer
     hitbox_slots = {
         "P1": True,
         "P2": True,
@@ -895,79 +970,11 @@ def main():
     }
 
     def _write_hitbox_filter():
-        """
-        Persist current hitbox slot filter configuration to disk.
-
-        The external hitbox overlay reads this file to determine which
-        slots should be rendered.
-
-        Failure to write is silently ignored to avoid interrupting the
-        main HUD loop.
-        """
         try:
             with open(HITBOX_FILTER_FILE, "w") as f:
                 json.dump(hitbox_slots, f)
         except Exception:
             pass
-
-    def _launch_hitbox_overlay():
-        """
-        Launch the external hitbox overlay process.
-
-        Behavior:
-        - Writes current filter state to disk.
-        - Starts hitboxesscaling.py as a separate process.
-        - On Windows, optionally restores focus to the HUD window.
-
-        Any failure is logged but does not stop the HUD.
-        """
-        nonlocal hitbox_proc, hitbox_active
-
-        _write_hitbox_filter()
-
-        try:
-            hitbox_proc = subprocess.Popen(
-                [sys.executable, "hitboxesscaling.py"],
-                creationflags=(
-                    subprocess.CREATE_NEW_CONSOLE
-                    if sys.platform == "win32"
-                    else 0
-                ),
-            )
-
-            hitbox_active = True
-
-            # Restore focus to HUD window on Windows.
-            if sys.platform == "win32":
-                import ctypes
-                hwnd = pygame.display.get_wm_info().get("window")
-                if hwnd:
-                    ctypes.windll.user32.SetForegroundWindow(hwnd)
-
-        except Exception as e:
-            print(f"[hitbox] failed to launch: {e}")
-
-    def _stop_hitbox_overlay():
-        """
-        Terminate the hitbox overlay process if running.
-        """
-        nonlocal hitbox_proc, hitbox_active
-
-        if hitbox_proc and hitbox_proc.poll() is None:
-            hitbox_proc.terminate()
-
-        hitbox_proc = None
-        hitbox_active = False
-
-    def _check_hitbox_proc():
-        """
-        Poll hitbox process and clear state if it has exited.
-        """
-        nonlocal hitbox_proc, hitbox_active
-
-        if hitbox_proc and hitbox_proc.poll() is not None:
-            hitbox_proc = None
-            hitbox_active = False
     # ------------------------------------------------------------------
 
     debug_overlay = True
@@ -982,8 +989,6 @@ def main():
     special_restore_addr = None
     special_restore_ts = 0.0
     special_restore_orig = 0
-    # Start HUD overlay by default on launch
-    _launch_hud_overlay()
 
     # -----------------------------------------------------------------------
     # Main loop
@@ -1406,18 +1411,21 @@ def main():
         # ------------------------------------------------------------------
         # Hitbox overlay button + slot filter (top-left)
         # ------------------------------------------------------------------
-        _check_hitbox_proc()
+        # ------------------------------------------------------------------
+        # Master overlay controls (top-left)
+        # ------------------------------------------------------------------
+        _check_master_overlay_proc()
 
         HB_BTN_X, HB_BTN_Y = 8, 8
         HB_BTN_W, HB_BTN_H = 150, 22
         hb_btn_rect = pygame.Rect(HB_BTN_X, HB_BTN_Y, HB_BTN_W, HB_BTN_H)
 
-        if hitbox_active:
+        if any(hitbox_slots.values()):
             hb_btn_col = (60, 200, 80)
             hb_btn_label = "Hitboxes: ON"
         else:
             hb_btn_col = (80, 80, 80)
-            hb_btn_label = "Activate Hitboxes"
+            hb_btn_label = "Hitboxes: OFF"
 
         mx_h, my_h = pygame.mouse.get_pos()
         hb_hover = hb_btn_rect.collidepoint(mx_h, my_h)
@@ -1439,17 +1447,17 @@ def main():
         screen.blit(smallfont.render("Proj Scanner", True, (230, 230, 230)),
                     (PS_BTN_X + 6, HB_BTN_Y + 4))
 
-        # HUD Overlay button (launches hud_overlay.py on Dolphin)
-        _check_hud_overlay_proc()
+        # Master Overlay button
+        _check_master_overlay_proc()
         HUD_BTN_X = PS_BTN_X + PS_BTN_W + 8
         HUD_BTN_W, HUD_BTN_H = 140, 22
         hud_btn_rect = pygame.Rect(HUD_BTN_X, HB_BTN_Y, HUD_BTN_W, HUD_BTN_H)
-        if hud_overlay_active:
+        if master_overlay_active:
             hud_btn_col = (160, 110, 30)
-            hud_btn_label = "HUD Overlay: ON"
+            hud_btn_label = "Overlay: ON"
         else:
             hud_btn_col = (80, 80, 80)
-            hud_btn_label = "HUD Overlay"
+            hud_btn_label = "Overlay: OFF"
         if hud_btn_rect.collidepoint(mx_h, my_h):
             hud_btn_col = tuple(min(255, c + 30) for c in hud_btn_col)
         pygame.draw.rect(screen, hud_btn_col, hud_btn_rect, border_radius=3)
@@ -1626,21 +1634,28 @@ def main():
 
             # Hitbox button
             if hb_btn_rect.collidepoint(mx, my):
-                if hitbox_active:
-                    _stop_hitbox_overlay()
-                else:
-                    _launch_hitbox_overlay()
+                new_state = not any(hitbox_slots.values())
+                for slot_name in hitbox_slots:
+                    hitbox_slots[slot_name] = new_state
+                _write_hitbox_filter()
                 mouse_clicked_pos = None
                 continue
 
             elif ps_btn_rect.collidepoint(mx, my):
                 def _get_active_chars():
-                    # Return names in slot order: P1-C1, P1-C2, P2-C1, P2-C2
                     slot_order = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
                     return [s.get("name") for slot in slot_order
                             for s in [render_snap_by_slot.get(slot)]
                             if s and s.get("name")]
                 open_proj_scanner_window(_get_active_chars)
+                mouse_clicked_pos = None
+                continue
+
+            elif hud_btn_rect.collidepoint(mx, my):
+                if master_overlay_active:
+                    _stop_master_overlay()
+                else:
+                    _launch_master_overlay()
                 mouse_clicked_pos = None
                 continue
 
@@ -1653,7 +1668,7 @@ def main():
                 continue
 
             # Hitbox slot filter checkboxes
-            elif hitbox_active:
+            elif master_overlay_active:
                 for slot_name, cb_rect in hb_filter_rects.items():
                     if cb_rect.collidepoint(mx, my):
                         hitbox_slots[slot_name] = not hitbox_slots[slot_name]
@@ -1915,18 +1930,25 @@ def main():
         clock.tick(TARGET_FPS)
         frame_idx += 1
         
-    if hitbox_proc and hitbox_proc.poll() is None:
+    if master_overlay_proc and master_overlay_proc.poll() is None:
         try:
-            hitbox_proc.terminate()
-        except Exception:
-            pass
-    if hud_overlay_proc and hud_overlay_proc.poll() is None:
-        try:
-            hud_overlay_proc.terminate()
+            master_overlay_proc.terminate()
         except Exception:
             pass
     pygame.quit()
-
+def main():
+    legacy_main()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        print("\n[main crash]")
+        print(f"error={e!r}")
+        traceback.print_exc()
+        try:
+            input("\nCrash detected. Press Enter to close...")
+        except EOFError:
+            pass
+        raise

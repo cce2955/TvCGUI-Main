@@ -985,11 +985,11 @@ def _compute_active_slots(slots: dict) -> set[str]:
 
 
 def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
-    screen.fill(COLORKEY)
     _anim_state["overlay_alpha"] = _approach(_anim_state["overlay_alpha"], 1.0, FADE_SPEED, dt)
     overlay_alpha = _anim_state["overlay_alpha"]
     row_h   = max(14, int(BASE_ROW_H * scale))
     row_gap = int(25 * scale)
+    active  = _compute_active_slots(slots)
     active  = _compute_active_slots(slots)
 
     for slot_label, (side, base_x, base_y) in SLOT_LAYOUT.items():
@@ -1024,6 +1024,48 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
         _draw_slot_row(screen, font, font_sm, slot_label, snap,
                        anchor_x, scaled_y, row_h, scale, slot_label in active,
                        slot_anim, overlay_alpha, dt)
+
+# ---------------------------------------------------------------------------
+# Renderer class for master_overlay.py
+# ---------------------------------------------------------------------------
+
+class HudRenderer:
+    def __init__(self) -> None:
+        self.w = BASE_W
+        self.h = BASE_H
+        self.scale = 1.0
+        self.font = make_font(BASE_FONT_SIZE, bold=True)
+        self.font_sm = make_font(int(BASE_FONT_SIZE * 0.78), bold=False)
+
+    def on_resize(self, w: int, h: int) -> None:
+        if w <= 0 or h <= 0:
+            return
+        self.w = w
+        self.h = h
+        self.scale = min(w / BASE_W, h / BASE_H)
+        self.font = make_font(int(BASE_FONT_SIZE * self.scale), bold=True)
+        self.font_sm = make_font(int(BASE_FONT_SIZE * self.scale * 0.78), bold=False)
+
+    def update(self, dt: float, control=None) -> None:
+        global _frame
+        _frame += 1
+
+        new_slots = read_slot_data()
+
+        for slot_label in SLOT_LAYOUT.keys():
+            _get_slot_anim(slot_label)["present"] = slot_label in new_slots
+
+        for k, v in new_slots.items():
+            if isinstance(v, dict):
+                _display_slots[k] = v
+
+        _update_adv()
+
+    def draw(self, screen: pygame.Surface, control=None) -> None:
+        if control is not None and not getattr(control, "show_hud", True):
+            return
+
+        draw_overlay(screen, self.font, self.font_sm, _display_slots, self.scale, 1 / 60.0)
 
 # ---------------------------------------------------------------------------
 # Main
