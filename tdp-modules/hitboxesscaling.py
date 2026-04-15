@@ -890,6 +890,10 @@ class Overlay:
         r_c, g_c, b_c = color[:3]
 
         pad = 8
+
+        r_c, g_c, b_c = color[:3]
+
+        pad = 8
         size = rpx * 2 + pad * 2
         surf = pygame.Surface((size, size), pygame.SRCALPHA)
         cx = cy = rpx + pad
