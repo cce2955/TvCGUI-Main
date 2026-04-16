@@ -1,0 +1,56 @@
+{
+  "character": "Ryu",
+  "mission_count": 3,
+  "active_mission_id": "ryu_001",
+  "active_mission_name": "Basic Air Chain",
+  "active_mission_steps": [
+    "5A",
+    "5B",
+    "5C",
+    "3C",
+    "j.A",
+    "j.B",
+    "j.C"
+  ],
+  "missions": [
+    {
+      "mission_id": "ryu_001",
+      "name": "Basic Air Chain",
+      "completed": false,
+      "steps": [
+        "5A",
+        "5B",
+        "5C",
+        "3C",
+        "j.A",
+        "j.B",
+        "j.C"
+      ]
+    },
+    {
+      "mission_id": "ryu_002",
+      "name": "Donkey Ender",
+      "completed": false,
+      "steps": [
+        "5A",
+        "5B",
+        "5C",
+        "6C",
+        "Donkey H"
+      ]
+    },
+    {
+      "mission_id": "ryu_003",
+      "name": "Heavy Tatsu Ender",
+      "completed": false,
+      "steps": [
+        "5A",
+        "5B",
+        "5C",
+        "Tatsu H"
+      ]
+    }
+  ],
+  "active": true,
+  "slot": "P1-C1"
+}

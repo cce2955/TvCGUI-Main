@@ -79,9 +79,11 @@ except Exception:
 # Frame data window (editable GUI + legacy Tk)
 from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
+from mission_mode import build_overlay_payload
 
 MASTER_CONTROL_FILE = "master_overlay_control.json"
 MISSION_MODE_FILE = "mission_mode_state.json"
+MISSION_OVERLAY_FILE = "mission_overlay_data.json"
 # ---------------------------------------------------------------------------
 # Tunables / globals for timing and animation
 # ---------------------------------------------------------------------------
@@ -807,6 +809,9 @@ def legacy_main():
     hud_overlay_proc = None
     hud_overlay_active = False
 
+    
+    
+
     def _write_hud_overlay_data(snaps_dict: dict, scan_normals=None) -> None:
         payload = {}
         for slot_label, snap in snaps_dict.items():
@@ -991,6 +996,33 @@ def legacy_main():
                 json.dump(payload, f, indent=2)
         except Exception:
             pass
+    def _write_mission_overlay_data() -> None:
+        payload = {
+            "active": False,
+            "slot": mission_active_slot,
+            "character": None,
+            "mission_count": 0,
+            "active_mission_id": None,
+            "active_mission_name": None,
+            "active_mission_steps": [],
+            "missions": [],
+        }
+
+        if mission_active_slot:
+            snap = render_snap_by_slot.get(mission_active_slot)
+            character_name = snap.get("name") if snap else None
+
+            if character_name:
+                payload = build_overlay_payload(character_name)
+                payload["active"] = True
+                payload["slot"] = mission_active_slot
+
+        try:
+            with open(MISSION_OVERLAY_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception:
+            pass
+
 
     def _write_mission_mode_state():
         payload = {
@@ -1013,6 +1045,7 @@ def legacy_main():
     _write_hitbox_filter()
     _write_master_control()
     _write_mission_mode_state()
+    _write_mission_overlay_data()
     _sync_master_overlay_state()
     # ------------------------------------------------------------------
 
@@ -1694,6 +1727,8 @@ def legacy_main():
         scan_surf.set_alpha(255)
         screen.blit(scan_surf, (scan_rect.x, int(y)))
 
+        _write_mission_overlay_data()
+
         # Feed live data to hud_overlay.py subprocess
         # Always feed live move/frame data for overlays that depend on it
         _write_hud_overlay_data(render_snap_by_slot, last_scan_normals)
@@ -1787,24 +1822,25 @@ def legacy_main():
             if mission_btn_p1c1.collidepoint(mx, my):
                 mission_active_slot = None if mission_active_slot == "P1-C1" else "P1-C1"
                 _write_mission_mode_state()
+                _write_mission_overlay_data()
 
             elif mission_btn_p2c1.collidepoint(mx, my):
                 mission_active_slot = None if mission_active_slot == "P2-C1" else "P2-C1"
                 _write_mission_mode_state()
+                _write_mission_overlay_data()
 
             elif mission_btn_p1c2.collidepoint(mx, my):
                 mission_active_slot = None if mission_active_slot == "P1-C2" else "P1-C2"
                 _write_mission_mode_state()
+                _write_mission_overlay_data()
 
             elif mission_btn_p2c2.collidepoint(mx, my):
                 mission_active_slot = None if mission_active_slot == "P2-C2" else "P2-C2"
                 _write_mission_mode_state()
+                _write_mission_overlay_data()
 
             # Frame data buttons
             elif btn_p1c1.collidepoint(mx, my):
-                last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
-            # Frame data buttons
-            if btn_p1c1.collidepoint(mx, my):
                 last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
                 if last_scan_normals:
                     open_frame_data_window("P1-C1", last_scan_normals)

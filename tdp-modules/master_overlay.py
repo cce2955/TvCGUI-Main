@@ -43,6 +43,7 @@ BASE_H = 720
 
 MASTER_CONTROL_FILE = "master_overlay_control.json"
 MISSION_MODE_FILE = "mission_mode_state.json"
+MISSION_OVERLAY_FILE = "mission_overlay_data.json"
 CRASH_LOG_FILE = "master_overlay_crash.log"
 
 
@@ -309,11 +310,12 @@ class MasterOverlay:
         self.smallfont: Optional[pygame.font.Font] = None
 
         self._last_control_mtime = 0.0
-        self._last_control_mtime = 0.0
 
         self.mission_active = False
         self.mission_slot: Optional[str] = None
         self._last_mission_mtime = 0.0
+        self._last_mission_overlay_mtime = 0.0
+        self.mission_overlay_data: dict = {}
 
         self.hud_renderer: Renderer = NullHudRenderer()
         self.hitbox_renderer: Renderer = NullHitboxRenderer()
@@ -457,7 +459,22 @@ class MasterOverlay:
         except Exception:
             self.mission_active = False
             self.mission_slot = None
+    def _read_mission_overlay_file(self) -> None:
+        try:
+            mt = os.path.getmtime(MISSION_OVERLAY_FILE)
+            if mt == self._last_mission_overlay_mtime:
+                return
+            self._last_mission_overlay_mtime = mt
 
+            with open(MISSION_OVERLAY_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if isinstance(data, dict):
+                self.mission_overlay_data = data
+            else:
+                self.mission_overlay_data = {}
+        except Exception:
+            self.mission_overlay_data = {}
 
     def on_resize(self, w: int, h: int) -> None:
         if w <= 0 or h <= 0:
@@ -536,12 +553,24 @@ class MasterOverlay:
         if self.screen is None or self.font is None or self.smallfont is None:
             return
 
-        title = self.font.render(f"Mission active for {self.mission_slot}", True, (235, 235, 235))
-        sub = self.smallfont.render("Mission mode placeholder", True, (180, 180, 180))
+        data = self.mission_overlay_data or {}
+        character = data.get("character") or "Unknown"
+        mission_name = data.get("active_mission_name") or "No mission loaded"
+        steps = data.get("active_mission_steps") or []
+
+        title = self.font.render(f"{character} Mission Mode - {self.mission_slot}", True, (235, 235, 235))
+        sub = self.smallfont.render(mission_name, True, (180, 180, 180))
+
+        line_surfs = [self.smallfont.render(f"{idx + 1}. {step}", True, (220, 220, 220)) for idx, step in enumerate(steps)]
 
         pad = 10
-        box_w = max(title.get_width(), sub.get_width()) + pad * 2
-        box_h = title.get_height() + sub.get_height() + pad * 2 + 4
+        content_w = max(
+            [title.get_width(), sub.get_width()] + [surf.get_width() for surf in line_surfs] + [220]
+        )
+        content_h = title.get_height() + sub.get_height() + 8 + sum(s.get_height() + 2 for s in line_surfs)
+
+        box_w = content_w + pad * 2
+        box_h = content_h + pad * 2
 
         x = (self.w - box_w) // 2
         y = max(24, int(self.h * 0.08))
@@ -551,9 +580,15 @@ class MasterOverlay:
         self.screen.blit(bg, (x, y))
         pygame.draw.rect(self.screen, (170, 120, 255), (x, y, box_w, box_h), 1, border_radius=4)
 
-        self.screen.blit(title, (x + pad, y + pad))
-        self.screen.blit(sub, (x + pad, y + pad + title.get_height() + 4))
+        draw_y = y + pad
+        self.screen.blit(title, (x + pad, draw_y))
+        draw_y += title.get_height() + 4
+        self.screen.blit(sub, (x + pad, draw_y))
+        draw_y += sub.get_height() + 8
 
+        for surf in line_surfs:
+            self.screen.blit(surf, (x + pad, draw_y))
+            draw_y += surf.get_height() + 2
     def present(self) -> None:
         pygame.display.flip()
 
@@ -577,6 +612,7 @@ class MasterOverlay:
 
                 self._read_control_file()
                 self._read_mission_mode_file()
+                self._read_mission_overlay_file()
                 self.handle_events()
 
                 dt = self.clock.tick(TARGET_FPS) / 1000.0
