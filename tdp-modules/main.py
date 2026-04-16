@@ -80,7 +80,7 @@ except Exception:
 from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
 
-
+MASTER_CONTROL_FILE = "master_overlay_control.json"
 # ---------------------------------------------------------------------------
 # Tunables / globals for timing and animation
 # ---------------------------------------------------------------------------
@@ -912,7 +912,7 @@ def legacy_main():
     # ----------------------------------------------------------
     master_overlay_proc = None
     master_overlay_active = False
-
+    overlay_enabled = True
     def _launch_master_overlay():
         nonlocal master_overlay_proc, master_overlay_active
         try:
@@ -946,8 +946,17 @@ def legacy_main():
             master_overlay_proc = None
             master_overlay_active = False
             print("[master] closed")
+    def _sync_master_overlay_state():
+        nonlocal master_overlay_active
 
-    _launch_master_overlay()
+        want_hitboxes = any(hitbox_slots.values())
+        want_process = overlay_enabled or want_hitboxes
+
+        if want_process and not master_overlay_active:
+            _launch_master_overlay()
+        elif not want_process and master_overlay_active:
+            _stop_master_overlay()
+
     running = True
 
     # Debug overlay caching
@@ -969,12 +978,28 @@ def legacy_main():
         "P4": True,
     }
 
+    def _write_master_control():
+        payload = {
+            "show_hud": overlay_enabled,
+            "show_hitboxes": any(hitbox_slots.values()),
+            "show_debug": False,
+        }
+        try:
+            with open(MASTER_CONTROL_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception:
+            pass
+
     def _write_hitbox_filter():
         try:
             with open(HITBOX_FILTER_FILE, "w") as f:
                 json.dump(hitbox_slots, f)
         except Exception:
             pass
+
+    _write_hitbox_filter()
+    _write_master_control()
+    _sync_master_overlay_state()
     # ------------------------------------------------------------------
 
     debug_overlay = True
@@ -1452,7 +1477,7 @@ def legacy_main():
         HUD_BTN_X = PS_BTN_X + PS_BTN_W + 8
         HUD_BTN_W, HUD_BTN_H = 140, 22
         hud_btn_rect = pygame.Rect(HUD_BTN_X, HB_BTN_Y, HUD_BTN_W, HUD_BTN_H)
-        if master_overlay_active:
+        if overlay_enabled:
             hud_btn_col = (160, 110, 30)
             hud_btn_label = "Overlay: ON"
         else:
@@ -1638,6 +1663,8 @@ def legacy_main():
                 for slot_name in hitbox_slots:
                     hitbox_slots[slot_name] = new_state
                 _write_hitbox_filter()
+                _write_master_control()
+                _sync_master_overlay_state()
                 mouse_clicked_pos = None
                 continue
 
@@ -1652,27 +1679,19 @@ def legacy_main():
                 continue
 
             elif hud_btn_rect.collidepoint(mx, my):
-                if master_overlay_active:
-                    _stop_master_overlay()
-                else:
-                    _launch_master_overlay()
+                overlay_enabled = not overlay_enabled
+                _write_master_control()
+                _sync_master_overlay_state()
                 mouse_clicked_pos = None
                 continue
-
-            elif hud_btn_rect.collidepoint(mx, my):
-                if hud_overlay_active:
-                    _stop_hud_overlay()
-                else:
-                    _launch_hud_overlay()
-                mouse_clicked_pos = None
-                continue
-
             # Hitbox slot filter checkboxes
-            elif master_overlay_active:
+            else:
                 for slot_name, cb_rect in hb_filter_rects.items():
                     if cb_rect.collidepoint(mx, my):
                         hitbox_slots[slot_name] = not hitbox_slots[slot_name]
                         _write_hitbox_filter()
+                        _write_master_control()
+                        _sync_master_overlay_state()
                         break
 
             # Debug panel rows -> copy address
