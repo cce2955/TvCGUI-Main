@@ -286,6 +286,14 @@ COL_BG = (0, 0, 0)
 COL_DEBUG = (0, 255, 0)
 COL_PROJ = (255, 255, 255)
 
+COL_CROSS = (255, 255, 255)
+COL_DIM = (120, 120, 120)
+COL_BG = (0, 0, 0)
+COL_DEBUG = (0, 255, 0)
+COL_PROJ = (255, 255, 255)
+
+HITBOX_SPAWN_FRAMES = 6
+HITBOX_CROSS_DELAY_FRAMES = 1
 
 # --- surface cache ---
 _surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
@@ -771,6 +779,10 @@ class Overlay:
         self.window_aspect = self.w / float(self.h)
         self.stretch_factor = self.window_aspect / self.base_aspect
 
+        self.frame_index = 0
+        self.hitbox_spawn_start: Dict[str, int] = {}
+        self.hitbox_last_seen: Dict[str, int] = {}
+
     def init_pygame(self) -> int:
         pygame.init()
         self.font_small = pygame.font.SysFont("consolas", 11)
@@ -819,6 +831,17 @@ class Overlay:
         return int(sx), int(sy), 1.0, zoom_scale
 
     def clear(self):
+        self.frame_index += 1
+
+        stale = [
+            label
+            for label, last_seen in self.hitbox_last_seen.items()
+            if self.frame_index - last_seen > 2
+        ]
+        for label in stale:
+            self.hitbox_last_seen.pop(label, None)
+            self.hitbox_spawn_start.pop(label, None)
+
         self.screen.fill(COL_BG)
 
     def draw_debug_axes(self):
@@ -849,43 +872,64 @@ class Overlay:
 
         r_c, g_c, b_c = color[:3]
 
-        pad = 6
-        surf = _get_cached_hitbox_surface(rpx, (r_c, g_c, b_c), is_active)
+        self.hitbox_last_seen[label] = self.frame_index
+        if label not in self.hitbox_spawn_start:
+            self.hitbox_spawn_start[label] = self.frame_index
 
-        cx = cy = rpx + pad
+        age = self.frame_index - self.hitbox_spawn_start[label]
+        spawn_t = min(1.0, age / float(max(1, HITBOX_SPAWN_FRAMES - 1)))
+
+        draw_rpx = max(2, int(rpx * (0.70 + 0.30 * spawn_t)))
+        show_cross = age >= 2
+        fill_t = max(0.0, min(1.0, (spawn_t - 0.35) / 0.65))
+
+        pad = 10
+        size = draw_rpx * 2 + pad * 2 + 12
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        cx = cy = size // 2
+
+        shock_r = max(draw_rpx + 2, int(rpx * (1.18 - 0.18 * spawn_t)))
+        shock_alpha = int(190 * (1.0 - spawn_t))
+        if shock_alpha > 0:
+            pygame.draw.circle(surf, (r_c, g_c, b_c, shock_alpha), (cx, cy), shock_r, 3)
+
+        outer_alpha = int(105 + 85 * spawn_t)
+        ring_alpha = int(165 + 70 * spawn_t)
+        fill_alpha = int((150 if is_active else 95) * (0.35 + 0.65 * spawn_t))
+
+        fill_r = min(255, int(r_c + (255 - r_c) * 0.18))
+        fill_g = min(255, int(g_c + (255 - g_c) * 0.18))
+        fill_b = min(255, int(b_c + (255 - b_c) * 0.18))
+
+        pygame.draw.circle(surf, (fill_r, fill_g, fill_b, fill_alpha), (cx, cy), draw_rpx)
+        pygame.draw.circle(surf, (r_c, g_c, b_c, outer_alpha), (cx, cy), draw_rpx + 3, 3)
+        pygame.draw.circle(surf, (r_c, g_c, b_c, ring_alpha), (cx, cy), draw_rpx, 2)
+
         if is_active:
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx + 4, 4)
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 110), (cx, cy), rpx)
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 220), (cx, cy), rpx, 2)
             hi = (min(r_c + 90, 255), min(g_c + 90, 255), min(b_c + 90, 255))
-            pygame.draw.circle(surf, (*hi, 150), (cx, cy), max(rpx - 3, 1), 1)
-        else:
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx)
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 170), (cx, cy), rpx, 2)
+            hi_alpha = int(135 + 70 * spawn_t)
+            pygame.draw.circle(surf, (*hi, hi_alpha), (cx, cy), max(draw_rpx - 3, 1), 1)
 
-        self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
+        self.screen.blit(surf, (sx - cx, sy - cy))
 
-        cross_col = (min(r_c + 50, 255), min(g_c + 50, 255), min(b_c + 50, 255))
-        cs = max(4, min(9, rpx // 3))
-        cross_s = pygame.Surface((cs * 2 + 2, cs * 2 + 2), pygame.SRCALPHA)
-        pygame.draw.line(cross_s, (*cross_col, 190), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
-        pygame.draw.line(cross_s, (*cross_col, 190), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
-        self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
+        if show_cross:
+            cross_col = (min(r_c + 60, 255), min(g_c + 60, 255), min(b_c + 60, 255))
+            cs = max(4, min(10, draw_rpx // 3))
+            cross_s = pygame.Surface((cs * 2 + 2, cs * 2 + 2), pygame.SRCALPHA)
+            cross_alpha = int(220 * spawn_t)
+            pygame.draw.line(cross_s, (*cross_col, cross_alpha), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
+            pygame.draw.line(cross_s, (*cross_col, cross_alpha), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
+            self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
 
         if rpx >= 12 and self.font_small is not None:
             txt = self.font_small.render(label, True, color[:3])
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
     def draw_projectile_hitbox(self, x, y, z, r, color, label):
-        if abs(x - self.cam_x) > 25 or abs(y - self.cam_y) > 20:
-            return
-
         result = self._project_hitbox(x, y, z, r)
         if result is None:
             return
         sx, sy, rpx = result
-        if rpx > 100:
-            return
 
         r_c, g_c, b_c = color[:3]
 
