@@ -81,6 +81,7 @@ from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
 
 MASTER_CONTROL_FILE = "master_overlay_control.json"
+MISSION_MODE_FILE = "mission_mode_state.json"
 # ---------------------------------------------------------------------------
 # Tunables / globals for timing and animation
 # ---------------------------------------------------------------------------
@@ -977,6 +978,7 @@ def legacy_main():
         "P3": True,
         "P4": True,
     }
+    mission_active_slot = None
 
     def _write_master_control():
         payload = {
@@ -990,6 +992,17 @@ def legacy_main():
         except Exception:
             pass
 
+    def _write_mission_mode_state():
+        payload = {
+            "active": bool(mission_active_slot),
+            "slot": mission_active_slot,
+        }
+        try:
+            with open(MISSION_MODE_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception:
+            pass
+
     def _write_hitbox_filter():
         try:
             with open(HITBOX_FILTER_FILE, "w") as f:
@@ -999,6 +1012,7 @@ def legacy_main():
 
     _write_hitbox_filter()
     _write_master_control()
+    _write_mission_mode_state()
     _sync_master_overlay_state()
     # ------------------------------------------------------------------
 
@@ -1532,7 +1546,7 @@ def legacy_main():
         r_p1c2, a_p1c2 = anim_rect_and_alpha("P1-C2", layout["p1c2"])
         r_p2c2, a_p2c2 = anim_rect_and_alpha("P2-C2", layout["p2c2"])
 
-        def blit_panel_with_button(panel_rect, slot_label, alpha, header):
+        def blit_panel_with_buttons(panel_rect, slot_label, alpha, header):
             snap = render_snap_by_slot.get(slot_label)
             portrait = render_portrait_by_slot.get(slot_label, placeholder_portrait)
 
@@ -1548,42 +1562,65 @@ def legacy_main():
                 t_ms,
             )
 
-            btn_w, btn_h = 110, 20
-            btn_x = panel_rect.width - btn_w - 6
+            btn_h = 20
+            frame_btn_w = 110
+            mission_btn_w = 110
+            btn_gap = 6
+            total_btn_w = frame_btn_w + btn_gap + mission_btn_w
+            btn_x = panel_rect.width - total_btn_w - 6
             btn_y = panel_rect.height - btn_h - 6
-            btn_rect_local = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
-            # Hover detection (mouse is in screen coords; convert to panel-local coords)
+
+            frame_btn_rect_local = pygame.Rect(btn_x, btn_y, frame_btn_w, btn_h)
+            mission_btn_rect_local = pygame.Rect(
+                btn_x + frame_btn_w + btn_gap,
+                btn_y,
+                mission_btn_w,
+                btn_h,
+            )
+
             mx, my = pygame.mouse.get_pos()
             mx_local = mx - panel_rect.x
             my_local = my - panel_rect.y
-            is_hover = btn_rect_local.collidepoint(mx_local, my_local)
+            frame_hover = frame_btn_rect_local.collidepoint(mx_local, my_local)
+            mission_hover = mission_btn_rect_local.collidepoint(mx_local, my_local)
 
             flash_left = panel_btn_flash.get(slot_label, 0)
 
             if flash_left > 0:
-                # clicked/flash state
-                base_col = (90, 140, 255)
-                border_col = (255, 255, 255)
-            elif is_hover:
-                # hover state (slightly brighter so it reads as interactive)
-                base_col = (55, 55, 55)
-                border_col = (220, 220, 220)
+                frame_base_col = (90, 140, 255)
+                frame_border_col = (255, 255, 255)
+            elif frame_hover:
+                frame_base_col = (55, 55, 55)
+                frame_border_col = (220, 220, 220)
             else:
-                # normal
-                base_col = (40, 40, 40)
-                border_col = (180, 180, 180)
+                frame_base_col = (40, 40, 40)
+                frame_border_col = (180, 180, 180)
 
+            if mission_active_slot == slot_label:
+                mission_base_col = (120, 70, 170)
+                mission_border_col = (255, 255, 255)
+            elif mission_hover:
+                mission_base_col = (55, 55, 55)
+                mission_border_col = (220, 220, 220)
+            else:
+                mission_base_col = (40, 40, 40)
+                mission_border_col = (180, 180, 180)
 
-            pygame.draw.rect(surf, base_col, btn_rect_local, border_radius=3)
-            pygame.draw.rect(surf, border_col, btn_rect_local, 1, border_radius=3)
-            label_surf = smallfont.render("Frame Data", True, (220, 220, 220))
-            surf.blit(label_surf, (btn_x + 6, btn_y + 2))
+            pygame.draw.rect(surf, frame_base_col, frame_btn_rect_local, border_radius=3)
+            pygame.draw.rect(surf, frame_border_col, frame_btn_rect_local, 1, border_radius=3)
+            frame_label_surf = smallfont.render("Frame Data", True, (220, 220, 220))
+            surf.blit(frame_label_surf, (frame_btn_rect_local.x + 6, frame_btn_rect_local.y + 2))
+
+            pygame.draw.rect(surf, mission_base_col, mission_btn_rect_local, border_radius=3)
+            pygame.draw.rect(surf, mission_border_col, mission_btn_rect_local, 1, border_radius=3)
+            mission_label_surf = smallfont.render("Mission Mode", True, (220, 220, 220))
+            surf.blit(mission_label_surf, (mission_btn_rect_local.x + 6, mission_btn_rect_local.y + 2))
 
             if flash_left > 0:
                 pygame.draw.rect(
                     surf,
                     (255, 255, 255),
-                    btn_rect_local.inflate(4, 4),
+                    frame_btn_rect_local.inflate(4, 4),
                     2,
                     border_radius=4,
                 )
@@ -1591,25 +1628,37 @@ def legacy_main():
             surf.set_alpha(alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))
 
-            return pygame.Rect(panel_rect.x + btn_x, panel_rect.y + btn_y, btn_w, btn_h)
+            frame_btn_rect = pygame.Rect(
+                panel_rect.x + frame_btn_rect_local.x,
+                panel_rect.y + frame_btn_rect_local.y,
+                frame_btn_w,
+                btn_h,
+            )
+            mission_btn_rect = pygame.Rect(
+                panel_rect.x + mission_btn_rect_local.x,
+                panel_rect.y + mission_btn_rect_local.y,
+                mission_btn_w,
+                btn_h,
+            )
+            return frame_btn_rect, mission_btn_rect
 
         # Always draw C1 panels if present in layout; draw C2 panels unless giant_solo hides them.
-        btn_p1c1 = blit_panel_with_button(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
-        btn_p2c1 = blit_panel_with_button(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
-
+        btn_p1c1, mission_btn_p1c1 = blit_panel_with_buttons(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
+        btn_p2c1, mission_btn_p2c1 = blit_panel_with_buttons(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
         if (not layout.get("p1_is_giant")) and ("P1-C2" in snaps):
-            btn_p1c2 = blit_panel_with_button(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
+            btn_p1c2, mission_btn_p1c2 = blit_panel_with_buttons(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
         else:
             btn_p1c2 = pygame.Rect(0, 0, 0, 0)
+            mission_btn_p1c2 = pygame.Rect(0, 0, 0, 0)
 
         if (not layout.get("p2_is_giant")) and ("P2-C2" in snaps):
-            btn_p2c2 = blit_panel_with_button(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
+            btn_p2c2, mission_btn_p2c2 = blit_panel_with_buttons(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
         else:
             btn_p2c2 = pygame.Rect(0, 0, 0, 0)
+            mission_btn_p2c2 = pygame.Rect(0, 0, 0, 0)
 
         draw_activity(screen, layout["act"], font, last_adv_display)
         draw_event_log(screen, layout["events"], font, smallfont)
-
         debug_rect = layout["debug"]
         if frame_idx % DEBUG_REFRESH_EVERY == 0:
             debug_cache = merged_debug_values()
@@ -1723,7 +1772,37 @@ def legacy_main():
                             else:
                                 _copy_to_clipboard(str(base))
                         break
+                for slot_label, rect in slot_panels:
+                    if rect and rect.collidepoint(mx, my):
+                        snap = render_snap_by_slot.get(slot_label)
+                        if snap:
+                            base = snap.get("base")
+                            if isinstance(base, int):
+                                _copy_to_clipboard(f"0x{base:08X}")
+                            else:
+                                _copy_to_clipboard(str(base))
+                        break
 
+            # Mission mode buttons
+            if mission_btn_p1c1.collidepoint(mx, my):
+                mission_active_slot = None if mission_active_slot == "P1-C1" else "P1-C1"
+                _write_mission_mode_state()
+
+            elif mission_btn_p2c1.collidepoint(mx, my):
+                mission_active_slot = None if mission_active_slot == "P2-C1" else "P2-C1"
+                _write_mission_mode_state()
+
+            elif mission_btn_p1c2.collidepoint(mx, my):
+                mission_active_slot = None if mission_active_slot == "P1-C2" else "P1-C2"
+                _write_mission_mode_state()
+
+            elif mission_btn_p2c2.collidepoint(mx, my):
+                mission_active_slot = None if mission_active_slot == "P2-C2" else "P2-C2"
+                _write_mission_mode_state()
+
+            # Frame data buttons
+            elif btn_p1c1.collidepoint(mx, my):
+                last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
             # Frame data buttons
             if btn_p1c1.collidepoint(mx, my):
                 last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
