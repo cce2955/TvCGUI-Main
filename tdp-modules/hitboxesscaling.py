@@ -294,6 +294,7 @@ COL_PROJ = (255, 255, 255)
 
 HITBOX_SPAWN_FRAMES = 6
 HITBOX_CROSS_DELAY_FRAMES = 1
+HITBOX_ACTIVE_PULSE_SPEED = 0.22
 
 # --- surface cache ---
 _surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
@@ -893,8 +894,16 @@ class Overlay:
         if shock_alpha > 0:
             pygame.draw.circle(surf, (r_c, g_c, b_c, shock_alpha), (cx, cy), shock_r, 3)
 
-        outer_alpha = int(105 + 85 * spawn_t)
-        ring_alpha = int(165 + 70 * spawn_t)
+        pulse_t = 0.0
+        pulse_px = 0
+        pulse_alpha = 0
+        if is_active:
+            pulse_t = 0.5 + 0.5 * math.sin(self.frame_index * HITBOX_ACTIVE_PULSE_SPEED)
+            pulse_px = int(2 + 4 * pulse_t)
+            pulse_alpha = int(55 + 65 * pulse_t)
+
+        outer_alpha = int(105 + 85 * spawn_t + (20 * pulse_t if is_active else 0))
+        ring_alpha = int(165 + 70 * spawn_t + (25 * pulse_t if is_active else 0))
         fill_alpha = int((150 if is_active else 95) * (0.35 + 0.65 * spawn_t))
 
         fill_r = min(255, int(r_c + (255 - r_c) * 0.18))
@@ -902,12 +911,22 @@ class Overlay:
         fill_b = min(255, int(b_c + (255 - b_c) * 0.18))
 
         pygame.draw.circle(surf, (fill_r, fill_g, fill_b, fill_alpha), (cx, cy), draw_rpx)
+
+        if is_active and pulse_alpha > 0:
+            pygame.draw.circle(
+                surf,
+                (r_c, g_c, b_c, pulse_alpha),
+                (cx, cy),
+                draw_rpx + 5 + pulse_px,
+                2,
+            )
+
         pygame.draw.circle(surf, (r_c, g_c, b_c, outer_alpha), (cx, cy), draw_rpx + 3, 3)
         pygame.draw.circle(surf, (r_c, g_c, b_c, ring_alpha), (cx, cy), draw_rpx, 2)
 
         if is_active:
             hi = (min(r_c + 90, 255), min(g_c + 90, 255), min(b_c + 90, 255))
-            hi_alpha = int(135 + 70 * spawn_t)
+            hi_alpha = int(135 + 70 * spawn_t + 30 * pulse_t)
             pygame.draw.circle(surf, (*hi, hi_alpha), (cx, cy), max(draw_rpx - 3, 1), 1)
 
         self.screen.blit(surf, (sx - cx, sy - cy))
