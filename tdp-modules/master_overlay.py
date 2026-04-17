@@ -461,22 +461,21 @@ class MasterOverlay:
         except Exception:
             self.mission_active = False
             self.mission_slot = None
+
     def _read_mission_overlay_file(self) -> None:
         try:
             mt = os.path.getmtime(MISSION_OVERLAY_FILE)
             if mt == self._last_mission_overlay_mtime:
                 return
-            self._last_mission_overlay_mtime = mt
 
             with open(MISSION_OVERLAY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             if isinstance(data, dict):
                 self.mission_overlay_data = data
-            else:
-                self.mission_overlay_data = {}
+                self._last_mission_overlay_mtime = mt
         except Exception:
-            self.mission_overlay_data = {}
+            pass
 
     def on_resize(self, w: int, h: int) -> None:
         if w <= 0 or h <= 0:
