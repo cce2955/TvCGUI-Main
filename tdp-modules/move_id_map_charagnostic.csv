@@ -549,7 +549,7 @@
 514,0x200,Shining Laser anim,Shining Laser,Shining Laser,yes,18
 
 # Roll (ID: 19)
-270,0x10e,Puddle toss,6B,6B,yes,19
+
 272,0x131,Mop up,Zombie Grab,Zombie Grab,yes,30
 273,0x131,Mopping,Zombie Grab,Zombie Grab,yes,30
 274,0x131,Mopped,Zombie Grab,Zombie Grab,yes,30

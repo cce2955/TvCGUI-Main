@@ -1,0 +1,108 @@
+{
+  "character": "Roll",
+  "missions": [
+    {
+      "mission_id": "roll_001",
+      "name": "Basic",
+      "notes": "Basic launcher route.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },    {
+      "mission_id": "roll_002",
+      "name": "Super Ender",
+      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "Mop up Turbo" }
+
+      
+      ]
+    },  {
+      "mission_id": "roll_003",
+      "name": "Midscreen Relaunch",
+      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
+      "steps": [
+        { "label": "5A" },
+        
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Roll Swing B" },
+        { "label": "Baroque cancel" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Roll Swing B" },
+        { "label": "Mop up Turbo" }
+
+      
+      ]
+    },{
+        "mission_id": "roll_004",
+      "name": "Bucket Super",
+      "notes": "",
+      "steps": [
+        { "label": "Bucket B" },
+        
+        { "label": "Mop up Turbo" }
+              
+      ]
+    },{
+        "mission_id": "roll_005",
+      "name": "Relaunch",
+      "notes": "",
+      "steps": [
+         { "label": "5A" },
+        
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Roll Swing B" },
+        { "label": "5B" }, 
+        { "label": "3c" }, 
+        { "label": "j.B" },
+        { "label": "Roll Swing B" },
+        { "label": "Mop up C" },
+        { "label": "Mop up Turbo" }
+              
+      ]
+    },{
+        "mission_id": "roll_006",
+      "name": "Quick confirm",
+      "notes": "",
+      "steps": [
+         { "label": "6B" },
+         { "label": "Swing A" },
+{ "label": "Mop up Turbo" }
+              
+      ]
+    },{
+        "mission_id": "roll_007",
+      "name": "Challenge",
+      "notes": "",
+      "steps": [
+         
+{ "label": "Mop up Turbo" },
+{ "label": "Mop up Turbo" }
+              
+      ]
+    }
+  ]
+}

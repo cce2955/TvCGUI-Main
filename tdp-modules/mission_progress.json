@@ -32,5 +32,15 @@
       "soki_009": true
     },
     "selected_mission_id": "soki_009"
+  },
+  "roll": {
+    "completed": {
+      "roll_001": true,
+      "roll_002": true,
+      "roll_004": true,
+      "roll_006": true,
+      "roll_007": true
+    },
+    "selected_mission_id": "roll_007"
   }
 }

@@ -1,37 +1,22 @@
 {
-  "character": "Soki",
-  "mission_count": 8,
-  "active_mission_id": "soki_001",
-  "active_mission_name": "Sky Chain",
-  "active_mission_notes": "Basic launcher route.",
+  "character": "Roll",
+  "mission_count": 7,
+  "active_mission_id": "roll_007",
+  "active_mission_name": "Challenge",
+  "active_mission_notes": "",
   "active_mission_steps": [
     [
-      "5A"
+      "Mop up Turbo"
     ],
     [
-      "5B"
-    ],
-    [
-      "2B"
-    ],
-    [
-      "3C"
-    ],
-    [
-      "j.A"
-    ],
-    [
-      "j.B"
-    ],
-    [
-      "j.C"
+      "Mop up Turbo"
     ]
   ],
-  "selected_mission_id": "soki_009",
+  "selected_mission_id": "roll_007",
   "missions": [
     {
-      "mission_id": "soki_001",
-      "name": "Sky Chain",
+      "mission_id": "roll_001",
+      "name": "Basic",
       "notes": "Basic launcher route.",
       "completed": true,
       "selected": false,
@@ -43,7 +28,7 @@
           "5B"
         ],
         [
-          "2B"
+          "5C"
         ],
         [
           "3C"
@@ -60,24 +45,9 @@
       ]
     },
     {
-      "mission_id": "soki_002",
-      "name": "Backthrow Finisher",
-      "notes": "Ends with Soki's back throw.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "Back Throw"
-        ],
-        [
-          "Finisher"
-        ]
-      ]
-    },
-    {
-      "mission_id": "soki_003",
-      "name": "Issen Ender",
-      "notes": "Ground route into Issen.",
+      "mission_id": "roll_002",
+      "name": "Super Ender",
+      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
       "completed": true,
       "selected": false,
       "steps": [
@@ -89,75 +59,6 @@
         ],
         [
           "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Issen"
-        ]
-      ]
-    },
-    {
-      "mission_id": "soki_004",
-      "name": "Slam Ender",
-      "notes": "Ground route into Slam B.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Slam B"
-        ]
-      ]
-    },
-    {
-      "mission_id": "soki_005",
-      "name": "Baroque Relaunch",
-      "notes": "Issen into Baroque, then relaunch.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Issen"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "5B"
         ],
         [
           "3C"
@@ -170,14 +71,17 @@
         ],
         [
           "j.C"
+        ],
+        [
+          "Mop up Turbo"
         ]
       ]
     },
     {
-      "mission_id": "soki_006",
-      "name": "Double Issen",
-      "notes": "Try a reverse IAD for that j.B",
-      "completed": true,
+      "mission_id": "roll_003",
+      "name": "Midscreen Relaunch",
+      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
+      "completed": false,
       "selected": false,
       "steps": [
         [
@@ -193,42 +97,57 @@
           "5C"
         ],
         [
-          "6C"
-        ],
-        [
-          "Issen"
-        ],
-        [
-          "Baroque cancel"
+          "3C"
         ],
         [
           "j.B"
         ],
         [
+          "Roll Swing B"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
           "5B"
         ],
         [
-          "5C"
+          "3C"
         ],
         [
-          "2C"
+          "j.B"
         ],
         [
-          "6C"
+          "Roll Swing B"
         ],
         [
-          "Issen"
+          "Mop up Turbo"
         ]
       ]
     },
     {
-      "mission_id": "soki_007",
-      "name": "Slam Route",
+      "mission_id": "roll_004",
+      "name": "Bucket Super",
       "notes": "",
       "completed": true,
       "selected": false,
       "steps": [
         [
+          "Bucket B"
+        ],
+        [
+          "Mop up Turbo"
+        ]
+      ]
+    },
+    {
+      "mission_id": "roll_005",
+      "name": "Relaunch",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
           "5A"
         ],
         [
@@ -241,73 +160,76 @@
           "5C"
         ],
         [
-          "6C"
-        ],
-        [
-          "Slam B"
-        ],
-        [
-          "Baroque cancel"
+          "3C"
         ],
         [
           "j.B"
         ],
         [
-          "5B"
-        ],
-        [
-          "3C"
+          "Roll Swing B"
         ],
         [
           "5B"
         ],
         [
-          "5C"
+          "3c"
         ],
         [
-          "2C"
+          "j.B"
         ],
         [
-          "6C"
+          "Roll Swing B"
         ],
         [
-          "Issen"
+          "Mop up C"
+        ],
+        [
+          "Mop up Turbo"
         ]
       ]
     },
     {
-      "mission_id": "soki_008",
+      "mission_id": "roll_006",
+      "name": "Quick confirm",
+      "notes": "",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "6B"
+        ],
+        [
+          "Swing A"
+        ],
+        [
+          "Mop up Turbo"
+        ]
+      ]
+    },
+    {
+      "mission_id": "roll_007",
       "name": "Challenge",
       "notes": "",
       "completed": true,
-      "selected": false,
+      "selected": true,
       "steps": [
         [
-          "Oni Tactics"
+          "Mop up Turbo"
         ],
         [
-          "Issen"
-        ],
-        [
-          "Oni Tactics"
-        ],
-        [
-          "Issen"
-        ],
-        [
-          "Purification"
+          "Mop up Turbo"
         ]
       ]
     }
   ],
   "active": true,
-  "slot": "P1-C2",
+  "slot": "P1-C1",
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "5A",
+  "current_step_label": "Mop up Turbo",
   "selector_open": false,
-  "selector_index": 7,
+  "selector_index": 5,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }
