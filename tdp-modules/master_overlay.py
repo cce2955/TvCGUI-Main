@@ -561,7 +561,23 @@ class MasterOverlay:
         title = self.font.render(f"{character} Mission Mode - {self.mission_slot}", True, (235, 235, 235))
         sub = self.smallfont.render(mission_name, True, (180, 180, 180))
 
-        line_surfs = [self.smallfont.render(f"{idx + 1}. {step}", True, (220, 220, 220)) for idx, step in enumerate(steps)]
+        completed_step_count = int(data.get("completed_step_count", 0))
+        current_step_index = int(data.get("current_step_index", 0))
+
+        line_surfs = []
+        for idx, step in enumerate(steps):
+            if idx < completed_step_count:
+                prefix = "[x]"
+                color = (80, 255, 120)
+            elif idx == current_step_index:
+                prefix = "->"
+                color = (255, 220, 90)
+            else:
+                prefix = "[ ]"
+                color = (220, 220, 220)
+
+            surf = self.smallfont.render(f"{prefix} {idx + 1}. {step}", True, color)
+            line_surfs.append(surf)
 
         pad = 10
         content_w = max(

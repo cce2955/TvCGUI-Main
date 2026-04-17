@@ -52,5 +52,9 @@
     }
   ],
   "active": true,
-  "slot": "P1-C1"
+  "slot": "P1-C1",
+  "just_cleared": false,
+  "completed_step_count": 0,
+  "current_step_index": 0,
+  "current_step_label": "5A"
 }

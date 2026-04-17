@@ -79,11 +79,17 @@ except Exception:
 # Frame data window (editable GUI + legacy Tk)
 from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
-from mission_mode import build_overlay_payload
+from mission_mode import (
+    build_overlay_payload,
+    load_progress,
+    save_progress,
+    mark_mission_complete,
+)
 
 MASTER_CONTROL_FILE = "master_overlay_control.json"
 MISSION_MODE_FILE = "mission_mode_state.json"
 MISSION_OVERLAY_FILE = "mission_overlay_data.json"
+# ---------------------------------------------------------------------------
 # ---------------------------------------------------------------------------
 # Tunables / globals for timing and animation
 # ---------------------------------------------------------------------------
@@ -151,6 +157,25 @@ def u32be_from_block(block: bytes, off: int) -> int | None:
     )
 # Reaction / hitstun IDs used as a crude "victim is being hit" signal
 REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
+
+MISSION_IGNORE_LABELS = {
+    "",
+    "idle",
+    "crouched",
+    "couching",
+    "standing",
+    "jump",
+    "jump forward",
+    "jump back",
+    "landing",
+    "rising",
+    "assist standby",
+    "assist leave",
+    "assist attack",
+    "assist taunt",
+    "tag out",
+    "tag in",
+}
 
 # TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.
 GIANT_IDS = {11, 22}
@@ -804,6 +829,14 @@ def legacy_main():
     # Frame counter
     frame_idx = 0
 
+    mission_runtime = {
+        "slot": None,
+        "mission_id": None,
+        "progress_index": 0,
+        "last_seen_label": "",
+        "last_accepted_label": None,
+    }
+
     # HUD overlay subprocess (Dolphin-parented transparent window)
     HUD_OVERLAY_DATA_FILE = "hud_overlay_data.json"
     hud_overlay_proc = None
@@ -996,6 +1029,132 @@ def legacy_main():
                 json.dump(payload, f, indent=2)
         except Exception:
             pass
+
+
+    def _mission_opponent_in_hitstun(slot_label: str, snaps_dict: dict) -> bool:
+        if not slot_label:
+            return False
+
+        my_team = "P1" if slot_label.startswith("P1") else "P2"
+
+        for other_slot, other_snap in snaps_dict.items():
+            if not isinstance(other_snap, dict):
+                continue
+            if other_snap.get("teamtag") == my_team:
+                continue
+
+            other_mv = other_snap.get("attA") or other_snap.get("attB")
+            if other_mv in REACTION_STATES:
+                return True
+
+        return False
+
+    def _mission_label_is_ignorable(label: str) -> bool:
+        return (label or "").strip().lower() in MISSION_IGNORE_LABELS
+
+    def _augment_payload_with_runtime(payload: dict, snaps_dict: dict) -> dict:
+        nonlocal mission_runtime
+
+        payload = dict(payload or {})
+        slot = payload.get("slot")
+        mission_id = payload.get("active_mission_id")
+        steps = list(payload.get("active_mission_steps") or [])
+        character_name = payload.get("character")
+
+        if not payload.get("active") or not slot or not mission_id or not steps:
+            mission_runtime = {
+                "slot": None,
+                "mission_id": None,
+                "progress_index": 0,
+                "last_seen_label": "",
+                "last_accepted_label": None,
+            }
+            payload["completed_step_count"] = 0
+            payload["current_step_index"] = 0
+            payload["current_step_label"] = steps[0] if steps else None
+            payload["just_cleared"] = False
+            return payload
+
+        if (
+            mission_runtime.get("slot") != slot
+            or mission_runtime.get("mission_id") != mission_id
+        ):
+            mission_runtime = {
+                "slot": slot,
+                "mission_id": mission_id,
+                "progress_index": 0,
+                "last_seen_label": "",
+                "last_accepted_label": None,
+            }
+
+        snap = snaps_dict.get(slot) or render_snap_by_slot.get(slot) or {}
+        current_label = ((snap.get("mv_label") or "").strip())
+        opponent_in_hitstun = _mission_opponent_in_hitstun(slot, snaps_dict)
+
+        if current_label != mission_runtime["last_seen_label"]:
+            if (
+                mission_runtime["last_accepted_label"] is not None
+                and current_label != mission_runtime["last_accepted_label"]
+            ):
+                mission_runtime["last_accepted_label"] = None
+            mission_runtime["last_seen_label"] = current_label
+
+        progress_index = int(mission_runtime.get("progress_index", 0))
+
+        if progress_index > 0 and not opponent_in_hitstun:
+            progress_index = 0
+            mission_runtime["progress_index"] = 0
+            mission_runtime["last_accepted_label"] = None
+
+        expected_label = steps[progress_index] if progress_index < len(steps) else None
+
+        if (
+            expected_label
+            and current_label == expected_label
+            and opponent_in_hitstun
+            and not _mission_label_is_ignorable(current_label)
+            and mission_runtime["last_accepted_label"] != current_label
+        ):
+            progress_index += 1
+            mission_runtime["progress_index"] = progress_index
+            mission_runtime["last_accepted_label"] = current_label
+
+        if progress_index >= len(steps):
+            if character_name and mission_id:
+                progress = load_progress()
+                progress = mark_mission_complete(progress, character_name, mission_id)
+                save_progress(progress)
+
+            next_payload = build_overlay_payload(character_name or "")
+            next_payload["active"] = True
+            next_payload["slot"] = slot
+            next_payload["just_cleared"] = True
+            next_payload["completed_step_count"] = 0
+            next_payload["current_step_index"] = 0
+            next_payload["current_step_label"] = (
+                next_payload["active_mission_steps"][0]
+                if next_payload.get("active_mission_steps")
+                else None
+            )
+
+            mission_runtime = {
+                "slot": slot,
+                "mission_id": next_payload.get("active_mission_id"),
+                "progress_index": 0,
+                "last_seen_label": "",
+                "last_accepted_label": None,
+            }
+            return next_payload
+
+        payload["just_cleared"] = False
+        payload["completed_step_count"] = progress_index
+        payload["current_step_index"] = progress_index
+        payload["current_step_label"] = (
+            steps[progress_index] if progress_index < len(steps) else None
+        )
+        return payload
+
+    
     def _write_mission_overlay_data() -> None:
         payload = {
             "active": False,
@@ -1006,6 +1165,10 @@ def legacy_main():
             "active_mission_name": None,
             "active_mission_steps": [],
             "missions": [],
+            "completed_step_count": 0,
+            "current_step_index": 0,
+            "current_step_label": None,
+            "just_cleared": False,
         }
 
         if mission_active_slot:
@@ -1016,13 +1179,13 @@ def legacy_main():
                 payload = build_overlay_payload(character_name)
                 payload["active"] = True
                 payload["slot"] = mission_active_slot
+                payload = _augment_payload_with_runtime(payload, render_snap_by_slot)
 
         try:
             with open(MISSION_OVERLAY_FILE, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
         except Exception:
             pass
-
 
     def _write_mission_mode_state():
         payload = {
