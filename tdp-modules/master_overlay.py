@@ -328,6 +328,13 @@ class MasterOverlay:
         self._prev_current_step: int = -1
         self._prev_completed_count: int = 0
 
+        # Celebration state
+        self._celebrate_active: bool = False
+        self._celebrate_phase: float = 0.0      # total elapsed since trigger
+        self._celebrate_particles: list = []
+        self._prev_mission_complete: bool = False
+        self._last_mission_id_seen: str = ""
+
     def init(self) -> None:
         set_dpi_aware()
 
@@ -581,6 +588,119 @@ class MasterOverlay:
             self.screen.blit(surf, (16, y))
             y += surf.get_height()
 
+    def _trigger_celebration(self) -> None:
+        import math, random
+        self._celebrate_active = True
+        self._celebrate_phase = 0.0
+
+        # Spawn particles: gold/white sparks fanning out from screen center
+        cx, cy = self.w // 2, self.h // 2
+        self._celebrate_particles = []
+        for _ in range(80):
+            angle = random.uniform(0, math.tau)
+            speed = random.uniform(80, 420)
+            size = random.randint(3, 9)
+            lifetime = random.uniform(0.8, 2.0)
+            color_choice = random.choice([
+                (255, 220, 60),   # gold
+                (255, 255, 180),  # bright white-yellow
+                (100, 200, 255),  # electric blue accent
+                (255, 255, 255),  # pure white
+            ])
+            self._celebrate_particles.append({
+                "x": float(cx), "y": float(cy),
+                "vx": math.cos(angle) * speed,
+                "vy": math.sin(angle) * speed - random.uniform(0, 120),  # bias upward
+                "size": size,
+                "life": lifetime,
+                "max_life": lifetime,
+                "color": color_choice,
+            })
+
+    def update_celebration(self, dt: float) -> None:
+        if not self._celebrate_active:
+            return
+
+        CELEBRATE_DURATION = 3.0
+        self._celebrate_phase += dt
+        if self._celebrate_phase >= CELEBRATE_DURATION:
+            self._celebrate_active = False
+            self._celebrate_particles = []
+            return
+
+        gravity = 300.0
+        for p in self._celebrate_particles:
+            p["x"] += p["vx"] * dt
+            p["y"] += p["vy"] * dt
+            p["vy"] += gravity * dt
+            p["life"] -= dt
+
+        self._celebrate_particles = [p for p in self._celebrate_particles if p["life"] > 0]
+
+    def draw_celebration(self) -> None:
+        import math
+        if not self._celebrate_active or self.screen is None:
+            return
+
+        phase = self._celebrate_phase
+        CELEBRATE_DURATION = 3.0
+
+        # --- full-screen flash (first 0.15s) ---
+        if phase < 0.15:
+            flash_alpha = int(180 * (1.0 - phase / 0.15))
+            flash = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+            flash.fill((255, 240, 100, flash_alpha))
+            self.screen.blit(flash, (0, 0))
+
+        # --- particles ---
+        for p in self._celebrate_particles:
+            fade = max(0.0, p["life"] / p["max_life"])
+            r, g, b = p["color"]
+            alpha = int(255 * fade)
+            size = max(1, int(p["size"] * (0.4 + 0.6 * fade)))
+            surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surf, (r, g, b, alpha), (size, size), size)
+            self.screen.blit(surf, (int(p["x"]) - size, int(p["y"]) - size))
+
+        # --- "MISSION COMPLETE" stamp ---
+        # Scale in fast (0–0.25s), hold, fade out last 0.5s
+        stamp_in = min(1.0, phase / 0.25)
+        stamp_out = max(0.0, 1.0 - (phase - (CELEBRATE_DURATION - 0.5)) / 0.5)
+        stamp_alpha = int(255 * min(stamp_in, stamp_out))
+
+        if stamp_alpha > 0 and self.font is not None:
+            try:
+                stamp_font = pygame.font.SysFont("consolas", max(18, int(36 * min(self.w / 1280, self.h / 720))), bold=True)
+            except Exception:
+                stamp_font = self.font
+
+            # Bounce scale: overshoots slightly then settles
+            scale_t = min(1.0, phase / 0.25)
+            overshoot = 1.0 + 0.12 * math.sin(scale_t * math.pi)
+            scale = scale_t * overshoot
+
+            text_surf = stamp_font.render("MISSION COMPLETE", True, (255, 230, 60))
+            tw = int(text_surf.get_width() * scale)
+            th = int(text_surf.get_height() * scale)
+            scaled = pygame.transform.smoothscale(text_surf, (max(1, tw), max(1, th)))
+
+            # Shadow
+            shadow_surf = stamp_font.render("MISSION COMPLETE", True, (0, 0, 0))
+            shadow_scaled = pygame.transform.smoothscale(shadow_surf, (max(1, tw), max(1, th)))
+            shadow_alpha = pygame.Surface((max(1, tw), max(1, th)), pygame.SRCALPHA)
+            shadow_alpha.blit(shadow_scaled, (0, 0))
+            shadow_alpha.set_alpha(stamp_alpha // 2)
+
+            final = pygame.Surface((max(1, tw), max(1, th)), pygame.SRCALPHA)
+            final.blit(scaled, (0, 0))
+            final.set_alpha(stamp_alpha)
+
+            cx = (self.w - tw) // 2
+            cy = (self.h - th) // 2 - int(self.h * 0.05)
+
+            self.screen.blit(shadow_alpha, (cx + 3, cy + 3))
+            self.screen.blit(final, (cx, cy))
+
     def update_mission_animations(self, dt: float) -> None:
         """Drive per-step metallic gradient animations each frame."""
         data = self.mission_overlay_data or {}
@@ -612,6 +732,24 @@ class MasterOverlay:
         if current_idx != self._prev_current_step or completed_count != self._prev_completed_count:
             self._prev_current_step = current_idx
             self._prev_completed_count = completed_count
+
+        # Detect mission just completed (all steps done, not already celebrating)
+        mission_id = (self.mission_overlay_data or {}).get("active_mission_id") or ""
+        is_complete_now = bool(steps) and completed_count >= len(steps)
+        just_completed = (
+            is_complete_now
+            and not self._prev_mission_complete
+            and mission_id == self._last_mission_id_seen
+        )
+        if just_completed and not self._celebrate_active:
+            self._trigger_celebration()
+
+        # Reset on mission change so re-running same mission can celebrate again
+        if mission_id != self._last_mission_id_seen:
+            self._last_mission_id_seen = mission_id
+            self._prev_mission_complete = False
+
+        self._prev_mission_complete = is_complete_now
 
     def draw_mission_overlay(self) -> None:
         self.mission_click_rects = []
@@ -915,6 +1053,7 @@ class MasterOverlay:
                     self.hud_renderer.on_resize(self.w, self.h)
 
                 self.update_mission_animations(dt)
+                self.update_celebration(dt)
 
                 try:
                     self.hitbox_renderer.draw(self.screen, self.control)
@@ -933,6 +1072,7 @@ class MasterOverlay:
                     self.hud_renderer.on_resize(self.w, self.h)
 
                 self.draw_mission_overlay()
+                self.draw_celebration()
                 self.draw_master_debug(dt)
 
                 self.present()

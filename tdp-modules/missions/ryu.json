@@ -25,9 +25,34 @@
         { "label": "5C" },
         { "label": "6C" },
         { "label": "Donkey H" },
-         { "label": "5A" },
+        { "label": "5A" },
         { "label": "5B" },
         { "label": "5C" },
+        { "label": "6C" },
         { "label": "Tatsu H" }
       ]
-    }]}
+    },
+    {
+      "mission_id": "ryu_003",
+      "name": "Double Extension",
+      "notes": "Donkey kick extension into tatsu finisher.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Donkey H" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Tatsu H" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Tatsu H" }
+      ]
+    }
+  ]
+}
