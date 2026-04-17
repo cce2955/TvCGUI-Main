@@ -18,5 +18,19 @@
       "volnutt_006": true
     },
     "selected_mission_id": "volnutt_007"
+  },
+  "soki": {
+    "completed": {
+      "soki_001": true,
+      "soki_003": true,
+      "soki_002": true,
+      "soki_004": true,
+      "soki_005": true,
+      "soki_006": true,
+      "soki_007": true,
+      "soki_008": true,
+      "soki_009": true
+    },
+    "selected_mission_id": "soki_009"
   }
 }

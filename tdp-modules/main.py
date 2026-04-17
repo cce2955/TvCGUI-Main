@@ -179,6 +179,7 @@ MISSION_REACTION_STATES = {
     81,   # Bounce Launched
     82,   # Bounce Bounce off
     83,   # Spiral
+    88,
     89,   # Spiral Knockdown
     90,   # Hard Knockdown
     91,   # Soft Knockdown
@@ -206,6 +207,7 @@ MISSION_REACTION_STATES = {
     4622, # Captured
     4623, # Captured
     4625, # Captured
+    4565, # Back Throw victim
 }
 
 MISSION_IGNORE_LABELS = {

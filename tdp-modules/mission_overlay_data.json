@@ -1,26 +1,38 @@
 {
-  "character": "Volnutt",
-  "mission_count": 7,
-  "active_mission_id": "volnutt_007",
-  "active_mission_name": "Challenge 2",
-  "active_mission_notes": "Another impossible challenge, So impossible I'll give you a hint, have casshan or zero as assist to make this easier, if you have hitbox display on, you'll notice Volnutt has three hitboxes. That's your only hint. If you truly want to cheat then do this on PTX",
+  "character": "Soki",
+  "mission_count": 8,
+  "active_mission_id": "soki_001",
+  "active_mission_name": "Sky Chain",
+  "active_mission_notes": "Basic launcher route.",
   "active_mission_steps": [
     [
-      "max drill upper"
+      "5A"
     ],
     [
       "5B"
     ],
     [
-      "max drill upper"
+      "2B"
+    ],
+    [
+      "3C"
+    ],
+    [
+      "j.A"
+    ],
+    [
+      "j.B"
+    ],
+    [
+      "j.C"
     ]
   ],
-  "selected_mission_id": "volnutt_007",
+  "selected_mission_id": "soki_009",
   "missions": [
     {
-      "mission_id": "volnutt_001",
-      "name": "Volnutt BnB Fist Starter",
-      "notes": "Basic BnB",
+      "mission_id": "soki_001",
+      "name": "Sky Chain",
+      "notes": "Basic launcher route.",
       "completed": true,
       "selected": false,
       "steps": [
@@ -37,53 +49,59 @@
           "3C"
         ],
         [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward B"
+          "j.A"
         ],
         [
           "j.B"
         ],
         [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3B"
-        ],
-        [
-          "Weapon Switch Forwards C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "air machine gun super"
+          "j.C"
         ]
       ]
     },
     {
-      "mission_id": "volnutt_002",
-      "name": "Volnutt BnB Fist Starter 2",
-      "notes": "Man this looks confusing reading it, but it's simple, just break it down.",
+      "mission_id": "soki_002",
+      "name": "Backthrow Finisher",
+      "notes": "Ends with Soki's back throw.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "Back Throw"
+        ],
+        [
+          "Finisher"
+        ]
+      ]
+    },
+    {
+      "mission_id": "soki_003",
+      "name": "Issen Ender",
+      "notes": "Ground route into Issen.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Issen"
+        ]
+      ]
+    },
+    {
+      "mission_id": "soki_004",
+      "name": "Slam Ender",
+      "notes": "Ground route into Slam B.",
       "completed": true,
       "selected": false,
       "steps": [
@@ -97,134 +115,20 @@
           "2B"
         ],
         [
-          "6B"
+          "5C"
         ],
         [
-          "Weapon Switch Backwards C"
+          "6C"
         ],
         [
-          "5B"
-        ],
-        [
-          "3B"
-        ],
-        [
-          "Weapon Switch Forwards B"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3B"
-        ],
-        [
-          "Weapon Switch Forwards C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "air machine gun super"
+          "Slam B"
         ]
       ]
     },
     {
-      "mission_id": "volnutt_003",
-      "name": "Volnutt BnB First Starter 3",
-      "notes": "Best-effort draft. I treated the starter switch as Weapon Switch Backwards C, used Air 3B for j.3B, and used machine gun super as the mapped ender label.",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "6B"
-        ],
-        [
-          "Weapon Switch Backwards C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Air 3B"
-        ],
-        [
-          "Air Weapon Switch Forward B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3B"
-        ],
-        [
-          "Weapon Switch Forwards C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "air machine gun super"
-        ]
-      ]
-    },
-    {
-      "mission_id": "volnutt_004",
-      "name": "Volnutt Drill Starter",
-      "notes": "Best-effort draft. If the first switch is not firing, the likely tweak is the exact Weapon Switch B variant.",
+      "mission_id": "soki_005",
+      "name": "Baroque Relaunch",
+      "notes": "Issen into Baroque, then relaunch.",
       "completed": true,
       "selected": false,
       "steps": [
@@ -238,10 +142,19 @@
           "2B"
         ],
         [
-          "6B"
+          "5C"
         ],
         [
-          "Weapon Switch Forwards B"
+          "6C"
+        ],
+        [
+          "Issen"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "j.B"
         ],
         [
           "5B"
@@ -250,23 +163,20 @@
           "3C"
         ],
         [
+          "j.A"
+        ],
+        [
           "j.B"
         ],
         [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward C"
-        ],
-        [
-          "6B"
+          "j.C"
         ]
       ]
     },
     {
-      "mission_id": "volnutt_005",
-      "name": "Volnutt Charged Ender",
-      "notes": "Fist starter route into Charged C, then air machine gun super.",
+      "mission_id": "soki_006",
+      "name": "Double Issen",
+      "notes": "Try a reverse IAD for that j.B",
       "completed": true,
       "selected": false,
       "steps": [
@@ -280,10 +190,67 @@
           "2B"
         ],
         [
-          "6B"
+          "5C"
         ],
         [
-          "Weapon Switch Forwards C"
+          "6C"
+        ],
+        [
+          "Issen"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Issen"
+        ]
+      ]
+    },
+    {
+      "mission_id": "soki_007",
+      "name": "Slam Route",
+      "notes": "",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Slam B"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "j.B"
         ],
         [
           "5B"
@@ -292,205 +259,55 @@
           "3C"
         ],
         [
-          "j.B"
+          "5B"
         ],
         [
-          "Air 3B"
+          "5C"
         ],
         [
-          "Air Weapon Switch Forward B"
+          "2C"
         ],
         [
-          "j.B"
+          "6C"
         ],
         [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Charged j.C"
-        ],
-        [
-          "air machine gun super"
+          "Issen"
         ]
       ]
     },
     {
-      "mission_id": "volnutt_006",
+      "mission_id": "soki_008",
       "name": "Challenge",
-      "notes": "You're probably thinking this is a joke or a typo, I assure you it's not and this is legtimately possible to do. This is corner only and make sure volnutt is chosen first at character select",
+      "notes": "",
       "completed": true,
       "selected": false,
       "steps": [
         [
-          "5A"
+          "Oni Tactics"
         ],
         [
-          "2A"
+          "Issen"
         ],
         [
-          "5A"
+          "Oni Tactics"
         ],
         [
-          "2A"
+          "Issen"
         ],
         [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "max drill upper"
-        ]
-      ]
-    },
-    {
-      "mission_id": "volnutt_007",
-      "name": "Challenge 2",
-      "notes": "Another impossible challenge, So impossible I'll give you a hint, have casshan or zero as assist to make this easier, if you have hitbox display on, you'll notice Volnutt has three hitboxes. That's your only hint. If you truly want to cheat then do this on PTX",
-      "completed": false,
-      "selected": true,
-      "steps": [
-        [
-          "max drill upper"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "max drill upper"
+          "Purification"
         ]
       ]
     }
   ],
   "active": true,
-  "slot": "P1-C1",
+  "slot": "P1-C2",
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "max drill upper",
+  "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 5,
+  "selector_index": 7,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }

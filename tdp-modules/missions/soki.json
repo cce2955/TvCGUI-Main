@@ -1,0 +1,120 @@
+{
+  "character": "Soki",
+  "missions": [
+    {
+      "mission_id": "soki_001",
+      "name": "Sky Chain",
+      "notes": "Basic launcher route.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },{
+  "mission_id": "soki_002",
+  "name": "Backthrow Finisher",
+  "notes": "Ends with Soki's back throw.",
+  "steps": [
+    { "label": "Back Throw" },
+    { "label": "Finisher" }
+  ]
+},{
+  "mission_id": "soki_003",
+  "name": "Issen Ender",
+  "notes": "Ground route into Issen.",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "5C" },
+    { "label": "6C" },
+    { "label": "Issen" }
+  ]
+},{
+  "mission_id": "soki_004",
+  "name": "Slam Ender",
+  "notes": "Ground route into Slam B.",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "6C" },
+    { "label": "Slam B" }
+  ]
+},{
+  "mission_id": "soki_005",
+  "name": "Baroque Relaunch",
+  "notes": "Issen into Baroque, then relaunch.",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "6C" },
+    { "label": "Issen" },
+    { "label": "Baroque cancel" },
+    { "label": "j.B" },
+    { "label": "5B" },
+    { "label": "3C" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.C" }
+  ]
+},{
+  "mission_id": "soki_006",
+  "name": "Double Issen",
+  "notes": "Try a reverse IAD for that j.B",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "6C" },
+    { "label": "Issen" },
+    { "label": "Baroque cancel" },
+    { "label": "j.B" },
+    { "label": "5B" },
+    { "label": "5C" },
+    { "label": "2C" },
+    { "label": "6C" },
+    { "label": "Issen" }
+  ]
+},{
+  "mission_id": "soki_007",
+  "name": "Slam Route",
+  "notes": "",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "6C" },
+    { "label": "Slam B" },
+    { "label": "Baroque cancel" },
+    { "label": "j.B" },
+    { "label": "5B" },
+    { "label": "3C" },{ "label": "5B" },
+    { "label": "5C" },
+    { "label": "2C" },
+    { "label": "6C" },
+    { "label": "Issen" }
+  ]
+},{
+  "mission_id": "soki_008",
+  "name": "Challenge",
+  "notes": "",
+  "steps": [
+    
+    { "label": "Oni Tactics" },
+    { "label": "Issen" },
+    { "label": "Oni Tactics" },
+    { "label": "Issen" },
+    { "label": "Purification" }
+  ]
+}
+  ]
+}
