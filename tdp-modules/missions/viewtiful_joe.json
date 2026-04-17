@@ -1,0 +1,110 @@
+{
+  "character": "Viewtiful Joe",
+  "missions": [
+    {
+      "mission_id": "viewtiful_joe_001",
+      "name": "Starter",
+      "notes": "Basic launcher route.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_002",
+      "name": "BnB",
+      "notes": "Do this as a beginner.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Red Hot Kick B" },
+        { "label": "Air Voomerang B" }
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_003",
+      "name": "Air Joe Relaunch",
+      "notes": "Do this as a beginner.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "Air Joe B" },
+        { "label": "5A" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "Red Hot Kick B" }
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_004",
+      "name": "Shocking Pink Baroque",
+      "notes": "You're kind of at the mercy of RNG on this one, also the baroque window for SP is weird, wait till it touches his shoulder",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Shocking Pink A" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "j.C" },
+        { "label": "Red Hot Kick B" }
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_005",
+      "name": "Slow and Zoom Relaunch",
+      "notes": "Easy Relaunch. Before landing toss a voomerang, it'll plop on the ground, hitstun will give you a free 3C",
+      "steps": [
+        { "label": "Slow and Zoom" },
+        { "label": "Air Voomerang B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "Red Hot Kick B" },
+        { "label": "Air Voomerang B" }
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_006",
+      "name": "Slow and Zoom Relaunch",
+      "notes": "Slightly Harder Launch.",
+      "steps": [
+        { "label": "Slow and Zoom" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "Red Hot Kick B" },
+        { "label": "Air Voomerang B" }
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_007",
+      "name": "Slow and Zoom Meter Dump",
+      "notes": "",
+      "steps": [
+        { "label": "Slow and Zoom" },
+        { "label": "Air Desperado" },
+        { "label": "Red Hot Kick B" },
+        { "label": "Air Voomerang B" }
+      ]
+    }
+  ]
+}

@@ -52,5 +52,14 @@
       "saki_005": true
     },
     "selected_mission_id": "saki_005"
+  },
+  "viewtiful_joe": {
+    "completed": {
+      "viewtiful_joe_001": true,
+      "viewtiful_joe_002": true,
+      "viewtiful_joe_003": true,
+      "viewtiful_joe_004": true
+    },
+    "selected_mission_id": "viewtiful_joe_004"
   }
 }

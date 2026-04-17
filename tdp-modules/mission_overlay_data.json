@@ -1,50 +1,53 @@
 {
-  "character": "Saki",
-  "mission_count": 5,
-  "active_mission_id": "saki_005",
-  "active_mission_name": "Challenge",
-  "active_mission_notes": "Some moves are missing go ahead and fill them in",
+  "character": "Viewtiful Joe",
+  "mission_count": 7,
+  "active_mission_id": "viewtiful_joe_004",
+  "active_mission_name": "Shocking Pink Baroque",
+  "active_mission_notes": "You're kind of at the mercy of RNG on this one, also the baroque window for SP is weird, wait till it touches his shoulder",
   "active_mission_steps": [
     [
-      "Headbutt"
+      "5A"
     ],
     [
-      "Load Ammo C"
+      "5B"
     ],
     [
-      "3C"
+      "2B"
     ],
     [
-      "Positron Storm"
+      "5C"
+    ],
+    [
+      "Shocking Pink A"
+    ],
+    [
+      "Baroque cancel"
+    ],
+    [
+      "5A"
+    ],
+    [
+      "5B"
+    ],
+    [
+      "2B"
+    ],
+    [
+      "5C"
+    ],
+    [
+      "j.C"
+    ],
+    [
+      "Red Hot Kick B"
     ]
   ],
-  "selected_mission_id": "saki_005",
+  "selected_mission_id": "viewtiful_joe_004",
   "missions": [
     {
-      "mission_id": "saki_001",
+      "mission_id": "viewtiful_joe_001",
       "name": "Starter",
-      "notes": "Basic chain.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5C"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "2C"
-        ]
-      ]
-    },
-    {
-      "mission_id": "saki_002",
-      "name": "Load Bullet C",
-      "notes": "22C",
+      "notes": "Basic launcher route.",
       "completed": true,
       "selected": false,
       "steps": [
@@ -53,6 +56,87 @@
         ],
         [
           "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_002",
+      "name": "BnB",
+      "notes": "Do this as a beginner.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Red Hot Kick B"
+        ],
+        [
+          "Air Voomerang B"
+        ]
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_003",
+      "name": "Air Joe Relaunch",
+      "notes": "Do this as a beginner.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Air Joe B"
+        ],
+        [
+          "5A"
         ],
         [
           "3C"
@@ -64,37 +148,16 @@
           "j.C"
         ],
         [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "2C"
+          "Red Hot Kick B"
         ]
       ]
     },
     {
-      "mission_id": "saki_003",
-      "name": "Grenade BnB",
-      "notes": "22C",
+      "mission_id": "viewtiful_joe_004",
+      "name": "Shocking Pink Baroque",
+      "notes": "You're kind of at the mercy of RNG on this one, also the baroque window for SP is weird, wait till it touches his shoulder",
       "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "j.C"
-        ],
-        [
-          "Air Grenade B"
-        ]
-      ]
-    },
-    {
-      "mission_id": "saki_004",
-      "name": "Corner Setup",
-      "notes": "22C",
-      "completed": true,
-      "selected": false,
+      "selected": true,
       "steps": [
         [
           "5A"
@@ -109,13 +172,13 @@
           "5C"
         ],
         [
-          "6C"
-        ],
-        [
-          "Positron C"
+          "Shocking Pink A"
         ],
         [
           "Baroque cancel"
+        ],
+        [
+          "5A"
         ],
         [
           "5B"
@@ -127,40 +190,100 @@
           "5C"
         ],
         [
-          "Positron Storm"
+          "j.C"
+        ],
+        [
+          "Red Hot Kick B"
         ]
       ]
     },
     {
-      "mission_id": "saki_005",
-      "name": "Challenge",
-      "notes": "Some moves are missing go ahead and fill them in",
-      "completed": true,
-      "selected": true,
+      "mission_id": "viewtiful_joe_005",
+      "name": "Slow and Zoom Relaunch",
+      "notes": "Easy Relaunch. Before landing toss a voomerang, it'll plop on the ground, hitstun will give you a free 3C",
+      "completed": false,
+      "selected": false,
       "steps": [
         [
-          "Headbutt"
+          "Slow and Zoom"
         ],
         [
-          "Load Ammo C"
+          "Air Voomerang B"
         ],
         [
           "3C"
         ],
         [
-          "Positron Storm"
+          "j.B"
+        ],
+        [
+          "j.C"
+        ],
+        [
+          "Red Hot Kick B"
+        ],
+        [
+          "Air Voomerang B"
+        ]
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_006",
+      "name": "Slow and Zoom Relaunch",
+      "notes": "Slightly Harder Launch.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Slow and Zoom"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ],
+        [
+          "Red Hot Kick B"
+        ],
+        [
+          "Air Voomerang B"
+        ]
+      ]
+    },
+    {
+      "mission_id": "viewtiful_joe_007",
+      "name": "Slow and Zoom Meter Dump",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Slow and Zoom"
+        ],
+        [
+          "Air Desperado"
+        ],
+        [
+          "Red Hot Kick B"
+        ],
+        [
+          "Air Voomerang B"
         ]
       ]
     }
   ],
   "active": true,
-  "slot": "P1-C2",
+  "slot": "P1-C1",
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "Headbutt",
+  "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 3,
+  "selector_index": 5,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }
