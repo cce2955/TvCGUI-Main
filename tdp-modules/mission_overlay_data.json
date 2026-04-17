@@ -1,52 +1,137 @@
 {
-  "character": "Ken the Eagle",
-  "mission_count": 2,
-  "active_mission_id": "ken_002",
-  "active_mission_name": "Trial 002",
+  "character": "Ryu",
+  "mission_count": 6,
+  "active_mission_id": "ryu_003",
+  "active_mission_name": "Double Extension",
   "active_mission_steps": [
-    "6B",
-    "Air Bird Shoot A",
     "5A",
+    "5B",
     "5C",
-    "3C",
-    "j.A",
-    "j.B",
-    "Air Bird Shoot C",
-    "Bird Smash"
+    "6C",
+    "Donkey H",
+    "5A",
+    "5B",
+    "5C",
+    "6C",
+    "Tatsu H",
+    "Baroque cancel",
+    "5A",
+    "5B",
+    "5C",
+    "6C",
+    "Tatsu H"
   ],
-  "selected_mission_id": "ken_002",
+  "selected_mission_id": "ryu_003",
   "missions": [
     {
-      "mission_id": "ken_001",
-      "name": "Trial 001",
+      "mission_id": "ryu_001",
+      "name": "Basic Air Chain",
       "completed": false,
       "selected": false,
       "steps": [
         "5A",
         "5B",
-        "2B",
-        "3C",
-        "j.A",
-        "j.B",
-        "Air Bird Shoot C",
-        "Bird Smash"
-      ]
-    },
-    {
-      "mission_id": "ken_002",
-      "name": "Trial 002",
-      "completed": false,
-      "selected": true,
-      "steps": [
-        "6B",
-        "Air Bird Shoot A",
-        "5A",
         "5C",
         "3C",
         "j.A",
         "j.B",
-        "Air Bird Shoot C",
-        "Bird Smash"
+        "j.C"
+      ]
+    },
+    {
+      "mission_id": "ryu_002",
+      "name": "Tatsu Ender",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        "5A",
+        "5B",
+        "5C",
+        "6C",
+        "Donkey H",
+        "5A",
+        "5B",
+        "5C",
+        "6C",
+        "Tatsu H"
+      ]
+    },
+    {
+      "mission_id": "ryu_003",
+      "name": "Double Extension",
+      "completed": true,
+      "selected": true,
+      "steps": [
+        "5A",
+        "5B",
+        "5C",
+        "6C",
+        "Donkey H",
+        "5A",
+        "5B",
+        "5C",
+        "6C",
+        "Tatsu H",
+        "Baroque cancel",
+        "5A",
+        "5B",
+        "5C",
+        "6C",
+        "Tatsu H"
+      ]
+    },
+    {
+      "mission_id": "ryu_004",
+      "name": "Donkey to Shinkuu",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        "6B",
+        "Donkey L",
+        "Hado L",
+        "5A",
+        "5B",
+        "5C",
+        "Tatsu H",
+        "Shinkuu"
+      ]
+    },
+    {
+      "mission_id": "ryu_005",
+      "name": "Corner Carry to Super",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        "5A",
+        "2A",
+        "5B",
+        "2B",
+        "5C",
+        "6C",
+        "Hado M",
+        "Air Tatsu H",
+        "5A",
+        "5B",
+        "5C",
+        "2C",
+        "6C",
+        "Donkey H",
+        "5A",
+        "5B",
+        "5C",
+        "Tatsu H",
+        "Shinkuu"
+      ]
+    },
+    {
+      "mission_id": "ryu_007",
+      "name": "Test",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        "5A",
+        "Baroque cancel",
+        "5B"
       ]
     }
   ],
@@ -55,7 +140,7 @@
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "6B",
+  "current_step_label": "5A",
   "selector_open": false,
   "selector_index": 0,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",

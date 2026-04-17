@@ -201,6 +201,8 @@ MISSION_IGNORE_LABELS = {
     "crouching",
 }
 
+BAROQUE_CANCEL_STATES = {162, 163, 164}
+
 # TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.
 GIANT_IDS = {11, 22}
 
@@ -845,7 +847,10 @@ def legacy_main():
     # Move and character tracking
     last_move_anim_id = {}    # base -> last animation ID
     last_char_by_slot = {}    # slotname -> last character name
-
+    baroque_latch_by_base = {}   # base -> remaining latch frames for baroque cancel
+    last_baroque_pct_by_base = {}  # base -> previous baroque red percent of max HP
+    last_baroque_ready_by_base = {}  # base -> previous baroque-ready state
+    baroque_peak_by_base = {}    # base -> peak observed baroque red pct (for spend detection)
     # Render cache
     render_snap_by_slot = {}      # slotname -> latest snap for rendering
     render_portrait_by_slot = {}  # slotname -> portrait surface
@@ -916,16 +921,19 @@ def legacy_main():
                         break
 
             payload[slot_label] = {
-                "name":                snap.get("name"),
-                "cur":                 snap.get("cur"),
-                "max":                 snap.get("max"),
-                "meter":               snap.get("meter"),
-                "mv_id_display":       cur_anim,
-                "mv_label":            mv_label,
-                "baroque_ready_local": snap.get("baroque_ready_local", False),
-                "baroque_red_pct_max": snap.get("baroque_red_pct_max", 0.0),
-                "active_start":        active_start,
-                "active_end":          active_end,
+                "name":                   snap.get("name"),
+                "cur":                    snap.get("cur"),
+                "max":                    snap.get("max"),
+                "meter":                  snap.get("meter"),
+                "mv_id_display":          cur_anim,
+                "mv_label":               mv_label,
+                "baroque_ready_local":    snap.get("baroque_ready_local", False),
+                "baroque_red_pct_max":    snap.get("baroque_red_pct_max", 0.0),
+                "baroque_cancel_raw":     snap.get("baroque_cancel_raw", False),
+                "baroque_cancel_latched": snap.get("baroque_cancel_latched", False),
+                "baroque_cancel_frames":  snap.get("baroque_cancel_latch_frames", 0),
+                "active_start":           active_start,
+                "active_end":             active_end,
             }
         try:
             with open(HUD_OVERLAY_DATA_FILE, "w") as f:
@@ -1722,6 +1730,28 @@ def legacy_main():
             snap["baroque_ready_local"] = ready_local
             snap["baroque_red_amt"] = red_amt
             snap["baroque_red_pct_max"] = red_pct_max
+
+            baroque_peak_by_base[base] = max(red_pct_max, baroque_peak_by_base.get(base, 0.0))
+            baroque_drop_pct = baroque_peak_by_base[base] - red_pct_max
+            raw_baroque_cancel = baroque_drop_pct >= 1.0
+
+
+            if raw_baroque_cancel:
+                baroque_latch_by_base[base] = 5
+            else:
+                baroque_latch_by_base[base] = max(
+                    0,
+                    int(baroque_latch_by_base.get(base, 0)) - 1
+                )
+
+            snap["baroque_cancel_raw"] = raw_baroque_cancel
+            snap["baroque_cancel_latched"] = int(baroque_latch_by_base.get(base, 0)) > 0
+            snap["baroque_cancel_latch_frames"] = int(baroque_latch_by_base.get(base, 0))
+
+            last_baroque_pct_by_base[base] = float(red_pct_max)
+            if raw_baroque_cancel:
+                baroque_peak_by_base[base] = float(red_pct_max)
+            last_baroque_ready_by_base[base] = bool(ready_local)
 
             # Meter: assign the already-read team meter to each slot in that team
             if teamtag == "P1":

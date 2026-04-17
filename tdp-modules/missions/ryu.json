@@ -47,6 +47,7 @@
         { "label": "5C" },
         { "label": "6C" },
         { "label": "Tatsu H" },
+        { "label": "Baroque cancel" },
         { "label": "5A" },
         { "label": "5B" },
         { "label": "5C" },
@@ -94,6 +95,16 @@
         { "label": "5C" },
         { "label": "Tatsu H" },
         { "label": "Shinkuu" }
+      ]
+    },{
+      "mission_id": "ryu_007",
+      "name": "Test",
+      "notes": "Low starter into Hado, Tatsu relaunch, Donkey ender, then Shinkuu.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "Baroque cancel" },
+        { "label": "5B" }
+        
       ]
     }
   ]
