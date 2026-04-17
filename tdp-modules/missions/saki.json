@@ -1,0 +1,72 @@
+{
+  "character": "Saki",
+  "missions": [
+    {
+      "mission_id": "saki_001",
+      "name": "Starter",
+      "notes": "Basic chain.",
+      "steps": [
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "Baroque cancel" },
+        { "label": "2C" }
+      ]
+    },{
+      "mission_id": "saki_002",
+      "name": "Load Bullet C",
+      "notes": "22C ",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "2C" }
+      ]
+    },{
+      "mission_id": "saki_003",
+      "name": "Grenade BnB",
+      "notes": "22C ",
+      "steps": [
+        { "label": "j.C" },
+        { "label": "Air Grenade B" }
+      ]
+    },{
+      "mission_id": "saki_004",
+      "name": "Corner Setup",
+      "notes": "22C ",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Positron C" },
+        { "label": "Baroque cancel" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Positron Storm" }
+        
+        
+      ]
+    },{
+      "mission_id": "saki_005",
+      "name": "Challenge",
+      "notes": "Some moves are missing go ahead and fill them in ",
+      "steps": [
+        { "label": "Headbutt" },
+        
+        { "label": "Load Ammo C" },
+        
+        { "label": "3C" },
+        { "label": "Positron Storm" }
+        
+        
+      ]
+    }
+
+  ]
+}

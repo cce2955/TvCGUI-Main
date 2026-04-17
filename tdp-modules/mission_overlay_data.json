@@ -1,23 +1,50 @@
 {
-  "character": "Roll",
-  "mission_count": 7,
-  "active_mission_id": "roll_007",
+  "character": "Saki",
+  "mission_count": 5,
+  "active_mission_id": "saki_005",
   "active_mission_name": "Challenge",
-  "active_mission_notes": "",
+  "active_mission_notes": "Some moves are missing go ahead and fill them in",
   "active_mission_steps": [
     [
-      "Mop up Turbo"
+      "Headbutt"
     ],
     [
-      "Mop up Turbo"
+      "Load Ammo C"
+    ],
+    [
+      "3C"
+    ],
+    [
+      "Positron Storm"
     ]
   ],
-  "selected_mission_id": "roll_007",
+  "selected_mission_id": "saki_005",
   "missions": [
     {
-      "mission_id": "roll_001",
-      "name": "Basic",
-      "notes": "Basic launcher route.",
+      "mission_id": "saki_001",
+      "name": "Starter",
+      "notes": "Basic chain.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5C"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "2C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "saki_002",
+      "name": "Load Bullet C",
+      "notes": "22C",
       "completed": true,
       "selected": false,
       "steps": [
@@ -28,31 +55,13 @@
           "5B"
         ],
         [
-          "5C"
-        ],
-        [
           "3C"
-        ],
-        [
-          "j.A"
         ],
         [
           "j.B"
         ],
         [
           "j.C"
-        ]
-      ]
-    },
-    {
-      "mission_id": "roll_002",
-      "name": "Super Ender",
-      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
         ],
         [
           "5B"
@@ -61,27 +70,30 @@
           "5C"
         ],
         [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ],
-        [
-          "Mop up Turbo"
+          "2C"
         ]
       ]
     },
     {
-      "mission_id": "roll_003",
-      "name": "Midscreen Relaunch",
-      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
-      "completed": false,
+      "mission_id": "saki_003",
+      "name": "Grenade BnB",
+      "notes": "22C",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "j.C"
+        ],
+        [
+          "Air Grenade B"
+        ]
+      ]
+    },
+    {
+      "mission_id": "saki_004",
+      "name": "Corner Setup",
+      "notes": "22C",
+      "completed": true,
       "selected": false,
       "steps": [
         [
@@ -97,13 +109,10 @@
           "5C"
         ],
         [
-          "3C"
+          "6C"
         ],
         [
-          "j.B"
-        ],
-        [
-          "Roll Swing B"
+          "Positron C"
         ],
         [
           "Baroque cancel"
@@ -112,124 +121,46 @@
           "5B"
         ],
         [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Roll Swing B"
-        ],
-        [
-          "Mop up Turbo"
-        ]
-      ]
-    },
-    {
-      "mission_id": "roll_004",
-      "name": "Bucket Super",
-      "notes": "",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "Bucket B"
-        ],
-        [
-          "Mop up Turbo"
-        ]
-      ]
-    },
-    {
-      "mission_id": "roll_005",
-      "name": "Relaunch",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
           "2B"
         ],
         [
           "5C"
         ],
         [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Roll Swing B"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3c"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Roll Swing B"
-        ],
-        [
-          "Mop up C"
-        ],
-        [
-          "Mop up Turbo"
+          "Positron Storm"
         ]
       ]
     },
     {
-      "mission_id": "roll_006",
-      "name": "Quick confirm",
-      "notes": "",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "6B"
-        ],
-        [
-          "Swing A"
-        ],
-        [
-          "Mop up Turbo"
-        ]
-      ]
-    },
-    {
-      "mission_id": "roll_007",
+      "mission_id": "saki_005",
       "name": "Challenge",
-      "notes": "",
+      "notes": "Some moves are missing go ahead and fill them in",
       "completed": true,
       "selected": true,
       "steps": [
         [
-          "Mop up Turbo"
+          "Headbutt"
         ],
         [
-          "Mop up Turbo"
+          "Load Ammo C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Positron Storm"
         ]
       ]
     }
   ],
   "active": true,
-  "slot": "P1-C1",
+  "slot": "P1-C2",
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "Mop up Turbo",
+  "current_step_label": "Headbutt",
   "selector_open": false,
-  "selector_index": 5,
+  "selector_index": 3,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }

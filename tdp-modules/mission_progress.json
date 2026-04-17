@@ -42,5 +42,15 @@
       "roll_007": true
     },
     "selected_mission_id": "roll_007"
+  },
+  "saki": {
+    "completed": {
+      "saki_001": true,
+      "saki_002": true,
+      "saki_003": true,
+      "saki_004": true,
+      "saki_005": true
+    },
+    "selected_mission_id": "saki_005"
   }
 }
