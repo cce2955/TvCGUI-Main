@@ -1434,12 +1434,18 @@ def legacy_main():
             )
         )
 
-        expected_label = steps[progress_index] if progress_index < len(steps) else None
+        expected_step = steps[progress_index] if progress_index < len(steps) else None
+        expected_labels = (
+            [str(x).strip() for x in expected_step if str(x).strip()]
+            if isinstance(expected_step, list)
+            else ([str(expected_step).strip()] if str(expected_step).strip() else [])
+        )
+        current_matches_expected = current_label in expected_labels
 
         print(
             f"[mission compare] slot={slot} "
             f"progress={progress_index}/{len(steps)} "
-            f"expected={expected_label!r} current={current_label!r} "
+            f"expected={expected_labels!r} current={current_label!r} "
             f"current_anim={current_anim} last_anim={last_seen_anim} "
             f"last_label={last_seen_label!r} fresh_input={has_fresh_attack_input} "
             f"is_fresh_instance={is_fresh_instance} "
@@ -1447,8 +1453,8 @@ def legacy_main():
         )
 
         if (
-            expected_label
-            and current_label == expected_label
+            expected_labels
+            and current_matches_expected
             and opponent_in_combo_state
             and not _mission_label_is_ignorable(current_label)
             and is_fresh_instance
@@ -1523,7 +1529,8 @@ def legacy_main():
         payload["completed_step_count"] = progress_index
         payload["current_step_index"] = progress_index
         payload["current_step_label"] = (
-            steps[progress_index] if progress_index < len(steps) else None
+            (" / ".join(steps[progress_index]) if isinstance(steps[progress_index], list) else steps[progress_index])
+            if progress_index < len(steps) else None
         )
 
         print(

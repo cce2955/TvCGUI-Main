@@ -1037,14 +1037,15 @@ class MasterOverlay:
             # Build step surfaces to measure content width
             step_surfs = []
             for idx, step in visible_steps:
+                step_text = " / ".join(step) if isinstance(step, list) else str(step)
                 if idx < completed_step_count:
-                    label = f"✓  {idx + 1}. {step}"
+                    label = f"[x] {idx + 1}. {step_text}"
                     color = (120, 200, 140)
                 elif idx == current_step_index:
-                    label = f"▶  {idx + 1}. {step}"
+                    label = f"[>] {idx + 1}. {step_text}"
                     color = (255, 220, 80)
                 else:
-                    label = f"    {idx + 1}. {step}"
+                    label = f"[ ] {idx + 1}. {step_text}"
                     color = (180, 180, 180)
                 surf = self.smallfont.render(label, True, color)
                 step_surfs.append((idx, surf, color))
@@ -1163,10 +1164,11 @@ class MasterOverlay:
                 )
 
                 # Text — dim completed steps based on animation
+                step_text = " / ".join(steps[idx]) if isinstance(steps[idx], list) else str(steps[idx])
                 label_str = (
-                    f"[x] {idx + 1}. {steps[idx]}" if is_completed
-                    else f"[>] {idx + 1}. {steps[idx]}" if is_active
-                    else f"[ ] {idx + 1}. {steps[idx]}"
+                    f"[x] {idx + 1}. {step_text}" if is_completed
+                    else f"[>] {idx + 1}. {step_text}" if is_active
+                    else f"[ ] {idx + 1}. {step_text}"
                 )
                 if is_completed:
                     dim = max(60, int(120 * (1.0 - t) + 180 * t))

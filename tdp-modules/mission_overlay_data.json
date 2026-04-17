@@ -4,13 +4,27 @@
   "active_mission_id": "ryu_001",
   "active_mission_name": "Basic Air Chain",
   "active_mission_steps": [
-    "5A",
-    "5B",
-    "5C",
-    "3C",
-    "j.A",
-    "j.B",
-    "j.C"
+    [
+      "5A"
+    ],
+    [
+      "5B"
+    ],
+    [
+      "5C"
+    ],
+    [
+      "3C"
+    ],
+    [
+      "j.A"
+    ],
+    [
+      "j.B"
+    ],
+    [
+      "j.C"
+    ]
   ],
   "selected_mission_id": null,
   "missions": [
@@ -20,13 +34,27 @@
       "completed": false,
       "selected": false,
       "steps": [
-        "5A",
-        "5B",
-        "5C",
-        "3C",
-        "j.A",
-        "j.B",
-        "j.C"
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
       ]
     },
     {
@@ -35,16 +63,36 @@
       "completed": false,
       "selected": false,
       "steps": [
-        "5A",
-        "5B",
-        "5C",
-        "6C",
-        "Donkey H",
-        "5A",
-        "5B",
-        "5C",
-        "6C",
-        "Tatsu H"
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Donkey H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ]
       ]
     },
     {
@@ -53,22 +101,54 @@
       "completed": false,
       "selected": false,
       "steps": [
-        "5A",
-        "5B",
-        "5C",
-        "6C",
-        "Donkey H",
-        "5A",
-        "5B",
-        "5C",
-        "6C",
-        "Tatsu H",
-        "Baroque cancel",
-        "5A",
-        "5B",
-        "5C",
-        "6C",
-        "Tatsu H"
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Donkey H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ]
       ]
     },
     {
@@ -77,14 +157,30 @@
       "completed": false,
       "selected": false,
       "steps": [
-        "6B",
-        "Donkey L",
-        "Hado L",
-        "5A",
-        "5B",
-        "5C",
-        "Tatsu H",
-        "Shinkuu"
+        [
+          "6B"
+        ],
+        [
+          "Donkey L"
+        ],
+        [
+          "Hado L"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Tatsu H"
+        ],
+        [
+          "Shinkuu"
+        ]
       ]
     },
     {
@@ -93,26 +189,70 @@
       "completed": false,
       "selected": false,
       "steps": [
-        "5A",
-        "2A",
-        "5B",
-        "2B",
-        "5C",
-        "6C",
-        "Hado M",
-        "Baroque cancel",
-        "Air Tatsu H",
-        "5A",
-        "5B",
-        "5C",
-        "2C",
-        "6C",
-        "Donkey H",
-        "5A",
-        "5B",
-        "5C",
-        "Tatsu H",
-        "Air Shinkuu"
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Hado M"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "Air Tatsu H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Donkey H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ],
+        [
+          "Shinkuu",
+          "Air Shinkuu"
+        ]
       ]
     },
     {
@@ -121,10 +261,18 @@
       "completed": false,
       "selected": false,
       "steps": [
-        "Hado L",
-        "Shin Sho",
-        "Tatsu M",
-        "Shin Sho"
+        [
+          "Hado L"
+        ],
+        [
+          "Shin Sho"
+        ],
+        [
+          "Tatsu M"
+        ],
+        [
+          "Shin Sho"
+        ]
       ]
     }
   ],

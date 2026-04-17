@@ -12,7 +12,7 @@ MISSION_PROGRESS_FILE = "mission_progress.json"
 
 @dataclass
 class MissionStep:
-    label: str
+    labels: List[str]
 
 
 @dataclass
@@ -77,10 +77,25 @@ def load_mission_pack(character_name: str) -> MissionPack:
         for step in entry.get("steps", []):
             if not isinstance(step, dict):
                 continue
-            label = str(step.get("label", "")).strip()
-            if not label:
+
+            labels: List[str] = []
+            raw_labels = step.get("labels")
+
+            if isinstance(raw_labels, list):
+                for item in raw_labels:
+                    text = str(item).strip()
+                    if text:
+                        labels.append(text)
+
+            if not labels:
+                label = str(step.get("label", "")).strip()
+                if label:
+                    labels.append(label)
+
+            if not labels:
                 continue
-            steps.append(MissionStep(label=label))
+
+            steps.append(MissionStep(labels=labels))
 
         if not mission_id or not steps:
             continue
@@ -201,7 +216,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         "mission_count": len(pack.missions),
         "active_mission_id": active.mission_id if active else None,
         "active_mission_name": active.name if active else None,
-        "active_mission_steps": [step.label for step in active.steps] if active else [],
+        "active_mission_steps": [step.labels for step in active.steps] if active else [],
         "selected_mission_id": selected_id,
         "missions": [
             {
@@ -209,7 +224,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
                 "name": mission.name,
                 "completed": is_mission_complete(progress, pack.character, mission.mission_id),
                 "selected": mission.mission_id == selected_id,
-                "steps": [step.label for step in mission.steps],
+                "steps": [step.labels for step in mission.steps],
             }
             for mission in pack.missions
         ],

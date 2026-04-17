@@ -95,8 +95,9 @@
         { "label": "5A" },
         { "label": "5B" },
         { "label": "5C" },
+        { "label": "6C" },
         { "label": "Tatsu H" },
-        { "label": "Air Shinkuu" }
+        { "labels": ["Shinkuu", "Air Shinkuu"] }
       ]
     },{
       "mission_id": "ryu_007",
