@@ -158,7 +158,7 @@ def u32be_from_block(block: bytes, off: int) -> int | None:
         | block[off + 3]
     )
 # Reaction / hitstun IDs used as a crude "victim is being hit" signal
-REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
+REACTION_STATES = {48, 64, 65, 66, 73,79, 80, 81, 82, 90, 92, 95, 96, 97}
 
 MISSION_REACTION_STATES = {
     48,   # Block

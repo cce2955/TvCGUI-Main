@@ -1,29 +1,28 @@
 {
-  "character": "Chun-Li",
-  "mission_count": 3,
-  "active_mission_id": "chun_001",
-  "active_mission_name": "Trial 001",
+  "character": "Jun the Swan",
+  "mission_count": 2,
+  "active_mission_id": "jun_002",
+  "active_mission_name": "Trial 002",
   "active_mission_steps": [
     "5A",
     "5B",
     "2B",
     "5C",
+    "2C",
+    "6C",
+    "Lightning Kick B",
+    "j.B",
     "3C",
     "j.A",
     "j.B",
-    "j.C",
-    "j.B",
-    "j.C",
-    "j.B",
-    "j.C",
-    "j.C (Second)"
+    "j.C"
   ],
-  "selected_mission_id": null,
+  "selected_mission_id": "jun_002",
   "missions": [
     {
-      "mission_id": "chun_001",
+      "mission_id": "jun_001",
       "name": "Trial 001",
-      "completed": false,
+      "completed": true,
       "selected": false,
       "steps": [
         "5A",
@@ -33,55 +32,27 @@
         "3C",
         "j.A",
         "j.B",
-        "j.C",
-        "j.B",
-        "j.C",
-        "j.B",
-        "j.C",
-        "j.C (Second)"
+        "j.C"
       ]
     },
     {
-      "mission_id": "chun_002",
+      "mission_id": "jun_002",
       "name": "Trial 002",
       "completed": false,
-      "selected": false,
+      "selected": true,
       "steps": [
         "5A",
         "5B",
         "2B",
+        "5C",
+        "2C",
+        "6C",
+        "Lightning Kick B",
+        "j.B",
         "3C",
         "j.A",
         "j.B",
-        "j.C",
-        "j.B",
-        "j.C",
-        "j.B",
-        "j.C",
-        "Air Tensho C",
-        "j.C",
-        "j.C",
-        "j.C (Second)"
-      ]
-    },
-    {
-      "mission_id": "chun_003",
-      "name": "Trial 003",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        "5A",
-        "5B",
-        "2B",
-        "3C",
-        "Lightning Legs C",
-        "j.C",
-        "j.C",
-        "j.C",
-        "5B",
-        "3C",
-        "j.C",
-        "j.C (Second)"
+        "j.C"
       ]
     }
   ],

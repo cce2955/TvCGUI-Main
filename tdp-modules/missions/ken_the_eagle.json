@@ -1,0 +1,38 @@
+{
+  "character": "Ken the Eagle",
+  "missions": [
+    {
+      "mission_id": "ken_001",
+      "name": "Trial 001",
+      "notes": "A B 2B 3C j.A j.A j.B j.B Air Bird Shoot C Bird Smash",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        
+        { "label": "j.A" },
+        
+        { "label": "j.B" },
+        { "label": "Air Bird Shoot C" },
+        { "label": "Bird Smash" }
+      ]
+    },
+    {
+      "mission_id": "ken_002",
+      "name": "Trial 002",
+      "notes": "6B Air Bird Shoot A, A C 3C j.A j.A j.B j.B Air Bird Shoot C Bird Smash",
+      "steps": [
+        { "label": "6B" },
+        { "label": "Air Bird Shoot A" },
+        { "label": "5A" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Bird Shoot C" },
+        { "label": "Bird Smash" }
+      ]
+    }
+  ]
+}

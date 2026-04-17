@@ -1,0 +1,39 @@
+{
+  "character": "Jun the Swan",
+  "missions": [
+    {
+      "mission_id": "jun_001",
+      "name": "Trial 001",
+      "notes": "A B C 3C j.A j.B j.C",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "jun_002",
+      "name": "Trial 002",
+      "notes": "A B 2B C 2C 6C Lightning Kick B j.C 3C j.A j.B j.C",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Lightning Kick B" },
+        { "label": "j.B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    }
+  ]
+}

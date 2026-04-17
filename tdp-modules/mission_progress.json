@@ -1,0 +1,12 @@
+{
+  "ken_the_eagle": {
+    "completed": {},
+    "selected_mission_id": "ken_001"
+  },
+  "jun_the_swan": {
+    "completed": {
+      "jun_001": true
+    },
+    "selected_mission_id": "jun_002"
+  }
+}
