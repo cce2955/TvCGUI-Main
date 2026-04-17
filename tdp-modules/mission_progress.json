@@ -1,20 +1,10 @@
 {
-  "ken_the_eagle": {
-    "completed": {},
-    "selected_mission_id": "ken_002"
-  },
-  "jun_the_swan": {
-    "completed": {
-      "jun_001": true,
-      "jun_002": true
-    },
-    "selected_mission_id": "jun_002"
-  },
   "ryu": {
     "completed": {
+      "ryu_001": true,
       "ryu_007": true,
-      "ryu_003": true
+      "ryu_005": true
     },
-    "selected_mission_id": "ryu_003"
+    "selected_mission_id": "ryu_007"
   }
 }

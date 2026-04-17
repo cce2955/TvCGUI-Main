@@ -98,12 +98,13 @@
       ]
     },{
       "mission_id": "ryu_007",
-      "name": "Test",
-      "notes": "Low starter into Hado, Tatsu relaunch, Donkey ender, then Shinkuu.",
+      "name": "Challenge",
+      "notes": "???",
       "steps": [
-        { "label": "5A" },
-        { "label": "Baroque cancel" },
-        { "label": "5B" }
+        { "label": "Hado L" },
+        { "label": "Shin Sho" },
+        { "label": "Tatsu M" },
+        { "label": "Shin Sho" }
         
       ]
     }

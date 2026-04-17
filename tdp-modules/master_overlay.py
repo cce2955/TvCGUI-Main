@@ -824,9 +824,6 @@ class MasterOverlay:
         completed_count = int(data.get("completed_step_count", 0))
         current_idx = int(data.get("current_step_index", 0))
 
-        prev_current_idx = self._prev_current_step
-        prev_completed_count = self._prev_completed_count
-        prev_steps_len = len((self._mission_hold_data if holding else live_data).get("active_mission_steps") or [])
         mission_id = (live_data.get("active_mission_id") or "")
         if self._completion_block_frames > 0:
             self._completion_block_frames -= 1
@@ -860,31 +857,8 @@ class MasterOverlay:
             if self._mission_hold_frames <= 0:
                 self._mission_hold_data = {}
         else:
+            just_cleared = bool(live_data.get("just_cleared", False))
             is_complete_now = bool(steps) and completed_count >= len(steps)
-
-            just_completed = (
-                is_complete_now
-                and not self._prev_mission_complete
-            )
-
-            was_effectively_final = (
-                prev_steps_len > 0
-                and prev_completed_count >= max(0, prev_steps_len - 1)
-            )
-
-            just_advanced_after_final = (
-                prev_steps_len > 0
-                and not is_complete_now
-                and prev_completed_count > completed_count
-                and was_effectively_final
-            )
-
-            mission_changed_after_final = (
-                prev_steps_len > 0
-                and mission_id != self._last_mission_id_seen
-                and was_effectively_final
-            )
-
 
             same_mission_temporarily_blocked = (
                 mission_id
@@ -893,7 +867,7 @@ class MasterOverlay:
             )
 
             completion_event = (
-                (just_completed or just_advanced_after_final or mission_changed_after_final)
+                just_cleared
                 and mission_id
                 and not same_mission_temporarily_blocked
             )
@@ -906,8 +880,6 @@ class MasterOverlay:
                 self._mission_hold_data = held
                 self._mission_hold_frames = self._mission_hold_duration_frames
 
-                # Temporarily suppress repeat celebration on this mission while
-                # the completed state is still hanging around in the live JSON.
                 self._completion_block_mission_id = mission_id
                 self._completion_block_frames = self._mission_hold_duration_frames + 12
 
@@ -919,8 +891,7 @@ class MasterOverlay:
 
             self._prev_mission_complete = is_complete_now
 
-        self._prev_current_step = current_idx
-        self._prev_completed_count = completed_count
+
 
     def draw_mission_overlay(self) -> None:
         self.mission_click_rects = []

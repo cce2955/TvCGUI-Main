@@ -192,6 +192,19 @@ MISSION_REACTION_STATES = {
     102,  # knocked down (face up)
     105,  # OTG Hit (Face up)
     106,  # OTG Hit (Face Down)
+    4609, # Captured
+    4611, # Captured
+    4613, # Captured
+    4614, # Captured
+    4615, # Captured / Hitgrab overlap in mapping
+    4616, # Captured
+    4617, # Captured
+    4618, # Captured
+    4619, # Captured
+    4620, # Captured
+    4621, # Captured
+    4622, # Captured
+    4623, # Captured
 }
 
 MISSION_IGNORE_LABELS = {
@@ -1271,8 +1284,13 @@ def legacy_main():
 
             other_mv = other_snap.get("attA") or other_snap.get("attB")
             if other_mv in MISSION_REACTION_STATES:
+                print(
+                    f"[mission hitstun] slot={slot_label} opponent_slot={other_slot} "
+                    f"opp_mv={other_mv} opp_label={other_snap.get('mv_label')!r} -> True"
+                )
                 return True
 
+        print(f"[mission hitstun] slot={slot_label} -> False")
         return False
 
     def _mission_label_is_ignorable(label: str) -> bool:
@@ -1338,7 +1356,16 @@ def legacy_main():
         steps = list(payload.get("active_mission_steps") or [])
         character_name = payload.get("character")
 
+        print(
+            f"[mission begin] slot={slot} mission_id={mission_id} "
+            f"steps={len(steps)} active={payload.get('active')}"
+        )
+
         if not payload.get("active") or not slot or not mission_id or not steps:
+            print(
+                f"[mission inactive] active={payload.get('active')} "
+                f"slot={slot} mission_id={mission_id} steps={len(steps)}"
+            )
             mission_runtime = {
                 "slot": None,
                 "mission_id": None,
@@ -1354,21 +1381,6 @@ def legacy_main():
             payload["current_step_label"] = steps[0] if steps else None
             payload["just_cleared"] = False
             return payload
-
-        if (
-            mission_runtime.get("slot") != slot
-            or mission_runtime.get("mission_id") != mission_id
-        ):
-            mission_runtime = {
-                "slot": slot,
-                "mission_id": mission_id,
-                "progress_index": 0,
-                "last_seen_label": "",
-                "last_seen_anim": None,
-                "last_seen_hitstun": False,
-                "last_inputs": {},
-                "hitstun_grace": 0,
-            }
 
         snap = snaps_dict.get(slot) or render_snap_by_slot.get(slot) or {}
         current_label = ((snap.get("mv_label") or "").strip())
@@ -1391,7 +1403,17 @@ def legacy_main():
             or int(mission_runtime.get("hitstun_grace", 0)) > 0
         )
 
+        print(
+            f"[mission combo] slot={slot} opp_hitstun={opponent_in_hitstun} "
+            f"grace={mission_runtime.get('hitstun_grace', 0)} "
+            f"combo_state={opponent_in_combo_state}"
+        )
+
         if progress_index > 0 and not opponent_in_combo_state:
+            print(
+                f"[mission reset combo break] slot={slot} "
+                f"progress_before={progress_index}"
+            )
             progress_index = 0
             mission_runtime["progress_index"] = 0
 
@@ -1414,6 +1436,16 @@ def legacy_main():
 
         expected_label = steps[progress_index] if progress_index < len(steps) else None
 
+        print(
+            f"[mission compare] slot={slot} "
+            f"progress={progress_index}/{len(steps)} "
+            f"expected={expected_label!r} current={current_label!r} "
+            f"current_anim={current_anim} last_anim={last_seen_anim} "
+            f"last_label={last_seen_label!r} fresh_input={has_fresh_attack_input} "
+            f"is_fresh_instance={is_fresh_instance} "
+            f"opp_hitstun={opponent_in_hitstun} combo_state={opponent_in_combo_state}"
+        )
+
         if (
             expected_label
             and current_label == expected_label
@@ -1421,14 +1453,35 @@ def legacy_main():
             and not _mission_label_is_ignorable(current_label)
             and is_fresh_instance
         ):
+            print(
+                f"[mission advance] slot={slot} "
+                f"step_before={progress_index} matched={current_label!r}"
+            )
             progress_index += 1
             mission_runtime["progress_index"] = progress_index
+            print(
+                f"[mission advance done] slot={slot} "
+                f"step_after={progress_index}"
+            )
 
         mission_runtime["last_seen_label"] = current_label
         mission_runtime["last_seen_anim"] = current_anim
         mission_runtime["last_seen_hitstun"] = opponent_in_hitstun
         mission_runtime["last_inputs"] = dict(current_inputs)
+
+        print(
+            f"[mission endframe] slot={slot} progress={progress_index}/{len(steps)} "
+            f"saved_label={current_label!r} saved_anim={current_anim} "
+            f"saved_hitstun={opponent_in_hitstun}"
+        )
+
         if progress_index >= len(steps):
+            print(
+                f"[mission clear] slot={slot} mission_id={mission_id} "
+                f"character={character_name!r} final_progress={progress_index}/{len(steps)} "
+                f"final_label={current_label!r} final_anim={current_anim} "
+                f"opp_hitstun={opponent_in_hitstun}"
+            )
             if character_name and mission_id:
                 progress = load_progress()
                 progress = mark_mission_complete(progress, character_name, mission_id)
@@ -1445,6 +1498,15 @@ def legacy_main():
                 if next_payload.get("active_mission_steps")
                 else None
             )
+
+            print(
+                f"[mission payload clear] slot={slot} "
+                f"just_cleared={next_payload.get('just_cleared')} "
+                f"completed_step_count={next_payload.get('completed_step_count')} "
+                f"current_step_index={next_payload.get('current_step_index')} "
+                f"current_step_label={next_payload.get('current_step_label')!r}"
+            )
+
             mission_runtime = {
                 "slot": None,
                 "mission_id": None,
@@ -1463,10 +1525,19 @@ def legacy_main():
         payload["current_step_label"] = (
             steps[progress_index] if progress_index < len(steps) else None
         )
+
+        print(
+            f"[mission payload return] slot={slot} "
+            f"just_cleared={payload.get('just_cleared')} "
+            f"completed_step_count={payload.get('completed_step_count')} "
+            f"current_step_index={payload.get('current_step_index')} "
+            f"current_step_label={payload.get('current_step_label')!r}"
+        )
         return payload
 
     
     def _write_mission_overlay_data() -> None:
+        print(f"[mission overlay write] active_slot={mission_active_slot}")
         payload = {
             "active": False,
             "slot": mission_active_slot,
@@ -1489,6 +1560,11 @@ def legacy_main():
         if mission_active_slot:
             snap = render_snap_by_slot.get(mission_active_slot)
             character_name = snap.get("name") if snap else None
+
+            print(
+                f"[mission overlay slot] slot={mission_active_slot} "
+                f"character={character_name!r} has_snap={bool(snap)}"
+            )
 
             if character_name:
                 payload = build_overlay_payload(character_name)
