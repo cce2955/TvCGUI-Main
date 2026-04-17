@@ -318,6 +318,8 @@ class MasterOverlay:
         self.mission_overlay_data: dict = {}
         self.mission_click_rects: list[tuple[pygame.Rect, Optional[str]]] = []
         self.mission_panel_rect: Optional[pygame.Rect] = None
+        self.mission_toggle_rect: Optional[pygame.Rect] = None
+        self.mission_show_all: bool = False
 
         self.hud_renderer: Renderer = NullHudRenderer()
         self.hitbox_renderer: Renderer = NullHitboxRenderer()
@@ -522,6 +524,10 @@ class MasterOverlay:
                 self.running = False
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self.mission_toggle_rect and self.mission_toggle_rect.collidepoint(event.pos):
+                    self.mission_show_all = not self.mission_show_all
+                    return
+
                 if self.mission_panel_rect and self.mission_panel_rect.collidepoint(event.pos):
                     for rect, mission_id in self.mission_click_rects:
                         if rect.collidepoint(event.pos):
@@ -896,6 +902,7 @@ class MasterOverlay:
     def draw_mission_overlay(self) -> None:
         self.mission_click_rects = []
         self.mission_panel_rect = None
+        self.mission_toggle_rect = None
 
         if not self.mission_active or not self.mission_slot:
             return
@@ -1012,10 +1019,24 @@ class MasterOverlay:
             STEP_PAD_X = 8
             STEP_PAD_Y = 4
             STEP_GAP = 4
+            STEP_VISIBLE_COUNT = 6
+
+            max_start = max(0, len(steps) - STEP_VISIBLE_COUNT)
+            if self.mission_show_all or len(steps) <= STEP_VISIBLE_COUNT:
+                visible_start = 0
+                visible_end = len(steps)
+            else:
+                visible_start = min(max(0, current_step_index - 2), max_start)
+                visible_end = min(len(steps), visible_start + STEP_VISIBLE_COUNT)
+
+            visible_steps = list(enumerate(steps[visible_start:visible_end], start=visible_start))
+
+            toggle_text = "Show Less" if self.mission_show_all else "Show All"
+            toggle_surf = self.smallfont.render(toggle_text, True, (220, 220, 220))
 
             # Build step surfaces to measure content width
             step_surfs = []
-            for idx, step in enumerate(steps):
+            for idx, step in visible_steps:
                 if idx < completed_step_count:
                     label = f"✓  {idx + 1}. {step}"
                     color = (120, 200, 140)
@@ -1031,7 +1052,7 @@ class MasterOverlay:
             step_row_h = (step_surfs[0][1].get_height() if step_surfs else 18) + STEP_PAD_Y * 2
 
             content_w = max(
-                [title.get_width(), sub.get_width(), hint.get_width()]
+                [title.get_width(), sub.get_width(), hint.get_width(), toggle_surf.get_width() + 20]
                 + [surf.get_width() + STEP_PAD_X * 2 for _, surf, _ in step_surfs]
                 + [260]
             )
@@ -1068,6 +1089,21 @@ class MasterOverlay:
             self.screen.blit(sub, (x + pad, draw_y))
             draw_y += sub.get_height() + 4
             self.screen.blit(hint, (x + pad, draw_y))
+
+            toggle_w = toggle_surf.get_width() + 14
+            toggle_h = toggle_surf.get_height() + 6
+            toggle_x = x + box_w - pad - toggle_w
+            toggle_y = draw_y - 2
+            self.mission_toggle_rect = pygame.Rect(toggle_x, toggle_y, toggle_w, toggle_h)
+
+            toggle_col = (70, 70, 95) if not self.mission_show_all else (110, 80, 150)
+            if self.mission_toggle_rect.collidepoint(pygame.mouse.get_pos()):
+                toggle_col = tuple(min(255, c + 25) for c in toggle_col)
+
+            pygame.draw.rect(self.screen, toggle_col, self.mission_toggle_rect, border_radius=3)
+            pygame.draw.rect(self.screen, (180, 180, 200), self.mission_toggle_rect, 1, border_radius=3)
+            self.screen.blit(toggle_surf, (toggle_x + 7, toggle_y + 3))
+
             draw_y += hint.get_height() + 8
 
             # Step boxes
@@ -1128,9 +1164,9 @@ class MasterOverlay:
 
                 # Text — dim completed steps based on animation
                 label_str = (
-                    f"✓  {idx + 1}. {steps[idx]}" if is_completed
-                    else f"▶  {idx + 1}. {steps[idx]}" if is_active
-                    else f"    {idx + 1}. {steps[idx]}"
+                    f"[x] {idx + 1}. {steps[idx]}" if is_completed
+                    else f"[>] {idx + 1}. {steps[idx]}" if is_active
+                    else f"[ ] {idx + 1}. {steps[idx]}"
                 )
                 if is_completed:
                     dim = max(60, int(120 * (1.0 - t) + 180 * t))
@@ -1146,6 +1182,14 @@ class MasterOverlay:
 
                 self.screen.blit(draw_surf, (x + pad + STEP_PAD_X, draw_y + STEP_PAD_Y))
                 draw_y += step_row_h + STEP_GAP
+
+            if not self.mission_show_all and len(steps) > STEP_VISIBLE_COUNT:
+                footer = self.smallfont.render(
+                    f"Showing {visible_start + 1}-{visible_end} of {len(steps)}",
+                    True,
+                    (140, 140, 160),
+                )
+                self.screen.blit(footer, (x + pad, draw_y + 2))
 
 
     def present(self) -> None:

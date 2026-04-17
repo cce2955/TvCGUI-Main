@@ -1,20 +1,23 @@
 {
   "character": "Ryu",
   "mission_count": 6,
-  "active_mission_id": "ryu_007",
-  "active_mission_name": "Challenge",
+  "active_mission_id": "ryu_001",
+  "active_mission_name": "Basic Air Chain",
   "active_mission_steps": [
-    "Hado L",
-    "Shin Sho",
-    "Tatsu M",
-    "Shin Sho"
+    "5A",
+    "5B",
+    "5C",
+    "3C",
+    "j.A",
+    "j.B",
+    "j.C"
   ],
-  "selected_mission_id": "ryu_007",
+  "selected_mission_id": null,
   "missions": [
     {
       "mission_id": "ryu_001",
       "name": "Basic Air Chain",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         "5A",
@@ -87,7 +90,7 @@
     {
       "mission_id": "ryu_005",
       "name": "Corner Carry to Super",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         "5A",
@@ -97,6 +100,7 @@
         "5C",
         "6C",
         "Hado M",
+        "Baroque cancel",
         "Air Tatsu H",
         "5A",
         "5B",
@@ -108,14 +112,14 @@
         "5B",
         "5C",
         "Tatsu H",
-        "Shinkuu"
+        "Air Shinkuu"
       ]
     },
     {
       "mission_id": "ryu_007",
       "name": "Challenge",
-      "completed": true,
-      "selected": true,
+      "completed": false,
+      "selected": false,
       "steps": [
         "Hado L",
         "Shin Sho",
@@ -129,7 +133,7 @@
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "Hado L",
+  "current_step_label": "5A",
   "selector_open": false,
   "selector_index": 0,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",

@@ -81,7 +81,9 @@
         { "label": "2B" },
         { "label": "5C" },
         { "label": "6C" },
+        
         { "label": "Hado M" },
+        { "label": "Baroque cancel" },
         { "label": "Air Tatsu H" },
         { "label": "5A" },
         { "label": "5B" },
@@ -94,7 +96,7 @@
         { "label": "5B" },
         { "label": "5C" },
         { "label": "Tatsu H" },
-        { "label": "Shinkuu" }
+        { "label": "Air Shinkuu" }
       ]
     },{
       "mission_id": "ryu_007",
