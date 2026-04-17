@@ -874,14 +874,11 @@ def legacy_main():
         "slot": None,
         "mission_id": None,
         "progress_index": 0,
-        "repeat_lock": False,
-        "accepted_label": None,
-        "accepted_anim": None,
-        "accepted_active_end": None,
         "last_seen_label": "",
         "last_seen_anim": None,
         "last_seen_hitstun": False,
         "last_inputs": {},
+        "hitstun_grace": 0,
     }
     mission_selector = {
         "open": False,
@@ -1119,14 +1116,11 @@ def legacy_main():
             "slot": mission_active_slot,
             "mission_id": None,
             "progress_index": 0,
-            "repeat_lock": False,
-            "accepted_label": None,
-            "accepted_anim": None,
-            "accepted_active_end": None,
             "last_seen_label": "",
             "last_seen_anim": None,
             "last_seen_hitstun": False,
             "last_inputs": {},
+            "hitstun_grace": 0,
         }
 
         _write_mission_overlay_data()
@@ -1205,14 +1199,11 @@ def legacy_main():
             "slot": mission_active_slot,
             "mission_id": None,
             "progress_index": 0,
-            "repeat_lock": False,
-            "accepted_label": None,
-            "accepted_anim": None,
-            "accepted_active_end": None,
             "last_seen_label": "",
             "last_seen_anim": None,
             "last_seen_hitstun": False,
             "last_inputs": {},
+            "hitstun_grace": 0,
         }
         _mission_close_selector()
 
@@ -1344,14 +1335,11 @@ def legacy_main():
                 "slot": None,
                 "mission_id": None,
                 "progress_index": 0,
-                "repeat_lock": False,
-                "accepted_label": None,
-                "accepted_anim": None,
-                "accepted_active_end": None,
                 "last_seen_label": "",
                 "last_seen_anim": None,
                 "last_seen_hitstun": False,
                 "last_inputs": {},
+                "hitstun_grace": 0,
             }
             payload["completed_step_count"] = 0
             payload["current_step_index"] = 0
@@ -1367,32 +1355,37 @@ def legacy_main():
                 "slot": slot,
                 "mission_id": mission_id,
                 "progress_index": 0,
-                "repeat_lock": False,
-                "accepted_label": None,
-                "accepted_anim": None,
-                "accepted_active_end": None,
                 "last_seen_label": "",
                 "last_seen_anim": None,
                 "last_seen_hitstun": False,
                 "last_inputs": {},
+                "hitstun_grace": 0,
             }
 
         snap = snaps_dict.get(slot) or render_snap_by_slot.get(slot) or {}
         current_label = ((snap.get("mv_label") or "").strip())
         current_anim = snap.get("mv_id_display")
-        current_active_end = snap.get("active_end")
         current_inputs = snap.get("inputs") or {}
         opponent_in_hitstun = _mission_opponent_in_hitstun(slot, snaps_dict)
 
         progress_index = int(mission_runtime.get("progress_index", 0))
 
-        if progress_index > 0 and not opponent_in_hitstun:
+        if opponent_in_hitstun:
+            mission_runtime["hitstun_grace"] = 4
+        else:
+            mission_runtime["hitstun_grace"] = max(
+                0,
+                int(mission_runtime.get("hitstun_grace", 0)) - 1
+            )
+
+        opponent_in_combo_state = (
+            opponent_in_hitstun
+            or int(mission_runtime.get("hitstun_grace", 0)) > 0
+        )
+
+        if progress_index > 0 and not opponent_in_combo_state:
             progress_index = 0
             mission_runtime["progress_index"] = 0
-            mission_runtime["repeat_lock"] = False
-            mission_runtime["accepted_label"] = None
-            mission_runtime["accepted_anim"] = None
-            mission_runtime["accepted_active_end"] = None
 
         last_seen_label = mission_runtime.get("last_seen_label", "")
         last_seen_anim = mission_runtime.get("last_seen_anim")
@@ -1401,36 +1394,13 @@ def legacy_main():
 
         has_fresh_attack_input = _mission_has_fresh_attack_input(current_inputs, last_inputs)
 
-        if mission_runtime.get("repeat_lock"):
-            accepted_label = mission_runtime.get("accepted_label")
-            accepted_anim = mission_runtime.get("accepted_anim")
-            accepted_active_end = mission_runtime.get("accepted_active_end")
-
-            left_same_move = (
-                current_label != accepted_label
-                or current_anim != accepted_anim
-            )
-
-            moved_past_active = (
-                accepted_active_end is not None
-                and current_active_end is not None
-                and current_active_end > accepted_active_end
-            )
-
-            if left_same_move or moved_past_active:
-                mission_runtime["repeat_lock"] = False
-                mission_runtime["accepted_label"] = None
-                mission_runtime["accepted_anim"] = None
-                mission_runtime["accepted_active_end"] = None
-
         is_fresh_instance = (
-            opponent_in_hitstun
+            opponent_in_combo_state
             and (
                 current_anim != last_seen_anim
                 or current_label != last_seen_label
                 or not last_seen_hitstun
                 or has_fresh_attack_input
-                or not mission_runtime.get("repeat_lock", False)
             )
         )
 
@@ -1439,17 +1409,12 @@ def legacy_main():
         if (
             expected_label
             and current_label == expected_label
-            and opponent_in_hitstun
+            and opponent_in_combo_state
             and not _mission_label_is_ignorable(current_label)
             and is_fresh_instance
-            and not mission_runtime.get("repeat_lock", False)
         ):
             progress_index += 1
             mission_runtime["progress_index"] = progress_index
-            mission_runtime["repeat_lock"] = True
-            mission_runtime["accepted_label"] = current_label
-            mission_runtime["accepted_anim"] = current_anim
-            mission_runtime["accepted_active_end"] = current_active_end
 
         mission_runtime["last_seen_label"] = current_label
         mission_runtime["last_seen_anim"] = current_anim
@@ -1476,14 +1441,11 @@ def legacy_main():
                 "slot": None,
                 "mission_id": None,
                 "progress_index": 0,
-                "repeat_lock": False,
-                "accepted_label": None,
-                "accepted_anim": None,
-                "accepted_active_end": None,
                 "last_seen_label": "",
                 "last_seen_anim": None,
                 "last_seen_hitstun": False,
                 "last_inputs": {},
+                "hitstun_grace": 0,
             }
             return next_payload
 

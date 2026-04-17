@@ -1,67 +1,61 @@
 {
-  "character": "Jun the Swan",
+  "character": "Ken the Eagle",
   "mission_count": 2,
-  "active_mission_id": "jun_002",
+  "active_mission_id": "ken_002",
   "active_mission_name": "Trial 002",
   "active_mission_steps": [
+    "6B",
+    "Air Bird Shoot A",
     "5A",
-    "5B",
-    "2B",
     "5C",
-    "2C",
-    "6C",
-    "Lightning Kick B",
-    "j.B",
     "3C",
     "j.A",
     "j.B",
-    "j.C"
+    "Air Bird Shoot C",
+    "Bird Smash"
   ],
-  "selected_mission_id": "jun_002",
+  "selected_mission_id": "ken_002",
   "missions": [
     {
-      "mission_id": "jun_001",
+      "mission_id": "ken_001",
       "name": "Trial 001",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         "5A",
         "5B",
         "2B",
-        "5C",
         "3C",
         "j.A",
         "j.B",
-        "j.C"
+        "Air Bird Shoot C",
+        "Bird Smash"
       ]
     },
     {
-      "mission_id": "jun_002",
+      "mission_id": "ken_002",
       "name": "Trial 002",
       "completed": false,
       "selected": true,
       "steps": [
+        "6B",
+        "Air Bird Shoot A",
         "5A",
-        "5B",
-        "2B",
         "5C",
-        "2C",
-        "6C",
-        "Lightning Kick B",
-        "j.B",
         "3C",
         "j.A",
         "j.B",
-        "j.C"
+        "Air Bird Shoot C",
+        "Bird Smash"
       ]
     }
   ],
   "active": true,
-  "slot": "P1-C2",
+  "slot": "P1-C1",
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "5A",
+  "current_step_label": "6B",
   "selector_open": false,
   "selector_index": 0,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
