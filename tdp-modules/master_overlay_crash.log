@@ -94,3 +94,18 @@ Traceback (most recent call last):
     ^^^^^^^^^^^
 AttributeError: 'MasterOverlay' object has no attribute 'run'
 
+
+[MasterLoopCrash]
+error=error(1400, 'GetClientRect', 'Invalid window handle.')
+Traceback (most recent call last):
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1291, in run
+    w, h = sync_overlay_to_dolphin(self.dolphin_hwnd, self.overlay_hwnd)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 177, in sync_overlay_to_dolphin
+    x, y, w, h = get_client_screen_rect(dolphin_hwnd)
+                 ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 138, in get_client_screen_rect
+    left, top, right, bottom = win32gui.GetClientRect(hwnd)
+                               ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+pywintypes.error: (1400, 'GetClientRect', 'Invalid window handle.')
+
