@@ -1,0 +1,125 @@
+{
+  "character": "Morrigan",
+  "missions": [
+    {
+      "mission_id": "morrigan_001",
+      "name": "Sky Chain",
+      "notes": "BnB.",
+      "steps": [
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "morrigan_002",
+      "name": "Soul Ender",
+      "notes": "Any Air Soul Fist strength works before Darkness Illusion.",
+      "steps": [
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "labels": ["Air Soul Fist L", "Air Soul Fist M", "Air Soul Fist C"] },
+        { "label": "Darkness Illusion" }
+      ]
+    },
+    {
+      "mission_id": "morrigan_003",
+      "name": "Baroque Route",
+      "notes": "Soul Fist L into Baroque, then relaunch.",
+      "steps": [
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Soul Fist L" },
+        { "label": "Baroque cancel" },
+        { "label": "j.B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "morrigan_004",
+      "name": "Corner Hex",
+      "notes": "Corner only.",
+      "steps": [
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "Soul Fist L" },
+        { "label": "Baroque cancel" },
+        { "label": "j.B" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "2A" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "labels": ["Air Soul Fist A", "Air Soul Fist B"] },
+        { "label": "Darkness Illusion" }
+      ]
+    },
+    {
+      "mission_id": "morrigan_005",
+      "name": "Shell Route",
+      "notes": "Look this one is hard, I have to break it to you easy, after the j.B is an instant air dash into shell kick good luck.",
+      "steps": [
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "j.B" },
+        { "label": "Shell Kick" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "labels": ["Air Soul Fist A", "Air Soul Fist B" ] },
+        { "label": "Darkness Illusion" }
+      ]
+    },
+    {
+      "mission_id": "morrigan_006",
+      "name": "Shower Call",
+      "notes": "Finishing Shower hits above Morrigan and she has a unique air dash, These layton style hints are tough to come up with.",
+      "steps": [
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "Finishing Shower Air" }
+      ]
+    },
+    {
+  "mission_id": "morrigan_007",
+  "name": "Challenge",
+  "notes": "Some moves are missing, good luck, actually if you do this can you record it because uh, this one is hard",
+  "steps": [
+    { "label": "6C" },
+    { "label": "j.B" },
+    { "label": "Shell Kick" },
+    { "label": "3C" },
+
+    
+    { "label": "Shell Kick" },
+    { "label": "3C" },
+
+    
+    { "label": "Darkness Illusion" }
+  ]
+}
+  ]
+}
