@@ -419,6 +419,34 @@ class MasterOverlay:
         except Exception:
             self.smallfont = pygame.font.Font(None, small_size)
 
+    def _wrap_text_lines(self, text: str, font: pygame.font.Font, max_width: int) -> list[str]:
+        if not text:
+            return []
+
+        out: list[str] = []
+        max_width = max(32, int(max_width))
+
+        for paragraph in str(text).splitlines():
+            paragraph = paragraph.strip()
+            if not paragraph:
+                continue
+
+            words = paragraph.split()
+            if not words:
+                continue
+
+            line = words[0]
+            for word in words[1:]:
+                trial = f"{line} {word}"
+                if font.size(trial)[0] <= max_width:
+                    line = trial
+                else:
+                    out.append(line)
+                    line = word
+            out.append(line)
+
+        return out
+
     def _write_default_control_file(self) -> None:
         if os.path.exists(MASTER_CONTROL_FILE):
             return
@@ -1043,7 +1071,19 @@ class MasterOverlay:
             toggle_surf = self.smallfont.render(toggle_text, True, (220, 220, 220))
             hint_toggle_text = "Hide Hint" if self.mission_show_hint else "Show Hint"
             hint_toggle_surf = self.smallfont.render(hint_toggle_text, True, (220, 220, 220))
-            note_surf = self.smallfont.render(mission_notes, True, (210, 210, 235)) if mission_notes else None
+
+            panel_target_w = max(460, min(int(self.w * 0.15), 980))
+            panel_inner_w = panel_target_w - pad * 2
+            note_wrap_w = panel_inner_w - 12
+
+            note_lines = (
+                self._wrap_text_lines(mission_notes, self.smallfont, note_wrap_w)
+                if mission_notes else []
+            )
+            note_line_surfs = [
+                self.smallfont.render(line, True, (210, 210, 235))
+                for line in note_lines
+            ]
 
             # Build step surfaces to measure content width
             step_surfs = []
@@ -1063,22 +1103,16 @@ class MasterOverlay:
 
             step_row_h = (step_surfs[0][1].get_height() if step_surfs else 18) + STEP_PAD_Y * 2
 
-            content_w = max(
-                [title.get_width(), sub.get_width(), hint.get_width(), toggle_surf.get_width() + hint_toggle_surf.get_width() + 40]
-                + ([note_surf.get_width() + 20] if note_surf else [])
-                + [surf.get_width() + STEP_PAD_X * 2 for _, surf, _ in step_surfs]
-                + [260]
-            )
             content_h = (
                 title.get_height()
                 + sub.get_height()
                 + hint.get_height()
                 + 16
-                + ((note_surf.get_height() + 14) if (self.mission_show_hint and note_surf) else 0)
+                + ((sum(surf.get_height() for surf in note_line_surfs) + 16) if (self.mission_show_hint and note_line_surfs) else 0)
                 + len(step_surfs) * (step_row_h + STEP_GAP)
             )
 
-            box_w = content_w + pad * 2
+            box_w = panel_target_w
             box_h = content_h + pad * 2
 
             x = (self.w - box_w) // 2
@@ -1134,13 +1168,19 @@ class MasterOverlay:
 
             draw_y += hint.get_height() + 8
 
-            if self.mission_show_hint and note_surf:
-                note_rect = pygame.Rect(x + pad, draw_y, box_w - pad * 2, note_surf.get_height() + 10)
+            if self.mission_show_hint and note_line_surfs:
+                note_h = sum(surf.get_height() for surf in note_line_surfs) + 16
+                note_rect = pygame.Rect(x + pad, draw_y, box_w - pad * 2, note_h)
                 note_bg = pygame.Surface((note_rect.width, note_rect.height), pygame.SRCALPHA)
                 note_bg.fill((36, 28, 56, 210))
                 self.screen.blit(note_bg, (note_rect.x, note_rect.y))
                 pygame.draw.rect(self.screen, (120, 110, 170), note_rect, 1, border_radius=3)
-                self.screen.blit(note_surf, (note_rect.x + 6, note_rect.y + 5))
+
+                note_y = note_rect.y + 6
+                for surf in note_line_surfs:
+                    self.screen.blit(surf, (note_rect.x + 6, note_y))
+                    note_y += surf.get_height()
+
                 draw_y += note_rect.height + 8
 
             # Step boxes

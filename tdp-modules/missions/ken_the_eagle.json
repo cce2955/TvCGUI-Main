@@ -3,25 +3,23 @@
   "missions": [
     {
       "mission_id": "ken_001",
-      "name": "Trial 001",
-      "notes": "A B 2B 3C j.A j.A j.B j.B Air Bird Shoot C Bird Smash",
+      "name": "Sky Shot",
+      "notes": "Basic launcher into air shot ender.",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
         { "label": "2B" },
         { "label": "3C" },
-        
         { "label": "j.A" },
-        
         { "label": "j.B" },
-        { "label": "Air Bird Shoot C" },
-        { "label": "Bird Smash" }
+        { "label": "Air Bird Shoot C"},
+        { "label": "Air Bird Smash" }
       ]
     },
     {
       "mission_id": "ken_002",
-      "name": "Trial 002",
-      "notes": "6B Air Bird Shoot A, A C 3C j.A j.A j.B j.B Air Bird Shoot C Bird Smash",
+      "name": "Dive Starter",
+      "notes": "6B starter into air shot, then relaunch into Bird Smash.",
       "steps": [
         { "label": "6B" },
         { "label": "Air Bird Shoot A" },
@@ -30,9 +28,55 @@
         { "label": "3C" },
         { "label": "j.A" },
         { "label": "j.B" },
-        { "label": "Air Bird Shoot C" },
-        { "label": "Bird Smash" }
+        { "label": "Air Bird Shoot C"},
+        { "label": "Air Bird Smash" }
       ]
-    }
+    },
+    {
+      "mission_id": "ken_003",
+      "name": "Shot Relaunch",
+      "notes": "Bird Shoot B starter into relaunch, then air shot into Bird Smash.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Bird Shoot B"},
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Bird Shoot C" },
+        { "label": "Air Bird Smash" }
+      ]
+    },{
+  "mission_id": "ken_004",
+  "name": "Corner Flight",
+  "notes": "Corner only",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "2C" },
+    { "label": "Bird Shoot C" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.B" },
+    { "label": "Air Bird Shoot C" },
+    { "label": "Air Bird Smash" }
+  ]
+},{
+  "mission_id": "ken_005",
+  "name": "Challenge",
+  "notes": "Sorry, but this one is mean, so you get a hint, Ken should be facing to the left. Also Stage position is very important here",
+  "steps": [
+    { "label": "Air Bird Shoot A" },
+    { "label": "Random Flight A" },
+    { "label": "Air Bird Shoot C" },
+    { "label": "Air Bird Smash" }
+  ]
+}
   ]
 }
