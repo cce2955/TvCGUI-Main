@@ -1,0 +1,72 @@
+{
+  "character": "Chun-Li",
+  "missions": [
+    {
+      "mission_id": "chun_001",
+      "name": "Trial 001",
+      "notes": "A B 2B C 3C j.A j.B j.C j.B j.C j.B j.C j.C Second",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "j.C (Second)" }
+      ]
+    },
+    {
+      "mission_id": "chun_002",
+      "name": "Trial 002",
+      "notes": "A B 2B 3C j.A j.B j.C j.B j.C j.B j.C H Tensho j.C j.C j.C Second",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "Air Tensho C" },
+        { "label": "j.C" },
+        { "label": "j.C" },
+        { "label": "j.C (Second)" }
+      ]
+    },
+    {
+      "mission_id": "chun_003",
+      "name": "Trial 003",
+      "notes": "A B 2B 3C C Legs j.C j.C j.C 5B 3C j.C j.C Second",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "Lightning Legs C" },
+        { "label": "j.C" },
+        { "label": "j.C" },
+        { "label": "j.C" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.C" },
+        { "label": "j.C (Second)" }
+      ]
+    },
+    {
+      "mission_id": "chun_004",
+      "name": "Trial 004",
+      "notes": "Reserved",
+      "steps": []
+    }
+  ]
+}

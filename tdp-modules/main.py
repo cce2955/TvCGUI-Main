@@ -680,6 +680,7 @@ def compute_team_giant_solo(snaps: dict) -> tuple[bool, bool]:
         return False
 
     return team_solo("P1"), team_solo("P2")
+
 def ensure_scan_now(last_scan_normals, last_scan_time):
     """
     Ensure that at least one normals scan payload is available.
@@ -816,6 +817,22 @@ def legacy_main():
     last_scan_time = 0.0
     scan_anim = None  # slide-in animation state for scan panel
 
+    def _scan_move_window_for_slot(slot_label: str, cur_anim: int | None):
+        if cur_anim is None or not last_scan_normals:
+            return None, None
+
+        try:
+            for slot_data in last_scan_normals:
+                if slot_data.get("slot_label") != slot_label:
+                    continue
+                for mv in slot_data.get("moves", []):
+                    if mv.get("id") == cur_anim:
+                        return mv.get("active_start"), mv.get("active_end")
+        except Exception:
+            pass
+
+        return None, None
+
     # Base pointer tracking
     last_base_by_ptr = {}     # ptr_addr -> last resolved base
     y_off_by_base = {}        # base -> cached Y offset
@@ -851,15 +868,20 @@ def legacy_main():
     pending_hits = []
 
     # Frame counter
-    # Frame counter
     frame_idx = 0
 
     mission_runtime = {
         "slot": None,
         "mission_id": None,
         "progress_index": 0,
+        "repeat_lock": False,
+        "accepted_label": None,
+        "accepted_anim": None,
+        "accepted_active_end": None,
         "last_seen_label": "",
-        "last_accepted_label": None,
+        "last_seen_anim": None,
+        "last_seen_hitstun": False,
+        "last_inputs": {},
     }
     mission_selector = {
         "open": False,
@@ -1097,8 +1119,14 @@ def legacy_main():
             "slot": mission_active_slot,
             "mission_id": None,
             "progress_index": 0,
+            "repeat_lock": False,
+            "accepted_label": None,
+            "accepted_anim": None,
+            "accepted_active_end": None,
             "last_seen_label": "",
-            "last_accepted_label": None,
+            "last_seen_anim": None,
+            "last_seen_hitstun": False,
+            "last_inputs": {},
         }
 
         _write_mission_overlay_data()
@@ -1177,8 +1205,14 @@ def legacy_main():
             "slot": mission_active_slot,
             "mission_id": None,
             "progress_index": 0,
+            "repeat_lock": False,
+            "accepted_label": None,
+            "accepted_anim": None,
+            "accepted_active_end": None,
             "last_seen_label": "",
-            "last_accepted_label": None,
+            "last_seen_anim": None,
+            "last_seen_hitstun": False,
+            "last_inputs": {},
         }
         _mission_close_selector()
 
@@ -1245,6 +1279,57 @@ def legacy_main():
     def _mission_label_is_ignorable(label: str) -> bool:
         return (label or "").strip().lower() in MISSION_IGNORE_LABELS
 
+    def _mission_is_direction_input_key(key: str) -> bool:
+        text = (key or "").strip().lower()
+        return any(token in text for token in (
+            "up", "down", "left", "right", "dir", "stick", "analog", "xaxis", "yaxis"
+        ))
+
+    def _mission_has_fresh_attack_input(current_inputs: dict, last_inputs: dict) -> bool:
+        if not isinstance(current_inputs, dict) or not current_inputs:
+            return False
+
+        if not isinstance(last_inputs, dict):
+            last_inputs = {}
+
+        for key, cur_val in current_inputs.items():
+            if _mission_is_direction_input_key(key):
+                continue
+
+            cur_pressed = int(cur_val or 0) != 0
+            prev_pressed = int(last_inputs.get(key, 0) or 0) != 0
+
+            if cur_pressed and not prev_pressed:
+                return True
+
+        return False        
+    def _mission_family_ids_for_label(label: str, csv_char_id: int | None) -> set[int]:
+        want = (label or "").strip()
+        if not want:
+            return set()
+
+        out: set[int] = set()
+
+        # Character-specific mappings
+        char_map = move_map.get(csv_char_id, {}) if csv_char_id is not None else {}
+        if isinstance(char_map, dict):
+            for move_id, mapped_label in char_map.items():
+                if str(mapped_label).strip() == want:
+                    try:
+                        out.add(int(move_id))
+                    except Exception:
+                        pass
+
+        # Global mappings
+        if isinstance(global_map, dict):
+            for move_id, mapped_label in global_map.items():
+                if str(mapped_label).strip() == want:
+                    try:
+                        out.add(int(move_id))
+                    except Exception:
+                        pass
+
+        return out
     def _augment_payload_with_runtime(payload: dict, snaps_dict: dict) -> dict:
         nonlocal mission_runtime
 
@@ -1259,8 +1344,14 @@ def legacy_main():
                 "slot": None,
                 "mission_id": None,
                 "progress_index": 0,
+                "repeat_lock": False,
+                "accepted_label": None,
+                "accepted_anim": None,
+                "accepted_active_end": None,
                 "last_seen_label": "",
-                "last_accepted_label": None,
+                "last_seen_anim": None,
+                "last_seen_hitstun": False,
+                "last_inputs": {},
             }
             payload["completed_step_count"] = 0
             payload["current_step_index"] = 0
@@ -1276,28 +1367,72 @@ def legacy_main():
                 "slot": slot,
                 "mission_id": mission_id,
                 "progress_index": 0,
+                "repeat_lock": False,
+                "accepted_label": None,
+                "accepted_anim": None,
+                "accepted_active_end": None,
                 "last_seen_label": "",
-                "last_accepted_label": None,
+                "last_seen_anim": None,
+                "last_seen_hitstun": False,
+                "last_inputs": {},
             }
 
         snap = snaps_dict.get(slot) or render_snap_by_slot.get(slot) or {}
         current_label = ((snap.get("mv_label") or "").strip())
+        current_anim = snap.get("mv_id_display")
+        current_active_end = snap.get("active_end")
+        current_inputs = snap.get("inputs") or {}
         opponent_in_hitstun = _mission_opponent_in_hitstun(slot, snaps_dict)
-
-        if current_label != mission_runtime["last_seen_label"]:
-            if (
-                mission_runtime["last_accepted_label"] is not None
-                and current_label != mission_runtime["last_accepted_label"]
-            ):
-                mission_runtime["last_accepted_label"] = None
-            mission_runtime["last_seen_label"] = current_label
 
         progress_index = int(mission_runtime.get("progress_index", 0))
 
         if progress_index > 0 and not opponent_in_hitstun:
             progress_index = 0
             mission_runtime["progress_index"] = 0
-            mission_runtime["last_accepted_label"] = None
+            mission_runtime["repeat_lock"] = False
+            mission_runtime["accepted_label"] = None
+            mission_runtime["accepted_anim"] = None
+            mission_runtime["accepted_active_end"] = None
+
+        last_seen_label = mission_runtime.get("last_seen_label", "")
+        last_seen_anim = mission_runtime.get("last_seen_anim")
+        last_seen_hitstun = bool(mission_runtime.get("last_seen_hitstun", False))
+        last_inputs = mission_runtime.get("last_inputs") or {}
+
+        has_fresh_attack_input = _mission_has_fresh_attack_input(current_inputs, last_inputs)
+
+        if mission_runtime.get("repeat_lock"):
+            accepted_label = mission_runtime.get("accepted_label")
+            accepted_anim = mission_runtime.get("accepted_anim")
+            accepted_active_end = mission_runtime.get("accepted_active_end")
+
+            left_same_move = (
+                current_label != accepted_label
+                or current_anim != accepted_anim
+            )
+
+            moved_past_active = (
+                accepted_active_end is not None
+                and current_active_end is not None
+                and current_active_end > accepted_active_end
+            )
+
+            if left_same_move or moved_past_active:
+                mission_runtime["repeat_lock"] = False
+                mission_runtime["accepted_label"] = None
+                mission_runtime["accepted_anim"] = None
+                mission_runtime["accepted_active_end"] = None
+
+        is_fresh_instance = (
+            opponent_in_hitstun
+            and (
+                current_anim != last_seen_anim
+                or current_label != last_seen_label
+                or not last_seen_hitstun
+                or has_fresh_attack_input
+                or not mission_runtime.get("repeat_lock", False)
+            )
+        )
 
         expected_label = steps[progress_index] if progress_index < len(steps) else None
 
@@ -1306,12 +1441,20 @@ def legacy_main():
             and current_label == expected_label
             and opponent_in_hitstun
             and not _mission_label_is_ignorable(current_label)
-            and mission_runtime["last_accepted_label"] != current_label
+            and is_fresh_instance
+            and not mission_runtime.get("repeat_lock", False)
         ):
             progress_index += 1
             mission_runtime["progress_index"] = progress_index
-            mission_runtime["last_accepted_label"] = current_label
+            mission_runtime["repeat_lock"] = True
+            mission_runtime["accepted_label"] = current_label
+            mission_runtime["accepted_anim"] = current_anim
+            mission_runtime["accepted_active_end"] = current_active_end
 
+        mission_runtime["last_seen_label"] = current_label
+        mission_runtime["last_seen_anim"] = current_anim
+        mission_runtime["last_seen_hitstun"] = opponent_in_hitstun
+        mission_runtime["last_inputs"] = dict(current_inputs)
         if progress_index >= len(steps):
             if character_name and mission_id:
                 progress = load_progress()
@@ -1329,13 +1472,18 @@ def legacy_main():
                 if next_payload.get("active_mission_steps")
                 else None
             )
-
             mission_runtime = {
-                "slot": slot,
-                "mission_id": next_payload.get("active_mission_id"),
+                "slot": None,
+                "mission_id": None,
                 "progress_index": 0,
+                "repeat_lock": False,
+                "accepted_label": None,
+                "accepted_anim": None,
+                "accepted_active_end": None,
                 "last_seen_label": "",
-                "last_accepted_label": None,
+                "last_seen_anim": None,
+                "last_seen_hitstun": False,
+                "last_inputs": {},
             }
             return next_payload
 
@@ -1559,6 +1707,9 @@ def legacy_main():
 
             snap["mv_label"] = mv_label
             snap["mv_id_display"] = cur_anim
+            active_start, active_end = _scan_move_window_for_slot(slotname, cur_anim)
+            snap["active_start"] = active_start
+            snap["active_end"] = active_end
             last_move_anim_id[base] = cur_anim
 
             # Pool percent baseline
