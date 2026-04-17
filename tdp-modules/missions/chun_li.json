@@ -3,8 +3,8 @@
   "missions": [
     {
       "mission_id": "chun_001",
-      "name": "Trial 001",
-      "notes": "A B 2B C 3C j.A j.B j.C j.B j.C j.B j.C j.C Second",
+      "name": "Sky Ladder",
+      "notes": "Basic launcher route.",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
@@ -23,8 +23,8 @@
     },
     {
       "mission_id": "chun_002",
-      "name": "Trial 002",
-      "notes": "A B 2B 3C j.A j.B j.C j.B j.C j.B j.C H Tensho j.C j.C j.C Second",
+      "name": "Baroque extension",
+      "notes": "No note",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
@@ -46,12 +46,13 @@
     },
     {
       "mission_id": "chun_003",
-      "name": "Trial 003",
-      "notes": "A B 2B 3C C Legs j.C j.C j.C 5B 3C j.C j.C Second",
+      "name": "Legs cancel",
+      "notes": "You can just hold up to hop out of legs, start mashing during 5C",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
         { "label": "2B" },
+        { "label": "5C" },
         { "label": "3C" },
         { "label": "Legs C" },
         { "label": "j.C" },
@@ -65,9 +66,98 @@
     },
     {
       "mission_id": "chun_004",
-      "name": "Trial 004",
-      "notes": "Reserved",
-      "steps": []
-    }
+      "name": "Double Legs",
+      "notes": "A bit tougher you got this",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "Legs C" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Legs C" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "Air Legs C" }
+      ]
+    },{
+  "mission_id": "chun_005",
+  "name": "Corner Loop",
+  "notes": "Corner only",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "3C" },
+    { "label": "j.B" },
+    { "label": "j.C" },
+    { "label": "j.C" },
+    { "label": "j.C" },
+    { "label": "j.C" },
+    { "label": "j.C" },
+    { "label": "j.C" },
+    { "label": "j.C" },
+    { "label": "5B" },
+    { "label": "5C" },
+    { "label": "3C" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.C" },
+    { "label": "j.B" },
+    { "label": "j.C" },
+    { "label": "j.B" },
+    { "label": "j.C" },
+    { "label": "Air Legs C" }
+  ]
+},
+{
+  "mission_id": "chun_006",
+  "name": "SBK Route",
+  "notes": "",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "2C" },
+    { "label": "SBK H" },
+    { "label": "Baroque cancel" },
+    { "label": "j.C" },
+    { "label": "j.C" },
+    { "label": "5B" },
+    { "label": "5C" },
+    { "label": "3C" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.C" },
+    { "label": "j.B" },
+    { "label": "j.C" },
+    { "label": "j.B" },
+    { "label": "j.C" },
+    { "label": "Air Legs C" }
+  ]
+},
+{
+  "mission_id": "chun_007",
+  "name": "Challenge",
+  "notes": "Some moves are missing, can you find the missing moves and link them together? ",
+  "steps": [
+    { "label": "3C" },
+    { "label": "Shichei" },
+    { "label": "5B" },
+    
+    { "label": "Air Legs C" }
+  ]
+}
   ]
 }

@@ -58,7 +58,7 @@
     {
       "mission_id": "ryu_004",
       "name": "Donkey to Shinkuu",
-      "notes": "6B starter into light donkey, triple fireball chain, tatsu, then super.",
+      "notes": "Overhead 6B starter into light donkey, triple fireball chain, tatsu, then super.",
       "steps": [
         { "label": "6B" },
         { "label": "Donkey L" },
