@@ -12,13 +12,13 @@
     "j.B",
     "j.C"
   ],
-  "selected_mission_id": null,
+  "selected_mission_id": "ryu_001",
   "missions": [
     {
       "mission_id": "ryu_001",
       "name": "Basic Air Chain",
-      "completed": false,
-      "selected": false,
+      "completed": true,
+      "selected": true,
       "steps": [
         "5A",
         "5B",
@@ -31,8 +31,8 @@
     },
     {
       "mission_id": "ryu_002",
-      "name": "Donkey Ender",
-      "completed": false,
+      "name": "Tatsu Ender",
+      "completed": true,
       "selected": false,
       "steps": [
         "5A",
@@ -50,7 +50,7 @@
     {
       "mission_id": "ryu_003",
       "name": "Double Extension",
-      "completed": false,
+      "completed": true,
       "selected": false,
       "steps": [
         "5A",
@@ -78,7 +78,7 @@
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 0,
+  "selector_index": 2,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }

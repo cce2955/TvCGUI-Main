@@ -310,7 +310,7 @@ class MasterOverlay:
         self.smallfont: Optional[pygame.font.Font] = None
 
         self._last_control_mtime = 0.0
-
+        
         self.mission_active = False
         self.mission_slot: Optional[str] = None
         self._last_mission_mtime = 0.0
@@ -334,6 +334,10 @@ class MasterOverlay:
         self._celebrate_particles: list = []
         self._prev_mission_complete: bool = False
         self._last_mission_id_seen: str = ""
+        self._mission_hold_frames: int = 0
+        self._mission_hold_data: dict = {}
+        self._mission_hold_duration_frames: int = 120
+        self._completion_latched_mission_id: str = ""
 
     def init(self) -> None:
         set_dpi_aware()
@@ -703,10 +707,18 @@ class MasterOverlay:
 
     def update_mission_animations(self, dt: float) -> None:
         """Drive per-step metallic gradient animations each frame."""
-        data = self.mission_overlay_data or {}
+        live_data = self.mission_overlay_data or {}
+        holding = self._mission_hold_frames > 0
+        data = self._mission_hold_data if holding else live_data
+
         steps = data.get("active_mission_steps") or []
         completed_count = int(data.get("completed_step_count", 0))
         current_idx = int(data.get("current_step_index", 0))
+
+        prev_current_idx = self._prev_current_step
+        prev_completed_count = self._prev_completed_count
+        prev_steps_len = len((self._mission_hold_data if holding else live_data).get("active_mission_steps") or [])
+        mission_id = (live_data.get("active_mission_id") or "")
 
         ANIM_SPEED = 4.0  # how fast the gradient slides in/out (t units per second)
 
@@ -729,27 +741,61 @@ class MasterOverlay:
             self.step_anim[idx] = t
 
         # On step change, clear state for steps no longer in range
-        if current_idx != self._prev_current_step or completed_count != self._prev_completed_count:
-            self._prev_current_step = current_idx
-            self._prev_completed_count = completed_count
+        # While holding the finished mission on screen, do not re-run completion detection.
+        if holding:
+            self._mission_hold_frames -= 1
+            if self._mission_hold_frames <= 0:
+                self._mission_hold_data = {}
+        else:
+            is_complete_now = bool(steps) and completed_count >= len(steps)
 
-        # Detect mission just completed (all steps done, not already celebrating)
-        mission_id = (self.mission_overlay_data or {}).get("active_mission_id") or ""
-        is_complete_now = bool(steps) and completed_count >= len(steps)
-        just_completed = (
-            is_complete_now
-            and not self._prev_mission_complete
-            and mission_id == self._last_mission_id_seen
-        )
-        if just_completed and not self._celebrate_active:
-            self._trigger_celebration()
+            just_completed = (
+                is_complete_now
+                and not self._prev_mission_complete
+            )
 
-        # Reset on mission change so re-running same mission can celebrate again
-        if mission_id != self._last_mission_id_seen:
-            self._last_mission_id_seen = mission_id
-            self._prev_mission_complete = False
+            was_effectively_final = (
+                prev_steps_len > 0
+                and prev_completed_count >= max(0, prev_steps_len - 1)
+            )
 
-        self._prev_mission_complete = is_complete_now
+            just_advanced_after_final = (
+                prev_steps_len > 0
+                and not is_complete_now
+                and prev_completed_count > completed_count
+                and was_effectively_final
+            )
+
+            mission_changed_after_final = (
+                prev_steps_len > 0
+                and mission_id != self._last_mission_id_seen
+                and was_effectively_final
+            )
+
+            should_trigger_completion = (
+                (just_completed or just_advanced_after_final or mission_changed_after_final)
+                and mission_id
+                and mission_id != self._completion_latched_mission_id
+            )
+
+            if should_trigger_completion:
+                held = dict(live_data)
+                held_steps = held.get("active_mission_steps") or []
+                held["completed_step_count"] = len(held_steps)
+                held["current_step_index"] = max(0, len(held_steps) - 1)
+                self._mission_hold_data = held
+                self._mission_hold_frames = self._mission_hold_duration_frames
+                self._completion_latched_mission_id = mission_id
+                self._trigger_celebration()
+
+            if mission_id != self._last_mission_id_seen:
+                self._last_mission_id_seen = mission_id
+                self._prev_mission_complete = False
+
+            self._prev_mission_complete = is_complete_now
+
+        self._prev_current_step = current_idx
+        self._prev_completed_count = completed_count
 
     def draw_mission_overlay(self) -> None:
         self.mission_click_rects = []
@@ -760,7 +806,7 @@ class MasterOverlay:
         if self.screen is None or self.font is None or self.smallfont is None:
             return
 
-        data = self.mission_overlay_data or {}
+        data = self._mission_hold_data if self._mission_hold_frames > 0 else (self.mission_overlay_data or {})
         character = data.get("character") or "Unknown"
         mission_name = data.get("active_mission_name") or "No mission loaded"
         steps = data.get("active_mission_steps") or []
