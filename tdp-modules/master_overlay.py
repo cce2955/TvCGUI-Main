@@ -337,7 +337,10 @@ class MasterOverlay:
         self._mission_hold_frames: int = 0
         self._mission_hold_data: dict = {}
         self._mission_hold_duration_frames: int = 120
-        self._completion_latched_mission_id: str = ""
+        self._completion_consumed_mission_id: str = ""
+        self._completion_block_mission_id: str = ""
+        self._completion_block_frames: int = 0
+        
 
     def init(self) -> None:
         set_dpi_aware()
@@ -597,28 +600,46 @@ class MasterOverlay:
         self._celebrate_active = True
         self._celebrate_phase = 0.0
 
-        # Spawn particles: gold/white sparks fanning out from screen center
-        cx, cy = self.w // 2, self.h // 2
+        cx, cy = self.w // 2, self.h // 2 - int(self.h * 0.05)
         self._celebrate_particles = []
-        for _ in range(80):
+
+        for _ in range(120):
             angle = random.uniform(0, math.tau)
-            speed = random.uniform(80, 420)
-            size = random.randint(3, 9)
-            lifetime = random.uniform(0.8, 2.0)
+            speed = random.uniform(90, 460)
+            size = random.randint(2, 8)
+            lifetime = random.uniform(0.7, 1.8)
             color_choice = random.choice([
-                (255, 220, 60),   # gold
-                (255, 255, 180),  # bright white-yellow
-                (100, 200, 255),  # electric blue accent
-                (255, 255, 255),  # pure white
+                (255, 220, 60),
+                (255, 245, 190),
+                (120, 210, 255),
+                (255, 255, 255),
             ])
             self._celebrate_particles.append({
-                "x": float(cx), "y": float(cy),
+                "x": float(cx),
+                "y": float(cy),
                 "vx": math.cos(angle) * speed,
-                "vy": math.sin(angle) * speed - random.uniform(0, 120),  # bias upward
+                "vy": math.sin(angle) * speed - random.uniform(20, 140),
                 "size": size,
                 "life": lifetime,
                 "max_life": lifetime,
                 "color": color_choice,
+            })
+
+        # extra upward gold burst
+        for _ in range(36):
+            angle = random.uniform(-2.2, -0.9)
+            speed = random.uniform(140, 340)
+            size = random.randint(3, 7)
+            lifetime = random.uniform(0.8, 1.5)
+            self._celebrate_particles.append({
+                "x": float(cx + random.uniform(-60, 60)),
+                "y": float(cy + random.uniform(-8, 8)),
+                "vx": math.cos(angle) * speed,
+                "vy": math.sin(angle) * speed,
+                "size": size,
+                "life": lifetime,
+                "max_life": lifetime,
+                "color": (255, 225, 90),
             })
 
     def update_celebration(self, dt: float) -> None:
@@ -649,61 +670,149 @@ class MasterOverlay:
         phase = self._celebrate_phase
         CELEBRATE_DURATION = 3.0
 
-        # --- full-screen flash (first 0.15s) ---
-        if phase < 0.15:
-            flash_alpha = int(180 * (1.0 - phase / 0.15))
-            flash = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
-            flash.fill((255, 240, 100, flash_alpha))
-            self.screen.blit(flash, (0, 0))
+        if phase < 0.22:
+            bloom_alpha = int(72 * (1.0 - phase / 0.22))
+            bloom = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+            bloom.fill((255, 236, 140, bloom_alpha))
+            self.screen.blit(bloom, (0, 0))
 
-        # --- particles ---
+        cx_screen = self.w // 2
+        cy_screen = self.h // 2 - int(self.h * 0.05)
+
+        ring_t = min(1.0, phase / 0.45)
+        if ring_t < 1.0:
+            ring_radius = int(80 + ring_t * min(self.w, self.h) * 0.32)
+            ring_alpha = int(140 * (1.0 - ring_t))
+            ring_thickness = max(2, int(8 - 5 * ring_t))
+
+            ring_surf = pygame.Surface((ring_radius * 2 + 20, ring_radius * 2 + 20), pygame.SRCALPHA)
+            pygame.draw.circle(
+                ring_surf,
+                (255, 225, 120, ring_alpha),
+                (ring_radius + 10, ring_radius + 10),
+                ring_radius,
+                ring_thickness,
+            )
+            self.screen.blit(ring_surf, (cx_screen - ring_radius - 10, cy_screen - ring_radius - 10))
+
         for p in self._celebrate_particles:
             fade = max(0.0, p["life"] / p["max_life"])
             r, g, b = p["color"]
             alpha = int(255 * fade)
             size = max(1, int(p["size"] * (0.4 + 0.6 * fade)))
+
+            glow_size = max(2, int(size * 2.2))
+            glow = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(glow, (r, g, b, alpha // 5), (glow_size, glow_size), glow_size)
+            self.screen.blit(glow, (int(p["x"]) - glow_size, int(p["y"]) - glow_size))
+
             surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
             pygame.draw.circle(surf, (r, g, b, alpha), (size, size), size)
             self.screen.blit(surf, (int(p["x"]) - size, int(p["y"]) - size))
 
-        # --- "MISSION COMPLETE" stamp ---
-        # Scale in fast (0–0.25s), hold, fade out last 0.5s
         stamp_in = min(1.0, phase / 0.25)
-        stamp_out = max(0.0, 1.0 - (phase - (CELEBRATE_DURATION - 0.5)) / 0.5)
+        stamp_out = max(0.0, 1.0 - (phase - (CELEBRATE_DURATION - 0.55)) / 0.55)
         stamp_alpha = int(255 * min(stamp_in, stamp_out))
 
         if stamp_alpha > 0 and self.font is not None:
             try:
-                stamp_font = pygame.font.SysFont("consolas", max(18, int(36 * min(self.w / 1280, self.h / 720))), bold=True)
+                stamp_font = pygame.font.SysFont(
+                    "consolas",
+                    max(18, int(38 * min(self.w / 1280, self.h / 720))),
+                    bold=True,
+                )
             except Exception:
                 stamp_font = self.font
 
-            # Bounce scale: overshoots slightly then settles
             scale_t = min(1.0, phase / 0.25)
-            overshoot = 1.0 + 0.12 * math.sin(scale_t * math.pi)
-            scale = scale_t * overshoot
+            overshoot = 1.0 + 0.10 * math.sin(scale_t * math.pi)
+            scale = max(0.01, scale_t * overshoot)
 
-            text_surf = stamp_font.render("MISSION COMPLETE", True, (255, 230, 60))
-            tw = int(text_surf.get_width() * scale)
-            th = int(text_surf.get_height() * scale)
-            scaled = pygame.transform.smoothscale(text_surf, (max(1, tw), max(1, th)))
+            base_text = "MISSION COMPLETE"
+            text_surf = stamp_font.render(base_text, True, (255, 245, 255))
 
-            # Shadow
-            shadow_surf = stamp_font.render("MISSION COMPLETE", True, (0, 0, 0))
-            shadow_scaled = pygame.transform.smoothscale(shadow_surf, (max(1, tw), max(1, th)))
-            shadow_alpha = pygame.Surface((max(1, tw), max(1, th)), pygame.SRCALPHA)
-            shadow_alpha.blit(shadow_scaled, (0, 0))
-            shadow_alpha.set_alpha(stamp_alpha // 2)
+            tw = max(1, int(text_surf.get_width() * scale))
+            th = max(1, int(text_surf.get_height() * scale))
+            drift_y = int((1.0 - min(1.0, phase / 0.35)) * 14)
 
-            final = pygame.Surface((max(1, tw), max(1, th)), pygame.SRCALPHA)
-            final.blit(scaled, (0, 0))
-            final.set_alpha(stamp_alpha)
+            plate_w = tw + 90
+            plate_h = th + 34
+            plate = pygame.Surface((plate_w, plate_h), pygame.SRCALPHA)
 
-            cx = (self.w - tw) // 2
-            cy = (self.h - th) // 2 - int(self.h * 0.05)
+            for yy in range(plate_h):
+                frac = yy / max(plate_h - 1, 1)
 
-            self.screen.blit(shadow_alpha, (cx + 3, cy + 3))
-            self.screen.blit(final, (cx, cy))
+                if frac < 0.16:
+                    r, g, b = 250, 252, 255
+                elif frac < 0.38:
+                    t2 = (frac - 0.16) / 0.22
+                    r = int(250 + (170 - 250) * t2)
+                    g = int(252 + (215 - 252) * t2)
+                    b = int(255 + (255 - 255) * t2)
+                elif frac < 0.68:
+                    t2 = (frac - 0.38) / 0.30
+                    r = int(170 + (52 - 170) * t2)
+                    g = int(215 + (120 - 215) * t2)
+                    b = int(255 + (225 - 255) * t2)
+                else:
+                    t2 = (frac - 0.68) / 0.32
+                    r = int(52 + (18 - 52) * t2)
+                    g = int(120 + (58 - 120) * t2)
+                    b = int(225 + (145 - 225) * t2)
+
+                pygame.draw.line(
+                    plate,
+                    (r, g, b, min(220, stamp_alpha)),
+                    (0, yy),
+                    (plate_w, yy),
+                )
+
+            pygame.draw.rect(
+                plate,
+                (255, 255, 255, min(130, stamp_alpha)),
+                (2, 2, plate_w - 4, max(2, plate_h // 7)),
+                border_radius=4,
+            )
+
+            pygame.draw.rect(
+                plate,
+                (220, 240, 255, min(180, stamp_alpha)),
+                (0, 0, plate_w, plate_h),
+                2,
+                border_radius=5,
+            )
+
+            pygame.draw.rect(
+                plate,
+                (16, 46, 98, min(150, stamp_alpha)),
+                (3, 3, plate_w - 6, plate_h - 6),
+                1,
+                border_radius=4,
+            )
+
+            px = cx_screen - plate_w // 2
+            py = cy_screen - plate_h // 2 - drift_y
+            self.screen.blit(plate, (px, py))
+
+            shadow_surf = stamp_font.render(base_text, True, (0, 0, 0))
+            shadow_scaled = pygame.transform.smoothscale(shadow_surf, (tw, th))
+            shadow_scaled.set_alpha(stamp_alpha // 2)
+
+            scaled = pygame.transform.smoothscale(text_surf, (tw, th))
+            scaled.set_alpha(stamp_alpha)
+
+            sheen = pygame.Surface((tw, th), pygame.SRCALPHA)
+            pygame.draw.rect(
+                sheen,
+                (255, 255, 255, min(80, stamp_alpha // 3)),
+                (0, 0, tw, max(2, th // 6)),
+            )
+            scaled.blit(sheen, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+            tx = cx_screen - tw // 2
+            ty = cy_screen - th // 2 - drift_y
+            self.screen.blit(shadow_scaled, (tx + 4, ty + 4))
+            self.screen.blit(scaled, (tx, ty))
 
     def update_mission_animations(self, dt: float) -> None:
         """Drive per-step metallic gradient animations each frame."""
@@ -719,6 +828,10 @@ class MasterOverlay:
         prev_completed_count = self._prev_completed_count
         prev_steps_len = len((self._mission_hold_data if holding else live_data).get("active_mission_steps") or [])
         mission_id = (live_data.get("active_mission_id") or "")
+        if self._completion_block_frames > 0:
+            self._completion_block_frames -= 1
+            if self._completion_block_frames <= 0:
+                self._completion_block_mission_id = ""
 
         ANIM_SPEED = 4.0  # how fast the gradient slides in/out (t units per second)
 
@@ -772,20 +885,32 @@ class MasterOverlay:
                 and was_effectively_final
             )
 
-            should_trigger_completion = (
-                (just_completed or just_advanced_after_final or mission_changed_after_final)
-                and mission_id
-                and mission_id != self._completion_latched_mission_id
+
+            same_mission_temporarily_blocked = (
+                mission_id
+                and mission_id == self._completion_block_mission_id
+                and self._completion_block_frames > 0
             )
 
-            if should_trigger_completion:
+            completion_event = (
+                (just_completed or just_advanced_after_final or mission_changed_after_final)
+                and mission_id
+                and not same_mission_temporarily_blocked
+            )
+
+            if completion_event:
                 held = dict(live_data)
                 held_steps = held.get("active_mission_steps") or []
                 held["completed_step_count"] = len(held_steps)
                 held["current_step_index"] = max(0, len(held_steps) - 1)
                 self._mission_hold_data = held
                 self._mission_hold_frames = self._mission_hold_duration_frames
-                self._completion_latched_mission_id = mission_id
+
+                # Temporarily suppress repeat celebration on this mission while
+                # the completed state is still hanging around in the live JSON.
+                self._completion_block_mission_id = mission_id
+                self._completion_block_frames = self._mission_hold_duration_frames + 12
+
                 self._trigger_celebration()
 
             if mission_id != self._last_mission_id_seen:

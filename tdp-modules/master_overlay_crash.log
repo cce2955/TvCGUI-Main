@@ -58,3 +58,39 @@ Traceback (most recent call last):
                      ^^^^
 UnboundLocalError: cannot access local variable 'ctrl' where it is not associated with a value
 
+
+[FatalCrash]
+error=AttributeError("'MasterOverlay' object has no attribute 'run'")
+Traceback (most recent call last):
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1200, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1195, in main
+    overlay.run()
+    ^^^^^^^^^^^
+AttributeError: 'MasterOverlay' object has no attribute 'run'
+
+
+[FatalCrash]
+error=AttributeError("'MasterOverlay' object has no attribute 'run'")
+Traceback (most recent call last):
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1200, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1195, in main
+    overlay.run()
+    ^^^^^^^^^^^
+AttributeError: 'MasterOverlay' object has no attribute 'run'
+
+
+[FatalCrash]
+error=AttributeError("'MasterOverlay' object has no attribute 'run'")
+Traceback (most recent call last):
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1244, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1239, in main
+    overlay.run()
+    ^^^^^^^^^^^
+AttributeError: 'MasterOverlay' object has no attribute 'run'
+

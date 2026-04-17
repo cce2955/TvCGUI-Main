@@ -1,24 +1,27 @@
 {
   "character": "Ryu",
   "mission_count": 3,
-  "active_mission_id": "ryu_001",
-  "active_mission_name": "Basic Air Chain",
+  "active_mission_id": "ryu_002",
+  "active_mission_name": "Tatsu Ender",
   "active_mission_steps": [
     "5A",
     "5B",
     "5C",
-    "3C",
-    "j.A",
-    "j.B",
-    "j.C"
+    "6C",
+    "Donkey H",
+    "5A",
+    "5B",
+    "5C",
+    "6C",
+    "Tatsu H"
   ],
-  "selected_mission_id": "ryu_001",
+  "selected_mission_id": "ryu_002",
   "missions": [
     {
       "mission_id": "ryu_001",
       "name": "Basic Air Chain",
       "completed": true,
-      "selected": true,
+      "selected": false,
       "steps": [
         "5A",
         "5B",
@@ -33,7 +36,7 @@
       "mission_id": "ryu_002",
       "name": "Tatsu Ender",
       "completed": true,
-      "selected": false,
+      "selected": true,
       "steps": [
         "5A",
         "5B",
@@ -50,7 +53,7 @@
     {
       "mission_id": "ryu_003",
       "name": "Double Extension",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         "5A",
@@ -78,7 +81,7 @@
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 2,
+  "selector_index": 0,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }
