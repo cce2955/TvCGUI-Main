@@ -12,11 +12,13 @@
     "j.B",
     "j.C"
   ],
+  "selected_mission_id": "ryu_001",
   "missions": [
     {
       "mission_id": "ryu_001",
       "name": "Basic Air Chain",
       "completed": false,
+      "selected": true,
       "steps": [
         "5A",
         "5B",
@@ -31,6 +33,7 @@
       "mission_id": "ryu_002",
       "name": "Donkey Ender",
       "completed": false,
+      "selected": false,
       "steps": [
         "5A",
         "5B",
@@ -43,6 +46,7 @@
       "mission_id": "ryu_003",
       "name": "Heavy Tatsu Ender",
       "completed": false,
+      "selected": false,
       "steps": [
         "5A",
         "5B",
@@ -56,5 +60,9 @@
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "5A"
+  "current_step_label": "5A",
+  "selector_open": false,
+  "selector_index": 1,
+  "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
+  "selector_controls": "Click a mission row to select  Click outside to close"
 }

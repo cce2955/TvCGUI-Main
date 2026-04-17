@@ -44,8 +44,8 @@ BASE_H = 720
 MASTER_CONTROL_FILE = "master_overlay_control.json"
 MISSION_MODE_FILE = "mission_mode_state.json"
 MISSION_OVERLAY_FILE = "mission_overlay_data.json"
+MISSION_SELECT_FILE = "mission_select_command.json"
 CRASH_LOG_FILE = "master_overlay_crash.log"
-
 
 def pause_on_error(context: str, exc: BaseException) -> None:
     print(f"\n[{context}]")
@@ -316,6 +316,8 @@ class MasterOverlay:
         self._last_mission_mtime = 0.0
         self._last_mission_overlay_mtime = 0.0
         self.mission_overlay_data: dict = {}
+        self.mission_click_rects: list[tuple[pygame.Rect, Optional[str]]] = []
+        self.mission_panel_rect: Optional[pygame.Rect] = None
 
         self.hud_renderer: Renderer = NullHudRenderer()
         self.hitbox_renderer: Renderer = NullHitboxRenderer()
@@ -491,10 +493,34 @@ class MasterOverlay:
         self.hud_renderer.on_resize(w, h)
         self.hitbox_renderer.on_resize(w, h)
 
+    def _write_mission_select_command(self, payload: dict) -> None:
+        try:
+            with open(MISSION_SELECT_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception:
+            pass
+
     def handle_events(self) -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if self.mission_panel_rect and self.mission_panel_rect.collidepoint(event.pos):
+                    for rect, mission_id in self.mission_click_rects:
+                        if rect.collidepoint(event.pos):
+                            if mission_id:
+                                self._write_mission_select_command({
+                                    "action": "select",
+                                    "slot": self.mission_slot,
+                                    "mission_id": mission_id,
+                                })
+                            return
+                elif self.mission_overlay_data.get("selector_open"):
+                    self._write_mission_select_command({
+                        "action": "close",
+                    })
+                    return
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
@@ -547,7 +573,16 @@ class MasterOverlay:
             self.screen.blit(surf, (16, y))
             y += surf.get_height()
 
+
+        y = 16
+        for surf in rendered:
+            self.screen.blit(surf, (16, y))
+            y += surf.get_height()
+
     def draw_mission_overlay(self) -> None:
+        self.mission_click_rects = []
+        self.mission_panel_rect = None
+
         if not self.mission_active or not self.mission_slot:
             return
         if self.screen is None or self.font is None or self.smallfont is None:
@@ -557,54 +592,168 @@ class MasterOverlay:
         character = data.get("character") or "Unknown"
         mission_name = data.get("active_mission_name") or "No mission loaded"
         steps = data.get("active_mission_steps") or []
+        missions = data.get("missions") or []
 
-        title = self.font.render(f"{character} Mission Mode - {self.mission_slot}", True, (235, 235, 235))
-        sub = self.smallfont.render(mission_name, True, (180, 180, 180))
+        selector_open = bool(data.get("selector_open", False))
+        selector_index = int(data.get("selector_index", 0))
+        selector_hint = data.get("selector_hint") or ""
+        selector_controls = data.get("selector_controls") or ""
 
-        completed_step_count = int(data.get("completed_step_count", 0))
-        current_step_index = int(data.get("current_step_index", 0))
-
-        line_surfs = []
-        for idx, step in enumerate(steps):
-            if idx < completed_step_count:
-                prefix = "[x]"
-                color = (80, 255, 120)
-            elif idx == current_step_index:
-                prefix = "->"
-                color = (255, 220, 90)
-            else:
-                prefix = "[ ]"
-                color = (220, 220, 220)
-
-            surf = self.smallfont.render(f"{prefix} {idx + 1}. {step}", True, color)
-            line_surfs.append(surf)
+        title = self.font.render(
+            f"{character} Mission Mode - {self.mission_slot}",
+            True,
+            (235, 235, 235),
+        )
 
         pad = 10
-        content_w = max(
-            [title.get_width(), sub.get_width()] + [surf.get_width() for surf in line_surfs] + [220]
-        )
-        content_h = title.get_height() + sub.get_height() + 8 + sum(s.get_height() + 2 for s in line_surfs)
 
-        box_w = content_w + pad * 2
-        box_h = content_h + pad * 2
+        if selector_open:
+            sub = self.smallfont.render("Mission Select", True, (180, 180, 180))
+            ctrl = self.smallfont.render(selector_controls, True, (180, 180, 180))
 
-        x = (self.w - box_w) // 2
-        y = max(24, int(self.h * 0.08))
+            line_surfs = []
+            for idx, mission in enumerate(missions):
+                selected = idx == selector_index
+                completed = bool(mission.get("completed", False))
+                name = mission.get("name") or mission.get("mission_id") or f"Mission {idx + 1}"
 
-        bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
-        bg.fill((24, 16, 40, 210))
-        self.screen.blit(bg, (x, y))
-        pygame.draw.rect(self.screen, (170, 120, 255), (x, y, box_w, box_h), 1, border_radius=4)
+                prefix = "->" if selected else "  "
+                suffix = " [done]" if completed else ""
+                color = (
+                    (255, 220, 90)
+                    if selected
+                    else ((120, 220, 140) if completed else (220, 220, 220))
+                )
 
-        draw_y = y + pad
-        self.screen.blit(title, (x + pad, draw_y))
-        draw_y += title.get_height() + 4
-        self.screen.blit(sub, (x + pad, draw_y))
-        draw_y += sub.get_height() + 8
+                surf = self.smallfont.render(
+                    f"{prefix} {idx + 1}. {name}{suffix}",
+                    True,
+                    color,
+                )
+                line_surfs.append((surf, mission.get("mission_id")))
 
-        for surf in line_surfs:
-            self.screen.blit(surf, (x + pad, draw_y))
-            draw_y += surf.get_height() + 2
+            content_w = max(
+                [title.get_width(), sub.get_width(), ctrl.get_width()]
+                + [surf.get_width() for surf, _mission_id in line_surfs]
+                + [260]
+            )
+            content_h = (
+                title.get_height()
+                + sub.get_height()
+                + ctrl.get_height()
+                + 12
+                + sum(surf.get_height() + 6 for surf, _mission_id in line_surfs)
+            )
+
+            box_w = content_w + pad * 2
+            box_h = content_h + pad * 2
+
+            x = (self.w - box_w) // 2
+            y = max(24, int(self.h * 0.08))
+            self.mission_panel_rect = pygame.Rect(x, y, box_w, box_h)
+
+            bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+            bg.fill((24, 16, 40, 220))
+            self.screen.blit(bg, (x, y))
+            pygame.draw.rect(
+                self.screen,
+                (170, 120, 255),
+                (x, y, box_w, box_h),
+                1,
+                border_radius=4,
+            )
+
+            draw_y = y + pad
+            self.screen.blit(title, (x + pad, draw_y))
+            draw_y += title.get_height() + 4
+            self.screen.blit(sub, (x + pad, draw_y))
+            draw_y += sub.get_height() + 4
+            self.screen.blit(ctrl, (x + pad, draw_y))
+            draw_y += ctrl.get_height() + 8
+
+            for surf, mission_id in line_surfs:
+                row_rect = pygame.Rect(
+                    x + pad - 4,
+                    draw_y - 2,
+                    box_w - pad * 2 + 8,
+                    surf.get_height() + 4,
+                )
+                self.mission_click_rects.append((row_rect, mission_id))
+
+                if row_rect.collidepoint(pygame.mouse.get_pos()):
+                    row_bg = pygame.Surface((row_rect.width, row_rect.height), pygame.SRCALPHA)
+                    row_bg.fill((80, 60, 120, 120))
+                    self.screen.blit(row_bg, (row_rect.x, row_rect.y))
+
+                self.screen.blit(surf, (x + pad, draw_y))
+                draw_y += surf.get_height() + 6
+
+        else:
+            sub = self.smallfont.render(mission_name, True, (180, 180, 180))
+            hint = self.smallfont.render(selector_hint, True, (150, 150, 150))
+
+            completed_step_count = int(data.get("completed_step_count", 0))
+            current_step_index = int(data.get("current_step_index", 0))
+
+            line_surfs = []
+            for idx, step in enumerate(steps):
+                if idx < completed_step_count:
+                    prefix = "[x]"
+                    color = (80, 255, 120)
+                elif idx == current_step_index:
+                    prefix = "->"
+                    color = (255, 220, 90)
+                else:
+                    prefix = "[ ]"
+                    color = (220, 220, 220)
+
+                surf = self.smallfont.render(f"{prefix} {idx + 1}. {step}", True, color)
+                line_surfs.append(surf)
+
+            content_w = max(
+                [title.get_width(), sub.get_width(), hint.get_width()]
+                + [surf.get_width() for surf in line_surfs]
+                + [260]
+            )
+            content_h = (
+                title.get_height()
+                + sub.get_height()
+                + hint.get_height()
+                + 12
+                + sum(surf.get_height() + 2 for surf in line_surfs)
+            )
+
+            box_w = content_w + pad * 2
+            box_h = content_h + pad * 2
+
+            x = (self.w - box_w) // 2
+            y = max(24, int(self.h * 0.08))
+            self.mission_panel_rect = pygame.Rect(x, y, box_w, box_h)
+
+            bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+            bg.fill((24, 16, 40, 210))
+            self.screen.blit(bg, (x, y))
+            pygame.draw.rect(
+                self.screen,
+                (170, 120, 255),
+                (x, y, box_w, box_h),
+                1,
+                border_radius=4,
+            )
+
+            draw_y = y + pad
+            self.screen.blit(title, (x + pad, draw_y))
+            draw_y += title.get_height() + 4
+            self.screen.blit(sub, (x + pad, draw_y))
+            draw_y += sub.get_height() + 4
+            self.screen.blit(hint, (x + pad, draw_y))
+            draw_y += hint.get_height() + 8
+
+            for surf in line_surfs:
+                self.screen.blit(surf, (x + pad, draw_y))
+                draw_y += surf.get_height() + 2
+
+
     def present(self) -> None:
         pygame.display.flip()
 

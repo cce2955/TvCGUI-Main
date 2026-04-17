@@ -109,29 +109,79 @@ def save_progress(progress: Dict[str, Any]) -> None:
     _save_json_file(MISSION_PROGRESS_FILE, progress)
 
 
-def is_mission_complete(progress: Dict[str, Any], character_name: str, mission_id: str) -> bool:
+def _get_char_progress_node(progress: Dict[str, Any], character_name: str) -> Dict[str, Any]:
     char_key = _safe_slug(character_name)
-    char_data = progress.get(char_key, {})
-    if not isinstance(char_data, dict):
-        return False
-    return bool(char_data.get(mission_id, False))
+    node = progress.get(char_key)
+
+    if not isinstance(node, dict):
+        node = {}
+
+    completed = node.get("completed")
+    if not isinstance(completed, dict):
+        legacy_completed = {
+            k: v for k, v in node.items()
+            if isinstance(k, str) and k != "selected_mission_id"
+        }
+        completed = legacy_completed
+
+    return {
+        "completed": completed,
+        "selected_mission_id": node.get("selected_mission_id"),
+    }
+
+
+def _set_char_progress_node(progress: Dict[str, Any], character_name: str, node: Dict[str, Any]) -> Dict[str, Any]:
+    char_key = _safe_slug(character_name)
+    progress[char_key] = {
+        "completed": dict(node.get("completed", {})),
+        "selected_mission_id": node.get("selected_mission_id"),
+    }
+    return progress
+
+
+def is_mission_complete(progress: Dict[str, Any], character_name: str, mission_id: str) -> bool:
+    node = _get_char_progress_node(progress, character_name)
+    completed = node.get("completed", {})
+    return bool(completed.get(mission_id, False))
 
 
 def mark_mission_complete(progress: Dict[str, Any], character_name: str, mission_id: str) -> Dict[str, Any]:
-    char_key = _safe_slug(character_name)
-    char_data = progress.get(char_key)
+    node = _get_char_progress_node(progress, character_name)
+    completed = dict(node.get("completed", {}))
+    completed[mission_id] = True
+    node["completed"] = completed
+    return _set_char_progress_node(progress, character_name, node)
 
-    if not isinstance(char_data, dict):
-        char_data = {}
 
-    char_data[mission_id] = True
-    progress[char_key] = char_data
-    return progress
+def get_selected_mission_id(progress: Dict[str, Any], character_name: str) -> Optional[str]:
+    node = _get_char_progress_node(progress, character_name)
+    mission_id = node.get("selected_mission_id")
+    return str(mission_id).strip() if mission_id else None
+
+
+def set_selected_mission_id(progress: Dict[str, Any], character_name: str, mission_id: Optional[str]) -> Dict[str, Any]:
+    node = _get_char_progress_node(progress, character_name)
+    node["selected_mission_id"] = mission_id
+    return _set_char_progress_node(progress, character_name, node)
+
+
+def find_mission_by_id(pack: MissionPack, mission_id: Optional[str]) -> Optional[MissionDef]:
+    if not mission_id:
+        return None
+    for mission in pack.missions:
+        if mission.mission_id == mission_id:
+            return mission
+    return None
 
 
 def pick_default_mission(pack: MissionPack, progress: Dict[str, Any]) -> Optional[MissionDef]:
     if not pack.missions:
         return None
+
+    selected_id = get_selected_mission_id(progress, pack.character)
+    selected = find_mission_by_id(pack, selected_id)
+    if selected is not None:
+        return selected
 
     for mission in pack.missions:
         if not is_mission_complete(progress, pack.character, mission.mission_id):
@@ -144,6 +194,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
     pack = load_mission_pack(character_name)
     progress = load_progress()
     active = pick_default_mission(pack, progress)
+    selected_id = get_selected_mission_id(progress, pack.character)
 
     return {
         "character": pack.character,
@@ -151,11 +202,13 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         "active_mission_id": active.mission_id if active else None,
         "active_mission_name": active.name if active else None,
         "active_mission_steps": [step.label for step in active.steps] if active else [],
+        "selected_mission_id": selected_id,
         "missions": [
             {
                 "mission_id": mission.mission_id,
                 "name": mission.name,
                 "completed": is_mission_complete(progress, pack.character, mission.mission_id),
+                "selected": mission.mission_id == selected_id,
                 "steps": [step.label for step in mission.steps],
             }
             for mission in pack.missions

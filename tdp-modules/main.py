@@ -84,12 +84,14 @@ from mission_mode import (
     load_progress,
     save_progress,
     mark_mission_complete,
+    set_selected_mission_id,
 )
 
 MASTER_CONTROL_FILE = "master_overlay_control.json"
 MISSION_MODE_FILE = "mission_mode_state.json"
 MISSION_OVERLAY_FILE = "mission_overlay_data.json"
-# ---------------------------------------------------------------------------
+MISSION_SELECT_FILE = "mission_select_command.json"
+
 # ---------------------------------------------------------------------------
 # Tunables / globals for timing and animation
 # ---------------------------------------------------------------------------
@@ -196,7 +198,7 @@ MISSION_IGNORE_LABELS = {
     "",
     "idle",
     "crouched",
-    "couching",
+    "crouching",
 }
 
 # TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.
@@ -849,6 +851,7 @@ def legacy_main():
     pending_hits = []
 
     # Frame counter
+    # Frame counter
     frame_idx = 0
 
     mission_runtime = {
@@ -858,7 +861,15 @@ def legacy_main():
         "last_seen_label": "",
         "last_accepted_label": None,
     }
-
+    mission_selector = {
+        "open": False,
+        "selected_index": 0,
+        "sequence": [],
+        "last_crouch": False,
+        "last_taunt_down": False,
+        "opened_at": 0.0,
+        "hint_until": 0.0,
+    }
     # HUD overlay subprocess (Dolphin-parented transparent window)
     HUD_OVERLAY_DATA_FILE = "hud_overlay_data.json"
     hud_overlay_proc = None
@@ -1052,7 +1063,167 @@ def legacy_main():
         except Exception:
             pass
 
+    def _select_mission_for_active_slot(delta: int) -> None:
+        nonlocal mission_runtime
 
+        if not mission_active_slot:
+            return
+
+        snap = render_snap_by_slot.get(mission_active_slot)
+        character_name = snap.get("name") if snap else None
+        if not character_name:
+            return
+
+        payload = build_overlay_payload(character_name)
+        missions = payload.get("missions", [])
+        if not missions:
+            return
+
+        active_id = payload.get("active_mission_id")
+        idx = 0
+        for i, mission in enumerate(missions):
+            if mission.get("mission_id") == active_id:
+                idx = i
+                break
+
+        new_idx = (idx + delta) % len(missions)
+        new_id = missions[new_idx].get("mission_id")
+
+        progress = load_progress()
+        progress = set_selected_mission_id(progress, character_name, new_id)
+        save_progress(progress)
+
+        mission_runtime = {
+            "slot": mission_active_slot,
+            "mission_id": None,
+            "progress_index": 0,
+            "last_seen_label": "",
+            "last_accepted_label": None,
+        }
+
+        _write_mission_overlay_data()
+    def _mission_label_is_crouch(label: str) -> bool:
+        text = (label or "").strip().lower()
+        return text in {"crouched", "crouching"}
+
+    def _mission_label_is_taunt(label: str) -> bool:
+        text = (label or "").strip().lower()
+        return text == "taunt"
+
+    def _mission_close_selector() -> None:
+        mission_selector["open"] = False
+        mission_selector["sequence"] = []
+        mission_selector["sequence"] = []
+        mission_selector["opened_at"] = 0.0
+
+    def _mission_open_selector(character_name: str) -> None:
+        payload = build_overlay_payload(character_name)
+        missions = payload.get("missions", [])
+        active_id = payload.get("active_mission_id")
+
+        idx = 0
+        for i, mission in enumerate(missions):
+            if mission.get("mission_id") == active_id:
+                idx = i
+                break
+
+        mission_selector["open"] = True
+        mission_selector["selected_index"] = idx
+        mission_selector["opened_at"] = now
+        mission_selector["hint_until"] = now + 8.0
+        mission_selector["sequence"] = []
+
+    def _consume_mission_select_command() -> None:
+        nonlocal mission_runtime
+
+        try:
+            with open(MISSION_SELECT_FILE, "r", encoding="utf-8") as f:
+                cmd = json.load(f)
+        except Exception:
+            return
+
+        try:
+            os.remove(MISSION_SELECT_FILE)
+        except Exception:
+            pass
+
+        if not isinstance(cmd, dict):
+            return
+
+        action = cmd.get("action")
+        if action == "close":
+            _mission_close_selector()
+            return
+
+        if action != "select":
+            return
+
+        slot = cmd.get("slot")
+        mission_id = cmd.get("mission_id")
+
+        if slot != mission_active_slot or not mission_id:
+            return
+
+        snap = render_snap_by_slot.get(mission_active_slot)
+        character_name = snap.get("name") if snap else None
+        if not character_name:
+            return
+
+        progress = load_progress()
+        progress = set_selected_mission_id(progress, character_name, mission_id)
+        save_progress(progress)
+
+        mission_runtime = {
+            "slot": mission_active_slot,
+            "mission_id": None,
+            "progress_index": 0,
+            "last_seen_label": "",
+            "last_accepted_label": None,
+        }
+        _mission_close_selector()
+
+    def _mission_update_selector_from_inputs(snaps_dict: dict) -> None:
+        if not mission_active_slot:
+            _mission_close_selector()
+            return
+
+        snap = snaps_dict.get(mission_active_slot) or render_snap_by_slot.get(mission_active_slot)
+        if not snap:
+            _mission_close_selector()
+            return
+
+        character_name = snap.get("name")
+        if not character_name:
+            _mission_close_selector()
+            return
+
+        current_label = snap.get("mv_label") or ""
+        crouch_now = _mission_label_is_crouch(current_label)
+        crouch_rising = crouch_now and not mission_selector["last_crouch"]
+
+        taunt_now = _mission_label_is_taunt(current_label)
+        taunt_rising = taunt_now and not mission_selector["last_taunt_down"]
+
+        if mission_selector["open"]:
+            if now - mission_selector["opened_at"] > 8.0:
+                _mission_close_selector()
+        else:
+            if crouch_rising:
+                seq = mission_selector["sequence"]
+                if not seq or (now - seq[-1]) <= 0.9:
+                    seq.append(now)
+                else:
+                    seq[:] = [now]
+
+                if len(seq) > 2:
+                    del seq[:-2]
+
+            if taunt_rising and len(mission_selector["sequence"]) >= 2:
+                if (mission_selector["sequence"][-1] - mission_selector["sequence"][-2]) <= 0.9:
+                    _mission_open_selector(character_name)
+
+        mission_selector["last_crouch"] = crouch_now
+        mission_selector["last_taunt_down"] = taunt_now
     def _mission_opponent_in_hitstun(slot_label: str, snaps_dict: dict) -> bool:
         if not slot_label:
             return False
@@ -1191,6 +1362,10 @@ def legacy_main():
             "current_step_index": 0,
             "current_step_label": None,
             "just_cleared": False,
+            "selector_open": False,
+            "selector_index": 0,
+            "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
+            "selector_controls": "Click a mission row to select  Click outside to close",
         }
 
         if mission_active_slot:
@@ -1202,6 +1377,10 @@ def legacy_main():
                 payload["active"] = True
                 payload["slot"] = mission_active_slot
                 payload = _augment_payload_with_runtime(payload, render_snap_by_slot)
+                payload["selector_open"] = bool(mission_selector["open"])
+                payload["selector_index"] = int(mission_selector["selected_index"])
+                payload["selector_hint"] = "Crouch, Crouch, Taunt: Open Mission Select"
+                payload["selector_controls"] = "Click a mission row to select  Click outside to close"
 
         try:
             with open(MISSION_OVERLAY_FILE, "w", encoding="utf-8") as f:
@@ -1266,9 +1445,6 @@ def legacy_main():
             elif ev.type == pygame.VIDEORESIZE:
                 screen = pygame.display.set_mode(ev.size, pygame.RESIZABLE)
 
-            elif ev.type == pygame.KEYDOWN:
-                if ev.key == pygame.K_F5:
-                    manual_scan_requested = True
 
             elif ev.type == pygame.MOUSEBUTTONDOWN:
                 if ev.button == 1:
@@ -1468,6 +1644,10 @@ def legacy_main():
         p1_giant_solo, p2_giant_solo = compute_team_giant_solo(snaps)
         if p1_giant_solo or p2_giant_solo:
             snaps = reassign_slots_for_giants(snaps)
+
+        _mission_update_selector_from_inputs(snaps)
+        _consume_mission_select_command()
+
 
         # -----------------------------
         # Damage / hit logging and frame advantage
