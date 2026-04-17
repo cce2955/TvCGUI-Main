@@ -158,23 +158,45 @@ def u32be_from_block(block: bytes, off: int) -> int | None:
 # Reaction / hitstun IDs used as a crude "victim is being hit" signal
 REACTION_STATES = {48, 64, 65, 66, 73, 80, 81, 82, 90, 92, 95, 96, 97}
 
+MISSION_REACTION_STATES = {
+    48,   # Block
+    49,   # Crouching Block
+    50,   # Air block
+    52,   # Air pushblock
+    53,   # Crouch pushblock
+    60,   # Hit by Sweep Reaction
+    61,   # Stunned
+    62,   # Stumble
+    64,   # Standing Hitstun
+    65,   # Overhead Hitstun
+    66,   # Hit Low
+    73,   # knocked down (face up)
+    75,   # Crumple
+    79,   # Stagger
+    80,   # Hard Knockdown
+    81,   # Bounce Launched
+    82,   # Bounce Bounce off
+    83,   # Spiral
+    89,   # Spiral Knockdown
+    90,   # Hard Knockdown
+    91,   # Soft Knockdown
+    92,   # Hard Knockdown
+    94,   # Soft Knockdown
+    95,   # Forced Roll
+    96,   # Soft Knockdown
+    97,   # Launched
+    98,   # Launched / related reaction
+    101,  # Air heavy hitstun
+    102,  # knocked down (face up)
+    105,  # OTG Hit (Face up)
+    106,  # OTG Hit (Face Down)
+}
+
 MISSION_IGNORE_LABELS = {
     "",
     "idle",
     "crouched",
     "couching",
-    "standing",
-    "jump",
-    "jump forward",
-    "jump back",
-    "landing",
-    "rising",
-    "assist standby",
-    "assist leave",
-    "assist attack",
-    "assist taunt",
-    "tag out",
-    "tag in",
 }
 
 # TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.
@@ -1044,7 +1066,7 @@ def legacy_main():
                 continue
 
             other_mv = other_snap.get("attA") or other_snap.get("attB")
-            if other_mv in REACTION_STATES:
+            if other_mv in MISSION_REACTION_STATES:
                 return True
 
         return False
