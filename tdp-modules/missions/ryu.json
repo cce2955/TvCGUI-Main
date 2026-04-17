@@ -24,19 +24,10 @@
         { "label": "5B" },
         { "label": "5C" },
         { "label": "6C" },
-        { "label": "Donkey H" }
-      ]
-    },
-    {
-      "mission_id": "ryu_003",
-      "name": "Heavy Tatsu Ender",
-      "notes": "Ground chain into heavy tatsu.",
-      "steps": [
-        { "label": "5A" },
+        { "label": "Donkey H" },
+         { "label": "5A" },
         { "label": "5B" },
         { "label": "5C" },
         { "label": "Tatsu H" }
       ]
-    }
-  ]
-}
+    }]}

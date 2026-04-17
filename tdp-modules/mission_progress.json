@@ -1,6 +1,8 @@
 {
   "ryu": {
-    "completed": {},
-    "selected_mission_id": "ryu_003"
+    "completed": {
+      "ryu_002": true
+    },
+    "selected_mission_id": "ryu_002"
   }
 }

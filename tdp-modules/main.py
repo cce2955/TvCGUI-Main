@@ -1383,8 +1383,10 @@ def legacy_main():
                 payload["selector_controls"] = "Click a mission row to select  Click outside to close"
 
         try:
-            with open(MISSION_OVERLAY_FILE, "w", encoding="utf-8") as f:
+            tmp_path = f"{MISSION_OVERLAY_FILE}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
+            os.replace(tmp_path, MISSION_OVERLAY_FILE)
         except Exception:
             pass
 

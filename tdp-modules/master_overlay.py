@@ -322,8 +322,11 @@ class MasterOverlay:
         self.hud_renderer: Renderer = NullHudRenderer()
         self.hitbox_renderer: Renderer = NullHitboxRenderer()
 
-        self.hud_renderer: Renderer = NullHudRenderer()
-        self.hitbox_renderer: Renderer = NullHitboxRenderer()
+        # Mission step animation state
+        # step_anim[idx] = t in [0.0, 1.0]  (1.0 = fully active/metallic, 0.0 = dark/done)
+        self.step_anim: dict[int, float] = {}
+        self._prev_current_step: int = -1
+        self._prev_completed_count: int = 0
 
     def init(self) -> None:
         set_dpi_aware()
@@ -578,6 +581,38 @@ class MasterOverlay:
             self.screen.blit(surf, (16, y))
             y += surf.get_height()
 
+    def update_mission_animations(self, dt: float) -> None:
+        """Drive per-step metallic gradient animations each frame."""
+        data = self.mission_overlay_data or {}
+        steps = data.get("active_mission_steps") or []
+        completed_count = int(data.get("completed_step_count", 0))
+        current_idx = int(data.get("current_step_index", 0))
+
+        ANIM_SPEED = 4.0  # how fast the gradient slides in/out (t units per second)
+
+        for idx in range(len(steps)):
+            t = self.step_anim.get(idx, None)
+            if t is None:
+                # Initialize: active step starts fully lit, others start dark
+                t = 1.0 if idx == current_idx else 0.0
+
+            if idx < completed_count:
+                # Completed: animate down toward 0
+                t = max(0.0, t - dt * ANIM_SPEED)
+            elif idx == current_idx:
+                # Active: animate up toward 1
+                t = min(1.0, t + dt * ANIM_SPEED)
+            else:
+                # Pending: stay at 0 (no gradient yet)
+                t = max(0.0, t - dt * ANIM_SPEED)
+
+            self.step_anim[idx] = t
+
+        # On step change, clear state for steps no longer in range
+        if current_idx != self._prev_current_step or completed_count != self._prev_completed_count:
+            self._prev_current_step = current_idx
+            self._prev_completed_count = completed_count
+
     def draw_mission_overlay(self) -> None:
         self.mission_click_rects = []
         self.mission_panel_rect = None
@@ -694,32 +729,38 @@ class MasterOverlay:
             completed_step_count = int(data.get("completed_step_count", 0))
             current_step_index = int(data.get("current_step_index", 0))
 
-            line_surfs = []
+            STEP_PAD_X = 8
+            STEP_PAD_Y = 4
+            STEP_GAP = 4
+
+            # Build step surfaces to measure content width
+            step_surfs = []
             for idx, step in enumerate(steps):
                 if idx < completed_step_count:
-                    prefix = "[x]"
-                    color = (80, 255, 120)
+                    label = f"✓  {idx + 1}. {step}"
+                    color = (120, 200, 140)
                 elif idx == current_step_index:
-                    prefix = "->"
-                    color = (255, 220, 90)
+                    label = f"▶  {idx + 1}. {step}"
+                    color = (255, 220, 80)
                 else:
-                    prefix = "[ ]"
-                    color = (220, 220, 220)
+                    label = f"    {idx + 1}. {step}"
+                    color = (180, 180, 180)
+                surf = self.smallfont.render(label, True, color)
+                step_surfs.append((idx, surf, color))
 
-                surf = self.smallfont.render(f"{prefix} {idx + 1}. {step}", True, color)
-                line_surfs.append(surf)
+            step_row_h = (step_surfs[0][1].get_height() if step_surfs else 18) + STEP_PAD_Y * 2
 
             content_w = max(
                 [title.get_width(), sub.get_width(), hint.get_width()]
-                + [surf.get_width() for surf in line_surfs]
+                + [surf.get_width() + STEP_PAD_X * 2 for _, surf, _ in step_surfs]
                 + [260]
             )
             content_h = (
                 title.get_height()
                 + sub.get_height()
                 + hint.get_height()
-                + 12
-                + sum(surf.get_height() + 2 for surf in line_surfs)
+                + 16
+                + len(step_surfs) * (step_row_h + STEP_GAP)
             )
 
             box_w = content_w + pad * 2
@@ -729,6 +770,7 @@ class MasterOverlay:
             y = max(24, int(self.h * 0.08))
             self.mission_panel_rect = pygame.Rect(x, y, box_w, box_h)
 
+            # Outer panel
             bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
             bg.fill((24, 16, 40, 210))
             self.screen.blit(bg, (x, y))
@@ -748,9 +790,82 @@ class MasterOverlay:
             self.screen.blit(hint, (x + pad, draw_y))
             draw_y += hint.get_height() + 8
 
-            for surf in line_surfs:
-                self.screen.blit(surf, (x + pad, draw_y))
-                draw_y += surf.get_height() + 2
+            # Step boxes
+            step_box_w = box_w - pad * 2
+            for idx, surf, text_color in step_surfs:
+                t = self.step_anim.get(idx, 0.0)
+                is_completed = idx < completed_step_count
+                is_active = idx == current_step_index
+
+                # --- background box ---
+                row_surf = pygame.Surface((step_box_w, step_row_h), pygame.SRCALPHA)
+
+                if is_completed:
+                    # Dark, slightly greenish, no gradient
+                    alpha = int(180 - t * 60)  # fades as t drops to 0
+                    row_surf.fill((20, 38, 26, alpha))
+                    border_color = (60, 140, 80, int(80 + t * 100))
+                elif is_active and t > 0.0:
+                    # Metallic blue gradient — drawn as horizontal strips
+                    for strip_y in range(step_row_h):
+                        frac = strip_y / max(step_row_h - 1, 1)
+                        # gradient: dark blue at top/bottom, brighter mid
+                        mid = 1.0 - abs(frac - 0.45) * 2.2
+                        mid = max(0.0, min(1.0, mid))
+
+                        base_r = int(18 + mid * 20)
+                        base_g = int(60 + mid * 60)
+                        base_b = int(110 + mid * 100)
+
+                        # Blend toward dark base as t approaches 0
+                        dark_r, dark_g, dark_b = 28, 22, 44
+                        r = int(dark_r + (base_r - dark_r) * t)
+                        g = int(dark_g + (base_g - dark_g) * t)
+                        b = int(dark_b + (base_b - dark_b) * t)
+
+                        pygame.draw.line(row_surf, (r, g, b, 210), (0, strip_y), (step_box_w, strip_y))
+
+                    border_color = (
+                        int(40 + 60 * t),
+                        int(100 + 100 * t),
+                        int(180 + 60 * t),
+                        220,
+                    )
+
+                else:
+                    # Pending or animating out — dark base
+                    row_surf.fill((28, 22, 44, 180))
+                    border_color = (80, 70, 110, 120)
+
+                self.screen.blit(row_surf, (x + pad, draw_y))
+                pygame.draw.rect(
+                    self.screen,
+                    border_color[:3],
+                    (x + pad, draw_y, step_box_w, step_row_h),
+                    1,
+                    border_radius=3,
+                )
+
+                # Text — dim completed steps based on animation
+                label_str = (
+                    f"✓  {idx + 1}. {steps[idx]}" if is_completed
+                    else f"▶  {idx + 1}. {steps[idx]}" if is_active
+                    else f"    {idx + 1}. {steps[idx]}"
+                )
+                if is_completed:
+                    dim = max(60, int(120 * (1.0 - t) + 180 * t))
+                    draw_color = (
+                        min(255, int(text_color[0] * dim // 200)),
+                        min(255, int(text_color[1] * dim // 200)),
+                        min(255, int(text_color[2] * dim // 200)),
+                    )
+                else:
+                    draw_color = text_color
+
+                draw_surf = self.smallfont.render(label_str, True, draw_color)
+
+                self.screen.blit(draw_surf, (x + pad + STEP_PAD_X, draw_y + STEP_PAD_Y))
+                draw_y += step_row_h + STEP_GAP
 
 
     def present(self) -> None:
@@ -798,6 +913,8 @@ class MasterOverlay:
                     traceback.print_exc()
                     self.hud_renderer = NullHudRenderer()
                     self.hud_renderer.on_resize(self.w, self.h)
+
+                self.update_mission_animations(dt)
 
                 try:
                     self.hitbox_renderer.draw(self.screen, self.control)
