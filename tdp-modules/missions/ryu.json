@@ -4,7 +4,7 @@
     {
       "mission_id": "ryu_001",
       "name": "Basic Air Chain",
-      "notes": "Simple launcher route starter.",
+      "notes": "Basic Magic Series.",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
@@ -18,7 +18,7 @@
     {
       "mission_id": "ryu_002",
       "name": "Tatsu Ender",
-      "notes": "Ground chain into heavy donkey kick.",
+      "notes": "Basic BnB ",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
@@ -35,7 +35,7 @@
     {
       "mission_id": "ryu_003",
       "name": "Double Extension",
-      "notes": "Donkey kick extension into tatsu finisher.",
+      "notes": "Baroque BnB.",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
@@ -62,7 +62,7 @@
       "steps": [
         { "label": "6B" },
         { "label": "Donkey L" },
-        { "label": "Hado L" },
+        { "label": "Baroque cancel" },
         { "label": "5A" },
         { "label": "5B" },
         { "label": "5C" },
@@ -73,7 +73,7 @@
     {
       "mission_id": "ryu_005",
       "name": "Corner Carry to Super",
-      "notes": "Low starter into Hado, Tatsu relaunch, Donkey ender, then Shinkuu.",
+      "notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
       "steps": [
         { "label": "5A" },
         { "label": "2A" },
@@ -102,7 +102,7 @@
     },{
       "mission_id": "ryu_007",
       "name": "Challenge",
-      "notes": "???",
+      "notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
       "steps": [
         { "label": "Hado L" },
         { "label": "Shin Sho" },

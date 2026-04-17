@@ -319,7 +319,9 @@ class MasterOverlay:
         self.mission_click_rects: list[tuple[pygame.Rect, Optional[str]]] = []
         self.mission_panel_rect: Optional[pygame.Rect] = None
         self.mission_toggle_rect: Optional[pygame.Rect] = None
+        self.mission_hint_rect: Optional[pygame.Rect] = None
         self.mission_show_all: bool = False
+        self.mission_show_hint: bool = False
 
         self.hud_renderer: Renderer = NullHudRenderer()
         self.hitbox_renderer: Renderer = NullHitboxRenderer()
@@ -526,6 +528,10 @@ class MasterOverlay:
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if self.mission_toggle_rect and self.mission_toggle_rect.collidepoint(event.pos):
                     self.mission_show_all = not self.mission_show_all
+                    return
+
+                if self.mission_hint_rect and self.mission_hint_rect.collidepoint(event.pos):
+                    self.mission_show_hint = not self.mission_show_hint
                     return
 
                 if self.mission_panel_rect and self.mission_panel_rect.collidepoint(event.pos):
@@ -903,6 +909,7 @@ class MasterOverlay:
         self.mission_click_rects = []
         self.mission_panel_rect = None
         self.mission_toggle_rect = None
+        self.mission_hint_rect = None
 
         if not self.mission_active or not self.mission_slot:
             return
@@ -912,6 +919,7 @@ class MasterOverlay:
         data = self._mission_hold_data if self._mission_hold_frames > 0 else (self.mission_overlay_data or {})
         character = data.get("character") or "Unknown"
         mission_name = data.get("active_mission_name") or "No mission loaded"
+        mission_notes = data.get("active_mission_notes") or ""
         steps = data.get("active_mission_steps") or []
         missions = data.get("missions") or []
 
@@ -1033,6 +1041,9 @@ class MasterOverlay:
 
             toggle_text = "Show Less" if self.mission_show_all else "Show All"
             toggle_surf = self.smallfont.render(toggle_text, True, (220, 220, 220))
+            hint_toggle_text = "Hide Hint" if self.mission_show_hint else "Show Hint"
+            hint_toggle_surf = self.smallfont.render(hint_toggle_text, True, (220, 220, 220))
+            note_surf = self.smallfont.render(mission_notes, True, (210, 210, 235)) if mission_notes else None
 
             # Build step surfaces to measure content width
             step_surfs = []
@@ -1053,7 +1064,8 @@ class MasterOverlay:
             step_row_h = (step_surfs[0][1].get_height() if step_surfs else 18) + STEP_PAD_Y * 2
 
             content_w = max(
-                [title.get_width(), sub.get_width(), hint.get_width(), toggle_surf.get_width() + 20]
+                [title.get_width(), sub.get_width(), hint.get_width(), toggle_surf.get_width() + hint_toggle_surf.get_width() + 40]
+                + ([note_surf.get_width() + 20] if note_surf else [])
                 + [surf.get_width() + STEP_PAD_X * 2 for _, surf, _ in step_surfs]
                 + [260]
             )
@@ -1062,6 +1074,7 @@ class MasterOverlay:
                 + sub.get_height()
                 + hint.get_height()
                 + 16
+                + ((note_surf.get_height() + 14) if (self.mission_show_hint and note_surf) else 0)
                 + len(step_surfs) * (step_row_h + STEP_GAP)
             )
 
@@ -1093,19 +1106,42 @@ class MasterOverlay:
 
             toggle_w = toggle_surf.get_width() + 14
             toggle_h = toggle_surf.get_height() + 6
-            toggle_x = x + box_w - pad - toggle_w
+            hint_toggle_w = hint_toggle_surf.get_width() + 14
+            hint_toggle_h = hint_toggle_surf.get_height() + 6
+
+            hint_toggle_x = x + box_w - pad - hint_toggle_w
+            toggle_x = hint_toggle_x - 8 - toggle_w
             toggle_y = draw_y - 2
+
             self.mission_toggle_rect = pygame.Rect(toggle_x, toggle_y, toggle_w, toggle_h)
+            self.mission_hint_rect = pygame.Rect(hint_toggle_x, toggle_y, hint_toggle_w, hint_toggle_h)
 
             toggle_col = (70, 70, 95) if not self.mission_show_all else (110, 80, 150)
             if self.mission_toggle_rect.collidepoint(pygame.mouse.get_pos()):
                 toggle_col = tuple(min(255, c + 25) for c in toggle_col)
 
+            hint_col = (70, 70, 95) if not self.mission_show_hint else (110, 80, 150)
+            if self.mission_hint_rect.collidepoint(pygame.mouse.get_pos()):
+                hint_col = tuple(min(255, c + 25) for c in hint_col)
+
             pygame.draw.rect(self.screen, toggle_col, self.mission_toggle_rect, border_radius=3)
             pygame.draw.rect(self.screen, (180, 180, 200), self.mission_toggle_rect, 1, border_radius=3)
             self.screen.blit(toggle_surf, (toggle_x + 7, toggle_y + 3))
 
+            pygame.draw.rect(self.screen, hint_col, self.mission_hint_rect, border_radius=3)
+            pygame.draw.rect(self.screen, (180, 180, 200), self.mission_hint_rect, 1, border_radius=3)
+            self.screen.blit(hint_toggle_surf, (hint_toggle_x + 7, toggle_y + 3))
+
             draw_y += hint.get_height() + 8
+
+            if self.mission_show_hint and note_surf:
+                note_rect = pygame.Rect(x + pad, draw_y, box_w - pad * 2, note_surf.get_height() + 10)
+                note_bg = pygame.Surface((note_rect.width, note_rect.height), pygame.SRCALPHA)
+                note_bg.fill((36, 28, 56, 210))
+                self.screen.blit(note_bg, (note_rect.x, note_rect.y))
+                pygame.draw.rect(self.screen, (120, 110, 170), note_rect, 1, border_radius=3)
+                self.screen.blit(note_surf, (note_rect.x + 6, note_rect.y + 5))
+                draw_y += note_rect.height + 8
 
             # Step boxes
             step_box_w = box_w - pad * 2

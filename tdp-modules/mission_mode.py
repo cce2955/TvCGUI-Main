@@ -216,12 +216,14 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         "mission_count": len(pack.missions),
         "active_mission_id": active.mission_id if active else None,
         "active_mission_name": active.name if active else None,
+        "active_mission_notes": active.notes if active else "",
         "active_mission_steps": [step.labels for step in active.steps] if active else [],
         "selected_mission_id": selected_id,
         "missions": [
             {
                 "mission_id": mission.mission_id,
                 "name": mission.name,
+                "notes": mission.notes,
                 "completed": is_mission_complete(progress, pack.character, mission.mission_id),
                 "selected": mission.mission_id == selected_id,
                 "steps": [step.labels for step in mission.steps],

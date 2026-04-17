@@ -1,36 +1,29 @@
 {
   "character": "Ryu",
   "mission_count": 6,
-  "active_mission_id": "ryu_001",
-  "active_mission_name": "Basic Air Chain",
+  "active_mission_id": "ryu_007",
+  "active_mission_name": "Challenge",
+  "active_mission_notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
   "active_mission_steps": [
     [
-      "5A"
+      "Hado L"
     ],
     [
-      "5B"
+      "Shin Sho"
     ],
     [
-      "5C"
+      "Tatsu M"
     ],
     [
-      "3C"
-    ],
-    [
-      "j.A"
-    ],
-    [
-      "j.B"
-    ],
-    [
-      "j.C"
+      "Shin Sho"
     ]
   ],
-  "selected_mission_id": null,
+  "selected_mission_id": "ryu_007",
   "missions": [
     {
       "mission_id": "ryu_001",
       "name": "Basic Air Chain",
+      "notes": "Basic Magic Series.",
       "completed": false,
       "selected": false,
       "steps": [
@@ -60,6 +53,7 @@
     {
       "mission_id": "ryu_002",
       "name": "Tatsu Ender",
+      "notes": "Basic BnB",
       "completed": false,
       "selected": false,
       "steps": [
@@ -98,6 +92,7 @@
     {
       "mission_id": "ryu_003",
       "name": "Double Extension",
+      "notes": "Baroque BnB.",
       "completed": false,
       "selected": false,
       "steps": [
@@ -154,6 +149,7 @@
     {
       "mission_id": "ryu_004",
       "name": "Donkey to Shinkuu",
+      "notes": "6B starter into light donkey, triple fireball chain, tatsu, then super.",
       "completed": false,
       "selected": false,
       "steps": [
@@ -164,7 +160,7 @@
           "Donkey L"
         ],
         [
-          "Hado L"
+          "Baroque cancel"
         ],
         [
           "5A"
@@ -186,6 +182,7 @@
     {
       "mission_id": "ryu_005",
       "name": "Corner Carry to Super",
+      "notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
       "completed": false,
       "selected": false,
       "steps": [
@@ -258,8 +255,9 @@
     {
       "mission_id": "ryu_007",
       "name": "Challenge",
+      "notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
       "completed": false,
-      "selected": false,
+      "selected": true,
       "steps": [
         [
           "Hado L"
@@ -281,7 +279,7 @@
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "5A",
+  "current_step_label": "Hado L",
   "selector_open": false,
   "selector_index": 0,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
