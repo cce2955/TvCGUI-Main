@@ -1,9 +1,9 @@
 {
-  "character": "Frank West",
-  "mission_count": 8,
-  "active_mission_id": "frank_west_001",
-  "active_mission_name": "Starter",
-  "active_mission_notes": "",
+  "character": "Zero",
+  "mission_count": 6,
+  "active_mission_id": "zero_006",
+  "active_mission_name": "Challenge",
+  "active_mission_notes": "Some moves are missing, see if you can figure it out",
   "active_mission_steps": [
     [
       "5A"
@@ -12,30 +12,96 @@
       "5B"
     ],
     [
-      "2B"
+      "5C"
     ],
     [
-      "3C"
+      "Hyper Zero Blaster"
     ],
     [
-      "j.A"
+      "5A"
     ],
     [
-      "j.B"
+      "5B"
     ],
     [
-      "j.C"
+      "5C"
+    ],
+    [
+      "Hyper Zero Blaster"
+    ],
+    [
+      "5A"
+    ],
+    [
+      "5B"
+    ],
+    [
+      "5C"
+    ],
+    [
+      "Hyper Zero Blaster"
+    ],
+    [
+      "DP C"
     ]
   ],
-  "selected_mission_id": null,
+  "selected_mission_id": "zero_006",
   "missions": [
     {
-      "mission_id": "frank_west_001",
+      "mission_id": "zero_001",
       "name": "Starter",
-      "notes": "",
-      "completed": false,
+      "notes": "Basic launcher route.",
+      "completed": true,
       "selected": false,
       "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "zero_002",
+      "name": "Baroque Blaster",
+      "notes": "",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Baroque cancel"
+        ],
         [
           "5A"
         ],
@@ -55,19 +121,46 @@
           "j.B"
         ],
         [
-          "j.C"
+          "Hyper Zero Blaster"
+        ],
+        [
+          "Air DP C"
         ]
       ]
     },
     {
-      "mission_id": "frank_west_002",
-      "name": "Launcher Ender",
+      "mission_id": "zero_003",
+      "name": "Sentsuizan Extension",
       "notes": "",
       "completed": false,
       "selected": false,
       "steps": [
         [
           "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "Sentsuizan B"
+        ],
+        [
+          "Air Hyper Zero Blaster"
+        ],
+        [
+          "j.B"
         ],
         [
           "5B"
@@ -85,84 +178,18 @@
           "j.B"
         ],
         [
-          "j.2C"
+          "Air Hyper Zero Blaster"
+        ],
+        [
+          "Air DP C"
         ]
       ]
     },
     {
-      "mission_id": "frank_west_003",
-      "name": "Giant Swing Loop",
+      "mission_id": "zero_004",
+      "name": "DP Baroque Route",
       "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "Giant Swing B"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "Giant Swing B"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "Giant Swing B"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "Giant Swing B"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "Giant Swing B"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
-      ]
-    },
-    {
-      "mission_id": "frank_west_004",
-      "name": "Zombie Spree Route",
-      "notes": "",
-      "completed": false,
+      "completed": true,
       "selected": false,
       "steps": [
         [
@@ -175,31 +202,67 @@
           "2B"
         ],
         [
+          "5C"
+        ],
+        [
           "3C"
         ],
         [
-          "Giant Swing B"
+          "DP A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air Hyper Zero Blaster"
+        ],
+        [
+          "Air DP C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "zero_005",
+      "name": "Dark Hold Finish",
+      "notes": "",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5B"
         ],
         [
           "2B"
         ],
         [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.2C"
-        ],
-        [
-          "Zombie Spree A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
+          "5C"
         ],
         [
           "3C"
@@ -208,142 +271,31 @@
           "j.B"
         ],
         [
-          "j.2C"
-        ],
-        [
-          "Zombie Spree A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
           "j.B"
         ],
         [
-          "j.2C"
+          "Air Hyper Zero Blaster"
         ],
         [
-          "Zombie Spree C"
+          "Air Dash A"
         ],
         [
-          "Real Megabuster"
-        ]
-      ]
-    },
-    {
-      "mission_id": "frank_west_005",
-      "name": "Megabuster Finish",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
+          "2A"
         ],
         [
-          "5B"
+          "2B"
+        ],
+        [
+          "5C"
         ],
         [
           "2C"
         ],
         [
-          "Zombie Spree C"
+          "6C"
         ],
         [
-          "Roll B"
-        ],
-        [
-          "Zombie Spree A"
-        ],
-        [
-          "Real Megabuster"
-        ]
-      ]
-    },
-    {
-      "mission_id": "frank_west_006",
-      "name": "Dead Rising Extension",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "Dead Rising"
-        ],
-        [
-          "Zombie Spree A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.2C"
-        ],
-        [
-          "Zombie Spree A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.2C"
-        ],
-        [
-          "Zombie Spree C"
-        ],
-        [
-          "5C"
-        ]
-      ]
-    },
-    {
-      "mission_id": "frank_west_008",
-      "name": "Corner",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "Grand Slam B"
-        ],
-        [
-          "5A"
+          "Baroque cancel"
         ],
         [
           "5B"
@@ -355,43 +307,91 @@
           "5C"
         ],
         [
-          "Roundhouse B"
+          "3C"
         ],
         [
-          "Zombie Charge"
+          "j.B"
+        ],
+        [
+          "Air Hyper Zero Blaster"
+        ],
+        [
+          "Air Dash A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "2B"
         ],
         [
           "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Dark Hold"
         ]
       ]
     },
     {
-      "mission_id": "frank_west_008",
+      "mission_id": "zero_006",
       "name": "Challenge",
-      "notes": "",
+      "notes": "Some moves are missing, see if you can figure it out",
       "completed": false,
-      "selected": false,
+      "selected": true,
       "steps": [
         [
-          "Dead Rising"
+          "5A"
         ],
         [
-          "Zombie Charge"
+          "5B"
         ],
         [
-          "Real Megabuster"
+          "5C"
+        ],
+        [
+          "Hyper Zero Blaster"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Hyper Zero Blaster"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Hyper Zero Blaster"
+        ],
+        [
+          "DP C"
         ]
       ]
     }
   ],
   "active": true,
-  "slot": "P1-C2",
+  "slot": "P1-C1",
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 6,
+  "selector_index": 4,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }

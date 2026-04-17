@@ -1,0 +1,147 @@
+{
+  "character": "Zero",
+  "missions": [
+    {
+      "mission_id": "zero_001",
+      "name": "Starter",
+      "notes": "Basic launcher route.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "zero_002",
+      "name": "Baroque Blaster",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Hyper Zero Blaster" },
+        { "label": "Air DP C" }
+      ]
+    },
+    {
+      "mission_id": "zero_003",
+      "name": "Sentsuizan Extension",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Baroque cancel" },
+        { "label": "Sentsuizan B" },
+        { "label": "Air Hyper Zero Blaster" },
+        { "label": "j.B" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Hyper Zero Blaster" },
+        { "label": "Air DP C" }
+      ]
+    },
+    {
+      "mission_id": "zero_004",
+      "name": "DP Baroque Route",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "DP A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "Air Hyper Zero Blaster" },
+        { "label": "Air DP C" }
+      ]
+    },
+    {
+      "mission_id": "zero_005",
+      "name": "Dark Hold Finish",
+      "notes": "",
+      "steps": [
+        
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "Air Hyper Zero Blaster" },
+        { "label": "Air Dash A" },
+        { "label": "2A" },
+        
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Baroque cancel" },
+        
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Air Hyper Zero Blaster" },
+        { "label": "Air Dash A" },
+        { "label": "2A" },
+        
+        
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Dark Hold" }
+      ]
+    },   {
+      "mission_id": "zero_006",
+      "name": "Challenge",
+      "notes": "Some moves are missing, see if you can figure it out",
+      "steps": [
+        
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Hyper Zero Blaster" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Hyper Zero Blaster" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Hyper Zero Blaster" },
+        
+        { "label": "DP C" }     
+      ]
+    }
+  ]
+}
