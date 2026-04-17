@@ -8,5 +8,15 @@
       "batsu_007": true
     },
     "selected_mission_id": "batsu_007"
+  },
+  "volnutt": {
+    "completed": {
+      "volnutt_001": true,
+      "volnutt_002": true,
+      "volnutt_004": true,
+      "volnutt_005": true,
+      "volnutt_006": true
+    },
+    "selected_mission_id": "volnutt_007"
   }
 }
