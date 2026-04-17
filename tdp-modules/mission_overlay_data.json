@@ -1,9 +1,9 @@
 {
-  "character": "Viewtiful Joe",
-  "mission_count": 7,
-  "active_mission_id": "viewtiful_joe_004",
-  "active_mission_name": "Shocking Pink Baroque",
-  "active_mission_notes": "You're kind of at the mercy of RNG on this one, also the baroque window for SP is weird, wait till it touches his shoulder",
+  "character": "Frank West",
+  "mission_count": 8,
+  "active_mission_id": "frank_west_001",
+  "active_mission_name": "Starter",
+  "active_mission_notes": "",
   "active_mission_steps": [
     [
       "5A"
@@ -15,275 +15,383 @@
       "2B"
     ],
     [
-      "5C"
+      "3C"
     ],
     [
-      "Shocking Pink A"
+      "j.A"
     ],
     [
-      "Baroque cancel"
-    ],
-    [
-      "5A"
-    ],
-    [
-      "5B"
-    ],
-    [
-      "2B"
-    ],
-    [
-      "5C"
+      "j.B"
     ],
     [
       "j.C"
-    ],
-    [
-      "Red Hot Kick B"
     ]
   ],
-  "selected_mission_id": "viewtiful_joe_004",
+  "selected_mission_id": null,
   "missions": [
     {
-      "mission_id": "viewtiful_joe_001",
+      "mission_id": "frank_west_001",
       "name": "Starter",
-      "notes": "Basic launcher route.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
-      ]
-    },
-    {
-      "mission_id": "viewtiful_joe_002",
-      "name": "BnB",
-      "notes": "Do this as a beginner.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Red Hot Kick B"
-        ],
-        [
-          "Air Voomerang B"
-        ]
-      ]
-    },
-    {
-      "mission_id": "viewtiful_joe_003",
-      "name": "Air Joe Relaunch",
-      "notes": "Do this as a beginner.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "Air Joe B"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ],
-        [
-          "Red Hot Kick B"
-        ]
-      ]
-    },
-    {
-      "mission_id": "viewtiful_joe_004",
-      "name": "Shocking Pink Baroque",
-      "notes": "You're kind of at the mercy of RNG on this one, also the baroque window for SP is weird, wait till it touches his shoulder",
-      "completed": true,
-      "selected": true,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Shocking Pink A"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "j.C"
-        ],
-        [
-          "Red Hot Kick B"
-        ]
-      ]
-    },
-    {
-      "mission_id": "viewtiful_joe_005",
-      "name": "Slow and Zoom Relaunch",
-      "notes": "Easy Relaunch. Before landing toss a voomerang, it'll plop on the ground, hitstun will give you a free 3C",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "Slow and Zoom"
-        ],
-        [
-          "Air Voomerang B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ],
-        [
-          "Red Hot Kick B"
-        ],
-        [
-          "Air Voomerang B"
-        ]
-      ]
-    },
-    {
-      "mission_id": "viewtiful_joe_006",
-      "name": "Slow and Zoom Relaunch",
-      "notes": "Slightly Harder Launch.",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "Slow and Zoom"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ],
-        [
-          "Red Hot Kick B"
-        ],
-        [
-          "Air Voomerang B"
-        ]
-      ]
-    },
-    {
-      "mission_id": "viewtiful_joe_007",
-      "name": "Slow and Zoom Meter Dump",
       "notes": "",
       "completed": false,
       "selected": false,
       "steps": [
         [
-          "Slow and Zoom"
+          "5A"
         ],
         [
-          "Air Desperado"
+          "5B"
         ],
         [
-          "Red Hot Kick B"
+          "2B"
         ],
         [
-          "Air Voomerang B"
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "frank_west_002",
+      "name": "Launcher Ender",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.2C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "frank_west_003",
+      "name": "Giant Swing Loop",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Giant Swing B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Giant Swing B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Giant Swing B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Giant Swing B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Giant Swing B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "frank_west_004",
+      "name": "Zombie Spree Route",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Giant Swing B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.2C"
+        ],
+        [
+          "Zombie Spree A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.2C"
+        ],
+        [
+          "Zombie Spree A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.2C"
+        ],
+        [
+          "Zombie Spree C"
+        ],
+        [
+          "Real Megabuster"
+        ]
+      ]
+    },
+    {
+      "mission_id": "frank_west_005",
+      "name": "Megabuster Finish",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "Zombie Spree C"
+        ],
+        [
+          "Roll B"
+        ],
+        [
+          "Zombie Spree A"
+        ],
+        [
+          "Real Megabuster"
+        ]
+      ]
+    },
+    {
+      "mission_id": "frank_west_006",
+      "name": "Dead Rising Extension",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Dead Rising"
+        ],
+        [
+          "Zombie Spree A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.2C"
+        ],
+        [
+          "Zombie Spree A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.2C"
+        ],
+        [
+          "Zombie Spree C"
+        ],
+        [
+          "5C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "frank_west_008",
+      "name": "Corner",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "Grand Slam B"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Roundhouse B"
+        ],
+        [
+          "Zombie Charge"
+        ],
+        [
+          "5C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "frank_west_008",
+      "name": "Challenge",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Dead Rising"
+        ],
+        [
+          "Zombie Charge"
+        ],
+        [
+          "Real Megabuster"
         ]
       ]
     }
   ],
   "active": true,
-  "slot": "P1-C1",
+  "slot": "P1-C2",
   "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 5,
+  "selector_index": 6,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }

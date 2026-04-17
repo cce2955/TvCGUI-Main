@@ -1,0 +1,155 @@
+{
+  "character": "Frank West",
+  "missions": [
+    {
+      "mission_id": "frank_west_001",
+      "name": "Starter",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },{
+      "mission_id": "frank_west_002",
+      "name": "Launcher Ender",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.2C" }
+      ]
+    },
+    {
+      "mission_id": "frank_west_003",
+      "name": "Giant Swing Loop",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "Giant Swing B" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "Giant Swing B" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "Giant Swing B" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "Giant Swing B" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "Giant Swing B" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "frank_west_004",
+      "name": "Zombie Spree Route",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "Giant Swing B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        
+        { "label": "j.B" },
+        { "label": "j.2C" },
+        { "label": "Zombie Spree A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.2C" },
+        { "label": "Zombie Spree A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.2C" },
+        { "label": "Zombie Spree C" },
+        { "label": "Real Megabuster" }
+      ]
+    },
+    {
+      "mission_id": "frank_west_005",
+      "name": "Megabuster Finish",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2C" },
+        { "label": "Zombie Spree C" },
+        { "label": "Roll B" },
+        { "label": "Zombie Spree A" },
+        { "label": "Real Megabuster" }
+      ]
+    },
+    {
+      "mission_id": "frank_west_006",
+      "name": "Dead Rising Extension",
+      "notes": "",
+      "steps": [
+        { "label": "Dead Rising" },
+        { "label": "Zombie Spree A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.2C" },
+        { "label": "Zombie Spree A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.2C" },
+        { "label": "Zombie Spree C" },
+        { "label": "5C" }
+      ]
+    }, {
+      "mission_id": "frank_west_008",
+      "name": "Corner",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Grand Slam B" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Roundhouse B" },
+        { "label": "Zombie Charge" },
+        { "label": "5C" }
+        
+      ]
+    },{
+      "mission_id": "frank_west_008",
+      "name": "Challenge",
+      "notes": "",
+      "steps": [
+        { "label": "Dead Rising" },
+        { "label": "Zombie Charge" },
+        { "label": "Real Megabuster" }
+        
+      ]
+    }
+  ]
+}
