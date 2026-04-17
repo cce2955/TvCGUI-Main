@@ -53,6 +53,48 @@
         { "label": "6C" },
         { "label": "Tatsu H" }
       ]
+    },
+    {
+      "mission_id": "ryu_004",
+      "name": "Donkey to Shinkuu",
+      "notes": "6B starter into light donkey, triple fireball chain, tatsu, then super.",
+      "steps": [
+        { "label": "6B" },
+        { "label": "Donkey L" },
+        { "label": "Hado L" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Tatsu H" },
+        { "label": "Shinkuu" }
+      ]
+    },
+    {
+      "mission_id": "ryu_005",
+      "name": "Corner Carry to Super",
+      "notes": "Low starter into Hado, Tatsu relaunch, Donkey ender, then Shinkuu.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "2A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Hado M" },
+        { "label": "Air Tatsu H" },
+        { "label": "5A" },
+        { "label": "5B" },
+        
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Donkey H" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Tatsu H" },
+        { "label": "Shinkuu" }
+      ]
     }
   ]
 }
