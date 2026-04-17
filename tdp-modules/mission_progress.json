@@ -1,0 +1,12 @@
+{
+  "batsu": {
+    "completed": {
+      "batsu_001": true,
+      "batsu_002": true,
+      "batsu_003": true,
+      "batsu_006": true,
+      "batsu_007": true
+    },
+    "selected_mission_id": "batsu_007"
+  }
+}

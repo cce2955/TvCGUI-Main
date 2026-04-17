@@ -374,7 +374,7 @@
 260,0x104,2B,2B,2B,yes,14
 272,0x104,Tardy Counter B,2B,2B,yes,14
 273,0x104,Tardy Counter C,2B,2B,yes,14
-304,0x130,Guts A,Guts A,Guts A,yes,14
+304,0x130,Guts Bullet A,Guts A,Guts A,yes,14
 305,0x131,Guts Bullet B,Guts Bullet B,Guts Bullet B,yes,14
 306,0x132,Guts Bullet C,Guts Bullet C,Guts Bullet C,yes,14
 307,0x133,Wheel Kick A,Wheel Kick A,Wheel Kick A,yes,14
@@ -1016,5 +1016,6 @@
 4621,0x1,Captured,Captured,Captured,yes,100
 4622,0x1,Captured,Captured,Captured,yes,100
 4623,0x1,Captured,Captured,Captured,yes,100
+4625,0x1,Captured,Captured,Captured,yes,100
 4294967295,0xffffffff,Loading,versus screen loading flag,versus screen loading flag,yes,100
 4294967295,0xffffffff,Loading,versus screen loading flag,versus screen loading flag,yes,100

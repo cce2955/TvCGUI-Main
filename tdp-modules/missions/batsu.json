@@ -1,0 +1,111 @@
+{
+  "character": "Batsu",
+  "missions": [
+    {
+      "mission_id": "batsu_001",
+      "name": "Sky Chain",
+      "notes": "Basic launcher route.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "batsu_002",
+      "name": "Dive Loop",
+      "notes": "Midscreen. ",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Air Divekick B" },
+        { "label": "Air Divekick B" },
+        { "label": "Air Divekick B" },
+        { "label": "Air Divekick B" }
+      ]
+    },{
+  "mission_id": "batsu_003",
+  "name": "Burst Dive",
+  "notes": "you have to airdash out of Divekick to hit the second j.B , google tiger knee if you're a little lost.",
+  "steps": [
+    { "label": "6B" },
+    { "label": "Guts Upper A" },
+    { "label": "Baroque cancel" },
+    { "label": "j.B" },
+    { "label": "Air Divekick A" },
+    { "label": "j.B" },
+    { "label": "j.B" },
+    { "label": "Air Divekick A" },
+    { "label": "j.B" },
+    { "label": "j.B" },
+    { "label": "Air Divekick A" },
+    { "label": "j.B" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "3C" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.C" }
+  ]
+},{
+  "mission_id": "batsu_005",
+  "name": "Baroqueless BnB",
+  "notes": "IAD after the 6C, you can get a soft launch from the stagger with j.B ",
+  "steps": [
+    { "label": "6C" },
+    { "label": "j.B" },
+    { "label": "j.B" },
+    { "label": "Air Divekick A" },
+    { "label": "j.B" },
+    { "label": "j.B" },
+    { "label": "Air Divekick A" },
+    { "label": "j.B" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "3C" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.C" }
+    ]                               
+    },
+    {
+  "mission_id": "batsu_006",
+  "name": "corner only",
+  "notes": "",
+  "steps": [
+    { "label": "2C" },
+    { "label": "Guts Bullet A" },
+    { "label": "Baroque cancel" },
+    { "label": "j.B" },
+    { "label": "Air Divekick A" },
+    { "label": "j.B" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "3C" },
+    { "label": "Air Divekick A" },
+    { "label": "Air Divekick A" },
+    { "label": "Air Divekick A" },
+    { "label": "Air Divekick A" },
+    { "label": "Air Guts Bullet A" },
+    { "label": "Air Super Guts Bullet" }
+    ]                               
+    },{
+  "mission_id": "batsu_007",
+  "name": "Challenge",
+  "notes": "Some moves are missing, can you fill in the blank?",
+  "steps": [
+    { "label": "Guts Bullet A" },
+    { "label": "Air Divekick A" },
+    { "labels": ["United by Fate: Bullet","United by Fate: Upper","United by Fate: Kicks"] }
+  ]
+}
+  ]
+}

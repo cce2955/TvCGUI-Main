@@ -1,20 +1,290 @@
 {
-  "character": "Alex",
-  "mission_count": 0,
-  "active_mission_id": null,
-  "active_mission_name": null,
-  "active_mission_notes": "",
-  "active_mission_steps": [],
-  "selected_mission_id": null,
-  "missions": [],
+  "character": "Batsu",
+  "mission_count": 6,
+  "active_mission_id": "batsu_007",
+  "active_mission_name": "Challenge",
+  "active_mission_notes": "Some moves are missing, can you fill in the blank?",
+  "active_mission_steps": [
+    [
+      "Guts Bullet A"
+    ],
+    [
+      "Air Divekick A"
+    ],
+    [
+      "United by Fate: Bullet",
+      "United by Fate: Upper",
+      "United by Fate: Kicks"
+    ]
+  ],
+  "selected_mission_id": "batsu_007",
+  "missions": [
+    {
+      "mission_id": "batsu_001",
+      "name": "Sky Chain",
+      "notes": "Basic launcher route.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "batsu_002",
+      "name": "Dive Loop",
+      "notes": "Midscreen.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air Divekick B"
+        ],
+        [
+          "Air Divekick B"
+        ],
+        [
+          "Air Divekick B"
+        ],
+        [
+          "Air Divekick B"
+        ]
+      ]
+    },
+    {
+      "mission_id": "batsu_003",
+      "name": "Burst Dive",
+      "notes": "you have to airdash out of Divekick to hit the second j.B , google tiger knee if you're a little lost.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "6B"
+        ],
+        [
+          "Guts Upper A"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "batsu_005",
+      "name": "Baroqueless BnB",
+      "notes": "IAD after the 6C, you can get a soft launch from the stagger with j.B",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "6C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ]
+    },
+    {
+      "mission_id": "batsu_006",
+      "name": "corner only",
+      "notes": "",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "2C"
+        ],
+        [
+          "Guts Bullet A"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "Air Guts Bullet A"
+        ],
+        [
+          "Air Super Guts Bullet"
+        ]
+      ]
+    },
+    {
+      "mission_id": "batsu_007",
+      "name": "Challenge",
+      "notes": "Some moves are missing, can you fill in the blank?",
+      "completed": true,
+      "selected": true,
+      "steps": [
+        [
+          "Guts Bullet A"
+        ],
+        [
+          "Air Divekick A"
+        ],
+        [
+          "United by Fate: Bullet",
+          "United by Fate: Upper",
+          "United by Fate: Kicks"
+        ]
+      ]
+    }
+  ],
   "active": true,
-  "slot": "P1-C2",
+  "slot": "P1-C1",
+  "just_cleared": false,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": null,
-  "just_cleared": false,
+  "current_step_label": "Guts Bullet A",
   "selector_open": false,
-  "selector_index": 5,
+  "selector_index": 4,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }

@@ -205,6 +205,7 @@ MISSION_REACTION_STATES = {
     4621, # Captured
     4622, # Captured
     4623, # Captured
+    4625, # Captured
 }
 
 MISSION_IGNORE_LABELS = {

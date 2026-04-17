@@ -1,0 +1,164 @@
+{
+  "character": "Alex",
+  "missions": [
+    {
+      "mission_id": "alex_001",
+      "name": "Power Reset",
+      "notes": "You can get more damage off a Powerbomb for the reset.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Air Powerbomb" }
+      ]
+    },
+    {
+      "mission_id": "alex_002",
+      "name": "Stomp Route",
+      "notes": "Double low into elbow chain.",
+      "steps": [
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Slash Elbow H" },
+        { "label": "Slash Elbow M" },
+        { "label": "Wild Stomp C" }
+      ]
+    },
+    {
+      "mission_id": "alex_003",
+      "name": "Low Stomp",
+      "notes": "Low starter into stomp ender.",
+      "steps": [
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Slash Elbow M" },
+        { "label": "Wild Stomp C" }
+      ]
+    },
+    {
+      "mission_id": "alex_004",
+      "name": "Heavy Stomp",
+      "notes": "Heavy starter into stomp ender.",
+      "steps": [
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "Slash Elbow M" },
+        { "label": "Wild Stomp C" }
+      ]
+    },
+    {
+      "mission_id": "alex_005",
+      "name": "Suplex",
+      "notes": "Flash Chop B into Baroque extension, then Powerbomb.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "Flash Chop B" },
+        { "label": "Baroque cancel" },
+        { "label": "Flash Chop C" },
+        { "label": "Powerbomb" }
+      ]
+    },
+    {
+      "mission_id": "alex_006",
+      "name": "Stungun Loop",
+      "notes": "Best-effort parse: I treated headbutt as Knee H, and used Stungun Near.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "Flash Chop B" },
+        { "label": "Stungun Near" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Slash Elbow H" },
+        { "label": "Slash Elbow M" }
+      ]
+    },
+    {
+      "mission_id": "alex_007",
+      "name": "Baroque BnB",
+      "notes": "Baroque route into Wild Stomp C.The beginning needs some space of the elbow slash won't work, also the j.B should be used with an IAD",
+      "steps": [
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Slash Elbow M" },
+        { "label": "Baroque cancel" },
+        { "label": "j.B" },
+        { "label": "5B" },
+        { "label": "Slash Elbow H" },
+        { "label": "Slash Elbow M" },
+        { "label": "Wild Stomp C" }
+      ]
+    },
+    {
+      "mission_id": "alex_008",
+      "name": "Corner Damage",
+      "notes": "Corner only. As you may have noticed by looking at this hint if you're too close to the corner they'll fly away from it, this engine is a rollercoaster",
+      "steps": [
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Slash Elbow M" },
+        { "label": "Baroque cancel" },
+        { "label": "j.B" },
+        { "label": "5B" },
+        { "label": "Slash Elbow M" },
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Slash Elbow H" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Slash Elbow M" },
+        { "label": "Wild Stomp C" }
+      ]
+    },
+    {
+      "mission_id": "alex_009",
+      "name": "Hyper Route",
+      "notes": "Get Hype",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "Flash Chop B" },
+        { "label": "Baroque cancel" },
+        { "label": "Flash Chop C" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "Flash Chop B" },
+        { "label": "Hyperbomb" }
+      ]
+    },
+    {
+      "mission_id": "alex_010",
+      "name": "Challenge",
+      "notes": "Some moves are missing, fill in the blank",
+      "steps": [
+        { "label": "Slash Elbow M" },
+        { "label": "j.C" },
+        { "label": "VAR" },
+        { "label": "j.C" },
+        { "label": "Slash Elbow H" },
+        { "label": "Wild Stomp C" }
+      ]
+    },
+    {
+      "mission_id": "alex_011",
+      "name": "Challenge 2",
+      "notes": "A hit after stungun always produces an airborne hit, but what if there was a way to cancel it out? Some moves are missing, fill in the blanks ",
+      "steps": [
+        { "label": "Stungun Near" },
+        { "label": "Flash Chop B" },
+        { "label": "Hyperbomb" }
+      ]
+    }
+  ]
+}
