@@ -45,6 +45,7 @@ MASTER_CONTROL_FILE = "master_overlay_control.json"
 MISSION_MODE_FILE = "mission_mode_state.json"
 MISSION_OVERLAY_FILE = "mission_overlay_data.json"
 MISSION_SELECT_FILE = "mission_select_command.json"
+MISSION_CELEBRATE_ACK_FILE = "mission_celebrate_ack.json"
 CRASH_LOG_FILE = "master_overlay_crash.log"
 
 def pause_on_error(context: str, exc: BaseException) -> None:
@@ -331,6 +332,10 @@ class MasterOverlay:
         self.step_anim: dict[int, float] = {}
         self._prev_current_step: int = -1
         self._prev_completed_count: int = 0
+        self._prev_live_completed_count: int = 0
+        self._prev_live_step_total: int = 0
+        self._prev_live_mission_id: str = ""
+        self._last_clear_seq_seen: int = 0
 
         # Celebration state
         self._celebrate_active: bool = False
@@ -341,9 +346,6 @@ class MasterOverlay:
         self._mission_hold_frames: int = 0
         self._mission_hold_data: dict = {}
         self._mission_hold_duration_frames: int = 120
-        self._completion_consumed_mission_id: str = ""
-        self._completion_block_mission_id: str = ""
-        self._completion_block_frames: int = 0
         
 
     def init(self) -> None:
@@ -513,16 +515,14 @@ class MasterOverlay:
 
     def _read_mission_overlay_file(self) -> None:
         try:
-            mt = os.path.getmtime(MISSION_OVERLAY_FILE)
-            if mt == self._last_mission_overlay_mtime:
-                return
-
             with open(MISSION_OVERLAY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
-            if isinstance(data, dict):
-                self.mission_overlay_data = data
-                self._last_mission_overlay_mtime = mt
+            if not isinstance(data, dict):
+                return
+
+            self.mission_overlay_data = data
+
         except Exception:
             pass
 
@@ -547,7 +547,12 @@ class MasterOverlay:
                 json.dump(payload, f, indent=2)
         except Exception:
             pass
-
+    def _write_mission_celebrate_ack(self, celebrate_token: int) -> None:
+        try:
+            with open(MISSION_CELEBRATE_ACK_FILE, "w", encoding="utf-8") as f:
+                json.dump({"celebrate_token": int(celebrate_token)}, f, indent=2)
+        except Exception:
+            pass
     def handle_events(self) -> None:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -634,7 +639,152 @@ class MasterOverlay:
         for surf in rendered:
             self.screen.blit(surf, (16, y))
             y += surf.get_height()
+    def _spawn_lightning_bolt(self) -> None:
+        import math, random
 
+        # Origin: random edge or top region
+        side = random.choice(["top", "left", "right"])
+        if side == "top":
+            ox = random.randint(int(self.w * 0.1), int(self.w * 0.9))
+            oy = random.randint(0, int(self.h * 0.15))
+        elif side == "left":
+            ox = random.randint(0, int(self.w * 0.15))
+            oy = random.randint(0, int(self.h * 0.6))
+        else:
+            ox = random.randint(int(self.w * 0.85), self.w)
+            oy = random.randint(0, int(self.h * 0.6))
+
+        # Target: toward center-ish with some spread
+        tx = self.w // 2 + random.randint(-int(self.w * 0.25), int(self.w * 0.25))
+        ty = self.h // 2 + random.randint(-int(self.h * 0.2), int(self.h * 0.2))
+
+        # Build jagged segments
+        num_segments = random.randint(6, 14)
+        dx = (tx - ox) / num_segments
+        dy = (ty - oy) / num_segments
+        perp_x = -dy
+        perp_y = dx
+        length = math.hypot(perp_x, perp_y)
+        if length > 0:
+            perp_x /= length
+            perp_y /= length
+
+        points = [(ox, oy)]
+        for i in range(1, num_segments):
+            jag = random.uniform(-0.45, 0.45) * math.hypot(dx, dy) * 2.2
+            px = ox + dx * i + perp_x * jag
+            py = oy + dy * i + perp_y * jag
+            points.append((px, py))
+        points.append((tx, ty))
+
+        # Random branches
+        branches = []
+        for i in range(1, len(points) - 1):
+            if random.random() < 0.35:
+                bx, by = points[i]
+                branch_len = random.randint(3, 6)
+                branch_angle = math.atan2(dy, dx) + random.uniform(-1.1, 1.1)
+                bpoints = [(bx, by)]
+                for _ in range(branch_len):
+                    bx += math.cos(branch_angle) * random.uniform(8, 22)
+                    by += math.sin(branch_angle) * random.uniform(8, 22)
+                    branch_angle += random.uniform(-0.4, 0.4)
+                    bpoints.append((bx, by))
+                branches.append(bpoints)
+
+        color_choice = random.choice([
+            (200, 230, 255),   # cool white-blue
+            (255, 255, 160),   # yellow-white
+            (220, 180, 255),   # purple
+            (160, 240, 255),   # cyan
+        ])
+
+        lifetime = random.uniform(0.06, 0.18)
+        width = random.choice([1, 1, 2, 2, 3])
+
+        self._lightning_bolts.append({
+            "points": points,
+            "branches": branches,
+            "color": color_choice,
+            "life": lifetime,
+            "max_life": lifetime,
+            "width": width,
+            "flicker_phase": random.uniform(0, math.tau),
+        })
+
+    def draw_lightning(self) -> None:
+        import math, random
+        if not self._celebrate_active or self.screen is None:
+            return
+
+        CELEBRATE_DURATION = 3.0
+        # Only fire lightning in first ~2.4s
+        if self._celebrate_phase > 0.8:
+            return
+
+        dt_approx = 1.0 / TARGET_FPS
+
+        # Spawn new bolts on timer
+        self._lightning_timer -= dt_approx
+        if self._lightning_timer <= 0:
+            count = random.randint(1, 3)
+            for _ in range(count):
+                self._spawn_lightning_bolt()
+            self._lightning_timer = random.uniform(0.14, 0.35)
+
+        # Update and draw existing bolts
+        alive = []
+        for bolt in self._lightning_bolts:
+            bolt["life"] -= dt_approx
+            if bolt["life"] <= 0:
+                continue
+            alive.append(bolt)
+
+            fade = bolt["life"] / bolt["max_life"]
+            flicker = 0.7 + 0.3 * math.sin(bolt["flicker_phase"] + self._celebrate_phase * 40)
+            alpha = int(255 * fade * flicker)
+            alpha = max(0, min(255, alpha))
+
+            r, g, b = bolt["color"]
+
+            # Glow pass (wider, transparent)
+            if len(bolt["points"]) >= 2:
+                glow_surf = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+                glow_color = (r, g, b, max(0, alpha // 4))
+                glow_w = bolt["width"] + 3
+                for i in range(len(bolt["points"]) - 1):
+                    p1 = (int(bolt["points"][i][0]), int(bolt["points"][i][1]))
+                    p2 = (int(bolt["points"][i+1][0]), int(bolt["points"][i+1][1]))
+                    pygame.draw.line(glow_surf, glow_color, p1, p2, glow_w)
+                self.screen.blit(glow_surf, (0, 0))
+
+                # Core bolt
+                core_color = (
+                    min(255, r + 60),
+                    min(255, g + 60),
+                    min(255, b + 60),
+                    alpha,
+                )
+                core_surf = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+                for i in range(len(bolt["points"]) - 1):
+                    p1 = (int(bolt["points"][i][0]), int(bolt["points"][i][1]))
+                    p2 = (int(bolt["points"][i+1][0]), int(bolt["points"][i+1][1]))
+                    pygame.draw.line(core_surf, core_color, p1, p2, bolt["width"])
+                self.screen.blit(core_surf, (0, 0))
+
+                # Branches (thinner, dimmer)
+                for branch in bolt["branches"]:
+                    if len(branch) < 2:
+                        continue
+                    branch_color = (r, g, b, max(0, alpha // 2))
+                    branch_surf = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+                    for i in range(len(branch) - 1):
+                        p1 = (int(branch[i][0]), int(branch[i][1]))
+                        p2 = (int(branch[i+1][0]), int(branch[i+1][1]))
+                        pygame.draw.line(branch_surf, branch_color, p1, p2, max(1, bolt["width"] - 1))
+                    self.screen.blit(branch_surf, (0, 0))
+
+        self._lightning_bolts = alive
     def _trigger_celebration(self) -> None:
         import math, random
         self._celebrate_active = True
@@ -655,17 +805,20 @@ class MasterOverlay:
                 (255, 255, 255),
             ])
             self._celebrate_particles.append({
-                "x": float(cx),
-                "y": float(cy),
-                "vx": math.cos(angle) * speed,
-                "vy": math.sin(angle) * speed - random.uniform(20, 140),
-                "size": size,
-                "life": lifetime,
-                "max_life": lifetime,
-                "color": color_choice,
-            })
+                        "x": float(cx + random.uniform(-60, 60)),
+                        "y": float(cy + random.uniform(-8, 8)),
+                        "vx": math.cos(angle) * speed,
+                        "vy": math.sin(angle) * speed,
+                        "size": size,
+                        "life": lifetime,
+                        "max_life": lifetime,
+                        "color": (255, 225, 90),
+                    })
 
-        # extra upward gold burst
+        self._lightning_bolts = []
+        self._lightning_timer = 0.0
+        self._lightning_spawn_interval = random.uniform(0.08, 0.18)
+
         for _ in range(36):
             angle = random.uniform(-2.2, -0.9)
             speed = random.uniform(140, 340)
@@ -681,6 +834,11 @@ class MasterOverlay:
                 "max_life": lifetime,
                 "color": (255, 225, 90),
             })
+
+        # Lightning bolts state
+        self._lightning_bolts: list[dict] = []
+        self._lightning_timer: float = 0.0
+        self._lightning_spawn_interval: float = random.uniform(0.08, 0.18)
 
     def update_celebration(self, dt: float) -> None:
         if not self._celebrate_active:
@@ -715,7 +873,8 @@ class MasterOverlay:
             bloom = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
             bloom.fill((255, 236, 140, bloom_alpha))
             self.screen.blit(bloom, (0, 0))
-
+            
+        self.draw_lightning()
         cx_screen = self.w // 2
         cy_screen = self.h // 2 - int(self.h * 0.05)
 
@@ -855,7 +1014,7 @@ class MasterOverlay:
             self.screen.blit(scaled, (tx, ty))
 
     def update_mission_animations(self, dt: float) -> None:
-        """Drive per-step metallic gradient animations each frame."""
+        """Drive per-step metallic gradient animations each frame and fire celebration on final-step completion."""
         live_data = self.mission_overlay_data or {}
         holding = self._mission_hold_frames > 0
         data = self._mission_hold_data if holding else live_data
@@ -864,72 +1023,60 @@ class MasterOverlay:
         completed_count = int(data.get("completed_step_count", 0))
         current_idx = int(data.get("current_step_index", 0))
 
-        mission_id = (live_data.get("active_mission_id") or "")
-        if self._completion_block_frames > 0:
-            self._completion_block_frames -= 1
-            if self._completion_block_frames <= 0:
-                self._completion_block_mission_id = ""
-
-        ANIM_SPEED = 4.0  # how fast the gradient slides in/out (t units per second)
+        ANIM_SPEED = 4.0
 
         for idx in range(len(steps)):
             t = self.step_anim.get(idx, None)
             if t is None:
-                # Initialize: active step starts fully lit, others start dark
                 t = 1.0 if idx == current_idx else 0.0
 
             if idx < completed_count:
-                # Completed: animate down toward 0
                 t = max(0.0, t - dt * ANIM_SPEED)
             elif idx == current_idx:
-                # Active: animate up toward 1
                 t = min(1.0, t + dt * ANIM_SPEED)
             else:
-                # Pending: stay at 0 (no gradient yet)
                 t = max(0.0, t - dt * ANIM_SPEED)
 
             self.step_anim[idx] = t
 
-        # On step change, clear state for steps no longer in range
-        # While holding the finished mission on screen, do not re-run completion detection.
         if holding:
             self._mission_hold_frames -= 1
             if self._mission_hold_frames <= 0:
                 self._mission_hold_data = {}
-        else:
-            just_cleared = bool(live_data.get("just_cleared", False))
-            is_complete_now = bool(steps) and completed_count >= len(steps)
 
-            same_mission_temporarily_blocked = (
-                mission_id
-                and mission_id == self._completion_block_mission_id
-                and self._completion_block_frames > 0
+        live_steps = live_data.get("active_mission_steps") or []
+        live_step_total = len(live_steps)
+        live_completed_count = int(live_data.get("completed_step_count", 0))
+        live_mission_id = str(live_data.get("active_mission_id") or "")
+        celebrate_pending = bool(live_data.get("celebrate_pending", False))
+        celebrate_token = int(live_data.get("celebrate_token", 0) or 0)
+
+        should_celebrate = (
+            celebrate_pending
+            and celebrate_token > 0
+            and celebrate_token != self._last_clear_seq_seen
+        )
+
+        if should_celebrate:
+            held = dict(live_data)
+            held["completed_step_count"] = max(live_completed_count, live_step_total)
+            held["current_step_index"] = max(0, live_step_total - 1)
+
+            self._mission_hold_data = held
+            self._mission_hold_frames = self._mission_hold_duration_frames
+
+            print(
+                f"[celebrate fire] mission_id={live_mission_id} "
+                f"celebrate_token={celebrate_token}"
             )
 
-            completion_event = (
-                just_cleared
-                and mission_id
-                and not same_mission_temporarily_blocked
-            )
+            self._trigger_celebration()
+            self._last_clear_seq_seen = celebrate_token
+            self._write_mission_celebrate_ack(celebrate_token)
 
-            if completion_event:
-                held = dict(live_data)
-                held_steps = held.get("active_mission_steps") or []
-                held["completed_step_count"] = len(held_steps)
-                held["current_step_index"] = max(0, len(held_steps) - 1)
-                self._mission_hold_data = held
-                self._mission_hold_frames = self._mission_hold_duration_frames
-
-                self._completion_block_mission_id = mission_id
-                self._completion_block_frames = self._mission_hold_duration_frames + 12
-
-                self._trigger_celebration()
-
-            if mission_id != self._last_mission_id_seen:
-                self._last_mission_id_seen = mission_id
-                self._prev_mission_complete = False
-
-            self._prev_mission_complete = is_complete_now
+        self._prev_live_mission_id = live_mission_id
+        self._prev_live_completed_count = live_completed_count
+        self._prev_live_step_total = live_step_total
 
 
 

@@ -109,3 +109,15 @@ Traceback (most recent call last):
                                ~~~~~~~~~~~~~~~~~~~~~~^^^^^^
 pywintypes.error: (1400, 'GetClientRect', 'Invalid window handle.')
 
+
+[FatalCrash]
+error=AttributeError("'MasterOverlay' object has no attribute 'run'")
+Traceback (most recent call last):
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1512, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\master_overlay.py", line 1507, in main
+    overlay.run()
+    ^^^^^^^^^^^
+AttributeError: 'MasterOverlay' object has no attribute 'run'
+

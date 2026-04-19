@@ -20,5 +20,12 @@
       "karas_008": true
     },
     "selected_mission_id": "karas_008"
+  },
+  "ryu": {
+    "completed": {
+      "ryu_001": true,
+      "ryu_002": true
+    },
+    "selected_mission_id": "ryu_001"
   }
 }

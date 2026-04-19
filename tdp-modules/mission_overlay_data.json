@@ -1,9 +1,9 @@
 {
-  "character": "Karas",
-  "mission_count": 8,
-  "active_mission_id": "karas_008",
-  "active_mission_name": "Combo 8",
-  "active_mission_notes": "Extended route into super finisher.",
+  "character": "Ryu",
+  "mission_count": 6,
+  "active_mission_id": "ryu_001",
+  "active_mission_name": "Basic Air Chain",
+  "active_mission_notes": "Basic Magic Series.",
   "active_mission_steps": [
     [
       "5A"
@@ -12,63 +12,30 @@
       "5B"
     ],
     [
-      "2B"
-    ],
-    [
       "5C"
     ],
     [
-      "Tobimizuchi"
+      "3C"
     ],
     [
-      "Ukifune"
+      "j.A"
     ],
     [
-      "5B"
+      "j.B"
     ],
     [
-      "5C"
-    ],
-    [
-      "Kasha C"
-    ],
-    [
-      "Yoinagi"
-    ],
-    [
-      "Kasha Overhead"
-    ],
-    [
-      "5A"
-    ],
-    [
-      "5B"
-    ],
-    [
-      "5C"
-    ],
-    [
-      "Kasha C"
-    ],
-    [
-      "Yoinagi"
-    ],
-    [
-      "Yato"
-    ],
-    [
-      "Hiei Zangetsu"
+      "j.C"
     ]
   ],
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "karas_008",
+  "selected_mission_id": "ryu_001",
   "missions": [
     {
-      "mission_id": "karas_001",
-      "name": "Combo 1",
-      "notes": "Basic launcher into air series.",
+      "mission_id": "ryu_001",
+      "name": "Basic Air Chain",
+      "notes": "Basic Magic Series.",
       "completed": true,
-      "selected": false,
+      "selected": true,
       "steps": [
         [
           "5A"
@@ -95,9 +62,9 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "karas_002",
-      "name": "Combo 2",
-      "notes": "Ground route into air special finisher.",
+      "mission_id": "ryu_002",
+      "name": "Tatsu Ender",
+      "notes": "Basic BnB",
       "completed": true,
       "selected": false,
       "steps": [
@@ -108,201 +75,13 @@
           "5B"
         ],
         [
-          "2B"
-        ],
-        [
           "5C"
         ],
         [
-          "3C"
+          "6C"
         ],
         [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Air Narukami C"
-        ]
-      ],
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "karas_003",
-      "name": "Combo 3",
-      "notes": "Kasha extension into launcher finish.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Kasha C"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Air Narukami C"
-        ]
-      ],
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "karas_004",
-      "name": "Combo 4",
-      "notes": "Extended grounded route into air finish.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Tobimizuchi"
-        ],
-        [
-          "Ukifune"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Kasha C"
-        ],
-        [
-          "Yoinagi"
-        ],
-        [
-          "Kasha Overhead"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Air Narukami C"
-        ]
-      ],
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "karas_005",
-      "name": "Combo 5",
-      "notes": "Throw starter into super finish.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "Front Throw"
-        ],
-        [
-          "Hiei Zangetsu"
-        ]
-      ],
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "karas_007",
-      "name": "Combo 7",
-      "notes": "Back throw into super finish.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "Back Throw"
-        ],
-        [
-          "Hiei Zangetsu"
-        ]
-      ],
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "karas_008",
-      "name": "Combo 8",
-      "notes": "Extended route into super finisher.",
-      "completed": true,
-      "selected": true,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Tobimizuchi"
-        ],
-        [
-          "Ukifune"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Kasha C"
-        ],
-        [
-          "Yoinagi"
-        ],
-        [
-          "Kasha Overhead"
+          "Donkey H"
         ],
         [
           "5A"
@@ -314,41 +93,198 @@
           "5C"
         ],
         [
-          "Kasha C"
+          "6C"
         ],
         [
-          "Yoinagi"
-        ],
-        [
-          "Yato"
-        ],
-        [
-          "Hiei Zangetsu"
+          "Tatsu H"
         ]
       ],
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "karas_009",
-      "name": "Challenge",
-      "notes": "Partial route provided. Some moves omitted from source string.",
+      "mission_id": "ryu_003",
+      "name": "Double Extension",
+      "notes": "Baroque BnB.",
       "completed": false,
       "selected": false,
       "steps": [
         [
-          "Tobimizuchi"
+          "5A"
         ],
         [
-          "Yato"
+          "5B"
         ],
         [
-          "Kasha Overhead"
+          "5C"
         ],
         [
-          "Yato"
+          "6C"
         ],
         [
-          "Hiei Zangetsu"
+          "Donkey H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ]
+      ],
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_004",
+      "name": "Donkey to Shinkuu",
+      "notes": "Overhead 6B starter into light donkey, triple fireball chain, tatsu, then super.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "6B"
+        ],
+        [
+          "Donkey L"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Tatsu H"
+        ],
+        [
+          "Shinkuu"
+        ]
+      ],
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_005",
+      "name": "Corner Carry to Super",
+      "notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Hado M"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "Air Tatsu H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Donkey H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ],
+        [
+          "Shinkuu",
+          "Air Shinkuu"
+        ]
+      ],
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_007",
+      "name": "Challenge",
+      "notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Hado L"
+        ],
+        [
+          "Shin Sho"
+        ],
+        [
+          "Tatsu M"
+        ],
+        [
+          "Shin Sho"
         ]
       ],
       "setup_debug_flags": {}
@@ -357,11 +293,14 @@
   "active": true,
   "slot": "P1-C1",
   "just_cleared": false,
+  "clear_seq": 4,
+  "celebrate_pending": false,
+  "celebrate_token": 4,
   "completed_step_count": 0,
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 6,
+  "selector_index": 1,
   "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
   "selector_controls": "Click a mission row to select  Click outside to close"
 }

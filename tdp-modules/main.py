@@ -91,6 +91,7 @@ MASTER_CONTROL_FILE = "master_overlay_control.json"
 MISSION_MODE_FILE = "mission_mode_state.json"
 MISSION_OVERLAY_FILE = "mission_overlay_data.json"
 MISSION_SELECT_FILE = "mission_select_command.json"
+MISSION_CELEBRATE_ACK_FILE = "mission_celebrate_ack.json"
 
 # ---------------------------------------------------------------------------
 # Tunables / globals for timing and animation
@@ -920,7 +921,14 @@ def legacy_main():
     # Frame counter
     frame_idx = 0
 
-    def _new_mission_runtime(slot=None, mission_id=None) -> dict:
+    def _new_mission_runtime(
+        slot=None,
+        mission_id=None,
+        clear_seq=0,
+        celebrate_token=0,
+        celebrate_pending=False,
+        celebrate_acked_token=0,
+    ) -> dict:
         return {
             "slot": slot,
             "mission_id": mission_id,
@@ -934,6 +942,10 @@ def legacy_main():
             "pending_labels": [],
             "pending_anim": None,
             "opponent_hp_by_base": {},
+            "clear_seq": int(clear_seq),
+            "celebrate_token": int(celebrate_token),
+            "celebrate_pending": bool(celebrate_pending),
+            "celebrate_acked_token": int(celebrate_acked_token),
         }
 
     mission_runtime = _new_mission_runtime()
@@ -1448,6 +1460,30 @@ def legacy_main():
         mission_runtime = _new_mission_runtime(slot=mission_active_slot)
         _mission_close_selector()
 
+    def _consume_mission_celebrate_ack() -> None:
+        nonlocal mission_runtime
+
+        try:
+            with open(MISSION_CELEBRATE_ACK_FILE, "r", encoding="utf-8") as f:
+                ack = json.load(f)
+        except Exception:
+            return
+
+        try:
+            os.remove(MISSION_CELEBRATE_ACK_FILE)
+        except Exception:
+            pass
+
+        if not isinstance(ack, dict):
+            return
+
+        ack_token = int(ack.get("celebrate_token", 0) or 0)
+        current_token = int(mission_runtime.get("celebrate_token", 0) or 0)
+
+        if ack_token > 0 and ack_token == current_token:
+            mission_runtime["celebrate_acked_token"] = ack_token
+            mission_runtime["celebrate_pending"] = False
+
     def _mission_update_selector_from_inputs(snaps_dict: dict) -> None:
         if not mission_active_slot:
             _mission_close_selector()
@@ -1667,13 +1703,22 @@ def legacy_main():
             payload["current_step_index"] = 0
             payload["current_step_label"] = steps[0] if steps else None
             payload["just_cleared"] = False
+            payload["celebrate_pending"] = False
+            payload["celebrate_token"] = 0
             return payload
 
         if (
             mission_runtime.get("slot") != slot
             or mission_runtime.get("mission_id") != mission_id
         ):
-            mission_runtime = _new_mission_runtime(slot=slot, mission_id=mission_id)
+            mission_runtime = _new_mission_runtime(
+                slot=slot,
+                mission_id=mission_id,
+                clear_seq=int(mission_runtime.get("clear_seq", 0) or 0),
+                celebrate_token=int(mission_runtime.get("celebrate_token", 0) or 0),
+                celebrate_pending=bool(mission_runtime.get("celebrate_pending", False)),
+                celebrate_acked_token=int(mission_runtime.get("celebrate_acked_token", 0) or 0),
+            )
 
         snap = snaps_dict.get(slot) or render_snap_by_slot.get(slot) or {}
         current_label = ((snap.get("mv_label") or "").strip())
@@ -1697,18 +1742,10 @@ def legacy_main():
             or int(mission_runtime.get("hitstun_grace", 0)) > 0
         )
 
-        print(
-            f"[mission combo] slot={slot} opp_hitstun={opponent_in_hitstun} "
-            f"grace={mission_runtime.get('hitstun_grace', 0)} "
-            f"combo_state={opponent_in_combo_state} "
-            f"opp_took_damage={opponent_took_damage}"
-        )
+        
 
         if progress_index > 0 and not opponent_in_combo_state:
-            print(
-                f"[mission reset combo break] slot={slot} "
-                f"progress_before={progress_index}"
-            )
+            
             progress_index = 0
             mission_runtime["progress_index"] = 0
 
@@ -1762,21 +1799,7 @@ def legacy_main():
             )
         )
 
-        print(
-            f"[mission compare] slot={slot} "
-            f"progress={progress_index}/{len(steps)} "
-            f"expected={expected_labels!r} current={current_label!r} "
-            f"current_anim={current_anim} last_anim={last_seen_anim} "
-            f"last_label={last_seen_label!r} fresh_input={has_fresh_attack_input} "
-            f"is_fresh_instance={is_fresh_instance} "
-            f"opp_hitstun={opponent_in_hitstun} combo_state={opponent_in_combo_state} "
-            f"opp_took_damage={opponent_took_damage} "
-            f"non_damage_confirm={non_damage_confirm} "
-            f"whiff_confirm={step_allows_whiff_confirm} "
-            f"pending_step={pending_step_index} pending_labels={pending_labels!r} "
-            f"pending_anim={pending_anim}"
-        )
-
+   
         if MISSION_REQUIRE_DAMAGE_CONFIRM:
             if matched_fresh_expected:
                 if step_allows_whiff_confirm:
@@ -1792,10 +1815,7 @@ def legacy_main():
                     mission_runtime["pending_labels"] = []
                     mission_runtime["pending_anim"] = None
 
-                    print(
-                        f"[mission advance done] slot={slot} "
-                        f"step_after={progress_index}"
-                    )
+        
                 else:
                     mission_runtime["pending_step_index"] = progress_index
                     mission_runtime["pending_labels"] = expected_labels[:]
@@ -1804,11 +1824,7 @@ def legacy_main():
                     pending_labels = expected_labels[:]
                     pending_anim = current_anim
 
-                    print(
-                        f"[mission arm] slot={slot} "
-                        f"step={progress_index} labels={pending_labels!r} "
-                        f"anim={pending_anim}"
-                    )
+
 
             if (
                 pending_step_index == progress_index
@@ -1816,24 +1832,13 @@ def legacy_main():
                 and opponent_in_combo_state
                 and (opponent_took_damage or non_damage_confirm)
             ):
-                print(
-                    f"[mission confirm] slot={slot} "
-                    f"step_before={progress_index} "
-                    f"matched={pending_labels!r} "
-                    f"anim={pending_anim} "
-                    f"damage={opponent_took_damage} "
-                    f"non_damage_confirm={non_damage_confirm}"
-                )
+              
                 progress_index += 1
                 mission_runtime["progress_index"] = progress_index
                 mission_runtime["pending_step_index"] = None
                 mission_runtime["pending_labels"] = []
                 mission_runtime["pending_anim"] = None
 
-                print(
-                    f"[mission advance done] slot={slot} "
-                    f"step_after={progress_index}"
-                )
 
         else:
             if matched_fresh_expected:
@@ -1854,48 +1859,65 @@ def legacy_main():
         mission_runtime["last_seen_hitstun"] = opponent_in_hitstun
         mission_runtime["last_inputs"] = dict(current_inputs)
 
-        print(
-            f"[mission endframe] slot={slot} progress={progress_index}/{len(steps)} "
-            f"saved_label={current_label!r} saved_anim={current_anim} "
-            f"saved_hitstun={opponent_in_hitstun}"
-        )
-
         if progress_index >= len(steps):
+            final_completed_count = len(steps)
+            final_step_index = max(0, len(steps) - 1)
+            final_step_label = (
+                (" / ".join(steps[final_step_index]) if isinstance(steps[final_step_index], list) else steps[final_step_index])
+                if steps else None
+            )
+
             print(
                 f"[mission clear] slot={slot} mission_id={mission_id} "
                 f"character={character_name!r} final_progress={progress_index}/{len(steps)} "
                 f"final_label={current_label!r} final_anim={current_anim} "
                 f"opp_hitstun={opponent_in_hitstun}"
             )
+
             if character_name and mission_id:
                 progress = load_progress()
                 progress = mark_mission_complete(progress, character_name, mission_id)
                 save_progress(progress)
 
-            next_payload = build_overlay_payload(character_name or "")
-            next_payload["active"] = True
-            next_payload["slot"] = slot
-            next_payload["just_cleared"] = True
-            next_payload["completed_step_count"] = 0
-            next_payload["current_step_index"] = 0
-            next_payload["current_step_label"] = (
-                next_payload["active_mission_steps"][0]
-                if next_payload.get("active_mission_steps")
-                else None
-            )
+            next_clear_seq = int(mission_runtime.get("clear_seq", 0)) + 1
+            next_celebrate_token = int(mission_runtime.get("celebrate_token", 0)) + 1
+
+            clear_payload = build_overlay_payload(character_name or "")
+            clear_payload["active"] = True
+            clear_payload["slot"] = slot
+            clear_payload["just_cleared"] = True
+            clear_payload["clear_seq"] = next_clear_seq
+            clear_payload["celebrate_pending"] = True
+            clear_payload["celebrate_token"] = next_celebrate_token
+            clear_payload["completed_step_count"] = final_completed_count
+            clear_payload["current_step_index"] = final_step_index
+            clear_payload["current_step_label"] = final_step_label
 
             print(
                 f"[mission payload clear] slot={slot} "
-                f"just_cleared={next_payload.get('just_cleared')} "
-                f"completed_step_count={next_payload.get('completed_step_count')} "
-                f"current_step_index={next_payload.get('current_step_index')} "
-                f"current_step_label={next_payload.get('current_step_label')!r}"
+                f"clear_seq={clear_payload.get('clear_seq')} "
+                f"celebrate_pending={clear_payload.get('celebrate_pending')} "
+                f"celebrate_token={clear_payload.get('celebrate_token')} "
+                f"just_cleared={clear_payload.get('just_cleared')} "
+                f"completed_step_count={clear_payload.get('completed_step_count')} "
+                f"current_step_index={clear_payload.get('current_step_index')} "
+                f"current_step_label={clear_payload.get('current_step_label')!r}"
             )
 
-            mission_runtime = _new_mission_runtime()
-            return next_payload
+            mission_runtime = _new_mission_runtime(
+                slot=slot,
+                mission_id=mission_id,
+                clear_seq=next_clear_seq,
+                celebrate_token=next_celebrate_token,
+                celebrate_pending=True,
+                celebrate_acked_token=0,
+            )
+            return clear_payload
 
         payload["just_cleared"] = False
+        payload["clear_seq"] = int(mission_runtime.get("clear_seq", 0))
+        payload["celebrate_pending"] = bool(mission_runtime.get("celebrate_pending", False))
+        payload["celebrate_token"] = int(mission_runtime.get("celebrate_token", 0) or 0)
         payload["completed_step_count"] = progress_index
         payload["current_step_index"] = progress_index
         payload["current_step_label"] = (
@@ -1903,18 +1925,12 @@ def legacy_main():
             if progress_index < len(steps) else None
         )
 
-        print(
-            f"[mission payload return] slot={slot} "
-            f"just_cleared={payload.get('just_cleared')} "
-            f"completed_step_count={payload.get('completed_step_count')} "
-            f"current_step_index={payload.get('current_step_index')} "
-            f"current_step_label={payload.get('current_step_label')!r}"
-        )
+        
         return payload
 
     
     def _write_mission_overlay_data() -> None:
-        print(f"[mission overlay write] active_slot={mission_active_slot}")
+        
         payload = {
             "active": False,
             "slot": mission_active_slot,
@@ -1928,6 +1944,8 @@ def legacy_main():
             "current_step_index": 0,
             "current_step_label": None,
             "just_cleared": False,
+            "celebrate_pending": False,
+            "celebrate_token": 0,
             "selector_open": False,
             "selector_index": 0,
             "selector_hint": "Crouch, Crouch, Taunt: Open Mission Select",
@@ -1938,10 +1956,7 @@ def legacy_main():
             snap = render_snap_by_slot.get(mission_active_slot)
             character_name = snap.get("name") if snap else None
 
-            print(
-                f"[mission overlay slot] slot={mission_active_slot} "
-                f"character={character_name!r} has_snap={bool(snap)}"
-            )
+            
 
             if character_name:
                 payload = build_overlay_payload(character_name)
@@ -2247,6 +2262,7 @@ def legacy_main():
 
         _mission_update_selector_from_inputs(snaps)
         _consume_mission_select_command()
+        _consume_mission_celebrate_ack()
 
 
         # -----------------------------
