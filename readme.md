@@ -18,6 +18,56 @@ It supports all four character slots (P1-C1, P1-C2, P2-C1, P2-C2) with dynamic p
 The HUD runs at a fixed 60 FPS and is designed to remain stable even during pointer churn, character swaps, assists, and match transitions.
 
 ---
+## High-Level Overview
+
+TvC Continuo is an all-in-one live training and reverse-engineering toolkit for Tatsunoko vs. Capcom running through Dolphin Emulator.
+
+It reads game memory in real time to provide tools that do not exist in-game, including:
+
+- Live HUD with health, meter, move states, and frame advantage
+- Hitbox and projectile visualization overlays
+- Mission mode with combo validation and progress tracking
+- Automated frame-data extraction
+- Debug flag editing and training mode enhancements
+- Memory scanning and research utilities
+- Character/move mapping systems for custom tools
+
+Built for players, lab monsters, modders, and researchers.
+---
+## Getting Started
+
+### 1. Requirements
+
+- Windows
+- Python 3.10+
+- Dolphin Emulator
+- Tatsunoko vs. Capcom (US build recommended)
+
+### 2. Install Dependencies
+
+```bash
+pip install pygame
+```
+
+### 3. Launch Dolphin
+
+Start the game and enter training mode.
+
+### 4. Run Continuo
+
+```bash
+python main.py
+```
+
+### 5. Use the HUD
+
+Once hooked:
+
+- View live fighter data
+- Toggle overlays
+- Open frame data tools
+- Run mission mode
+- Use debug tools
 
 ## Features
 
@@ -36,6 +86,86 @@ The HUD runs at a fixed 60 FPS and is designed to remain stable even during poin
 - Panel slide and fade animations
 - Clipboard integration (click fighter panel to copy base address)
 - Scrollable debug overlay
+---
+
+### HUD Overlay Evolution
+
+The real time HUD now works in game, so you can see everything without hopping to an alt screen
+
+### Visual Upgrades
+
+- Fully redesigned row layout with dynamic width scaling
+- Metallic neo-futurist panel styling
+- Team-colored borders and accent rails
+- Animated scanline energy sweeps across active players
+- Fade-in / fade-out transitions for appearing slots
+- Smooth value interpolation for meters and UI elements
+- Responsive scaling for different Dolphin window sizes
+- Cleaner spacing, typography, and alignment
+- Improved contrast for instant readability
+- Multi-layer alpha effects and glow treatments
+
+### Live Combat Feedback
+
+The overlay now reacts to gameplay events in real time instead of only showing static values.
+
+New popup systems include:
+
+- Damage popups on hit
+- Meter gain popups
+- Baroque gain / loss popups
+- Live frame advantage popups
+- Move history timeline
+- Highlighted newest route step
+- Animated current-state emphasis
+
+Each event fades, animates, and stacks cleanly during fast gameplay. 
+
+### Enhanced Data Display
+
+Every slot can now show richer live combat information including:
+
+- Current HP and max HP
+- Animated health bars
+- Meter pips plus raw meter values
+- Current move labels
+- Passive vs active state dimming
+- Baroque readiness state
+- Stored red-life percentage
+- Frame advantage outcomes
+- Assist state awareness
+- Active character detection
+- Team slot identity (C1 / C2)
+
+### Smart Match Logic
+
+The overlay now makes decisions based on match state rather than blindly printing memory values.
+
+Examples include:
+
+- Detecting active point character vs assist
+- Cross-team frame advantage pairing
+- Ignoring passive states
+- Tracking combo gaps correctly
+- Resetting stale interactions
+- Preserving popup history briefly after events
+- Handling tag scenarios more cleanly
+- Stable rendering during pointer churn
+
+### Move History System
+
+A major quality-of-life upgrade is the route history display.
+
+Recent actions are shown in sequence, such as:
+
+```text
+5A > 5B > 2B > 5C > Baroque Cancel > j.B
+```
+
+The newest action is highlighted, older steps fade over time, and Baroque actions receive custom animated styling.
+
+This turns the HUD into a real combo-learning tool rather than just a stat panel.
+
 
 ---
 
@@ -71,7 +201,117 @@ The HUD runs at a fixed 60 FPS and is designed to remain stable even during poin
 - Slide-in animation when new scan data arrives
 
 ---
+## Mission Mode
 
+TvC Continuo now includes a full in-game combo trial and training mission system built directly into the live HUD.
+
+Mission Mode transforms the toolkit from a viewer into an active training platform by validating routes in real time, tracking progress, and celebrating successful clears.
+
+### Core Features
+
+- Per-character mission packs
+- Live combo step validation
+- Real-time progress tracking
+- Auto-reset on dropped routes
+- Mission completion save data
+- Dynamic mission selection overlay
+- Completion celebration effects
+- Integrated with the main HUD
+- Works directly from live memory state
+- No emulator mods required
+
+### How It Works
+
+Each mission contains a sequence of expected actions such as:
+
+```text
+5A -> 5B -> 2B -> 5C -> 6C -> Issen
+```
+
+The system watches live animation IDs, move labels, hit states, damage confirms, and combo state transitions.
+
+When the correct next action occurs, progress advances instantly.
+
+If the combo drops before completion, progress resets and the player can retry immediately.
+
+### Validation Logic
+
+Mission validation is deeper than simple input matching.
+
+The engine can detect:
+
+- Correct move order
+- Fresh move instances
+- Repeated moves counted separately
+- Damage-confirmed actions
+- Baroque cancels
+- Whiff-confirmed utility moves
+- Combo state continuity
+- Hitstun / reaction state transitions
+- Route completion
+- Route failure and reset
+
+This allows missions to behave like real combo trials instead of basic macro checklists.
+
+### Mission Selection
+
+Players can change missions without leaving training mode.
+
+Open the selector with:
+
+```text
+Crouch, Crouch, Taunt
+```
+
+Then choose a mission directly from the overlay.
+
+### Progress Saving
+
+Completed missions are stored automatically.
+
+The system tracks:
+
+- Cleared missions
+- Current selected mission
+- Character mission progress
+
+So players can return later without losing progress.
+
+### Mission Examples
+
+Examples of supported mission styles:
+
+- Basic confirms
+- Launcher routes
+- Baroque extensions
+- Metered enders
+- Rejump combos
+- Character-specific challenge routes
+- Repetition tests
+- Execution trials
+- Advanced conversions
+
+### Why It Matters
+
+Most fighting games require external guides or combo videos.
+
+Mission Mode brings structured practice directly into Tatsunoko vs. Capcom through Dolphin, with live validation and instant feedback.
+
+That means players can learn routes faster, practice consistently, and build execution without guessing whether they did the combo correctly.
+
+### Future Expansion Ideas
+
+- Difficulty tiers
+- Community mission packs
+- Custom mission creator
+- Time attack clears
+- Combo score grading
+- Character completion percentage
+- Replay verification
+- Advanced punish drills
+- Defensive challenges
+- Matchup-specific training missions
+---
 ### Assist Phase Tracking
 
 Each slot maintains a lightweight assist state machine:
@@ -650,7 +890,7 @@ Value   State
 32      MOVEMENT
 40      IMPACTED
 48      THROW_TECH
-64      ??? (throw knockdown only)
+64      ``` (throw knockdown only)
 128     ATK_REC
 136     ATK_END
 160     IDLE_BASE
