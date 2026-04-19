@@ -1,0 +1,90 @@
+{
+  "character": "PTX",
+  "missions": [
+    {
+      "mission_id": "ptx_001",
+      "name": "Starter",
+      "notes": "",
+      "steps": [
+        { "label": "6C" },
+        { "label": "2C" }
+      ]
+    },
+    {
+      "mission_id": "ptx_002",
+      "name": "Baroque Followup",
+      "notes": "",
+      "steps": [
+        { "label": "j.C" },
+        { "label": "Baroque cancel" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "ptx_003",
+      "name": "VS Tackle Route",
+      "notes": "",
+      "steps": [
+        { "label": "6B" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "6B4B" },
+        { "label": "VS Tackle B" },
+        { "label": "2C" }
+      ]
+    },
+    {
+      "mission_id": "ptx_004",
+      "name": "Caliber Extension",
+      "notes": "",
+      "steps": [
+        { "label": "6B" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "6B4B" },
+        { "label": "Caliber Execution C" },
+        { "label": "Tactical Caliber" }
+      ]
+    },
+    {
+      "mission_id": "ptx_005",
+      "name": "2B Baroque",
+      "notes": "",
+      "steps": [
+        { "label": "2B" },
+        { "label": "Baroque cancel" },
+        { "label": "2C" }
+      ]
+    },
+    {
+      "mission_id": "ptx_006",
+      "name": "Buster Ender",
+      "notes": "",
+      "steps": [
+        { "label": "6B4B" },
+        { "label": "VS Tackle B" },
+        { "label": "Baroque cancel" },
+        { "label": "6B4B" },
+        { "label": "Caliber Execution C" },
+        { "label": "L-P Buster" },
+        { "label": "2C" }
+      ]
+    },    {
+      "mission_id": "ptx_007",
+      "name": "Challenge",
+      "notes": "Some moves are missing, have fun",
+      "steps": [
+        { "label": "2B" },
+        { "label": "6B4B" },
+        { "label": "Weapon Left Mid" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "Caliber Execution C" },
+        { "label": "2C" }
+      ]
+    }
+  ]
+}

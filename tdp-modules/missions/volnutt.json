@@ -54,7 +54,7 @@
   ]
 },{
   "mission_id": "volnutt_003",
-  "name": "Volnutt BnB First Starter 3",
+  "name": "Volnutt BnB Fist Starter 3",
   "notes": "Best-effort draft. I treated the starter switch as Weapon Switch Backwards C, used Air 3B for j.3B, and used machine gun super as the mapped ender label.",
   "steps": [
     { "label": "5A" },

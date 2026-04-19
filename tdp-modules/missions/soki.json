@@ -105,6 +105,28 @@
   ]
 },{
   "mission_id": "soki_008",
+  "name": "Throw Follow up",
+  "notes": "",
+  "setup_debug_flags": {
+    "CpuAction": 2
+  },
+  "steps": [
+    { "labels": ["Air Forward Throw", "Air Back Throw"] },
+    { "label": "Finisher" }
+  ]
+},{
+  "mission_id": "soki_009",
+  "name": "Throw Follow up 2",
+  "notes": "",
+  "setup_debug_flags": {
+    "CpuAction": 2
+  },
+  "steps": [
+    { "label": "Air Back Throw" },
+    { "label": "Overhead Splitter A" }
+  ]
+},{
+  "mission_id": "soki_010",
   "name": "Challenge",
   "notes": "",
   "steps": [

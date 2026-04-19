@@ -539,6 +539,9 @@
 310,0x160,Weapon Switch Backwards A,machine gun super,machine gun super,yes,18
 311,0x160,Weapon Switch Backwards B,machine gun super,machine gun super,yes,18
 312,0x160,Weapon Switch Backwards C,machine gun super,machine gun super,yes,18
+320,0x160,Air Weapon Switch Neutral A,machine gun super,machine gun super,yes,18
+321,0x160,Air Weapon Switch Neutral B,machine gun super,machine gun super,yes,18
+322,0x160,Air Weapon Switch Neutral C,machine gun super,machine gun super
 323,0x160,Air Weapon Switch Forward A,machine gun super,machine gun super,yes,18
 324,0x160,Air Weapon Switch Forward B,machine gun super,machine gun super,yes,18
 325,0x160,Air Weapon Switch Forward C,machine gun super,machine gun super,yes,18
@@ -634,9 +637,9 @@
 304,0x130,Slam A,Slam A,Slam A,yes,21
 305,0x131,Slam B,Slam B,Slam B,yes,21
 306,0x132,Slam C,Slam C,Slam C,yes,21
-307,0x133,Overhead Splitter,Overhead Splitter,Overhead Splitter,yes,21
-308,0x134,over head splitter b,over head splitter b,over head splitter b,yes,21
-309,0x135,over head splitter C,over head splitter C,over head splitter C,yes,21
+307,0x133,Overhead Splitter A,Overhead Splitter,Overhead Splitter,yes,21
+308,0x134,Overhead Splitter B,over head splitter b,over head splitter b,yes,21
+309,0x135,Overhead Splitter C,over head splitter C,over head splitter C,yes,21
 310,0x135,Counter A,over head splitter C,over head splitter C,yes,21
 311,0x135,Counter B,over head splitter C,over head splitter C,yes,21
 312,0x135,Counter C,over head splitter C,over head splitter C,yes,21
@@ -1005,6 +1008,7 @@
 575,0x1,Taunt,Match Start Anchor,Match Start Anchor,yes,100
 4562,0x1,forward throw,forward throw,forward throw,yes,100
 4565,0x1,back throw,back throw,back throw,yes,100
+4568,0x1,air front thrown,back throw,back throw,yes,100
 4571,0x1,Air back throw,back throw,back throw,yes,100
 4610,0x1,Friender Bite,Friender Bite,Friender Bite,yes,100
 4615,0x1,Hitgrab,Hitgrab,Hitgrab,yes,100

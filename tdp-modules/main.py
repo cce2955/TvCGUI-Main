@@ -173,6 +173,7 @@ MISSION_REACTION_STATES = {
     65,   # Overhead Hitstun
     66,   # Hit Low
     73,   # knocked down (face up)
+    74,
     75,   # Crumple
     79,   # Stagger
     80,   # Hard Knockdown
@@ -207,7 +208,11 @@ MISSION_REACTION_STATES = {
     4622, # Captured
     4623, # Captured
     4625, # Captured
+    4562,
     4565, # Back Throw victim
+    4568,
+    4571,
+    4631
 }
 
 MISSION_IGNORE_LABELS = {
@@ -219,6 +224,24 @@ MISSION_IGNORE_LABELS = {
 
 BAROQUE_CANCEL_STATES = {162, 163, 164}
 
+MISSION_REQUIRE_DAMAGE_CONFIRM = True
+
+MISSION_NON_DAMAGE_CONFIRM_LABELS = {
+    "baroque cancel",
+}
+
+MISSION_WHIFF_CONFIRM_LABELS = {
+    s.strip().lower()
+    for s in {
+        "Air Dash A", "Air Dash B", "Air Dash C",
+        "Weapon Switch Neutral A", "Weapon Switch Neutral B", "Weapon Switch Neutral C",
+        "Weapon Switch Forwards A", "Weapon Switch Forwards B", "Weapon Switch Forwards C",
+        "Weapon Switch Backwards A", "Weapon Switch Backwards B", "Weapon Switch Backwards C",
+        "Air Weapon Switch Forward A", "Air Weapon Switch Forward B", "Air Weapon Switch Forward C",
+        "Air Weapon Switch Backwards A", "Air Weapon Switch Backwards B", "Air Weapon Switch Backwards C",
+        "Air Weapon Switch Neutral A", "Air Weapon Switch Neutral B", "Air Weapon Switch Neutral C",
+    }
+}
 # TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.
 GIANT_IDS = {11, 22}
 
@@ -891,16 +914,24 @@ def legacy_main():
     # Frame counter
     frame_idx = 0
 
-    mission_runtime = {
-        "slot": None,
-        "mission_id": None,
-        "progress_index": 0,
-        "last_seen_label": "",
-        "last_seen_anim": None,
-        "last_seen_hitstun": False,
-        "last_inputs": {},
-        "hitstun_grace": 0,
-    }
+    def _new_mission_runtime(slot=None, mission_id=None) -> dict:
+        return {
+            "slot": slot,
+            "mission_id": mission_id,
+            "progress_index": 0,
+            "last_seen_label": "",
+            "last_seen_anim": None,
+            "last_seen_hitstun": False,
+            "last_inputs": {},
+            "hitstun_grace": 0,
+            "pending_step_index": None,
+            "pending_labels": [],
+            "pending_anim": None,
+            "opponent_hp_by_base": {},
+        }
+
+    mission_runtime = _new_mission_runtime()
+
     mission_selector = {
         "open": False,
         "selected_index": 0,
@@ -910,6 +941,204 @@ def legacy_main():
         "opened_at": 0.0,
         "hint_until": 0.0,
     }
+    mission_setup_state = {
+        "mission_key": None,
+        "saved_debug_values": {},
+        "applied_debug_values": {},
+    }
+
+    def _resolve_debug_flag_addr(name: str) -> int | None:
+        # First try the live merged debug/training rows.
+        # This is important because CpuAction comes from training flags,
+        # not from config.py's static DEBUG_FLAG_ADDRS list.
+        try:
+            for entry in merged_debug_values():
+                if not entry or not isinstance(entry, (tuple, list)):
+                    continue
+
+                entry_name = entry[0] if len(entry) >= 1 else None
+                if entry_name != name:
+                    continue
+
+                # Find the first integer in the remainder of the row and treat it as addr.
+                for item in entry[1:]:
+                    if isinstance(item, int):
+                        return item
+        except Exception as e:
+            print(f"[mission setup] merged lookup failed for {name!r}: {e!r}")
+
+        # Fallback: support both dict-style and list-of-tuples style DEBUG_FLAG_ADDRS.
+        try:
+            if isinstance(DEBUG_FLAG_ADDRS, dict):
+                entry = DEBUG_FLAG_ADDRS.get(name)
+
+                if isinstance(entry, int):
+                    return entry
+
+                if isinstance(entry, dict):
+                    addr = entry.get("addr")
+                    if isinstance(addr, int):
+                        return addr
+                    addr = entry.get("address")
+                    if isinstance(addr, int):
+                        return addr
+
+                if isinstance(entry, (tuple, list)):
+                    for item in entry:
+                        if isinstance(item, int):
+                            return item
+
+            elif isinstance(DEBUG_FLAG_ADDRS, (list, tuple)):
+                for entry in DEBUG_FLAG_ADDRS:
+                    if not isinstance(entry, (tuple, list)) or len(entry) < 2:
+                        continue
+
+                    entry_name = entry[0]
+                    entry_addr = entry[1]
+
+                    if entry_name == name and isinstance(entry_addr, int):
+                        return entry_addr
+        except Exception as e:
+            print(f"[mission setup] static lookup failed for {name!r}: {e!r}")
+
+        print(f"[mission setup] missing debug flag addr for {name!r}")
+        return None
+
+    def _read_debug_flag_value(name: str) -> int | None:
+        addr = _resolve_debug_flag_addr(name)
+        if not isinstance(addr, int):
+            return None
+        try:
+            return rd8(addr)
+        except Exception:
+            return None
+
+    def _write_debug_flag_value(name: str, value: int) -> bool:
+        addr = _resolve_debug_flag_addr(name)
+        if not isinstance(addr, int):
+            print(f"[mission setup] missing debug flag addr for {name!r}")
+            return False
+
+        try:
+            wd8(addr, max(0, min(255, int(value))))
+            return True
+        except Exception as e:
+            print(f"[mission setup] write failed for {name!r}: {e!r}")
+            return False
+
+    def _extract_active_mission_debug_overrides(payload: dict) -> dict[str, int]:
+        if not isinstance(payload, dict):
+            return {}
+
+        raw = (
+            payload.get("active_mission_setup_debug_flags")
+            or payload.get("active_mission_debug_flags")
+        )
+        if isinstance(raw, dict):
+            out = {}
+            for key, value in raw.items():
+                try:
+                    out[str(key)] = max(0, min(255, int(value)))
+                except Exception:
+                    pass
+            return out
+
+        active_id = payload.get("active_mission_id")
+        missions = payload.get("missions") or []
+
+        for mission in missions:
+            if not isinstance(mission, dict):
+                continue
+            if mission.get("mission_id") != active_id:
+                continue
+
+            raw = (
+                mission.get("setup_debug_flags")
+                or mission.get("debug_flags")
+                or {}
+            )
+
+            if not isinstance(raw, dict):
+                return {}
+
+            out = {}
+            for key, value in raw.items():
+                try:
+                    out[str(key)] = max(0, min(255, int(value)))
+                except Exception:
+                    pass
+            return out
+
+        return {}
+
+    def _restore_mission_debug_overrides() -> None:
+        saved = dict(mission_setup_state.get("saved_debug_values") or {})
+
+        for name, original_value in saved.items():
+            if isinstance(original_value, int):
+                _write_debug_flag_value(name, original_value)
+                print(
+                    f"[mission setup restore] {name} -> {original_value}"
+                )
+
+        mission_setup_state["mission_key"] = None
+        mission_setup_state["saved_debug_values"] = {}
+        mission_setup_state["applied_debug_values"] = {}
+
+    def _sync_mission_debug_overrides(payload: dict) -> None:
+        if not isinstance(payload, dict) or not payload.get("active"):
+            if mission_setup_state.get("mission_key") is not None:
+                _restore_mission_debug_overrides()
+            return
+
+        overrides = _extract_active_mission_debug_overrides(payload)
+        mission_key = (
+            payload.get("slot"),
+            payload.get("character"),
+            payload.get("active_mission_id"),
+        )
+
+        if not overrides:
+            if mission_setup_state.get("mission_key") is not None:
+                _restore_mission_debug_overrides()
+            return
+
+        current_key = mission_setup_state.get("mission_key")
+
+        if current_key != mission_key:
+            if current_key is not None:
+                _restore_mission_debug_overrides()
+
+            saved = {}
+            applied = {}
+
+            for name, wanted_value in overrides.items():
+                current_value = _read_debug_flag_value(name)
+                if isinstance(current_value, int):
+                    saved[name] = current_value
+
+                if _write_debug_flag_value(name, wanted_value):
+                    applied[name] = wanted_value
+                    print(
+                        f"[mission setup apply] "
+                        f"mission={payload.get('active_mission_id')} "
+                        f"{name}: {current_value} -> {wanted_value}"
+                    )
+
+            if applied:
+                mission_setup_state["mission_key"] = mission_key
+                mission_setup_state["saved_debug_values"] = saved
+                mission_setup_state["applied_debug_values"] = applied
+            else:
+                mission_setup_state["mission_key"] = None
+                mission_setup_state["saved_debug_values"] = {}
+                mission_setup_state["applied_debug_values"] = {}
+            return
+
+        for name, wanted_value in (mission_setup_state.get("applied_debug_values") or {}).items():
+            current_value = _read_debug_flag_value(name)
+            if current_value != wanted_value:
+                _write_debug_flag_value(name, wanted_value)    
     # HUD overlay subprocess (Dolphin-parented transparent window)
     HUD_OVERLAY_DATA_FILE = "hud_overlay_data.json"
     hud_overlay_proc = None
@@ -1136,16 +1365,7 @@ def legacy_main():
         progress = set_selected_mission_id(progress, character_name, new_id)
         save_progress(progress)
 
-        mission_runtime = {
-            "slot": mission_active_slot,
-            "mission_id": None,
-            "progress_index": 0,
-            "last_seen_label": "",
-            "last_seen_anim": None,
-            "last_seen_hitstun": False,
-            "last_inputs": {},
-            "hitstun_grace": 0,
-        }
+        mission_runtime = _new_mission_runtime(slot=mission_active_slot)
 
         _write_mission_overlay_data()
     def _mission_label_is_crouch(label: str) -> bool:
@@ -1219,16 +1439,7 @@ def legacy_main():
         progress = set_selected_mission_id(progress, character_name, mission_id)
         save_progress(progress)
 
-        mission_runtime = {
-            "slot": mission_active_slot,
-            "mission_id": None,
-            "progress_index": 0,
-            "last_seen_label": "",
-            "last_seen_anim": None,
-            "last_seen_hitstun": False,
-            "last_inputs": {},
-            "hitstun_grace": 0,
-        }
+        mission_runtime = _new_mission_runtime(slot=mission_active_slot)
         _mission_close_selector()
 
     def _mission_update_selector_from_inputs(snaps_dict: dict) -> None:
@@ -1322,7 +1533,92 @@ def legacy_main():
             if cur_pressed and not prev_pressed:
                 return True
 
-        return False        
+        return False
+
+    def _mission_opponent_took_damage_this_frame(slot_label: str, snaps_dict: dict) -> bool:
+        if not slot_label:
+            return False
+
+        my_team = "P1" if slot_label.startswith("P1") else "P2"
+        hp_cache = mission_runtime.setdefault("opponent_hp_by_base", {})
+        live_bases = set()
+        took_damage = False
+
+        for other_slot, other_snap in snaps_dict.items():
+            if not isinstance(other_snap, dict):
+                continue
+            if other_snap.get("teamtag") == my_team:
+                continue
+
+            base = other_snap.get("base")
+            cur_hp = other_snap.get("cur")
+
+            if not isinstance(base, int) or not isinstance(cur_hp, int):
+                continue
+
+            live_bases.add(base)
+            prev_hp_val = hp_cache.get(base)
+
+            if isinstance(prev_hp_val, int) and cur_hp < prev_hp_val:
+                took_damage = True
+                print(
+                    f"[mission damage] slot={slot_label} opponent_slot={other_slot} "
+                    f"base=0x{base:08X} hp {prev_hp_val}->{cur_hp}"
+                )
+
+            hp_cache[base] = cur_hp
+
+        for base in list(hp_cache.keys()):
+            if base not in live_bases:
+                del hp_cache[base]
+
+        return took_damage
+
+
+    def _mission_step_has_non_damage_confirm(
+        expected_labels: list[str],
+        snap: dict,
+        current_label: str,
+    ) -> bool:
+        labels_norm = {
+            str(x).strip().lower()
+            for x in (expected_labels or [])
+            if str(x).strip()
+        }
+
+        if not labels_norm:
+            return False
+
+        current_norm = (current_label or "").strip().lower()
+
+        if "baroque cancel" in labels_norm:
+            if current_norm == "baroque cancel":
+                return True
+            if snap.get("baroque_cancel_latched") or snap.get("baroque_cancel_raw"):
+                return True
+
+        if labels_norm & MISSION_NON_DAMAGE_CONFIRM_LABELS:
+            if current_norm in labels_norm:
+                return True
+
+        return False
+
+    def _mission_step_allows_whiff_confirm(expected_labels: list[str]) -> bool:
+        labels_norm = {
+            str(x).strip().lower()
+            for x in (expected_labels or [])
+            if str(x).strip()
+        }
+
+        if not labels_norm:
+            return False
+
+        matched = labels_norm & MISSION_WHIFF_CONFIRM_LABELS
+
+        if matched:
+            print(f"[mission whiff confirm allowed] labels={sorted(matched)!r}")
+
+        return bool(matched)
     def _mission_family_ids_for_label(label: str, csv_char_id: int | None) -> set[int]:
         want = (label or "").strip()
         if not want:
@@ -1369,32 +1665,30 @@ def legacy_main():
                 f"[mission inactive] active={payload.get('active')} "
                 f"slot={slot} mission_id={mission_id} steps={len(steps)}"
             )
-            mission_runtime = {
-                "slot": None,
-                "mission_id": None,
-                "progress_index": 0,
-                "last_seen_label": "",
-                "last_seen_anim": None,
-                "last_seen_hitstun": False,
-                "last_inputs": {},
-                "hitstun_grace": 0,
-            }
+            mission_runtime = _new_mission_runtime()
             payload["completed_step_count"] = 0
             payload["current_step_index"] = 0
             payload["current_step_label"] = steps[0] if steps else None
             payload["just_cleared"] = False
             return payload
 
+        if (
+            mission_runtime.get("slot") != slot
+            or mission_runtime.get("mission_id") != mission_id
+        ):
+            mission_runtime = _new_mission_runtime(slot=slot, mission_id=mission_id)
+
         snap = snaps_dict.get(slot) or render_snap_by_slot.get(slot) or {}
         current_label = ((snap.get("mv_label") or "").strip())
         current_anim = snap.get("mv_id_display")
         current_inputs = snap.get("inputs") or {}
         opponent_in_hitstun = _mission_opponent_in_hitstun(slot, snaps_dict)
+        opponent_took_damage = _mission_opponent_took_damage_this_frame(slot, snaps_dict)
 
         progress_index = int(mission_runtime.get("progress_index", 0))
 
         if opponent_in_hitstun:
-            mission_runtime["hitstun_grace"] = 4
+            mission_runtime["hitstun_grace"] = 6
         else:
             mission_runtime["hitstun_grace"] = max(
                 0,
@@ -1409,7 +1703,8 @@ def legacy_main():
         print(
             f"[mission combo] slot={slot} opp_hitstun={opponent_in_hitstun} "
             f"grace={mission_runtime.get('hitstun_grace', 0)} "
-            f"combo_state={opponent_in_combo_state}"
+            f"combo_state={opponent_in_combo_state} "
+            f"opp_took_damage={opponent_took_damage}"
         )
 
         if progress_index > 0 and not opponent_in_combo_state:
@@ -1428,13 +1723,10 @@ def legacy_main():
         has_fresh_attack_input = _mission_has_fresh_attack_input(current_inputs, last_inputs)
 
         is_fresh_instance = (
-            opponent_in_combo_state
-            and (
-                current_anim != last_seen_anim
-                or current_label != last_seen_label
-                or not last_seen_hitstun
-                or has_fresh_attack_input
-            )
+            current_anim != last_seen_anim
+            or current_label != last_seen_label
+            or (opponent_in_combo_state and not last_seen_hitstun)
+            or has_fresh_attack_input
         )
 
         expected_step = steps[progress_index] if progress_index < len(steps) else None
@@ -1444,6 +1736,34 @@ def legacy_main():
             else ([str(expected_step).strip()] if str(expected_step).strip() else [])
         )
         current_matches_expected = current_label in expected_labels
+        non_damage_confirm = _mission_step_has_non_damage_confirm(
+            expected_labels=expected_labels,
+            snap=snap,
+            current_label=current_label,
+        )
+        step_allows_whiff_confirm = _mission_step_allows_whiff_confirm(
+            expected_labels
+        )
+
+        if mission_runtime.get("pending_step_index") != progress_index:
+            mission_runtime["pending_step_index"] = None
+            mission_runtime["pending_labels"] = []
+            mission_runtime["pending_anim"] = None
+
+        pending_step_index = mission_runtime.get("pending_step_index")
+        pending_labels = list(mission_runtime.get("pending_labels") or [])
+        pending_anim = mission_runtime.get("pending_anim")
+
+        matched_fresh_expected = (
+            expected_labels
+            and current_matches_expected
+            and not _mission_label_is_ignorable(current_label)
+            and is_fresh_instance
+            and (
+                opponent_in_combo_state
+                or step_allows_whiff_confirm
+            )
+        )
 
         print(
             f"[mission compare] slot={slot} "
@@ -1452,26 +1772,85 @@ def legacy_main():
             f"current_anim={current_anim} last_anim={last_seen_anim} "
             f"last_label={last_seen_label!r} fresh_input={has_fresh_attack_input} "
             f"is_fresh_instance={is_fresh_instance} "
-            f"opp_hitstun={opponent_in_hitstun} combo_state={opponent_in_combo_state}"
+            f"opp_hitstun={opponent_in_hitstun} combo_state={opponent_in_combo_state} "
+            f"opp_took_damage={opponent_took_damage} "
+            f"non_damage_confirm={non_damage_confirm} "
+            f"whiff_confirm={step_allows_whiff_confirm} "
+            f"pending_step={pending_step_index} pending_labels={pending_labels!r} "
+            f"pending_anim={pending_anim}"
         )
 
-        if (
-            expected_labels
-            and current_matches_expected
-            and opponent_in_combo_state
-            and not _mission_label_is_ignorable(current_label)
-            and is_fresh_instance
-        ):
-            print(
-                f"[mission advance] slot={slot} "
-                f"step_before={progress_index} matched={current_label!r}"
-            )
-            progress_index += 1
-            mission_runtime["progress_index"] = progress_index
-            print(
-                f"[mission advance done] slot={slot} "
-                f"step_after={progress_index}"
-            )
+        if MISSION_REQUIRE_DAMAGE_CONFIRM:
+            if matched_fresh_expected:
+                if step_allows_whiff_confirm:
+                    print(
+                        f"[mission confirm whiff] slot={slot} "
+                        f"step_before={progress_index} "
+                        f"matched={expected_labels!r} "
+                        f"anim={current_anim}"
+                    )
+                    progress_index += 1
+                    mission_runtime["progress_index"] = progress_index
+                    mission_runtime["pending_step_index"] = None
+                    mission_runtime["pending_labels"] = []
+                    mission_runtime["pending_anim"] = None
+
+                    print(
+                        f"[mission advance done] slot={slot} "
+                        f"step_after={progress_index}"
+                    )
+                else:
+                    mission_runtime["pending_step_index"] = progress_index
+                    mission_runtime["pending_labels"] = expected_labels[:]
+                    mission_runtime["pending_anim"] = current_anim
+                    pending_step_index = progress_index
+                    pending_labels = expected_labels[:]
+                    pending_anim = current_anim
+
+                    print(
+                        f"[mission arm] slot={slot} "
+                        f"step={progress_index} labels={pending_labels!r} "
+                        f"anim={pending_anim}"
+                    )
+
+            if (
+                pending_step_index == progress_index
+                and pending_labels
+                and opponent_in_combo_state
+                and (opponent_took_damage or non_damage_confirm)
+            ):
+                print(
+                    f"[mission confirm] slot={slot} "
+                    f"step_before={progress_index} "
+                    f"matched={pending_labels!r} "
+                    f"anim={pending_anim} "
+                    f"damage={opponent_took_damage} "
+                    f"non_damage_confirm={non_damage_confirm}"
+                )
+                progress_index += 1
+                mission_runtime["progress_index"] = progress_index
+                mission_runtime["pending_step_index"] = None
+                mission_runtime["pending_labels"] = []
+                mission_runtime["pending_anim"] = None
+
+                print(
+                    f"[mission advance done] slot={slot} "
+                    f"step_after={progress_index}"
+                )
+
+        else:
+            if matched_fresh_expected:
+                print(
+                    f"[mission advance] slot={slot} "
+                    f"step_before={progress_index} matched={current_label!r}"
+                )
+                progress_index += 1
+                mission_runtime["progress_index"] = progress_index
+
+                print(
+                    f"[mission advance done] slot={slot} "
+                    f"step_after={progress_index}"
+                )
 
         mission_runtime["last_seen_label"] = current_label
         mission_runtime["last_seen_anim"] = current_anim
@@ -1516,16 +1895,7 @@ def legacy_main():
                 f"current_step_label={next_payload.get('current_step_label')!r}"
             )
 
-            mission_runtime = {
-                "slot": None,
-                "mission_id": None,
-                "progress_index": 0,
-                "last_seen_label": "",
-                "last_seen_anim": None,
-                "last_seen_hitstun": False,
-                "last_inputs": {},
-                "hitstun_grace": 0,
-            }
+            mission_runtime = _new_mission_runtime()
             return next_payload
 
         payload["just_cleared"] = False
@@ -1585,6 +1955,8 @@ def legacy_main():
                 payload["selector_index"] = int(mission_selector["selected_index"])
                 payload["selector_hint"] = "Crouch, Crouch, Taunt: Open Mission Select"
                 payload["selector_controls"] = "Click a mission row to select  Click outside to close"
+
+        _sync_mission_debug_overrides(payload)
 
         try:
             tmp_path = f"{MISSION_OVERLAY_FILE}.tmp"
@@ -2660,6 +3032,8 @@ def legacy_main():
         clock.tick(TARGET_FPS)
         frame_idx += 1
         
+    _restore_mission_debug_overrides()
+
     if master_overlay_proc and master_overlay_proc.poll() is None:
         try:
             master_overlay_proc.terminate()

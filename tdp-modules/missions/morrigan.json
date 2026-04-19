@@ -7,8 +7,9 @@
       "notes": "BnB.",
       "steps": [
         { "label": "2A" },
+        
         { "label": "2B" },
-        { "label": "2B" },
+        { "label": "5C" },
         { "label": "3C" },
         { "label": "j.A" },
         { "label": "j.B" },
@@ -21,12 +22,13 @@
       "notes": "Any Air Soul Fist strength works before Darkness Illusion.",
       "steps": [
         { "label": "2A" },
+        
         { "label": "2B" },
-        { "label": "2B" },
+        { "label": "5C" },
         { "label": "3C" },
         { "label": "j.A" },
         { "label": "j.B" },
-        { "labels": ["Air Soul Fist L", "Air Soul Fist M", "Air Soul Fist C"] },
+        { "labels": ["Air Soul Fist A", "Air Soul Fist B", "Air Soul Fist C"] },
         { "label": "Darkness Illusion" }
       ]
     },
@@ -37,6 +39,7 @@
       "steps": [
         { "label": "2A" },
         { "label": "2B" },
+        { "label": "5C" },
         { "label": "2C" },
         { "label": "Soul Fist L" },
         { "label": "Baroque cancel" },

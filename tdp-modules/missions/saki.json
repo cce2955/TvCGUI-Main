@@ -54,6 +54,20 @@
       ]
     },{
       "mission_id": "saki_005",
+      "name": "Throw Followup",
+      "notes": "22C ",
+      "steps": [
+        { "label": "Forward Throw" },
+        
+        { "label": "2C" },
+        { "label": "Baroque cancel" },
+        { "label": "2C" }
+        
+        
+        
+      ]
+    },{
+      "mission_id": "saki_006",
       "name": "Challenge",
       "notes": "Some moves are missing go ahead and fill them in ",
       "steps": [

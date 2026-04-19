@@ -22,6 +22,7 @@ class MissionDef:
     character: str
     steps: List[MissionStep] = field(default_factory=list)
     notes: str = ""
+    setup_debug_flags: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -73,6 +74,15 @@ def load_mission_pack(character_name: str) -> MissionPack:
         name = str(entry.get("name", mission_id)).strip()
         notes = str(entry.get("notes", "")).strip()
 
+        setup_debug_flags: Dict[str, int] = {}
+        raw_setup_debug_flags = entry.get("setup_debug_flags", {})
+        if isinstance(raw_setup_debug_flags, dict):
+            for key, value in raw_setup_debug_flags.items():
+                try:
+                    setup_debug_flags[str(key)] = int(value)
+                except Exception:
+                    pass
+
         steps: List[MissionStep] = []
         for step in entry.get("steps", []):
             if not isinstance(step, dict):
@@ -107,6 +117,7 @@ def load_mission_pack(character_name: str) -> MissionPack:
                 character=character_name,
                 steps=steps,
                 notes=notes,
+                setup_debug_flags=setup_debug_flags,
             )
         )
 
@@ -218,6 +229,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         "active_mission_name": active.name if active else None,
         "active_mission_notes": active.notes if active else "",
         "active_mission_steps": [step.labels for step in active.steps] if active else [],
+        "active_mission_setup_debug_flags": dict(active.setup_debug_flags) if active else {},
         "selected_mission_id": selected_id,
         "missions": [
             {
@@ -227,6 +239,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
                 "completed": is_mission_complete(progress, pack.character, mission.mission_id),
                 "selected": mission.mission_id == selected_id,
                 "steps": [step.labels for step in mission.steps],
+                "setup_debug_flags": dict(mission.setup_debug_flags),
             }
             for mission in pack.missions
         ],

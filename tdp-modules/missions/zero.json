@@ -26,13 +26,12 @@
         { "label": "5C" },
         { "label": "6C" },
         { "label": "Baroque cancel" },
-        { "label": "5A" },
+        
         { "label": "5B" },
         { "label": "2B" },
         { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "Hyper Zero Blaster" },
+                { "label": "j.B" },
+        { "label": "Air Hyper Zero Blaster" },
         { "label": "Air DP C" }
       ]
     },
@@ -53,7 +52,7 @@
         { "label": "5B" },
         { "label": "2B" },
         { "label": "3C" },
-        { "label": "j.A" },
+        
         { "label": "j.B" },
         { "label": "Air Hyper Zero Blaster" },
         { "label": "Air DP C" }
@@ -75,7 +74,7 @@
         { "label": "5C" },
         { "label": "6C" },
         { "label": "Baroque cancel" },
-        { "label": "5A" },
+        
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.B" },
@@ -123,6 +122,19 @@
       ]
     },   {
       "mission_id": "zero_006",
+      "name": "Air Throw Followup",
+      "notes": "Some moves are missing, see if you can figure it out",
+       "setup_debug_flags": {
+    "CpuAction": 2
+  },
+      "steps": [
+        
+        { "label": "Air Forward Throw" },
+        
+        { "label": "Sentsuizan B" }     
+      ]
+    }, {
+      "mission_id": "zero_007",
       "name": "Challenge",
       "notes": "Some moves are missing, see if you can figure it out",
       "steps": [
