@@ -175,6 +175,7 @@ MISSION_REACTION_STATES = {
     73,   # knocked down (face up)
     74,
     75,   # Crumple
+    76,   # Crumple
     79,   # Stagger
     80,   # Hard Knockdown
     81,   # Bounce Launched
@@ -194,6 +195,7 @@ MISSION_REACTION_STATES = {
     102,  # knocked down (face up)
     105,  # OTG Hit (Face up)
     106,  # OTG Hit (Face Down)
+    142,  
     4609, # Captured
     4611, # Captured
     4613, # Captured
@@ -242,7 +244,8 @@ MISSION_WHIFF_CONFIRM_LABELS = {
         "Air Weapon Switch Neutral A", "Air Weapon Switch Neutral B", "Air Weapon Switch Neutral C",
         "Roll A", "Roll B", "Roll C","Random Flight A", "Random Flight B", "Random Flight C",
         "Air Random Flight A", "Air Random Flight B", "Air Random Flight C",
-        "Zombie Spree A", "Zombie Spree B", "Zombie Spree C",
+        "Zombie Spree A", "Zombie Spree B", "Zombie Spree C", "Megacrash", "voltekka air", "One Handed Vacuum Spin",
+        "yatter run"
     }
 }
 # TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.

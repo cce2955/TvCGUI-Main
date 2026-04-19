@@ -1,0 +1,137 @@
+{
+  "character": "karas",
+  "missions": [
+    {
+      "mission_id": "karas_001",
+      "name": "Combo 1",
+      "notes": "Basic launcher into air series.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "karas_002",
+      "name": "Combo 2",
+      "notes": "Ground route into air special finisher.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Narukami C" }
+      ]
+    },
+    {
+      "mission_id": "karas_003",
+      "name": "Combo 3",
+      "notes": "Kasha extension into launcher finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Kasha C" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Narukami C" }
+      ]
+    },
+    {
+      "mission_id": "karas_004",
+      "name": "Combo 4",
+      "notes": "Extended grounded route into air finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Tobimizuchi" },
+        { "label": "Ukifune" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Kasha C" },
+        { "label": "Yoinagi" },
+        { "label": "Kasha Overhead" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Narukami C" }
+      ]
+    },
+    {
+      "mission_id": "karas_005",
+      "name": "Combo 5",
+      "notes": "Throw starter into super finish.",
+      "steps": [
+        { "label": "Front Throw" },
+        { "label": "Hiei Zangetsu" }
+      ]
+    },
+    {
+      "mission_id": "karas_006",
+      "name": "Combo 6",
+      "notes": "No route provided.",
+      "steps": []
+    },
+    {
+      "mission_id": "karas_007",
+      "name": "Combo 7",
+      "notes": "Back throw into super finish.",
+      "steps": [
+        { "label": "Back Throw" },
+        { "label": "Hiei Zangetsu" }
+      ]
+    },
+    {
+      "mission_id": "karas_008",
+      "name": "Combo 8",
+      "notes": "Extended route into super finisher.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Tobimizuchi" },
+        { "label": "Ukifune" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Kasha C" },
+        { "label": "Yoinagi" },
+        { "label": "Kasha Overhead" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Kasha C" },
+        { "label": "Yoinagi" },
+        { "label": "Yato" },
+        { "label": "Hiei Zangetsu" }
+      ]
+    },
+    {
+      "mission_id": "karas_009",
+      "name": "Challenge",
+      "notes": "Partial route provided. Some moves omitted from source string.",
+      "steps": [
+        { "label": "Tobimizuchi" },
+        { "label": "Yato" },
+        { "label": "Kasha Overhead" },
+        { "label": "Yato" },
+        { "label": "Hiei Zangetsu" }
+      ]
+    }
+  ]
+}

@@ -90,6 +90,7 @@
 518,0x13a,Shooting Star Kick C,Friender B,Friender B,yes,2
 
 # Tekkaman (ID: 3)
+272,0x130,j.2C,Gatling A,Gatling A,yes,3
 304,0x130,Gatling A,Gatling A,Gatling A,yes,3
 305,0x131,Gatling B,Gatling B,Gatling B,yes,3
 306,0x132,Gatling C,Gatling C?,Gatling C?,yes,3
@@ -119,9 +120,9 @@
 354,0x160,voltekka air,voltekka air,voltekka air,yes,3
 
 # Polimar (ID: 4)
-304,0x139,Hurrican Destruction Fist A,Storm B?,Storm B?,yes,4
-305,0x139,Hurrican Destruction Fist B,Storm B?,Storm B?,yes,4
-306,0x139,Hurrican Destruction Fist C,Storm B?,Storm B?,yes,4
+304,0x139,Hurricane Destruction Fist A,Storm B?,Storm B?,yes,4
+305,0x139,Hurricane Destruction Fist B,Storm B?,Storm B?,yes,4
+306,0x139,Hurricane Destruction Fist C,Storm B?,Storm B?,yes,4
 313,0x139,Kanae Storm,Storm B?,Storm B?,yes,4
 314,0x13a,Storm Low,Storm Low,Storm Low,yes,4
 315,0x13b,Storm Overhead,Storm B,Storm B,yes,4
@@ -139,6 +140,8 @@
 324,0x144,Razor B,Razor B,Razor B,yes,4
 325,0x145,Razor C,Razor C,Razor C,yes,4
 352,0x161,One Handed Vacuum Spin,Tenshin Drill,Tenshin Drill,yes,4
+354,0x161,One Handed Vacuum Spin,Tenshin Drill,Tenshin Drill,yes,4
+516,0x161,One Handed Vacuum Spin,Tenshin Drill,Tenshin Drill,yes,4
 353,0x161,Tenshin Drill,Tenshin Drill,Tenshin Drill,yes,4
 465,0x1d1,Forward Throw,Forward Throw,Forward Throw,yes,4
 468,0x1d4,Back Throw,Back Throw,Back Throw,yes,4
@@ -153,10 +156,14 @@
 307,0x133,yatter shock A,yatter shock A,yatter shock A,yes,5
 308,0x134,yatter shock B,yatter shock B,yatter shock B,yes,5
 309,0x135,yatter shock C,yatter shock C,yatter shock C,yes,5
+512,0x135,yatter shock C,yatter shock C,yatter shock C,yes,5
 310,0x135,yatter Medium Attack A,yatter shock C,yatter shock C,yes,5
 311,0x135,yatter Medium Attack A,yatter shock C,yatter shock C,yes,5
 312,0x135,yatter Medium Attack A,yatter shock C,yatter shock C,yes,5
 313,0x139,yatter run,yatter run slide,yatter run slide,yes,5
+314,0x139,yatter hop A,yatter run slide,yatter run slide,yes,5
+315,0x139,yatter hop B,yatter run slide,yatter run slide,yes,5
+316,0x139,yatter hop C,yatter run slide,yatter run slide,yes,5
 320,0x135,air Kendamagic A,yatter shock C,yatter shock C,yes,5
 321,0x135,air Kendamagic B,yatter shock C,yatter shock C,yes,5
 322,0x135,air Kendamagic C,yatter shock C,yatter shock C,yes,5
@@ -923,6 +930,7 @@
 73,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100
 74,0x1,knocked down (face down),knocked down (face down),knocked down (face down),yes,100
 75,0x1,Crumple,knocked down (face down),knocked down (face down),yes,100
+76,0x1,Crumple,knocked down (face down),knocked down (face down),yes,100
 77,0x1,Air borne Bounce,knocked down (face down),knocked down (face down),yes,100
 77,0x1,Air borne Plank,knocked down (face down),knocked down (face down),yes,100
 79,0x1,Stagger,knocked down (face down),knocked down (face down),yes,100
@@ -967,7 +975,7 @@
 132,0x1,Knockdown to stun,get up (face down),get up (face down),yes,100
 133,0x1,Backroll,get up (face down),get up (face down),yes,100
 166,0x1,??? forcefield?,get up (face down),get up (face down),yes,100
-142,0x1,???,get up (face down),get up (face down),yes,100
+142,0x1,Face up bounce,get up (face down),get up (face down),yes,100
 154,0x1,KO'd,Air Recovery,Air Recovery,yes,100
 155,0x1,KO in slow motion,Air Recovery,Air Recovery,yes,100
 158,0x1,KO in slow motion (Forward),Air Recovery,Air Recovery,yes,100

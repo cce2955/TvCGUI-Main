@@ -1,0 +1,101 @@
+{
+  "character": "polimar",
+  "missions": [
+    {
+      "mission_id": "polimar_001",
+      "name": "Combo 1",
+      "notes": "Basic launcher into repeated air hits and special ender.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "One Handed Vacuum Spin" }
+      ]
+    },
+    {
+      "mission_id": "polimar_002",
+      "name": "Combo 2",
+      "notes": "Ground route into extension and air finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Hurricane Destruction Fist A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "One Handed Vacuum Spin" }
+      ]
+    },
+    {
+      "mission_id": "polimar_003",
+      "name": "Combo 3",
+      "notes": "Requires one emblem.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Razor C" },
+        { "label": "Hurricane Destruction Fist A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "One Handed Vacuum Spin" }
+      ]
+    },
+    {
+      "mission_id": "polimar_004",
+      "name": "Combo 4",
+      "notes": "Requires three emblems.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Illusion Fist" }
+      ]
+    },
+    {
+      "mission_id": "polimar_005",
+      "name": "Combo 5",
+      "notes": "Ground route into Tenshin Drill finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Razor C" },
+        { "label": "Hurricane Destruction Fist A" },
+        { "label": "Tenshin Drill" }
+      ]
+    },
+    {
+      "mission_id": "polimar_006",
+      "name": "Challenge",
+      "notes": "Partial route provided. Some moves omitted from source string.",
+      "steps": [
+        { "label": "Razor C" },
+        { "label": "Hurricane Destruction Fist A" },
+        { "label": "Razor Kicks" },
+        { "label": "3C" },
+        { "label": "One Handed Vacuum Spin" }
+      ]
+    }
+  ]
+}

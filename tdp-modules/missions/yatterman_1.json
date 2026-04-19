@@ -1,0 +1,119 @@
+{
+  "character": "yatterman_1",
+  "missions": [
+    {
+      "mission_id": "yatterman_001",
+      "name": "Combo 1",
+      "notes": "Basic launcher into air special route.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_002",
+      "name": "Combo 2",
+      "notes": "Air special loops into relaunch.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack A" },
+        { "label": "air yatter Medium Attack A" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_003",
+      "name": "Combo 3",
+      "notes": "Shock starter into air finish.",
+      "steps": [
+        { "label": "yatter shock C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_004",
+      "name": "Combo 4",
+      "notes": "Extended grounded route into flame finisher.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "yatter run" },
+        { "label": "yatter hop B" },
+        { "label": "5A" },
+        { "label": "2B" },
+        { "label": "6C" },
+        { "label": "yatter run" },
+        { "label": "yatter hop B" },
+        { "label": "5A" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack B" },
+        { "label": "j.C" },
+        { "label": "yatter wan flame" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_005",
+      "name": "Combo 5",
+      "notes": "Baroque air loop route into flame finisher.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Kendamagic A" },
+        { "label": "Baroque cancel" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack A" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack A" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack A" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack A" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "air yatter Medium Attack B" },
+        { "label": "j.C" },
+        { "label": "yatter wan flame" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_006",
+      "name": "Challenge",
+      "notes": "Partial route provided. Some moves omitted from source string.",
+      "steps": [
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "yatter hop B" },
+        { "label": "air yatter Medium Attack A" },
+        { "label": "5B" },
+        { "label": "6C" },
+        { "label": "yatter hop B" },
+        
+        { "label": "air yatter Medium Attack A" },
+        { "label": "5C" },
+        { "label": "yatter wan flame" }
+      ]
+    }
+  ]
+}

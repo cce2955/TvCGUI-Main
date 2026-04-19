@@ -1,6 +1,24 @@
 {
-  "frank_west": {
-    "completed": {},
-    "selected_mission_id": "frank_west_005"
+  "yatterman_1": {
+    "completed": {
+      "yatterman_001": true,
+      "yatterman_003": true,
+      "yatterman_004": true,
+      "yatterman_005": true,
+      "yatterman_006": true
+    },
+    "selected_mission_id": "yatterman_006"
+  },
+  "karas": {
+    "completed": {
+      "karas_001": true,
+      "karas_002": true,
+      "karas_003": true,
+      "karas_004": true,
+      "karas_005": true,
+      "karas_007": true,
+      "karas_008": true
+    },
+    "selected_mission_id": "karas_008"
   }
 }
