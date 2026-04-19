@@ -240,6 +240,9 @@ MISSION_WHIFF_CONFIRM_LABELS = {
         "Air Weapon Switch Forward A", "Air Weapon Switch Forward B", "Air Weapon Switch Forward C",
         "Air Weapon Switch Backwards A", "Air Weapon Switch Backwards B", "Air Weapon Switch Backwards C",
         "Air Weapon Switch Neutral A", "Air Weapon Switch Neutral B", "Air Weapon Switch Neutral C",
+        "Roll A", "Roll B", "Roll C","Random Flight A", "Random Flight B", "Random Flight C",
+        "Air Random Flight A", "Air Random Flight B", "Air Random Flight C",
+        "Zombie Spree A", "Zombie Spree B", "Zombie Spree C",
     }
 }
 # TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.
@@ -1498,13 +1501,10 @@ def legacy_main():
 
             other_mv = other_snap.get("attA") or other_snap.get("attB")
             if other_mv in MISSION_REACTION_STATES:
-                print(
-                    f"[mission hitstun] slot={slot_label} opponent_slot={other_slot} "
-                    f"opp_mv={other_mv} opp_label={other_snap.get('mv_label')!r} -> True"
-                )
+                
                 return True
 
-        print(f"[mission hitstun] slot={slot_label} -> False")
+        
         return False
 
     def _mission_label_is_ignorable(label: str) -> bool:
@@ -1561,10 +1561,7 @@ def legacy_main():
 
             if isinstance(prev_hp_val, int) and cur_hp < prev_hp_val:
                 took_damage = True
-                print(
-                    f"[mission damage] slot={slot_label} opponent_slot={other_slot} "
-                    f"base=0x{base:08X} hp {prev_hp_val}->{cur_hp}"
-                )
+                
 
             hp_cache[base] = cur_hp
 
@@ -1655,10 +1652,7 @@ def legacy_main():
         steps = list(payload.get("active_mission_steps") or [])
         character_name = payload.get("character")
 
-        print(
-            f"[mission begin] slot={slot} mission_id={mission_id} "
-            f"steps={len(steps)} active={payload.get('active')}"
-        )
+        
 
         if not payload.get("active") or not slot or not mission_id or not steps:
             print(
