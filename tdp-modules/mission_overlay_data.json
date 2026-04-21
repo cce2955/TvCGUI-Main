@@ -1,9 +1,9 @@
 {
   "character": "Volnutt",
   "mission_count": 7,
-  "active_mission_id": "volnutt_003",
-  "active_mission_name": "Volnutt BnB Fist Starter 3",
-  "active_mission_notes": "",
+  "active_mission_id": "volnutt_001",
+  "active_mission_name": "Volnutt BnB Fist Starter",
+  "active_mission_notes": "Basic BnB",
   "active_mission_steps": [
     [
       "5A"
@@ -15,22 +15,16 @@
       "2B"
     ],
     [
-      "6B"
-    ],
-    [
-      "Weapon Switch Backwards C"
+      "3C"
     ],
     [
       "j.B"
     ],
     [
-      "Air 3B"
+      "j.6B"
     ],
     [
       "Air Weapon Switch Forward B"
-    ],
-    [
-      "j.B"
     ],
     [
       "j.B"
@@ -68,13 +62,13 @@
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "volnutt_003",
+  "selected_mission_id": null,
   "missions": [
     {
       "mission_id": "volnutt_001",
       "name": "Volnutt BnB Fist Starter",
       "notes": "Basic BnB",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         [
@@ -213,8 +207,8 @@
       "mission_id": "volnutt_003",
       "name": "Volnutt BnB Fist Starter 3",
       "notes": "",
-      "completed": true,
-      "selected": true,
+      "completed": false,
+      "selected": false,
       "steps": [
         [
           "5A"
@@ -553,14 +547,14 @@
   "active": true,
   "slot": "P1-C1",
   "just_cleared": false,
-  "clear_seq": 1,
-  "celebrate_pending": true,
-  "celebrate_token": 1,
+  "clear_seq": 0,
+  "celebrate_pending": false,
+  "celebrate_token": 0,
   "completed_step_count": 0,
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 2,
+  "selector_index": 3,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true
