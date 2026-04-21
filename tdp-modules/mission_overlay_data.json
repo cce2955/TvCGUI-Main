@@ -1,39 +1,24 @@
 {
   "character": "Doronjo",
   "mission_count": 9,
-  "active_mission_id": "doronjo_007",
-  "active_mission_name": "Combo Trial 007",
-  "active_mission_notes": "",
+  "active_mission_id": "doronjo_001",
+  "active_mission_name": "Combo Trial 001",
+  "active_mission_notes": "A, 2A, A, B, 2C, C, 3C, j.A, j.B, j.C",
   "active_mission_steps": [
     [
       "5A"
     ],
     [
-      "5B"
+      "2A"
+    ],
+    [
+      "5A"
     ],
     [
       "2B"
     ],
     [
       "5C"
-    ],
-    [
-      "Clutch C"
-    ],
-    [
-      "Baroque cancel"
-    ],
-    [
-      "2B"
-    ],
-    [
-      "In the beginning"
-    ],
-    [
-      "j.B"
-    ],
-    [
-      "5B"
     ],
     [
       "3C"
@@ -50,13 +35,13 @@
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "doronjo_007",
+  "selected_mission_id": null,
   "missions": [
     {
       "mission_id": "doronjo_001",
       "name": "Combo Trial 001",
       "notes": "A, 2A, A, B, 2C, C, 3C, j.A, j.B, j.C",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         [
@@ -94,7 +79,7 @@
       "mission_id": "doronjo_002",
       "name": "Combo Trial 002",
       "notes": "",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         [
@@ -126,7 +111,7 @@
       "mission_id": "doronjo_003",
       "name": "Combo Trial 003",
       "notes": "",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         [
@@ -155,7 +140,7 @@
       "mission_id": "doronjo_004",
       "name": "Combo Trial 004",
       "notes": "This is for facing right",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         [
@@ -208,7 +193,7 @@
       "mission_id": "doronjo_005",
       "name": "Combo Trial 005",
       "notes": "",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         [
@@ -342,7 +327,7 @@
       "name": "Combo Trial 007",
       "notes": "",
       "completed": false,
-      "selected": true,
+      "selected": false,
       "steps": [
         [
           "5A"
@@ -490,11 +475,11 @@
   "clear_seq": 0,
   "celebrate_pending": false,
   "celebrate_token": 0,
-  "completed_step_count": 7,
-  "current_step_index": 7,
-  "current_step_label": "In the beginning",
+  "completed_step_count": 0,
+  "current_step_index": 0,
+  "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 6,
+  "selector_index": 8,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true
