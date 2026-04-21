@@ -1,0 +1,3732 @@
+import os
+import csv
+import time
+import json
+import subprocess
+import sys
+import pygame
+
+from constants import (
+    SLOTS,
+    CHAR_NAMES,
+    OFF_CHAR_ID,
+)
+
+import pygame
+
+try:
+    import pyperclip
+except ImportError:
+    pyperclip = None
+
+from layout import compute_layout, reassign_slots_for_giants
+from scan_worker import ScanNormalsWorker
+from training_flags import read_training_flags
+from debug_panel import read_debug_flags, draw_debug_overlay
+
+from dolphin_io import hook, rd8, rd32, wd8, addr_in_ram, rbytes
+
+from config import (
+    MIN_HIT_DAMAGE,
+    SCREEN_W, SCREEN_H,
+    FONT_MAIN_SIZE, FONT_SMALL_SIZE,
+    HIT_CSV,
+    GENERIC_MAPPING_CSV,
+    PAIR_MAPPING_CSV,
+    COL_BG,
+    INPUT_MONITOR_ADDRS,
+    DEBUG_FLAG_ADDRS,
+)
+
+from portraits import (
+    load_portrait_placeholder,
+    load_portraits_from_dir,
+    get_portrait_for_snap,
+)
+
+
+from resolver import RESOLVER, pick_posy_off_no_jump
+from meter import read_meter, METER_CACHE
+from fighter import read_fighter, dist2
+from advantage import ADV_TRACK
+from moves import (
+    load_move_map,
+    move_label_for,
+    CHAR_ID_CORRECTION,
+)
+from move_id_map import lookup_move_name
+from hud_draw import (
+    draw_panel_classic,
+    draw_activity,
+    draw_event_log,
+    draw_scan_normals,   # ONLY this used on HUD
+)
+
+from redscan import RedHealthScanner
+from global_redscan import GlobalRedScanner
+from events import log_engaged, log_hit, log_frame_advantage
+
+# optional deep scan (the hitbox-augmented one)
+try:
+    import scan_normals_all
+    HAVE_SCAN_NORMALS = True
+    from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
+except Exception:
+    scan_normals_all = None
+    HAVE_SCAN_NORMALS = False
+    SCAN_ANIM_MAP = {}
+
+# Frame data window (editable GUI + legacy Tk)
+from frame_data_window import open_frame_data_window
+from proj_scanner_window import open_proj_scanner_window
+from mission_mode import (
+    build_overlay_payload,
+    load_progress,
+    save_progress,
+    mark_mission_complete,
+    set_selected_mission_id,
+)
+
+MASTER_CONTROL_FILE = "master_overlay_control.json"
+MISSION_MODE_FILE = "mission_mode_state.json"
+MISSION_OVERLAY_FILE = "mission_overlay_data.json"
+MISSION_SELECT_FILE = "mission_select_command.json"
+MISSION_CELEBRATE_ACK_FILE = "mission_celebrate_ack.json"
+
+# ---------------------------------------------------------------------------
+# Tunables / globals for timing and animation
+# ---------------------------------------------------------------------------
+
+TARGET_FPS = 60
+DAMAGE_EVERY_FRAMES = 3
+ADV_EVERY_FRAMES = 2
+
+PANEL_SLIDE_DURATION = 2.0
+PANEL_FLASH_FRAMES = 12
+SCAN_SLIDE_DURATION = 0.7
+
+# offsets for "real" baroque (relative to fighter base)
+HP32_OFF = 0x28
+POOL32_OFF = 0x2C
+# ---------------------------------------------------------------------------
+# Bulk fighter struct read helpers
+# ---------------------------------------------------------------------------
+
+FIGHTER_BLOCK_SIZE = 0x120  # safely covers OFF_CHAR_ID, HP32_OFF, POOL32_OFF
+
+def u32be_from_block(block: bytes, off: int) -> int | None:
+    """
+    Read a big-endian unsigned 32-bit integer from a raw memory block.
+
+    Parameters
+    ----------
+    block : bytes
+        Raw byte buffer previously read from Dolphin memory.
+    off : int
+        Offset within the buffer at which the 32-bit value begins.
+
+    Returns
+    -------
+    int | None
+        The parsed unsigned 32-bit integer if the read is valid.
+        Returns None if:
+            - The block is empty or None.
+            - The offset would exceed the buffer bounds.
+
+    Notes
+    -----
+    TvC structures are big-endian (Wii / PowerPC architecture),
+    so manual byte shifting is used instead of struct.unpack with
+    native endianness.
+
+    This helper is intentionally allocation-free and avoids exceptions
+    for performance and safety inside the main loop.
+    """
+
+    # Guard against invalid buffer or out-of-bounds read.
+    if not block or off + 4 > len(block):
+        return None
+
+    # Manual big-endian reconstruction:
+    #   byte0 << 24
+    #   byte1 << 16
+    #   byte2 << 8
+    #   byte3
+    return (
+        (block[off] << 24)
+        | (block[off + 1] << 16)
+        | (block[off + 2] << 8)
+        | block[off + 3]
+    )
+# Reaction / hitstun IDs used as a crude "victim is being hit" signal
+REACTION_STATES = {48, 64, 65, 66, 73,79, 80, 81, 82, 90, 92, 95, 96, 97}
+
+MISSION_REACTION_STATES = {
+    48,   # Block
+    49,   # Crouching Block
+    50,   # Air block
+    52,   # Air pushblock
+    53,   # Crouch pushblock
+    60,   # Hit by Sweep Reaction
+    61,   # Stunned
+    62,   # Stumble
+    64,   # Standing Hitstun
+    65,   # Overhead Hitstun
+    66,   # Hit Low
+    73,   # knocked down (face up)
+    74,
+    75,   # Crumple
+    76,   # Crumple
+    79,   # Stagger
+    80,   # Hard Knockdown
+    81,   # Bounce Launched
+    82,   # Bounce Bounce off
+    83,   # Spiral
+    88,
+    89,   # Spiral Knockdown
+    90,   # Hard Knockdown
+    91,   # Soft Knockdown
+    92,   # Hard Knockdown
+    94,   # Soft Knockdown
+    95,   # Forced Roll
+    96,   # Soft Knockdown
+    97,   # Launched
+    98,   # Launched / related reaction
+    101,  # Air heavy hitstun
+    102,  # knocked down (face up)
+    105,  # OTG Hit (Face up)
+    106,  # OTG Hit (Face Down)
+    142,  
+    4608, # Captured
+    4609, # Captured
+    4610, # Captured
+    4611, # Captured
+    4613, # Captured
+    4614, # Captured
+    4615, # Captured / Hitgrab overlap in mapping
+    4616, # Captured
+    4617, # Captured
+    4618, # Captured
+    4619, # Captured
+    4620, # Captured
+    4621, # Captured
+    4622, # Captured
+    4623, # Captured
+    4625, # Captured
+    4562,
+    4565, # Back Throw victim
+    4568,
+    4571,
+    4573,
+    4631
+}
+MISSION_BLOCKSTUN_STATES = {
+    48,   # Block
+    49,   # Crouching Block
+    50,   # Air block
+    51,   # Push block
+    52,   # Air pushblock
+    53,   # Crouch pushblock
+}
+MISSION_IGNORE_LABELS = {
+    "",
+    "idle",
+    "crouched",
+    "crouching",
+}
+
+BAROQUE_CANCEL_STATES = {162, 163, 164}
+
+MISSION_REQUIRE_DAMAGE_CONFIRM = True
+
+MISSION_NON_DAMAGE_CONFIRM_LABELS = {
+    "baroque cancel",
+}
+
+MISSION_WHIFF_CONFIRM_LABELS = {
+    s.strip().lower()
+    for s in {
+        "Air Dash A", "Air Dash B", "Air Dash C",
+        "Weapon Switch Neutral A", "Weapon Switch Neutral B", "Weapon Switch Neutral C",
+        "Weapon Switch Forwards A", "Weapon Switch Forwards B", "Weapon Switch Forwards C",
+        "Weapon Switch Backwards A", "Weapon Switch Backwards B", "Weapon Switch Backwards C",
+        "Air Weapon Switch Forward A", "Air Weapon Switch Forward B", "Air Weapon Switch Forward C",
+        "Air Weapon Switch Backwards A", "Air Weapon Switch Backwards B", "Air Weapon Switch Backwards C",
+        "Air Weapon Switch Neutral A", "Air Weapon Switch Neutral B", "Air Weapon Switch Neutral C",
+        "Roll A", "Roll B", "Roll C", "Random Flight A", "Random Flight B", "Random Flight C",
+        "Air Random Flight A", "Air Random Flight B", "Air Random Flight C",
+        "Zombie Spree A", "Zombie Spree B", "Zombie Spree C", "Megacrash", "voltekka air", "One Handed Vacuum Spin",
+        "yatter run",
+
+        "Clutch A", "Clutch B", "Clutch C",
+        "Tree A", "Tree B", "Tree C",
+        "Rock A", "Rock B", "Rock C",
+        "Comfy","LOAD SUPER ARMOR PIERCING SHELL",
+        "Pummel A", "Pummel B", "Pummel C",
+        "Air Rock A", "Air Rock B", "Air Rock C",
+        "Quick Upper B", "yatter step","Omochama"
+    }
+}
+
+MISSION_GENERIC_VAR_LABELS = {
+    "VAR",
+    "var"
+    
+}
+
+MISSION_SELF_VAR_MISSIONS = {
+    "alex_011",
+    
+}
+
+DORONJO_DAMAGE_PASS = {
+    "clutch a": {2},
+    "clutch b": {2},
+    "clutch c": {2},
+    "pummel a": {880},
+    "pummel b": {880},
+    "pummel c": {880},
+    "tree a": {1360},
+    "tree b": {1360},
+    "tree c": {1360},
+    "rock a": {4480},
+    "rock b": {4480},
+    "rock c": {4480},
+}
+# TvC "giants" (PTX-40A, Gold Lightan). If you later add others, put IDs here.
+GIANT_IDS = {11, 22}
+
+HB_BTN_X, HB_BTN_Y = 8, 8
+HB_BTN_W, HB_BTN_H = 130, 22
+
+TOP_UI_RESERVED = HB_BTN_Y + HB_BTN_H + 12
+# ---------------------------------------------------------------------------
+# Assist tracking (per slot)
+# ---------------------------------------------------------------------------
+
+class AssistState:
+    """
+    Lightweight per-slot assist tracker.
+
+    We currently infer assists from the primary/secondary attack IDs.
+    Once assist animations are fully mapped, ASSIST_FLYIN_IDS /
+    ASSIST_ATTACK_IDS can be populated per character to refine this.
+    """
+    __slots__ = ("is_assisting", "phase", "last_anim")
+
+    def __init__(self):
+        self.is_assisting = False
+        self.phase = None
+        self.last_anim = None
+
+
+ASSIST_FLYIN_IDS = set()
+ASSIST_ATTACK_IDS = set()
+_ASSIST_BY_SLOT = {}
+
+
+def _copy_to_clipboard(text: str) -> None:
+    """
+    Attempt to copy a string value to the system clipboard.
+
+    Parameters
+    ----------
+    text : str
+        The string to copy. If empty or falsy, no action is taken.
+
+    Behavior
+    --------
+    - If pyperclip is available:
+          * Attempt to copy to the OS clipboard.
+          * Log success to stdout.
+    - If pyperclip is unavailable or raises:
+          * Fallback to printing the value to stdout.
+    - Never raises an exception.
+
+    Design Rationale
+    ----------------
+    Clipboard functionality is optional and must not break
+    the HUD runtime if:
+        - pyperclip is not installed
+        - OS clipboard access fails
+        - Permission errors occur
+
+    This function guarantees safe execution inside the
+    real-time loop.
+    """
+
+    if not text:
+        return
+
+    if pyperclip is not None:
+        try:
+            pyperclip.copy(text)
+            print(f"[copy] {text}")
+            return
+        except Exception as e:
+            print(f"[copy] failed ({e!r}) -> {text}")
+
+    # Fallback behavior when clipboard is unavailable.
+    print(f"[copy] (no pyperclip) -> {text}")
+
+def update_assist_for_snap(slotname: str, snap: dict, cur_anim: int | None) -> None:
+    """
+    Update per-slot assist state based on the current animation ID and
+    inject assist metadata into the fighter snapshot.
+
+    Parameters
+    ----------
+    slotname : str
+        Logical slot label (e.g. "P1-C1", "P2-C2").
+    snap : dict
+        Mutable fighter snapshot dictionary for the current frame.
+        This function augments it with assist-related fields.
+    cur_anim : int | None
+        Current animation ID (typically attA or attB).
+
+    Behavior
+    --------
+    Assist state is tracked per slot using a lightweight state machine:
+
+        None → flyin → attack → recover → None
+
+    State transitions are inferred from animation IDs:
+        - ASSIST_FLYIN_IDS   → enter "flyin"
+        - ASSIST_ATTACK_IDS  → enter "attack"
+        - Any other anim:
+              if previously assisting → transition to "recover"
+              if already recovering   → reset to idle
+
+    This logic is intentionally conservative. It does not attempt
+    to fully model assist lifecycle timing; it only infers phase
+    boundaries based on animation changes.
+
+    Side Effects
+    ------------
+    - Updates _ASSIST_BY_SLOT state cache.
+    - Mutates `snap` with:
+          snap["assist_phase"]
+          snap["is_assist"]
+    """
+
+    # Guard against invalid inputs.
+    if not slotname or snap is None:
+        return
+
+    # Retrieve or lazily initialize per-slot state container.
+    state = _ASSIST_BY_SLOT.get(slotname)
+    if state is None:
+        state = AssistState()
+        _ASSIST_BY_SLOT[slotname] = state
+
+    # Record the latest animation for debugging or future refinement.
+    state.last_anim = cur_anim
+
+    # -------------------------
+    # State transition logic
+    # -------------------------
+
+    if cur_anim in ASSIST_FLYIN_IDS:
+        # Assist has entered the screen.
+        state.is_assisting = True
+        state.phase = "flyin"
+
+    elif cur_anim in ASSIST_ATTACK_IDS:
+        # Assist is performing its attack.
+        state.is_assisting = True
+        state.phase = "attack"
+
+    else:
+        # If we were previously assisting, begin recovery phase.
+        if state.is_assisting and state.phase in ("flyin", "attack"):
+            state.phase = "recover"
+
+        # Once recovery frame passes without assist animations,
+        # fully reset to idle.
+        elif state.phase == "recover":
+            state.is_assisting = False
+            state.phase = None
+
+    # Inject computed assist metadata into the snapshot.
+    snap["assist_phase"] = state.phase
+    snap["is_assist"] = state.is_assisting
+def merged_debug_values():
+    """
+    Merge core debug flags and training flags into a single ordered list
+    for display in the debug overlay.
+
+    Behavior
+    --------
+    - Core debug flags are retrieved first.
+    - Training flags are appended after.
+    - If a "TrPause" entry exists, it is inserted directly beneath
+      the first core debug flag entry to keep pause-related controls grouped.
+
+    Ordering Rules
+    --------------
+    1. Core debug flags remain in their original order.
+    2. If TrPause exists:
+         - It is placed immediately after the first core flag.
+         - It is removed from its original position in training flags.
+    3. Remaining training flags are appended in original order.
+
+    Returns
+    -------
+    list
+        Ordered list of debug flag entries ready for rendering.
+    """
+
+    core_flags = read_debug_flags()
+    training = read_training_flags()
+
+    trpause_row = None
+    remaining_training = []
+
+    # Separate TrPause from other training flags.
+    for entry in training:
+        if entry and entry[0] == "TrPause" and trpause_row is None:
+            trpause_row = entry
+        else:
+            remaining_training.append(entry)
+
+    # Insert TrPause directly after the first core flag if present.
+    if trpause_row is not None:
+        if core_flags:
+            core_flags = [core_flags[0], trpause_row] + core_flags[1:]
+        else:
+            core_flags = [trpause_row]
+
+    return core_flags + remaining_training
+
+
+def safe_read_fighter(base: int, yoff: int) -> dict | None:
+    """
+    Safely read a fighter snapshot from memory.
+
+    This is a protective wrapper around `read_fighter` that ensures
+    memory read failures do not break the main HUD loop.
+
+    Parameters
+    ----------
+    base : int
+        Base address of the fighter structure in Dolphin memory.
+    yoff : int
+        Y-position offset used by the reader to resolve positional data.
+
+    Returns
+    -------
+    dict | None
+        Fighter snapshot dictionary if successful.
+        None if:
+            - read_fighter raises an exception
+            - read_fighter returns a falsy result
+
+    Design Rationale
+    ----------------
+    The HUD runs at 60 FPS and must never crash due to transient
+    memory access errors or pointer invalidation.
+
+    This wrapper:
+        - Catches exceptions from read_fighter
+        - Logs the failure with contextual base address
+        - Returns None instead of propagating the exception
+
+    This keeps the render loop stable even during:
+        - Character swaps
+        - Pointer churn
+        - Match state transitions
+    """
+
+    try:
+        snap = read_fighter(base, yoff)
+    except Exception as e:
+        print(f"[safe_read_fighter] read_fighter raised {e!r} for base=0x{base:08X}")
+        return None
+
+    if not snap:
+        return None
+
+    return snap
+
+def init_pygame():
+    """
+    Initialize pygame rendering context and UI resources.
+
+    Responsibilities
+    ----------------
+    - Configure Windows taskbar identity (if applicable)
+    - Initialize pygame subsystems
+    - Load primary and secondary fonts with fallback handling
+    - Create the main resizable display surface
+    - Set window title and icon
+
+    Returns
+    -------
+    tuple
+        (screen, main_font, small_font)
+
+        screen      : pygame.Surface
+        main_font   : pygame.font.Font
+        small_font  : pygame.font.Font
+
+    Design Notes
+    ------------
+    - Font loading uses Consolas when available for consistent
+      fixed-width alignment. Falls back to default pygame font
+      if unavailable.
+    - Window icon is resolved dynamically to support either:
+          assets/portraits/Placeholder.png
+          assets/icon.png
+    - All failures are handled gracefully to avoid breaking startup.
+    """
+
+    # Set Windows taskbar grouping ID so the HUD has a distinct identity.
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "TvCGUI.HUD.1"
+        )
+
+    pygame.init()
+
+    # Load main font with fallback.
+    try:
+        font = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
+    except Exception:
+        font = pygame.font.Font(None, FONT_MAIN_SIZE)
+
+    # Load secondary font with fallback.
+    try:
+        smallfont = pygame.font.SysFont("consolas", FONT_SMALL_SIZE)
+    except Exception:
+        smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
+
+    # Create resizable window.
+    screen = pygame.display.set_mode(
+        (SCREEN_W, SCREEN_H),
+        pygame.RESIZABLE
+    )
+
+    pygame.display.set_caption("TvC Continuo Tool")
+
+    # Resolve and apply window icon.
+    icon_path = os.path.join(
+        "assets",
+        "portraits",
+        "Placeholder.png"
+    )
+
+    if not os.path.exists(icon_path):
+        icon_path = os.path.join("assets", "icon.png")
+
+    if os.path.exists(icon_path):
+        icon = pygame.image.load(icon_path).convert_alpha()
+        pygame.display.set_icon(icon)
+
+    return screen, font, smallfont
+
+
+
+def resolve_bases(
+    last_base_by_ptr: dict,
+    y_off_by_base: dict
+) -> list[tuple[str, str, int | None]]:
+    """
+    Resolve active fighter base addresses for all configured slots.
+
+    Each slot entry in `SLOTS` provides:
+        - slotname   (e.g. "P1-C1")
+        - pointer address in RAM
+        - team tag   (e.g. "P1", "P2")
+
+    This function:
+        1. Reads the current base pointer from memory.
+        2. Validates that it points to RAM.
+        3. Detects base changes per pointer.
+        4. Invalidates cached meter data when a base changes.
+        5. Computes and caches the correct Y-offset for the new base.
+
+    Parameters
+    ----------
+    last_base_by_ptr : dict
+        Maps slot pointer address -> last resolved base.
+        Used to detect base changes between frames.
+    y_off_by_base : dict
+        Maps base address -> computed Y offset.
+        Populated lazily when a new base appears.
+
+    Returns
+    -------
+    list[tuple[str, str, int | None]]
+        List of (slotname, teamtag, base).
+        base is None if:
+            - pointer is invalid
+            - pointer does not resolve to RAM
+
+    Design Notes
+    ------------
+    - Pointer churn occurs during character swaps, KOs, assists, and match transitions.
+    - When a base changes:
+          * Meter cache must be invalidated.
+          * Y-offset must be recomputed.
+    - This function does not read fighter state.
+      It strictly resolves base pointers.
+    """
+
+    resolved = []
+
+    for slotname, ptr_addr, teamtag in SLOTS:
+
+        # Read raw base pointer from Dolphin memory.
+        raw_base = rd32(ptr_addr)
+
+        # Validate pointer.
+        if raw_base is None or not addr_in_ram(raw_base):
+            base = None
+        else:
+            base = raw_base
+
+        # Detect base change for this pointer.
+        changed = (
+            base is not None
+            and last_base_by_ptr.get(ptr_addr) != base
+        )
+
+        if base and changed:
+            # Update pointer-to-base tracking.
+            last_base_by_ptr[ptr_addr] = base
+
+            # Invalidate any cached meter state tied to the old base.
+            METER_CACHE.drop(base)
+
+            # Compute and cache the correct Y offset for this fighter.
+            y_off_by_base[base] = pick_posy_off_no_jump(base)
+
+        resolved.append((slotname, teamtag, base))
+
+    return resolved
+
+def compute_team_giant_solo(snaps: dict) -> tuple[bool, bool]:
+    """
+    Determine whether each team should be treated as a single-slot
+    giant character occupying both team panels.
+
+    A team is considered "giant_solo" only if:
+
+        1. C1 exists.
+        2. C1's character ID is in GIANT_IDS.
+        3. Either:
+             - C2 does not exist, or
+             - C2 resolves to the same base address as C1.
+
+    If a giant is present but a real partner exists with a different base,
+    the team is not treated as solo.
+
+    Parameters
+    ----------
+    snaps : dict
+        Mapping of slotname -> fighter snapshot.
+
+    Returns
+    -------
+    tuple[bool, bool]
+        (p1_giant_solo, p2_giant_solo)
+
+    Design Rationale
+    ----------------
+    TvC internally duplicates slot structures for giant characters.
+    In some states, both C1 and C2 may point to the same base.
+
+    This logic prevents false positives where:
+        - A giant is present,
+        - But a legitimate partner is also active.
+
+    The decision is purely structural and does not modify snaps.
+    """
+
+    def team_solo(prefix: str) -> bool:
+        c1 = snaps.get(f"{prefix}-C1")
+        c2 = snaps.get(f"{prefix}-C2")
+
+        # No primary character means not solo.
+        if not c1:
+            return False
+
+        c1_id = c1.get("id") or 0
+
+        # Only giant character IDs qualify.
+        if c1_id not in GIANT_IDS:
+            return False
+
+        # If no C2 exists, treat as solo.
+        if not c2:
+            return True
+
+        b1 = c1.get("base")
+        b2 = c2.get("base")
+
+        # If both slots resolve to the same base, treat as solo.
+        if isinstance(b1, int) and isinstance(b2, int) and b1 == b2:
+            return True
+
+        return False
+
+    return team_solo("P1"), team_solo("P2")
+
+def ensure_scan_now(last_scan_normals, last_scan_time):
+    """
+    Ensure that at least one normals scan payload is available.
+
+    This function is used when frame data is requested but the background
+    scan worker has not yet produced results.
+
+    Behavior
+    --------
+    - If cached scan data already exists, return it unchanged.
+    - If no data exists and deep scan support is available:
+          * Perform a synchronous scan.
+          * Update the scan timestamp.
+    - If scan support is unavailable or scan fails:
+          * Return (None, original_timestamp).
+
+    Parameters
+    ----------
+    last_scan_normals : Any
+        Most recent scan payload, or None.
+    last_scan_time : float
+        Timestamp of the last successful scan.
+
+    Returns
+    -------
+    tuple
+        (scan_payload, updated_timestamp)
+
+    Design Rationale
+    ----------------
+    The HUD primarily relies on an asynchronous worker thread for
+    normals scanning to avoid blocking the render loop.
+
+    However, when frame data is explicitly requested, we must guarantee
+    that at least one scan payload exists.
+
+    This function provides a safe synchronous fallback while preserving:
+        - Non-blocking behavior during normal operation
+        - Deterministic availability during manual requests
+    """
+
+    # If we already have scan data, return it unchanged.
+    if last_scan_normals is not None:
+        return last_scan_normals, last_scan_time
+
+    # Attempt synchronous fallback scan if supported.
+    if HAVE_SCAN_NORMALS and scan_normals_all is not None:
+        try:
+            data = scan_normals_all.scan_once()
+            return data, time.time()
+        except Exception as e:
+            print("sync scan failed:", e)
+            return None, last_scan_time
+
+    # No scan support available.
+    return None, last_scan_time
+
+def legacy_main():
+    """
+    Entry point for the TvC HUD runtime.
+
+    Responsibilities
+    ----------------
+    - Attach to Dolphin process
+    - Initialize rendering and assets
+    - Start background scan worker (if available)
+    - Maintain main event and render loop
+    - Coordinate memory reads, state tracking, and UI interaction
+
+    This function is intentionally monolithic due to:
+        - Real-time constraints
+        - Tight coupling between render, input, and memory state
+        - 60 FPS deterministic update loop
+
+    Subsections are logically segmented for clarity.
+    """
+
+    # ----------------------------------------------------------
+    # Dolphin hook and environment validation
+    # ----------------------------------------------------------
+
+    print("HUD: waiting for Dolphin...")
+    hook()
+    print("HUD: hooked Dolphin.")
+
+    # ----------------------------------------------------------
+    # Move mapping load
+    # ----------------------------------------------------------
+
+    # Load per-character and global move label mappings.
+    # These are used to resolve animation IDs into readable names.
+    move_map, global_map = load_move_map(
+        GENERIC_MAPPING_CSV,
+        PAIR_MAPPING_CSV
+    )
+
+    # ----------------------------------------------------------
+    # Rendering initialization
+    # ----------------------------------------------------------
+
+    screen, font, smallfont = init_pygame()
+    clock = pygame.time.Clock()
+
+    # ----------------------------------------------------------
+    # Portrait assets
+    # ----------------------------------------------------------
+
+    placeholder_portrait = load_portrait_placeholder()
+    portraits = load_portraits_from_dir(
+        os.path.join("assets", "portraits")
+    )
+
+    print(f"HUD: loaded {len(portraits)} portraits.")
+
+    # ----------------------------------------------------------
+    # Background normals scan worker
+    # ----------------------------------------------------------
+
+    if HAVE_SCAN_NORMALS and scan_normals_all is not None:
+        # Worker thread prevents blocking main loop during heavy scans.
+        scan_worker = ScanNormalsWorker(scan_normals_all.scan_once)
+        scan_worker.start()
+    else:
+        scan_worker = None
+
+    
+
+    # ----------------------------------------------------------
+    # Runtime state initialization
+    # ----------------------------------------------------------
+
+    # Normals scan tracking
+    last_scan_normals = None
+    last_scan_time = 0.0
+    scan_anim = None  # slide-in animation state for scan panel
+
+    def _scan_move_window_for_slot(slot_label: str, cur_anim: int | None):
+        if cur_anim is None or not last_scan_normals:
+            return None, None
+
+        try:
+            for slot_data in last_scan_normals:
+                if slot_data.get("slot_label") != slot_label:
+                    continue
+                for mv in slot_data.get("moves", []):
+                    if mv.get("id") == cur_anim:
+                        return mv.get("active_start"), mv.get("active_end")
+        except Exception:
+            pass
+
+        return None, None
+
+    # Base pointer tracking
+    last_base_by_ptr = {}     # ptr_addr -> last resolved base
+    y_off_by_base = {}        # base -> cached Y offset
+
+    # Health and baroque tracking
+    prev_hp = {}              # base -> previous HP (for damage detection)
+    pool_baseline = {}        # base -> max observed pool byte
+    char_meta_by_base = {}    # base -> cached character metadata
+
+    # Move and character tracking
+    last_move_anim_id = {}    # base -> last animation ID
+    last_char_by_slot = {}    # slotname -> last character name
+    baroque_latch_by_base = {}   # base -> remaining latch frames for baroque cancel
+    last_baroque_pct_by_base = {}  # base -> previous baroque red percent of max HP
+    last_baroque_ready_by_base = {}  # base -> previous baroque-ready state
+    baroque_peak_by_base = {}    # base -> peak observed baroque red pct (for spend detection)
+    # Render cache
+    render_snap_by_slot = {}      # slotname -> latest snap for rendering
+    render_portrait_by_slot = {}  # slotname -> portrait surface
+
+    # Panel animation state
+    panel_anim = {}               # slotname -> animation state dict
+    anim_queue_after_scan = set() # pending fadein/fadeout triggers
+    panel_btn_flash = {
+        s: 0 for (s, _, _) in SLOTS
+    }
+
+    # Manual scan triggers
+    manual_scan_requested = False
+    need_rescan_normals = False
+
+    # Frame advantage display
+    last_adv_display = ""
+
+    # Hit logging buffer
+    pending_hits = []
+
+    # Frame counter
+    frame_idx = 0
+
+    def _new_mission_runtime(
+        slot=None,
+        mission_id=None,
+        clear_seq=0,
+        celebrate_token=0,
+        celebrate_pending=False,
+        celebrate_acked_token=0,
+    ) -> dict:
+        return {
+            "slot": slot,
+            "mission_id": mission_id,
+            "progress_index": 0,
+            "last_seen_label": "",
+            "last_seen_anim": None,
+            "last_seen_hitstun": False,
+            "last_inputs": {},
+            "hitstun_grace": 0,
+            "pending_step_index": None,
+            "pending_labels": [],
+            "pending_anim": None,
+            "opponent_hp_by_base": {},
+            "goal_state_frames": 0,
+            "goal_combo_damage": 0,
+            "goal_combo_hits": 0,
+            "goal_failed": False,
+            "goal_last_damage_frame": -1,
+            "clear_seq": int(clear_seq),
+            "celebrate_token": int(celebrate_token),
+            "celebrate_pending": bool(celebrate_pending),
+            "celebrate_acked_token": int(celebrate_acked_token),
+            "saved_p1meter_flag": None,
+            "saved_baroque_flag": None,
+            "saved_meter_flag_mission": None,
+            "reset_grace_frames": 0,
+            "reset_grace_labels": [],
+            "shell_install_hold": 0,
+            "post_install_hold_frames": 0,
+            "shell_installed": False,
+            "shell_release_grace": 0,
+        }
+
+    mission_runtime = _new_mission_runtime()
+
+    mission_selector = {
+        "open": False,
+        "selected_index": 0,
+        "sequence": [],
+        "last_crouch": False,
+        "last_taunt_down": False,
+        "opened_at": 0.0,
+        "hint_until": 0.0,
+    }
+    mission_setup_state = {
+        "mission_key": None,
+        "saved_debug_values": {},
+        "applied_debug_values": {},
+    }
+
+    def _resolve_debug_flag_addr(name: str) -> int | None:
+        # First try the live merged debug/training rows.
+        # This is important because CpuAction comes from training flags,
+        # not from config.py's static DEBUG_FLAG_ADDRS list.
+        try:
+            for entry in merged_debug_values():
+                if not entry or not isinstance(entry, (tuple, list)):
+                    continue
+
+                entry_name = entry[0] if len(entry) >= 1 else None
+                if entry_name != name:
+                    continue
+
+                # Find the first integer in the remainder of the row and treat it as addr.
+                for item in entry[1:]:
+                    if isinstance(item, int):
+                        return item
+        except Exception as e:
+            print(f"[mission setup] merged lookup failed for {name!r}: {e!r}")
+
+        # Fallback: support both dict-style and list-of-tuples style DEBUG_FLAG_ADDRS.
+        try:
+            if isinstance(DEBUG_FLAG_ADDRS, dict):
+                entry = DEBUG_FLAG_ADDRS.get(name)
+
+                if isinstance(entry, int):
+                    return entry
+
+                if isinstance(entry, dict):
+                    addr = entry.get("addr")
+                    if isinstance(addr, int):
+                        return addr
+                    addr = entry.get("address")
+                    if isinstance(addr, int):
+                        return addr
+
+                if isinstance(entry, (tuple, list)):
+                    for item in entry:
+                        if isinstance(item, int):
+                            return item
+
+            elif isinstance(DEBUG_FLAG_ADDRS, (list, tuple)):
+                for entry in DEBUG_FLAG_ADDRS:
+                    if not isinstance(entry, (tuple, list)) or len(entry) < 2:
+                        continue
+
+                    entry_name = entry[0]
+                    entry_addr = entry[1]
+
+                    if entry_name == name and isinstance(entry_addr, int):
+                        return entry_addr
+        except Exception as e:
+            print(f"[mission setup] static lookup failed for {name!r}: {e!r}")
+
+        print(f"[mission setup] missing debug flag addr for {name!r}")
+        return None
+
+    def _read_debug_flag_value(name: str) -> int | None:
+        addr = _resolve_debug_flag_addr(name)
+        if not isinstance(addr, int):
+            return None
+        try:
+            return rd8(addr)
+        except Exception:
+            return None
+
+    def _write_debug_flag_value(name: str, value: int) -> bool:
+        addr = _resolve_debug_flag_addr(name)
+        if not isinstance(addr, int):
+            print(f"[mission setup] missing debug flag addr for {name!r}")
+            return False
+
+        try:
+            wd8(addr, max(0, min(255, int(value))))
+            return True
+        except Exception as e:
+            print(f"[mission setup] write failed for {name!r}: {e!r}")
+            return False
+
+    def _extract_active_mission_debug_overrides(payload: dict) -> dict[str, int]:
+        if not isinstance(payload, dict):
+            return {}
+
+        raw = (
+            payload.get("active_mission_setup_debug_flags")
+            or payload.get("active_mission_debug_flags")
+        )
+        if isinstance(raw, dict):
+            out = {}
+            for key, value in raw.items():
+                try:
+                    out[str(key)] = max(0, min(255, int(value)))
+                except Exception:
+                    pass
+            return out
+
+        active_id = payload.get("active_mission_id")
+        missions = payload.get("missions") or []
+
+        for mission in missions:
+            if not isinstance(mission, dict):
+                continue
+            if mission.get("mission_id") != active_id:
+                continue
+
+            raw = (
+                mission.get("setup_debug_flags")
+                or mission.get("debug_flags")
+                or {}
+            )
+
+            if not isinstance(raw, dict):
+                return {}
+
+            out = {}
+            for key, value in raw.items():
+                try:
+                    out[str(key)] = max(0, min(255, int(value)))
+                except Exception:
+                    pass
+            return out
+
+        return {}
+
+    def _restore_mission_debug_overrides() -> None:
+        saved = dict(mission_setup_state.get("saved_debug_values") or {})
+
+        for name, original_value in saved.items():
+            if isinstance(original_value, int):
+                _write_debug_flag_value(name, original_value)
+                print(
+                    f"[mission setup restore] {name} -> {original_value}"
+                )
+
+        mission_setup_state["mission_key"] = None
+        mission_setup_state["saved_debug_values"] = {}
+        mission_setup_state["applied_debug_values"] = {}
+
+    def _sync_mission_debug_overrides(payload: dict) -> None:
+        if not isinstance(payload, dict) or not payload.get("active"):
+            if mission_setup_state.get("mission_key") is not None:
+                _restore_mission_debug_overrides()
+            return
+
+        overrides = _extract_active_mission_debug_overrides(payload)
+        mission_key = (
+            payload.get("slot"),
+            payload.get("character"),
+            payload.get("active_mission_id"),
+        )
+
+        if not overrides:
+            if mission_setup_state.get("mission_key") is not None:
+                _restore_mission_debug_overrides()
+            return
+
+        current_key = mission_setup_state.get("mission_key")
+
+        if current_key != mission_key:
+            if current_key is not None:
+                _restore_mission_debug_overrides()
+
+            saved = {}
+            applied = {}
+
+            for name, wanted_value in overrides.items():
+                current_value = _read_debug_flag_value(name)
+                if isinstance(current_value, int):
+                    saved[name] = current_value
+
+                if _write_debug_flag_value(name, wanted_value):
+                    applied[name] = wanted_value
+                    print(
+                        f"[mission setup apply] "
+                        f"mission={payload.get('active_mission_id')} "
+                        f"{name}: {current_value} -> {wanted_value}"
+                    )
+
+            if applied:
+                mission_setup_state["mission_key"] = mission_key
+                mission_setup_state["saved_debug_values"] = saved
+                mission_setup_state["applied_debug_values"] = applied
+            else:
+                mission_setup_state["mission_key"] = None
+                mission_setup_state["saved_debug_values"] = {}
+                mission_setup_state["applied_debug_values"] = {}
+            return
+
+        for name, wanted_value in (mission_setup_state.get("applied_debug_values") or {}).items():
+            current_value = _read_debug_flag_value(name)
+            if current_value != wanted_value:
+                _write_debug_flag_value(name, wanted_value)    
+    # HUD overlay subprocess (Dolphin-parented transparent window)
+    HUD_OVERLAY_DATA_FILE = "hud_overlay_data.json"
+    hud_overlay_proc = None
+    hud_overlay_active = False
+
+    
+    
+
+    def _write_hud_overlay_data(snaps_dict: dict, scan_normals=None) -> None:
+        payload = {}
+
+        mission_var = {}
+        if mission_active_slot:
+            try:
+                mission_var = _mission_var_state(mission_active_slot, snaps_dict)
+            except Exception:
+                mission_var = {}
+
+        for slot_label, snap in snaps_dict.items():
+            cur_anim  = snap.get("attA") or snap.get("attB")
+            mv_label  = snap.get("mv_label")
+            active_start = None
+            active_end   = None
+
+            if scan_normals and cur_anim is not None:
+                for slot_data in scan_normals:
+                    if slot_data.get("slot_label") == slot_label:
+                        for mv in slot_data.get("moves", []):
+                            if mv.get("id") == cur_anim:
+                                active_start = mv.get("active_start")
+                                active_end   = mv.get("active_end")
+                                break
+                        break
+
+            payload[slot_label] = {
+                "name":                   snap.get("name"),
+                "cur":                    snap.get("cur"),
+                "max":                    snap.get("max"),
+                "meter":                  snap.get("meter"),
+                "mv_id_display":          cur_anim,
+                "mv_label":               mv_label,
+                "baroque_ready_local":    snap.get("baroque_ready_local", False),
+                "baroque_red_pct_max":    snap.get("baroque_red_pct_max", 0.0),
+                "baroque_cancel_raw":     snap.get("baroque_cancel_raw", False),
+                "baroque_cancel_latched": snap.get("baroque_cancel_latched", False),
+                "baroque_cancel_frames":  snap.get("baroque_cancel_latch_frames", 0),
+                "active_start":           active_start,
+                "active_end":             active_end,
+                "mission_target":         slot_label == mission_active_slot,
+                "mission_var_partner":    slot_label == mission_var.get("partner_slot"),
+                "mission_wrong_ready":    bool(
+                    mission_var.get("wrong_character_ready", False)
+                    and slot_label == mission_var.get("partner_slot")
+                ),
+                "mission_var_ready":      bool(
+                    mission_var.get("partner_airborne", False)
+                    and slot_label == mission_var.get("partner_slot")
+                ),
+                "mission_varing":         bool(
+                    mission_var.get("partner_varing", False)
+                    and slot_label == mission_var.get("partner_slot")
+                ),
+            }
+        try:
+            with open(HUD_OVERLAY_DATA_FILE, "w") as f:
+                json.dump(payload, f)
+        except Exception:
+            pass
+
+    def _launch_hud_overlay() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        try:
+            hud_overlay_proc = subprocess.Popen(
+                [sys.executable, "hud_overlay.py"],
+                creationflags=(
+                    subprocess.CREATE_NEW_CONSOLE
+                    if sys.platform == "win32"
+                    else 0
+                ),
+            )
+            hud_overlay_active = True
+            if sys.platform == "win32":
+                import ctypes
+                hwnd = pygame.display.get_wm_info().get("window")
+                if hwnd:
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception as e:
+            print(f"[hud_overlay] failed to launch: {e}")
+
+    def _stop_hud_overlay() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        if hud_overlay_proc and hud_overlay_proc.poll() is None:
+            hud_overlay_proc.terminate()
+        hud_overlay_proc = None
+        hud_overlay_active = False
+
+    def _check_hud_overlay_proc() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        if hud_overlay_proc and hud_overlay_proc.poll() is not None:
+            hud_overlay_proc = None
+            hud_overlay_active = False
+
+    def _launch_hud_overlay() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        try:
+            hud_overlay_proc = subprocess.Popen(
+                [sys.executable, "hud_overlay.py"],
+                creationflags=(
+                    subprocess.CREATE_NEW_CONSOLE
+                    if sys.platform == "win32"
+                    else 0
+                ),
+            )
+            hud_overlay_active = True
+            if sys.platform == "win32":
+                import ctypes
+                hwnd = pygame.display.get_wm_info().get("window")
+                if hwnd:
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+        except Exception as e:
+            print(f"[hud_overlay] failed to launch: {e}")
+
+    def _stop_hud_overlay() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        if hud_overlay_proc and hud_overlay_proc.poll() is None:
+            hud_overlay_proc.terminate()
+        hud_overlay_proc = None
+        hud_overlay_active = False
+
+    def _check_hud_overlay_proc() -> None:
+        nonlocal hud_overlay_proc, hud_overlay_active
+        if hud_overlay_proc and hud_overlay_proc.poll() is not None:
+            hud_overlay_proc = None
+            hud_overlay_active = False
+    # ----------------------------------------------------------
+    # Master overlay subprocess management
+    # ----------------------------------------------------------
+    master_overlay_proc = None
+    master_overlay_active = False
+    overlay_enabled = True
+    def _launch_master_overlay():
+        nonlocal master_overlay_proc, master_overlay_active
+        try:
+            master_overlay_proc = subprocess.Popen(
+                [sys.executable, "master_overlay.py"],
+                creationflags=(
+                    subprocess.CREATE_NEW_CONSOLE
+                    if sys.platform == "win32"
+                    else 0
+                ),
+            )
+            master_overlay_active = True
+            print("[master] launched")
+        except Exception as e:
+            print(f"[master] launch failed: {e}")
+
+    def _stop_master_overlay():
+        nonlocal master_overlay_proc, master_overlay_active
+        if master_overlay_proc and master_overlay_proc.poll() is None:
+            try:
+                master_overlay_proc.terminate()
+            except Exception:
+                pass
+        master_overlay_proc = None
+        master_overlay_active = False
+        print("[master] stopped")
+
+    def _check_master_overlay_proc():
+        nonlocal master_overlay_proc, master_overlay_active
+        if master_overlay_proc and master_overlay_proc.poll() is not None:
+            master_overlay_proc = None
+            master_overlay_active = False
+            print("[master] closed")
+    def _sync_master_overlay_state():
+        nonlocal master_overlay_active
+
+        want_hitboxes = any(hitbox_slots.values())
+        want_process = overlay_enabled or want_hitboxes
+
+        if want_process and not master_overlay_active:
+            _launch_master_overlay()
+        elif not want_process and master_overlay_active:
+            _stop_master_overlay()
+
+    running = True
+
+    # Debug overlay caching
+    debug_cache = []
+    DEBUG_REFRESH_EVERY = 6
+    # ----------------------------------------------------------
+    # Hitbox overlay subprocess management
+    # ----------------------------------------------------------
+    HITBOX_FILTER_FILE = "hitbox_filter.json"
+
+    hitbox_proc = None        # subprocess.Popen handle
+    hitbox_active = False     # logical state flag
+
+    # Slot filter state persisted for master overlay hitbox renderer
+    hitbox_slots = {
+        "P1": True,
+        "P2": True,
+        "P3": True,
+        "P4": True,
+    }
+    mission_active_slot = None
+
+    def _write_master_control():
+        payload = {
+            "show_hud": overlay_enabled,
+            "show_hitboxes": any(hitbox_slots.values()),
+            "show_debug": False,
+        }
+        try:
+            with open(MASTER_CONTROL_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception:
+            pass
+
+    def _select_mission_for_active_slot(delta: int) -> None:
+        nonlocal mission_runtime
+
+        if not mission_active_slot:
+            return
+
+        snap = render_snap_by_slot.get(mission_active_slot)
+        character_name = snap.get("name") if snap else None
+        if not character_name:
+            return
+
+        payload = build_overlay_payload(character_name)
+        missions = payload.get("missions", [])
+        if not missions:
+            return
+
+        active_id = payload.get("active_mission_id")
+        idx = 0
+        for i, mission in enumerate(missions):
+            if mission.get("mission_id") == active_id:
+                idx = i
+                break
+
+        new_idx = (idx + delta) % len(missions)
+        new_id = missions[new_idx].get("mission_id")
+
+        progress = load_progress()
+        progress = set_selected_mission_id(progress, character_name, new_id)
+        save_progress(progress)
+
+        mission_runtime = _new_mission_runtime(slot=mission_active_slot)
+
+        _write_mission_overlay_data()
+    def _mission_label_is_crouch(label: str) -> bool:
+        text = (label or "").strip().lower()
+        return text in {"crouched", "crouching"}
+
+    def _mission_label_is_taunt(label: str) -> bool:
+        text = (label or "").strip().lower()
+        return text == "taunt"
+
+    def _mission_close_selector() -> None:
+        mission_selector["open"] = False
+        mission_selector["sequence"] = []
+        mission_selector["sequence"] = []
+        mission_selector["opened_at"] = 0.0
+
+    def _mission_open_selector(character_name: str) -> None:
+        payload = build_overlay_payload(character_name)
+        missions = payload.get("missions", [])
+        active_id = payload.get("active_mission_id")
+
+        idx = 0
+        for i, mission in enumerate(missions):
+            if mission.get("mission_id") == active_id:
+                idx = i
+                break
+
+        mission_selector["open"] = True
+        mission_selector["selected_index"] = idx
+        mission_selector["opened_at"] = now
+        mission_selector["hint_until"] = now + 8.0
+        mission_selector["sequence"] = []
+
+    def _mission_selector_source_slot(snaps_dict: dict) -> str | None:
+        if not mission_active_slot:
+            return None
+
+        active_snap = snaps_dict.get(mission_active_slot) or render_snap_by_slot.get(mission_active_slot)
+        if not active_snap:
+            return mission_active_slot
+
+        teamtag = active_snap.get("teamtag")
+        if not teamtag:
+            return mission_active_slot
+
+        team_slots = [s for s in (f"{teamtag}-C1", f"{teamtag}-C2") if s in snaps_dict]
+
+        if not team_slots:
+            return mission_active_slot
+
+        team_active = _mission_team_active_slot(mission_active_slot, snaps_dict)
+        if team_active in team_slots:
+            return team_active
+
+        return mission_active_slot if mission_active_slot in team_slots else team_slots[0]
+
+    def _consume_mission_select_command() -> None:
+        nonlocal mission_runtime
+
+        try:
+            with open(MISSION_SELECT_FILE, "r", encoding="utf-8") as f:
+                cmd = json.load(f)
+        except Exception:
+            return
+
+        try:
+            os.remove(MISSION_SELECT_FILE)
+        except Exception:
+            pass
+
+        if not isinstance(cmd, dict):
+            return
+
+        action = cmd.get("action")
+        if action == "close":
+            _mission_close_selector()
+            return
+
+        if action != "select":
+            return
+
+        slot = cmd.get("slot")
+        mission_id = cmd.get("mission_id")
+
+        if slot != mission_active_slot or not mission_id:
+            return
+
+        snap = render_snap_by_slot.get(mission_active_slot)
+        character_name = snap.get("name") if snap else None
+        if not character_name:
+            return
+
+        progress = load_progress()
+        progress = set_selected_mission_id(progress, character_name, mission_id)
+        save_progress(progress)
+
+        mission_runtime = _new_mission_runtime(slot=mission_active_slot)
+        _mission_close_selector()
+
+    def _consume_mission_celebrate_ack() -> None:
+        nonlocal mission_runtime
+
+        try:
+            with open(MISSION_CELEBRATE_ACK_FILE, "r", encoding="utf-8") as f:
+                ack = json.load(f)
+        except Exception:
+            return
+
+        try:
+            os.remove(MISSION_CELEBRATE_ACK_FILE)
+        except Exception:
+            pass
+
+        if not isinstance(ack, dict):
+            return
+
+        ack_token = int(ack.get("celebrate_token", 0) or 0)
+        current_token = int(mission_runtime.get("celebrate_token", 0) or 0)
+
+        if ack_token > 0 and ack_token == current_token:
+            mission_runtime["celebrate_acked_token"] = ack_token
+            mission_runtime["celebrate_pending"] = False
+
+    def _mission_update_selector_from_inputs(snaps_dict: dict) -> None:
+        nonlocal mission_runtime, mission_active_slot
+
+        if not mission_active_slot:
+            _mission_close_selector()
+            return
+
+        selector_slot = _mission_selector_source_slot(snaps_dict)
+        if not selector_slot:
+            _mission_close_selector()
+            return
+
+        snap = snaps_dict.get(selector_slot) or render_snap_by_slot.get(selector_slot)
+        if not snap:
+            _mission_close_selector()
+            return
+
+        character_name = snap.get("name")
+        if not character_name:
+            _mission_close_selector()
+            return
+
+        payload = build_overlay_payload(character_name)
+        missions = payload.get("missions", [])
+        if not missions:
+            _mission_close_selector()
+            return
+
+        current_label = snap.get("mv_label") or ""
+        crouch_now = _mission_label_is_crouch(current_label)
+        crouch_rising = crouch_now and not mission_selector["last_crouch"]
+
+        taunt_now = _mission_label_is_taunt(current_label)
+        taunt_rising = taunt_now and not mission_selector["last_taunt_down"]
+
+        if mission_selector["open"]:
+            if now - mission_selector["opened_at"] > 8.0:
+                _mission_close_selector()
+            else:
+                if crouch_rising:
+                    mission_selector["selected_index"] = (
+                        int(mission_selector.get("selected_index", 0)) + 1
+                    ) % len(missions)
+                    mission_selector["opened_at"] = now
+                    mission_selector["hint_until"] = now + 8.0
+
+                if taunt_rising:
+                    idx = int(mission_selector.get("selected_index", 0)) % len(missions)
+                    mission = missions[idx]
+                    mission_id = mission.get("mission_id")
+
+                    if mission_id:
+                        progress = load_progress()
+                        progress = set_selected_mission_id(progress, character_name, mission_id)
+                        save_progress(progress)
+
+                        mission_active_slot = selector_slot
+                        mission_runtime = _new_mission_runtime(slot=mission_active_slot)
+                        _mission_close_selector()
+                        _write_mission_mode_state()
+                        _write_mission_overlay_data()
+        else:
+            if crouch_rising:
+                seq = mission_selector["sequence"]
+                if not seq or (now - seq[-1]) <= 0.9:
+                    seq.append(now)
+                else:
+                    seq[:] = [now]
+
+                if len(seq) > 2:
+                    del seq[:-2]
+
+            if taunt_rising and len(mission_selector["sequence"]) >= 2:
+                if (mission_selector["sequence"][-1] - mission_selector["sequence"][-2]) <= 0.9:
+                    mission_active_slot = selector_slot
+                    mission_runtime = _new_mission_runtime(slot=mission_active_slot)
+                    _mission_open_selector(character_name)
+                    _write_mission_mode_state()
+                    _write_mission_overlay_data()
+
+        mission_selector["last_crouch"] = crouch_now
+        mission_selector["last_taunt_down"] = taunt_now
+    def _mission_opponent_in_state(slot_label: str, snaps_dict: dict, state_ids: set[int]) -> bool:
+        if not slot_label:
+            return False
+
+        my_team = "P1" if slot_label.startswith("P1") else "P2"
+
+        for other_slot, other_snap in snaps_dict.items():
+            if not isinstance(other_snap, dict):
+                continue
+            if other_snap.get("teamtag") == my_team:
+                continue
+
+            other_mv = other_snap.get("attA") or other_snap.get("attB")
+            if other_mv in state_ids:
+                return True
+
+        return False
+
+    def _mission_opponent_in_hitstun(slot_label: str, snaps_dict: dict) -> bool:
+        return _mission_opponent_in_state(slot_label, snaps_dict, MISSION_REACTION_STATES)
+
+    MISSION_ASSIST_OFF_STATES = {430, 432, 433}
+    MISSION_AIRBORNE_LABEL_TOKENS = (
+        "jump",
+        "air ",
+        "j.",
+        "air dash",
+        "air weapon switch",
+        "air random flight",
+    )
+    MISSION_VAR_LABEL_TOKENS = (
+        "weapon switch",
+        "variable air raid",
+        "var",
+    )
+
+    def _mission_partner_slot(slot_label: str) -> str | None:
+        if slot_label.endswith("C1"):
+            return slot_label[:-2] + "C2"
+        if slot_label.endswith("C2"):
+            return slot_label[:-2] + "C1"
+        return None
+
+    def _mission_team_active_slot(slot_label: str, snaps_dict: dict) -> str | None:
+        team_prefix = "P1" if slot_label.startswith("P1") else "P2"
+        c1_label = f"{team_prefix}-C1"
+        c2_label = f"{team_prefix}-C2"
+
+        s1 = snaps_dict.get(c1_label)
+        s2 = snaps_dict.get(c2_label)
+
+        if s1 and not s2:
+            return c1_label
+        if s2 and not s1:
+            return c2_label
+        if not s1 and not s2:
+            return None
+
+        mv1 = s1.get("attA") or s1.get("attB") or 0
+        mv2 = s2.get("attA") or s2.get("attB") or 0
+
+        c1_off = mv1 in MISSION_ASSIST_OFF_STATES
+        c2_off = mv2 in MISSION_ASSIST_OFF_STATES
+
+        if c2_off and not c1_off:
+            return c1_label
+        if c1_off and not c2_off:
+            return c2_label
+
+        return c1_label
+
+    def _mission_slot_is_airborne(snap: dict) -> bool:
+        if not isinstance(snap, dict):
+            return False
+
+        label = (snap.get("mv_label") or "").strip().lower()
+        if not label:
+            return False
+
+        if "landing" in label:
+            return False
+
+        return any(token in label for token in MISSION_AIRBORNE_LABEL_TOKENS)
+
+    def _mission_slot_is_varing(snap: dict) -> bool:
+        if not isinstance(snap, dict):
+            return False
+
+        label = (snap.get("mv_label") or "").strip().lower()
+        if not label:
+            return False
+
+        return any(token in label for token in MISSION_VAR_LABEL_TOKENS)
+
+    def _mission_var_state(slot_label: str, snaps_dict: dict) -> dict:
+        partner_slot = _mission_partner_slot(slot_label)
+        partner_snap = snaps_dict.get(partner_slot) if partner_slot else None
+        target_snap = snaps_dict.get(slot_label)
+        active_slot = _mission_team_active_slot(slot_label, snaps_dict)
+
+        partner_exists = (
+            isinstance(partner_snap, dict)
+            and isinstance(target_snap, dict)
+            and partner_snap.get("base") != target_snap.get("base")
+        )
+
+        wrong_character_ready = bool(
+            partner_exists
+            and active_slot == partner_slot
+            and active_slot != slot_label
+        )
+
+        partner_airborne = bool(
+            wrong_character_ready
+            and _mission_slot_is_airborne(partner_snap)
+        )
+
+        partner_varing = bool(
+            wrong_character_ready
+            and _mission_slot_is_varing(partner_snap)
+        )
+
+        return {
+            "target_slot": slot_label,
+            "partner_slot": partner_slot,
+            "team_active_slot": active_slot,
+            "partner_exists": partner_exists,
+            "wrong_character_ready": wrong_character_ready,
+            "partner_airborne": partner_airborne,
+            "partner_varing": partner_varing,
+            "var_ready": partner_airborne,
+        }
+
+    def _mission_label_is_ignorable(label: str) -> bool:
+        return (label or "").strip().lower() in MISSION_IGNORE_LABELS
+
+    def _mission_is_direction_input_key(key: str) -> bool:
+        text = (key or "").strip().lower()
+        return any(token in text for token in (
+            "up", "down", "left", "right", "dir", "stick", "analog", "xaxis", "yaxis"
+        ))
+
+    def _mission_has_fresh_attack_input(current_inputs: dict, last_inputs: dict) -> bool:
+        if not isinstance(current_inputs, dict) or not current_inputs:
+            return False
+
+        if not isinstance(last_inputs, dict):
+            last_inputs = {}
+
+        for key, cur_val in current_inputs.items():
+            if _mission_is_direction_input_key(key):
+                continue
+
+            cur_pressed = int(cur_val or 0) != 0
+            prev_pressed = int(last_inputs.get(key, 0) or 0) != 0
+
+            if cur_pressed and not prev_pressed:
+                return True
+
+        return False
+
+    def _mission_opponent_damage_values_this_frame(slot_label: str, snaps_dict: dict) -> list[int]:
+        if not slot_label:
+            return []
+
+        my_team = "P1" if slot_label.startswith("P1") else "P2"
+        hp_cache = mission_runtime.setdefault("opponent_hp_by_base", {})
+        live_bases = set()
+        damage_values = []
+
+        for other_slot, other_snap in snaps_dict.items():
+            if not isinstance(other_snap, dict):
+                continue
+            if other_snap.get("teamtag") == my_team:
+                continue
+
+            base = other_snap.get("base")
+            cur_hp = other_snap.get("cur")
+
+            if not isinstance(base, int) or not isinstance(cur_hp, int):
+                continue
+
+            live_bases.add(base)
+            prev_hp_val = hp_cache.get(base)
+
+            if isinstance(prev_hp_val, int) and cur_hp < prev_hp_val:
+                damage_values.append(prev_hp_val - cur_hp)
+
+            hp_cache[base] = cur_hp
+
+        for base in list(hp_cache.keys()):
+            if base not in live_bases:
+                del hp_cache[base]
+
+        return damage_values
+
+
+    def _mission_step_has_non_damage_confirm(
+        expected_labels: list[str],
+        snap: dict,
+        current_label: str,
+    ) -> bool:
+        labels_norm = {
+            str(x).strip().lower()
+            for x in (expected_labels or [])
+            if str(x).strip()
+        }
+
+        if not labels_norm:
+            return False
+
+        current_norm = (current_label or "").strip().lower()
+
+        if "baroque cancel" in labels_norm:
+            if current_norm == "baroque cancel":
+                return True
+            if snap.get("baroque_cancel_latched") or snap.get("baroque_cancel_raw"):
+                return True
+
+        if labels_norm & MISSION_NON_DAMAGE_CONFIRM_LABELS:
+            if current_norm in labels_norm:
+                return True
+
+        return False
+
+    def _mission_step_allows_whiff_confirm(expected_labels: list[str]) -> bool:
+        labels_norm = {
+            str(x).strip().lower()
+            for x in (expected_labels or [])
+            if str(x).strip()
+        }
+
+        if not labels_norm:
+            return False
+
+        matched = labels_norm & MISSION_WHIFF_CONFIRM_LABELS
+
+        if matched:
+            print(f"[mission whiff confirm allowed] labels={sorted(matched)!r}")
+
+        return bool(matched)
+
+    def _mission_step_allows_zero_damage_confirm(
+        character_name: str,
+        expected_labels: list[str],
+        current_label: str,
+    ) -> bool:
+        current_norm = (current_label or "").strip().lower()
+
+        if character_name != "Saki":
+            return False
+
+        return current_norm == "load super armor piercing shell"
+
+    def _mission_saki_shell_release_label(label: str) -> bool:
+        text = (label or "").strip().lower()
+        return text in {"5c", "j.c", "j.b"}
+
+    def _mission_is_saki_shell_label(label: str) -> bool:
+        text = (label or "").strip().lower()
+        return text == "load super armor piercing shell"
+    def _mission_labels_norm(expected_labels: list[str]) -> set[str]:
+        return {
+            str(x).strip().lower()
+            for x in (expected_labels or [])
+            if str(x).strip()
+        }
+
+    def _mission_step_needs_reset_grace(character_name: str, expected_labels: list[str]) -> bool:
+        labels_norm = _mission_labels_norm(expected_labels)
+
+        if not labels_norm:
+            return False
+
+        if character_name != "Saki":
+            return False
+
+        return "j.c" in labels_norm
+
+    def _mission_reset_grace_accepts_label(character_name: str, label: str) -> bool:
+        text = (label or "").strip().lower()
+
+        if character_name != "Saki":
+            return False
+
+        return text == "j.c"
+    def _mission_step_is_generic_partner_var(
+        mission_id: str,
+        expected_labels: list[str],
+    ) -> bool:
+        if mission_id in MISSION_SELF_VAR_MISSIONS:
+            return False
+
+        labels_norm = {
+            str(x).strip().lower()
+            for x in (expected_labels or [])
+            if str(x).strip()
+        }
+        if not labels_norm:
+            return False
+
+        return bool(labels_norm & MISSION_GENERIC_VAR_LABELS)
+
+    def _mission_partner_matches_generic_var(slot_label: str, snaps_dict: dict) -> bool:
+        partner_slot = None
+
+        if slot_label.endswith("C1"):
+            partner_slot = slot_label[:-2] + "C2"
+        elif slot_label.endswith("C2"):
+            partner_slot = slot_label[:-2] + "C1"
+
+        if not partner_slot:
+            return False
+
+        me = snaps_dict.get(slot_label) or {}
+        partner = snaps_dict.get(partner_slot) or {}
+
+        if not me or not partner:
+            return False
+
+        my_base = me.get("base")
+        partner_base = partner.get("base")
+        if isinstance(my_base, int) and isinstance(partner_base, int) and my_base == partner_base:
+            return False
+
+        partner_label = (partner.get("mv_label") or "").strip().lower()
+        partner_anim = partner.get("attA") or partner.get("attB")
+        partner_csv = partner.get("csv_char_id")
+
+        if partner_label in MISSION_GENERIC_VAR_LABELS:
+            print(
+                f"[mission generic var direct] slot={slot_label} "
+                f"partner_slot={partner_slot} partner_label={partner_label!r}"
+            )
+            return True
+
+        if partner_anim is not None:
+            mapped = move_label_for(partner_anim, partner_csv, move_map, global_map)
+            mapped_norm = (mapped or "").strip().lower()
+            if mapped_norm in MISSION_GENERIC_VAR_LABELS:
+                print(
+                    f"[mission generic var mapped] slot={slot_label} "
+                    f"partner_slot={partner_slot} partner_label={partner_label!r} "
+                    f"mapped={mapped_norm!r} anim={partner_anim}"
+                )
+                return True
+
+        print(
+            f"[mission generic var miss] slot={slot_label} "
+            f"partner_slot={partner_slot} partner_label={partner_label!r} "
+            f"partner_anim={partner_anim!r}"
+        )
+        return False
+
+    def _mission_family_ids_for_label(label: str, csv_char_id: int | None) -> set[int]:
+        want = (label or "").strip()
+        if not want:
+            return set()
+
+        out: set[int] = set()
+
+        # Character-specific mappings
+        char_map = move_map.get(csv_char_id, {}) if csv_char_id is not None else {}
+        if isinstance(char_map, dict):
+            for move_id, mapped_label in char_map.items():
+                if str(mapped_label).strip() == want:
+                    try:
+                        out.add(int(move_id))
+                    except Exception:
+                        pass
+
+        # Global mappings
+        if isinstance(global_map, dict):
+            for move_id, mapped_label in global_map.items():
+                if str(mapped_label).strip() == want:
+                    try:
+                        out.add(int(move_id))
+                    except Exception:
+                        pass
+
+        return out
+    def _mission_doronjo_damage_pass(
+        character_name: str,
+        expected_labels: list[str],
+        damage_values: list[int],
+    ) -> bool:
+        if character_name != "Doronjo":
+            return False
+
+        labels_norm = {
+            str(x).strip().lower()
+            for x in (expected_labels or [])
+            if str(x).strip()
+        }
+
+        if not labels_norm or not damage_values:
+            return False
+
+        for label in labels_norm:
+            allowed = DORONJO_DAMAGE_PASS.get(label)
+            if allowed and any(dmg in allowed for dmg in damage_values):
+                return True
+
+        return False
+    def _augment_payload_with_runtime(payload: dict, snaps_dict: dict) -> dict:
+        nonlocal mission_runtime
+
+        payload = dict(payload or {})
+        slot = payload.get("slot")
+        mission_id = payload.get("active_mission_id")
+        steps = list(payload.get("active_mission_steps") or [])
+        mission_goal = dict(payload.get("active_mission_goal") or {})
+        character_name = payload.get("character")
+
+        def _mission_clear_payload(final_completed_count: int, final_step_index: int, final_step_label):
+            nonlocal mission_runtime
+
+            print(
+                f"[mission clear] slot={slot} mission_id={mission_id} "
+                f"character={character_name!r}"
+            )
+
+            if character_name and mission_id:
+                progress = load_progress()
+                progress = mark_mission_complete(progress, character_name, mission_id)
+                save_progress(progress)
+
+            next_clear_seq = int(mission_runtime.get("clear_seq", 0)) + 1
+            next_celebrate_token = int(mission_runtime.get("celebrate_token", 0)) + 1
+
+            clear_payload = build_overlay_payload(character_name or "")
+            clear_payload["active"] = True
+            clear_payload["slot"] = slot
+            clear_payload["just_cleared"] = True
+            clear_payload["clear_seq"] = next_clear_seq
+            clear_payload["celebrate_pending"] = True
+            clear_payload["celebrate_token"] = next_celebrate_token
+            clear_payload["completed_step_count"] = final_completed_count
+            clear_payload["current_step_index"] = final_step_index
+            clear_payload["current_step_label"] = final_step_label
+
+            mission_runtime = _new_mission_runtime(
+                slot=slot,
+                mission_id=mission_id,
+                clear_seq=next_clear_seq,
+                celebrate_token=next_celebrate_token,
+                celebrate_pending=True,
+                celebrate_acked_token=0,
+            )
+            return clear_payload
+
+        if not payload.get("active") or not slot or not mission_id or (not steps and not mission_goal):
+            print(
+                f"[mission inactive] active={payload.get('active')} "
+                f"slot={slot} mission_id={mission_id} steps={len(steps)} goal={bool(mission_goal)}"
+            )
+            mission_runtime = _new_mission_runtime()
+            payload["completed_step_count"] = 0
+            payload["current_step_index"] = 0
+            payload["current_step_label"] = steps[0] if steps else None
+            payload["just_cleared"] = False
+            payload["celebrate_pending"] = False
+            payload["celebrate_token"] = 0
+            return payload
+
+        if (
+            mission_runtime.get("slot") != slot
+            or mission_runtime.get("mission_id") != mission_id
+        ):
+            mission_runtime = _new_mission_runtime(
+                slot=slot,
+                mission_id=mission_id,
+                clear_seq=int(mission_runtime.get("clear_seq", 0) or 0),
+                celebrate_token=int(mission_runtime.get("celebrate_token", 0) or 0),
+                celebrate_pending=bool(mission_runtime.get("celebrate_pending", False)),
+                celebrate_acked_token=int(mission_runtime.get("celebrate_acked_token", 0) or 0),
+            )
+
+        snap = snaps_dict.get(slot) or render_snap_by_slot.get(slot) or {}
+        current_label = ((snap.get("mv_label") or "").strip())
+        current_anim = snap.get("mv_id_display")
+        current_inputs = snap.get("inputs") or {}
+        opponent_in_hitstun = _mission_opponent_in_hitstun(slot, snaps_dict)
+        damage_values = _mission_opponent_damage_values_this_frame(slot, snaps_dict)
+        opponent_took_damage = bool(damage_values)
+        frame_damage = sum(int(x) for x in damage_values)
+
+
+        # Special mission condition: ryu_007 meter gate
+        if mission_id in {"ryu_008", "saki_009"}:
+            meter_val = int(snap.get("meter", 0) or 0)
+
+            # Save original flags once when mission starts
+            if mission_runtime.get("saved_meter_flag_mission") != "ryu_008":
+                try:
+                    original_p1 = read_debug_flags().get("P1Meter", 0)
+                except Exception:
+                    original_p1 = 0
+
+                try:
+                    original_baroque = read_debug_flags().get("BaroquePct", 0)
+                except Exception:
+                    original_baroque = 0
+
+                mission_runtime["saved_p1meter_flag"] = int(original_p1)
+                mission_runtime["saved_baroque_flag"] = int(original_baroque)
+                mission_runtime["saved_meter_flag_mission"] = "ryu_008"
+
+            # Force mission settings
+            _write_debug_flag_value("BaroquePct", 1)
+
+            if opponent_in_hitstun:
+                _write_debug_flag_value("P1Meter", 0)
+            else:
+                if meter_val < 50000:
+                    _write_debug_flag_value("P1Meter", 1)
+                else:
+                    _write_debug_flag_value("P1Meter", 0)
+
+
+        progress_index = int(mission_runtime.get("progress_index", 0))
+
+        if opponent_in_hitstun:
+            mission_runtime["hitstun_grace"] = 4
+        else:
+            mission_runtime["hitstun_grace"] = max(
+                0,
+                int(mission_runtime.get("hitstun_grace", 0)) - 1
+            )
+
+        # Tick shell release grace down each frame
+        shell_release_grace = int(mission_runtime.get("shell_release_grace", 0) or 0)
+        if shell_release_grace > 0:
+            mission_runtime["shell_release_grace"] = shell_release_grace - 1
+
+        opponent_in_combo_state = (
+            opponent_in_hitstun
+            or int(mission_runtime.get("hitstun_grace", 0)) > 0
+            or int(mission_runtime.get("shell_release_grace", 0)) > 0
+        )
+
+        # If shell is installed and the current label is a release C, open the grace window
+        if (
+            mission_runtime.get("shell_installed")
+            and _mission_saki_shell_release_label(current_label)
+            and opponent_in_combo_state  # it hit something, so the shell actually fired
+        ):
+            mission_runtime["shell_release_grace"] = 20  # ~20 frames of grace after shell fires
+
+        if mission_goal:
+            goal_type = str(mission_goal.get("type", "")).strip().lower()
+
+            if opponent_in_combo_state and frame_damage > 0:
+                mission_runtime["goal_combo_damage"] = int(mission_runtime.get("goal_combo_damage", 0)) + frame_damage
+
+                if mission_runtime.get("goal_last_damage_frame") != frame_idx:
+                    mission_runtime["goal_combo_hits"] = int(mission_runtime.get("goal_combo_hits", 0)) + 1
+                    mission_runtime["goal_last_damage_frame"] = frame_idx
+
+            if goal_type == "state_duration":
+                target_state = str(mission_goal.get("target_state", "")).strip().lower()
+                needed_frames = int(mission_goal.get("frames", 0) or 0)
+
+                if target_state == "blockstun":
+                    in_target_state = _mission_opponent_in_state(slot, snaps_dict, MISSION_BLOCKSTUN_STATES)
+                else:
+                    in_target_state = False
+
+                if in_target_state:
+                    mission_runtime["goal_state_frames"] = int(mission_runtime.get("goal_state_frames", 0)) + 1
+                else:
+                    mission_runtime["goal_state_frames"] = 0
+
+                current_frames = int(mission_runtime.get("goal_state_frames", 0))
+                payload["just_cleared"] = False
+                payload["clear_seq"] = int(mission_runtime.get("clear_seq", 0))
+                payload["celebrate_pending"] = bool(mission_runtime.get("celebrate_pending", False))
+                payload["celebrate_token"] = int(mission_runtime.get("celebrate_token", 0) or 0)
+                payload["completed_step_count"] = 0
+                payload["current_step_index"] = 0
+                payload["current_step_label"] = f"{current_frames}/{needed_frames} frames"
+
+                payload["goal_progress_type"] = "state_duration"
+                payload["goal_target_state"] = target_state
+                payload["goal_current_frames"] = current_frames
+                payload["goal_needed_frames"] = needed_frames
+                payload["goal_timer_active"] = bool(in_target_state)
+
+                if needed_frames > 0 and current_frames >= needed_frames:
+                    return _mission_clear_payload(1, 0, payload["current_step_label"])
+
+                return payload
+
+            if goal_type == "damage_under_hits":
+                needed_damage = int(mission_goal.get("damage", 0) or 0)
+                max_hits = int(mission_goal.get("max_hits", 0) or 0)
+                combo_damage = int(mission_runtime.get("goal_combo_damage", 0))
+                combo_hits = int(mission_runtime.get("goal_combo_hits", 0))
+
+                if max_hits > 0 and combo_hits > max_hits:
+                    mission_runtime["goal_failed"] = True
+
+                payload["just_cleared"] = False
+                payload["clear_seq"] = int(mission_runtime.get("clear_seq", 0))
+                payload["celebrate_pending"] = bool(mission_runtime.get("celebrate_pending", False))
+                payload["celebrate_token"] = int(mission_runtime.get("celebrate_token", 0) or 0)
+                payload["completed_step_count"] = 0
+                payload["current_step_index"] = 0
+                payload["current_step_label"] = f"{combo_damage}/{needed_damage} damage, {combo_hits}/{max_hits} hits"
+
+                if (
+                    needed_damage > 0
+                    and combo_damage >= needed_damage
+                    and combo_hits <= max_hits
+                    and not mission_runtime.get("goal_failed", False)
+                ):
+                    return _mission_clear_payload(1, 0, payload["current_step_label"])
+
+                if not opponent_in_combo_state:
+                    mission_runtime["goal_combo_damage"] = 0
+                    mission_runtime["goal_combo_hits"] = 0
+                    mission_runtime["goal_failed"] = False
+                    mission_runtime["goal_last_damage_frame"] = -1
+
+                return payload
+
+            if goal_type == "combo_damage":
+                needed_damage = int(mission_goal.get("damage", 0) or 0)
+                combo_damage = int(mission_runtime.get("goal_combo_damage", 0))
+
+                payload["just_cleared"] = False
+                payload["clear_seq"] = int(mission_runtime.get("clear_seq", 0))
+                payload["celebrate_pending"] = bool(mission_runtime.get("celebrate_pending", False))
+                payload["celebrate_token"] = int(mission_runtime.get("celebrate_token", 0) or 0)
+                payload["completed_step_count"] = 0
+                payload["current_step_index"] = 0
+                payload["current_step_label"] = f"{combo_damage}/{needed_damage} combo damage"
+
+                if needed_damage > 0 and combo_damage >= needed_damage:
+                    return _mission_clear_payload(1, 0, payload["current_step_label"])
+
+                if not opponent_in_combo_state:
+                    mission_runtime["goal_combo_damage"] = 0
+                    mission_runtime["goal_combo_hits"] = 0
+                    mission_runtime["goal_failed"] = False
+                    mission_runtime["goal_last_damage_frame"] = -1
+
+                return payload
+
+        expected_step_for_reset = steps[progress_index] if progress_index < len(steps) else None
+        expected_labels_for_reset = (
+            [str(x).strip() for x in expected_step_for_reset if str(x).strip()]
+            if isinstance(expected_step_for_reset, list)
+            else ([str(expected_step_for_reset).strip()] if str(expected_step_for_reset).strip() else [])
+        )
+
+        if progress_index > 0 and not opponent_in_combo_state:
+            post_install_hold = int(mission_runtime.get("post_install_hold_frames", 0) or 0)
+
+            if mission_runtime.get("shell_installed"):
+                # Shell is installed — don't reset until opponent is first hit.
+                # Any non-ignorable label is a valid combo attempt, just let it through.
+                pass
+
+            elif _mission_step_needs_reset_grace(character_name, expected_labels_for_reset):
+                grace_left = int(mission_runtime.get("reset_grace_frames", 0) or 0)
+
+                if grace_left <= 0:
+                    mission_runtime["reset_grace_frames"] = 10
+                    mission_runtime["reset_grace_labels"] = list(expected_labels_for_reset)
+                else:
+                    mission_runtime["reset_grace_frames"] = grace_left - 1
+
+                    if current_label:
+                        if _mission_reset_grace_accepts_label(character_name, current_label):
+                            pass
+                        elif not _mission_label_is_ignorable(current_label):
+                            progress_index = 0
+                            mission_runtime["progress_index"] = 0
+                            mission_runtime["reset_grace_frames"] = 0
+                            mission_runtime["reset_grace_labels"] = []
+                            mission_runtime["shell_installed"] = False
+                            mission_runtime["shell_release_grace"] = 0
+                            
+                    elif mission_runtime["reset_grace_frames"] <= 0:
+                        progress_index = 0
+                        mission_runtime["progress_index"] = 0
+                        mission_runtime["reset_grace_frames"] = 0
+                        mission_runtime["reset_grace_labels"] = []
+            else:
+                if _mission_label_is_ignorable(current_label) or (
+                    mission_runtime.get("shell_installed")
+                    and _mission_is_saki_shell_label(current_label)
+                ):
+                    pass
+                else:
+                    progress_index = 0
+                    mission_runtime["progress_index"] = 0
+                    mission_runtime["reset_grace_frames"] = 0
+                    mission_runtime["reset_grace_labels"] = []
+                    mission_runtime["shell_installed"] = False
+                    mission_runtime["shell_release_grace"] = 0
+
+        last_seen_label = mission_runtime.get("last_seen_label", "")
+        last_seen_anim = mission_runtime.get("last_seen_anim")
+        last_seen_hitstun = bool(mission_runtime.get("last_seen_hitstun", False))
+        last_inputs = mission_runtime.get("last_inputs") or {}
+
+        has_fresh_attack_input = _mission_has_fresh_attack_input(current_inputs, last_inputs)
+
+        is_fresh_instance = (
+            current_anim != last_seen_anim
+            or current_label != last_seen_label
+            or (opponent_in_combo_state and not last_seen_hitstun)
+            or has_fresh_attack_input
+        )
+
+        expected_step = steps[progress_index] if progress_index < len(steps) else None
+        expected_labels = (
+            [str(x).strip() for x in expected_step if str(x).strip()]
+            if isinstance(expected_step, list)
+            else ([str(expected_step).strip()] if str(expected_step).strip() else [])
+        )
+
+        generic_partner_var_step = _mission_step_is_generic_partner_var(
+            mission_id,
+            expected_labels,
+        )
+        partner_var_matched = (
+            generic_partner_var_step
+            and _mission_partner_matches_generic_var(slot, snaps_dict)
+        )
+
+        current_matches_expected = current_label in expected_labels
+        non_damage_confirm = _mission_step_has_non_damage_confirm(
+            expected_labels=expected_labels,
+            snap=snap,
+            current_label=current_label,
+        )
+        step_allows_whiff_confirm = _mission_step_allows_whiff_confirm(
+            expected_labels
+        )
+        zero_damage_confirm = _mission_step_allows_zero_damage_confirm(
+            character_name,
+            expected_labels,
+            current_label,
+        )
+        doronjo_damage_pass = _mission_doronjo_damage_pass(
+            character_name,
+            expected_labels,
+            damage_values,
+        )
+
+        if mission_runtime.get("pending_step_index") != progress_index:
+            mission_runtime["pending_step_index"] = None
+            mission_runtime["pending_labels"] = []
+            mission_runtime["pending_anim"] = None
+
+        pending_step_index = mission_runtime.get("pending_step_index")
+        pending_labels = list(mission_runtime.get("pending_labels") or [])
+
+        reset_grace_active = int(mission_runtime.get("reset_grace_frames", 0) or 0) > 0
+        reset_grace_match = (
+            reset_grace_active
+            and _mission_step_needs_reset_grace(character_name, expected_labels)
+            and _mission_reset_grace_accepts_label(character_name, current_label)
+        )
+
+        post_install_match = (
+            character_name == "Saki"
+            and int(mission_runtime.get("post_install_hold_frames", 0) or 0) > 0
+            and current_matches_expected
+            and has_fresh_attack_input
+            and not _mission_is_saki_shell_label(current_label)
+        )
+
+        matched_fresh_expected = (
+            expected_labels
+            and (
+                partner_var_matched
+                or (
+                    current_matches_expected
+                    and not _mission_label_is_ignorable(current_label)
+                    and is_fresh_instance
+                    and (
+                        opponent_in_combo_state
+                        or step_allows_whiff_confirm
+                        or reset_grace_match
+                        or zero_damage_confirm
+                        or post_install_match
+                    )
+                )
+            )
+        )
+
+        if partner_var_matched:
+            print(
+                f"[mission generic var] slot={slot} "
+                f"step_before={progress_index} matched_by_partner=True "
+                f"labels={expected_labels!r}"
+            )
+            progress_index += 1
+            mission_runtime["progress_index"] = progress_index
+            mission_runtime["pending_step_index"] = None
+            mission_runtime["pending_labels"] = []
+            mission_runtime["pending_anim"] = None
+
+            # Important: after partner VAR, throw away pre-switch state
+            # so the mission owner's next input starts fresh.
+            mission_runtime["last_seen_label"] = ""
+            mission_runtime["last_seen_anim"] = None
+            mission_runtime["last_seen_hitstun"] = False
+            mission_runtime["last_inputs"] = {}
+            mission_runtime["hitstun_grace"] = 0
+
+        elif MISSION_REQUIRE_DAMAGE_CONFIRM:
+            if matched_fresh_expected:
+                if step_allows_whiff_confirm or zero_damage_confirm:
+                    print(
+                        f"[mission confirm immediate] slot={slot} "
+                        f"step_before={progress_index} "
+                        f"matched={expected_labels!r} "
+                        f"anim={current_anim} "
+                        f"zero_damage={zero_damage_confirm}"
+                    )
+                    progress_index += 1
+                    mission_runtime["progress_index"] = progress_index
+                    mission_runtime["pending_step_index"] = None
+                    mission_runtime["pending_labels"] = []
+                    mission_runtime["pending_anim"] = None
+                    mission_runtime["reset_grace_frames"] = 0
+                    mission_runtime["reset_grace_labels"] = []
+                    mission_runtime["shell_install_hold"] = 0
+                    mission_runtime["post_install_hold_frames"] = 12 if zero_damage_confirm else 0
+                    if zero_damage_confirm:
+                        mission_runtime["shell_installed"] = True
+                    mission_runtime["last_seen_label"] = ""
+                    mission_runtime["last_seen_anim"] = None
+                    mission_runtime["last_seen_hitstun"] = False
+                    mission_runtime["last_inputs"] = {}
+                    mission_runtime["hitstun_grace"] = 0
+                else:
+                    mission_runtime["pending_step_index"] = progress_index
+                    mission_runtime["pending_labels"] = expected_labels[:]
+                    mission_runtime["pending_anim"] = current_anim
+                    pending_step_index = progress_index
+                    pending_labels = expected_labels[:]
+
+            if (
+                pending_step_index == progress_index
+                and pending_labels
+                and opponent_in_combo_state
+                and (
+                    opponent_took_damage
+                    or non_damage_confirm
+                    or doronjo_damage_pass
+                )
+            ):
+                progress_index += 1
+                mission_runtime["progress_index"] = progress_index
+                mission_runtime["pending_step_index"] = None
+                mission_runtime["pending_labels"] = []
+                mission_runtime["pending_anim"] = None
+                mission_runtime["reset_grace_frames"] = 0
+                mission_runtime["reset_grace_labels"] = []
+                mission_runtime["shell_install_hold"] = 0
+        else:
+            if matched_fresh_expected:
+                print(
+                    f"[mission advance] slot={slot} "
+                    f"step_before={progress_index} matched={current_label!r}"
+                )
+                progress_index += 1
+                mission_runtime["progress_index"] = progress_index
+
+        if not partner_var_matched:
+            mission_runtime["last_seen_label"] = current_label
+            mission_runtime["last_seen_anim"] = current_anim
+            mission_runtime["last_seen_hitstun"] = opponent_in_hitstun
+            mission_runtime["last_inputs"] = dict(current_inputs)
+
+        if progress_index >= len(steps):
+            final_completed_count = len(steps)
+            final_step_index = max(0, len(steps) - 1)
+            final_step_label = (
+                (" / ".join(steps[final_step_index]) if isinstance(steps[final_step_index], list) else steps[final_step_index])
+                if steps else None
+            )
+            return _mission_clear_payload(final_completed_count, final_step_index, final_step_label)
+
+        payload["just_cleared"] = False
+        payload["clear_seq"] = int(mission_runtime.get("clear_seq", 0))
+        payload["celebrate_pending"] = bool(mission_runtime.get("celebrate_pending", False))
+        payload["celebrate_token"] = int(mission_runtime.get("celebrate_token", 0) or 0)
+        payload["completed_step_count"] = progress_index
+        payload["current_step_index"] = progress_index
+        payload["current_step_label"] = (
+            (" / ".join(steps[progress_index]) if isinstance(steps[progress_index], list) else steps[progress_index])
+            if progress_index < len(steps) else None
+        )
+
+        return payload
+
+    
+    def _write_mission_overlay_data() -> None:
+        
+        payload = {
+            "active": False,
+            "slot": mission_active_slot,
+            "character": None,
+            "mission_count": 0,
+            "active_mission_id": None,
+            "active_mission_name": None,
+            "active_mission_steps": [],
+            "missions": [],
+            "completed_step_count": 0,
+            "current_step_index": 0,
+            "current_step_label": None,
+            "just_cleared": False,
+            "celebrate_pending": False,
+            "celebrate_token": 0,
+            "selector_open": False,
+            "selector_index": 0,
+            "selector_hint": "Down, Down, Taunt: Open Mission Select",
+            "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
+            "scanlines": True,
+            "goal_progress_type": None,
+            "goal_target_state": None,
+            "goal_current_frames": 0,
+            "goal_needed_frames": 0,
+            "goal_timer_active": False,
+        }
+
+        if mission_active_slot:
+            snap = render_snap_by_slot.get(mission_active_slot)
+            character_name = snap.get("name") if snap else None
+
+            
+
+            if character_name:
+                payload = build_overlay_payload(character_name)
+                payload["active"] = True
+                payload["slot"] = mission_active_slot
+                payload = _augment_payload_with_runtime(payload, render_snap_by_slot)
+                payload["selector_open"] = bool(mission_selector["open"])
+                payload["selector_index"] = int(mission_selector["selected_index"])
+                payload["selector_hint"] = "Down, Down, Taunt: Open Mission Select"
+                payload["selector_controls"] = "Down: Move  Taunt: Select  Mouse still works"
+                payload["scanlines"] = True
+
+        _sync_mission_debug_overrides(payload)
+
+        try:
+            tmp_path = f"{MISSION_OVERLAY_FILE}.tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+            os.replace(tmp_path, MISSION_OVERLAY_FILE)
+        except Exception:
+            pass
+
+    def _write_mission_mode_state():
+        if not mission_active_slot:
+            if mission_runtime.get("saved_meter_flag_mission") in {"ryu_008", "saki_009"}:
+                saved = mission_runtime.get("saved_p1meter_flag")
+                if saved is not None:
+                    _write_debug_flag_value("P1Meter", int(saved))
+
+                saved_b = mission_runtime.get("saved_baroque_flag")
+                if saved_b is not None:
+                    _write_debug_flag_value("BaroquePct", int(saved_b))
+        payload = {
+            "active": bool(mission_active_slot),
+            "slot": mission_active_slot,
+        }
+        try:
+            with open(MISSION_MODE_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception:
+            pass
+
+    def _write_hitbox_filter():
+        try:
+            with open(HITBOX_FILTER_FILE, "w") as f:
+                json.dump(hitbox_slots, f)
+        except Exception:
+            pass
+
+    _write_hitbox_filter()
+    _write_master_control()
+    _write_mission_mode_state()
+    _write_mission_overlay_data()
+    _sync_master_overlay_state()
+    # ------------------------------------------------------------------
+
+    debug_overlay = True
+    debug_click_areas = {}
+    debug_scroll_offset = 0
+    debug_max_scroll = 0
+
+    hype_restore_addr = None
+    hype_restore_ts = 0.0
+    hype_restore_orig = 0
+
+    special_restore_addr = None
+    special_restore_ts = 0.0
+    special_restore_orig = 0
+
+    # -----------------------------------------------------------------------
+    # Main loop
+    # -----------------------------------------------------------------------
+    while running:
+        now = time.time()
+        t_ms = pygame.time.get_ticks()
+
+        mouse_clicked_pos = None
+
+        # -----------------------------
+        # Events / input
+        # -----------------------------
+        for ev in pygame.event.get():
+            if ev.type == pygame.QUIT:
+                running = False
+
+            elif ev.type == pygame.VIDEORESIZE:
+                screen = pygame.display.set_mode(ev.size, pygame.RESIZABLE)
+
+
+            elif ev.type == pygame.MOUSEBUTTONDOWN:
+                if ev.button == 1:
+                    mouse_clicked_pos = ev.pos
+                elif ev.button == 4 and debug_overlay:
+                    if debug_scroll_offset > 0:
+                        debug_scroll_offset -= 1
+                elif ev.button == 5 and debug_overlay:
+                    if debug_scroll_offset < debug_max_scroll:
+                        debug_scroll_offset += 1
+
+            elif ev.type == pygame.MOUSEWHEEL and debug_overlay:
+                # Newer pygame wheel event
+                if ev.y > 0 and debug_scroll_offset > 0:
+                    debug_scroll_offset -= 1
+                elif ev.y < 0 and debug_scroll_offset < debug_max_scroll:
+                    debug_scroll_offset += 1
+
+        # -----------------------------
+        # Background scan worker results
+        # -----------------------------
+        if scan_worker:
+            res, ts = scan_worker.get_latest()
+            if res is not None and ts > last_scan_time:
+                last_scan_normals = res
+                last_scan_time = ts
+                scan_anim = {"start": now, "dur": SCAN_SLIDE_DURATION}
+
+        # -----------------------------
+        # Resolve slot bases
+        # -----------------------------
+        resolved_slots = resolve_bases(last_base_by_ptr, y_off_by_base)
+
+        p1c1_base = next((b for n, t, b in resolved_slots if n == "P1-C1" and b), None)
+        p2c1_base = next((b for n, t, b in resolved_slots if n == "P2-C1" and b), None)
+        meter_p1 = read_meter(p1c1_base, teamtag="P1")
+        meter_p2 = read_meter(p2c1_base, teamtag="P2")
+
+        # -----------------------------
+        # Build snapshots
+        # -----------------------------
+        snaps = {}
+        for slotname, teamtag, base in resolved_slots:
+            if not base:
+                if last_char_by_slot.get(slotname) is not None:
+                    anim_queue_after_scan.add((slotname, "fadeout"))
+                    last_char_by_slot[slotname] = None
+                    need_rescan_normals = True
+                continue
+
+            yoff = y_off_by_base.get(base, 0xF4)
+            snap = safe_read_fighter(base, yoff)
+            if not snap:
+                continue
+
+            snap["base"] = base
+            snap["teamtag"] = teamtag
+            snap["slotname"] = slotname
+
+            # Prefer "true" ID from struct if present
+            blk = rbytes(base, FIGHTER_BLOCK_SIZE)
+
+            # ------------------------------------------------------------------
+            # Character metadata cache (per base, ID-aware)
+            # ------------------------------------------------------------------
+
+            # Always determine current true ID first
+            true_id_current = None
+
+            if blk:
+                true_id_current = u32be_from_block(blk, OFF_CHAR_ID)
+
+            if true_id_current in (None, 0):
+                try:
+                    true_id_current = rd32(base + OFF_CHAR_ID)
+                except Exception:
+                    true_id_current = None
+
+            meta = char_meta_by_base.get(base)
+
+            # Refresh cache if new base OR ID changed
+            if (
+                meta is None
+                or meta.get("id") != true_id_current
+            ):
+                name_cached = CHAR_NAMES.get(true_id_current)
+                csv_id_cached = CHAR_ID_CORRECTION.get(name_cached, true_id_current)
+
+                char_meta_by_base[base] = {
+                    "id": true_id_current,
+                    "name": name_cached,
+                    "csv_char_id": csv_id_cached,
+                }
+
+            meta = char_meta_by_base.get(base)
+
+            # Inject into snap
+            if meta:
+                snap["id"] = meta["id"]
+                snap["name"] = meta["name"]
+                snap["csv_char_id"] = meta["csv_char_id"]
+            else:
+                snap["csv_char_id"] = true_id_current
+            csv_char_id = snap.get("csv_char_id")
+            # Determine current animation ID
+            cur_anim = snap.get("attA") or snap.get("attB")
+            mv_label = lookup_move_name(cur_anim, csv_char_id)
+            if not mv_label:
+                mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
+
+            snap["mv_label"] = mv_label
+            snap["mv_id_display"] = cur_anim
+            active_start, active_end = _scan_move_window_for_slot(slotname, cur_anim)
+            snap["active_start"] = active_start
+            snap["active_end"] = active_end
+            last_move_anim_id[base] = cur_anim
+
+            # Pool percent baseline
+            pool_byte = snap.get("hp_pool_byte")
+            if pool_byte is not None:
+                prev_max = pool_baseline.get(base, 0)
+                if pool_byte > prev_max:
+                    pool_baseline[base] = pool_byte
+                max_pool = pool_baseline.get(base, 1)
+                snap["pool_pct"] = (pool_byte / max_pool) * 100.0 if max_pool else 0.0
+            else:
+                snap["pool_pct"] = 0.0
+
+            # Local 32-bit baroque values
+            max_hp_stat = snap.get("max") or 0
+            hp32 = 0
+            pool32 = 0
+
+            if blk:
+                tmp_hp = u32be_from_block(blk, HP32_OFF)
+                tmp_pool = u32be_from_block(blk, POOL32_OFF)
+
+                if tmp_hp is not None:
+                    hp32 = tmp_hp
+                if tmp_pool is not None:
+                    pool32 = tmp_pool
+
+            # fallback if block read failed
+            if hp32 == 0:
+                hp32 = rd32(base + HP32_OFF) or 0
+            if pool32 == 0:
+                pool32 = rd32(base + POOL32_OFF) or 0
+
+            ready_local = False
+            red_amt = 0
+            red_pct_max = 0.0
+
+            if hp32 and pool32 and hp32 != pool32:
+                ready_local = True
+                bigger = max(hp32, pool32)
+                smaller = min(hp32, pool32)
+                red_amt = bigger - smaller
+                if max_hp_stat:
+                    red_pct_max = (red_amt / float(max_hp_stat)) * 100.0
+
+            snap["baroque_local_hp32"] = hp32
+            snap["baroque_local_pool32"] = pool32
+            snap["baroque_ready_local"] = ready_local
+            snap["baroque_red_amt"] = red_amt
+            snap["baroque_red_pct_max"] = red_pct_max
+
+            baroque_peak_by_base[base] = max(red_pct_max, baroque_peak_by_base.get(base, 0.0))
+            baroque_drop_pct = baroque_peak_by_base[base] - red_pct_max
+            raw_baroque_cancel = baroque_drop_pct >= 1.0
+
+
+            if raw_baroque_cancel:
+                baroque_latch_by_base[base] = 5
+            else:
+                baroque_latch_by_base[base] = max(
+                    0,
+                    int(baroque_latch_by_base.get(base, 0)) - 1
+                )
+
+            snap["baroque_cancel_raw"] = raw_baroque_cancel
+            snap["baroque_cancel_latched"] = int(baroque_latch_by_base.get(base, 0)) > 0
+            snap["baroque_cancel_latch_frames"] = int(baroque_latch_by_base.get(base, 0))
+
+            last_baroque_pct_by_base[base] = float(red_pct_max)
+            if raw_baroque_cancel:
+                baroque_peak_by_base[base] = float(red_pct_max)
+            last_baroque_ready_by_base[base] = bool(ready_local)
+
+            # Meter: assign the already-read team meter to each slot in that team
+            if teamtag == "P1":
+                snap["meter"] = meter_p1
+            elif teamtag == "P2":
+                snap["meter"] = meter_p2
+
+            # Mirror player-team inputs to both P1 slots so mission tracking
+            # still sees fresh button edges after a tag / VAR swap.
+            if teamtag == "P1":
+                inputs_struct = {}
+                for key, addr in INPUT_MONITOR_ADDRS.items():
+                    v = rd8(addr)
+                    inputs_struct[key] = 0 if v is None else v
+                snap["inputs"] = inputs_struct
+            else:
+                snap["inputs"] = {}
+
+            snaps[slotname] = snap
+
+            # Slot change detection -> animations and rescan
+            if last_char_by_slot.get(slotname) != snap.get("name"):
+                last_char_by_slot[slotname] = snap.get("name")
+                anim_queue_after_scan.add((slotname, "fadein"))
+                need_rescan_normals = True
+
+            render_snap_by_slot[slotname] = snap
+            render_portrait_by_slot[slotname] = get_portrait_for_snap(
+                snap, portraits, placeholder_portrait
+            )
+
+        # -----------------------------
+        # Giant logic normalization (fixed)
+        # -----------------------------
+        # Only do the old "giant occupies both panels" reshuffle when truly solo.
+        p1_giant_solo, p2_giant_solo = compute_team_giant_solo(snaps)
+        if p1_giant_solo or p2_giant_solo:
+            snaps = reassign_slots_for_giants(snaps)
+
+        _mission_update_selector_from_inputs(snaps)
+        _consume_mission_select_command()
+        _consume_mission_celebrate_ack()
+
+
+        # -----------------------------
+        # Damage / hit logging and frame advantage
+        # -----------------------------
+        if frame_idx % DAMAGE_EVERY_FRAMES == 0:
+            for vic_slot, vic_snap in snaps.items():
+                vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
+                if vic_move_id not in REACTION_STATES:
+                    continue
+
+                vic_team = vic_snap["teamtag"]
+                attackers = [s for s in snaps.values() if s["teamtag"] != vic_team]
+                if not attackers:
+                    continue
+
+                best_d2 = None
+                atk_snap = None
+                for cand in attackers:
+                    d2v = dist2(vic_snap, cand)
+                    if best_d2 is None or d2v < best_d2:
+                        best_d2 = d2v
+                        atk_snap = cand
+                if not atk_snap:
+                    continue
+
+                atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
+                atk_move_label = atk_snap.get("mv_label")
+
+                ADV_TRACK.start_contact(
+                    atk_snap["base"],
+                    vic_snap["base"],
+                    frame_idx,
+                    atk_move_id,
+                    vic_move_id,
+                )
+
+                base = vic_snap["base"]
+                hp_now = vic_snap["cur"]
+                hp_prev = prev_hp.get(base, hp_now)
+                prev_hp[base] = hp_now
+                dmg = hp_prev - hp_now
+                if dmg >= MIN_HIT_DAMAGE:
+                    log_engaged(atk_snap, vic_snap, frame_idx)
+                    log_hit(
+                        atk_snap,
+                        vic_snap,
+                        dmg,
+                        frame_idx,
+                        atk_move_label,
+                        atk_move_id,
+                    )
+
+        if frame_idx % ADV_EVERY_FRAMES == 0:
+            pairs = [
+                ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
+                ("P1-C2", "P2-C1"), ("P1-C2", "P2-C2"),
+                ("P2-C1", "P1-C1"), ("P2-C1", "P1-C2"),
+                ("P2-C2", "P1-C1"), ("P2-C2", "P1-C2"),
+            ]
+            for atk_slot, vic_slot in pairs:
+                atk_snap = snaps.get(atk_slot)
+                vic_snap = snaps.get(vic_slot)
+                if atk_snap and vic_snap:
+                    atk_move_id = atk_snap.get("attA") or atk_snap.get("attB")
+                    vic_move_id = vic_snap.get("attA") or vic_snap.get("attB")
+                    ADV_TRACK.update_pair(
+                        atk_snap["base"],
+                        vic_snap["base"],
+                        frame_idx,
+                        atk_move_id,
+                        vic_move_id,
+                    )
+
+            freshest = ADV_TRACK.get_freshest_final_info()
+            if freshest:
+                atk_b, vic_b, plusf, fin_frame = freshest
+                if abs(plusf) <= 64:
+                    atk_slot_obj = next((s for s in snaps.values() if s["base"] == atk_b), None)
+                    vic_slot_obj = next((s for s in snaps.values() if s["base"] == vic_b), None)
+                    if atk_slot_obj and vic_slot_obj:
+                        last_adv_display = (
+                            f"{atk_slot_obj['slotname']}({atk_slot_obj['name']}) vs "
+                            f"{vic_slot_obj['slotname']}({vic_slot_obj['name']}): "
+                            f"{plusf:+.1f}f"
+                        )
+                        log_frame_advantage(atk_slot_obj, vic_slot_obj, plusf)
+                    else:
+                        last_adv_display = f"Frame adv: {plusf:+.1f}f"
+
+        # -----------------------------
+        # Rendering
+        # -----------------------------
+        screen.fill(COL_BG)
+        w, h = screen.get_size()
+        layout = compute_layout(w, h - TOP_UI_RESERVED, snaps)
+
+        for key, value in layout.items():
+            if isinstance(value, pygame.Rect):
+                value.y += TOP_UI_RESERVED
+
+        # Override layout's "giant" flags with the corrected solo detection.
+        # but HUD hides the partner panel due to a misdetected giant.
+        layout["p1_is_giant"] = bool(p1_giant_solo)
+        layout["p2_is_giant"] = bool(p2_giant_solo)
+
+        # Consume queued panel animations
+        if anim_queue_after_scan:
+            slot_rect_lookup = {
+                "P1-C1": layout["p1c1"],
+                "P2-C1": layout["p2c1"],
+                "P1-C2": layout["p1c2"],
+                "P2-C2": layout["p2c2"],
+            }
+
+            for slot_label, kind in list(anim_queue_after_scan):
+                base_rect = slot_rect_lookup.get(slot_label)
+                if base_rect is None:
+                    anim_queue_after_scan.discard((slot_label, kind))
+                    continue
+
+                panel_height = base_rect.height
+                offscreen_y = -panel_height - 8
+
+                anim = {
+                    "start": now,
+                    "dur": PANEL_SLIDE_DURATION,
+                    "from_y": None,
+                    "to_y": None,
+                    "from_a": 255,
+                    "to_a": 255,
+                }
+
+                if kind == "fadein":
+                    anim["from_y"] = offscreen_y
+                    anim["to_y"] = base_rect.y
+                    anim["from_a"] = 0
+                    anim["to_a"] = 255
+                elif kind == "fadeout":
+                    anim["from_y"] = base_rect.y
+                    anim["to_y"] = offscreen_y
+                    anim["from_a"] = 255
+                    anim["to_a"] = 0
+                else:
+                    anim_queue_after_scan.discard((slot_label, kind))
+                    continue
+
+                panel_anim[slot_label] = anim
+                anim_queue_after_scan.discard((slot_label, kind))
+
+        def anim_rect_and_alpha(slot_label, base_rect):
+            anim = panel_anim.get(slot_label)
+            if not anim:
+                return base_rect, 255
+
+            if anim.get("to_y") is None:
+                anim["to_y"] = base_rect.y
+            if anim.get("from_y") is None:
+                anim["from_y"] = base_rect.y
+
+            t = now - anim["start"]
+            dur = anim.get("dur") or PANEL_SLIDE_DURATION
+
+            if t <= 0:
+                frac = 0.0
+            elif t >= dur:
+                frac = 1.0
+            else:
+                frac = t / dur
+
+            y = anim["from_y"] + (anim["to_y"] - anim["from_y"]) * frac
+
+            from_a = anim.get("from_a", 255)
+            to_a = anim.get("to_a", 255)
+
+            if from_a == 0 and to_a > 0:
+                if frac <= 0.9:
+                    alpha = 0
+                else:
+                    inner = (frac - 0.9) / 0.1
+                    if inner < 0.0:
+                        inner = 0.0
+                    elif inner > 1.0:
+                        inner = 1.0
+                    alpha = int(from_a + (to_a - from_a) * inner)
+            else:
+                alpha = int(from_a + (to_a - from_a) * frac)
+
+            if frac >= 1.0:
+                if to_a == 0:
+                    render_snap_by_slot.pop(slot_label, None)
+                    render_portrait_by_slot.pop(slot_label, None)
+                panel_anim.pop(slot_label, None)
+
+            r = base_rect.copy()
+            r.y = int(y)
+            return r, max(0, min(255, alpha))
+
+        # ------------------------------------------------------------------
+        # Hitbox overlay button + slot filter (top-left)
+        # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # Master overlay controls (top-left)
+        # ------------------------------------------------------------------
+        _check_master_overlay_proc()
+
+        HB_BTN_X, HB_BTN_Y = 8, 8
+        HB_BTN_W, HB_BTN_H = 150, 22
+        hb_btn_rect = pygame.Rect(HB_BTN_X, HB_BTN_Y, HB_BTN_W, HB_BTN_H)
+
+        if any(hitbox_slots.values()):
+            hb_btn_col = (60, 200, 80)
+            hb_btn_label = "Hitboxes: ON"
+        else:
+            hb_btn_col = (80, 80, 80)
+            hb_btn_label = "Hitboxes: OFF"
+
+        mx_h, my_h = pygame.mouse.get_pos()
+        hb_hover = hb_btn_rect.collidepoint(mx_h, my_h)
+        if hb_hover:
+            hb_btn_col = tuple(min(255, c + 30) for c in hb_btn_col)
+
+        pygame.draw.rect(screen, hb_btn_col, hb_btn_rect, border_radius=3)
+        pygame.draw.rect(screen, (200, 200, 200), hb_btn_rect, 1, border_radius=3)
+        screen.blit(smallfont.render(hb_btn_label, True, (230, 230, 230)),
+                    (HB_BTN_X + 6, HB_BTN_Y + 4))
+
+        # Projectile scanner button
+        PS_BTN_X = HB_BTN_X + HB_BTN_W + 8
+        PS_BTN_W, PS_BTN_H = 150, 22
+        ps_btn_rect = pygame.Rect(PS_BTN_X, HB_BTN_Y, PS_BTN_W, PS_BTN_H)
+        ps_col = (60, 80, 160) if not ps_btn_rect.collidepoint(mx_h, my_h) else (90, 110, 200)
+        pygame.draw.rect(screen, ps_col, ps_btn_rect, border_radius=3)
+        pygame.draw.rect(screen, (200, 200, 200), ps_btn_rect, 1, border_radius=3)
+        screen.blit(smallfont.render("Proj Scanner", True, (230, 230, 230)),
+                    (PS_BTN_X + 6, HB_BTN_Y + 4))
+
+        # Master Overlay button
+        _check_master_overlay_proc()
+        HUD_BTN_X = PS_BTN_X + PS_BTN_W + 8
+        HUD_BTN_W, HUD_BTN_H = 140, 22
+        hud_btn_rect = pygame.Rect(HUD_BTN_X, HB_BTN_Y, HUD_BTN_W, HUD_BTN_H)
+        if overlay_enabled:
+            hud_btn_col = (160, 110, 30)
+            hud_btn_label = "Overlay: ON"
+        else:
+            hud_btn_col = (80, 80, 80)
+            hud_btn_label = "Overlay: OFF"
+        if hud_btn_rect.collidepoint(mx_h, my_h):
+            hud_btn_col = tuple(min(255, c + 30) for c in hud_btn_col)
+        pygame.draw.rect(screen, hud_btn_col, hud_btn_rect, border_radius=3)
+        pygame.draw.rect(screen, (200, 200, 200), hud_btn_rect, 1, border_radius=3)
+        screen.blit(smallfont.render(hud_btn_label, True, (230, 230, 230)),
+                    (HUD_BTN_X + 6, HB_BTN_Y + 4))
+
+        hb_filter_rects = {}
+        # Slot filter checkboxes (only shown when active)
+        fx = HB_BTN_X
+        fy = HB_BTN_Y + HB_BTN_H + 4
+        gap = 10
+        # "Filter:" label
+        filter_label_surf = smallfont.render("Filter Hitboxes (click to toggle a slot):", True, (180, 180, 180))
+        screen.blit(filter_label_surf, (fx, fy))
+        fx += filter_label_surf.get_width() + 6
+        slot_colors = {
+            "P1": (255, 100, 100),
+            "P2": (100, 160, 255),
+            "P3": (255, 100, 200),
+            "P4": (100, 255, 140),
+        }
+
+        for slot_name in ("P1", "P2", "P3", "P4"):
+            col = slot_colors[slot_name]
+
+            cb_rect = pygame.Rect(fx, fy, 14, 14)
+
+            if hitbox_slots[slot_name]:
+                pygame.draw.rect(screen, col, cb_rect, border_radius=2)
+                pygame.draw.rect(screen, (220, 220, 220), cb_rect, 1, border_radius=2)
+                screen.blit(smallfont.render("✓", True, (0, 0, 0)), (fx + 1, fy - 1))
+            else:
+                pygame.draw.rect(screen, (40, 40, 40), cb_rect, border_radius=2)
+                pygame.draw.rect(screen, (140, 140, 140), cb_rect, 1, border_radius=2)
+
+            label_surf = smallfont.render(slot_name, True, col)
+            screen.blit(label_surf, (fx + 18, fy))
+
+            total_w = 18 + label_surf.get_width() + 8
+            hb_filter_rects[slot_name] = pygame.Rect(fx, fy, total_w, 16)
+
+            fx += total_w + gap
+        # ------------------------------------------------------------------
+        r_p1c1, a_p1c1 = anim_rect_and_alpha("P1-C1", layout["p1c1"])
+        r_p2c1, a_p2c1 = anim_rect_and_alpha("P2-C1", layout["p2c1"])
+        r_p1c2, a_p1c2 = anim_rect_and_alpha("P1-C2", layout["p1c2"])
+        r_p2c2, a_p2c2 = anim_rect_and_alpha("P2-C2", layout["p2c2"])
+
+        def blit_panel_with_buttons(panel_rect, slot_label, alpha, header):
+            snap = render_snap_by_slot.get(slot_label)
+            portrait = render_portrait_by_slot.get(slot_label, placeholder_portrait)
+
+            surf = pygame.Surface((panel_rect.width, panel_rect.height), pygame.SRCALPHA)
+            draw_panel_classic(
+                surf,
+                surf.get_rect(),
+                snap,
+                portrait,
+                font,
+                smallfont,
+                header,
+                t_ms,
+            )
+
+            btn_h = 20
+            frame_btn_w = 110
+            mission_btn_w = 110
+            btn_gap = 6
+            total_btn_w = frame_btn_w + btn_gap + mission_btn_w
+            btn_x = panel_rect.width - total_btn_w - 6
+            btn_y = panel_rect.height - btn_h - 6
+
+            frame_btn_rect_local = pygame.Rect(btn_x, btn_y, frame_btn_w, btn_h)
+            mission_btn_rect_local = pygame.Rect(
+                btn_x + frame_btn_w + btn_gap,
+                btn_y,
+                mission_btn_w,
+                btn_h,
+            )
+
+            mx, my = pygame.mouse.get_pos()
+            mx_local = mx - panel_rect.x
+            my_local = my - panel_rect.y
+            frame_hover = frame_btn_rect_local.collidepoint(mx_local, my_local)
+            mission_hover = mission_btn_rect_local.collidepoint(mx_local, my_local)
+
+            flash_left = panel_btn_flash.get(slot_label, 0)
+
+            if flash_left > 0:
+                frame_base_col = (90, 140, 255)
+                frame_border_col = (255, 255, 255)
+            elif frame_hover:
+                frame_base_col = (55, 55, 55)
+                frame_border_col = (220, 220, 220)
+            else:
+                frame_base_col = (40, 40, 40)
+                frame_border_col = (180, 180, 180)
+
+            if mission_active_slot == slot_label:
+                mission_base_col = (120, 70, 170)
+                mission_border_col = (255, 255, 255)
+            elif mission_hover:
+                mission_base_col = (55, 55, 55)
+                mission_border_col = (220, 220, 220)
+            else:
+                mission_base_col = (40, 40, 40)
+                mission_border_col = (180, 180, 180)
+
+            pygame.draw.rect(surf, frame_base_col, frame_btn_rect_local, border_radius=3)
+            pygame.draw.rect(surf, frame_border_col, frame_btn_rect_local, 1, border_radius=3)
+            frame_label_surf = smallfont.render("Frame Data", True, (220, 220, 220))
+            surf.blit(frame_label_surf, (frame_btn_rect_local.x + 6, frame_btn_rect_local.y + 2))
+
+            pygame.draw.rect(surf, mission_base_col, mission_btn_rect_local, border_radius=3)
+            pygame.draw.rect(surf, mission_border_col, mission_btn_rect_local, 1, border_radius=3)
+            mission_label_surf = smallfont.render("Mission Mode", True, (220, 220, 220))
+            surf.blit(mission_label_surf, (mission_btn_rect_local.x + 6, mission_btn_rect_local.y + 2))
+
+            if flash_left > 0:
+                pygame.draw.rect(
+                    surf,
+                    (255, 255, 255),
+                    frame_btn_rect_local.inflate(4, 4),
+                    2,
+                    border_radius=4,
+                )
+
+            surf.set_alpha(alpha)
+            screen.blit(surf, (panel_rect.x, panel_rect.y))
+
+            frame_btn_rect = pygame.Rect(
+                panel_rect.x + frame_btn_rect_local.x,
+                panel_rect.y + frame_btn_rect_local.y,
+                frame_btn_w,
+                btn_h,
+            )
+            mission_btn_rect = pygame.Rect(
+                panel_rect.x + mission_btn_rect_local.x,
+                panel_rect.y + mission_btn_rect_local.y,
+                mission_btn_w,
+                btn_h,
+            )
+            return frame_btn_rect, mission_btn_rect
+
+        # Always draw C1 panels if present in layout; draw C2 panels unless giant_solo hides them.
+        btn_p1c1, mission_btn_p1c1 = blit_panel_with_buttons(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
+        btn_p2c1, mission_btn_p2c1 = blit_panel_with_buttons(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
+        if (not layout.get("p1_is_giant")) and ("P1-C2" in snaps):
+            btn_p1c2, mission_btn_p1c2 = blit_panel_with_buttons(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
+        else:
+            btn_p1c2 = pygame.Rect(0, 0, 0, 0)
+            mission_btn_p1c2 = pygame.Rect(0, 0, 0, 0)
+
+        if (not layout.get("p2_is_giant")) and ("P2-C2" in snaps):
+            btn_p2c2, mission_btn_p2c2 = blit_panel_with_buttons(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
+        else:
+            btn_p2c2 = pygame.Rect(0, 0, 0, 0)
+            mission_btn_p2c2 = pygame.Rect(0, 0, 0, 0)
+
+        draw_activity(screen, layout["act"], font, last_adv_display)
+        draw_event_log(screen, layout["events"], font, smallfont)
+        debug_rect = layout["debug"]
+        if frame_idx % DEBUG_REFRESH_EVERY == 0:
+            debug_cache = merged_debug_values()
+
+        dbg_values = debug_cache
+        debug_click_areas, debug_max_scroll = draw_debug_overlay(
+            screen, debug_rect, smallfont, dbg_values, debug_scroll_offset
+        )
+
+        scan_rect = layout["scan"]
+        scan_surf = pygame.Surface((scan_rect.width, scan_rect.height), pygame.SRCALPHA)
+        draw_scan_normals(scan_surf, scan_surf.get_rect(), font, smallfont, last_scan_normals)
+
+        if scan_anim is not None:
+            t = now - scan_anim["start"]
+            dur = scan_anim.get("dur", SCAN_SLIDE_DURATION)
+            if t <= 0:
+                frac = 0.0
+            elif t >= dur:
+                frac = 1.0
+            else:
+                frac = t / dur
+
+            from_y = scan_rect.y + scan_rect.height + 8
+            to_y = scan_rect.y
+            y = from_y + (to_y - from_y) * frac
+
+            if frac >= 1.0:
+                scan_anim = None
+        else:
+            y = scan_rect.y
+
+        scan_surf.set_alpha(255)
+        screen.blit(scan_surf, (scan_rect.x, int(y)))
+
+        _write_mission_overlay_data()
+
+        # Feed live data to hud_overlay.py subprocess
+        # Always feed live move/frame data for overlays that depend on it
+        _write_hud_overlay_data(render_snap_by_slot, last_scan_normals)
+
+        pygame.display.flip()
+
+        # -----------------------------
+        # Click handling
+        # -----------------------------
+        if mouse_clicked_pos is not None:
+            mx, my = mouse_clicked_pos
+
+            # Hitbox button
+            if hb_btn_rect.collidepoint(mx, my):
+                new_state = not any(hitbox_slots.values())
+                for slot_name in hitbox_slots:
+                    hitbox_slots[slot_name] = new_state
+                _write_hitbox_filter()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif ps_btn_rect.collidepoint(mx, my):
+                def _get_active_chars():
+                    slot_order = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
+                    return [s.get("name") for slot in slot_order
+                            for s in [render_snap_by_slot.get(slot)]
+                            if s and s.get("name")]
+                open_proj_scanner_window(_get_active_chars)
+                mouse_clicked_pos = None
+                continue
+
+            elif hud_btn_rect.collidepoint(mx, my):
+                overlay_enabled = not overlay_enabled
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+            # Hitbox slot filter checkboxes
+            else:
+                for slot_name, cb_rect in hb_filter_rects.items():
+                    if cb_rect.collidepoint(mx, my):
+                        hitbox_slots[slot_name] = not hitbox_slots[slot_name]
+                        _write_hitbox_filter()
+                        _write_master_control()
+                        _sync_master_overlay_state()
+                        break
+
+            # Debug panel rows -> copy address
+            copied = False
+            for name, (r, addr) in debug_click_areas.items():
+                if r.collidepoint(mx, my):
+                    if isinstance(addr, int):
+                        _copy_to_clipboard(f"0x{addr:08X}")
+                    else:
+                        _copy_to_clipboard(str(addr))
+                    copied = True
+                    break
+
+            # Character panels -> copy base
+            if not copied:
+                slot_panels = [
+                    ("P1-C1", r_p1c1),
+                    ("P2-C1", r_p2c1),
+                    ("P1-C2", r_p1c2),
+                    ("P2-C2", r_p2c2),
+                ]
+                for slot_label, rect in slot_panels:
+                    if rect and rect.collidepoint(mx, my):
+                        snap = render_snap_by_slot.get(slot_label)
+                        if snap:
+                            base = snap.get("base")
+                            if isinstance(base, int):
+                                _copy_to_clipboard(f"0x{base:08X}")
+                            else:
+                                _copy_to_clipboard(str(base))
+                        break
+                for slot_label, rect in slot_panels:
+                    if rect and rect.collidepoint(mx, my):
+                        snap = render_snap_by_slot.get(slot_label)
+                        if snap:
+                            base = snap.get("base")
+                            if isinstance(base, int):
+                                _copy_to_clipboard(f"0x{base:08X}")
+                            else:
+                                _copy_to_clipboard(str(base))
+                        break
+
+            # Mission mode buttons
+            if mission_btn_p1c1.collidepoint(mx, my):
+                mission_active_slot = None if mission_active_slot == "P1-C1" else "P1-C1"
+                _write_mission_mode_state()
+                _write_mission_overlay_data()
+
+            elif mission_btn_p2c1.collidepoint(mx, my):
+                mission_active_slot = None if mission_active_slot == "P2-C1" else "P2-C1"
+                _write_mission_mode_state()
+                _write_mission_overlay_data()
+
+            elif mission_btn_p1c2.collidepoint(mx, my):
+                mission_active_slot = None if mission_active_slot == "P1-C2" else "P1-C2"
+                _write_mission_mode_state()
+                _write_mission_overlay_data()
+
+            elif mission_btn_p2c2.collidepoint(mx, my):
+                mission_active_slot = None if mission_active_slot == "P2-C2" else "P2-C2"
+                _write_mission_mode_state()
+                _write_mission_overlay_data()
+
+            # Frame data buttons
+            elif btn_p1c1.collidepoint(mx, my):
+                last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
+                if last_scan_normals:
+                    open_frame_data_window("P1-C1", last_scan_normals)
+                panel_btn_flash["P1-C1"] = PANEL_FLASH_FRAMES
+
+            elif btn_p2c1.collidepoint(mx, my):
+                last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
+                if last_scan_normals:
+                    open_frame_data_window("P2-C1", last_scan_normals)
+                panel_btn_flash["P2-C1"] = PANEL_FLASH_FRAMES
+
+            elif btn_p1c2.collidepoint(mx, my):
+                last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
+                if last_scan_normals:
+                    open_frame_data_window("P1-C2", last_scan_normals)
+                panel_btn_flash["P1-C2"] = PANEL_FLASH_FRAMES
+
+            elif btn_p2c2.collidepoint(mx, my):
+                last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
+                if last_scan_normals:
+                    open_frame_data_window("P2-C2", last_scan_normals)
+                panel_btn_flash["P2-C2"] = PANEL_FLASH_FRAMES
+
+            else:
+                # Debug click areas -> toggles/cycles
+                # Each entry is (rect, addr)
+                def _toggle_u8(name: str):
+                    entry = debug_click_areas.get(name)
+                    if not entry:
+                        return False
+                    r, addr = entry
+                    if not r.collidepoint(mx, my):
+                        return False
+                    cur = rd8(addr) or 0
+                    wd8(addr, 0x01 if cur == 0x00 else 0x00)
+                    return True
+
+                def _cycle_u8(name: str, mod: int):
+                    entry = debug_click_areas.get(name)
+                    if not entry:
+                        return False
+                    r, addr = entry
+                    if not r.collidepoint(mx, my):
+                        return False
+                    cur = rd8(addr) or 0
+                    wd8(addr, (cur + 1) % mod)
+                    return True
+
+                # Pause overlay
+                _toggle_u8("PauseOverlay")
+
+                # TrPause
+                entry = debug_click_areas.get("TrPause")
+                if entry:
+                    r, addr_tr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr_tr) or 0
+                        wd8(addr_tr, 0x01 if cur == 0x00 else 0x00)
+
+                # P2Pause special coupling
+                entry = debug_click_areas.get("P2Pause")
+                if entry:
+                    r, addr_p2 = entry
+                    if r.collidepoint(mx, my):
+                        cur_p2 = rd8(addr_p2) or 0
+                        entry_tr = debug_click_areas.get("TrPause")
+                        addr_tr = entry_tr[1] if entry_tr else None
+                        if cur_p2 == 0x00:
+                            if addr_tr is not None:
+                                wd8(addr_tr, 0x01)
+                            wd8(addr_p2, 0x01)
+                            print("[P2Pause] TrPause=01, P2Pause=01")
+                        else:
+                            if addr_tr is not None:
+                                wd8(addr_tr, 0x00)
+                            wd8(addr_p2, 0x00)
+                            print("[P2Pause] TrPause=00, P2Pause=00")
+
+                _cycle_u8("DummyMeter", 3)
+                _cycle_u8("CpuAction", 6)
+                _cycle_u8("CpuGuard", 3)
+
+                _toggle_u8("CpuPushblock")
+                _toggle_u8("CameraLock")
+                _toggle_u8("CpuThrowTech")
+                _cycle_u8("P1Meter", 3)
+                _toggle_u8("P1Life")
+                _toggle_u8("FreeBaroque")
+                _toggle_u8("Orientation")
+
+                # SuperBG special (01 <-> 04)
+                entry = debug_click_areas.get("SuperBG")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr)
+                        wd8(addr, 0x01 if cur == 0x04 else 0x04)
+
+                # BaroquePct (0..0A then wrap)
+                entry = debug_click_areas.get("BaroquePct")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        wd8(addr, (cur + 1) if cur < 0x0A else 0x00)
+
+                _toggle_u8("AttackData")
+                _toggle_u8("InputDisplay")
+
+                # CpuDifficulty stored in steps of 0x20, 0..7
+                entry = debug_click_areas.get("CpuDifficulty")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        level = (cur // 0x20) % 8
+                        level = (level + 1) % 8
+                        wd8(addr, level * 0x20)
+
+                # DamageOutput cycle 0..3
+                entry = debug_click_areas.get("DamageOutput")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr) or 0
+                        wd8(addr, (cur + 1) & 0x03)
+
+                # HypeTrigger momentary
+                entry = debug_click_areas.get("HypeTrigger")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        orig = rd8(addr)
+                        if orig is None or orig == 0:
+                            orig = 0x45
+                        wd8(addr, 0x40)
+                        hype_restore_addr = addr
+                        hype_restore_orig = orig
+                        hype_restore_ts = now + 0.5
+
+                # ComboStore[1] momentary
+                entry = debug_click_areas.get("ComboStore[1]")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        wd8(addr, 0x41)
+
+                _toggle_u8("ComboCountOnly")
+
+                # SpecialPopup momentary
+                entry = debug_click_areas.get("SpecialPopup")
+                if entry:
+                    r, addr = entry
+                    if r.collidepoint(mx, my):
+                        cur = rd8(addr)
+                        if cur is None or cur == 0:
+                            cur = 0x45
+                        special_restore_orig = cur
+                        wd8(addr, 0x40)
+                        special_restore_addr = addr
+                        special_restore_ts = now + 0.5
+
+        # -----------------------------
+        # Restore momentary writes
+        # -----------------------------
+        if hype_restore_addr is not None and now >= hype_restore_ts:
+            try:
+                wd8(hype_restore_addr, hype_restore_orig)
+            except Exception:
+                pass
+            hype_restore_addr = None
+
+        if special_restore_addr is not None and now >= special_restore_ts:
+            try:
+                wd8(special_restore_addr, special_restore_orig)
+            except Exception:
+                pass
+            special_restore_addr = None
+
+        # Button flash countdown
+        for k in panel_btn_flash:
+            if panel_btn_flash[k] > 0:
+                panel_btn_flash[k] -= 1
+
+        # Trigger normals rescan when team changes
+        if HAVE_SCAN_NORMALS and need_rescan_normals and scan_worker:
+            scan_worker.request()
+            need_rescan_normals = False
+
+        # Manual F5 scan
+        if HAVE_SCAN_NORMALS and manual_scan_requested:
+            if scan_worker:
+                scan_worker.request()
+            else:
+                try:
+                    last_scan_normals = scan_normals_all.scan_once()
+                    last_scan_time = time.time()
+                except Exception as e:
+                    print("manual scan failed:", e)
+            manual_scan_requested = False
+
+        # CSV flush placeholder (kept as-is, since logging writes are elsewhere)
+        if pending_hits and (frame_idx % 30 == 0):
+            newcsv = not os.path.exists(HIT_CSV)
+            with open(HIT_CSV, "a", newline="", encoding="utf-8") as fh:
+                wcsv = csv.writer(fh)
+                if newcsv:
+                    wcsv.writerow([
+                        "t",
+                        "victim_label", "victim_char", "dmg",
+                        "hp_before", "hp_after",
+                        "attacker_label", "attacker_char", "attacker_char_id",
+                        "attacker_id_dec", "attacker_id_hex", "attacker_move",
+                        "dist2",
+                        "atk_flag062", "atk_flag063",
+                        "vic_flag062", "vic_flag063",
+                        "atk_ctrl", "vic_ctrl",
+                    ])
+            pending_hits.clear()
+
+        clock.tick(TARGET_FPS)
+        frame_idx += 1
+        
+    _restore_mission_debug_overrides()
+
+    if master_overlay_proc and master_overlay_proc.poll() is None:
+        try:
+            master_overlay_proc.terminate()
+        except Exception:
+            pass
+    pygame.quit()
+def main():
+    legacy_main()
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        import traceback
+        print("\n[main crash]")
+        print(f"error={e!r}")
+        traceback.print_exc()
+        try:
+            input("\nCrash detected. Press Enter to close...")
+        except EOFError:
+            pass
+        raise

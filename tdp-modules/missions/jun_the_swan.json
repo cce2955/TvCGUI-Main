@@ -1,0 +1,101 @@
+{
+  "character": "Jun the Swan",
+  "missions": [
+    {
+      "mission_id": "jun_001",
+      "name": "BnB",
+      "notes": "Basic launcher route.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "jun_002",
+      "name": "Kick Relaunch",
+      "notes": "Lightning Kick B into relaunch.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Lightning Kick B" },
+        { "label": "j.B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "jun_003",
+      "name": "Corner Combo",
+      "notes": "Corner only, you can repeat this with a partner",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Lightning Kick B" },
+        { "label": "j.B" },
+        { "label": "Air Yoyo A" },
+        { "label": "j.B" },
+        { "label": "5C" },
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "jun_004",
+      "name": "Swan Finish",
+      "notes": "Long route into Dancing Swan A, then Yoyo A into Bingo.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Lightning Kick C" },
+        { "label": "j.B" },
+        { "label": "Air Yoyo A" },
+        { "label": "j.B" },
+        { "label": "5C" },
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2A" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Dancing Swan A" },
+        { "label": "Air Yoyo A" },
+        { "label": "Air Bingo" }
+      ]
+    },{
+  "mission_id": "jun_005",
+  "name": "Challenge",
+  "notes": "???",
+  "steps": [
+    { "label": "Bingo" },
+    { "label": "Yoyo B" },
+    { "label": "5C" },
+    { "label": "Phoenix" }
+  ]
+}
+  ]
+}

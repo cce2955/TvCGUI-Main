@@ -1,0 +1,147 @@
+{
+  "character": "Ippatsuman",
+  "missions": [
+    {
+      "mission_id": "ippatsuman_001",
+      "name": "Combo Trial 001",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "ippatsuman_002",
+      "name": "Combo Trial 002",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "Mound A" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "6B" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "ippatsuman_003",
+      "name": "Combo Trial 003",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Quick Upper A" },
+        { "label": "Final Reversal Breaker" }
+      ]
+    },
+    {
+      "mission_id": "ippatsuman_004",
+      "name": "Combo Trial 004",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "Quick Upper A" },
+        { "label": "j.B" },
+        { "label": "6B" },
+        { "label": "Quick Upper B" },
+        { "label": "j.B" },
+        { "label": "6B" },
+        { "label": "Quick Upper B" },
+        { "label": "j.B" },
+        { "label": "6B" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Quick Upper A" },
+        { "label": "Final Reversal Breaker" }
+      ]
+    },{
+  "mission_id": "ippatsuman_005",
+  "name": "Combo Trial 005",
+  "notes": "",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "2C" },
+    { "label": "Rainball B" },
+    { "label": "Grand Slam Attack" }
+  ]
+},{
+  "mission_id": "ippatsuman_006",
+  "name": "Combo Trial 006",
+  "notes": "",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "2C" },
+    { "label": "Quick Upper A" },
+    { "label": "j.B" },
+    { "label": "6B" },
+    { "label": "Quick Upper B" },
+    { "label": "j.B" },
+    { "label": "6B" },
+    { "label": "Quick Upper B" },
+    { "label": "j.B" },
+    { "label": "6B" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "Air Rainball B" },
+    { "label": "j.B" },
+    { "label": "Air Quick Upper A" },
+    { "label": "Final Reversal Breaker" }
+  ]
+},{
+  "mission_id": "ippatsuman_007",
+  "name": "Challenge",
+  "notes": "some moves are missing good luck",
+  "steps": [
+    { "label": "Quick Upper A" },
+    { "label": "Air Rainball B" },
+    { "label": "Quick Upper B" },
+    { "label": "Final Reversal Breaker" }
+  ]
+},{
+  "mission_id": "ippatsuman_008",
+  "name": "VAR Reversal Breaker",
+  "notes": "",
+  "steps": [
+    { "label": "VAR" },
+    { "label": "j.B" },
+    
+    { "label": "Air Rainball B" },
+    { "label": "Baroque cancel" },
+    { "label": "j.B" },
+    { "label": "Air Quick Upper A" },
+    { "label": "Final Reversal Breaker" }
+  ]
+}
+  ]
+}

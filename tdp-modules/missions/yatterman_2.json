@@ -1,0 +1,131 @@
+{
+  "character": "Yatterman 2",
+  "missions": [
+    {
+      "mission_id": "yatterman_2_001",
+      "name": "Combo Trial 001",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_2_002",
+      "name": "Combo Trial 002",
+      "notes": "",
+      "setup_debug_flags": {
+        "CpuGuard": 2
+      },
+      "steps": [
+        { "label": "2C" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_2_003",
+      "name": "Combo Trial 003",
+      "notes": "",
+      "steps": [
+        { "labels": ["Forward Throw", "Back Throw"] },
+        { "label": "yatter step" },
+        { "label": "Yatter Step C" },
+        { "label": "Omochama" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_2_004",
+      "name": "Combo Trial 004",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Yattershield A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_2_005",
+      "name": "Combo Trial 005",
+      "notes": "Don't forget to mash",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Yatter Shield A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Yatter Shield C" },
+        { "label": "This Week's Special Robots" }
+      ]
+    },
+    {
+      "mission_id": "yatterman_2_006",
+      "name": "Combo Trial 006",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Yatter Shield A" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Yatter Step" },
+        { "label": "Yatter Step B" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },{
+  "mission_id": "yatterman_2_007",
+  "name": "Challenge",
+  "notes": "",
+  "steps": [
+    { "label": "Yatter Shield A" },
+    { "label": "Yatter Shield A" },
+    { "label": "Yatter Passion" },
+    { "label": "Yatter Shield A" },
+    { "label": "Yatter Passion" },
+    { "label": "Yatter Shield A" },
+    { "label": "Yatter Passion" },
+    { "label": "Yatter Shield A" },
+    { "label": "Yatter Passion" },
+    { "label": "Yatter Shield A" },
+    { "label": "Yatter Passion" }
+  ]
+}
+  ]
+}

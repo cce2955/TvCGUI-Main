@@ -1,0 +1,1294 @@
+Fighter Base Pointers (how to get each character struct)
+
+TvC keeps one live “fighter struct” per on-screen slot:
+
+P1 active (P1C1 / point)
+
+P1 partner (P1C2 / off-screen, tag/assist)
+
+P2 active (P2C1)
+
+P2 partner (P2C2)
+
+Static manager pointers (not the structs themselves):
+
+0x803C9FCC → P1-C1 manager
+
+0x803C9FDC → P1-C2 manager
+
+0x803C9FD4 → P2-C1 manager
+
+0x803C9FE4 → P2-C2 manager
+
+Resolution flow per slot:
+
+Read the static manager address.
+
+Follow one or two layers of pointers inside the manager.
+
+The final pointer is the fighter_base for that slot (e.g., 0x9246B9C0).
+
+Sanity checks for a good base:
+
+[base+0x24] Max HP is sane (about 10k–60k)
+
+[base+0x28] Cur HP in [0..Max]
+
+[base+0xF0]/[+0xF4] look like real world X/Y floats
+
+The HUD caches:
+
+fighter_base[P1_active], fighter_base[P1_partner], fighter_base[P2_active], fighter_base[P2_partner]
+
+All offsets below are relative to fighter_base unless marked “absolute.”
+
+Fighter struct offsets (relative to fighter_base)
+
+Identity / Health
+
++0x14 (u32) Character ID (12 Ryu, 14 Batsu, 18 Volnutt, etc.)
+
++0x24 (u32) Max HP
+
++0x28 (u32) Cur HP
+
++0x2C (u32) Red life pool / Baroque pool
+
++0x40 (u32) Last damage chunk taken
+
+Position
+
++0xF0 (f32) World X
+
++0xF4 (f32) World Y
+
+Control
+
++0x70 (u32) Control/legality word. Rewritten constantly. Zeroing it causes slide/odd control; not velocity storage.
+
+Sanitized by code around 0x8004AAF4.
+
+Attack / Action ID
+
++0x1E8 (u32) Attack/action/state ID
+
++0x1EC (u32) Sub-ID / follow-up
+
+48 = BLOCK, 51 = PUSHBLOCK
+
+Lookups: global(ID→label) and per-character((charID,attackID)→“Ryu 5A”, etc.)
+
+Hot Zone A (0x050–0x090 neighborhood)
+
++0x052/+0x053 (u8) Startup tells
+
++0x056/+0x057/+0x058/+0x059 (u8) Active/hit tells
+
+0x058/0x059 align with “hit can occur now”
+
++0x05B (u8) Post-impact/confirm/transition pulse
+
++0x062 (u8) f062 “engagement/stun context”
+
+160 IDLE_BASE
+
+168 ENGAGED
+
+32 ACTIVE_MOVE
+
+0 ATTACK_ACTIVE
+
+40 IMPACTED
+
+8 STUN_LOCK
+
++0x063 (u8) f063 “phase”
+
+Ground: 0/32 STARTUP, 6 HIT_COMMIT, 16 BLOCK_PUSH, 17 ATKR_READY, 34 CHAIN_BUFFER, 36 HIT_RESOLVE, 37/5 RECOVERY, 168 DEF_READY, 1 NEUTRAL
+
+Air/juggle: 64 AIR_ASCEND_ATK, 192 AIR_DESC_ATK, 193 FALLING, 70 AIR_PREHIT, 68 AIR_IMPACT, 196/198/197 KB stages, 96/224/230 AIR_CHAIN_BUF*, 194 AIR_CHAIN_END
+
++0x064 (u8) f064 Airborne/land sub-state (WIP)
+
++0x072 (u8/word) f072 “move gate” (non-zero during startup+active+recovery)
+
+Hot Zone B (stun/assist/facing/baroque mirrors)
+
++0xB9F0 (u32/+neigh) Internal combo/juggle count (authoritative scaling)
+
++0xBA50 (block) Assist state cluster (cooldowns/lockouts)
+
++0xBA90 (u8) Facing/orientation flag (L/R)
+
++0xBAA0 (block) Assist target vector (opponent deltas)
+
++0xBB00 (u8) Landing recovery flag
+
++0xBB20 (u8) TRUE_STUN (grounded normals)
+
++0xBB90 / +0xBBE0 (u8) Assist readiness mirrors
+
++0xBBE0 == 0x00 → Assist actually ready
+
++0xBDF0 / +0xBAF0 (u8) Stun mirrors by slot (engine duplicates truth for subsystems)
+
++0xCBA8–0xCBA9 (u8) Baroque-ready flags (authoritative)
+
+Knockback / Impact cluster (floats)
+
+~+0xBA5x–+0xBA8x: movement scaling/dash bursts/recoil/air-drift written per frame
+
+~+0xBBA0: impact magnitude/shove strength (spikes ~29 on heavy hit or block)
+
+Live bone transform cluster (the “floating fist” find)
+
+Region tested: fighter_base + 0xBA40 … +0xBA9F (96 bytes). Example absolute: 0x92477400–0x9247745F for P1C1 Ryu.
+
+Writes of 3F800000 (1.0) and 00000000 (0.0) per 4 bytes produce:
+
+severe stretching/anchoring of Ryu’s right arm to opponent geometry,
+
+limb collapses/offsets that change with specific offsets.
+
+Behavior matches a live joint transform array (per-bone 3×4 matrices, big-endian floats). Animation code rewrites it every frame; our writes override components between frames.
+
+Most reactive span for Ryu’s right arm during sweep: roughly +0x20..+0x30 within this 0xBA40 page.
+Hypothesis (provisional): that sub-range maps to the upper-arm/forearm local matrix rows.
+
+Past ~+0x50, effects taper or move to other limbs/root, consistent with walking across rows for other joints.
+
+Practical notes:
+
+The cluster is volatile; for stable tests, “freeze” individual offsets or run a quick restore after each poke.
+
+This is not hitbox storage. It manipulates the skeleton; attacks that use the affected limb gain “remote” contact due to bone displacement.
+
+Globals / HUD / training (absolute addresses)
+
+Training toggles (0x803F5650–0x803F5680)
+
+0x803F5650 +0x24 (u8) Training Baroque level: 00 none, 01 10%, 02 20%, …
+
+0x803F5650 +0x20 (u8) Attack data overlay
+
+0x803F5670 +0x20 (u8) Input display
+
+0x803F5680 +0x10 (u8) P1 meter behavior: 00 normal, 01 recover, 02 infinite
+
+0x803F5680 +0x08 (u8) Infinite health toggle
+
+0x803F5680 +0x24 (u8) Free Baroque toggle
+
+Assist portrait vs real lockout
+
+0x803FB7F0 +0x04 (u8) Portrait “assist unavailable” flag (can lie)
+
+Compare to fighter_base+0xBBE0 == 0x00 (actually ready)
+
+Combo/hype UI block (presentation)
+
+0x803FB940..: combo popup store/trigger
+
+0x803FB950..: counter formatting/visibility
+
+0x803FB9E0..: hype word trigger
+
+0x803FBA70..: Baroque popup trigger
+
+0x803FBB80/0x803FBB90: super UI glow/superflash
+
+Compare to fighter_base+0xB9F0 (real internal combo count)
+
+Threat / proximity
+
+0x80405890 / 0x804050B0 / 0x80405530: constantly updating XYZ triplets (collision candidates)
+
+0x80405BF0: similar, reacts to hitstop
+
+0x80478A30: defender threat block; byte 0x30 flips when you’re in real danger/throw window
+
+Match flow / pause / director
+
+0x805610F0: pause controller (zeroing 0x18–0x24 disables pause)
+
+0x80561100: pause darken overlay (0x24 dims)
+
+0x805C78B0..0x805FAB70: big match/camera/announcer director blob
+
+Baroque / input monitor (absolute)
+
+0x9246CB9D (u8) Baroque ready gate: 0x00 not ready, else ready (authoritative)
+
+0x9246CB9C (u8) Neighbor context byte (often 0x03)
+
+0x9246CC48 / 0x9246CC50: Baroque activation twitches
+
+0x9246CC40 / 0x9246CC50 / 0x9246CC60: P1 controller blocks; I dump 0x80 bytes from 0x9246CC40 each frame for live input traces
+
+HUD / runtime config highlights
+
+INTERVAL = 1/30.0 (poll ~30 Hz)
+
+MIN_HIT_DAMAGE = 10 (to log a “real” hit)
+
+Inspector slices:
+
+HEALTH_WIRE_OFFSETS = [0x000..0x00B, 0x02A, 0x02B]
+
+WIRE_OFFSETS = [0x062,0x063,0x064,0x072, 0x090..0x093, 0x0F0..0x0F7]
+
+Advantage logic
+
+Old:
+
+Wait until both sides’ f062 return to 160; plus_frames = defender_idle_frame − attacker_idle_frame.
+
+New (moving toward):
+
+Use first actionable frame:
+
+TRUE_STUN (base+0xBB20) clear,
+
+Landing recovery (base+0xBB00) clear,
+
+f063 in ATKR_READY (17), DEF_READY (168), or NEUTRAL (1).
+
+Handles jump-ins, land lag, and pushback sanely.
+
+Absolute sweep tooling we used
+
+Absolute fill (quick confirm):
+
+python tvc_experiments/tvc_fill_test.py --start 0x92477400 --len 0x60 --value 0x00
+
+
+Absolute sweep with revert between values (what produced the “floating fist” mapping):
+
+python tvc_experiments/sweep_fill_abs.py --start 0x92477400 --len 0x60 --mode u32 --values 0x00000000,0x3F800000 --hold 0.25 --revert-between
+
+
+(You can use --mode float --values 0.0,1.0 for the same effect.)
+
+0x92477400..0x9247740B → Upper arm vec/weight A (forearm/bicep tip, right bias)
+
+0x9247740C..0x92477417 → Shoulder/bicep down bias
+
+0x92477418..0x92477423 → “Anchor” / pole vector (whole arm up-left when +1)
+
+0x9247742C..0x92477437 → Counter-anchor (lower-right pull)
+
+0x9247742C specifically anchors Ryu's fist to P2-C1's left leg
+
+0x92477454..0x9247745F → Hand/elbow constraint blend; 0x54 extends, 0x58/0x5C throw whole arm up-right/up-left
+
+
+0x9246CB80 + 15	(16th byte)	Current hit counter	Increments per valid hit registered. Resets when combo ends or on round start.
+0x9246CB80 + 31	(32nd byte)	Airborne-hit counter	Tracks number of hits landed since the fighter entered an airborne state.
+-----
+9246daa0
+9246dab0
+9246dac0 These three addresses have "something" to do with throws, but NOPing doesn't do anything
+
+9246da90 here it is, changing hex byte 48 to 80 causes the throw animation to play, it's influenced on the next line at  9246daa0 +  hex 22, d5 for back throw, d2 for forward throw (p1-C1 only)
+---
+9246dad0
+9246dae0 On hit both of these flash and count down, it does the same on block, if the opponent push blocks the counter immediately stops
+
+9246b9e0 health and baroque? + 34/36 move on hit, + 48 50 also moves on hit and moves again when using baroque
+-------------
+Figher blocks
+------------
+P1C1 → 0x9246B9C0
+P1C2 → 0x9246D9C0
+P2C1 → 0x924789C0
+P2C2 → 0x9247A9C0
+
+
+9246ba20
+
+9246b9f0 ff ff ef 34
+
+9246ba10 index 14, setting it to 40 causes the P1-C1 to hit the top of the stage and float down, related to this is index 10, setting it to zero kills all inputs, if index 14 is set to 40 and then 10 is set to 40, Ryu stops floating, if hit he'll suddenly get control back
+
+9246ba10, index 11, 12, set to 0c 01 causes landing animation to play, or it did, I can't get it working again, setting it to 0e makes Ryu unable to move, I assume this means the character is airborne and Ryu cannot move until the airborne flag is removed, again this is a guess
+
+
+9246baf0, index 13,14,15,16 is the vector that determines the inertia of air jumps, so if I jump, hold right, it'll move. if I jump hold left it'll move, if I jump press nothing, no reaction, this only applies to super jumps (at the moment)
+
+9246bac0, , index 13,14,15 seems to do the same thing but has...slightly different values?
+
+9246bb00, index 5,6,7 Y value from ground, tracks jumps. Goes to zero is a move stops momentum, then tracks again. 9,10 seems to be a flag that just says "on" or "off"
+
+9246bb20, Tracks dash movement both forward and backward, air and ground, however 9246bb20 index 13,14,15,16 seems to only track ground dashes, possibly a jump cancel timer?
+
+9246bb30, is a simple flag that says dash is active. 
+
+9246bae0, seems to track inputs for dash? index 5-8  bd 30 20 c5  index 13-16 bd a9 93 0b when dash is active, ALSO there seems to be some X translation shenanigans, I changed it around and Ryu was sliding even offscreen, setting index 5 to C1 throws P1-C1 off screen I believe to the left wall? but definitely does X movement, which lines up with dashing I guess, there is setting it to Bd (which is how it tracks backdashes) slides P1C1 away from the opponent infinitely, setting it to 3D slides towards. By going up a few (like 3E or 3F) the movement gets a little aggressive, I have the perfect dummy to test this with. Megaman volnutt has a known glitch that causes this flag to fire, and I can get it to fire but it looks like it's linked with something else. For now it's just a fun little oddity. Also seems to activate on pushblock, so this seems like a general X lateral movement tracker. but not movement, just..micromovements?
+
+908aeef8 Knockback modifier, higher values seems to reduce it, actually any value seems to eliminate it, have to play with this line, 908aeef2 908aeef3 probably does it maybe
+
+-------
+9246bc10
+9246bc20
+
+For index 5-8 on both lines holds
+
+ff ff ff ff
+ff ff ff ff
+
+changed to
+
+00 00 00 16
+00 00 00 11
+
+does absolutely nothing, it reacts on hit, but nothing
+----------
+
+9246ba20 00 04 00 00 does nothing ignore
+
+9246b9f0 ff ff ef 34 does nothing ignore
+
+hit box bundles start with ff ff ff fe
+
+
+908aee10, index 7, default 01, light punch. Set to 02 it does the end animation of Shin Sho, 00 makes ryu raise his hand and put it down, no anim, so far as I can see, any value above 02 causes Ryu to punch and then freeze in place
+
+908aee10, index 8, default 00, nothing strange. 01 Ryu does Med kick, 02 Heavy Punch, 03 2A, 04 2B, 05 2C, 06 6C, 07 heavy punch, 08 launcher, 09 j.A, 010 j.A (second), 
+
+908aee20, index 2, changing this to any value between 04 and 08 causes the super background to generate with the animation
+
+908aee20, index 8, this "seems" to mess with startup, but it also doesn't, I'm not entirely sure what this is, it's not startup though.
+
+908aee30, index 8, default 03 is normal, 00 causes Ryu to punch towards the camera, 02 causes ryu to punch backwards, 04 makes Ryu punch away from the camera
+
+908aee40, index 15, default 01, normal, value 02 does the round start intro pose
+
+908aee40, index 16, does the same as 908aee10
+
+908aee50, index 2, default 3c, setting it to 3b causes Ryu to freeze at animation end, then he just punches again, forever, only enemy can interrupt. 3A is fine though...
+
+908aee70, index 10, default 41, changing to 42 pushes Ryu back to the edge of the screen away from the opponent then freezes.
+
+908aee90, index 13 default 3f, determines the distance of Ryu's 5A, seems that it's exponential or very sensitive? changing it to 3E makes him punch his chest and 4a goes to the opposite side of the screen, oh that's just me forgetting hex, changing it to 40 makes him stretchy like Mr. Fantastic but not agressively so
+
+908aeea0, index 1, does the same thing as 908aee90 but for the Z value (foreground to background) instead of on the 2D plane
+
+908aeea0, index 5, determines the squash of the animation, Ryu's arm can be a stick or a thick tree trunk when set to 00 or 40
+
+908aef20, index 1, default 00, absolutely nothing interesting, change it to 01/04, enemy has zero health no red life on hit, change it to 02/05, enemy has no health but a full red bar on hit
+
+908aef60, index 0, default 04, changing it to 00 removes the hitbox, but freezes on animation end
+
+908aef60, index 15, default 02, changing to 00 causes the super background to appear during animation
+
+908aef60, index 16, default 58, when set to 0, Ryu punches, then freezes, BUT if combined with index 15 above and both are set to zero, Ryu will lose all health, taunt twice, and then meter will slowly drop to zero
+
+908af060, index 2, removes hitbox and freezes Ryu
+
+908af0d0, entire line, if FF'd entire arm seems to derender on animation but is fine in neutral, hitbox is fine
+
+908aefb0, index 13, default 41, changing it to 60 causes the hitbox to be "attached" to the enemy? I dunno, I just know I can hit him from any where on the screen, oh it seems to just be expontential, at 41 the range is doubled, 42 double that, etc. etc., setting it to FF hits anywhere on the screen but the hitspark generates at the bottom of the enemy
+
+908af010, index 10, default 33, when changed to 00 Ryu can punch and gets frozen, BUT, if Ryu is in an attackable range, he can still punch, once out of range, Ryu is frozen, if hit by opponent Ryu is free to move, but again, if japbbing outside of range, Ryu freezes.
+
+908af040, Index 2, hit reaction animation, default 17. My notes seems to differ from James? 01 causes spiral knockdown, 04 hard knockdown, 05 hard knockdown, 08 throw knockdown?, 10/11/12/15/16/18 spiral knockdown with massive hitstun at the front, 13/14 overhead hit,
+
+908af050, index 2, default 15, hitstun...but not really 10 causes a lot of hitstun, 16 causes stagger knockdown
+
+908aef40, index 16, default 40, changes hitspark, 01 makes a big ole hitspark, also any variation of X1 like 11, 21, 31, etc. X0 normal hitsparks, anything else removes it
+
+
+908aef30,index 8, default 44, 43 produces no hitstun (not the hitstun value itself, just no anim), 41/42 overhead, 40 is interesting, it "looks" like a guard break animation, but it's the same animation used for Viewtiful joe Slow and Zoom or Blade's omnidirectional stagger anim
+
+---
+
+Ryu 5A Hitbox Structure @ 0x908AEFB0
+
+Full 0x50-byte region
+
+908AEFB0: 00 00 00 3F  00 00 00 00  00 00 00 3F  41 A0 00 00
+908AEFC0: 35 0D 20 3F  00 00 00 0A  00 00 00 3F  00 00 00 00
+908AEFD0: 00 00 00 3F  00 00 00 00  00 00 00 3F  41 20 00 00
+908AEFE0: 00 00 00 3F  00 00 00 0A  00 00 00 3F  00 00 00 00
+
+
+---
+
+Confirmed / Observed Behavior
+
+Address	Default	Float Value	Effect / Behavior
+
+0x908AEFBC	41 A0 00 00	20.0	Expands hitbox size/range for first hitbox. Increasing this → huge global hitbox.
+0x908AEFDC	41 20 00 00	10.0	Second hitbox’s radius. Increasing this affects secondary contact point; sparks drift downward as opponent moves away.
+0x908AEFB8	00 00 00 3F	0.5	Changing to 40 20 00 00 (2.5) → crash. Likely struct padding, pointer, or flag bitfield, not a float.
+0x908AEFD8	00 00 00 3F	0.5	Changing to 40 20 00 00 → Ryu freezes post-attack if opponent out of range. Probably an active frame duration or animation gate.
+0x908AEFC8	00 00 00 0A	(int 10)	Changing to 00 00 00 14 → Ryu freezes after punch. Likely sub-hitbox count / duration counter.
+0x908AEFE8	00 00 00 0A	(int 10)	(Not yet tested; predicted same effect as 0xC8.)
+0x908AEF7C	(not in region, earlier)	–	“Global” hitbox range , setting to FF previously expanded all hits. Related global flag or header byte.
+
+
+
+---
+
+Behavior Summary
+
+Two sequential hitboxes inside one move block (35 0D 20 3F marker denotes the start of each).
+
+Each hitbox appears to end with a float controlling radius/range (20.0 / 10.0 defaults).
+
+Increasing these floats enlarges the hit area proportionally.
+
+The game accepts large positive floats but crashes or softlocks if internal padding/pointer fields are replaced with valid float patterns.
+
+Spark offset/direction correlates with secondary hitbox range; when both are huge, engine computes mid-point → sparks shift vertically.
+
+
+
+---
+
+Working Theory (Field Labels)
+
+Offset (from 0x908AEFB0)	Tentative Label	Type	Notes
+
++0x00	unknown_A	float	constant 0.5
++0x04	unknown_B	float	always 0.0
++0x08	unknown_C	float	constant 0.5
++0x0C	radius_1	float	Primary hitbox radius
++0x10	marker	bytes	35 0D 20 3F → hitbox delimiter
++0x14	subid_or_flags	int	“10” = 0xA; freezing if changed
++0x18	unknown_F	float	0.5f constant
++0x1C	pad	bytes	zeroed
++0x20	unknown_G	float	0.5f
++0x24	unknown_H	float	0.0
++0x28	unknown_I	float	0.5f
++0x2C	radius_2	float	Secondary hitbox radius
++0x30	unknown_J	float	0.5f
++0x34	subid2	int	“10” = 0xA; not tested yet
+…	…	…	continues
+
+
+
+---
+
+Stable working pokes
+
+:: reset to defaults
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "41 A0 00 00"
+python tvc_sigtool.py poke --addr 0x908AEFDC --bytes "41 20 00 00"
+
+:: enlarge first hitbox
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "43 20 00 00"
+
+:: enlarge both
+python tvc_sigtool.py poke --addr 0x908AEFBC --bytes "43 20 00 00"
+python tvc_sigtool.py poke --addr 0x908AEFDC --bytes "43 20 00 00"
+
+
+---
+
+Hitbox instances verified
+
+Ryu 5A live block (training):
+
+marker 1: 0x908AEF78 (35 0D 20 3F)
+
+primary radius: 0x908AEFBC
+
+default: 41 A0 00 00 (20.0)
+
+enlarged test: 43 20 00 00
+
+secondary radius: 0x908AEFDC
+
+default: 41 20 00 00 (10.0)
+
+enlarged test: 43 20 00 00
+
+second marker in same move: 0x908AEFC0
+
+second-marker radius: 0x908AF004 (= 0x908AEFC0 + 0x44)
+
+Ryu 5B live block:
+
+marker: 0x908AF3F0
+
+primary radius: 0x908AF434 (= marker + 0x44)
+
+default: 41 C8 00 00 (25.0)
+
+enlarged: 43 20 00 00
+
+second marker (same block): 0x908AF43C
+
+second radius: 0x908AF480 (= 0x908AF43C + 0x44)
+
+Ryu 5C live block:
+
+marker: 0x908AF804
+
+primary radius: 0x908AF848 (= marker + 0x44)
+
+default: 41 A0 00 00 (20.0)
+
+enlarged: 43 20 00 00
+
+second marker: 0x908AF84C
+
+second radius: 0x908AF890 (= 0x908AF84C + 0x44)
+
+Rule confirmed: for this match/state, every hitbox that starts with 35 0D 20 3F has its active radius at marker+0x44.
+
+Fighter base pointers (slots)
+
+0x803C9FCC → P1-C1 manager
+
+0x803C9FDC → P1-C2 manager
+
+0x803C9FD4 → P2-C1 manager
+
+0x803C9FE4 → P2-C2 manager
+
+Resolution flow:
+
+read manager at the static address
+
+follow 1–2 pointers → fighter_base (example: 0x9246B9C0)
+
+sanity:
+
+[base+0x24] max HP 10k–60k
+
+[base+0x28] current HP
+
+[base+0xF0]/[base+0xF4] world X/Y floats
+
+Known fighter bases from notes:
+
+P1C1 → 0x9246B9C0
+
+P1C2 → 0x9246D9C0
+
+P2C1 → 0x924789C0
+
+P2C2 → 0x9247A9C0
+
+Fighter struct key offsets (relative to fighter_base)
+
++0x14 u32 character ID
+
++0x24 u32 max HP
+
++0x28 u32 cur HP
+
++0x2C u32 red life / baroque pool
+
++0x40 u32 last damage chunk
+
++0x70 u32 control/legality word (constantly rewritten)
+
++0xF0 f32 world X
+
++0xF4 f32 world Y
+
++0x1E8 u32 attack/action/state ID
+
++0x1EC u32 sub-ID/follow-up
+
+“Hot zone” bytes mapped (relative to fighter_base):
+
++0x052–0x05B: startup/active/hit tells
+
++0x062: “engagement/stun context”
+
+160 IDLE_BASE
+
+168 ENGAGED
+
+32 ACTIVE_MOVE
+
+0 ATTACK_ACTIVE
+
+40 IMPACTED
+
+8 STUN_LOCK
+
++0x063: phase
+
+0/32 startup
+
+6 hit commit
+
+16 block push
+
+17 ATKR_READY
+
+168 DEF_READY
+
+1 neutral
+
++0x072: move gate
+
+Absolute/runtime addresses  called out
+
+Training toggles: 0x803F5650–0x803F5680
+
+Pause/match director: ~0x805610F0+
+
+Baroque/input monitor (P1): 0x9246CB80+ (hit counter etc.)
+
+Throw-related cluster : 0x9246DA90–0x9246DAE0 area
+
+Animation/move-control cluster poked (908AEE10+ etc.)
+0x908AEE10/0x908AEE20/... region as the current move/animation driver:
+
+These below are Ryu P1 Point, investigating offsets and slot references
+
+908aee17 908aee18
+
+0x908AEE30 index 8 changes facing/punch direction
+
+0x908AEF60 index 0/15/16 affects hitbox presence and weird super BG
+
+0x908AEFB0 index 13 makes hitbox “attach” everywhere
+
+python tvc_sigtool.py poke --addr 0x908af004 --bytes "43 FF 00 00"   
+# 5A
+python tvc_sigtool.py poke --addr 0x908AF434 --bytes "43 FF 00 00"   
+# 5B
+python tvc_sigtool.py poke --addr 0x908AF848 --bytes "43 FF 00 00"   
+# 5C
+
+python tvc_sigtool.py poke --addr 0x908AFD28 --bytes "43 FF 00 00"   
+# 2A
+python tvc_sigtool.py poke --addr 0x908B02F8 --bytes "43 FF 00 00"   
+# 2B
+python tvc_sigtool.py poke --addr 0x908B0848 --bytes "43 FF 00 00"   
+# 2C
+python tvc_sigtool.py poke --addr 0x908B159C --bytes "43 FF 00 00"   
+# 3C
+
+
+python tvc_sigtool.py poke --addr 0x908B19F4 --bytes "43 FF 00 00"   
+# j.A
+python tvc_sigtool.py poke --addr 0x908B1F54 --bytes "43 FF 00 00"   
+# j.B
+python tvc_sigtool.py poke --addr 0x908B21C8 --bytes "43 FF 00 00"   
+# j.B (second hit)
+python tvc_sigtool.py poke --addr 0x908B249C --bytes "43 FF 00 00"   
+# j.C
+
+python tvc_sigtool.py poke --addr 0x908B2994 --bytes "43 FF 00 00"   
+# 6B hit 1
+python tvc_sigtool.py poke --addr 0x908B2C2C --bytes "43 FF 00 00"   
+# 6B hit 2
+python tvc_sigtool.py poke --addr 0x908B102C --bytes "43 FF 00 00"   
+# 6C
+010c013c
+908b3910 Hado L, wait 0x908B391A is hado l?
+
+python tvc_sigtool.py poke --addr 0x908B49C4 --bytes "43 FF 00 00"   
+# Tatsu L
+python tvc_sigtool.py poke --addr 0x908B4E7C --bytes "43 FF 00 00"   
+# Tatsu M (First Hit)
+python tvc_sigtool.py poke --addr 0x908b5198 --bytes "43 FF 00 00"   
+# Tatsu M (second and third hit)
+python tvc_sigtool.py poke --addr 0x908B5994 --bytes "43 FF 00 00"   
+# Tatsu H (Last Three Hits)
+python tvc_sigtool.py poke --addr 0x908b5670 --bytes "43 FF 00 00"   
+# Tatsu H (First Hit)
+python tvc_sigtool.py poke --addr 0x908b90AD --bytes "43 FF 00 00"   
+# Tatsu L (Air)
+python tvc_sigtool.py poke --addr 0x908b933C --bytes "43 FF 00 00"   
+# Tatsu L (Air, second hit)
+python tvc_sigtool.py poke --addr 0x908b9730 --bytes "43 FF 00 00"   
+# Tatsu M (Air, first hit)
+python tvc_sigtool.py poke --addr 0x908b99d0 --bytes "43 FF 00 00"   
+# Tatsu M (Air, second third hit)
+python tvc_sigtool.py poke --addr 0x908b9d88 --bytes "43 FF 00 00"     
+# Tatsu H (Air, first)
+python tvc_sigtool.py poke --addr 0x908ba0b8 --bytes "43 FF 00 00"     
+# Tatsu H (Air, rest of the hits)
+
+python tvc_sigtool.py poke --addr 0x908b5e48 --bytes "43 FF 00 00" 
+# Shoryu L
+python tvc_sigtool.py poke --addr 0x908b662C --bytes "43 FF 00 00" 
+# Shoryu M (second hit)
+python tvc_sigtool.py poke --addr 0x908b6814 --bytes "43 FF 00 00" 
+# Shoryu M (first hit)
+python tvc_sigtool.py poke --addr 0x908b6ef4 --bytes "43 FF 00 00"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
+# Shoryu H (first hit)
+python tvc_sigtool.py poke --addr 0x908b7094 --bytes "43 FF 00 00" 
+# Shoryu H (second hit)
+
+python tvc_sigtool.py poke --addr 0x908b76a4 --bytes "43 FF 00 00" 
+# Donkey L
+python tvc_sigtool.py poke --addr 0x908b7c18 --bytes "43 FF 00 00" 
+# Donkey M
+python tvc_sigtool.py poke --addr 0x908b8194 --bytes "43 FF 00 00" 
+# Donkey H
+
+python tvc_sigtool.py poke --addr 0x908bd260 --bytes "43 FF 00 00" 
+# Tatsu Super
+python tvc_sigtool.py poke --addr 4 --bytes "43 FF 00 00" 
+# Tatsu Super Last hit, any hitboxes inside here are presumed to be part of the super hitbox, have to grab those later
+
+
+python tvc_sigtool.py poke --addr 0x908c11b4 --bytes "43 FF 00 00" 
+#ShinSho Hitbox
+python tvc_sigtool.py poke --addr 0x908c17a0 --bytes "43 FF 00 00" 
+#ShinSho Hitbox (second hit? it's one of em)
+python tvc_sigtool.py poke --addr 0x908c1d70 --bytes "43 FF 00 00" 
+#Shinsho Hitbox (third fourth I guess)
+python tvc_sigtool.py poke --addr 0x908c1f60 --bytes "43 FF 00 00" 
+#Shinsho possibly last hit
+
+Projectile behavior in TvC is defined by a three-byte structure found inside the actor-spawn block. The format is:
+
+XX A5 A0
+
+Byte one represents the behavior mode. This determines how the projectile interacts with the world and with fighters. Changing this value alters collision rules, ownership, hit logic, attachment, stun effects, and similar behavior. Tested values show the following patterns:
+
+00 A5 A0 causes an immediate full-health deletion on contact, indicating this selects a debug or raw damage handler that bypasses standard collision and scaling.
+
+01 A5 A0 applies the minimum possible damage, likely a test or stub handler.
+
+02 A5 A0 disables collision entirely. The projectile passes through opponents without interacting.
+
+03 A5 A0 is the normal Hadouken behavior and represents the default behavior table entry.
+
+04 A5 A0 produces a zero-damage hit that still triggers the hit reaction, useful for stun-only or cinematic attacks.
+
+05 A5 A0 reverses ownership so the projectile affects the caller rather than the opponent.
+
+06 A5 A0 attaches the projectile to Ryu instead of projecting forward. This suggests an actor-attachment mode used in looping or charge effects.
+
+07 A5 A0 hits the assist caller instead of the target. This appears to invert team alignment.
+
+08 A5 A0 causes the projectile to spawn underground. This is consistent with a ground-trace or burrow-type behavior mode.
+
+09 A5 A0 creates a knockdown with a persistent shock effect. This seems to activate a status-effect entry.
+
+0A A5 A0 makes the projectile slide across the ground and hit the caller, again altering both spawn behavior and ownership rules.
+
+Values continue to follow the same pattern: each integer for the first byte selects a different entry in the projectile-behavior table. These entries combine collision masks, team rules, ownership, hitboxes, stun types, attachment flags, and environmental alignment.
+
+Byte two identifies the projectile family. For Ryu this is A5. Other characters use different family identifiers. The family determines which hitbox set, graphics group, and script group the projectile belongs to.
+
+Byte three represents the variant for that family. A0 is the default Hadouken variant. Changing this value alters angle logic, collision layers, or target categories. Most alternate values cause the projectile to pass through opponents because the collision mask no longer matches standard hurtboxes. The variant byte therefore controls sub-rules like grounded-only, airborne-only, shield interaction, or arc-based hit checking.
+
+The full block beginning at 908C7960 is a structured actor-definition block. It contains the behavior triple (XX A5 A0), one or more movement definitions, hitbox setup, damage, launch parameters, and lifespan. The engine reads this section as the configuration data for the projectile actor.
+
+In summary, the projectile configuration is organized in a small internal table where:
+
+Byte one selects the behavior entry.
+Byte two selects the projectile family.
+Byte three selects the variant for that family.
+
+
+
+Projectile architecture (caller vs projectile object)
+
+TvC separates projectile attacks into two distinct layers:
+
+Fighter-side move logic (animation, timing, spawn call)
+
+Projectile actor definition (movement, hitbox, damage, behavior)
+
+Edits to move IDs such as 268 (Hado “mother”) or 304 (Hado L slot) affect only the fighter-side logic. They do not modify the projectile itself.
+
+The projectile’s actual behavior is defined in a separate actor template that is copied when the projectile spawns.
+
+Confirmed projectile template offset (Ryu)
+
+Medium Hadoken projectile template (Ryu):
+
+Effective address:
+0x908D09A0
+
+Type:
+Projectile actor definition / template
+
+Scope:
+Copied into a live projectile instance at spawn time.
+Edits affect newly spawned projectiles only.
+
+This structure defines:
+
+movement velocity
+gravity / drift
+lifespan / distance cap
+hitbox radius
+damage
+hit reaction
+pushback
+ownership / collision behavior
+despawn rules
+
+This is the correct location to modify Hadoken behavior.
+
+Edits to 268 or 304 do not affect projectile physics because those entries only trigger the spawn routine.
+
+Engine flow for projectile moves
+
+When Ryu performs Hadoken:
+
+The fighter executes move logic (268 / 304).
+The engine calls the projectile spawn routine.
+The projectile template at 0x908D09A0 is copied.
+A new projectile instance is created and updated per frame.
+
+Because the template is copied:
+
+Editing the template after the projectile exists has no effect.
+Editing the template before the move is executed works reliably.
+
+Projectile behavior triple (actor-spawn block)
+
+Projectile behavior is selected by a three-byte structure inside the projectile actor definition:
+
+Format:
+XX A5 A0
+
+Byte meanings:
+
+Byte 0: behavior mode
+Selects an entry in the projectile behavior table. Controls collision rules, ownership, attachment, stun logic, and interaction type.
+
+Byte 1: projectile family
+For Ryu, this is A5. Other characters use different family values. The family selects the graphics group, hitbox group, and script group.
+
+Byte 2: variant
+Sub-variant within the family. Controls angle logic, collision layers, grounded/airborne interaction, and special cases.
+
+Observed behavior modes (Byte 0):
+
+00 A5 A0
+Immediate full-health deletion on contact. Bypasses standard collision and scaling. Likely a debug/raw handler.
+
+01 A5 A0
+Minimum possible damage. Likely a stub or test handler.
+
+02 A5 A0
+No collision. Projectile passes through opponents.
+
+03 A5 A0
+Normal Hadoken behavior. Default table entry.
+
+04 A5 A0
+Zero-damage hit that still triggers hit reaction.
+
+05 A5 A0
+Ownership reversed. Projectile affects the caller.
+
+06 A5 A0
+Projectile attaches to Ryu instead of traveling forward.
+
+07 A5 A0
+Projectile affects the assist caller instead of the opponent.
+
+08 A5 A0
+Projectile spawns underground. Likely ground-trace mode.
+
+09 A5 A0
+Knockdown with persistent shock/status effect.
+
+0A A5 A0
+Projectile slides along ground and hits the caller.
+
+Higher values continue the same pattern: each value selects a distinct behavior table entry combining collision masks, team rules, attachment flags, stun types, and environment alignment.
+
+Relationship between 268, 304, and projectile templates
+
+268 (0x010C):
+Shared special prolog / animation controller. Affects Ryu’s motion, timing, cancels, and animation state.
+
+304 (0x0130):
+Special A slot entry. Used by the live move table to route inputs. Does not own projectile data.
+
+0x908D09A0:
+Projectile actor template. Owns projectile physics, hitboxes, damage, and behavior.
+
+This explains why:
+
+Editing 268 affects Ryu but not the projectile.
+Editing 304 often appears to do nothing.
+Editing 0x908D09A0 directly modifies the Hadoken projectile.
+
+Implications
+
+Projectile moves are not fully defined in fighter move blocks.
+
+Each projectile strength (L / M / H) likely has its own nearby template with small differences in velocity, lifespan, and hit reaction.
+
+Characters that share move ID 304 (projectile-capable characters) use different projectile templates rather than different move scripts.
+
+To modify projectile behavior, always locate and edit the projectile actor template, not the move ID.
+
+Projectile Strength Segmentation
+
+Projectile actor templates are internally segmented by strength.
+Each segment is delimited by an 8-byte sentinel:
+
+FF FF FF FF FF FF FF FF
+
+Observed layout for Ryu Hadouken family (A5):
+
+Segment 0: Light Hadouken
+Segment 1: Medium Hadouken
+Segment 2: Heavy Hadouken
+Segment 3: Extra / Air / Super-use variant
+
+The engine selects the segment based on the move’s strength input
+before copying the projectile template into live actor memory.
+
+Edits within one segment only affect that strength.
+Family ID and variant ID remain constant across segments.
+
+Projectile Strength Sharing (Ground vs Air)
+
+Ground and air Hadoukens share the same projectile strength segments.
+There is no separate air-only projectile data.
+
+The actor system selects projectile family (A5) and strength index (L/M/H),
+but does not distinguish ground vs air.
+
+Ground/air differences are handled in fighter move logic
+(spawn height, animation, initial velocity),
+not in the projectile actor template.
+
+Result:
+Editing Light Hadouken projectile data affects both ground L and air L Hadouken.
+
+Ryu hado starts at 908d08f0. 908d0922 sets damage for L hado, 908d091b does something with hit reaction, I dunno what, but it's doing..something, setting 908d0937 above 1 makes it hit twice, but only twice, if I set it to any value, it doesn't reflect that value, it just hits twice, changing anything in 908d0952 removes the particle effect on hit, but there's nothing to replace it with? 908d097a setting above 1 causes hado to spawn in the center of the stage and then behave normally, setting at 43 causes it to spawn above Ryu, 44 it's invisible but you can see it drifting to the background, then nothing until FF where it instant hits the opponent, 908d09a0 of course is speed, 908d09a5 is acceleration
+
+Ryu Hadouken Projectile Template (family A5, variant A0)
+
+Block start and slice boundaries
+
+Projectile template block begins at 0x908D08F0.
+
+0x908D08F0: 00 00 00 04
+Likely segment count (Ryu has 4 segments: L, M, H, plus an extra variant used by the engine).
+
+Strength slices are delimited by an 8-byte sentinel:
+FF FF FF FF FF FF FF FF
+
+Light slice delimiter begins at:
+0x908D08F4
+
+Light slice data begins at:
+0x908D08FC
+
+Notes below refer to the Light slice unless stated otherwise.
+
+Core fields (Light slice)
+
+Scale or tuning floats (stable, not speed)
+
+0x908D08FC f32 1.02 (3F 82 8F 5C)
+0x908D0900 f32 1.01 (3F 81 47 AE)
+0x908D0904 f32 1.01 (3F 81 47 AE)
+
+These three behave like internal multipliers (scale/tuning). They do not feel like raw velocity. Good candidates for subtle tuning.
+
+Damage field
+
+0x908D0920 u32 0x00000960
+Low 16 bits are 0x0960 = 2400 damage for Light Hadouken.
+ “0x908D0922 sets damage” matches this (it’s inside the low halfword).
+
+Hit reaction / property class (unknown, but definitely meaningful)
+
+0x908D0918 u32 0x0000000C
+0x908D0924 u32 0x0000000C
+
+Two separate 0x0C-class words show up early in the slice. These look like “resolver class” style fields (how the engine interprets the rest of the hit / reaction / collision parameters).
+
+Collision / hit gating / multi-hit mode
+
+0x908D0934 u32 0x00000001
+modifying 0x908D0937 (low byte) affects whether it hits, hits twice, or loses collision.
+
+Observed behaviors:
+
+0x908D0937 = 00: projectile does not hit at all (no collision / no contact).
+
+0x908D0937 > 01: projectile hits twice, but clamps at two hits regardless of higher values.
+
+Pattern “FF FF FF 01” removes collision.
+
+Pattern “FF 00 00 01” removes collision 
+
+Interpretation:
+This is not a literal “hit count.” It is a small mode byte or flag byte inside a u32 that toggles collision/hit routing and enables a two-hit script path. The fact that it clamps at two implies the actor script only defines two hit events.
+
+Motion / spawn / travel cluster (partially mapped)
+
+0x908D0944 f32 -3.0 (C0 40 00 00)
+
+
+0x908D0948 f32 9.0 (41 10 00 00)
+
+0x908D094C u32 0x3F800000 (f32 1.0 by default)
+it doesn’t react until the upper 80s, then projectile instantly hits opponent.
+That behavior is consistent with:
+
+a velocity clamp or range clamp that starts overflowing into a “forced contact” path
+
+a collision distance threshold
+
+or a table index that becomes valid only at high values and routes into a “touch opponent now” handler
+
+Do not treat 0x908D094C as “just a float.” It is likely interpreted by code in at least one non-linear way (threshold behavior). Keep it noted as a special field.
+
+Unknown timer / lifetime / FX-related fields
+
+0x908D0950 u32 0x000003E8 (decimal 1000)
+changing bytes around 0x908D0952 removes hit particle effect.
+Byte-scribbling inside the word probably corrupts a timer/id used by the FX emitter or hit FX routing.
+
+Suggested safe test style:
+Change the full u32, not a single byte, to keep it interpretable.
+
+00 00 01 F4 (500)
+
+00 00 07 D0 (2000)
+If that changes lifespan or hit FX lifetime, it confirms it is a duration-like field.
+
+0x908D0960 u32 0x0000000A (decimal 10)
+Unknown. Looks like a cap/limit constant or small timer. Common roles include:
+
+active collision ticks
+
+hitstop ticks
+
+per-actor tick count for script loops
+
+
+Identity / handle field (high-priority)
+
+0x908D0970 u32 0x0003A6F0 (decimal 239344)
+
+
+it looks like an index into a global table (resource/script/actor definition registry)
+
+Adjacent subtype:
+0x908D0978 u32 0x0000000B (decimal 11)
+Likely a subtype, script variant, or resolver index associated with 0x3A6F0.
+
+This pair (0x3A6F0, 0x0B) is the best “at a glance ID” you have inside the projectile template so far.
+
+Spawn position manipulation 
+
+0x908D097A (byte-level field within the 0x908D0978..0x908D097B region)
+Observed:
+
+1 spawns projectile centered in the stage, then behaves normally
+
+0x43 spawns above Ryu
+
+0x44 projectile becomes invisible, drifts to background, then does nothing until FF where it instant-hits opponent
+
+Interpretation:
+This is a strong spawn-mode byte that affects initial transform/origin selection and potentially render flags / depth layer behavior.
+
+Speed / acceleration / cap cluster (confirmed)
+
+0x908D09A0 f32 6.0 (40 C0 00 00)
+Confirmed speed scalar.
+
+0x908D09A4 f32 1.0 (3F 80 00 00)
+ 0x908D09A5 is acceleration; practically, acceleration is likely represented by the full float at 0x09A4, not the single byte at 0x09A5.
+
+0x908D09AC f32 100.0 (42 C8 00 00)
+
+Most likely role:
+
+max speed cap
+
+max travel distance
+
+or range cap
+It will feel like “speed” if the engine clamps velocity based on this.
+
+Action items (next tests that will actually resolve unknowns)
+
+0x908D0970 handle pair
+Goal: prove whether this is an index into a global actor/script registry.
+Test:
+
+Find other projectiles (Chun/Jun/Ken) and see if they each have their own distinct handle value at the analogous offset.
+
+
+
+0x908D09AC 100.0
+Goal: determine whether it is a distance cap or velocity cap.
+Test:
+
+Set 42 C8 00 00 (100.0) to 41 20 00 00 (10.0) and see if it shortens travel distance.
+
+Set to 43 7A 00 00 (250.0) and see if it travels longer or faster.
+If it changes travel length without changing early speed feel, it’s distance cap. If it changes terminal feel, it’s velocity cap.
+
+0x908D0950 1000
+Goal: determine if it is projectile lifetime or hit FX lifetime.
+Test:
+
+Change full word to 500 and 2000 and observe:
+a) how long projectile exists if it misses
+b) whether hit particle duration changes
+
+0x908D0960 10
+Goal: classify as tick cap vs hitstop vs script loop counter.
+Test:
+
+Double it to 20 and see if any “internal cadence” changes (hit timing, particle cadence, collision window).
+If nothing changes, it may be a fixed enum count used only in specific variants.
+
+Ryu Hadouken Speed/Cap/Acceleration Behavior
+
+Let:
+S = 0x908D09A0 (f32) initial speed
+C = 0x908D09AC (f32) cap/limit
+
+Observed:
+- S and C are coupled. Certain ranges enable "normal acceleration" behavior.
+- If S is set above ~5 and C is set below ~70, acceleration becomes clearly active (projectile ramps).
+- Outside this range, behavior degenerates:
+  - either projectile becomes excessively fast (likely immediate clamp/saturation),
+  - or projectile does not move / fails to behave normally (likely speed forced to 0 or init rejected).
+- Hard constraint previously observed: if S > C, projectile fails to spawn.
+
+Ryu Hadouken L slice: packed heading/steering bytes
+
+0x908D0910–0x908D0913 (4 bytes)
+
+Observed:
+- Changing bytes at +0 and +2 rotates projectile heading.
+- Setting byte1=0x80 and byte2=0x90 produces near-homing behavior toward a character.
+
+Working hypothesis:
+These bytes are packed direction/steering parameters, likely interpreted as signed components via (byte - 0x80).
+0x80 behaves like neutral (0), values above/below bias steering.
+
+Suggested mapping guesses:
+- 0x908D0910: heading component A (angle or X)
+- 0x908D0911: steering gain / neutral center (0x80)
+- 0x908D0912: heading component B (angle or Z), 0x90 introduces positive bias
+- 0x908D0913: secondary gain / clamp / unknown
+
+
+Ryu Hadouken (projectile actor block starts 0x908D08F0)
+
+Hit Reaction selector (projectile)
+
+0x908D0918–0x908D091B (u32 / 4 bytes, big-endian)
+This word controls the opponent’s hit reaction when the projectile connects.
+
+Notes:
+- This is the projectile’s reaction setting, not Ryu’s move reaction (so it can differ from the normal move table entries).
+- 0x908D091B is the low byte of the reaction word; changing it will often appear to “do something” even if the higher bytes are unchanged.
+
+
+Kikoken found at 90997c70
+
+projectile marker 0c ff ff ff ff?
+
+Primary marker (damage + resolver + sentinel)
+Within a projectile strength slice, a distinctive sequence appears:
+
+00 00 XX YY 00 00 00 0C FF FF FF FF
+
+Where:
+
+00 00 XX YY is a u32 whose low halfword (XXYY) behaves like damage (big-endian).
+
+Example: 00 00 09 60 = 0x0960 = 2400 damage (Ryu Hadoken L).
+
+00 00 00 0C is a resolver/class selector word used by the projectile hit/reaction/collision system.
+
+FF FF FF FF is a -1 sentinel immediately after the resolver word.
+
+Practical use:
+Scan MEM2 for:
+?? ?? 00 00 00 0C FF FF FF FF
+and then validate the preceding two bytes are a sane damage halfword (and the surrounding structure matches a projectile slice).
+
+Secondary confirmations (to avoid false positives)
+
+Slice delimiter (strength segmentation)
+Projectile templates are segmented by strength slices, delimited by an 8-byte sentinel:
+
+FF FF FF FF FF FF FF FF
+
+In Ryu’s Hadoken family, the actor block begins with a segment count and then uses these 8-byte sentinels to separate L/M/H/(extra) slices.
+
+Expected nearby structure (Ryu-style)
+If the anchor is real, you usually see (nearby, within the same ~0x20–0x80 neighborhood):
+
+one or more stable “tuning” floats around 1.0 (3F 80 00 00-ish)
+
+a small mode/flag word near collision gating (often includes a low-byte that toggles multihit/collision behavior)
+
+later, obvious motion floats (speed / accel / cap) like 40 C0 00 00, 3F 80 00 00, 42 C8 00 00
+
+Cross-character implication
+If Chun’s Kikoken block contains the same local marker:
+00 00 [damage] 00 00 00 0C FF FF FF FF
+then:
+
+0x0C is not “Ryu-only”; it’s a general projectile-hit resolver class.
+
+The pattern is usable as a generic “projectile template locator” across characters/families.
+
+What the “0C” likely is (operational definition)
+0x0000000C is acting like a “resolver class” or “handler ID” that tells the engine:
+
+which projectile-hit interpretation path to use (reaction mapping, collision masks, attachment/team rules, etc.)
+It is not “damage,” and it is not a float; it behaves like a dispatcher index.
+
+Workflow (how to use this in practice)
+
+Find candidate anchors in MEM2
+Search for:
+00 00 00 0C FF FF FF FF
+Then take the 4 bytes immediately before it:
+00 00 XX YY (candidate damage word)
+
+Validate the neighborhood
+From each candidate:
+
+look backward for an 8-byte slice delimiter FF FF FF FF FF FF FF FF
+
+look forward/back for the motion float cluster (speed/accel/cap-like values)
+
+if present, treat the region as a projectile slice inside an actor template
+
+Extract the block
+Once validated:
+
+dump a fixed window around the slice start (or around the delimiter)
+
+label the slice as L/M/H based on its position between delimiters
+
+Known example (Ryu Hadoken)
+
+Actor block start: 0x908D08F0
+
+L slice begins after first 8-byte delimiter
+
+Damage word in slice: 0x908D0920 = 00 00 09 60
+
+Resolver marker: 0x908D0924 = 00 00 00 0C
+
+Adjacent sentinel: FF FF FF FF follows in the local pattern 
+
+Key takeaway
+For new characters/projectiles, you can shortcut discovery:
+Instead of hunting “move IDs,” you can locate projectile templates by scanning for:
+
+00 00 XX YY 00 00 00 0C FF FF FF FF
+
+and then validating you’re inside a strength-sliced projectile actor template (8-byte delimiters + motion float cluster nearby).
+
+9084b796 setting to 50 removes the hud

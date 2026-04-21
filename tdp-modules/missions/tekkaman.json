@@ -1,0 +1,91 @@
+{
+  "character": "tekkaman",
+  "missions": [
+    {
+      "mission_id": "tekkaman_001",
+      "name": "Combo 1",
+      "notes": "Basic launcher into air series.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_002",
+      "name": "Combo 2",
+      "notes": "Launcher into downward air ender.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.2C" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_003",
+      "name": "Combo 3",
+      "notes": "Air special route.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Windmill B Air" },
+        { "label": "Windmill B Air" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_004",
+      "name": "Combo 4",
+      "notes": "Megacrash into Gatling.",
+      "steps": [
+        { "label": "Megacrash" },
+        { "label": "Gatling A" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_005",
+      "name": "Combo 5",
+      "notes": "Extended route with Baroque into air super finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "6C" },
+        { "label": "Tek Lancer C" },
+        { "label": "Tek Win A" },
+        
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Windmill C Air" },
+        { "label": "Windmill C Air" },
+        { "label": "Baroque cancel" },
+        { "label": "Windmill C Air" },
+        { "label": "voltekka air" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_006",
+      "name": "Challenge",
+      "notes": "Somemoves are missing good luck.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "Tek Lancer C" },
+        { "label": "j.2C" }
+      ]
+    }
+  ]
+}

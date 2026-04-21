@@ -1,0 +1,266 @@
+{
+  "RYU": [
+    { "move": "Hadouken L", "dmg": 2400 },
+    { "move": "Hadouken M", "dmg": 2800 },
+    { "move": "Hadouken H", "dmg": 3200 },
+    { "move": "Assist", "dmg": 3200 },
+
+    { "move": "Shinkuu Hadouken", "dmg": 720 }
+  ],
+
+  "CHUN": [
+    { "move": "Kikoken", "dmg": 2400 },
+
+    { "move": "Kikosho", "dmg": 960 },
+    { "move": "Shichisei Senkukyaku (j.)", "dmg": 20800 }
+  ],
+
+  "JUN": [
+    { "move": "Yoyo", "dmg": 1200 },
+    { "move": "Bingo", "dmg": 2800 },
+    { "move": "Talon Burst", "dmg": 400 }
+  ],
+
+  "KEN": [
+    { "move": "Bird Run", "dmg": 1024 },
+
+    { "move": "Science Ninpo: Phoenix", "dmg": 27895 }
+  ],
+   "ALEX": [
+    { "move": "Flash Chop L", "dmg": 2800 },
+    { "move": "Flash Chop M", "dmg": 3120 },
+    { "move": "Flash Chop H", "dmg": 3440 }
+  ],
+
+  "BATSU": [
+    { "move": "Guts Bullet L", "dmg": 2848 },
+    { "move": "Guts Bullet M", "dmg": 3076 },
+    { "move": "Guts Bullet H", "dmg": 3288 },
+    { "move": "Super Guts Bullet", "dmg": 1120 }
+  ],
+
+  "FRANK": [
+    { "move": "Zombie Spree", "dmg": 2400 },
+    { "move": "Zombie Attack", "dmg": 2400 },
+    { "move": "Zombie Fall", "dmg": 3200 },
+    { "move": "Real Megabuster", "dmg": 820 }
+  ],
+    "VOLNUTT": [
+    { "move": "C", "dmg": 1280 },
+
+    { "move": "6B", "dmg": 720 },
+    { "move": "Machine Gun Sweep", "dmg": 480 },
+    
+    { "move": "Megabuster L2", "dmg": 3280 },
+    { "move": "Megabuster L2", "dmg": 1093 },
+    { "move": "Megabuster L2", "dmg": 1094 },
+    { "move": "Megabuster L3", "dmg": 1840 },
+    { "move": "Megabuster L4", "dmg": 2320 },
+
+    { "move": "Machine Gun Sweep", "dmg": 9734 }
+  ],
+
+  "MORRIGAN": [
+    { "move": "Finishing Shower", "dmg": 14231 },
+    { "move": "Soul Fist", "dmg": 2080 },
+    { "move": "Valkyrie Turn", "dmg": 960 }
+  ],
+  "ROLL": [
+    { "move": "Roll Splash", "dmg": 1200 },
+    { "move": "Puddle", "dmg": 640 },
+    { "move": "Roll Splash (Puddle)", "dmg": 640 },
+    { "move": "Healing orb", "dmg": 800 },
+    { "move": "Roll Splash - Charged", "dmg": 6136 },
+    { "move": "Roll Splash - Charged", "dmg": 2080 }
+  ],
+
+  "SAKI": [
+    { "move": "C", "dmg": 2800 },
+    { "move": "Grenade hit", "dmg": 400 },
+    { "move": "Laser", "dmg": 560 },
+    { "move": "Grenade", "dmg": 3200 },
+    { "move": "Positron Storm", "dmg": 1180},
+    { "move": "Shell", "dmg": 10000},
+    { "move": "Buck", "dmg": 960},
+    { "move": "Pulse", "dmg": 480},
+    { "move": "Rifle", "dmg": 4800}
+  ],
+
+  "VJOE": [
+    { "move": "Voomerang", "dmg": 2400 },
+    { "move": "Shocking Pink", "dmg": 3600 },
+    { "move": "Desperado", "dmg": 16800 }
+  ],
+
+  "ZERO": [
+    { "move": "Hadengeki", "dmg": 2280 },
+    { "move": "Hadengeki H", "dmg": 3360 },
+    { "move": "Hadengeki H", "dmg": 1680 },
+
+
+    { "move": "Blaster 1", "dmg": 1080 },
+    { "move": "Blaster 2", "dmg": 3000 },
+    { "move": "Blaster 3", "dmg": 1150 },
+    { "move": "Rekkoha", "dmg": 3060 }
+  ],
+ "CASSHAN": [
+    { "move": "Boulder Chop", "dmg": 1040 },
+    { "move": "Brutal Ax", "dmg": 1440 },
+
+    { "move": "Friender Call A", "dmg": 3600 },
+    { "move": "Friender Call B", "dmg": 800 },
+    { "move": "Friender Call C", "dmg": 960 },
+
+    { "move": "Super Destruction Beam", "dmg": 25552 }
+  ],
+
+  "DORONJO": [
+    { "move": "Taunt", "dmg": 2000 },
+    { "move": "Assist (Kiss)", "dmg": 2000 },
+
+    { "move": "Aizuwakamatzu Punch", "dmg": 880 },
+    { "move": "Piglet Flare-up", "dmg": 1280 },
+    
+
+    { "move": "Rock Abandon (Ground)", "dmg": 4480 },
+    { "move": "Rock Abandon (Air)", "dmg": 4480 },
+
+    { "move": "In The Beginning", "dmg": 8000 },
+    { "move": "Punching Bag Fiesta", "dmg": 16143 },
+    { "move": "Supreme Evil Plan", "dmg": 30398 }
+  ],
+   "IPPATSMAN": [
+    { "move": "Rainball", "dmg": 2400 },
+ 
+    { "move": "Mound Blast", "dmg": 2480 },
+    { "move": "Mound Blast", "dmg": 3540 },
+    { "move": "Mound Blast", "dmg": 4511 },
+
+    { "move": "Bat Super ", "dmg": 15155 },
+    { "move": "Robo Beam ", "dmg": 34400 }
+    
+  ],
+  "JOE": [
+
+   
+    { "move": "2C", "dmg": 2000 },
+   
+    { "move": "Assist (Savage Shot)", "dmg": 3850 },
+
+    { "move": "Wild Lasso", "dmg": 4309 },
+
+    { "move": "Savage Shot", "dmg": 2950 },
+    { "move": "Savage Shot", "dmg": 3850 },
+    { "move": "Savage Shot", "dmg": 4699 },
+
+    { "move": "Savage Shot (Air)", "dmg": 2950 },
+    { "move": "Savage Shot (Air)", "dmg": 3850 },
+    { "move": "Savage Shot (Air)", "dmg": 4699 },
+
+    { "move": "Shuriken Feather", "dmg": 1500 },
+    { "move": "Shuriken Feather", "dmg": 2200 },
+    { "move": "Shuriken Feather", "dmg": 2950 },
+
+    { "move": "Shuriken Feather (Air)", "dmg": 1500 },
+    { "move": "Shuriken Feather (Air)", "dmg": 2200 },
+    { "move": "Shuriken Feather (Air)", "dmg": 2950 },
+
+
+    { "move": "Cactus Bunker", "dmg": 2800 },
+    { "move": "Wild Lasso", "dmg": 1300 },
+    { "move": "Savage Shot", "dmg": 1000 },
+
+    { "move": "Condor Magnum", "dmg": 12223 },
+
+
+    { "move": "Bird Missile Strike", "dmg": 10790 },
+    { "move": "Bird Missile Strike Bonus", "dmg": 15000 },
+
+    { "move": "Kagaku Ninpo: Tatsumaki Fighter", "dmg": 22852 }
+  ],
+    "TEKKAMAN": [
+    { "move": "Tek Lancer", "dmg": 3220 },
+    { "move": "Tek Lancer", "dmg": 1620 },
+    { "move": "Tek Lancer", "dmg": 1440 },
+
+    { "move": "Voltekka (Ground)", "dmg": 1280 },
+    { "move": "Disco Ball", "dmg": 1760 },
+    { "move": "Voltekka (Air)", "dmg": 17115 },
+
+    { "move": "Super Spinning Tek Lancer", "dmg": 23000 }
+  ],
+
+    "BLADE": [
+    { "move": "Baselard", "dmg": 2300 },
+    { "move": "Baselard", "dmg": 4380 },
+    { "move": "Baselard Grab", "dmg": 500},
+
+    { "move": "Falchion", "dmg": 1000 },
+    { "move": "Falchion", "dmg": 5498 },
+    { "move": "Falchion", "dmg": 6949 },
+
+    { "move": "Crash Intrude", "dmg": 9958 },
+
+    { "move": "Voltekka", "dmg": 1680 },
+
+    { "move": "Omnidirectional Super Voltekka", "dmg": 22051 },
+    { "move": "Omnidirectional Super Voltekka (Missed)", "dmg": 1880 }
+  ],
+  "YATTER1": [
+    { "move": "Kendamagic (Ground)", "dmg": 2800 },
+    { "move": "Kendamagic (Air)", "dmg": 2400 },
+
+    { "move": "Yatter Medium Attack", "dmg": 3090 },
+
+    { "move": "Yattershock (Light)", "dmg": 3090 },
+    { "move": "Yattershock (Medium)", "dmg": 3137 },
+    { "move": "Yattershock (Heavy)", "dmg": 3857 },
+
+    { "move": "Yatterwan Special Attack", "dmg": 1520 },
+    { "move": "Yatter Wan Flame", "dmg": 1860 }
+  ],
+
+  "YATTER2": [
+    { "move": "YatterShield", "dmg": 300 },
+
+    { "move": "YatterStep", "dmg": 2220 },
+    { "move": "YatterSwing", "dmg": 1520 },
+
+    { "move": "Yattersplash", "dmg": 2600 },
+    { "move": "Yattersplash", "dmg": 3200 },
+
+    { "move": "Super Passion (Level 1)", "dmg": 1200 },
+    { "move": "Super Passion (Level 2)", "dmg": 1500 },
+    { "move": "Super Passion (Level 3)", "dmg": 1600 },
+
+    { "move": "This Week's Surprise Robots (Base)", "dmg": 21745 },
+    { "move": "This Week's Surprise Robots (Mashed)", "dmg": 45359 }
+  ], 
+  "KARAS": [
+    { "move": "Chain", "dmg": 800 }
+  ],
+  "LIGHTAN": [
+ 
+    { "move": "Gold Quake (Light)", "dmg": 2800 },
+    { "move": "Gold Quake (Medium)", "dmg": 3600 },
+    { "move": "Gold Quake (Heavy)", "dmg": 4200 },
+    { "move": "Tank Slice L", "dmg": 3120 },
+    { "move": "Tank Slice M", "dmg": 3360 },
+    { "move": "Tank Slice H", "dmg": 3600 },
+    { "move": "Battleship L", "dmg": 4800 },
+    { "move": "Battleship M", "dmg": 5600 },
+    { "move": "Battleship H", "dmg": 6400 }
+  ],
+  "PTX": [
+    { "move": "Missle", "dmg": 1040 },
+    { "move": "Missile", "dmg": 7223} ,
+    { "move": "Gatling", "dmg": 800}, 
+    { "move": "Gatling", "dmg": 1600},
+    { "move": "Gatling", "dmg": 5557},
+    { "move": "Shotgun", "dmg": 800},
+    { "move": "Shotgun", "dmg": 2080},
+    { "move": "Shotgun", "dmg": 7695},
+    { "move": "Tactical Calibe", "dmg": 2400}
+    
+  ]
+}

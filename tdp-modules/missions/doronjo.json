@@ -1,0 +1,179 @@
+{
+  "character": "Doronjo",
+  "missions": [
+    {
+      "mission_id": "doronjo_001",
+      "name": "Combo Trial 001",
+      "notes": "A, 2A, A, B, 2C, C, 3C, j.A, j.B, j.C",
+      "steps": [
+        { "label": "5A" },
+        { "label": "2A" },
+        { "label": "5A" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "doronjo_002",
+      "name": "Combo Trial 002",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "Comfy" },
+        { "label": "Breakdance" }
+      ]
+    },
+    {
+      "mission_id": "doronjo_003",
+      "name": "Combo Trial 003",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "Pummel A" }
+      ]
+    },
+    {
+      "mission_id": "doronjo_004",
+      "name": "Combo Trial 004",
+      "notes": "This is for facing right",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Clutch C" },
+        { "label": "Baroque cancel" },
+        { "label": "2B" },
+        { "label": "Tree C" },
+        { "label": "j.B" },
+        { "label": "Taunt" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "doronjo_005",
+      "name": "Combo Trial 005",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Tree C" },
+        { "label": "Baroque cancel" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Rock C" },
+        { "label": "Tree C" },
+        { "label": "5B" },
+        { "label": "2C" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "doronjo_006",
+      "name": "Combo Trial 006",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Tree C" },
+        { "label": "Baroque cancel" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "2C" },
+        { "label": "Rock C" },
+        { "label": "Taunt" },
+        { "label": "Tree C" },
+        { "label": "5B" },
+        { "label": "2C" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "doronjo_007",
+      "name": "Combo Trial 007",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Clutch C" },
+        { "label": "Baroque cancel" },
+        { "label": "In the beginning" },
+        { "label": "j.B" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "doronjo_008",
+      "name": "Combo Trial 008",
+      "notes": "Facing Corner",
+      "setup_debug_flags": {
+        "CpuAction": 4
+      },
+      "steps": [
+        { "label": "Doronjo Counter" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },{
+  "mission_id": "doronjo_009",
+  "name": "Challenge",
+  "notes": "",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "Clutch C" },
+    { "label": "Baroque cancel" },
+    { "label": "2B" },
+    { "label": "Tree C" },
+    { "label": "j.B" },
+    { "label": "Taunt" },
+    { "label": "j.B" },
+    { "label": "3C" },
+    { "label": "5A" },
+    { "label": "3C" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.C" }
+  ]
+}
+  ]
+}

@@ -1,0 +1,137 @@
+{
+  "character": "Joe the Condor",
+  "missions": [
+    {
+      "mission_id": "joe_the_condor_001",
+      "name": "Combo Trial 001",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "joe_the_condor_002",
+      "name": "Combo Trial 002",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" },
+        { "label": "Wild Lasso A" }
+      ]
+    },
+    {
+      "mission_id": "joe_the_condor_003",
+      "name": "Combo Trial 003",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Air Shuriken A" },
+        { "label": "Air Savage Shot B" },
+        { "label": "Air Condor Magnum" }
+      ]
+    },
+    {
+      "mission_id": "joe_the_condor_004",
+      "name": "Combo Trial 004",
+      "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
+      "setup_debug_flags": {
+        "CpuAction": 4
+      },
+      "steps": [
+        { "labels": ["Cactus Bunker A", "Cactus Bunker B", "Cactus Bunker C"] },
+        
+        
+        
+        { "label": "Wild Lasso A" }
+      ]
+    },
+    {
+      "mission_id": "joe_the_condor_005",
+      "name": "Combo Trial 005",
+      "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
+      "setup_debug_flags": {
+        "CpuAction": 4
+      },
+      "steps": [
+        { "labels": ["Cactus Bunker A", "Cactus Bunker B", "Cactus Bunker C"] },
+        { "label": "Baroque cancel" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Air Shuriken A" },
+        { "label": "j.B" },
+        { "label": "Air Shuriken A" },
+        { "label": "Air Savage Shot A" },
+        { "label": "Air Condor Magnum" }
+      ]
+    },{
+  "mission_id": "joe_the_condor_006",
+  "name": "Neat Stuff",
+  "notes": "",
+  "steps": [
+    { "label": "5A" },
+    { "label": "5B" },
+    { "label": "2B" },
+    { "label": "5C" },
+    { "label": "3C" },
+    { "label": "j.B" },
+    { "label": "Air Shuriken A" },
+    { "label": "j.B" },
+    { "label": "j.B" },
+    { "label": "Air Shuriken A" },
+    { "label": "j.B" },
+    { "label": "Air Savage Shot B" },
+    { "label": "j.B" },
+    { "label": "Air Shuriken A" },
+    { "label": "Air Savage Shot B" },
+    { "label": "Baroque cancel" },
+    { "label": "j.B" },
+    { "label": "Air Shuriken A" },
+    { "label": "Air Science Ninpo" },
+    { "label": "Wild Lasso A" }
+    
+  ]
+},{
+  "mission_id": "joe_the_condor_007",
+  "name": "Challenge",
+  "notes": "",
+  "steps": [
+    { "label": "That one combo from the JP Nico nico video I have to transcribe it again, if you see this I forgot to put it in" }
+       
+  ]
+},{
+  "mission_id": "joe_the_condor_008",
+  "name": "VAR Science Ninpo",
+  "notes": "",
+  "steps": [
+    { "label": "VAR" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.B" },
+    
+    { "label": "Air Shuriken A" },
+    { "label": "j.B" },
+    { "label": "Air Shuriken A" },
+    { "label": "Air Science Ninpo" },
+    { "label": "Wild Lasso A" }
+  ]
+}
+  ]
+}

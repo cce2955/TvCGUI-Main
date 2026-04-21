@@ -1,0 +1,116 @@
+{
+  "character": "casshan",
+  "missions": [
+    {
+      "mission_id": "casshan_001",
+      "name": "Combo 1",
+      "notes": "Basic ground string into air series.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "casshan_002",
+      "name": "Combo 2",
+      "notes": "Basic ground string into air ender.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Shooting Star Kick C" }
+      ]
+    }, {
+      "mission_id": "casshan_003",
+      "name": "Combo 3",
+      "notes": "Baroque extension into launcher and air finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Denko A" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Denko B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Shooting Star Kick C" }
+      ]
+    },
+    {
+      "mission_id": "casshan_004",
+      "name": "Combo 4",
+      "notes": "Friender extension into relaunch finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Denko B" },
+        { "label": "Friender C" },
+        
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Shooting Star Kick C" }
+      ]
+    },
+    {
+      "mission_id": "casshan_005",
+      "name": "Combo 5",
+      "notes": "Knee starter into Baroque combo finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Knee A" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Shooting Star Kick C" }
+      ]
+    },{
+      "mission_id": "casshan_006",
+      "name": "Combo 6",
+      "notes": "Ground confirm into super finish.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "Denko B" },
+        { "label": "Super Destruction Beam" }
+      ]
+    },
+    {
+      "mission_id": "casshan_007",
+      "name": "Challenge",
+      "notes": "Some moves are missing good luck.",
+      "steps": [
+        { "label": "Denko B" },
+        { "label": "6B" },
+        { "label": "j.B" },
+        { "label": "3C" },
+        { "label": "Brutal Axe" }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,200 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║         TvC SCENE GRAPH MAP  ,  Full Memory Survey                   ║
+║                                                                      ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+The 3x4 matrix format is possibly used for every renderable object in the
+ game , bones, HUD elements, stage geometry, and transparency/shader params 
+ all use the same transform record format.
+
+══════════════════════════════════════════════════════════════════════
+  HUD / UI ELEMENTS
+══════════════════════════════════════════════════════════════════════
+
+  Life bar segments (P1)    0x92182100 – 0x92182980   (83 records)
+    0x92182100  life bar 20%
+    0x92182140  life bar 30%
+    0x92182180  life bar 40% (c1)
+    0x921821C0+ hud portion c1
+    0x92182600+ red life bar (chip damage / red portion) P1
+
+  Life bar segments (P2)    0x92182980 – 0x92183580
+    0x92182980  life C2
+    0x92182D00+ red life c2
+
+  Character icons (P1 C1)   0x92192980 – 0x92192D00   (9 records)
+  Character icons (P1 C2)   0x92193500 – 0x92193E40   (27 records)
+  Character icons (P2 C1)   0x92193E40 – 0x92194580   (30 records)
+  Character icons (P2 C2)   0x92194AC0 – 0x92195CC0   (71 records)
+
+  More HUD                  0x921DA180 – 0x921DAF40   (56 records)
+
+  Timer                     0x921F1A40, 0x921F1E00    (2 records)
+  Mode graphic              0x921F2440                 (1 record)
+
+══════════════════════════════════════════════════════════════════════
+  TRAINING STAGE GEOMETRY
+══════════════════════════════════════════════════════════════════════
+
+  Background texture        0x9226D580
+  Grid lines                0x9226DE00 – 0x9226DE40
+  Stage measurements        0x92275680, 0x92275E40
+  Stage mesh (right wall)   0x922772C0 – 0x92277BC0   (many records)
+  Stage mesh (mirrored?)    0x92277D40 – 0x92278740   (many records)
+  Stage floor               0x92278780 – 0x92278A80   (14 records)
+  Stage background          0x92278740
+  Stage shadows             0x92279180 – 0x92279480
+  Stage ceiling/logo        0x9227A600 – 0x9227A6C0
+  Bump mapping / dots       0x9227C0C0 – 0x9227C2C0
+  Texture tile iteration    0x922A2E00 – 0x922A3140   (14 records)
+  Stage center graphic      0x92278D80
+  Stage right damage        0x92278E80
+
+══════════════════════════════════════════════════════════════════════
+  RYU , TRANSPARENCY / SHADER PARAMS
+══════════════════════════════════════════════════════════════════════
+
+  Texture pixels / UVs?     0x922824C0 – 0x92282A80   (24 records)
+
+══════════════════════════════════════════════════════════════════════
+  RYU , WORLD/ROOT TRANSFORMS  (whole character position)
+══════════════════════════════════════════════════════════════════════
+
+  World position bones      0x924707C0 – 0x92470DC0   (16 records)
+    0x924707C0  whole body leans back
+    0x92470840  hands transparent
+    0x92470B40  Ryu disappears to background
+    0x92470BC0  body crumbles to polygons 
+    0x92470C80  top half underground       ← likely Y-axis world pos
+    0x92470D80  head+torso → center stage  ← likely X-axis world pos
+
+══════════════════════════════════════════════════════════════════════
+  RYU , MESH/POLYGON TRANSFORM LAYER  (pre-skeleton, model space)
+══════════════════════════════════════════════════════════════════════
+
+  Mesh deform zone          0x92472440 – 0x92472E00   (28 records)
+    0x92472440  T-pose / horizontal in center
+    0x92472540  legs/feet attach to enemy  ← HITBOX INTERACTION?
+    0x92472580  torso+arms attach to enemy ← HITBOX INTERACTION?
+    0x924725C0+ screen goes purple (shader overflow from bad matrix)
+    0x92472BC0  purple screen (same)
+    0x92472D00  FROZE GAME                 ← control struct boundary
+    0x92472D40  hands+feet transparent
+    0x92472D80  body (sans extremities) transparent ← alpha param
+    0x92472E00  left hand transparent
+
+  Transparency singles:
+    0x92473680  chest shading
+    0x92473DC0  pants transparent
+    0x924745C0  right fingers transparent
+
+══════════════════════════════════════════════════════════════════════
+  RYU , SKELETON PROPER  (pose bones)
+══════════════════════════════════════════════════════════════════════
+
+  Root / orientation group  0x92475AC0 – 0x92475C80
+    0x92475AC0  whole Ryu spins + underground  ← ROOT BONE (world→local)
+    0x92475B00  legs underground               ← Y translation root
+    0x92475BC0  spins around stage center      ← X rotation root
+    0x92475C80  spins to background            ← Z rotation root
+
+  Spine / torso group       0x92475D40 – 0x92476700
+    0x92475D40  midsection gone, shoulders+legs remain  ← SPINE BASE
+    0x92475D80  Ryu backwards (head→bg, feet→fg)        ← SPINE ROT
+    0x92475E00  upside down, right leg → background     ← HIP
+    0x92475E40  left leg missing                         ← LEFT HIP
+    0x92475F00  upside down, left leg → background      ← RIGHT HIP
+    0x92475FC0  upside down, head underground            ← PELVIS?
+    0x92476000  left foot → knee                         ← LEFT THIGH
+    0x92476080  face down, head→fg legs→bg              ← HIP/THIGH JOINT
+    0x92476140  upside down, left planted, right air     ← RIGHT THIGH
+    0x92476240  leaning forward, left planted, right→bg  ← SHIN/KNEE
+    0x924762C0  right knee twisted                       ← RIGHT KNEE
+    0x92476300  head on floor, right leg in air          ← LEFT SHIN?
+    0x92476340  right leg raised                         ← RIGHT SHIN
+    0x924763C0  body distorted, knees-down fine          ← UPPER LEG BIND
+    0x92476400  right foot → kneecap                     ← RIGHT ANKLE
+    0x92476480  legs below kneecaps fine                  ← LEFT ANKLE
+    0x92476580  right hip gone, hunching                  ← RIGHT HIP BONE
+    0x92476640  leaned back, legs planted                 ← LUMBAR / LOW SPINE
+    0x92476700  torso fully flipped                       ← MID SPINE
+
+  Spine upper / arms        0x92476C00 – 0x92477B40
+    0x92476C00  torso flipped, head near camera          ← UPPER SPINE
+    0x92476CC0  torso spins uncontrollably               ← CHEST
+    0x92476D00  midsection missing                        ← STERNUM?
+    0x92476D80  torso stretched underground              ← SHOULDER GIRDLE
+    0x92476DC0  midsection missing                        ← CLAVICLE AREA
+    0x92476E80  left shoulder missing, fist down          ← LEFT SHOULDER
+    0x92476F00  bicep missing                             ← LEFT BICEP
+    0x92476F40  entire left arm → right foot             ← LEFT ELBOW
+    0x92477000  right arm in midsection                  ← RIGHT SHOULDER
+    0x92477040  right arm scrunched                      ← RIGHT BICEP
+    0x924770C0  left arm midsection touch                ← LEFT FOREARM
+    0x92477180  left shoulder absorbed by torso          ← LEFT SHOULDER ROOT
+    0x92477280  right arm → left foot                    ← RIGHT FOREARM
+    0x92477300  right bicep missing                      ← RIGHT ELBOW
+    0x92477340  right bicep on crotch                    ← RIGHT WRIST
+    0x92477380  right fist on left shoulder              ← RIGHT HAND
+    0x92477400  right arm on left foot                   ← RIGHT ARM BASE
+    0x92477440  right hand on head                       ← RIGHT UPPER ARM
+    0x92477480  forearm enlarged                          ← LEFT WRIST
+    0x924774C0  stomach → right fist                     ← LEFT FOREARM ROOT
+    0x92477680  head → left foot                         ← HEAD
+    0x924776C0  head missing (in torso)                  ← NECK
+    0x92477740  head → left foot (variant)               ← SKULL?
+    0x92477780  head inside neck                         ← FACE / FRONT HEAD
+    0x924777C0  head inside neck (less)                  ← BACK HEAD?
+    0x92477800  stomach consumed head                    ← HEAD-NECK JOINT
+    0x92477840  head inside neck again                   ← CHIN?
+    0x92477900  left headband → center stage             ← HEADBAND L
+    0x924779C0  belt higher                              ← BELT BONE
+    0x92477A80  Ryu pops collar                          ← COLLAR BONE
+    0x92477AC0  left headband floating                   ← HEADBAND FLOAT
+    0x92477B40  midsection going backwards               ← GI/CLOTH BONE
+
+══════════════════════════════════════════════════════════════════════
+  FREEZE BONES  (game crashes if zeroed , live control structures)
+══════════════════════════════════════════════════════════════════════
+
+  0x9218EFC0  (in HUD region , likely a render list pointer)
+  0x92190680  (in HUD region)
+  0x92472500  (in Ryu mesh layer , polygon count / draw call param?)
+  0x9250D140  (Cluster 1229 , unknown region)
+  0x9250D200
+  0x9250D340
+  0x9250D4C0
+  0x9250D600
+  0x9250D700
+
+══════════════════════════════════════════════════════════════════════
+  SUMMARY , WHAT THIS TELLS US
+══════════════════════════════════════════════════════════════════════
+
+  The 3x4 matrix format is the engine's possible universal transform node.
+  The game possibly uses one data structure for everything:
+    - HUD elements (life bars, icons, timer)
+    - Stage geometry (floor, walls, shadows, background)
+    - Character mesh layer (transparency, shader params, T-pose base)
+    - Character skeleton (pose bones, cloth/accessory)
+
+  Ryu's full transform hierarchy:
+    World position  (0x924707C0)
+    ↓
+    Mesh/polygon base  (0x92472440)
+    ↓
+    Skeleton root  (0x92475AC0)
+    ↓
+    Spine → Hip → Legs → Feet
+    Spine → Shoulders → Arms → Hands
+    Spine → Neck → Head → Accessories
+
+  The "attach to enemy" descriptions at 0x92472540/0x92472580 are
+  possibly the throw mechanic, the attacker's skeleton
+  is parented to the defender's transform during the throw animation.
+
+  Transparent/alpha bones control render order or alpha blend params,
+  not geometry , zeroing them makes parts invisible, not misplaced.
+
+  The freeze bones are live engine pointers or loop counters embedded
+  in the same memory region. They are NOT transform nodes.

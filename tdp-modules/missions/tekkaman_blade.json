@@ -1,0 +1,169 @@
+{
+  "character": "Tekkaman Blade",
+  "missions": [
+    {
+      "mission_id": "tekkaman_blade_001",
+      "name": "Combo Trial 001",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_blade_002",
+      "name": "Combo Trial 002",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.2C" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_blade_003",
+      "name": "Combo Trial 003",
+      "notes": "",
+      "steps": [
+        { "label": "Crash Intrude" },
+        { "label": "j.2C" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_blade_004",
+      "name": "Combo Trial 004",
+      "notes": "",
+      "steps": [
+        { "label": "Falchion C" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "2C" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_blade_005",
+      "name": "Combo Trial 005",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.2C" },
+        { "label": "Shamshir C" },
+        { "label": "Crash Intrude" },
+        { "label": "j.2C" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_blade_006",
+      "name": "Combo Trial 006",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.2C" },
+        { "label": "Blitz C" },
+        { "label": "5B" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "Air Baselard A" },
+        { "label": "Omnidirectional Voltekka" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_blade_007",
+      "name": "Challenge",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "5A" },
+        { "label": "Baselard" },
+        { "label": "j.2C" },
+        { "label": "Blitz C" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.2C" },
+        { "label": "Sham Shir" },
+        { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "Air Baselard A" },
+        { "label": "Omnidirectional Voltekka" }
+      ]
+    },
+    {
+      "mission_id": "tekkaman_blade_008",
+      "name": "Special Challenge",
+      "notes": "Do 10000 damage in 3 hits or less. Baroque is locked. But a certain settings in training mode may help......",
+      "setup_debug_flags": {
+        "BaroquePct": 0
+      },
+      "goal": {
+        "type": "damage_under_hits",
+        "damage": 10000,
+        "max_hits": 3
+      }
+    },
+    {
+      "mission_id": "tekkaman_blade_009",
+      "name": "Special Challenge 2",
+      "notes": "Do 40000 damage in a single combo. Baroque is locked to 10%.",
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      },
+      "goal": {
+        "type": "combo_damage",
+        "damage": 40000
+      }
+    },{
+  "mission_id": "tekkaman_blade_010",
+  "name": "VAR Baselard Route",
+  "notes": "",
+  "steps": [
+    { "label": "VAR" },
+    { "label": "j.A" },
+    { "label": "j.B" },
+    { "label": "j.2C" },
+    { "label": "Blitz C" },
+    
+    { "label": "5B" },
+    
+    { "label": "3C" },
+    
+    { "label": "j.B" },
+    { "label": "Air Baselard A" },
+    { "label": "Crash Intrude" },
+    { "label": "j.2C" }
+  ]
+}
+  ]
+}

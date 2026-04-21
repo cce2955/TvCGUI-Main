@@ -1,0 +1,143 @@
+{
+  "character": "Ryu",
+  "missions": [
+    {
+      "mission_id": "ryu_001",
+      "name": "Basic Air Chain",
+      "notes": "Basic Magic Series.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "ryu_002",
+      "name": "Tatsu Ender",
+      "notes": "Basic BnB ",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Donkey H" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Tatsu H" }
+      ]
+    },
+    {
+      "mission_id": "ryu_003",
+      "name": "Double Extension",
+      "notes": "Baroque BnB.",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Donkey H" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Tatsu H" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Tatsu H" }
+      ]
+    },
+    {
+      "mission_id": "ryu_004",
+      "name": "Donkey to Shinkuu",
+      "notes": "Overhead 6B starter into light donkey, triple fireball chain, tatsu, then super.",
+      "steps": [
+        { "label": "6B" },
+        { "label": "Donkey L" },
+        { "label": "Baroque cancel" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "Tatsu H" },
+        { "label": "Shinkuu" }
+      ]
+    },
+    {
+      "mission_id": "ryu_005",
+      "name": "Corner Carry to Super",
+      "notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
+      "steps": [
+        { "label": "5A" },
+        { "label": "2A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Hado M" },
+        { "label": "Baroque cancel" },
+        { "label": "Air Tatsu H" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "2C" },
+        { "label": "6C" },
+        { "label": "Donkey H" },
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Tatsu H" },
+        { "labels": ["Shinkuu", "Air Shinkuu"] }
+      ]
+    },
+    {
+      "mission_id": "ryu_006",
+      "name": "VAR Air Series",
+      "notes": "The other character starts, VARs in Ryu, then Ryu finishes with j.A j.B j.C.",
+      "steps": [
+        { "label": "VAR" },
+        { "label": "j.A" },
+        { "label": "j.B" },
+        { "label": "j.C" }
+      ]
+    },
+    {
+      "mission_id": "ryu_007",
+      "name": "Challenge",
+      "notes": "",
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "5C" },
+        { "label": "6C" },
+        { "label": "Hado L" },
+        { "label": "Shin Sho" },
+        { "label": "Hado L" },
+        { "label": "5B" },
+        { "label": "6C" },
+        { "label": "Tatsu H" },
+        { "labels": ["Shinkuu", "Air Shinkuu"] }
+      ]
+    },
+    {
+      "mission_id": "ryu_008",
+      "name": "Challenge",
+      "notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
+      "steps": [
+        { "label": "Hado L" },
+        { "label": "Shin Sho" },
+        { "label": "Tatsu M" },
+        { "label": "Shin Sho" }
+      ]
+    }
+  ]
+}

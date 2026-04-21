@@ -1,0 +1,357 @@
+{
+  "character": "Saki",
+  "mission_count": 9,
+  "active_mission_id": "saki_007",
+  "active_mission_name": "Load Shell Route",
+  "active_mission_notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
+  "active_mission_steps": [
+    [
+      "LOAD SUPER ARMOR PIERCING SHELL"
+    ],
+    [
+      "5A"
+    ],
+    [
+      "5B"
+    ],
+    [
+      "2B"
+    ],
+    [
+      "Headbutt"
+    ],
+    [
+      "2A"
+    ],
+    [
+      "2B"
+    ],
+    [
+      "3C"
+    ],
+    [
+      "j.A"
+    ],
+    [
+      "j.B"
+    ],
+    [
+      "j.C"
+    ],
+    [
+      "5B"
+    ],
+    [
+      "3C"
+    ],
+    [
+      "j.B"
+    ],
+    [
+      "j.C"
+    ]
+  ],
+  "active_mission_goal": {},
+  "active_mission_setup_debug_flags": {},
+  "selected_mission_id": "saki_007",
+  "missions": [
+    {
+      "mission_id": "saki_001",
+      "name": "Starter",
+      "notes": "Basic chain.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5C"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "2C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "saki_002",
+      "name": "Load Bullet C",
+      "notes": "22C",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "2C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "saki_003",
+      "name": "Grenade BnB",
+      "notes": "22C",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "j.C"
+        ],
+        [
+          "Air Grenade B"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "saki_004",
+      "name": "Corner Setup",
+      "notes": "22C",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Positron C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Positron Storm"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "saki_005",
+      "name": "Throw Followup",
+      "notes": "22C",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Forward Throw"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "2C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "saki_006",
+      "name": "LOAD SUPER ARMOR PIERCING SHELL",
+      "notes": "Read the title",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "LOAD SUPER ARMOR PIERCING SHELL"
+        ],
+        [
+          "5C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "CpuGuard": 2
+      }
+    },
+    {
+      "mission_id": "saki_007",
+      "name": "Load Shell Route",
+      "notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
+      "completed": true,
+      "selected": true,
+      "steps": [
+        [
+          "LOAD SUPER ARMOR PIERCING SHELL"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "Headbutt"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "saki_008",
+      "name": "Challenge",
+      "notes": "Some moves are missing go ahead and fill them in",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Headbutt"
+        ],
+        [
+          "Load Ammo C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "Positron Storm"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "saki_009",
+      "name": "Meter Challenge",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "LOAD SUPER ARMOR PIERCING SHELL"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "Grenade"
+        ],
+        [
+          "LOAD SUPER ARMOR PIERCING SHELL"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "Grenade"
+        ],
+        [
+          "LOAD SUPER ARMOR PIERCING SHELL"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Positron Cannon"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    }
+  ],
+  "active": true,
+  "slot": "P1-C1",
+  "just_cleared": false,
+  "clear_seq": 1,
+  "celebrate_pending": false,
+  "celebrate_token": 1,
+  "completed_step_count": 11,
+  "current_step_index": 11,
+  "current_step_label": "5B",
+  "selector_open": false,
+  "selector_index": 0,
+  "selector_hint": "Down, Down, Taunt: Open Mission Select",
+  "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
+  "scanlines": true
+}
