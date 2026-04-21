@@ -1,13 +1,10 @@
 {
-  "character": "Saki",
-  "mission_count": 9,
-  "active_mission_id": "saki_007",
-  "active_mission_name": "Load Shell Route",
-  "active_mission_notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
+  "character": "Volnutt",
+  "mission_count": 7,
+  "active_mission_id": "volnutt_003",
+  "active_mission_name": "Volnutt BnB Fist Starter 3",
+  "active_mission_notes": "",
   "active_mission_steps": [
-    [
-      "LOAD SUPER ARMOR PIERCING SHELL"
-    ],
     [
       "5A"
     ],
@@ -18,25 +15,40 @@
       "2B"
     ],
     [
-      "Headbutt"
+      "6B"
     ],
     [
-      "2A"
-    ],
-    [
-      "2B"
-    ],
-    [
-      "3C"
-    ],
-    [
-      "j.A"
+      "Weapon Switch Backwards C"
     ],
     [
       "j.B"
     ],
     [
-      "j.C"
+      "Air 3B"
+    ],
+    [
+      "Air Weapon Switch Forward B"
+    ],
+    [
+      "j.B"
+    ],
+    [
+      "j.B"
+    ],
+    [
+      "j.6B"
+    ],
+    [
+      "Air Weapon Switch Forward C"
+    ],
+    [
+      "5B"
+    ],
+    [
+      "3B"
+    ],
+    [
+      "Weapon Switch Forwards C"
     ],
     [
       "5B"
@@ -48,45 +60,61 @@
       "j.B"
     ],
     [
-      "j.C"
+      "j.6B"
+    ],
+    [
+      "air machine gun super"
     ]
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "saki_007",
+  "selected_mission_id": "volnutt_003",
   "missions": [
     {
-      "mission_id": "saki_001",
-      "name": "Starter",
-      "notes": "Basic chain.",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5C"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "2C"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_002",
-      "name": "Load Bullet C",
-      "notes": "22C",
-      "completed": false,
+      "mission_id": "volnutt_001",
+      "name": "Volnutt BnB Fist Starter",
+      "notes": "Basic BnB",
+      "completed": true,
       "selected": false,
       "steps": [
         [
           "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.6B"
+        ],
+        [
+          "Air Weapon Switch Forward B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.6B"
+        ],
+        [
+          "Air Weapon Switch Forward C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3B"
+        ],
+        [
+          "Weapon Switch Forwards C"
         ],
         [
           "5B"
@@ -98,42 +126,19 @@
           "j.B"
         ],
         [
-          "j.C"
+          "j.6B"
         ],
         [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "2C"
+          "air machine gun super"
         ]
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "saki_003",
-      "name": "Grenade BnB",
-      "notes": "22C",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "j.C"
-        ],
-        [
-          "Air Grenade B"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_004",
-      "name": "Corner Setup",
-      "notes": "22C",
+      "mission_id": "volnutt_002",
+      "name": "Volnutt BnB Fist Starter 2",
+      "notes": "Man this looks confusing reading it, but it's simple, just break it down.",
       "completed": false,
       "selected": false,
       "steps": [
@@ -147,86 +152,71 @@
           "2B"
         ],
         [
-          "5C"
+          "6B"
         ],
         [
-          "6C"
-        ],
-        [
-          "Positron C"
-        ],
-        [
-          "Baroque cancel"
+          "Weapon Switch Backwards C"
         ],
         [
           "5B"
         ],
         [
-          "2B"
+          "3B"
         ],
         [
-          "5C"
+          "Weapon Switch Forwards B"
         ],
         [
-          "Positron Storm"
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.6B"
+        ],
+        [
+          "Air Weapon Switch Forward C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3B"
+        ],
+        [
+          "Weapon Switch Forwards C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.6B"
+        ],
+        [
+          "air machine gun super"
         ]
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "saki_005",
-      "name": "Throw Followup",
-      "notes": "22C",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "Forward Throw"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "2C"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_006",
-      "name": "LOAD SUPER ARMOR PIERCING SHELL",
-      "notes": "Read the title",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        [
-          "LOAD SUPER ARMOR PIERCING SHELL"
-        ],
-        [
-          "5C"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {
-        "CpuGuard": 2
-      }
-    },
-    {
-      "mission_id": "saki_007",
-      "name": "Load Shell Route",
-      "notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
+      "mission_id": "volnutt_003",
+      "name": "Volnutt BnB Fist Starter 3",
+      "notes": "",
       "completed": true,
       "selected": true,
       "steps": [
         [
-          "LOAD SUPER ARMOR PIERCING SHELL"
-        ],
-        [
           "5A"
         ],
         [
@@ -236,25 +226,40 @@
           "2B"
         ],
         [
-          "Headbutt"
+          "6B"
         ],
         [
-          "2A"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
+          "Weapon Switch Backwards C"
         ],
         [
           "j.B"
         ],
         [
-          "j.C"
+          "Air 3B"
+        ],
+        [
+          "Air Weapon Switch Forward B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.6B"
+        ],
+        [
+          "Air Weapon Switch Forward C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3B"
+        ],
+        [
+          "Weapon Switch Forwards C"
         ],
         [
           "5B"
@@ -266,74 +271,279 @@
           "j.B"
         ],
         [
-          "j.C"
+          "j.6B"
+        ],
+        [
+          "air machine gun super"
         ]
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "saki_008",
-      "name": "Challenge",
-      "notes": "Some moves are missing go ahead and fill them in",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "Headbutt"
-        ],
-        [
-          "Load Ammo C"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "Positron Storm"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_009",
-      "name": "Meter Challenge",
+      "mission_id": "volnutt_004",
+      "name": "Volnutt Drill Starter",
       "notes": "",
       "completed": false,
       "selected": false,
       "steps": [
         [
-          "LOAD SUPER ARMOR PIERCING SHELL"
-        ],
-        [
-          "5C"
+          "5A"
         ],
         [
           "5B"
         ],
         [
-          "Grenade"
+          "2B"
         ],
         [
-          "LOAD SUPER ARMOR PIERCING SHELL"
+          "6B"
         ],
         [
-          "5C"
+          "Weapon Switch Forwards B"
         ],
         [
           "5B"
         ],
         [
-          "Grenade"
+          "3C"
         ],
         [
-          "LOAD SUPER ARMOR PIERCING SHELL"
+          "j.B"
         ],
         [
-          "5C"
+          "j.6B"
         ],
         [
-          "Positron Cannon"
+          "Air Weapon Switch Forward C"
+        ],
+        [
+          "6B"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "volnutt_005",
+      "name": "Volnutt Charged Ender",
+      "notes": "Fist starter route into Charged C, then air machine gun super.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "6B"
+        ],
+        [
+          "Weapon Switch Forwards C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Air 3B"
+        ],
+        [
+          "Air Weapon Switch Forward B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.6B"
+        ],
+        [
+          "Air Weapon Switch Forward B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Charged j.C"
+        ],
+        [
+          "air machine gun super"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "volnutt_006",
+      "name": "Challenge",
+      "notes": "You're probably thinking this is a joke or a typo, I assure you it's not and this is legtimately possible to do. This is corner only and make sure volnutt is chosen first at character select",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "2A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "max drill upper"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "volnutt_007",
+      "name": "Challenge 2",
+      "notes": "Another impossible challenge, So impossible I'll give you a hint, have casshan or zero as assist to make this easier, if you have hitbox display on, you'll notice Volnutt has three hitboxes. That's your only hint. If you truly want to cheat then do this on PTX",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "max drill upper"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "max drill upper"
         ]
       ],
       "goal": {},
@@ -344,13 +554,13 @@
   "slot": "P1-C1",
   "just_cleared": false,
   "clear_seq": 1,
-  "celebrate_pending": false,
+  "celebrate_pending": true,
   "celebrate_token": 1,
-  "completed_step_count": 11,
-  "current_step_index": 11,
-  "current_step_label": "5B",
+  "completed_step_count": 0,
+  "current_step_index": 0,
+  "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 0,
+  "selector_index": 2,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true
