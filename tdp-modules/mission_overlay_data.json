@@ -1,237 +1,98 @@
 {
-  "character": "Volnutt",
-  "mission_count": 7,
-  "active_mission_id": "volnutt_007",
-  "active_mission_name": "Challenge 2",
-  "active_mission_notes": "Another impossible challenge, So impossible I'll give you a hint, have soki, casshan or zero as assist to make this easier, if you have hitbox display on, you'll notice Volnutt has three hitboxes. That's your only hint. If you truly want to cheat then do this on PTX",
+  "character": "Doronjo",
+  "mission_count": 9,
+  "active_mission_id": "doronjo_007",
+  "active_mission_name": "Combo Trial 007",
+  "active_mission_notes": "",
   "active_mission_steps": [
     [
-      "max drill upper"
+      "5A"
     ],
     [
       "5B"
     ],
     [
-      "max drill upper"
+      "2B"
+    ],
+    [
+      "5C"
+    ],
+    [
+      "Clutch C"
+    ],
+    [
+      "Baroque cancel"
+    ],
+    [
+      "2B"
+    ],
+    [
+      "In the beginning"
+    ],
+    [
+      "j.B"
+    ],
+    [
+      "5B"
+    ],
+    [
+      "3C"
+    ],
+    [
+      "j.A"
+    ],
+    [
+      "j.B"
+    ],
+    [
+      "j.C"
     ]
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "volnutt_007",
+  "selected_mission_id": "doronjo_007",
   "missions": [
     {
-      "mission_id": "volnutt_001",
-      "name": "Volnutt BnB Fist Starter",
-      "notes": "Basic BnB",
-      "completed": false,
+      "mission_id": "doronjo_001",
+      "name": "Combo Trial 001",
+      "notes": "A, 2A, A, B, 2C, C, 3C, j.A, j.B, j.C",
+      "completed": true,
       "selected": false,
       "steps": [
         [
           "5A"
         ],
         [
-          "5B"
+          "2A"
         ],
-        [
-          "2B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3B"
-        ],
-        [
-          "Weapon Switch Forwards C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "air machine gun super"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "volnutt_002",
-      "name": "Volnutt BnB Fist Starter 2",
-      "notes": "Man this looks confusing reading it, but it's simple, just break it down.",
-      "completed": false,
-      "selected": false,
-      "steps": [
         [
           "5A"
         ],
         [
-          "5B"
-        ],
-        [
           "2B"
         ],
         [
-          "6B"
-        ],
-        [
-          "Weapon Switch Backwards C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3B"
-        ],
-        [
-          "Weapon Switch Forwards B"
-        ],
-        [
-          "5B"
+          "5C"
         ],
         [
           "3C"
         ],
         [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3B"
-        ],
-        [
-          "Weapon Switch Forwards C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
+          "j.A"
         ],
         [
           "j.B"
         ],
         [
-          "j.6B"
-        ],
-        [
-          "air machine gun super"
+          "j.C"
         ]
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "volnutt_003",
-      "name": "Volnutt BnB Fist Starter 3",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "6B"
-        ],
-        [
-          "Weapon Switch Backwards C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Air 3B"
-        ],
-        [
-          "Air Weapon Switch Forward B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3B"
-        ],
-        [
-          "Weapon Switch Forwards C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "air machine gun super"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "volnutt_004",
-      "name": "Volnutt Drill Starter",
+      "mission_id": "doronjo_002",
+      "name": "Combo Trial 002",
       "notes": "",
       "completed": true,
       "selected": false,
@@ -246,37 +107,25 @@
           "2B"
         ],
         [
-          "6B"
+          "5C"
         ],
         [
-          "Weapon Switch Forwards B"
+          "2C"
         ],
         [
-          "5B"
+          "Comfy"
         ],
         [
-          "3C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward C"
-        ],
-        [
-          "6B"
+          "Breakdance"
         ]
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "volnutt_005",
-      "name": "Volnutt Charged Ender",
-      "notes": "Fist starter route into Charged C, then air machine gun super.",
+      "mission_id": "doronjo_003",
+      "name": "Combo Trial 003",
+      "notes": "",
       "completed": true,
       "selected": false,
       "steps": [
@@ -290,10 +139,116 @@
           "2B"
         ],
         [
-          "6B"
+          "5C"
         ],
         [
-          "Weapon Switch Forwards C"
+          "2C"
+        ],
+        [
+          "Pummel A"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "doronjo_004",
+      "name": "Combo Trial 004",
+      "notes": "This is for facing right",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Clutch C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "Tree C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Taunt"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "doronjo_005",
+      "name": "Combo Trial 005",
+      "notes": "",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Tree C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "Rock C"
+        ],
+        [
+          "Tree C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2C"
         ],
         [
           "5B"
@@ -302,197 +257,227 @@
           "3C"
         ],
         [
-          "j.B"
-        ],
-        [
-          "Air 3B"
-        ],
-        [
-          "Air Weapon Switch Forward B"
+          "j.A"
         ],
         [
           "j.B"
         ],
         [
-          "j.6B"
-        ],
-        [
-          "Air Weapon Switch Forward B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Charged j.C"
-        ],
-        [
-          "air machine gun super"
+          "j.C"
         ]
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "volnutt_006",
-      "name": "Challenge",
-      "notes": "You're probably thinking this is a joke or a typo, I assure you it's not and this is legtimately possible to do. This is corner only and make sure volnutt is chosen first at character select",
-      "completed": true,
+      "mission_id": "doronjo_006",
+      "name": "Combo Trial 006",
+      "notes": "",
+      "completed": false,
       "selected": false,
       "steps": [
         [
           "5A"
         ],
         [
-          "2A"
+          "5B"
         ],
         [
-          "5A"
+          "2B"
         ],
         [
-          "2A"
+          "5C"
         ],
         [
-          "5A"
+          "Tree C"
         ],
         [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "2A"
+          "Baroque cancel"
         ],
         [
           "5B"
         ],
         [
-          "max drill upper"
+          "2B"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "Rock C"
+        ],
+        [
+          "Taunt"
+        ],
+        [
+          "Tree C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2C"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
         ]
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "volnutt_007",
-      "name": "Challenge 2",
-      "notes": "Another impossible challenge, So impossible I'll give you a hint, have soki, casshan or zero as assist to make this easier, if you have hitbox display on, you'll notice Volnutt has three hitboxes. That's your only hint. If you truly want to cheat then do this on PTX",
+      "mission_id": "doronjo_007",
+      "name": "Combo Trial 007",
+      "notes": "",
       "completed": false,
       "selected": true,
       "steps": [
         [
-          "max drill upper"
+          "5A"
         ],
         [
           "5B"
         ],
         [
-          "max drill upper"
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Clutch C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "In the beginning"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "doronjo_008",
+      "name": "Combo Trial 008",
+      "notes": "Facing Corner",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Doronjo Counter"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "CpuAction": 4
+      }
+    },
+    {
+      "mission_id": "doronjo_009",
+      "name": "Challenge",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Clutch C"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "2B"
+        ],
+        [
+          "Tree C"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "Taunt"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
         ]
       ],
       "goal": {},
@@ -500,14 +485,14 @@
     }
   ],
   "active": true,
-  "slot": "P1-C1",
+  "slot": "P1-C2",
   "just_cleared": false,
   "clear_seq": 0,
   "celebrate_pending": false,
   "celebrate_token": 0,
-  "completed_step_count": 0,
-  "current_step_index": 0,
-  "current_step_label": "max drill upper",
+  "completed_step_count": 7,
+  "current_step_index": 7,
+  "current_step_label": "In the beginning",
   "selector_open": false,
   "selector_index": 6,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",

@@ -1,10 +1,23 @@
 {
-  "volnutt": {
+  "tekkaman": {
     "completed": {
-      "volnutt_004": true,
-      "volnutt_005": true,
-      "volnutt_006": true
+      "tekkaman_001": true,
+      "tekkaman_002": true,
+      "tekkaman_003": true,
+      "tekkaman_004": true,
+      "tekkaman_005": true,
+      "tekkaman_006": true
     },
-    "selected_mission_id": "volnutt_007"
+    "selected_mission_id": null
+  },
+  "doronjo": {
+    "completed": {
+      "doronjo_001": true,
+      "doronjo_002": true,
+      "doronjo_003": true,
+      "doronjo_004": true,
+      "doronjo_005": true
+    },
+    "selected_mission_id": "doronjo_007"
   }
 }
