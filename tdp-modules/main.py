@@ -6,6 +6,14 @@ import subprocess
 import sys
 import pygame
 from subprocess_compat import frozen_exe
+
+
+def resource_path(*parts):
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, *parts)
 from constants import (
     SLOTS,
     CHAR_NAMES,
@@ -610,14 +618,14 @@ def init_pygame():
     pygame.display.set_caption("TvC Continuo Tool")
 
     # Resolve and apply window icon.
-    icon_path = os.path.join(
+    icon_path = resource_path(
         "assets",
         "portraits",
         "Placeholder.png"
     )
 
     if not os.path.exists(icon_path):
-        icon_path = os.path.join("assets", "icon.png")
+        icon_path = resource_path("assets", "icon.png")
 
     if os.path.exists(icon_path):
         icon = pygame.image.load(icon_path).convert_alpha()
@@ -881,8 +889,9 @@ def legacy_main():
     # ----------------------------------------------------------
 
     placeholder_portrait = load_portrait_placeholder()
+
     portraits = load_portraits_from_dir(
-        os.path.join("assets", "portraits")
+        resource_path("assets", "portraits")
     )
 
     print(f"HUD: loaded {len(portraits)} portraits.")

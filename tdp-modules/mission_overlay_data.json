@@ -1,21 +1,15 @@
 {
-  "character": "Doronjo",
-  "mission_count": 9,
-  "active_mission_id": "doronjo_001",
-  "active_mission_name": "Combo Trial 001",
-  "active_mission_notes": "A, 2A, A, B, 2C, C, 3C, j.A, j.B, j.C",
+  "character": "Ryu",
+  "mission_count": 8,
+  "active_mission_id": "ryu_001",
+  "active_mission_name": "Basic Air Chain",
+  "active_mission_notes": "Basic Magic Series.",
   "active_mission_steps": [
     [
       "5A"
     ],
     [
-      "2A"
-    ],
-    [
-      "5A"
-    ],
-    [
-      "2B"
+      "5B"
     ],
     [
       "5C"
@@ -38,9 +32,176 @@
   "selected_mission_id": null,
   "missions": [
     {
-      "mission_id": "doronjo_001",
-      "name": "Combo Trial 001",
-      "notes": "A, 2A, A, B, 2C, C, 3C, j.A, j.B, j.C",
+      "mission_id": "ryu_001",
+      "name": "Basic Air Chain",
+      "notes": "Basic Magic Series.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "3C"
+        ],
+        [
+          "j.A"
+        ],
+        [
+          "j.B"
+        ],
+        [
+          "j.C"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_002",
+      "name": "Tatsu Ender",
+      "notes": "Basic BnB",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Donkey H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_003",
+      "name": "Double Extension",
+      "notes": "Baroque BnB.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Donkey H"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "6C"
+        ],
+        [
+          "Tatsu H"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_004",
+      "name": "Donkey to Shinkuu",
+      "notes": "Overhead 6B starter into light donkey, triple fireball chain, tatsu, then super.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "6B"
+        ],
+        [
+          "Donkey L"
+        ],
+        [
+          "Baroque cancel"
+        ],
+        [
+          "5A"
+        ],
+        [
+          "5B"
+        ],
+        [
+          "5C"
+        ],
+        [
+          "Tatsu H"
+        ],
+        [
+          "Shinkuu"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_005",
+      "name": "Corner Carry to Super",
+      "notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
       "completed": false,
       "selected": false,
       "steps": [
@@ -51,41 +212,6 @@
           "2A"
         ],
         [
-          "5A"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "doronjo_002",
-      "name": "Combo Trial 002",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
           "5B"
         ],
         [
@@ -95,107 +221,17 @@
           "5C"
         ],
         [
-          "2C"
+          "6C"
         ],
         [
-          "Comfy"
-        ],
-        [
-          "Breakdance"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "doronjo_003",
-      "name": "Combo Trial 003",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "Pummel A"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "doronjo_004",
-      "name": "Combo Trial 004",
-      "notes": "This is for facing right",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Clutch C"
+          "Hado M"
         ],
         [
           "Baroque cancel"
         ],
         [
-          "2B"
+          "Air Tatsu H"
         ],
-        [
-          "Tree C"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "Taunt"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "doronjo_005",
-      "name": "Combo Trial 005",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
         [
           "5A"
         ],
@@ -203,64 +239,17 @@
           "5B"
         ],
         [
-          "2B"
-        ],
-        [
           "5C"
         ],
         [
-          "Tree C"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
           "2C"
         ],
         [
-          "Rock C"
+          "6C"
         ],
         [
-          "Tree C"
+          "Donkey H"
         ],
-        [
-          "5B"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "doronjo_006",
-      "name": "Combo Trial 006",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
         [
           "5A"
         ],
@@ -268,46 +257,31 @@
           "5B"
         ],
         [
-          "2B"
-        ],
-        [
           "5C"
         ],
         [
-          "Tree C"
+          "6C"
         ],
         [
-          "Baroque cancel"
+          "Tatsu H"
         ],
         [
-          "5B"
-        ],
+          "Shinkuu",
+          "Air Shinkuu"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_006",
+      "name": "VAR Air Series",
+      "notes": "The other character starts, VARs in Ryu, then Ryu finishes with j.A j.B j.C.",
+      "completed": false,
+      "selected": false,
+      "steps": [
         [
-          "2B"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "Rock C"
-        ],
-        [
-          "Taunt"
-        ],
-        [
-          "Tree C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
+          "VAR"
         ],
         [
           "j.A"
@@ -323,91 +297,7 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "doronjo_007",
-      "name": "Combo Trial 007",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Clutch C"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "In the beginning"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "doronjo_008",
-      "name": "Combo Trial 008",
-      "notes": "Facing Corner",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "Doronjo Counter"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {
-        "CpuAction": 4
-      }
-    },
-    {
-      "mission_id": "doronjo_009",
+      "mission_id": "ryu_007",
       "name": "Challenge",
       "notes": "",
       "completed": false,
@@ -426,43 +316,52 @@
           "5C"
         ],
         [
-          "Clutch C"
+          "6C"
         ],
         [
-          "Baroque cancel"
+          "Hado L"
         ],
         [
-          "2B"
+          "Shin Sho"
         ],
         [
-          "Tree C"
+          "Hado L"
         ],
         [
-          "j.B"
+          "5B"
         ],
         [
-          "Taunt"
+          "6C"
         ],
         [
-          "j.B"
+          "Tatsu H"
         ],
         [
-          "3C"
+          "Shinkuu",
+          "Air Shinkuu"
+        ]
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_008",
+      "name": "Challenge",
+      "notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "Hado L"
         ],
         [
-          "5A"
+          "Shin Sho"
         ],
         [
-          "3C"
+          "Tatsu M"
         ],
         [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
+          "Shin Sho"
         ]
       ],
       "goal": {},
@@ -470,16 +369,16 @@
     }
   ],
   "active": true,
-  "slot": "P1-C2",
+  "slot": "P1-C1",
   "just_cleared": false,
-  "clear_seq": 0,
+  "clear_seq": 1,
   "celebrate_pending": false,
-  "celebrate_token": 0,
+  "celebrate_token": 1,
   "completed_step_count": 0,
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 8,
+  "selector_index": 0,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true
