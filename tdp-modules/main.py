@@ -5,7 +5,7 @@ import json
 import subprocess
 import sys
 import pygame
-
+from subprocess_compat import frozen_exe
 from constants import (
     SLOTS,
     CHAR_NAMES,
@@ -1284,11 +1284,11 @@ def legacy_main():
         except Exception:
             pass
 
-    def _launch_hud_overlay() -> None:
+    def _launch_hud_overlay():
         nonlocal hud_overlay_proc, hud_overlay_active
         try:
             hud_overlay_proc = subprocess.Popen(
-                [sys.executable, "hud_overlay.py"],
+                frozen_exe("hud_overlay"),
                 creationflags=(
                     subprocess.CREATE_NEW_CONSOLE
                     if sys.platform == "win32"
@@ -1296,11 +1296,6 @@ def legacy_main():
                 ),
             )
             hud_overlay_active = True
-            if sys.platform == "win32":
-                import ctypes
-                hwnd = pygame.display.get_wm_info().get("window")
-                if hwnd:
-                    ctypes.windll.user32.SetForegroundWindow(hwnd)
         except Exception as e:
             print(f"[hud_overlay] failed to launch: {e}")
 
@@ -1359,7 +1354,7 @@ def legacy_main():
         nonlocal master_overlay_proc, master_overlay_active
         try:
             master_overlay_proc = subprocess.Popen(
-                [sys.executable, "master_overlay.py"],
+                frozen_exe("master_overlay"),
                 creationflags=(
                     subprocess.CREATE_NEW_CONSOLE
                     if sys.platform == "win32"
