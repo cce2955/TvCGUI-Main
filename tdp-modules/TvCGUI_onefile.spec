@@ -20,6 +20,7 @@ a = Analysis(
     datas=[
         ('assets',  'assets'),      # portraits, icons — bundled inside EXE
         ('*.csv',   '.'),           # move-mapping CSVs
+        ('missions', 'missions'),        
     ],
     hiddenimports=[
         # All three scripts get pulled in as imports by launcher.py,

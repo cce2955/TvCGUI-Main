@@ -2,12 +2,25 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 
-MISSIONS_DIR = "missions"
-MISSION_PROGRESS_FILE = "mission_progress.json"
+def _bundle_base_dir() -> str:
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _user_data_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+MISSIONS_DIR = os.path.join(_bundle_base_dir(), "missions")
+MISSION_PROGRESS_FILE = os.path.join(_user_data_dir(), "mission_progress.json")
 
 
 @dataclass
