@@ -31,6 +31,7 @@
         { "label": "j.B (second hit)" },
         { "label": "Air Divekick B" },
         { "label": "Air Divekick B" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "Air Divekick B" },
         { "label": "Air Divekick B" }
       ]
@@ -44,19 +45,26 @@
     { "label": "Baroque cancel" },
     { "label": "j.B" },
     { "label": "Air Divekick A" },
+    
+        { "label": "Air Dash Forward", "pass": true },
     { "label": "j.B" },
     { "label": "j.B" },
     { "label": "Air Divekick A" },
+    
+        { "label": "Air Dash Forward", "pass": true },
     { "label": "j.B" },
     { "label": "j.B" },
     { "label": "Air Divekick A" },
+    
+        { "label": "Air Dash Forward", "pass": true },
     { "label": "j.B" },
     { "label": "5B" },
     { "label": "2B" },
     { "label": "3C" },
-    { "label": "j.A" },
     { "label": "j.B" },
-    { "label": "j.C" }
+        { "label": "j.B (second hit)" },
+        
+        { "label": "j.C" }
   ]
 },{
   "mission_id": "batsu_005",
@@ -67,16 +75,24 @@
     { "label": "j.B" },
     { "label": "j.B" },
     { "label": "Air Divekick A" },
+    
+
+        { "label": "Air Dash Forward", "pass": true },
     { "label": "j.B" },
     { "label": "j.B" },
     { "label": "Air Divekick A" },
+    
+        { "label": "Air Dash Forward", "pass": true },
     { "label": "j.B" },
     { "label": "5B" },
     { "label": "2B" },
     { "label": "3C" },
-    { "label": "j.A" },
-    { "label": "j.B" },
-    { "label": "j.C" }
+        { "label": "Air Divekick B" },
+        { "label": "Air Divekick B" },
+        { "label": "Jump Cancel", "pass": true },
+        { "label": "Air Divekick B" },
+        { "label": "Air Divekick B" },
+        { "label": "Air Super Guts Bullet" }
     ]                               
     },
     {
@@ -89,6 +105,8 @@
     { "label": "Baroque cancel" },
     { "label": "j.B" },
     { "label": "Air Divekick A" },
+    
+        { "label": "Air Dash Forward", "pass": true },
     { "label": "j.B" },
     { "label": "5B" },
     { "label": "2B" },
@@ -96,6 +114,7 @@
     { "label": "Air Divekick A" },
     { "label": "Air Divekick A" },
     { "label": "Air Divekick A" },
+        
     { "label": "Air Divekick A" },
     { "label": "Air Guts Bullet A" },
     { "label": "Air Super Guts Bullet" }

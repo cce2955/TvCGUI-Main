@@ -26,6 +26,7 @@
         { "label": "3C" },
         { "label": "j.A" },
         { "label": "j.B" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.2C" }
       ]
     },
@@ -41,6 +42,7 @@
         { "label": "j.A" },
         { "label": "j.B" },
         { "label": "Windmill B Air" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "Windmill B Air" }
       ]
     },

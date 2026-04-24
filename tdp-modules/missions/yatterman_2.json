@@ -11,7 +11,9 @@
         { "label": "2B" },
         { "label": "5C" },
         { "label": "3C" },
-        { "label": "j.B" },
+           { "label": "j.B" },
+        { "label": "j.B (second hit)" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.B" },
         { "label": "j.C" }
       ]
@@ -31,7 +33,9 @@
         { "label": "2B" },
         { "label": "5C" },
         { "label": "3C" },
-        { "label": "j.B" },
+       { "label": "j.B" },
+        { "label": "j.B (second hit)" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.B" },
         { "label": "j.C" }
       ]
@@ -42,8 +46,8 @@
       "notes": "",
       "steps": [
         { "labels": ["Forward Throw", "Back Throw"] },
-        { "label": "yatter step" },
-        { "label": "Yatter Step C" },
+        { "label": "Yatter Step" , "pass": true },
+        { "label": "Yatter Step C", "grace": 5 },
         { "label": "Omochama" }
       ]
     },
@@ -56,12 +60,14 @@
         { "label": "5B" },
         { "label": "2B" },
         { "label": "5C" },
-        { "label": "Yattershield A" },
+        { "label": "Yatter Shield A" },
         { "label": "5A" },
         { "label": "5B" },
         { "label": "2B" },
         { "label": "3C" },
-        { "label": "j.B" },
+               { "label": "j.B" },
+        { "label": "j.B (second hit)" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.B" },
         { "label": "j.C" }
       ]
@@ -106,6 +112,9 @@
         { "label": "2B" },
         
         { "label": "3C" },
+               { "label": "j.B" },
+        { "label": "j.B (second hit)" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.B" },
         { "label": "j.C" }
       ]

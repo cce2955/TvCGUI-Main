@@ -167,7 +167,7 @@
       "steps": [
         { "label": "Slash Elbow M" },
         { "label": "j.C" },
-        { "label": "VAR" },
+        { "label": "VAR", "pass": true },
         { "label": "j.C" },
         { "label": "Slash Elbow H" },
         { "label": "Wild Stomp C" }

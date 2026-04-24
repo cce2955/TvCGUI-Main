@@ -5,7 +5,7 @@
       "alex_004": true,
       "alex_002": true
     },
-    "selected_mission_id": "alex_002"
+    "selected_mission_id": "alex_012"
   },
   "saki": {
     "completed": {
@@ -15,9 +15,14 @@
   },
   "batsu": {
     "completed": {
-      "batsu_001": true
+      "batsu_001": true,
+      "batsu_002": true,
+      "batsu_003": true,
+      "batsu_005": true,
+      "batsu_006": true,
+      "batsu_007": true
     },
-    "selected_mission_id": "batsu_001"
+    "selected_mission_id": "batsu_007"
   },
   "chun_li": {
     "completed": {
@@ -139,8 +144,48 @@
     "completed": {
       "tekkaman_blade_001": true,
       "tekkaman_blade_002": true,
-      "tekkaman_blade_004": true
+      "tekkaman_blade_004": true,
+      "tekkaman_blade_006": true
     },
-    "selected_mission_id": "tekkaman_blade_007"
+    "selected_mission_id": "tekkaman_blade_009"
+  },
+  "tekkaman": {
+    "completed": {
+      "tekkaman_001": true,
+      "tekkaman_002": true,
+      "tekkaman_003": true,
+      "tekkaman_004": true
+    },
+    "selected_mission_id": "tekkaman_005"
+  },
+  "yatterman_1": {
+    "completed": {
+      "yatterman_001": true
+    },
+    "selected_mission_id": "yatterman_003"
+  },
+  "zero": {
+    "completed": {
+      "zero_001": true,
+      "zero_002": true,
+      "zero_003": true,
+      "zero_005": true
+    },
+    "selected_mission_id": "zero_005"
+  },
+  "yatterman_2": {
+    "completed": {
+      "yatterman_2_001": true,
+      "yatterman_2_003": true
+    },
+    "selected_mission_id": "yatterman_2_004"
+  },
+  "ryu": {
+    "completed": {
+      "ryu_008": true,
+      "ryu_003": true,
+      "ryu_005": true
+    },
+    "selected_mission_id": "ryu_005"
   }
 }

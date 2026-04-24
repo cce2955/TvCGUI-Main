@@ -1,13 +1,20 @@
 {
-  "character": "Casshan",
-  "mission_count": 7,
-  "active_mission_id": "casshan_005",
-  "active_mission_name": "Combo 5",
-  "active_mission_notes": "Knee starter into Baroque combo finish.",
+  "character": "Ryu",
+  "mission_count": 8,
+  "active_mission_id": "ryu_005",
+  "active_mission_name": "Corner Carry to Super",
+  "active_mission_notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
   "active_mission_steps": [
     {
       "labels": [
         "5A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "2A"
       ],
       "grace": 0,
       "pass": false
@@ -35,7 +42,14 @@
     },
     {
       "labels": [
-        "Knee A"
+        "6C"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Hado M"
       ],
       "grace": 0,
       "pass": false
@@ -43,6 +57,13 @@
     {
       "labels": [
         "Baroque cancel"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Tatsu H"
       ],
       "grace": 0,
       "pass": false
@@ -63,111 +84,85 @@
     },
     {
       "labels": [
-        "2B"
+        "5C"
       ],
       "grace": 0,
       "pass": false
     },
     {
       "labels": [
-        "3C"
+        "2C"
       ],
       "grace": 0,
       "pass": false
     },
     {
       "labels": [
-        "j.B"
+        "6C"
       ],
       "grace": 0,
       "pass": false
     },
     {
       "labels": [
-        "Shooting Star Kick C"
+        "Donkey H"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "5A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "5B"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "6C"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Tatsu H"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Shinkuu",
+        "Air Shinkuu"
       ],
       "grace": 0,
       "pass": false
     }
   ],
   "active_mission_goal": {},
-  "active_mission_setup_debug_flags": {
-    "BaroquePct": 1
-  },
-  "selected_mission_id": "casshan_005",
+  "active_mission_setup_debug_flags": {},
+  "selected_mission_id": "ryu_005",
   "missions": [
     {
-      "mission_id": "casshan_001",
-      "name": "Combo 1",
-      "notes": "Basic ground string into air series.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.A (second hit)"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "casshan_002",
-      "name": "Combo 2",
-      "notes": "Basic ground string into air ender.",
-      "completed": true,
+      "mission_id": "ryu_001",
+      "name": "Basic Air Chain",
+      "notes": "Basic Magic Series.",
+      "completed": false,
       "selected": false,
       "steps": [
         {
@@ -214,7 +209,7 @@
         },
         {
           "labels": [
-            "Shooting Star Kick C"
+            "j.C"
           ],
           "grace": 0,
           "pass": false
@@ -224,9 +219,90 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "casshan_003",
-      "name": "Combo 3",
-      "notes": "Baroque extension into launcher and air finish.",
+      "mission_id": "ryu_002",
+      "name": "Tatsu Ender",
+      "notes": "Basic BnB",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Donkey H"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Tatsu H"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_003",
+      "name": "Double Extension",
+      "notes": "Baroque BnB.",
       "completed": true,
       "selected": false,
       "steps": [
@@ -246,13 +322,6 @@
         },
         {
           "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
             "5C"
           ],
           "grace": 0,
@@ -260,17 +329,17 @@
         },
         {
           "labels": [
-            "Denko A"
+            "6C"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Baroque cancel"
+            "Donkey H"
           ],
           "grace": 0,
-          "pass": true
+          "pass": false
         },
         {
           "labels": [
@@ -288,7 +357,42 @@
         },
         {
           "labels": [
-            "2B"
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Tatsu H"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
           ],
           "grace": 0,
           "pass": false
@@ -302,54 +406,52 @@
         },
         {
           "labels": [
-            "Denko B"
+            "6C"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Shooting Star Kick C"
+            "Tatsu H"
           ],
           "grace": 0,
           "pass": false
         }
       ],
       "goal": {},
-      "setup_debug_flags": {
-        "BaroquePct": 1
-      }
+      "setup_debug_flags": {}
     },
     {
-      "mission_id": "casshan_004",
-      "name": "Combo 4",
-      "notes": "Friender extension into relaunch finish.",
-      "completed": true,
+      "mission_id": "ryu_004",
+      "name": "Donkey to Shinkuu",
+      "notes": "Overhead 6B starter into light donkey, triple fireball chain, tatsu, then super.",
+      "completed": false,
       "selected": false,
       "steps": [
         {
           "labels": [
+            "6B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Donkey L"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
             "5A"
           ],
           "grace": 0,
@@ -364,13 +466,6 @@
         },
         {
           "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
             "5C"
           ],
           "grace": 0,
@@ -378,70 +473,26 @@
         },
         {
           "labels": [
-            "Denko B"
+            "Tatsu H"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "Friender C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.C"
+            "Shinkuu"
           ],
           "grace": 0,
           "pass": false
         }
       ],
       "goal": {},
-      "setup_debug_flags": {
-        "BaroquePct": 1
-      }
+      "setup_debug_flags": {}
     },
     {
-      "mission_id": "casshan_005",
-      "name": "Combo 5",
-      "notes": "Knee starter into Baroque combo finish.",
+      "mission_id": "ryu_005",
+      "name": "Corner Carry to Super",
+      "notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
       "completed": true,
       "selected": true,
       "steps": [
@@ -454,6 +505,13 @@
         },
         {
           "labels": [
+            "2A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
             "5B"
           ],
           "grace": 0,
@@ -475,7 +533,14 @@
         },
         {
           "labels": [
-            "Knee A"
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Hado M"
           ],
           "grace": 0,
           "pass": false
@@ -489,6 +554,13 @@
         },
         {
           "labels": [
+            "Air Tatsu H"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
             "5A"
           ],
           "grace": 0,
@@ -503,14 +575,96 @@
         },
         {
           "labels": [
-            "2B"
+            "5C"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "3C"
+            "2C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Donkey H"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Tatsu H"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Shinkuu",
+            "Air Shinkuu"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "ryu_006",
+      "name": "VAR Air Series",
+      "notes": "The other character starts, VARs in Ryu, then Ryu finishes with j.A j.B j.C.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "VAR"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.A"
           ],
           "grace": 0,
           "pass": false
@@ -524,22 +678,20 @@
         },
         {
           "labels": [
-            "Shooting Star Kick C"
+            "j.C"
           ],
           "grace": 0,
           "pass": false
         }
       ],
       "goal": {},
-      "setup_debug_flags": {
-        "BaroquePct": 1
-      }
+      "setup_debug_flags": {}
     },
     {
-      "mission_id": "casshan_006",
-      "name": "Combo 6",
-      "notes": "Ground confirm into super finish.",
-      "completed": true,
+      "mission_id": "ryu_007",
+      "name": "Challenge",
+      "notes": "",
+      "completed": false,
       "selected": false,
       "steps": [
         {
@@ -572,14 +724,57 @@
         },
         {
           "labels": [
-            "Denko B"
+            "6C"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Super Destruction Beam"
+            "Hado L"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Shin Sho"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Hado L"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Tatsu H"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Shinkuu",
+            "Air Shinkuu"
           ],
           "grace": 0,
           "pass": false
@@ -589,43 +784,36 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "casshan_007",
+      "mission_id": "ryu_008",
       "name": "Challenge",
-      "notes": "Some moves are missing good luck.",
-      "completed": false,
+      "notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
+      "completed": true,
       "selected": false,
       "steps": [
         {
           "labels": [
-            "Denko B"
+            "Hado L"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "6B"
+            "Shin Sho"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "j.B"
+            "Tatsu M"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Brutal Axe"
+            "Shin Sho"
           ],
           "grace": 0,
           "pass": false
@@ -638,9 +826,9 @@
   "active": true,
   "slot": "P1-C1",
   "just_cleared": false,
-  "clear_seq": 0,
-  "celebrate_pending": false,
-  "celebrate_token": 0,
+  "clear_seq": 1,
+  "celebrate_pending": true,
+  "celebrate_token": 1,
   "completed_step_count": 0,
   "current_step_index": 0,
   "current_step_label": "5A",

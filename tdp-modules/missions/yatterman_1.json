@@ -10,6 +10,7 @@
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
         { "label": "air yatter Medium Attack B" },
         { "label": "j.C" }
@@ -20,7 +21,7 @@
       "name": "Combo 2",
       "notes": "Air special loops into relaunch.",
       "steps": [
-        { "label": "5A" },
+        { "label": "2A" },
         { "label": "2B" },
         { "label": "3C" },
         { "label": "j.B" },
@@ -39,7 +40,7 @@
       "steps": [
         { "label": "yatter shock C" },
         { "label": "3C" },
-        { "label": "j.A" },
+      { "label": "j.A (second hit)" },
         { "label": "j.B" },
         { "label": "air yatter Medium Attack B" },
         { "label": "j.C" }
@@ -91,7 +92,7 @@
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.B" },
-        { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "air yatter Medium Attack B" },
         { "label": "j.C" },
         { "label": "yatter wan flame" }

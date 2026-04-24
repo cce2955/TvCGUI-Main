@@ -25,12 +25,13 @@
         { "label": "2B" },
         { "label": "5C" },
         { "label": "6C" },
-        { "label": "Baroque cancel" },
+        { "label": "Baroque cancel", "pass": true },
         
         { "label": "5B" },
         { "label": "2B" },
         { "label": "3C" },
                 { "label": "j.B" },
+                { "label": "j.B (second hit)" },
         { "label": "Air Hyper Zero Blaster" },
         { "label": "Air DP C" }
       ]
@@ -45,7 +46,7 @@
         { "label": "2B" },
         { "label": "5C" },
         { "label": "6C" },
-        { "label": "Baroque cancel" },
+        { "label": "Baroque cancel", "pass": true },
         { "label": "Sentsuizan B" },
         { "label": "Air Hyper Zero Blaster" },
         { "label": "j.B" },
@@ -54,6 +55,7 @@
         { "label": "3C" },
         
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "Air Hyper Zero Blaster" },
         { "label": "Air DP C" }
       ]
@@ -73,12 +75,12 @@
         { "label": "5B" },
         { "label": "5C" },
         { "label": "6C" },
-        { "label": "Baroque cancel" },
+        { "label": "Baroque cancel", "pass": true },
         
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.B" },
-        { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "Air Hyper Zero Blaster" },
         { "label": "Air DP C" }
       ]
@@ -94,7 +96,10 @@
         { "label": "5C" },
         { "label": "3C" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.B" },
+        
         { "label": "Air Hyper Zero Blaster" },
         { "label": "Air Dash A" },
         { "label": "2A" },
@@ -103,12 +108,15 @@
         { "label": "5C" },
         { "label": "2C" },
         { "label": "6C" },
-        { "label": "Baroque cancel" },
+        { "label": "Baroque cancel", "pass": true },
         
         { "label": "5B" },
         { "label": "2B" },
         { "label": "5C" },
         { "label": "3C" },
+        { "label": "j.B" },
+        { "label": "j.B (second hit)" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.B" },
         { "label": "Air Hyper Zero Blaster" },
         { "label": "Air Dash A" },
