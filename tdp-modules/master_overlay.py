@@ -1014,7 +1014,22 @@ class MasterOverlay:
             toast_y = max(28, int(self.h * 0.10))
 
             toast = pygame.Surface((toast_w, toast_h), pygame.SRCALPHA)
-            toast.fill((18, 20, 32, min(210, stamp_alpha)))
+            toast.fill((28, 30, 42, min(165, stamp_alpha)))
+
+            pygame.draw.rect(
+                toast,
+                (255, 255, 255, min(26, stamp_alpha)),
+                (2, 2, toast_w - 4, max(2, toast_h // 3)),
+                border_radius=7,
+            )
+
+            pygame.draw.rect(
+                toast,
+                (255, 255, 255, min(10, stamp_alpha)),
+                (0, 0, toast_w, toast_h),
+                1,
+                border_radius=7,
+            )
 
             pygame.draw.rect(
                 toast,
