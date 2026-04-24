@@ -346,6 +346,11 @@ class MasterOverlay:
         self._mission_hold_frames: int = 0
         self._mission_hold_data: dict = {}
         self._mission_hold_duration_frames: int = 120
+
+        # Lightweight mission polish state
+        self._toast_phase: float = 0.0
+        self._row_bump: dict[int, float] = {}
+        self._last_completed_for_bump: int = 0
         
 
     def init(self) -> None:
@@ -978,51 +983,64 @@ class MasterOverlay:
             base_text = "MISSION COMPLETE"
             text_surf = stamp_font.render(base_text, True, (235, 245, 255))
 
-            tw = max(1, int(text_surf.get_width() * scale))
-            th = max(1, int(text_surf.get_height() * scale))
-            drift_y = int((1.0 - min(1.0, phase / 0.35)) * 8)
+            tw = text_surf.get_width()
+            th = text_surf.get_height()
 
-            plate_w = tw + 72
-            plate_h = th + 28
-            plate = pygame.Surface((plate_w, plate_h), pygame.SRCALPHA)
+            toast_w = tw + 68
+            toast_h = th + 24
 
-            plate.fill((18, 20, 32, min(210, stamp_alpha)))
+            enter_dur = 0.34
+            hold_dur = 1.55
+            exit_dur = 0.34
+
+            tphase = self._toast_phase
+
+            offscreen_x = self.w + 12
+            onscreen_x = self.w - toast_w - 28
+
+            if tphase < enter_dur:
+                slide_t = tphase / enter_dur
+                slide_t = 1.0 - (1.0 - slide_t) * (1.0 - slide_t)
+                toast_x = int(offscreen_x + (onscreen_x - offscreen_x) * slide_t)
+
+            elif tphase < enter_dur + hold_dur:
+                toast_x = onscreen_x
+
+            else:
+                out_t = min(1.0, (tphase - enter_dur - hold_dur) / exit_dur)
+                out_t = out_t * out_t
+                toast_x = int(onscreen_x + (offscreen_x - onscreen_x) * out_t)
+
+            toast_y = max(28, int(self.h * 0.10))
+
+            toast = pygame.Surface((toast_w, toast_h), pygame.SRCALPHA)
+            toast.fill((18, 20, 32, min(210, stamp_alpha)))
 
             pygame.draw.rect(
-                plate,
+                toast,
                 (110, 145, 190, min(120, stamp_alpha)),
-                (0, 0, plate_w, plate_h),
+                (0, 0, toast_w, toast_h),
                 1,
+                border_radius=7,
+            )
+
+            pygame.draw.rect(
+                toast,
+                (255, 255, 255, min(34, stamp_alpha)),
+                (3, 3, toast_w - 6, max(2, toast_h // 7)),
                 border_radius=6,
             )
 
             pygame.draw.rect(
-                plate,
-                (255, 255, 255, min(45, stamp_alpha)),
-                (3, 3, plate_w - 6, max(2, plate_h // 8)),
-                border_radius=5,
+                toast,
+                (115, 155, 235, min(150, stamp_alpha)),
+                (8, 8, 4, toast_h - 16),
+                border_radius=2,
             )
 
-            sheen_x = int((phase * 180) % (plate_w + 80)) - 80
-            sheen = pygame.Surface((44, plate_h), pygame.SRCALPHA)
-            sheen.fill((255, 255, 255, min(24, stamp_alpha)))
-            plate.blit(sheen, (sheen_x, 0), special_flags=pygame.BLEND_RGBA_ADD)
+            toast.blit(text_surf, (34, 12))
 
-            px = cx_screen - plate_w // 2
-            py = cy_screen - plate_h // 2 - drift_y
-            self.screen.blit(plate, (px, py))
-
-            shadow_surf = stamp_font.render(base_text, True, (0, 0, 0))
-            shadow_scaled = pygame.transform.smoothscale(shadow_surf, (tw, th))
-            shadow_scaled.set_alpha(stamp_alpha // 3)
-
-            scaled = pygame.transform.smoothscale(text_surf, (tw, th))
-            scaled.set_alpha(stamp_alpha)
-
-            tx = cx_screen - tw // 2
-            ty = cy_screen - th // 2 - drift_y
-            self.screen.blit(shadow_scaled, (tx + 2, ty + 2))
-            self.screen.blit(scaled, (tx, ty))
+            self.screen.blit(toast, (toast_x, toast_y))
 
     def update_mission_animations(self, dt: float) -> None:
         """Drive per-step metallic gradient animations each frame and fire celebration on final-step completion."""
@@ -1055,6 +1073,21 @@ class MasterOverlay:
             if self._mission_hold_frames <= 0:
                 self._mission_hold_data = {}
 
+        if completed_count > self._last_completed_for_bump:
+            for done_idx in range(self._last_completed_for_bump, completed_count):
+                self._row_bump[done_idx] = 1.0
+        self._last_completed_for_bump = completed_count
+
+        for bump_idx in list(self._row_bump):
+            self._row_bump[bump_idx] = max(0.0, self._row_bump[bump_idx] - dt * 5.5)
+            if self._row_bump[bump_idx] <= 0.0:
+                del self._row_bump[bump_idx]
+
+        if self._celebrate_active:
+            self._toast_phase += dt
+        else:
+            self._toast_phase = 0.0
+
         live_steps = live_data.get("active_mission_steps") or []
         live_step_total = len(live_steps)
         live_completed_count = int(live_data.get("completed_step_count", 0))
@@ -1081,6 +1114,7 @@ class MasterOverlay:
                 f"celebrate_token={celebrate_token}"
             )
 
+            self._toast_phase = 0.0
             self._trigger_celebration()
             self._last_clear_seq_seen = celebrate_token
             self._write_mission_celebrate_ack(celebrate_token)
@@ -1384,6 +1418,17 @@ class MasterOverlay:
                         1
                     )
 
+            diag_t = (time.time() * 48.0) % (box_w + box_h)
+            for i in range(2):
+                dx = int(diag_t - box_h - i * 90)
+                pygame.draw.line(
+                    bg,
+                    (theme_color[0], theme_color[1], theme_color[2], 18),
+                    (dx, box_h),
+                    (dx + box_h, 0),
+                    1,
+                )
+
             self.screen.blit(bg, (x, y))
             pygame.draw.rect(
                 self.screen,
@@ -1395,7 +1440,23 @@ class MasterOverlay:
 
             draw_y = y + pad
             self.screen.blit(title, (x + pad, draw_y))
+            self.screen.blit(progress_surf, (x + box_w - pad - progress_surf.get_width(), draw_y + 2))
             draw_y += title.get_height() + 4
+
+            progress_frac = 0.0 if len(steps) <= 0 else max(0.0, min(1.0, completed_step_count / float(len(steps))))
+            progress_x = x + pad
+            progress_y = draw_y
+            progress_w = box_w - pad * 2
+            pygame.draw.rect(self.screen, (38, 34, 58), (progress_x, progress_y, progress_w, 3), border_radius=2)
+            if progress_w > 0 and progress_frac > 0.0:
+                pygame.draw.rect(
+                    self.screen,
+                    theme_color,
+                    (progress_x, progress_y, int(progress_w * progress_frac), 3),
+                    border_radius=2,
+                )
+
+            draw_y += 7
             self.screen.blit(sub, (x + pad, draw_y))
             draw_y += sub.get_height() + 4
             self.screen.blit(hint, (x + pad, draw_y))
@@ -1546,12 +1607,15 @@ class MasterOverlay:
                     row_surf.fill((28, 22, 44, 180))
                     border_color = (80, 70, 110, 120)
 
-                self.screen.blit(row_surf, (x + pad, draw_y))
+                bump = self._row_bump.get(idx, 0.0)
+                row_offset_x = int(3 * bump)
+
+                self.screen.blit(row_surf, (x + pad + row_offset_x, draw_y))
 
                 pygame.draw.rect(
                     self.screen,
                     text_color,
-                    (x + pad + 3, draw_y + 3, 4, step_row_h - 6),
+                    (x + pad + 3 + row_offset_x, draw_y + 3, 4, step_row_h - 6),
                     border_radius=2,
                 )
 
@@ -1561,12 +1625,12 @@ class MasterOverlay:
                         sweep_x = int((1.0 - sweep_t) * step_box_w)
                         sweep = pygame.Surface((36, step_row_h), pygame.SRCALPHA)
                         sweep.fill((255, 255, 255, int(70 * sweep_t)))
-                        self.screen.blit(sweep, (x + pad + sweep_x, draw_y))
+                        self.screen.blit(sweep, (x + pad + row_offset_x + sweep_x, draw_y))
 
                 pygame.draw.rect(
                     self.screen,
                     border_color[:3],
-                    (x + pad, draw_y, step_box_w, step_row_h),
+                    (x + pad + row_offset_x, draw_y, step_box_w, step_row_h),
                     1,
                     border_radius=3,
                 )
@@ -1579,11 +1643,13 @@ class MasterOverlay:
                     step_text = " / ".join(step)
                 else:
                     step_text = str(step)
-                label_str = (
-                    f"[x] {idx + 1}. {step_text}" if is_completed
-                    else f"[>] {idx + 1}. {step_text}" if is_active
-                    else f"[ ] {idx + 1}. {step_text}"
-                )
+                if is_completed:
+                    label_str = f"[x] {idx + 1}. {step_text}"
+                elif is_active:
+                    caret_on = int(time.time() * 4.0) % 2 == 0
+                    label_str = f"[{'>' if caret_on else ' '} ] {idx + 1}. {step_text}"
+                else:
+                    label_str = f"[ ] {idx + 1}. {step_text}"
                 if is_completed:
                     draw_color = (165, 165, 175)
                 elif is_active:
@@ -1592,11 +1658,11 @@ class MasterOverlay:
                     draw_color = text_color
 
                 shadow = self.smallfont.render(label_str, True, (18, 18, 24))
-                self.screen.blit(shadow, (x + pad + STEP_PAD_X + 1, draw_y + STEP_PAD_Y + 1))
+                self.screen.blit(shadow, (x + pad + STEP_PAD_X + 1 + row_offset_x, draw_y + STEP_PAD_Y + 1))
 
                 draw_surf = self.smallfont.render(label_str, True, draw_color)
 
-                self.screen.blit(draw_surf, (x + pad + STEP_PAD_X, draw_y + STEP_PAD_Y))
+                self.screen.blit(draw_surf, (x + pad + STEP_PAD_X + row_offset_x, draw_y + STEP_PAD_Y))
                 draw_y += step_row_h + STEP_GAP
 
             if not self.mission_show_all and len(steps) > STEP_VISIBLE_COUNT:

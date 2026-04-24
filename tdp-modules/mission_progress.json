@@ -33,8 +33,10 @@
   },
   "casshan": {
     "completed": {
-      "casshan_001": true
+      "casshan_001": true,
+      "casshan_002": true,
+      "casshan_003": true
     },
-    "selected_mission_id": null
+    "selected_mission_id": "casshan_001"
   }
 }

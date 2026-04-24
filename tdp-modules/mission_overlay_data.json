@@ -1,9 +1,9 @@
 {
   "character": "Casshan",
   "mission_count": 7,
-  "active_mission_id": "casshan_002",
-  "active_mission_name": "Combo 2",
-  "active_mission_notes": "Basic ground string into air ender.",
+  "active_mission_id": "casshan_001",
+  "active_mission_name": "Combo 1",
+  "active_mission_notes": "Basic ground string into air series.",
   "active_mission_steps": [
     {
       "labels": [
@@ -52,6 +52,15 @@
     },
     {
       "labels": [
+        "j.A (second hit)"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
         "j.B"
       ],
       "grace": 0,
@@ -61,7 +70,7 @@
     },
     {
       "labels": [
-        "Shooting Star Kick C"
+        "j.C"
       ],
       "grace": 0,
       "pass": false,
@@ -71,14 +80,14 @@
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": null,
+  "selected_mission_id": "casshan_001",
   "missions": [
     {
       "mission_id": "casshan_001",
       "name": "Combo 1",
       "notes": "Basic ground string into air series.",
       "completed": true,
-      "selected": false,
+      "selected": true,
       "steps": [
         {
           "labels": [
@@ -160,7 +169,7 @@
       "mission_id": "casshan_002",
       "name": "Combo 2",
       "notes": "Basic ground string into air ender.",
-      "completed": false,
+      "completed": true,
       "selected": false,
       "steps": [
         {
@@ -234,7 +243,7 @@
       "mission_id": "casshan_003",
       "name": "Combo 3",
       "notes": "Baroque extension into launcher and air finish.",
-      "completed": false,
+      "completed": true,
       "selected": false,
       "steps": [
         {
