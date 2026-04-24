@@ -291,16 +291,39 @@ def legacy_main():
     last_scan_time    = 0.0
     scan_anim         = None
 
+    def _move_quality(mv):
+        score = 0
+        if mv.get("damage") not in (None, "", 0):
+            score += 100
+        if mv.get("active_start") is not None and mv.get("active_end") is not None:
+            score += 80
+        if mv.get("hitstun") is not None:
+            score += 40
+        if mv.get("blockstun") is not None:
+            score += 40
+        if mv.get("kb0") is not None or mv.get("kb1") is not None:
+            score += 25
+        if mv.get("kind") == "normal":
+            score += 10
+        return score
+
     def _scan_move_window_for_slot(slot_label: str, cur_anim: int | None):
         if cur_anim is None or not last_scan_normals:
             return None, None
         try:
+            candidates = []
             for slot_data in last_scan_normals:
                 if slot_data.get("slot_label") != slot_label:
                     continue
                 for mv in slot_data.get("moves", []):
                     if mv.get("id") == cur_anim:
-                        return mv.get("active_start"), mv.get("active_end")
+                        candidates.append(mv)
+
+            if not candidates:
+                return None, None
+
+            best = max(candidates, key=_move_quality)
+            return best.get("active_start"), best.get("active_end")
         except Exception:
             pass
         return None, None

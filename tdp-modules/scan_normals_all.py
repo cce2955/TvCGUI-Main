@@ -893,6 +893,64 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                 name = ANIM_MAP.get(aid & 0xFF)
             mv["move_name"] = name if name else f"anim_{aid:04X}"
 
+
+
+def move_quality_score(mv: Dict[str, Any]) -> Tuple[int, int, int, int, int, int]:
+    """
+    Score duplicate move records after fields are attached.
+
+    Higher is better. This lets a populated duplicate, such as 2A's
+    Tier3/Tier4 row, replace an empty parent anchor.
+    """
+    damage_ok = 1 if mv.get("damage") is not None else 0
+    active_ok = 1 if mv.get("active_start") is not None and mv.get("active_end") is not None else 0
+    stun_ok = 1 if mv.get("hitstun") is not None or mv.get("blockstun") is not None else 0
+    kb_ok = 1 if mv.get("kb0") is not None or mv.get("kb1") is not None or mv.get("kb_traj") is not None else 0
+    meter_ok = 1 if mv.get("meter_addr") is not None else 0
+
+    source_rank = {
+        "table": 100,
+        "anim_hdr": 80,
+        "air_hdr": 70,
+        "cmd_hdr": 70,
+        "strict": 40,
+        "legacy_special": 20,
+        "unknown": 0,
+    }.get(mv.get("source", "unknown"), 0)
+
+    # Primary value is actual usable frame-data completeness.
+    # Source rank is only a tie-breaker now.
+    return (
+        damage_ok + active_ok + stun_ok + kb_ok + meter_ok,
+        damage_ok,
+        active_ok,
+        stun_ok,
+        kb_ok,
+        source_rank,
+    )
+
+
+def collapse_duplicate_normals_by_quality(moves: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    best_by_key: Dict[int, Dict[str, Any]] = {}
+    extras: List[Dict[str, Any]] = []
+
+    for mv in moves:
+        aid = mv.get("id")
+        low = (aid & 0xFF) if aid is not None else None
+
+        if aid is not None and low in NORMAL_IDS:
+            old = best_by_key.get(low)
+            if old is None or move_quality_score(mv) > move_quality_score(old):
+                best_by_key[low] = mv
+            continue
+
+        extras.append(mv)
+
+    for mv in best_by_key.values():
+        mv["kind"] = "normal"
+
+    return extras + list(best_by_key.values())
+
 # ============================================================
 # Sorting helpers
 # ============================================================
@@ -1008,6 +1066,7 @@ def scan_once():
         moves = collect_move_anchors(region_buf, region_start, tbl_move_addrs=in_slice)
         blocks = collect_blocks(region_buf, region_start)
         attach_move_fields(moves, region_buf, region_start, blocks)
+        moves = collapse_duplicate_normals_by_quality(moves)
 
         result[slot_idx] = {
             "slot_label": slot_label,

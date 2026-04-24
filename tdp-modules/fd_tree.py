@@ -558,6 +558,22 @@ def populate_tree(win) -> None:
     # GROUPING (stable, no skips)
     # -------------------------
 
+    def _move_quality(mv):
+        score = 0
+        if mv.get("damage") not in (None, "", 0):
+            score += 100
+        if mv.get("active_start") is not None and mv.get("active_end") is not None:
+            score += 80
+        if mv.get("hitstun") is not None:
+            score += 40
+        if mv.get("blockstun") is not None:
+            score += 40
+        if mv.get("kb0") is not None or mv.get("kb1") is not None:
+            score += 25
+        if mv.get("kind") == "normal":
+            score += 10
+        return score
+
     groups = {}
     order = []
 
@@ -574,6 +590,15 @@ def populate_tree(win) -> None:
         if len(mv_list) == 1:
             insert_move_row(mv_list[0])
             continue
+
+        mv_list = sorted(
+            mv_list,
+            key=lambda mv: (
+                -_move_quality(mv),
+                0 if mv.get("kind") == "normal" else 1,
+                mv.get("abs") or 0xFFFFFFFF,
+            ),
+        )
 
         parent = insert_move_row(mv_list[0])
         win.tree.item(parent, open=False)
