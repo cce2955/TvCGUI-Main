@@ -144,6 +144,7 @@ def _new_mission_runtime(
         "post_install_hold_frames": 0,
         "shell_installed": False,
         "shell_release_grace": 0,
+          "reset_grace_keeps_alive_only": False,
     }
 
 
@@ -1042,6 +1043,8 @@ class MissionManager:
 
     def _step_is_pass(self, step) -> bool:
         return isinstance(step, dict) and bool(step.get("pass", False))
+    def _step_grace_keeps_alive_only(self, step) -> bool:
+        return isinstance(step, dict) and bool(step.get("grace_keeps_alive_only", False))
     def _augment_payload_with_runtime(self, payload: dict, snaps_dict: dict) -> dict:
         payload = dict(payload or {})
         slot = payload.get("slot")
@@ -1144,10 +1147,16 @@ class MissionManager:
         if shell_release_grace > 0:
             self._runtime["shell_release_grace"] = shell_release_grace - 1
 
-        opponent_in_combo_state = (
+        reset_grace_active_now = int(self._runtime.get("reset_grace_frames", 0)) > 0
+
+        opponent_real_combo_state = (
             opponent_in_hitstun
-            or int(self._runtime.get("reset_grace_frames", 0)) > 0
             or int(self._runtime.get("shell_release_grace", 0)) > 0
+        )
+
+        opponent_in_combo_state = (
+            opponent_real_combo_state
+            or reset_grace_active_now
         )
 
         if (
@@ -1240,10 +1249,32 @@ class MissionManager:
         expected_step_for_reset = steps[progress_index] if progress_index < len(steps) else None
         expected_labels_for_reset = self._step_labels(expected_step_for_reset)
 
-        if progress_index > 0 and not opponent_in_combo_state:
-            grace_left = int(self._runtime.get("reset_grace_frames", 0) or 0)
-            grace_step_index = self._runtime.get("reset_grace_step_index")
+        grace_left = int(self._runtime.get("reset_grace_frames", 0) or 0)
+        grace_step_index = self._runtime.get("reset_grace_step_index")
+        previous_step = steps[progress_index - 1] if progress_index > 0 else None
+        grace_keep_alive_only = self._step_grace_keeps_alive_only(previous_step)
 
+        if progress_index > 0 and grace_keep_alive_only and grace_step_index == progress_index:
+            if grace_left > 0:
+                grace_left -= 1
+                self._runtime["reset_grace_frames"] = grace_left
+
+            if grace_left <= 0:
+                progress_index = 0
+                self._runtime.update({
+                    "progress_index": 0,
+                    "pending_step_index": None,
+                    "pending_labels": [],
+                    "pending_anim": None,
+                    "reset_grace_frames": 0,
+                    "reset_grace_labels": [],
+                    "reset_grace_step_index": None,
+                    "reset_grace_keeps_alive_only": False,
+                    "shell_installed": False,
+                    "shell_release_grace": 0,
+                })
+
+        elif progress_index > 0 and not opponent_real_combo_state:
             if grace_left > 0 and grace_step_index == progress_index:
                 self._runtime["reset_grace_frames"] = grace_left - 1
 
@@ -1310,6 +1341,10 @@ class MissionManager:
         pending_labels = list(self._runtime.get("pending_labels") or [])
 
         reset_grace_active = int(self._runtime.get("reset_grace_frames", 0) or 0) > 0
+        reset_grace_confirm_allowed = (
+    reset_grace_active
+    and not self._step_grace_keeps_alive_only(expected_step)
+)
         reset_grace_match = (
             reset_grace_active
             and current_matches_expected
@@ -1402,6 +1437,7 @@ class MissionManager:
                         "reset_grace_frames": pass_grace,
                         "reset_grace_labels": [],
                         "reset_grace_step_index": progress_index if pass_grace > 0 else None,
+                        "reset_grace_keeps_alive_only": self._step_grace_keeps_alive_only(expected_step),
                     })
 
                 elif step_allows_whiff or zero_damage_confirm:
@@ -1463,7 +1499,7 @@ class MissionManager:
             if (
                 pending_step_index == progress_index
                 and pending_labels
-                and (opponent_in_combo_state or reset_grace_active)
+                and (opponent_in_combo_state or reset_grace_confirm_allowed)
                 and (
                     opponent_took_damage
                     or non_damage_confirm
@@ -1491,6 +1527,7 @@ class MissionManager:
                     "reset_grace_frames": completed_grace,
                     "reset_grace_labels": [],
                     "reset_grace_step_index": progress_index if completed_grace > 0 else None,
+                    "reset_grace_keeps_alive_only": self._step_grace_keeps_alive_only(expected_step),
                     "shell_install_hold": 0,
                 })
         else:

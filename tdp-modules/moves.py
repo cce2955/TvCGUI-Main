@@ -3,8 +3,8 @@ from dolphin_io import rd32
 from constants import ATT_ID_OFF_PRIMARY, ATT_ID_OFF_SECOND
 
 # VERY IMPORTANT:
-# Keys here MUST exactly match snap["name"] as shown in your HUD.
-# Values MUST match the final column in your CSV for that character.
+# Keys here MUST exactly match snap["name"] as shown in the HUD.
+# Values MUST match the final column in the CSV for that character.
 CHAR_ID_CORRECTION = {
     "Ken the Eagle":     1,
     "Casshan":           2,
@@ -40,10 +40,7 @@ CHAR_ID_CORRECTION = {
 
 def _pick_label_from_row(row):
     """
-    Your CSV rows look like:
-      atk_id_dec, atk_id_hex, label1, label2, label3, yes/no, char_id
-
-    We'll choose the first non-empty of label1 / label2 / label3.
+    
     """
     for idx in (2, 3, 4):
         if idx < len(row):

@@ -92,7 +92,7 @@ def _safe_f32(addr: int) -> Optional[float]:
 
 
 def read_bytes_u8(addr: int, n: int) -> Optional[bytes]:
-    # No raw byte reader in your dolphin_io; emulate with rd32 reads.
+    # No raw byte reader in dolphin_io; emulate with rd32 reads.
     # This is good enough for signature tests.
     out = bytearray()
     for off in range(0, n, 4):

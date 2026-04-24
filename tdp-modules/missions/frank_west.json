@@ -14,7 +14,8 @@
         { "label": "j.B" },
         { "label": "j.C" }
       ]
-    },{
+    },
+    {
       "mission_id": "frank_west_002",
       "name": "Launcher Ender",
       "notes": "",
@@ -43,13 +44,13 @@
         { "label": "Giant Swing B", "pass": true },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" , "pass": true },
+        { "label": "Giant Swing B", "pass": true },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" , "pass": true },
+        { "label": "Giant Swing B", "pass": true },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" , "pass": true },
+        { "label": "Giant Swing B", "pass": true },
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.B" },
@@ -60,7 +61,6 @@
       "mission_id": "frank_west_004",
       "name": "Zombie Spree Route",
       "notes": "",
-        
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
@@ -69,7 +69,6 @@
         { "label": "Giant Swing B", "pass": true },
         { "label": "2B" },
         { "label": "3C" },
-        
         { "label": "j.B" },
         { "label": "Jump Cancel", "pass": true },
         { "label": "j.2C" },
@@ -91,7 +90,27 @@
     },
     {
       "mission_id": "frank_west_005",
-      "name": "Megabuster Finish",
+      "name": "Giant Swing Dead Rising",
+      "notes": "",
+        "setup_debug_flags": {
+    "CpuGuard": 1
+  },
+      "steps": [
+        { "label": "5A" },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "3C" },
+        { "label": "Giant Swing B", "pass": true },
+        { "label": "5B" },
+        { "label": "2B" },
+        { "label": "Zombie Grab B", "pass": true, "grace": 40, "grace_keeps_alive_only": true },
+
+        { "label": "Dead Rising" }
+      ]
+    },
+    {
+      "mission_id": "frank_west_006",
+      "name": "Midscreen Zombie Spree",
       "notes": "",
       "steps": [
         { "label": "5A" },
@@ -104,11 +123,10 @@
       ]
     },
     {
-      "mission_id": "frank_west_006",
+      "mission_id": "frank_west_007",
       "name": "Dead Rising Extension",
       "notes": "",
-         "setup_debug_flags": {
-        
+      "setup_debug_flags": {
         "P1Meter": 2
       },
       "steps": [
@@ -129,12 +147,12 @@
         { "label": "Zombie Spree C" },
         { "label": "5C" }
       ]
-    }, {
+    },
+    {
       "mission_id": "frank_west_008",
       "name": "Corner",
       "notes": "",
-            "setup_debug_flags": {
-        
+      "setup_debug_flags": {
         "P1Meter": 2
       },
       "steps": [
@@ -150,9 +168,9 @@
         { "label": "Roundhouse B" },
         { "label": "Zombie Charge" },
         { "label": "5C" }
-        
       ]
-    },{
+    },
+    {
       "mission_id": "frank_west_009",
       "name": "Challenge",
       "notes": "",
@@ -160,9 +178,7 @@
         { "label": "Dead Rising" },
         { "label": "Zombie Charge" },
         { "label": "Real Megabuster" }
-        
       ]
     }
   ]
 }
-

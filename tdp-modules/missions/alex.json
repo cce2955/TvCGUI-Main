@@ -10,6 +10,7 @@
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.B", "grace": 8 },
+        { "label": "j.B (second hit)", "grace": 8 },
         { "label": "Air Powerbomb" }
       ]
     },

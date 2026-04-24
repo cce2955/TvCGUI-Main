@@ -2,190 +2,33 @@
   "alex": {
     "completed": {
       "alex_001": true,
+      "alex_002": true,
+      "alex_003": true,
       "alex_004": true,
-      "alex_002": true
+      "alex_005": true,
+      "alex_006": true,
+      "alex_007": true,
+      "alex_008": true,
+      "alex_009": true,
+      "alex_010": true,
+      "alex_011": true,
+      "alex_012": true
     },
-    "selected_mission_id": "alex_012"
+    "selected_mission_id": "alex_015"
   },
   "saki": {
     "completed": {
-      "saki_009": true
+      "saki_001": true,
+      "saki_002": true,
+      "saki_003": true,
+      "saki_004": true,
+      "saki_005": true,
+      "saki_006": true
     },
     "selected_mission_id": "saki_009"
   },
-  "batsu": {
-    "completed": {
-      "batsu_001": true,
-      "batsu_002": true,
-      "batsu_003": true,
-      "batsu_005": true,
-      "batsu_006": true,
-      "batsu_007": true
-    },
-    "selected_mission_id": "batsu_007"
-  },
-  "chun_li": {
-    "completed": {
-      "chun_001": true,
-      "chun_002": true,
-      "chun_004": true,
-      "chun_005": true,
-      "chun_003": true
-    },
-    "selected_mission_id": "chun_001"
-  },
-  "casshan": {
-    "completed": {
-      "casshan_001": true,
-      "casshan_002": true,
-      "casshan_003": true,
-      "casshan_004": true,
-      "casshan_005": true,
-      "casshan_006": true
-    },
-    "selected_mission_id": "casshan_005"
-  },
-  "doronjo": {
-    "completed": {
-      "doronjo_001": true,
-      "doronjo_002": true,
-      "doronjo_003": true,
-      "doronjo_004": true,
-      "doronjo_005": true,
-      "doronjo_008": true
-    },
-    "selected_mission_id": "doronjo_009"
-  },
-  "frank_west": {
-    "completed": {
-      "frank_west_001": true,
-      "frank_west_002": true,
-      "frank_west_003": true,
-      "frank_west_004": true,
-      "frank_west_005": true,
-      "frank_west_006": true,
-      "frank_west_008": true
-    },
-    "selected_mission_id": "frank_west_008"
-  },
-  "ippatsuman": {
-    "completed": {
-      "ippatsuman_001": true,
-      "ippatsuman_002": true,
-      "ippatsuman_003": true
-    },
-    "selected_mission_id": "ippatsuman_004"
-  },
-  "joe_the_condor": {
-    "completed": {
-      "joe_the_condor_001": true,
-      "joe_the_condor_002": true,
-      "joe_the_condor_003": true,
-      "joe_the_condor_004": true,
-      "joe_the_condor_005": true
-    },
-    "selected_mission_id": "joe_the_condor_006"
-  },
-  "jun_the_swan": {
-    "completed": {
-      "jun_001": true,
-      "jun_002": true,
-      "jun_003": true,
-      "jun_004": true
-    },
-    "selected_mission_id": "jun_001"
-  },
-  "karas": {
-    "completed": {
-      "karas_001": true,
-      "karas_002": true,
-      "karas_003": true,
-      "karas_004": true,
-      "karas_005": true
-    },
-    "selected_mission_id": "karas_006"
-  },
-  "ken_the_eagle": {
-    "completed": {
-      "ken_001": true,
-      "ken_005": true
-    },
-    "selected_mission_id": "ken_005"
-  },
-  "morrigan": {
-    "completed": {
-      "morrigan_001": true,
-      "morrigan_002": true,
-      "morrigan_003": true,
-      "morrigan_006": true
-    },
-    "selected_mission_id": "morrigan_006"
-  },
-  "polimar": {
-    "completed": {
-      "polimar_001": true,
-      "polimar_002": true,
-      "polimar_003": true,
-      "polimar_004": true,
-      "polimar_005": true
-    },
-    "selected_mission_id": "polimar_006"
-  },
-  "roll": {
-    "completed": {
-      "roll_001": true,
-      "roll_002": true,
-      "roll_004": true,
-      "roll_007": true
-    },
-    "selected_mission_id": "roll_007"
-  },
-  "tekkaman_blade": {
-    "completed": {
-      "tekkaman_blade_001": true,
-      "tekkaman_blade_002": true,
-      "tekkaman_blade_004": true,
-      "tekkaman_blade_006": true
-    },
-    "selected_mission_id": "tekkaman_blade_009"
-  },
-  "tekkaman": {
-    "completed": {
-      "tekkaman_001": true,
-      "tekkaman_002": true,
-      "tekkaman_003": true,
-      "tekkaman_004": true
-    },
-    "selected_mission_id": "tekkaman_005"
-  },
-  "yatterman_1": {
-    "completed": {
-      "yatterman_001": true
-    },
-    "selected_mission_id": "yatterman_003"
-  },
   "zero": {
-    "completed": {
-      "zero_001": true,
-      "zero_002": true,
-      "zero_003": true,
-      "zero_005": true
-    },
+    "completed": {},
     "selected_mission_id": "zero_005"
-  },
-  "yatterman_2": {
-    "completed": {
-      "yatterman_2_001": true,
-      "yatterman_2_003": true
-    },
-    "selected_mission_id": "yatterman_2_004"
-  },
-  "ryu": {
-    "completed": {
-      "ryu_008": true,
-      "ryu_003": true,
-      "ryu_005": true
-    },
-    "selected_mission_id": "ryu_005"
   }
 }

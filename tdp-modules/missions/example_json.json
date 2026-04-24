@@ -1,0 +1,107 @@
+{
+  "_comment": "Example reference file showing what each mission flag does.",
+
+  "character": "Example Character",
+
+  "_top_level_notes": {
+    "character": "Name of the character this file belongs to.",
+    "missions": "Array of missions/trials."
+  },
+
+  "missions": [
+    {
+      "_mission_notes": {
+        "mission_id": "Unique mission ID. Keep it unique. Example: example_001",
+        "name": "Mission title shown in selector.",
+        "notes": "Player-facing instructions shown on HUD.",
+        "setup_debug_flags": "Training/debug values automatically applied while this mission is active.",
+        "steps": "Ordered list of required actions.",
+        "goal": "Optional alternate clear condition instead of steps."
+      },
+
+      "mission_id": "example_001",
+      "name": "How Flags Work",
+      "notes": "Read this JSON for documentation.",
+
+      "setup_debug_flags": {
+        "_comment": "Common training flags.",
+
+        "CpuAction": 2,
+        "_CpuAction_note": "CPU behavior preset. Common values: 0 idle, 2 stand, 4 corner/facing setup (depends on mapped game values).",
+
+        "CpuGuard": 1,
+        "_CpuGuard_note": "Guard setting. Common values: 0 no guard, 1 conditional guard, 2 always guard.",
+
+        "CpuPushblock": 1,
+        "_CpuPushblock_note": "Enables pushblock / advancing guard behavior.",
+
+        "P1Meter": 2,
+        "_P1Meter_note": "Sets Player 1 meter amount or refill state used by the tool.",
+
+        "BaroquePct": 1,
+        "_BaroquePct_note": "Sets available Baroque life percentage."
+      },
+
+      "steps": [
+        {
+          "label": "5A",
+          "_note": "Single required move."
+        },
+
+        {
+          "labels": ["5B", "2B"],
+          "_note": "Any listed label can satisfy this step."
+        },
+
+        {
+          "label": "Baroque cancel",
+          "pass": true,
+          "_note": "pass=true means the step clears immediately when detected. No hit or damage required. Best for cancels, movement, jump cancel, Baroque, install activations, etc."
+        },
+
+        {
+          "label": "j.B",
+          "grace": 10,
+          "_note": "grace=10 gives a temporary leniency window after this step clears. Helps links, landings, delayed followups, or brief drops in combo state."
+        },
+
+        {
+          "label": "Jump Cancel",
+          "pass": true,
+          "grace": 5,
+          "_note": "pass and grace can be combined. Auto-clear the cancel, then allow a short follow-up window."
+        },
+
+        {
+          "label": "Zombie Grab B",
+          "pass": true,
+          "grace": 5,
+          "grace_keeps_alive_only": true,
+          "_note": "grace_keeps_alive_only=true means the grace window only prevents mission reset. It does NOT help auto-confirm the next step. Useful for blocked command grabs, fake pressure resets, or situations where the next move must still connect on its own."
+        },
+
+        {
+          "label": "Super",
+          "_note": "Final normal step."
+        }
+      ]
+    },
+
+    {
+      "mission_id": "example_002",
+      "name": "Goal Mission Example",
+      "notes": "Uses goal instead of steps.",
+
+      "goal": {
+        "type": "state_duration",
+        "_type_note": "Supported examples: state_duration, combo_damage, damage_under_hits",
+
+        "target_state": "blockstun",
+        "_target_state_note": "State to track for state_duration missions.",
+
+        "frames": 500,
+        "_frames_note": "How long target state must be maintained."
+      }
+    }
+  ]
+}

@@ -315,7 +315,7 @@ def read_hitboxes(slot_base: int, layout: HitboxLayout):
 
 def read_fighter_root(slot_base: int):
     # Resolved base is at slot_base
-    # +0xB0 appears to be world position from your dump
+    # +0xB0 appears to be world position
     root_x = rf(slot_base + 0xB0)
     root_y = rf(slot_base + 0xB4)
     root_z = rf(slot_base + 0xB8)
@@ -702,7 +702,7 @@ def main():
                 "rb(le)=", hex(facing_le),
             )
 
-            # choose one after you see which matches your memory viewer
+            # choose one after you see which matches the memory viewer
             facing = facing_be  # or facing_le
             projectile_dir = -1.0 if facing == 0x01 else 1.0
         if timer > 0.0 and projectile_spawn_x is not None:

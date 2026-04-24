@@ -1,24 +1,17 @@
 {
-  "character": "Chun-Li",
-  "mission_count": 8,
-  "active_mission_id": "chun_001",
-  "active_mission_name": "Sky Ladder",
-  "active_mission_notes": "Basic launcher route.",
+  "character": "Zero",
+  "mission_count": 7,
+  "active_mission_id": "zero_005",
+  "active_mission_name": "Dark Hold Finish",
+  "active_mission_notes": "",
   "active_mission_steps": [
-    {
-      "labels": [
-        "5A"
-      ],
-      "grace": 0,
-      "pass": false,
-      "color": "blue"
-    },
     {
       "labels": [
         "5B"
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "yellow"
     },
     {
@@ -27,6 +20,7 @@
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "yellow"
     },
     {
@@ -35,6 +29,7 @@
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "green"
     },
     {
@@ -43,23 +38,8 @@
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "green"
-    },
-    {
-      "labels": [
-        "j.A"
-      ],
-      "grace": 0,
-      "pass": false,
-      "color": "blue"
-    },
-    {
-      "labels": [
-        "j.A (second hit)"
-      ],
-      "grace": 0,
-      "pass": false,
-      "color": "blue"
     },
     {
       "labels": [
@@ -67,15 +47,17 @@
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "yellow"
     },
     {
       "labels": [
-        "j.C"
+        "j.B (second hit)"
       ],
       "grace": 0,
       "pass": false,
-      "color": "green"
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
     },
     {
       "labels": [
@@ -83,6 +65,7 @@
       ],
       "grace": 0,
       "pass": true,
+      "grace_keeps_alive_only": false,
       "color": null
     },
     {
@@ -91,15 +74,134 @@
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "yellow"
     },
     {
       "labels": [
-        "j.C"
+        "Air Hyper Zero Blaster"
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": null
+    },
+    {
+      "labels": [
+        "Air Dash A"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
+        "2A"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "green"
+    },
+    {
+      "labels": [
+        "2C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "6C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "Baroque cancel"
+      ],
+      "grace": 0,
+      "pass": true,
+      "grace_keeps_alive_only": false,
+      "color": null
+    },
+    {
+      "labels": [
+        "5B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "3C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "j.B (second hit)"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
     },
     {
       "labels": [
@@ -107,6 +209,7 @@
       ],
       "grace": 0,
       "pass": true,
+      "grace_keeps_alive_only": false,
       "color": null
     },
     {
@@ -115,173 +218,82 @@
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "yellow"
     },
     {
       "labels": [
-        "j.C"
+        "Air Hyper Zero Blaster"
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": null
+    },
+    {
+      "labels": [
+        "Air Dash A"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
+        "2A"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "green"
     },
     {
       "labels": [
-        "Air Tensho C"
+        "6C"
       ],
       "grace": 0,
       "pass": false,
+      "grace_keeps_alive_only": false,
       "color": "green"
+    },
+    {
+      "labels": [
+        "Dark Hold"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": null
     }
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "chun_001",
+  "selected_mission_id": "zero_005",
   "missions": [
     {
-      "mission_id": "chun_001",
-      "name": "Sky Ladder",
+      "mission_id": "zero_001",
+      "name": "Starter",
       "notes": "Basic launcher route.",
-      "completed": true,
-      "selected": true,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "j.A (second hit)"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Air Tensho C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "chun_002",
-      "name": "Baroque extension",
-      "notes": "No note",
-      "completed": true,
+      "completed": false,
       "selected": false,
       "steps": [
         {
@@ -290,6 +302,7 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "blue"
         },
         {
@@ -298,171 +311,7 @@
           ],
           "grace": 0,
           "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "j.A (second hit)"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Air Tensho C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Air Legs C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {
-        "BaroquePct": 1
-      }
-    },
-    {
-      "mission_id": "chun_003",
-      "name": "Legs cancel",
-      "notes": "You can just hold up to hop out of legs, start mashing during 5C",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "yellow"
         },
         {
@@ -471,6 +320,7 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         },
         {
@@ -478,87 +328,8 @@
             "3C"
           ],
           "grace": 0,
-          "pass": true,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Legs C"
-          ],
-          "grace": 0,
           "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "Air Dash Forward"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "Air Dash Forward"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         },
         {
@@ -567,14 +338,7 @@
           ],
           "grace": 0,
           "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "j.A (second hit)"
-          ],
-          "grace": 0,
-          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "blue"
         },
         {
@@ -583,6 +347,7 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "yellow"
         },
         {
@@ -591,62 +356,7 @@
           ],
           "grace": 0,
           "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Air Tensho C"
-          ],
-          "grace": 0,
-          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         }
       ],
@@ -654,406 +364,8 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "chun_004",
-      "name": "Double Legs",
-      "notes": "A bit tougher you got this",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Legs C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Legs C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Air Legs C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "chun_005",
-      "name": "Corner Loop",
-      "notes": "Corner only",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Legs C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Air Legs C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "chun_006",
-      "name": "SBK Route",
+      "mission_id": "zero_002",
+      "name": "Baroque Blaster",
       "notes": "",
       "completed": false,
       "selected": false,
@@ -1064,6 +376,7 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "blue"
         },
         {
@@ -1072,6 +385,7 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "yellow"
         },
         {
@@ -1080,6 +394,7 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "yellow"
         },
         {
@@ -1088,6 +403,535 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Air Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "Air DP C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "zero_003",
+      "name": "Sentsuizan Extension",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "Sentsuizan B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Air Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Air Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "Air DP C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "zero_004",
+      "name": "DP Baroque Route",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "DP A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Air Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "Air DP C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "zero_005",
+      "name": "Dark Hold Finish",
+      "notes": "",
+      "completed": false,
+      "selected": true,
+      "steps": [
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Air Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "Air Dash A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "2A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         },
         {
@@ -1096,15 +940,17 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         },
         {
           "labels": [
-            "SBK H"
+            "6C"
           ],
           "grace": 0,
           "pass": false,
-          "color": null
+          "grace_keeps_alive_only": false,
+          "color": "green"
         },
         {
           "labels": [
@@ -1112,31 +958,8 @@
           ],
           "grace": 0,
           "pass": true,
+          "grace_keeps_alive_only": false,
           "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
         },
         {
           "labels": [
@@ -1144,6 +967,16 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "yellow"
         },
         {
@@ -1152,6 +985,7 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         },
         {
@@ -1160,114 +994,158 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         },
         {
           "labels": [
-            "j.A"
+            "j.B"
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Air Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "Air Dash A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "blue"
         },
         {
           "labels": [
-            "j.B"
+            "2A"
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "yellow"
         },
         {
           "labels": [
-            "j.C"
+            "5C"
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         },
         {
           "labels": [
-            "Jump Cancel"
+            "6C"
           ],
           "grace": 0,
-          "pass": true,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Dark Hold"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Air Legs C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "color": "green"
         }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "chun_007",
-      "name": "Challenge",
-      "notes": "Some moves are missing, can you find the missing moves and link them together?",
+      "mission_id": "zero_006",
+      "name": "Air Throw Followup",
+      "notes": "Some moves are missing, see if you can figure it out",
       "completed": false,
       "selected": false,
       "steps": [
         {
           "labels": [
-            "3C"
+            "Air Forward Throw"
           ],
           "grace": 0,
           "pass": false,
-          "color": "green"
+          "grace_keeps_alive_only": false,
+          "color": null
         },
         {
           "labels": [
-            "Shichei"
+            "Sentsuizan B"
           ],
           "grace": 0,
           "pass": false,
-          "color": null
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "CpuAction": 2
+      }
+    },
+    {
+      "mission_id": "zero_007",
+      "name": "Challenge",
+      "notes": "Some moves are missing, see if you can figure it out",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
         },
         {
           "labels": [
@@ -1275,53 +1153,124 @@
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "yellow"
         },
         {
           "labels": [
-            "Air Legs C"
+            "5C"
           ],
           "grace": 0,
           "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Hyper Zero Blaster"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "DP C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
           "color": "green"
         }
       ],
       "goal": {},
       "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "chun_008",
-      "name": "Special Challenge",
-      "notes": "Keep the opponent in blockstun for 1000 frames.",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "blockstun for 500 frames"
-        ]
-      ],
-      "goal": {
-        "type": "state_duration",
-        "target_state": "blockstun",
-        "frames": 500
-      },
-      "setup_debug_flags": {
-        "CpuGuard": 2,
-        "CpuPushblock": 1
-      }
     }
   ],
   "active": true,
   "slot": "P1-C2",
   "just_cleared": false,
-  "clear_seq": 1,
+  "clear_seq": 0,
   "celebrate_pending": false,
-  "celebrate_token": 1,
+  "celebrate_token": 0,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "5A",
+  "current_step_label": "5B",
   "selector_open": false,
-  "selector_index": 0,
+  "selector_index": 4,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true

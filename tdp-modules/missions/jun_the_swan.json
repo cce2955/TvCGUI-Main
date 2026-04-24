@@ -19,14 +19,14 @@
     {
       "mission_id": "jun_002",
       "name": "Kick Relaunch",
-      "notes": "Lightning Kick B into relaunch.",
+      "notes": "Lightning Kick B into relaunch. There's a bug with 6C, investigating",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
         { "label": "2B" },
         { "label": "5C" },
         { "label": "2C" },
-        { "label": "6C" },
+        { "label": "6C", "grace": 30 },
         { "label": "Lightning Kick B" },
         { "label": "j.B" },
         { "label": "3C" },

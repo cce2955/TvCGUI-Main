@@ -16,7 +16,7 @@
 #
 # Notes:
 #   - This tool reads EFFECTIVE (guest virtual) addresses.
-#   - MEM2 range is assumed 0x90000000..0x94000000 (from your constants.py).
+#   - MEM2 range is assumed 0x90000000..0x94000000 (from constants.py).
 #
 from __future__ import annotations
 
@@ -151,7 +151,7 @@ def score_template_block(block_ea: int) -> Optional[TemplateBlock]:
         score += 2
         why_parts.append(f"has {len(phys)} physics cluster(s) in 0x2000 window")
     else:
-        # No physics clusters means not useful for your workflow
+        # No physics clusters means not useful 
         return None
 
     # Slice repetition check: do physics clusters show a dominant stride?

@@ -1,0 +1,414 @@
+{
+  "character": "Zero",
+  "mission_count": 7,
+  "active_mission_id": "zero_005",
+  "active_mission_name": "Dark Hold Finish",
+  "active_mission_notes": "",
+  "active_mission_steps": [
+    {
+      "labels": [
+        "5B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "3C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "j.B (second hit)"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "Jump Cancel"
+      ],
+      "grace": 0,
+      "pass": true,
+      "grace_keeps_alive_only": false,
+      "color": null
+    },
+    {
+      "labels": [
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "Air Hyper Zero Blaster"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": null
+    },
+    {
+      "labels": [
+        "Air Dash A"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
+        "2A"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "2C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "6C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "Baroque cancel"
+      ],
+      "grace": 0,
+      "pass": true,
+      "grace_keeps_alive_only": false,
+      "color": null
+    },
+    {
+      "labels": [
+        "5B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "3C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "j.B (second hit)"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "Jump Cancel"
+      ],
+      "grace": 0,
+      "pass": true,
+      "grace_keeps_alive_only": false,
+      "color": null
+    },
+    {
+      "labels": [
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "Air Hyper Zero Blaster"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": null
+    },
+    {
+      "labels": [
+        "Air Dash A"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
+        "2A"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "blue"
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "yellow"
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "6C"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": "green"
+    },
+    {
+      "labels": [
+        "Dark Hold"
+      ],
+      "grace": 0,
+      "pass": false,
+      "grace_keeps_alive_only": false,
+      "color": null
+    }
+  ],
+  "active_mission_goal": {},
+  "active_mission_setup_debug_flags": {},
+  "selected_mission_id": "zero_005",
+  "missions": [
+    {
+      "mission_id": "zero_001",
+      "name": "Starter",
+      "notes": "Basic launcher route.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "zero_002",
+      "name": "Baroque Blaster",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          

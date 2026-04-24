@@ -420,7 +420,55 @@ class MasterOverlay:
             self.smallfont = pygame.font.SysFont("consolas", small_size)
         except Exception:
             self.smallfont = pygame.font.Font(None, small_size)
+    def _char_theme_color(self, character: str) -> tuple[int, int, int]:
+        name = (character or "").strip().lower()
 
+        if "alex" in name:
+            return (40, 120, 255)      # Capcom blue
+        if "ryu" in name:
+            return (170, 30, 30)       # deep red
+        if "chun" in name:
+            return (80, 150, 255)      # Chun blue
+        if "ken" in name:
+            return (245, 245, 245)     # white
+        if "jun" in name:
+            return (255, 70, 170)      # hot pink
+        if "viewtiful joe" in name or "v joe" in name or "joe" in name:
+            return (220, 40, 40)       # hero red
+        if "casshan" in name:
+            return (180, 230, 255)     # steel/cyan
+        if "doronjo" in name:
+            return (210, 120, 255)     # villain purple
+        if "saki" in name:
+            return (255, 220, 80)      # gold
+        if "batsu" in name:
+            return (255, 140, 40)      # orange
+        if "morrigan" in name:
+            return (120, 40, 170)      # succubus purple
+        if "roll" in name:
+            return (255, 170, 210)     # soft pink
+        if "polimar" in name:
+            return (220, 35, 35)       # red hero
+        if "karas" in name:
+            return (90, 90, 110)       # dark steel
+        if "zero" in name:
+            return (220, 40, 40)       # crimson
+        if "gold_lightan" in name or "gold lightan" in name:
+            return (255, 215, 40)      # gold
+        if "tekkaman_blade" in name or "tekkaman blade" in name:
+            return (120, 180, 255)     # blade blue
+        if "tekkaman" in name:
+            return (235, 235, 235)     # white armor
+        if "volnutt" in name:
+            return (70, 170, 255)      # mega blue
+        if "ptx_40a" in name or "ptx" in name:
+            return (255, 150, 60)
+        if "yatterman_1" in name:
+            return (255, 60, 60)       # red
+        if "yatterman_2" in name:
+            return (255, 120, 190)     # pink
+
+        return (170, 120, 255)
     def _wrap_text_lines(self, text: str, font: pygame.font.Font, max_width: int) -> list[str]:
         if not text:
             return []
@@ -1093,6 +1141,7 @@ class MasterOverlay:
 
         data = self._mission_hold_data if self._mission_hold_frames > 0 else (self.mission_overlay_data or {})
         character = data.get("character") or "Unknown"
+        theme_color = self._char_theme_color(character)
         mission_name = data.get("active_mission_name") or "No mission loaded"
         mission_notes = data.get("active_mission_notes") or ""
         steps = data.get("active_mission_steps") or []
@@ -1183,7 +1232,7 @@ class MasterOverlay:
                 if alpha > 0:
                     pygame.draw.line(
                         bg,
-                        (120, 200, 255, alpha),
+                        (theme_color[0], theme_color[1], theme_color[2], alpha),
                         (0, yy),
                         (box_w, yy),
                         1
@@ -1192,8 +1241,16 @@ class MasterOverlay:
             self.screen.blit(bg, (x, y))
             pygame.draw.rect(
                 self.screen,
-                (170, 120, 255),
+                theme_color,
                 (x, y, box_w, box_h),
+                1,
+                border_radius=4,
+            )
+
+            pygame.draw.rect(
+                self.screen,
+                (255, 255, 255),
+                (x + 2, y + 2, box_w - 4, box_h - 4),
                 1,
                 border_radius=4,
             )
@@ -1349,7 +1406,7 @@ class MasterOverlay:
                 if alpha > 0:
                     pygame.draw.line(
                         bg,
-                        (120, 200, 255, alpha),
+                        (theme_color[0], theme_color[1], theme_color[2], alpha),
                         (0, yy),
                         (box_w, yy),
                         1
@@ -1469,6 +1526,7 @@ class MasterOverlay:
 
                 # --- background box ---
                 row_surf = pygame.Surface((step_box_w, step_row_h), pygame.SRCALPHA)
+                pulse = 0.5 + 0.5 * __import__("math").sin(time.time() * 6.0)
 
                 if is_completed:
                     # Dark, slightly greenish, no gradient
@@ -1495,12 +1553,12 @@ class MasterOverlay:
 
                         pygame.draw.line(row_surf, (r, g, b, 210), (0, strip_y), (step_box_w, strip_y))
 
-                    border_color = (
-                        int(40 + 60 * t),
-                        int(100 + 100 * t),
-                        int(180 + 60 * t),
-                        220,
-                    )
+                        border_color = (
+                            min(255, int(theme_color[0] + 50 * pulse)),
+                            min(255, int(theme_color[1] + 50 * pulse)),
+                            min(255, int(theme_color[2] + 50 * pulse)),
+                            220,
+                        )
 
                 else:
                     # Pending or animating out — dark base
@@ -1508,6 +1566,22 @@ class MasterOverlay:
                     border_color = (80, 70, 110, 120)
 
                 self.screen.blit(row_surf, (x + pad, draw_y))
+
+                pygame.draw.rect(
+                    self.screen,
+                    text_color,
+                    (x + pad + 3, draw_y + 3, 4, step_row_h - 6),
+                    border_radius=2,
+                )
+
+                if is_completed:
+                    sweep_t = self.step_anim.get(idx, 0.0)
+                    if sweep_t > 0.05:
+                        sweep_x = int((1.0 - sweep_t) * step_box_w)
+                        sweep = pygame.Surface((36, step_row_h), pygame.SRCALPHA)
+                        sweep.fill((255, 255, 255, int(70 * sweep_t)))
+                        self.screen.blit(sweep, (x + pad + sweep_x, draw_y))
+
                 pygame.draw.rect(
                     self.screen,
                     border_color[:3],

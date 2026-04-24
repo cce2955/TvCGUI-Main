@@ -7,7 +7,7 @@
       "notes": "Basic chain.",
       "steps": [
         { "label": "5C" },
-        { "label": "2C" },
+        { "label": "2C" , "pass": true},
         { "label": "Baroque cancel" },
         { "label": "2C" }
       ]
@@ -17,6 +17,7 @@
       "name": "Load Bullet C",
       "notes": "22C ",
       "steps": [
+        { "label": "Load Ammo C" , "pass": true, "grace": 500},
         { "label": "5A" },
         { "label": "5B" },
         { "label": "3C" },
@@ -73,7 +74,7 @@
         "CpuGuard": 2
       },
       "steps": [
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL" },
+        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true, "grace": 500},
         { "label": "5C" }
       ]
     },
@@ -82,7 +83,7 @@
       "name": "Load Shell Route",
       "notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
       "steps": [
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true },
+        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true, "grace": 500 },
         { "label": "5A" },
         { "label": "5B" },
         { "label": "2B" },
@@ -90,8 +91,8 @@
         { "label": "2A" },
         { "label": "2B" },
         { "label": "3C" },
-        { "label": "j.A" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)", "grace": 30 },
         { "label": "j.C" },
         { "label": "5B" },
         { "label": "3C" },

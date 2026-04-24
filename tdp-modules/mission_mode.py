@@ -29,6 +29,7 @@ class MissionStep:
     labels: List[str]
     grace: int = 0
     pass_step: bool = False
+    grace_keeps_alive_only: bool = False
 
 
 @dataclass
@@ -140,9 +141,11 @@ def load_mission_pack(character_name: str) -> MissionPack:
                     labels=labels,
                     grace=grace,
                     pass_step=pass_step,
+                    grace_keeps_alive_only=bool(
+                        step.get("grace_keeps_alive_only", False)
+                    ),
                 )
             )
-
         if not mission_id or (not steps and not goal):
             continue
 
@@ -279,7 +282,7 @@ def _goal_to_step_labels(goal: Dict[str, Any]) -> List[List[str]]:
     return [["Special challenge"]]
 
 _STEP_BTN_RE = re.compile(
-    r"(?:^[0-9]+([ABC])(?:$|\s|\(|\))|^j\.?([ABC])(?:$|\s|\(|\))|(?:^|\s)([ABC])(?:$|\s|\(|\)))",
+    r"(?:^[0-9]+([ABCLMH])(?:$|\s|\(|\))|^j\.?([ABCLMH])(?:$|\s|\(|\))|(?:^|\s)([ABCLMH])(?:$|\s|\(|\)))",
     re.I,
 )
 
@@ -294,11 +297,11 @@ def _step_color(labels: List[str]) -> Optional[str]:
 
     btn = next(g for g in m.groups() if g).upper()
 
-    if btn == "A":
+    if btn in {"A", "L"}:
         return "blue"
-    if btn == "B":
+    if btn in {"B", "M"}:
         return "yellow"
-    if btn == "C":
+    if btn in {"C", "H"}:
         return "green"
 
     return None
@@ -316,12 +319,13 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         "active_mission_notes": active.notes if active else "",
         "active_mission_steps": (
             [
-    {
-        "labels": step.labels,
-        "grace": step.grace,
-        "pass": step.pass_step,
-        "color": _step_color(step.labels),
-    }
+{
+    "labels": step.labels,
+    "grace": step.grace,
+    "pass": step.pass_step,
+    "grace_keeps_alive_only": step.grace_keeps_alive_only,
+    "color": _step_color(step.labels),
+}
     for step in active.steps
 ]
             if active and active.steps
@@ -338,12 +342,13 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
                 "completed": is_mission_complete(progress, pack.character, mission.mission_id),
                 "selected": mission.mission_id == selected_id,
                 "steps": [
-    {
-        "labels": step.labels,
-        "grace": step.grace,
-        "pass": step.pass_step,
-        "color": _step_color(step.labels),
-    }
+{
+    "labels": step.labels,
+    "grace": step.grace,
+    "pass": step.pass_step,
+    "grace_keeps_alive_only": step.grace_keeps_alive_only,
+    "color": _step_color(step.labels),
+}
     for step in mission.steps
 ] if mission.steps else _goal_to_step_labels(mission.goal),
                 "goal": dict(mission.goal),

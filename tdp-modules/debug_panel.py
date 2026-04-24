@@ -215,7 +215,7 @@ def _draw_floating_tooltip(surface, panel_rect, font_small, anchor_pos, title, b
     pad_y = 4
     gap = 10
 
-    # Colors tuned to your panel vibe.
+    # Colors tuned to a panel vibe.
     bg = (18, 18, 24)
     border = (70, 70, 90)
     title_col = (210, 210, 230)

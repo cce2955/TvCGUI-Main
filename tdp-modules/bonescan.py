@@ -93,7 +93,7 @@ def quad_pattern_hits(
       - a quad contains 2+ zeros (stronger padding signal)
     Optional:
       - require_plausible_in_quad: if >0, count the quad only if at least that many floats in the quad are plausible.
-        (kept off by default, because you want to find the same regions your CLI found, including static-ish blocks)
+        (kept off by default, because you want to find the same regions the CLI found, including static-ish blocks)
     """
     hits = 0
     if not data:
@@ -161,7 +161,7 @@ class BoneScanner:
         sample_words: int = 16,                 # 16 words -> 0x40 bytes
         max_pattern_quads: int = 16,            # 16 quads -> 0x100 bytes if block allows
         pattern_require_plausible_in_quad: int = 0,
-        # score weights (tuned to match your CLI behavior: float/zeros/quads are dominant; changes are minor)
+        # score weights (tuned to match the CLI behavior: float/zeros/quads are dominant; changes are minor)
         w_floats: float = 1.5,
         w_zeros: float = 0.75,
         w_quads: float = 2.0,
