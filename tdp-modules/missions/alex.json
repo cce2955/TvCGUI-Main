@@ -9,7 +9,7 @@
         { "label": "5A" },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "j.B" },
+        { "label": "j.B", "grace": 15 },
         { "label": "Air Powerbomb" }
       ]
     },
@@ -77,7 +77,7 @@
     {
       "mission_id": "alex_007",
       "name": "Stungun Loop",
-      "notes": "Best-effort parse: I treated headbutt as Knee H, and used Stungun Near.",
+      "notes": "",
       "steps": [
         { "label": "5A" },
         { "label": "5B" },

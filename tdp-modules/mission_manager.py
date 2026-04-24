@@ -137,6 +137,7 @@ def _new_mission_runtime(
         "saved_meter_flag_mission": None,
         "reset_grace_frames": 0,
         "reset_grace_labels": [],
+        "reset_grace_step_index": None,
         "shell_install_hold": 0,
         "post_install_hold_frames": 0,
         "shell_installed": False,
@@ -951,7 +952,30 @@ class MissionManager:
     # ------------------------------------------------------------------
     # Core augment (was _augment_payload_with_runtime)
     # ------------------------------------------------------------------
+    def _step_labels(self, step) -> list[str]:
+        if isinstance(step, dict):
+            raw = step.get("labels", [])
+            if isinstance(raw, list):
+                return [str(x).strip() for x in raw if str(x).strip()]
+            label = str(step.get("label", "")).strip()
+            return [label] if label else []
 
+        if isinstance(step, list):
+            return [str(x).strip() for x in step if str(x).strip()]
+
+        text = str(step).strip()
+        return [text] if text else []
+
+    def _step_grace(self, step) -> int:
+        if not isinstance(step, dict):
+            return 0
+        try:
+            return max(0, int(step.get("grace", 0) or 0))
+        except Exception:
+            return 0
+
+    def _step_is_pass(self, step) -> bool:
+        return isinstance(step, dict) and bool(step.get("pass", False))
     def _augment_payload_with_runtime(self, payload: dict, snaps_dict: dict) -> dict:
         payload = dict(payload or {})
         slot = payload.get("slot")
@@ -1147,51 +1171,31 @@ class MissionManager:
 
         # Step-list missions
         expected_step_for_reset = steps[progress_index] if progress_index < len(steps) else None
-        expected_labels_for_reset = (
-            [str(x).strip() for x in expected_step_for_reset if str(x).strip()]
-            if isinstance(expected_step_for_reset, list)
-            else ([str(expected_step_for_reset).strip()] if expected_step_for_reset and str(expected_step_for_reset).strip() else [])
-        )
+        expected_labels_for_reset = self._step_labels(expected_step_for_reset)
 
         if progress_index > 0 and not opponent_in_combo_state:
-            if self._runtime.get("shell_installed"):
+            grace_left = int(self._runtime.get("reset_grace_frames", 0) or 0)
+            grace_step_index = self._runtime.get("reset_grace_step_index")
+
+            if grace_left > 0 and grace_step_index == progress_index:
+                self._runtime["reset_grace_frames"] = grace_left - 1
+
+            elif self._runtime.get("shell_installed"):
                 pass  # don't reset until opponent first hit
-            elif self._step_needs_reset_grace(character_name, expected_labels_for_reset):
-                grace_left = int(self._runtime.get("reset_grace_frames", 0) or 0)
-                if grace_left <= 0:
-                    self._runtime["reset_grace_frames"] = 10
-                    self._runtime["reset_grace_labels"] = list(expected_labels_for_reset)
-                else:
-                    self._runtime["reset_grace_frames"] = grace_left - 1
-                    if current_label:
-                        if not self._reset_grace_accepts_label(character_name, current_label):
-                            if not self._label_is_ignorable(current_label):
-                                progress_index = 0
-                                self._runtime.update({
-                                    "progress_index": 0, "reset_grace_frames": 0,
-                                    "reset_grace_labels": [], "shell_installed": False,
-                                    "shell_release_grace": 0,
-                                })
-                    elif self._runtime["reset_grace_frames"] <= 0:
-                        progress_index = 0
-                        self._runtime.update({
-                            "progress_index": 0, "reset_grace_frames": 0,
-                            "reset_grace_labels": [], "shell_installed": False,
-                            "shell_release_grace": 0,
-                        })
+
             else:
-                if self._label_is_ignorable(current_label) or (
-                    self._runtime.get("shell_installed")
-                    and self._is_saki_shell_label(current_label)
-                ):
-                    pass
-                else:
-                    progress_index = 0
-                    self._runtime.update({
-                        "progress_index": 0, "reset_grace_frames": 0,
-                        "reset_grace_labels": [], "shell_installed": False,
-                        "shell_release_grace": 0,
-                    })
+                progress_index = 0
+                self._runtime.update({
+                    "progress_index": 0,
+                    "pending_step_index": None,
+                    "pending_labels": [],
+                    "pending_anim": None,
+                    "reset_grace_frames": 0,
+                    "reset_grace_labels": [],
+                    "reset_grace_step_index": None,
+                    "shell_installed": False,
+                    "shell_release_grace": 0,
+                })
 
         last_seen_label = self._runtime.get("last_seen_label", "")
         last_seen_anim = self._runtime.get("last_seen_anim")
@@ -1208,11 +1212,7 @@ class MissionManager:
         )
 
         expected_step = steps[progress_index] if progress_index < len(steps) else None
-        expected_labels = (
-            [str(x).strip() for x in expected_step if str(x).strip()]
-            if isinstance(expected_step, list)
-            else ([str(expected_step).strip()] if expected_step and str(expected_step).strip() else [])
-        )
+        expected_labels = self._step_labels(expected_step)
 
         generic_partner_var_step = self._step_is_generic_partner_var(mission_id, expected_labels)
         partner_var_matched = generic_partner_var_step and self._partner_matches_generic_var(slot, snaps_dict)
@@ -1220,7 +1220,11 @@ class MissionManager:
         current_matches_expected = current_label in expected_labels
         non_damage_confirm = self._step_has_non_damage_confirm(expected_labels, snap, current_label)
         step_allows_whiff = self._step_allows_whiff_confirm(expected_labels)
-        zero_damage_confirm = self._step_allows_zero_damage_confirm(character_name, expected_labels, current_label)
+        pass_confirm = self._step_is_pass(expected_step)
+        zero_damage_confirm = (
+            self._step_allows_zero_damage_confirm(character_name, expected_labels, current_label)
+            and not pass_confirm
+        )
         doronjo_pass = self._doronjo_damage_pass(character_name, expected_labels, damage_values)
 
         if self._runtime.get("pending_step_index") != progress_index:
@@ -1236,8 +1240,8 @@ class MissionManager:
         reset_grace_active = int(self._runtime.get("reset_grace_frames", 0) or 0) > 0
         reset_grace_match = (
             reset_grace_active
-            and self._step_needs_reset_grace(character_name, expected_labels)
-            and self._reset_grace_accepts_label(character_name, current_label)
+            and current_matches_expected
+            and not self._label_is_ignorable(current_label)
         )
         post_install_match = (
             character_name == "Saki"
@@ -1254,13 +1258,18 @@ class MissionManager:
                 or (
                     current_matches_expected
                     and not self._label_is_ignorable(current_label)
-                    and is_fresh_instance
                     and (
-                        opponent_in_combo_state
-                        or step_allows_whiff
-                        or reset_grace_match
-                        or zero_damage_confirm
-                        or post_install_match
+                        pass_confirm
+                        or (
+                            is_fresh_instance
+                            and (
+                                opponent_in_combo_state
+                                or step_allows_whiff
+                                or reset_grace_match
+                                or zero_damage_confirm
+                                or post_install_match
+                            )
+                        )
                     )
                 )
             )
@@ -1283,9 +1292,30 @@ class MissionManager:
 
         elif MISSION_REQUIRE_DAMAGE_CONFIRM:
             if matched_fresh_expected:
-                if step_allows_whiff or zero_damage_confirm:
-                    print(f"[mission confirm immediate] slot={slot} step={progress_index} matched={expected_labels!r} zero={zero_damage_confirm}")
+                if pass_confirm:
+                    print(
+                        f"[mission pass] slot={slot} step={progress_index} "
+                        f"matched={expected_labels!r}"
+                    )
+
+                    pass_grace = self._step_grace(expected_step)
+
                     progress_index += 1
+                    self._runtime.update({
+                        "progress_index": progress_index,
+                        "reset_grace_frames": pass_grace,
+                        "reset_grace_labels": [],
+                        "reset_grace_step_index": progress_index if pass_grace > 0 else None,
+                    })
+
+                elif step_allows_whiff or zero_damage_confirm:
+                    print(
+                        f"[mission confirm immediate] slot={slot} step={progress_index} "
+                        f"matched={expected_labels!r} zero={zero_damage_confirm}"
+                    )
+
+                    progress_index += 1
+
                     self._runtime.update({
                         "progress_index": progress_index,
                         "pending_step_index": None,
@@ -1296,12 +1326,14 @@ class MissionManager:
                         "shell_install_hold": 0,
                         "post_install_hold_frames": 12 if zero_damage_confirm else 0,
                         "shell_installed": zero_damage_confirm,
+                        "shell_release_grace": 0,
                         "last_seen_label": "",
                         "last_seen_anim": None,
                         "last_seen_hitstun": False,
                         "last_inputs": {},
                         "hitstun_grace": 0,
                     })
+
                 else:
                     self._runtime.update({
                         "pending_step_index": progress_index,
@@ -1314,17 +1346,20 @@ class MissionManager:
             if (
                 pending_step_index == progress_index
                 and pending_labels
-                and opponent_in_combo_state
+                and (opponent_in_combo_state or reset_grace_active)
                 and (opponent_took_damage or non_damage_confirm or doronjo_pass)
             ):
+                completed_grace = self._step_grace(expected_step)
+
                 progress_index += 1
                 self._runtime.update({
                     "progress_index": progress_index,
                     "pending_step_index": None,
                     "pending_labels": [],
                     "pending_anim": None,
-                    "reset_grace_frames": 0,
+                    "reset_grace_frames": completed_grace,
                     "reset_grace_labels": [],
+                    "reset_grace_step_index": progress_index if completed_grace > 0 else None,
                     "shell_install_hold": 0,
                 })
         else:
@@ -1357,7 +1392,7 @@ class MissionManager:
             "completed_step_count": progress_index,
             "current_step_index": progress_index,
             "current_step_label": (
-                (" / ".join(steps[progress_index]) if isinstance(steps[progress_index], list) else steps[progress_index])
+                " / ".join(self._step_labels(steps[progress_index]))
                 if progress_index < len(steps) else None
             ),
         })

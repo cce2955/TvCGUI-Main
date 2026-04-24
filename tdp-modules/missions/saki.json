@@ -82,7 +82,7 @@
       "name": "Load Shell Route",
       "notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
       "steps": [
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL" },
+        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true },
         { "label": "5A" },
         { "label": "5B" },
         { "label": "2B" },
@@ -115,17 +115,17 @@
       "name": "Meter Challenge",
       "notes": "",
       "steps": [
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL" },
+        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true, "grace": 300 },
         { "label": "5C" },
-        { "label": "5B" },
-        { "label": "Grenade" },
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL" },
+        
+        { "label": "Grenade B" , "pass": true},
+        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true , "grace": 200},
         { "label": "5C" },
-        { "label": "5B" },
-        { "label": "Grenade" },
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL" },
-        { "label": "5C" },
-        { "label": "Positron Cannon" }
+        
+        { "label": "Grenade B", "pass": true},
+        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true, "grace": 200 },
+        { "label": "5C","pass": true,"grace": 250 },
+        { "label": "Positron Storm" }
       ]
     }
   ]

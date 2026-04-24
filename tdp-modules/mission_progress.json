@@ -1,0 +1,14 @@
+{
+  "alex": {
+    "completed": {
+      "alex_001": true
+    },
+    "selected_mission_id": "alex_001"
+  },
+  "saki": {
+    "completed": {
+      "saki_009": true
+    },
+    "selected_mission_id": "saki_009"
+  }
+}

@@ -1,382 +1,602 @@
 {
-  "character": "Ryu",
-  "mission_count": 8,
-  "active_mission_id": "ryu_001",
-  "active_mission_name": "Basic Air Chain",
-  "active_mission_notes": "Basic Magic Series.",
+  "character": "Saki",
+  "mission_count": 9,
+  "active_mission_id": "saki_009",
+  "active_mission_name": "Meter Challenge",
+  "active_mission_notes": "",
   "active_mission_steps": [
-    [
-      "5A"
-    ],
-    [
-      "5B"
-    ],
-    [
-      "5C"
-    ],
-    [
-      "3C"
-    ],
-    [
-      "j.A"
-    ],
-    [
-      "j.B"
-    ],
-    [
-      "j.C"
-    ]
+    {
+      "labels": [
+        "LOAD SUPER ARMOR PIERCING SHELL"
+      ],
+      "grace": 300,
+      "pass": true
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Grenade B"
+      ],
+      "grace": 0,
+      "pass": true
+    },
+    {
+      "labels": [
+        "LOAD SUPER ARMOR PIERCING SHELL"
+      ],
+      "grace": 200,
+      "pass": true
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Grenade B"
+      ],
+      "grace": 0,
+      "pass": true
+    },
+    {
+      "labels": [
+        "LOAD SUPER ARMOR PIERCING SHELL"
+      ],
+      "grace": 200,
+      "pass": true
+    },
+    {
+      "labels": [
+        "5C"
+      ],
+      "grace": 250,
+      "pass": true
+    },
+    {
+      "labels": [
+        "Positron Storm"
+      ],
+      "grace": 0,
+      "pass": false
+    }
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": null,
+  "selected_mission_id": "saki_009",
   "missions": [
     {
-      "mission_id": "ryu_001",
-      "name": "Basic Air Chain",
-      "notes": "Basic Magic Series.",
+      "mission_id": "saki_001",
+      "name": "Starter",
+      "notes": "Basic chain.",
       "completed": false,
       "selected": false,
       "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "3C"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2C"
+          ],
+          "grace": 0,
+          "pass": false
+        }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "ryu_002",
-      "name": "Tatsu Ender",
-      "notes": "Basic BnB",
+      "mission_id": "saki_002",
+      "name": "Load Bullet C",
+      "notes": "22C",
       "completed": false,
       "selected": false,
       "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Donkey H"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Tatsu H"
-        ]
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2C"
+          ],
+          "grace": 0,
+          "pass": false
+        }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "ryu_003",
-      "name": "Double Extension",
-      "notes": "Baroque BnB.",
+      "mission_id": "saki_003",
+      "name": "Grenade BnB",
+      "notes": "22C",
       "completed": false,
       "selected": false,
       "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Donkey H"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Tatsu H"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Tatsu H"
-        ]
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Grenade B"
+          ],
+          "grace": 0,
+          "pass": false
+        }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "ryu_004",
-      "name": "Donkey to Shinkuu",
-      "notes": "Overhead 6B starter into light donkey, triple fireball chain, tatsu, then super.",
+      "mission_id": "saki_004",
+      "name": "Corner Setup",
+      "notes": "22C",
       "completed": false,
       "selected": false,
       "steps": [
-        [
-          "6B"
-        ],
-        [
-          "Donkey L"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "Tatsu H"
-        ],
-        [
-          "Shinkuu"
-        ]
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "6C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Positron C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Positron Storm"
+          ],
+          "grace": 0,
+          "pass": false
+        }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "ryu_005",
-      "name": "Corner Carry to Super",
-      "notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
+      "mission_id": "saki_005",
+      "name": "Throw Followup",
+      "notes": "22C",
       "completed": false,
       "selected": false,
       "steps": [
-        [
-          "5A"
-        ],
-        [
-          "2A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Hado M"
-        ],
-        [
-          "Baroque cancel"
-        ],
-        [
-          "Air Tatsu H"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "2C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Donkey H"
-        ],
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Tatsu H"
-        ],
-        [
-          "Shinkuu",
-          "Air Shinkuu"
-        ]
+        {
+          "labels": [
+            "Forward Throw"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2C"
+          ],
+          "grace": 0,
+          "pass": false
+        }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "ryu_006",
-      "name": "VAR Air Series",
-      "notes": "The other character starts, VARs in Ryu, then Ryu finishes with j.A j.B j.C.",
+      "mission_id": "saki_006",
+      "name": "LOAD SUPER ARMOR PIERCING SHELL",
+      "notes": "Read the title",
       "completed": false,
       "selected": false,
       "steps": [
-        [
-          "VAR"
-        ],
-        [
-          "j.A"
-        ],
-        [
-          "j.B"
-        ],
-        [
-          "j.C"
-        ]
+        {
+          "labels": [
+            "LOAD SUPER ARMOR PIERCING SHELL"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "CpuGuard": 2
+      }
+    },
+    {
+      "mission_id": "saki_007",
+      "name": "Load Shell Route",
+      "notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "LOAD SUPER ARMOR PIERCING SHELL"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Headbutt"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false
+        }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "ryu_007",
+      "mission_id": "saki_008",
       "name": "Challenge",
+      "notes": "Some moves are missing go ahead and fill them in",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "Headbutt"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Load Ammo C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Positron Storm"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "saki_009",
+      "name": "Meter Challenge",
       "notes": "",
-      "completed": false,
-      "selected": false,
+      "completed": true,
+      "selected": true,
       "steps": [
-        [
-          "5A"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "2B"
-        ],
-        [
-          "5C"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Hado L"
-        ],
-        [
-          "Shin Sho"
-        ],
-        [
-          "Hado L"
-        ],
-        [
-          "5B"
-        ],
-        [
-          "6C"
-        ],
-        [
-          "Tatsu H"
-        ],
-        [
-          "Shinkuu",
-          "Air Shinkuu"
-        ]
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "ryu_008",
-      "name": "Challenge",
-      "notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        [
-          "Hado L"
-        ],
-        [
-          "Shin Sho"
-        ],
-        [
-          "Tatsu M"
-        ],
-        [
-          "Shin Sho"
-        ]
+        {
+          "labels": [
+            "LOAD SUPER ARMOR PIERCING SHELL"
+          ],
+          "grace": 300,
+          "pass": true
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Grenade B"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "LOAD SUPER ARMOR PIERCING SHELL"
+          ],
+          "grace": 200,
+          "pass": true
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Grenade B"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "LOAD SUPER ARMOR PIERCING SHELL"
+          ],
+          "grace": 200,
+          "pass": true
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 250,
+          "pass": true
+        },
+        {
+          "labels": [
+            "Positron Storm"
+          ],
+          "grace": 0,
+          "pass": false
+        }
       ],
       "goal": {},
       "setup_debug_flags": {}
     }
   ],
   "active": true,
-  "slot": "P1-C1",
+  "slot": "P1-C2",
   "just_cleared": false,
   "clear_seq": 1,
   "celebrate_pending": false,
   "celebrate_token": 1,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "5A",
+  "current_step_label": "LOAD SUPER ARMOR PIERCING SHELL",
   "selector_open": false,
   "selector_index": 0,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",

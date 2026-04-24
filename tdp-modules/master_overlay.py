@@ -1272,7 +1272,12 @@ class MasterOverlay:
             # Build step surfaces to measure content width
             step_surfs = []
             for idx, step in visible_steps:
-                step_text = " / ".join(step) if isinstance(step, list) else str(step)
+                if isinstance(step, dict):
+                    step_text = " / ".join(step.get("labels", []))
+                elif isinstance(step, list):
+                    step_text = " / ".join(step)
+                else:
+                    step_text = str(step)
                 if idx < completed_step_count:
                     label = f"[x] {idx + 1}. {step_text}"
                     color = (120, 200, 140)
@@ -1499,7 +1504,13 @@ class MasterOverlay:
                 )
 
                 # Text — dim completed steps based on animation
-                step_text = " / ".join(steps[idx]) if isinstance(steps[idx], list) else str(steps[idx])
+                step = steps[idx]
+                if isinstance(step, dict):
+                    step_text = " / ".join(step.get("labels", []))
+                elif isinstance(step, list):
+                    step_text = " / ".join(step)
+                else:
+                    step_text = str(step)
                 label_str = (
                     f"[x] {idx + 1}. {step_text}" if is_completed
                     else f"[>] {idx + 1}. {step_text}" if is_active

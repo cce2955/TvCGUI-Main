@@ -26,6 +26,8 @@ MISSION_PROGRESS_FILE = os.path.join(_user_data_dir(), "mission_progress.json")
 @dataclass
 class MissionStep:
     labels: List[str]
+    grace: int = 0
+    pass_step: bool = False
 
 
 @dataclass
@@ -124,7 +126,21 @@ def load_mission_pack(character_name: str) -> MissionPack:
             if not labels:
                 continue
 
-            steps.append(MissionStep(labels=labels))
+            grace = 0
+            try:
+                grace = max(0, int(step.get("grace", 0) or 0))
+            except Exception:
+                grace = 0
+
+            pass_step = bool(step.get("pass", False))
+
+            steps.append(
+                MissionStep(
+                    labels=labels,
+                    grace=grace,
+                    pass_step=pass_step,
+                )
+            )
 
         if not mission_id or (not steps and not goal):
             continue
@@ -275,7 +291,14 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         "active_mission_name": active.name if active else None,
         "active_mission_notes": active.notes if active else "",
         "active_mission_steps": (
-            [step.labels for step in active.steps]
+            [
+    {
+        "labels": step.labels,
+        "grace": step.grace,
+        "pass": step.pass_step,
+    }
+    for step in active.steps
+]
             if active and active.steps
             else _goal_to_step_labels(active.goal) if active else []
         ),
@@ -289,7 +312,14 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
                 "notes": mission.notes,
                 "completed": is_mission_complete(progress, pack.character, mission.mission_id),
                 "selected": mission.mission_id == selected_id,
-                "steps": [step.labels for step in mission.steps] if mission.steps else _goal_to_step_labels(mission.goal),
+                "steps": [
+    {
+        "labels": step.labels,
+        "grace": step.grace,
+        "pass": step.pass_step,
+    }
+    for step in mission.steps
+] if mission.steps else _goal_to_step_labels(mission.goal),
                 "goal": dict(mission.goal),
                 "setup_debug_flags": dict(mission.setup_debug_flags),
             }
