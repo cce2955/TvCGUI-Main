@@ -1,9 +1,9 @@
 {
-  "character": "Joe the Condor",
-  "mission_count": 8,
-  "active_mission_id": "joe_the_condor_006",
-  "active_mission_name": "Neat Stuff",
-  "active_mission_notes": "",
+  "character": "Casshan",
+  "mission_count": 7,
+  "active_mission_id": "casshan_005",
+  "active_mission_name": "Combo 5",
+  "active_mission_notes": "Knee starter into Baroque combo finish.",
   "active_mission_steps": [
     {
       "labels": [
@@ -35,6 +35,41 @@
     },
     {
       "labels": [
+        "Knee A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Baroque cancel"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "5A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "5B"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
         "3C"
       ],
       "grace": 0,
@@ -49,139 +84,22 @@
     },
     {
       "labels": [
-        "Air Shuriken A"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Air Dash Forward"
-      ],
-      "grace": 0,
-      "pass": true
-    },
-    {
-      "labels": [
-        "j.B"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Jump Cancel"
-      ],
-      "grace": 0,
-      "pass": true
-    },
-    {
-      "labels": [
-        "j.B"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Air Shuriken A"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Air Savage Shot A"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "j.B"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Air Shuriken A"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Air Savage Shot A"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Baroque cancel"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Air Dash Forward"
-      ],
-      "grace": 0,
-      "pass": true
-    },
-    {
-      "labels": [
-        "j.B"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Jump Cancel"
-      ],
-      "grace": 0,
-      "pass": true
-    },
-    {
-      "labels": [
-        "j.B"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Air Shuriken A"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Air Science Ninpo"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Wild Lasso A"
+        "Shooting Star Kick C"
       ],
       "grace": 0,
       "pass": false
     }
   ],
   "active_mission_goal": {},
-  "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "joe_the_condor_006",
+  "active_mission_setup_debug_flags": {
+    "BaroquePct": 1
+  },
+  "selected_mission_id": "casshan_005",
   "missions": [
     {
-      "mission_id": "joe_the_condor_001",
-      "name": "Combo Trial 001",
-      "notes": "",
+      "mission_id": "casshan_001",
+      "name": "Combo 1",
+      "notes": "Basic ground string into air series.",
       "completed": true,
       "selected": false,
       "steps": [
@@ -195,13 +113,6 @@
         {
           "labels": [
             "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2B"
           ],
           "grace": 0,
           "pass": false
@@ -243,13 +154,6 @@
         },
         {
           "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
             "j.C"
           ],
           "grace": 0,
@@ -260,9 +164,9 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "joe_the_condor_002",
-      "name": "Combo Trial 002",
-      "notes": "",
+      "mission_id": "casshan_002",
+      "name": "Combo 2",
+      "notes": "Basic ground string into air ender.",
       "completed": true,
       "selected": false,
       "steps": [
@@ -276,13 +180,6 @@
         {
           "labels": [
             "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2B"
           ],
           "grace": 0,
           "pass": false
@@ -310,13 +207,6 @@
         },
         {
           "labels": [
-            "j.A (second hit)"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
             "j.B"
           ],
           "grace": 0,
@@ -324,21 +214,7 @@
         },
         {
           "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Wild Lasso A"
+            "Shooting Star Kick C"
           ],
           "grace": 0,
           "pass": false
@@ -348,9 +224,9 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "joe_the_condor_003",
-      "name": "Combo Trial 003",
-      "notes": "",
+      "mission_id": "casshan_003",
+      "name": "Combo 3",
+      "notes": "Baroque extension into launcher and air finish.",
       "completed": true,
       "selected": false,
       "steps": [
@@ -384,91 +260,7 @@
         },
         {
           "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Shuriken A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Savage Shot B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Condor Magnum"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "joe_the_condor_004",
-      "name": "Combo Trial 004",
-      "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "Cactus Bunker A",
-            "Cactus Bunker B",
-            "Cactus Bunker C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Wild Lasso A"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {
-        "CpuAction": 4
-      }
-    },
-    {
-      "mission_id": "joe_the_condor_005",
-      "name": "Combo Trial 005",
-      "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "Cactus Bunker A",
-            "Cactus Bunker B",
-            "Cactus Bunker C"
+            "Denko A"
           ],
           "grace": 0,
           "pass": false
@@ -478,6 +270,138 @@
             "Baroque cancel"
           ],
           "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Denko B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Shooting Star Kick C"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
+    },
+    {
+      "mission_id": "casshan_004",
+      "name": "Combo 4",
+      "notes": "Friender extension into relaunch finish.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Denko B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "Friender C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
           "pass": false
         },
         {
@@ -503,56 +427,7 @@
         },
         {
           "labels": [
-            "Air Shuriken A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Dash Forward"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Shuriken A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Savage Shot A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Condor Magnum"
+            "j.C"
           ],
           "grace": 0,
           "pass": false
@@ -560,15 +435,14 @@
       ],
       "goal": {},
       "setup_debug_flags": {
-        "CpuAction": 4,
         "BaroquePct": 1
       }
     },
     {
-      "mission_id": "joe_the_condor_006",
-      "name": "Neat Stuff",
-      "notes": "",
-      "completed": false,
+      "mission_id": "casshan_005",
+      "name": "Combo 5",
+      "notes": "Knee starter into Baroque combo finish.",
+      "completed": true,
       "selected": true,
       "steps": [
         {
@@ -601,6 +475,41 @@
         },
         {
           "labels": [
+            "Knee A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
             "3C"
           ],
           "grace": 0,
@@ -615,126 +524,62 @@
         },
         {
           "labels": [
-            "Air Shuriken A"
+            "Shooting Star Kick C"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
+    },
+    {
+      "mission_id": "casshan_006",
+      "name": "Combo 6",
+      "notes": "Ground confirm into super finish.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Air Dash Forward"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "j.B"
+            "5B"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "j.B"
+            "2B"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Air Shuriken A"
+            "5C"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Air Savage Shot A"
+            "Denko B"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Shuriken A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Savage Shot A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Dash Forward"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Shuriken A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Science Ninpo"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Wild Lasso A"
+            "Super Destruction Beam"
           ],
           "grace": 0,
           "pass": false
@@ -744,40 +589,22 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "joe_the_condor_007",
+      "mission_id": "casshan_007",
       "name": "Challenge",
-      "notes": "",
+      "notes": "Some moves are missing good luck.",
       "completed": false,
       "selected": false,
       "steps": [
         {
           "labels": [
-            "That one combo from the JP Nico nico video I have to transcribe it again, if you see this I forgot to put it in"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "joe_the_condor_008",
-      "name": "VAR Science Ninpo",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "VAR"
+            "Denko B"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "j.A"
+            "6B"
           ],
           "grace": 0,
           "pass": false
@@ -791,42 +618,14 @@
         },
         {
           "labels": [
-            "j.B"
+            "3C"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Air Shuriken A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Shuriken A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Science Ninpo"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Wild Lasso A"
+            "Brutal Axe"
           ],
           "grace": 0,
           "pass": false
@@ -837,7 +636,7 @@
     }
   ],
   "active": true,
-  "slot": "P1-C2",
+  "slot": "P1-C1",
   "just_cleared": false,
   "clear_seq": 0,
   "celebrate_pending": false,
@@ -846,7 +645,7 @@
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 5,
+  "selector_index": 4,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true

@@ -43,6 +43,7 @@
         { "label": "2C" },
         { "label": "Soul Fist L" },
         { "label": "Baroque cancel" },
+        { "label": "Air Dash Forward", "pass": true },
         { "label": "j.B" },
         { "label": "5C" },
         { "label": "3C" },
@@ -84,6 +85,7 @@
         { "label": "2C" },
         { "label": "6C" },
         { "label": "j.B" },
+        { "label": "Air Dash Forward", "pass": true },
         { "label": "Shell Kick" },
         { "label": "3C" },
         { "label": "j.A" },
@@ -102,6 +104,7 @@
         { "label": "5C" },
         { "label": "3C" },
         { "label": "j.B" },
+        { "label": "Air Dash Forward", "pass": true },
         { "label": "j.B" },
         { "label": "Finishing Shower Air" }
       ]

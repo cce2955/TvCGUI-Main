@@ -12,7 +12,8 @@
         { "label": "5C" },
         { "label": "3C" },
         { "label": "j.B" },
-        { "label": "j.B" },
+        { "label": "j.B (second hit)" },
+        { "label": "j.B", "grace": 80 },
         { "label": "One Handed Vacuum Spin" }
       ]
     },
@@ -32,8 +33,12 @@
         { "label": "5B" },
         { "label": "5C" },
         { "label": "3C" },
+        { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
-        { "label": "j.B" },
+        { "label": "j.B (second hit)"},
+        { "label": "Jump Cancel", "pass": true },
+        { "label": "j.B", "grace": 80 },
         { "label": "One Handed Vacuum Spin" }
       ]
     },
@@ -52,8 +57,12 @@
         { "label": "5B" },
         { "label": "5C" },
         { "label": "3C" },
+     { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
-        { "label": "j.B" },
+        { "label": "j.B (second hit)"},
+        { "label": "Jump Cancel", "pass": true },
+        { "label": "j.B", "grace": 80 },
         { "label": "One Handed Vacuum Spin" }
       ]
     },
@@ -94,6 +103,7 @@
         { "label": "Hurricane Destruction Fist A" },
         { "label": "Razor Kicks" },
         { "label": "3C" },
+        { "label": "j.B", "grace": 80 },
         { "label": "One Handed Vacuum Spin" }
       ]
     }

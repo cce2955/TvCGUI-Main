@@ -75,7 +75,7 @@ MISSION_WHIFF_CONFIRM_LABELS = {
         "Roll A", "Roll B", "Roll C", "Random Flight A", "Random Flight B", "Random Flight C",
         "Air Random Flight A", "Air Random Flight B", "Air Random Flight C",
         "Zombie Spree A", "Zombie Spree B", "Zombie Spree C", "Megacrash", "voltekka air",
-        "One Handed Vacuum Spin", "yatter run",
+         "yatter run",
         "Clutch A", "Clutch B", "Clutch C",
         "Tree A", "Tree B", "Tree C",
         "Rock A", "Rock B", "Rock C",
@@ -1135,9 +1135,9 @@ class MissionManager:
 
         # Hitstun grace
         if opponent_in_hitstun:
-            self._runtime["hitstun_grace"] = 4
+            self._runtime["hitstun_grace"] = 0
         else:
-            self._runtime["hitstun_grace"] = max(0, int(self._runtime.get("hitstun_grace", 0)) - 1)
+            self._runtime["hitstun_grace"] = 0
 
         # Shell release grace
         shell_release_grace = int(self._runtime.get("shell_release_grace", 0) or 0)
@@ -1146,7 +1146,7 @@ class MissionManager:
 
         opponent_in_combo_state = (
             opponent_in_hitstun
-            or int(self._runtime.get("hitstun_grace", 0)) > 0
+            or int(self._runtime.get("reset_grace_frames", 0)) > 0
             or int(self._runtime.get("shell_release_grace", 0)) > 0
         )
 

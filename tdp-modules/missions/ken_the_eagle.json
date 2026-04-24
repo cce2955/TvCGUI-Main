@@ -11,7 +11,9 @@
         { "label": "2B" },
         { "label": "3C" },
         { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "Air Bird Shoot C"},
         { "label": "Air Bird Smash" }
       ]

@@ -38,7 +38,7 @@
       "casshan_005": true,
       "casshan_006": true
     },
-    "selected_mission_id": "casshan_006"
+    "selected_mission_id": "casshan_005"
   },
   "doronjo": {
     "completed": {
@@ -80,5 +80,67 @@
       "joe_the_condor_005": true
     },
     "selected_mission_id": "joe_the_condor_006"
+  },
+  "jun_the_swan": {
+    "completed": {
+      "jun_001": true,
+      "jun_002": true,
+      "jun_003": true,
+      "jun_004": true
+    },
+    "selected_mission_id": "jun_001"
+  },
+  "karas": {
+    "completed": {
+      "karas_001": true,
+      "karas_002": true,
+      "karas_003": true,
+      "karas_004": true,
+      "karas_005": true
+    },
+    "selected_mission_id": "karas_006"
+  },
+  "ken_the_eagle": {
+    "completed": {
+      "ken_001": true,
+      "ken_005": true
+    },
+    "selected_mission_id": "ken_005"
+  },
+  "morrigan": {
+    "completed": {
+      "morrigan_001": true,
+      "morrigan_002": true,
+      "morrigan_003": true,
+      "morrigan_006": true
+    },
+    "selected_mission_id": "morrigan_006"
+  },
+  "polimar": {
+    "completed": {
+      "polimar_001": true,
+      "polimar_002": true,
+      "polimar_003": true,
+      "polimar_004": true,
+      "polimar_005": true
+    },
+    "selected_mission_id": "polimar_006"
+  },
+  "roll": {
+    "completed": {
+      "roll_001": true,
+      "roll_002": true,
+      "roll_004": true,
+      "roll_007": true
+    },
+    "selected_mission_id": "roll_007"
+  },
+  "tekkaman_blade": {
+    "completed": {
+      "tekkaman_blade_001": true,
+      "tekkaman_blade_002": true,
+      "tekkaman_blade_004": true
+    },
+    "selected_mission_id": "tekkaman_blade_007"
   }
 }

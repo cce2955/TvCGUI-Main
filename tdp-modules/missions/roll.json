@@ -34,6 +34,11 @@
       "mission_id": "roll_003",
       "name": "Midscreen Relaunch",
       "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
+         "setup_debug_flags": {
+        
+        "BaroquePct": 1
+      
+      },
       "steps": [
         { "label": "5A" },
         
@@ -47,7 +52,7 @@
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.B" },
-        { "label": "Roll Swing B" },
+        { "label": "j.C" },
         { "label": "Mop up Turbo" }
 
       
@@ -74,9 +79,10 @@
         { "label": "5C" },
         { "label": "3C" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "Roll Swing B" },
         { "label": "5B" }, 
-        { "label": "3c" }, 
+        { "label": "3C" }, 
         { "label": "j.B" },
         { "label": "Roll Swing B" },
         { "label": "Mop up C" },
