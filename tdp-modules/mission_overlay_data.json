@@ -1,22 +1,22 @@
 {
-  "character": "Zero",
+  "character": "Casshan",
   "mission_count": 7,
-  "active_mission_id": "zero_005",
-  "active_mission_name": "Dark Hold Finish",
-  "active_mission_notes": "",
+  "active_mission_id": "casshan_002",
+  "active_mission_name": "Combo 2",
+  "active_mission_notes": "Basic ground string into air ender.",
   "active_mission_steps": [
     {
       "labels": [
-        "5B"
+        "5A"
       ],
       "grace": 0,
       "pass": false,
       "grace_keeps_alive_only": false,
-      "color": "yellow"
+      "color": "blue"
     },
     {
       "labels": [
-        "2B"
+        "5B"
       ],
       "grace": 0,
       "pass": false,
@@ -43,30 +43,12 @@
     },
     {
       "labels": [
-        "j.B"
+        "j.A"
       ],
       "grace": 0,
       "pass": false,
       "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "j.B (second hit)"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "Jump Cancel"
-      ],
-      "grace": 0,
-      "pass": true,
-      "grace_keeps_alive_only": false,
-      "color": null
+      "color": "blue"
     },
     {
       "labels": [
@@ -79,220 +61,105 @@
     },
     {
       "labels": [
-        "Air Hyper Zero Blaster"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": null
-    },
-    {
-      "labels": [
-        "Air Dash A"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "blue"
-    },
-    {
-      "labels": [
-        "2A"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "blue"
-    },
-    {
-      "labels": [
-        "2B"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "5C"
+        "Shooting Star Kick C"
       ],
       "grace": 0,
       "pass": false,
       "grace_keeps_alive_only": false,
       "color": "green"
-    },
-    {
-      "labels": [
-        "2C"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "green"
-    },
-    {
-      "labels": [
-        "6C"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "green"
-    },
-    {
-      "labels": [
-        "Baroque cancel"
-      ],
-      "grace": 0,
-      "pass": true,
-      "grace_keeps_alive_only": false,
-      "color": null
-    },
-    {
-      "labels": [
-        "5B"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "2B"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "5C"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "green"
-    },
-    {
-      "labels": [
-        "3C"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "green"
-    },
-    {
-      "labels": [
-        "j.B"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "j.B (second hit)"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "Jump Cancel"
-      ],
-      "grace": 0,
-      "pass": true,
-      "grace_keeps_alive_only": false,
-      "color": null
-    },
-    {
-      "labels": [
-        "j.B"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "Air Hyper Zero Blaster"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": null
-    },
-    {
-      "labels": [
-        "Air Dash A"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "blue"
-    },
-    {
-      "labels": [
-        "2A"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "blue"
-    },
-    {
-      "labels": [
-        "2B"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "yellow"
-    },
-    {
-      "labels": [
-        "5C"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "green"
-    },
-    {
-      "labels": [
-        "6C"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": "green"
-    },
-    {
-      "labels": [
-        "Dark Hold"
-      ],
-      "grace": 0,
-      "pass": false,
-      "grace_keeps_alive_only": false,
-      "color": null
     }
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "zero_005",
+  "selected_mission_id": null,
   "missions": [
     {
-      "mission_id": "zero_001",
-      "name": "Starter",
-      "notes": "Basic launcher route.",
+      "mission_id": "casshan_001",
+      "name": "Combo 1",
+      "notes": "Basic ground string into air series.",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.A (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "casshan_002",
+      "name": "Combo 2",
+      "notes": "Basic ground string into air ender.",
       "completed": false,
       "selected": false,
       "steps": [
@@ -352,6 +219,273 @@
         },
         {
           "labels": [
+            "Shooting Star Kick C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "casshan_003",
+      "name": "Combo 3",
+      "notes": "Baroque extension into launcher and air finish.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Denko A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Denko B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Shooting Star Kick C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
+    },
+    {
+      "mission_id": "casshan_004",
+      "name": "Combo 4",
+      "notes": "Friender extension into relaunch finish.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Denko B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "grace_keeps_alive_only": false,
+          "color": null
+        },
+        {
+          "labels": [
+            "Friender C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
             "j.C"
           ],
           "grace": 0,
@@ -361,12 +495,14 @@
         }
       ],
       "goal": {},
-      "setup_debug_flags": {}
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
-      "mission_id": "zero_002",
-      "name": "Baroque Blaster",
-      "notes": "",
+      "mission_id": "casshan_005",
+      "name": "Combo 5",
+      "notes": "Knee starter into Baroque combo finish.",
       "completed": false,
       "selected": false,
       "steps": [
@@ -408,96 +544,22 @@
         },
         {
           "labels": [
-            "6C"
+            "Knee A"
           ],
           "grace": 0,
           "pass": false,
           "grace_keeps_alive_only": false,
-          "color": "green"
+          "color": "blue"
         },
         {
           "labels": [
             "Baroque cancel"
           ],
           "grace": 0,
-          "pass": true,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "Air Hyper Zero Blaster"
-          ],
-          "grace": 0,
           "pass": false,
           "grace_keeps_alive_only": false,
           "color": null
         },
-        {
-          "labels": [
-            "Air DP C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "zero_003",
-      "name": "Sentsuizan Extension",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
         {
           "labels": [
             "5A"
@@ -527,78 +589,6 @@
         },
         {
           "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "Sentsuizan B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "Air Hyper Zero Blaster"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
             "3C"
           ],
           "grace": 0,
@@ -617,524 +607,23 @@
         },
         {
           "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "Air Hyper Zero Blaster"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "Air DP C"
+            "Shooting Star Kick C"
           ],
           "grace": 0,
           "pass": false,
           "grace_keeps_alive_only": false,
           "color": "green"
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "zero_004",
-      "name": "DP Baroque Route",
-      "notes": "",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "DP A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "Air Hyper Zero Blaster"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "Air DP C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "zero_005",
-      "name": "Dark Hold Finish",
-      "notes": "",
-      "completed": false,
-      "selected": true,
-      "steps": [
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "Air Hyper Zero Blaster"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "Air Dash A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "2A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "2C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "j.B (second hit)"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "Jump Cancel"
-          ],
-          "grace": 0,
-          "pass": true,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "Air Hyper Zero Blaster"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "Air Dash A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "2A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Dark Hold"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "zero_006",
-      "name": "Air Throw Followup",
-      "notes": "Some moves are missing, see if you can figure it out",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "Air Forward Throw"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "Sentsuizan B"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "yellow"
         }
       ],
       "goal": {},
       "setup_debug_flags": {
-        "CpuAction": 2
+        "BaroquePct": 1
       }
     },
     {
-      "mission_id": "zero_007",
-      "name": "Challenge",
-      "notes": "Some moves are missing, see if you can figure it out",
+      "mission_id": "casshan_006",
+      "name": "Combo 6",
+      "notes": "Ground confirm into super finish.",
       "completed": false,
       "selected": false,
       "steps": [
@@ -1158,34 +647,7 @@
         },
         {
           "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Hyper Zero Blaster"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5B"
+            "2B"
           ],
           "grace": 0,
           "pass": false,
@@ -1203,25 +665,7 @@
         },
         {
           "labels": [
-            "Hyper Zero Blaster"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": null
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "blue"
-        },
-        {
-          "labels": [
-            "5B"
+            "Denko B"
           ],
           "grace": 0,
           "pass": false,
@@ -1230,30 +674,68 @@
         },
         {
           "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false,
-          "grace_keeps_alive_only": false,
-          "color": "green"
-        },
-        {
-          "labels": [
-            "Hyper Zero Blaster"
+            "Super Destruction Beam"
           ],
           "grace": 0,
           "pass": false,
           "grace_keeps_alive_only": false,
           "color": null
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "casshan_007",
+      "name": "Challenge",
+      "notes": "Some moves are missing good luck.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "Denko B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
         },
         {
           "labels": [
-            "DP C"
+            "6B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
           ],
           "grace": 0,
           "pass": false,
           "grace_keeps_alive_only": false,
           "color": "green"
+        },
+        {
+          "labels": [
+            "Brutal Axe"
+          ],
+          "grace": 0,
+          "pass": false,
+          "grace_keeps_alive_only": false,
+          "color": null
         }
       ],
       "goal": {},
@@ -1261,16 +743,16 @@
     }
   ],
   "active": true,
-  "slot": "P1-C2",
+  "slot": "P1-C1",
   "just_cleared": false,
-  "clear_seq": 0,
+  "clear_seq": 1,
   "celebrate_pending": false,
-  "celebrate_token": 0,
+  "celebrate_token": 1,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "5B",
+  "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 4,
+  "selector_index": 0,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true

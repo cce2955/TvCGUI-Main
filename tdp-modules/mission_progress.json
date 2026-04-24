@@ -30,5 +30,11 @@
   "zero": {
     "completed": {},
     "selected_mission_id": "zero_005"
+  },
+  "casshan": {
+    "completed": {
+      "casshan_001": true
+    },
+    "selected_mission_id": null
   }
 }

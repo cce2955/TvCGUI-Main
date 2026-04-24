@@ -841,7 +841,7 @@ class MasterOverlay:
         cx, cy = self.w // 2, self.h // 2 - int(self.h * 0.05)
         self._celebrate_particles = []
 
-        for _ in range(120):
+        for _ in range(36):
             angle = random.uniform(0, math.tau)
             speed = random.uniform(90, 460)
             size = random.randint(2, 8)
@@ -867,7 +867,7 @@ class MasterOverlay:
         self._lightning_timer = 0.0
         self._lightning_spawn_interval = random.uniform(0.08, 0.18)
 
-        for _ in range(36):
+        for _ in range(12):
             angle = random.uniform(-2.2, -0.9)
             speed = random.uniform(140, 340)
             size = random.randint(3, 7)
@@ -916,13 +916,13 @@ class MasterOverlay:
         phase = self._celebrate_phase
         CELEBRATE_DURATION = 3.0
 
-        if phase < 0.22:
-            bloom_alpha = int(72 * (1.0 - phase / 0.22))
+        if phase < 0.18:
+            bloom_alpha = int(24 * (1.0 - phase / 0.18))
             bloom = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
-            bloom.fill((255, 236, 140, bloom_alpha))
+            bloom.fill((180, 210, 255, bloom_alpha))
             self.screen.blit(bloom, (0, 0))
             
-        self.draw_lightning()
+        # Softer celebration: no lightning during mission complete.
         cx_screen = self.w // 2
         cy_screen = self.h // 2 - int(self.h * 0.05)
 
@@ -976,66 +976,37 @@ class MasterOverlay:
             scale = max(0.01, scale_t * overshoot)
 
             base_text = "MISSION COMPLETE"
-            text_surf = stamp_font.render(base_text, True, (255, 245, 255))
+            text_surf = stamp_font.render(base_text, True, (235, 245, 255))
 
             tw = max(1, int(text_surf.get_width() * scale))
             th = max(1, int(text_surf.get_height() * scale))
-            drift_y = int((1.0 - min(1.0, phase / 0.35)) * 14)
+            drift_y = int((1.0 - min(1.0, phase / 0.35)) * 8)
 
-            plate_w = tw + 90
-            plate_h = th + 34
+            plate_w = tw + 72
+            plate_h = th + 28
             plate = pygame.Surface((plate_w, plate_h), pygame.SRCALPHA)
 
-            for yy in range(plate_h):
-                frac = yy / max(plate_h - 1, 1)
-
-                if frac < 0.16:
-                    r, g, b = 250, 252, 255
-                elif frac < 0.38:
-                    t2 = (frac - 0.16) / 0.22
-                    r = int(250 + (170 - 250) * t2)
-                    g = int(252 + (215 - 252) * t2)
-                    b = int(255 + (255 - 255) * t2)
-                elif frac < 0.68:
-                    t2 = (frac - 0.38) / 0.30
-                    r = int(170 + (52 - 170) * t2)
-                    g = int(215 + (120 - 215) * t2)
-                    b = int(255 + (225 - 255) * t2)
-                else:
-                    t2 = (frac - 0.68) / 0.32
-                    r = int(52 + (18 - 52) * t2)
-                    g = int(120 + (58 - 120) * t2)
-                    b = int(225 + (145 - 225) * t2)
-
-                pygame.draw.line(
-                    plate,
-                    (r, g, b, min(220, stamp_alpha)),
-                    (0, yy),
-                    (plate_w, yy),
-                )
+            plate.fill((18, 20, 32, min(210, stamp_alpha)))
 
             pygame.draw.rect(
                 plate,
-                (255, 255, 255, min(130, stamp_alpha)),
-                (2, 2, plate_w - 4, max(2, plate_h // 7)),
-                border_radius=4,
+                (110, 145, 190, min(120, stamp_alpha)),
+                (0, 0, plate_w, plate_h),
+                1,
+                border_radius=6,
             )
 
             pygame.draw.rect(
                 plate,
-                (220, 240, 255, min(180, stamp_alpha)),
-                (0, 0, plate_w, plate_h),
-                2,
+                (255, 255, 255, min(45, stamp_alpha)),
+                (3, 3, plate_w - 6, max(2, plate_h // 8)),
                 border_radius=5,
             )
 
-            pygame.draw.rect(
-                plate,
-                (16, 46, 98, min(150, stamp_alpha)),
-                (3, 3, plate_w - 6, plate_h - 6),
-                1,
-                border_radius=4,
-            )
+            sheen_x = int((phase * 180) % (plate_w + 80)) - 80
+            sheen = pygame.Surface((44, plate_h), pygame.SRCALPHA)
+            sheen.fill((255, 255, 255, min(24, stamp_alpha)))
+            plate.blit(sheen, (sheen_x, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
             px = cx_screen - plate_w // 2
             py = cy_screen - plate_h // 2 - drift_y
@@ -1043,22 +1014,14 @@ class MasterOverlay:
 
             shadow_surf = stamp_font.render(base_text, True, (0, 0, 0))
             shadow_scaled = pygame.transform.smoothscale(shadow_surf, (tw, th))
-            shadow_scaled.set_alpha(stamp_alpha // 2)
+            shadow_scaled.set_alpha(stamp_alpha // 3)
 
             scaled = pygame.transform.smoothscale(text_surf, (tw, th))
             scaled.set_alpha(stamp_alpha)
 
-            sheen = pygame.Surface((tw, th), pygame.SRCALPHA)
-            pygame.draw.rect(
-                sheen,
-                (255, 255, 255, min(80, stamp_alpha // 3)),
-                (0, 0, tw, max(2, th // 6)),
-            )
-            scaled.blit(sheen, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
-
             tx = cx_screen - tw // 2
             ty = cy_screen - th // 2 - drift_y
-            self.screen.blit(shadow_scaled, (tx + 4, ty + 4))
+            self.screen.blit(shadow_scaled, (tx + 2, ty + 2))
             self.screen.blit(scaled, (tx, ty))
 
     def update_mission_animations(self, dt: float) -> None:
@@ -1163,6 +1126,14 @@ class MasterOverlay:
             (235, 235, 235),
         )
 
+        completed_step_count = int(data.get("completed_step_count", 0))
+        current_step_index = int(data.get("current_step_index", 0))
+        progress_surf = self.smallfont.render(
+            f"{completed_step_count}/{len(steps)}",
+            True,
+            (190, 200, 220),
+        )
+
         pad = 10
 
         if selector_open:
@@ -1257,6 +1228,7 @@ class MasterOverlay:
 
             draw_y = y + pad
             self.screen.blit(title, (x + pad, draw_y))
+            self.screen.blit(progress_surf, (x + box_w - pad - progress_surf.get_width(), draw_y + 2))
             draw_y += title.get_height() + 4
             self.screen.blit(sub, (x + pad, draw_y))
             draw_y += sub.get_height() + 4
@@ -1341,11 +1313,11 @@ class MasterOverlay:
                 if isinstance(step, dict):
                     c = step.get("color")
                     if c == "blue":
-                        base_color = (80, 150, 255)
+                        base_color = (115, 155, 235)   # softer steel blue
                     elif c == "yellow":
-                        base_color = (245, 220, 80)
+                        base_color = (220, 195, 105)   # muted gold
                     elif c == "green":
-                        base_color = (90, 230, 120)
+                        base_color = (105, 215, 155)   # jade mint
 
                 if idx < completed_step_count:
                     label = f"[x] {idx + 1}. {step_text}"
@@ -1428,6 +1400,15 @@ class MasterOverlay:
             draw_y += sub.get_height() + 4
             self.screen.blit(hint, (x + pad, draw_y))
 
+            header_divider_y = draw_y + hint.get_height() + 6
+            pygame.draw.line(
+                self.screen,
+                (70, 62, 100),
+                (x + pad, header_divider_y),
+                (x + box_w - pad, header_divider_y),
+                1,
+            )
+
             toggle_w = toggle_surf.get_width() + 14
             toggle_h = toggle_surf.get_height() + 6
             hint_toggle_w = hint_toggle_surf.get_width() + 14
@@ -1456,7 +1437,7 @@ class MasterOverlay:
             pygame.draw.rect(self.screen, (180, 180, 200), self.mission_hint_rect, 1, border_radius=3)
             self.screen.blit(hint_toggle_surf, (hint_toggle_x + 7, toggle_y + 3))
 
-            draw_y += hint.get_height() + 8
+            draw_y += hint.get_height() + 12
             if show_goal_timer:
                 timer_rect = pygame.Rect(x + pad, draw_y, box_w - pad * 2, 36)
 
@@ -1604,14 +1585,14 @@ class MasterOverlay:
                     else f"[ ] {idx + 1}. {step_text}"
                 )
                 if is_completed:
-                    dim = max(60, int(120 * (1.0 - t) + 180 * t))
-                    draw_color = (
-                        min(255, int(text_color[0] * dim // 200)),
-                        min(255, int(text_color[1] * dim // 200)),
-                        min(255, int(text_color[2] * dim // 200)),
-                    )
+                    draw_color = (165, 165, 175)
+                elif is_active:
+                    draw_color = (235, 245, 255)
                 else:
                     draw_color = text_color
+
+                shadow = self.smallfont.render(label_str, True, (18, 18, 24))
+                self.screen.blit(shadow, (x + pad + STEP_PAD_X + 1, draw_y + STEP_PAD_Y + 1))
 
                 draw_surf = self.smallfont.render(label_str, True, draw_color)
 
