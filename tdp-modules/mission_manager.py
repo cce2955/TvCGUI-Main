@@ -109,6 +109,7 @@ def _new_mission_runtime(
     celebrate_token=0,
     celebrate_pending=False,
     celebrate_acked_token=0,
+    
 ) -> dict:
     return {
         "slot": slot,
@@ -123,6 +124,7 @@ def _new_mission_runtime(
         "pending_labels": [],
         "pending_anim": None,
         "opponent_hp_by_base": {},
+           "attacker_hp_by_base": {},
         "goal_state_frames": 0,
         "goal_combo_damage": 0,
         "goal_combo_hits": 0,
@@ -827,6 +829,8 @@ class MissionManager:
 
         return damage_values
 
+
+
     # ------------------------------------------------------------------
     # Step predicate helpers
     # ------------------------------------------------------------------
@@ -948,6 +952,68 @@ class MissionManager:
             if allowed and any(d in allowed for d in damage_values):
                 return True
         return False
+    def _doronjo_damage_pass(
+        self, character_name: str, expected_labels: list[str], damage_values: list[int]
+    ) -> bool:
+        if character_name != "Doronjo":
+            return False
+        labels_norm = {str(x).strip().lower() for x in (expected_labels or []) if str(x).strip()}
+        if not labels_norm or not damage_values:
+            return False
+        for label in labels_norm:
+            allowed = DORONJO_DAMAGE_PASS.get(label)
+            if allowed and any(d in allowed for d in damage_values):
+                return True
+        return False
+
+    def _can_repeat_same_step_on_damage(
+        self,
+        steps: list,
+        progress_index: int,
+        pending_labels: list[str],
+        current_label: str,
+        current_anim,
+        damage_values: list[int],
+    ) -> bool:
+        if not damage_values:
+            return False
+
+        if progress_index <= 0 or progress_index >= len(steps):
+            return False
+
+        current_labels = self._step_labels(steps[progress_index])
+        previous_labels = self._step_labels(steps[progress_index - 1])
+
+        if not current_labels or not previous_labels:
+            return False
+
+        current_norm = {str(x).strip().lower() for x in current_labels}
+        previous_norm = {str(x).strip().lower() for x in previous_labels}
+        pending_norm = {str(x).strip().lower() for x in pending_labels}
+
+        if not current_norm or current_norm != previous_norm:
+            return False
+
+        if pending_norm and pending_norm != current_norm:
+            return False
+
+        if (current_label or "").strip().lower() not in current_norm:
+            return False
+
+        last_anim = self._runtime.get("last_seen_anim")
+        if current_anim != last_anim:
+            return False
+
+
+        return True
+
+    def _step_is_baroque_cancel(self, expected_labels: list[str]) -> bool:
+        labels_norm = {
+            str(x).strip().lower()
+            for x in (expected_labels or [])
+            if str(x).strip()
+        }
+        return "baroque cancel" in labels_norm
 
     # ------------------------------------------------------------------
     # Core augment (was _augment_payload_with_runtime)
@@ -1050,6 +1116,7 @@ class MissionManager:
         damage_values = self._opponent_damage_this_frame(slot, snaps_dict)
         opponent_took_damage = bool(damage_values)
         frame_damage = sum(int(x) for x in damage_values)
+        baroque_pool_adjusted = bool(snap.get("baroque_cancel_raw"))
 
         # ryu_008 / saki_009 meter gate
         if mission_id in {"ryu_008", "saki_009"}:
@@ -1226,6 +1293,11 @@ class MissionManager:
             and not pass_confirm
         )
         doronjo_pass = self._doronjo_damage_pass(character_name, expected_labels, damage_values)
+        baroque_damage_confirm = (
+            self._step_is_baroque_cancel(expected_labels)
+            and opponent_in_combo_state
+            and baroque_pool_adjusted
+        )
 
         if self._runtime.get("pending_step_index") != progress_index:
             self._runtime.update({
@@ -1249,6 +1321,15 @@ class MissionManager:
             and current_matches_expected
             and has_fresh_attack_input
             and not self._is_saki_shell_label(current_label)
+        )
+
+        baroque_buffered_for_next_step = (
+            progress_index + 1 < len(steps)
+            and baroque_pool_adjusted
+            and opponent_in_combo_state
+            and self._step_is_baroque_cancel(
+                self._step_labels(steps[progress_index + 1])
+            )
         )
 
         matched_fresh_expected = (
@@ -1283,13 +1364,28 @@ class MissionManager:
                 "pending_step_index": None,
                 "pending_labels": [],
                 "pending_anim": None,
-                "last_seen_label": "",
-                "last_seen_anim": None,
-                "last_seen_hitstun": False,
-                "last_inputs": {},
-                "hitstun_grace": 0,
+                "reset_grace_frames": completed_grace,
+                "reset_grace_labels": [],
+                "reset_grace_step_index": progress_index if completed_grace > 0 else None,
+                "shell_install_hold": 0,
             })
-
+            if (
+                progress_index < len(steps)
+                and self._step_is_baroque_cancel(self._step_labels(steps[progress_index]))
+                    and baroque_pool_adjusted
+                    and opponent_in_combo_state
+                ):
+                    progress_index += 1
+                    self._runtime.update({
+                        "progress_index": progress_index,
+                        "pending_step_index": None,
+                        "pending_labels": [],
+                        "pending_anim": None,
+                        "reset_grace_frames": self._step_grace(steps[progress_index - 1]),
+                        "reset_grace_labels": [],
+                        "reset_grace_step_index": progress_index,
+                        "shell_install_hold": 0,
+                    })
         elif MISSION_REQUIRE_DAMAGE_CONFIRM:
             if matched_fresh_expected:
                 if pass_confirm:
@@ -1343,15 +1439,50 @@ class MissionManager:
                     pending_step_index = progress_index
                     pending_labels = expected_labels[:]
 
+            repeat_same_step_damage = self._can_repeat_same_step_on_damage(
+                steps,
+                progress_index,
+                pending_labels,
+                current_label,
+                current_anim,
+                damage_values,
+            )
+
+            if (
+                baroque_damage_confirm
+                and pending_step_index != progress_index
+            ):
+                self._runtime.update({
+                    "pending_step_index": progress_index,
+                    "pending_labels": expected_labels[:],
+                    "pending_anim": current_anim,
+                })
+                pending_step_index = progress_index
+                pending_labels = expected_labels[:]
+
             if (
                 pending_step_index == progress_index
                 and pending_labels
                 and (opponent_in_combo_state or reset_grace_active)
-                and (opponent_took_damage or non_damage_confirm or doronjo_pass)
+                and (
+                    opponent_took_damage
+                    or non_damage_confirm
+                    or doronjo_pass
+                    or repeat_same_step_damage
+                    or baroque_damage_confirm
+                )
             ):
                 completed_grace = self._step_grace(expected_step)
 
                 progress_index += 1
+
+                if (
+                    baroque_buffered_for_next_step
+                    and progress_index < len(steps)
+                    and self._step_is_baroque_cancel(self._step_labels(steps[progress_index]))
+                ):
+                    progress_index += 1
+
                 self._runtime.update({
                     "progress_index": progress_index,
                     "pending_step_index": None,

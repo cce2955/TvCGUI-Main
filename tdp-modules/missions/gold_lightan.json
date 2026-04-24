@@ -58,6 +58,10 @@
       "mission_id": "gold_lightan_006",
       "name": "Challenge",
       "notes": "",
+               "setup_debug_flags": {
+        
+        "P1Meter": 2
+      },
       "steps": [
         { "label": "3C" },
         { "label": "j.B" },

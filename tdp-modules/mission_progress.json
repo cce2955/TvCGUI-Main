@@ -1,14 +1,84 @@
 {
   "alex": {
     "completed": {
-      "alex_001": true
+      "alex_001": true,
+      "alex_004": true,
+      "alex_002": true
     },
-    "selected_mission_id": "alex_001"
+    "selected_mission_id": "alex_002"
   },
   "saki": {
     "completed": {
       "saki_009": true
     },
     "selected_mission_id": "saki_009"
+  },
+  "batsu": {
+    "completed": {
+      "batsu_001": true
+    },
+    "selected_mission_id": "batsu_001"
+  },
+  "chun_li": {
+    "completed": {
+      "chun_001": true,
+      "chun_002": true,
+      "chun_004": true,
+      "chun_005": true,
+      "chun_003": true
+    },
+    "selected_mission_id": "chun_003"
+  },
+  "casshan": {
+    "completed": {
+      "casshan_001": true,
+      "casshan_002": true,
+      "casshan_003": true,
+      "casshan_004": true,
+      "casshan_005": true,
+      "casshan_006": true
+    },
+    "selected_mission_id": "casshan_006"
+  },
+  "doronjo": {
+    "completed": {
+      "doronjo_001": true,
+      "doronjo_002": true,
+      "doronjo_003": true,
+      "doronjo_004": true,
+      "doronjo_005": true,
+      "doronjo_008": true
+    },
+    "selected_mission_id": "doronjo_009"
+  },
+  "frank_west": {
+    "completed": {
+      "frank_west_001": true,
+      "frank_west_002": true,
+      "frank_west_003": true,
+      "frank_west_004": true,
+      "frank_west_005": true,
+      "frank_west_006": true,
+      "frank_west_008": true
+    },
+    "selected_mission_id": "frank_west_008"
+  },
+  "ippatsuman": {
+    "completed": {
+      "ippatsuman_001": true,
+      "ippatsuman_002": true,
+      "ippatsuman_003": true
+    },
+    "selected_mission_id": "ippatsuman_004"
+  },
+  "joe_the_condor": {
+    "completed": {
+      "joe_the_condor_001": true,
+      "joe_the_condor_002": true,
+      "joe_the_condor_003": true,
+      "joe_the_condor_004": true,
+      "joe_the_condor_005": true
+    },
+    "selected_mission_id": "joe_the_condor_006"
   }
 }

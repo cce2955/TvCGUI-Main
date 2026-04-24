@@ -1,16 +1,30 @@
 {
-  "character": "Saki",
-  "mission_count": 9,
-  "active_mission_id": "saki_009",
-  "active_mission_name": "Meter Challenge",
+  "character": "Joe the Condor",
+  "mission_count": 8,
+  "active_mission_id": "joe_the_condor_006",
+  "active_mission_name": "Neat Stuff",
   "active_mission_notes": "",
   "active_mission_steps": [
     {
       "labels": [
-        "LOAD SUPER ARMOR PIERCING SHELL"
+        "5A"
       ],
-      "grace": 300,
-      "pass": true
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "5B"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "2B"
+      ],
+      "grace": 0,
+      "pass": false
     },
     {
       "labels": [
@@ -21,49 +35,140 @@
     },
     {
       "labels": [
-        "Grenade B"
-      ],
-      "grace": 0,
-      "pass": true
-    },
-    {
-      "labels": [
-        "LOAD SUPER ARMOR PIERCING SHELL"
-      ],
-      "grace": 200,
-      "pass": true
-    },
-    {
-      "labels": [
-        "5C"
+        "3C"
       ],
       "grace": 0,
       "pass": false
     },
     {
       "labels": [
-        "Grenade B"
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Shuriken A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Dash Forward"
       ],
       "grace": 0,
       "pass": true
     },
     {
       "labels": [
-        "LOAD SUPER ARMOR PIERCING SHELL"
+        "j.B"
       ],
-      "grace": 200,
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Jump Cancel"
+      ],
+      "grace": 0,
       "pass": true
     },
     {
       "labels": [
-        "5C"
+        "j.B"
       ],
-      "grace": 250,
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Shuriken A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Savage Shot A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Shuriken A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Savage Shot A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Baroque cancel"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Dash Forward"
+      ],
+      "grace": 0,
       "pass": true
     },
     {
       "labels": [
-        "Positron Storm"
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Jump Cancel"
+      ],
+      "grace": 0,
+      "pass": true
+    },
+    {
+      "labels": [
+        "j.B"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Shuriken A"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Air Science Ninpo"
+      ],
+      "grace": 0,
+      "pass": false
+    },
+    {
+      "labels": [
+        "Wild Lasso A"
       ],
       "grace": 0,
       "pass": false
@@ -71,144 +176,13 @@
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "saki_009",
+  "selected_mission_id": "joe_the_condor_006",
   "missions": [
     {
-      "mission_id": "saki_001",
-      "name": "Starter",
-      "notes": "Basic chain.",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2C"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_002",
-      "name": "Load Bullet C",
-      "notes": "22C",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2C"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_003",
-      "name": "Grenade BnB",
-      "notes": "22C",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Grenade B"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_004",
-      "name": "Corner Setup",
-      "notes": "22C",
-      "completed": false,
+      "mission_id": "joe_the_condor_001",
+      "name": "Combo Trial 001",
+      "notes": "",
+      "completed": true,
       "selected": false,
       "steps": [
         {
@@ -235,181 +209,6 @@
         {
           "labels": [
             "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Positron C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Positron Storm"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_005",
-      "name": "Throw Followup",
-      "notes": "22C",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "Forward Throw"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2C"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "saki_006",
-      "name": "LOAD SUPER ARMOR PIERCING SHELL",
-      "notes": "Read the title",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "LOAD SUPER ARMOR PIERCING SHELL"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {
-        "CpuGuard": 2
-      }
-    },
-    {
-      "mission_id": "saki_007",
-      "name": "Load Shell Route",
-      "notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "LOAD SUPER ARMOR PIERCING SHELL"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Headbutt"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2B"
           ],
           "grace": 0,
           "pass": false
@@ -430,6 +229,13 @@
         },
         {
           "labels": [
+            "j.A (second hit)"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
             "j.B"
           ],
           "grace": 0,
@@ -437,7 +243,32 @@
         },
         {
           "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
             "j.C"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "joe_the_condor_002",
+      "name": "Combo Trial 002",
+      "notes": "",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
           ],
           "grace": 0,
           "pass": false
@@ -451,6 +282,108 @@
         },
         {
           "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.A (second hit)"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Wild Lasso A"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "joe_the_condor_003",
+      "name": "Combo Trial 003",
+      "notes": "",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
             "3C"
           ],
           "grace": 0,
@@ -465,7 +398,28 @@
         },
         {
           "labels": [
-            "j.C"
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Shuriken A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Savage Shot B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Condor Magnum"
           ],
           "grace": 0,
           "pass": false
@@ -475,22 +429,53 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "saki_008",
-      "name": "Challenge",
-      "notes": "Some moves are missing go ahead and fill them in",
-      "completed": false,
+      "mission_id": "joe_the_condor_004",
+      "name": "Combo Trial 004",
+      "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
+      "completed": true,
       "selected": false,
       "steps": [
         {
           "labels": [
-            "Headbutt"
+            "Cactus Bunker A",
+            "Cactus Bunker B",
+            "Cactus Bunker C"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Load Ammo C"
+            "Wild Lasso A"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "CpuAction": 4
+      }
+    },
+    {
+      "mission_id": "joe_the_condor_005",
+      "name": "Combo Trial 005",
+      "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "Cactus Bunker A",
+            "Cactus Bunker B",
+            "Cactus Bunker C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
           ],
           "grace": 0,
           "pass": false
@@ -504,7 +489,252 @@
         },
         {
           "labels": [
-            "Positron Storm"
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B (second hit)"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Shuriken A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Dash Forward"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Shuriken A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Savage Shot A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Condor Magnum"
+          ],
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "CpuAction": 4,
+        "BaroquePct": 1
+      }
+    },
+    {
+      "mission_id": "joe_the_condor_006",
+      "name": "Neat Stuff",
+      "notes": "",
+      "completed": false,
+      "selected": true,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Shuriken A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Dash Forward"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Shuriken A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Savage Shot A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Shuriken A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Savage Shot A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Dash Forward"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Shuriken A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Science Ninpo"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Wild Lasso A"
           ],
           "grace": 0,
           "pass": false
@@ -514,71 +744,89 @@
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "saki_009",
-      "name": "Meter Challenge",
+      "mission_id": "joe_the_condor_007",
+      "name": "Challenge",
       "notes": "",
-      "completed": true,
-      "selected": true,
+      "completed": false,
+      "selected": false,
       "steps": [
         {
           "labels": [
-            "LOAD SUPER ARMOR PIERCING SHELL"
+            "That one combo from the JP Nico nico video I have to transcribe it again, if you see this I forgot to put it in"
           ],
-          "grace": 300,
-          "pass": true
-        },
+          "grace": 0,
+          "pass": false
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "joe_the_condor_008",
+      "name": "VAR Science Ninpo",
+      "notes": "",
+      "completed": false,
+      "selected": false,
+      "steps": [
         {
           "labels": [
-            "5C"
+            "VAR"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Grenade B"
-          ],
-          "grace": 0,
-          "pass": true
-        },
-        {
-          "labels": [
-            "LOAD SUPER ARMOR PIERCING SHELL"
-          ],
-          "grace": 200,
-          "pass": true
-        },
-        {
-          "labels": [
-            "5C"
+            "j.A"
           ],
           "grace": 0,
           "pass": false
         },
         {
           "labels": [
-            "Grenade B"
+            "j.B"
           ],
           "grace": 0,
-          "pass": true
+          "pass": false
         },
         {
           "labels": [
-            "LOAD SUPER ARMOR PIERCING SHELL"
+            "j.B"
           ],
-          "grace": 200,
-          "pass": true
+          "grace": 0,
+          "pass": false
         },
         {
           "labels": [
-            "5C"
+            "Air Shuriken A"
           ],
-          "grace": 250,
-          "pass": true
+          "grace": 0,
+          "pass": false
         },
         {
           "labels": [
-            "Positron Storm"
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Shuriken A"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Air Science Ninpo"
+          ],
+          "grace": 0,
+          "pass": false
+        },
+        {
+          "labels": [
+            "Wild Lasso A"
           ],
           "grace": 0,
           "pass": false
@@ -591,14 +839,14 @@
   "active": true,
   "slot": "P1-C2",
   "just_cleared": false,
-  "clear_seq": 1,
+  "clear_seq": 0,
   "celebrate_pending": false,
-  "celebrate_token": 1,
+  "celebrate_token": 0,
   "completed_step_count": 0,
   "current_step_index": 0,
-  "current_step_label": "LOAD SUPER ARMOR PIERCING SHELL",
+  "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 0,
+  "selector_index": 5,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true

@@ -9,12 +9,25 @@
         { "label": "5A" },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "j.B", "grace": 15 },
+        { "label": "j.B", "grace": 8 },
+        { "label": "Air Powerbomb" }
+      ]
+    },
+{
+  "mission_id": "alex_002",
+  "name": "Air Powerbomb",
+  "notes": "j.B j.B into Air Powerbomb.",
+  "setup_debug_flags": {
+    "CpuAction": 2
+  },
+  "steps": [
+        { "label": "j.B" },
+        { "label": "j.B (second hit)", "grace": 2 },
         { "label": "Air Powerbomb" }
       ]
     },
     {
-      "mission_id": "alex_002",
+      "mission_id": "alex_003",
       "name": "Stomp Route",
       "notes": "Double low into elbow chain.",
       "steps": [
@@ -27,7 +40,7 @@
       ]
     },
     {
-      "mission_id": "alex_003",
+      "mission_id": "alex_004",
       "name": "Machine Gun Chop",
       "notes": "Yes I see the bug on this one and I wanted to fix it, but also lke.....I don't",
       "setup_debug_flags": {
@@ -38,7 +51,7 @@
       ]
     },
     {
-      "mission_id": "alex_004",
+      "mission_id": "alex_005",
       "name": "Low Stomp",
       "notes": "Low starter into stomp ender.",
       "steps": [
@@ -50,7 +63,7 @@
       ]
     },
     {
-      "mission_id": "alex_005",
+      "mission_id": "alex_006",
       "name": "Heavy Stomp",
       "notes": "Heavy starter into stomp ender.",
       "steps": [
@@ -61,7 +74,7 @@
       ]
     },
     {
-      "mission_id": "alex_006",
+      "mission_id": "alex_007",
       "name": "Suplex",
       "notes": "Flash Chop B into Baroque extension, then Powerbomb.",
       "steps": [
@@ -75,7 +88,7 @@
       ]
     },
     {
-      "mission_id": "alex_007",
+      "mission_id": "alex_008",
       "name": "Stungun Loop",
       "notes": "",
       "steps": [
@@ -91,7 +104,7 @@
       ]
     },
     {
-      "mission_id": "alex_008",
+      "mission_id": "alex_009",
       "name": "Baroque BnB",
       "notes": "Baroque route into Wild Stomp C.The beginning needs some space of the elbow slash won't work, also the j.B should be used with an IAD",
       "steps": [
@@ -108,7 +121,7 @@
       ]
     },
     {
-      "mission_id": "alex_009",
+      "mission_id": "alex_010",
       "name": "Corner Damage",
       "notes": "Corner only. As you may have noticed by looking at this hint if you're too close to the corner they'll fly away from it, this engine is a rollercoaster",
       "steps": [
@@ -131,7 +144,7 @@
       ]
     },
     {
-      "mission_id": "alex_010",
+      "mission_id": "alex_011",
       "name": "Hyper Route",
       "notes": "Get Hype",
       "steps": [
@@ -148,7 +161,7 @@
       ]
     },
     {
-      "mission_id": "alex_011",
+      "mission_id": "alex_012",
       "name": "Challenge",
       "notes": "Some moves are missing, fill in the blank",
       "steps": [
@@ -161,7 +174,7 @@
       ]
     },
     {
-      "mission_id": "alex_012",
+      "mission_id": "alex_013",
       "name": "Challenge 2",
       "notes": "A hit after stungun always produces an airborne hit, but what if there was a way to cancel it out? Some moves are missing, fill in the blanks ",
       "steps": [
@@ -170,26 +183,39 @@
         { "label": "Hyperbomb" }
       ]
     },
-{
-  "mission_id": "alex_013",
-  "name": "Special Challenge",
-  "notes": "Do 30000 damage in a single combo. Baroque is locked to 20%.",
-  "setup_debug_flags": {
-    "BaroquePct": 2
-  },
-  "goal": {
-    "type": "combo_damage",
-    "damage": 45000
-  }
-}, {
-  "mission_id": "alex_014",
-  "name": "VAR Powerbomb",
-  "notes": "",
-  "steps": [
-    { "label": "VAR" },
-    { "label": "j.B" },
-    { "label": "Air Powerbomb" }
-  ]
-}
+    {
+      "mission_id": "alex_014",
+      "name": "Special Challenge",
+      "notes": "Do 30000 damage in a single combo. Baroque is locked to 20%.",
+      "setup_debug_flags": {
+        "BaroquePct": 2
+      },
+      "goal": {
+        "type": "combo_damage",
+        "damage": 45000
+      }
+    },
+    {
+      "mission_id": "alex_015",
+      "name": "Special Challenge",
+      "notes": "Do 30000 damage in a single combo. Baroque is locked to 10%.",
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      },
+      "goal": {
+        "type": "combo_damage",
+        "damage": 45000
+      }
+    },
+    {
+      "mission_id": "alex_016",
+      "name": "VAR Powerbomb",
+      "notes": "",
+      "steps": [
+        { "label": "VAR" },
+        { "label": "j.B" },
+        { "label": "Air Powerbomb" }
+      ]
+    }
   ]
 }

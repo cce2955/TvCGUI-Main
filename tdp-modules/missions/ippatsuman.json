@@ -20,6 +20,9 @@
       "mission_id": "ippatsuman_002",
       "name": "Combo Trial 002",
       "notes": "",
+                 "setup_debug_flags": {
+        "BaroquePct": 1
+      },
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
@@ -27,6 +30,7 @@
         { "label": "5C" },
         { "label": "3C" },
         { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
         { "label": "j.C" },
         { "label": "Mound A" },
@@ -35,6 +39,7 @@
         { "label": "5B" },
         { "label": "6B" },
         { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
         { "label": "j.C" }
       ]
@@ -50,8 +55,10 @@
         { "label": "5C" },
         { "label": "3C" },
         { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
-        { "label": "Air Quick Upper A" },
+        { "label": "j.B (second hit)" },
+        { "label": "Air Quick Upper A", "grace": 80 },
         { "label": "Final Reversal Breaker" }
       ]
     },
@@ -76,7 +83,7 @@
         { "label": "6B" },
         { "label": "j.A" },
         { "label": "j.B" },
-        { "label": "Air Quick Upper A" },
+        { "label": "Air Quick Upper A", "grace": 80 },
         { "label": "Final Reversal Breaker" }
       ]
     },{
@@ -115,7 +122,7 @@
     { "label": "j.B" },
     { "label": "Air Rainball B" },
     { "label": "j.B" },
-    { "label": "Air Quick Upper A" },
+    { "label": "Air Quick Upper A", "grace": 80 },
     { "label": "Final Reversal Breaker" }
   ]
 },{
@@ -139,7 +146,7 @@
     { "label": "Air Rainball B" },
     { "label": "Baroque cancel" },
     { "label": "j.B" },
-    { "label": "Air Quick Upper A" },
+    { "label": "Air Quick Upper A", "grace": 80 },
     { "label": "Final Reversal Breaker" }
   ]
 }

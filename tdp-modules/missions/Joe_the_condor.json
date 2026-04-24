@@ -11,8 +11,10 @@
         { "label": "2B" },
         { "label": "5C" },
         { "label": "3C" },
-        { "label": "j.A" },
+     { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "j.C" }
       ]
     },
@@ -26,8 +28,10 @@
         { "label": "2B" },
         { "label": "5C" },
         { "label": "3C" },
-        { "label": "j.A" },
+     { "label": "j.A" },
+        { "label": "j.A (second hit)" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "j.C" },
         { "label": "Wild Lasso A" }
       ]
@@ -43,6 +47,7 @@
         { "label": "5C" },
         { "label": "3C" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "Air Shuriken A" },
         { "label": "Air Savage Shot B" },
         { "label": "Air Condor Magnum" }
@@ -68,15 +73,23 @@
       "name": "Combo Trial 005",
       "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
       "setup_debug_flags": {
-        "CpuAction": 4
+        "CpuAction": 4 ,              
+        "BaroquePct": 1
+      
       },
       "steps": [
         { "labels": ["Cactus Bunker A", "Cactus Bunker B", "Cactus Bunker C"] },
         { "label": "Baroque cancel" },
         { "label": "3C" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "Air Shuriken A" },
+                { "label": "Air Dash Forward" , "pass": true },
+
         { "label": "j.B" },
+        { "label": "Jump Cancel", "pass": true },
+        { "label": "j.B" },
+        
         { "label": "Air Shuriken A" },
         { "label": "Air Savage Shot A" },
         { "label": "Air Condor Magnum" }
@@ -92,18 +105,24 @@
     { "label": "5C" },
     { "label": "3C" },
     { "label": "j.B" },
+    
     { "label": "Air Shuriken A" },
+    { "label": "Air Dash Forward" , "pass": true },
     { "label": "j.B" },
-    { "label": "j.B" },
-    { "label": "Air Shuriken A" },
-    { "label": "j.B" },
-    { "label": "Air Savage Shot B" },
+    { "label": "Jump Cancel", "pass": true },
     { "label": "j.B" },
     { "label": "Air Shuriken A" },
-    { "label": "Air Savage Shot B" },
+    { "label": "Air Savage Shot A" },
+    { "label": "j.B" },
+    { "label": "Air Shuriken A" },
+    { "label": "Air Savage Shot A" },
     { "label": "Baroque cancel" },
+    { "label": "Air Dash Forward" , "pass": true },
+    { "label": "j.B" },
+    { "label": "Jump Cancel", "pass": true },
     { "label": "j.B" },
     { "label": "Air Shuriken A" },
+   
     { "label": "Air Science Ninpo" },
     { "label": "Wild Lasso A" }
     

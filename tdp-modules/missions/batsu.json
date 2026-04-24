@@ -13,6 +13,8 @@
         { "label": "3C" },
         { "label": "j.A" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
+        
         { "label": "j.C" }
       ]
     },
@@ -26,6 +28,7 @@
         { "label": "2B" },
         { "label": "3C" },
         { "label": "j.B" },
+        { "label": "j.B (second hit)" },
         { "label": "Air Divekick B" },
         { "label": "Air Divekick B" },
         { "label": "Air Divekick B" },

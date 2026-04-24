@@ -25,6 +25,7 @@
         { "label": "3C" },
         { "label": "j.A" },
         { "label": "j.B" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.2C" }
       ]
     },
@@ -36,19 +37,19 @@
         { "label": "5A" },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" },
+        { "label": "Giant Swing B", "pass": true },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" },
+        { "label": "Giant Swing B", "pass": true },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" },
+        { "label": "Giant Swing B" , "pass": true },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" },
+        { "label": "Giant Swing B" , "pass": true },
         { "label": "5B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" },
+        { "label": "Giant Swing B" , "pass": true },
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.B" },
@@ -59,16 +60,18 @@
       "mission_id": "frank_west_004",
       "name": "Zombie Spree Route",
       "notes": "",
+        
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
         { "label": "2B" },
         { "label": "3C" },
-        { "label": "Giant Swing B" },
+        { "label": "Giant Swing B", "pass": true },
         { "label": "2B" },
         { "label": "3C" },
         
         { "label": "j.B" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.2C" },
         { "label": "Zombie Spree A" },
         { "label": "5A" },
@@ -104,6 +107,10 @@
       "mission_id": "frank_west_006",
       "name": "Dead Rising Extension",
       "notes": "",
+         "setup_debug_flags": {
+        
+        "P1Meter": 2
+      },
       "steps": [
         { "label": "Dead Rising" },
         { "label": "Zombie Spree A" },
@@ -117,6 +124,7 @@
         { "label": "5B" },
         { "label": "3C" },
         { "label": "j.B" },
+        { "label": "Jump Cancel", "pass": true },
         { "label": "j.2C" },
         { "label": "Zombie Spree C" },
         { "label": "5C" }
@@ -125,6 +133,10 @@
       "mission_id": "frank_west_008",
       "name": "Corner",
       "notes": "",
+            "setup_debug_flags": {
+        
+        "P1Meter": 2
+      },
       "steps": [
         { "label": "5A" },
         { "label": "5B" },
@@ -141,7 +153,7 @@
         
       ]
     },{
-      "mission_id": "frank_west_008",
+      "mission_id": "frank_west_009",
       "name": "Challenge",
       "notes": "",
       "steps": [
@@ -153,3 +165,4 @@
     }
   ]
 }
+
