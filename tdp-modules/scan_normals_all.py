@@ -290,6 +290,7 @@ def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
         return []
 
     moves: List[int] = []
+    seen_moves: set = set()
     for i in range(CHR_TBL_NUM_ENTRIES):
         entry = rd_u32_be(buf, tbl_off + i * 4)
 
@@ -304,7 +305,8 @@ def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
             continue
 
         move_abs = chr_tbl_abs + entry
-        if is_mem2_addr(move_abs):
+        if is_mem2_addr(move_abs) and move_abs not in seen_moves:
+            seen_moves.add(move_abs)
             moves.append(move_abs)
 
     return moves
@@ -523,12 +525,63 @@ def collect_move_anchors(buf: bytes, base_abs: int,
                          tbl_move_addrs: Optional[List[int]] = None) -> List[Dict[str, Any]]:
     moves: List[Dict[str, Any]] = []
     seen_abs: set = set()
+    seen_normal_key: Dict[int, int] = {}
 
-    def add_mv(kind: str, abs_addr: int, aid: Optional[int]) -> None:
+    # Duplicates happen because the same normal can be found through the
+    # chr_tbl pass, AIR/CMD lookahead, direct ANIM_HDR scan, and strict fallback.
+    # Keep exactly one normal per displayed normal ID, and prefer the most
+    # authoritative source.
+    source_rank = {
+        "table": 100,
+        "anim_hdr": 80,
+        "air_hdr": 70,
+        "cmd_hdr": 70,
+        "strict": 40,
+        "legacy_special": 20,
+        "unknown": 0,
+    }
+
+    def normal_key(kind: str, aid: Optional[int]) -> Optional[int]:
+        if kind != "normal" or aid is None:
+            return None
+        low = aid & 0xFF
+        return low if low in NORMAL_IDS else None
+
+    def add_mv(kind: str, abs_addr: int, aid: Optional[int], source: str = "unknown") -> None:
+        nkey = normal_key(kind, aid)
+
+        if nkey is not None:
+            existing_idx = seen_normal_key.get(nkey)
+            if existing_idx is not None:
+                old_mv = moves[existing_idx]
+                old_rank = source_rank.get(old_mv.get("source", "unknown"), 0)
+                new_rank = source_rank.get(source, 0)
+                old_abs = old_mv.get("abs") or 0
+
+                # Higher rank wins. Ties go to the earlier address, which is
+                # usually the real block start instead of an interior fragment.
+                if new_rank > old_rank or (new_rank == old_rank and abs_addr < old_abs):
+                    seen_abs.discard(old_abs)
+                    seen_abs.add(abs_addr)
+                    moves[existing_idx] = {
+                        "kind": kind,
+                        "abs": abs_addr,
+                        "id": aid,
+                        "source": source,
+                    }
+                return
+
+            if abs_addr in seen_abs:
+                return
+            seen_abs.add(abs_addr)
+            seen_normal_key[nkey] = len(moves)
+            moves.append({"kind": kind, "abs": abs_addr, "id": aid, "source": source})
+            return
+
         if abs_addr in seen_abs:
             return
         seen_abs.add(abs_addr)
-        moves.append({"kind": kind, "abs": abs_addr, "id": aid})
+        moves.append({"kind": kind, "abs": abs_addr, "id": aid, "source": source})
 
     if tbl_move_addrs:
         for mv_abs in tbl_move_addrs:
@@ -547,14 +600,14 @@ def collect_move_anchors(buf: bytes, base_abs: int,
                                 aid = candidate
                                 break
                 kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
-                add_mv(kind, mv_abs, aid)
+                add_mv(kind, mv_abs, aid, "table")
             else:
-                add_mv("special", mv_abs, None)
+                add_mv("special", mv_abs, None, "table")
 
     i = 0
     while i < len(buf):
         if match_bytes(buf, i, SUPER_END_HDR):
-            add_mv("super", base_abs + i, None)
+            add_mv("super", base_abs + i, None, "super_end")
             i += len(SUPER_END_HDR)
             continue
 
@@ -566,7 +619,7 @@ def collect_move_anchors(buf: bytes, base_abs: int,
                 if match_bytes(buf, p, ANIM_HDR):
                     aid = get_anim_id_after_hdr_strict(buf, p)
                     kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
-                    add_mv(kind, base_abs + p, aid)
+                    add_mv(kind, base_abs + p, aid, "air_hdr")
                     p += len(ANIM_HDR)
                     continue
                 p += 1
@@ -581,7 +634,7 @@ def collect_move_anchors(buf: bytes, base_abs: int,
                 if match_bytes(buf, p, ANIM_HDR):
                     aid = get_anim_id_after_hdr_strict(buf, p)
                     kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
-                    add_mv(kind, base_abs + p, aid)
+                    add_mv(kind, base_abs + p, aid, "cmd_hdr")
                     p += len(ANIM_HDR)
                     continue
                 p += 1
@@ -591,7 +644,7 @@ def collect_move_anchors(buf: bytes, base_abs: int,
         if match_bytes(buf, i, ANIM_HDR):
             aid = get_anim_id_after_hdr_strict(buf, i)
             kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
-            add_mv(kind, base_abs + i, aid)
+            add_mv(kind, base_abs + i, aid, "anim_hdr")
             i += len(ANIM_HDR)
             continue
 
@@ -599,7 +652,7 @@ def collect_move_anchors(buf: bytes, base_abs: int,
             if (buf[i] == 0x01 and buf[i + 2] == 0x01 and buf[i + 3] == 0x3C):
                 lo = buf[i + 1]
                 if 0x01 <= lo <= 0x1E:
-                    add_mv("special", base_abs + i, 0x0100 | lo)
+                    add_mv("special", base_abs + i, 0x0100 | lo, "legacy_special")
                     i += 4
                     continue
 
@@ -609,7 +662,7 @@ def collect_move_anchors(buf: bytes, base_abs: int,
         if not looks_like_real_move_anchor(buf, pos):
             continue
         kind = "normal" if (aid & 0xFF) in NORMAL_IDS else "special"
-        add_mv(kind, base_abs + pos, aid)
+        add_mv(kind, base_abs + pos, aid, "strict")
 
     return moves
 

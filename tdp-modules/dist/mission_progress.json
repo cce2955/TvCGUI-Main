@@ -1,0 +1,69 @@
+{
+  "casshan": {
+    "completed": {
+      "casshan_001": true,
+      "casshan_002": true,
+      "casshan_003": true,
+      "casshan_004": true,
+      "casshan_005": true,
+      "casshan_006": true,
+      "casshan_007": true
+    },
+    "selected_mission_id": "casshan_007"
+  },
+  "doronjo": {
+    "completed": {
+      "doronjo_001": true
+    },
+    "selected_mission_id": "doronjo_002"
+  },
+  "ryu": {
+    "completed": {
+      "ryu_001": true,
+      "ryu_002": true,
+      "ryu_003": true,
+      "ryu_004": true,
+      "ryu_005": true,
+      "ryu_007": true,
+      "ryu_008": true
+    },
+    "selected_mission_id": "ryu_008"
+  },
+  "chun_li": {
+    "completed": {
+      "chun_002": true
+    },
+    "selected_mission_id": "chun_003"
+  },
+  "alex": {
+    "completed": {
+      "alex_014": true,
+      "alex_002": true,
+      "alex_003": true,
+      "alex_004": true,
+      "alex_005": true,
+      "alex_006": true,
+      "alex_007": true,
+      "alex_009": true,
+      "alex_011": true,
+      "alex_012": true,
+      "alex_013": true
+    },
+    "selected_mission_id": "alex_015"
+  },
+  "soki": {
+    "completed": {
+      "soki_001": true,
+      "soki_002": true,
+      "soki_003": true,
+      "soki_004": true,
+      "soki_005": true,
+      "soki_006": true,
+      "soki_007": true,
+      "soki_008": true,
+      "soki_009": true,
+      "soki_010": true
+    },
+    "selected_mission_id": null
+  }
+}
