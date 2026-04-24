@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -277,7 +278,30 @@ def _goal_to_step_labels(goal: Dict[str, Any]) -> List[List[str]]:
 
     return [["Special challenge"]]
 
+_STEP_BTN_RE = re.compile(
+    r"(?:^[0-9]+([ABC])(?:$|\s|\(|\))|^j\.?([ABC])(?:$|\s|\(|\))|(?:^|\s)([ABC])(?:$|\s|\(|\)))",
+    re.I,
+)
 
+def _step_color(labels: List[str]) -> Optional[str]:
+    text = " / ".join(str(x).strip() for x in (labels or []) if str(x).strip())
+    if not text:
+        return None
+
+    m = _STEP_BTN_RE.search(text)
+    if not m:
+        return None
+
+    btn = next(g for g in m.groups() if g).upper()
+
+    if btn == "A":
+        return "blue"
+    if btn == "B":
+        return "yellow"
+    if btn == "C":
+        return "green"
+
+    return None
 def build_overlay_payload(character_name: str) -> Dict[str, Any]:
     pack = load_mission_pack(character_name)
     progress = load_progress()
@@ -296,6 +320,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         "labels": step.labels,
         "grace": step.grace,
         "pass": step.pass_step,
+        "color": _step_color(step.labels),
     }
     for step in active.steps
 ]
@@ -317,6 +342,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         "labels": step.labels,
         "grace": step.grace,
         "pass": step.pass_step,
+        "color": _step_color(step.labels),
     }
     for step in mission.steps
 ] if mission.steps else _goal_to_step_labels(mission.goal),

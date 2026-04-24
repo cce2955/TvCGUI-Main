@@ -1,498 +1,147 @@
 {
-  "character": "Ryu",
+  "character": "Chun-Li",
   "mission_count": 8,
-  "active_mission_id": "ryu_005",
-  "active_mission_name": "Corner Carry to Super",
-  "active_mission_notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
+  "active_mission_id": "chun_001",
+  "active_mission_name": "Sky Ladder",
+  "active_mission_notes": "Basic launcher route.",
   "active_mission_steps": [
     {
       "labels": [
         "5A"
       ],
       "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "2A"
-      ],
-      "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "blue"
     },
     {
       "labels": [
         "5B"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "yellow"
     },
     {
       "labels": [
         "2B"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "yellow"
     },
     {
       "labels": [
         "5C"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "green"
     },
     {
       "labels": [
-        "6C"
+        "3C"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "green"
     },
     {
       "labels": [
-        "Hado M"
+        "j.A"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "blue"
     },
     {
       "labels": [
-        "Baroque cancel"
+        "j.A (second hit)"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "blue"
     },
     {
       "labels": [
-        "Air Tatsu H"
+        "j.B"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "yellow"
     },
     {
       "labels": [
-        "5A"
+        "j.C"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "green"
     },
     {
       "labels": [
-        "5B"
+        "Jump Cancel"
       ],
       "grace": 0,
-      "pass": false
+      "pass": true,
+      "color": null
     },
     {
       "labels": [
-        "5C"
+        "j.B"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "yellow"
     },
     {
       "labels": [
-        "2C"
+        "j.C"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "green"
     },
     {
       "labels": [
-        "6C"
+        "Jump Cancel"
       ],
       "grace": 0,
-      "pass": false
+      "pass": true,
+      "color": null
     },
     {
       "labels": [
-        "Donkey H"
+        "j.B"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "yellow"
     },
     {
       "labels": [
-        "5A"
+        "j.C"
       ],
       "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "green"
     },
     {
       "labels": [
-        "5B"
+        "Air Tensho C"
       ],
       "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "5C"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "6C"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Tatsu H"
-      ],
-      "grace": 0,
-      "pass": false
-    },
-    {
-      "labels": [
-        "Shinkuu",
-        "Air Shinkuu"
-      ],
-      "grace": 0,
-      "pass": false
+      "pass": false,
+      "color": "green"
     }
   ],
   "active_mission_goal": {},
   "active_mission_setup_debug_flags": {},
-  "selected_mission_id": "ryu_005",
+  "selected_mission_id": "chun_001",
   "missions": [
     {
-      "mission_id": "ryu_001",
-      "name": "Basic Air Chain",
-      "notes": "Basic Magic Series.",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "3C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "j.C"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "ryu_002",
-      "name": "Tatsu Ender",
-      "notes": "Basic BnB",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Donkey H"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Tatsu H"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "ryu_003",
-      "name": "Double Extension",
-      "notes": "Baroque BnB.",
-      "completed": true,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Donkey H"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Tatsu H"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Tatsu H"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "ryu_004",
-      "name": "Donkey to Shinkuu",
-      "notes": "Overhead 6B starter into light donkey, triple fireball chain, tatsu, then super.",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "6B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Donkey L"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Tatsu H"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Shinkuu"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "ryu_005",
-      "name": "Corner Carry to Super",
-      "notes": "There's a tiger knee in here, the opponent will be grounded during a certain air attack",
+      "mission_id": "chun_001",
+      "name": "Sky Ladder",
+      "notes": "Basic launcher route.",
       "completed": true,
       "selected": true,
       "steps": [
@@ -501,195 +150,910 @@
             "5A"
           ],
           "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2A"
-          ],
-          "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "blue"
         },
         {
           "labels": [
             "5B"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "yellow"
         },
         {
           "labels": [
             "2B"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "yellow"
         },
         {
           "labels": [
             "5C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
         },
         {
           "labels": [
-            "6C"
+            "3C"
           ],
           "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Hado M"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Baroque cancel"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Air Tatsu H"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "2C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Donkey H"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5A"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5B"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "5C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "6C"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Tatsu H"
-          ],
-          "grace": 0,
-          "pass": false
-        },
-        {
-          "labels": [
-            "Shinkuu",
-            "Air Shinkuu"
-          ],
-          "grace": 0,
-          "pass": false
-        }
-      ],
-      "goal": {},
-      "setup_debug_flags": {}
-    },
-    {
-      "mission_id": "ryu_006",
-      "name": "VAR Air Series",
-      "notes": "The other character starts, VARs in Ryu, then Ryu finishes with j.A j.B j.C.",
-      "completed": false,
-      "selected": false,
-      "steps": [
-        {
-          "labels": [
-            "VAR"
-          ],
-          "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
         },
         {
           "labels": [
             "j.A"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.A (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
         },
         {
           "labels": [
             "j.B"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "yellow"
         },
         {
           "labels": [
             "j.C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Air Tensho C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
         }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "ryu_007",
-      "name": "Challenge",
+      "mission_id": "chun_002",
+      "name": "Baroque extension",
+      "notes": "No note",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.A (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Air Tensho C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Baroque cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Air Legs C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
+    },
+    {
+      "mission_id": "chun_003",
+      "name": "Legs cancel",
+      "notes": "You can just hold up to hop out of legs, start mashing during 5C",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Legs C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "Air Dash Forward"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "Air Dash Forward"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.A (second hit)"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Air Tensho C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "chun_004",
+      "name": "Double Legs",
+      "notes": "A bit tougher you got this",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Legs C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Legs C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Air Legs C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "chun_005",
+      "name": "Corner Loop",
+      "notes": "Corner only",
+      "completed": true,
+      "selected": false,
+      "steps": [
+        {
+          "labels": [
+            "5A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "2B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Legs C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "5B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "5C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "3C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.A"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Air Legs C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        }
+      ],
+      "goal": {},
+      "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "chun_006",
+      "name": "SBK Route",
       "notes": "",
       "completed": false,
       "selected": false,
@@ -699,141 +1063,265 @@
             "5A"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "blue"
         },
         {
           "labels": [
             "5B"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "yellow"
         },
         {
           "labels": [
             "2B"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "yellow"
         },
         {
           "labels": [
             "5C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
         },
         {
           "labels": [
-            "6C"
+            "2C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
         },
         {
           "labels": [
-            "Hado L"
+            "SBK H"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": null
         },
         {
           "labels": [
-            "Shin Sho"
+            "Baroque cancel"
           ],
           "grace": 0,
-          "pass": false
+          "pass": true,
+          "color": null
         },
         {
           "labels": [
-            "Hado L"
+            "j.C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
         },
         {
           "labels": [
             "5B"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "yellow"
         },
         {
           "labels": [
-            "6C"
+            "5C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
         },
         {
           "labels": [
-            "Tatsu H"
+            "3C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
         },
         {
           "labels": [
-            "Shinkuu",
-            "Air Shinkuu"
+            "j.A"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "blue"
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Jump Cancel"
+          ],
+          "grace": 0,
+          "pass": true,
+          "color": null
+        },
+        {
+          "labels": [
+            "j.B"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "yellow"
+        },
+        {
+          "labels": [
+            "j.C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
+        },
+        {
+          "labels": [
+            "Air Legs C"
+          ],
+          "grace": 0,
+          "pass": false,
+          "color": "green"
         }
       ],
       "goal": {},
       "setup_debug_flags": {}
     },
     {
-      "mission_id": "ryu_008",
+      "mission_id": "chun_007",
       "name": "Challenge",
-      "notes": "Some moves are missing, can you figure out which? 5 Bar Starter",
-      "completed": true,
+      "notes": "Some moves are missing, can you find the missing moves and link them together?",
+      "completed": false,
       "selected": false,
       "steps": [
         {
           "labels": [
-            "Hado L"
+            "3C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
         },
         {
           "labels": [
-            "Shin Sho"
+            "Shichei"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": null
         },
         {
           "labels": [
-            "Tatsu M"
+            "5B"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "yellow"
         },
         {
           "labels": [
-            "Shin Sho"
+            "Air Legs C"
           ],
           "grace": 0,
-          "pass": false
+          "pass": false,
+          "color": "green"
         }
       ],
       "goal": {},
       "setup_debug_flags": {}
+    },
+    {
+      "mission_id": "chun_008",
+      "name": "Special Challenge",
+      "notes": "Keep the opponent in blockstun for 1000 frames.",
+      "completed": false,
+      "selected": false,
+      "steps": [
+        [
+          "blockstun for 500 frames"
+        ]
+      ],
+      "goal": {
+        "type": "state_duration",
+        "target_state": "blockstun",
+        "frames": 500
+      },
+      "setup_debug_flags": {
+        "CpuGuard": 2,
+        "CpuPushblock": 1
+      }
     }
   ],
   "active": true,
-  "slot": "P1-C1",
+  "slot": "P1-C2",
   "just_cleared": false,
   "clear_seq": 1,
-  "celebrate_pending": true,
+  "celebrate_pending": false,
   "celebrate_token": 1,
   "completed_step_count": 0,
   "current_step_index": 0,
   "current_step_label": "5A",
   "selector_open": false,
-  "selector_index": 4,
+  "selector_index": 0,
   "selector_hint": "Down, Down, Taunt: Open Mission Select",
   "selector_controls": "Down: Move  Taunt: Select  Mouse still works",
   "scanlines": true

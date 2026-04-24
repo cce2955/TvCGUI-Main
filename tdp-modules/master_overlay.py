@@ -1278,15 +1278,28 @@ class MasterOverlay:
                     step_text = " / ".join(step)
                 else:
                     step_text = str(step)
+
+                base_color = (180, 180, 180)
+
+                if isinstance(step, dict):
+                    c = step.get("color")
+                    if c == "blue":
+                        base_color = (80, 150, 255)
+                    elif c == "yellow":
+                        base_color = (245, 220, 80)
+                    elif c == "green":
+                        base_color = (90, 230, 120)
+
                 if idx < completed_step_count:
                     label = f"[x] {idx + 1}. {step_text}"
-                    color = (120, 200, 140)
+                    color = base_color
                 elif idx == current_step_index:
                     label = f"[>] {idx + 1}. {step_text}"
-                    color = (255, 220, 80)
+                    color = base_color
                 else:
                     label = f"[ ] {idx + 1}. {step_text}"
-                    color = (180, 180, 180)
+                    color = base_color
+
                 surf = self.smallfont.render(label, True, color)
                 step_surfs.append((idx, surf, color))
 
