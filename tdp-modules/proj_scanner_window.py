@@ -25,6 +25,21 @@ _SUPER_EX_OFFSETS = {
     "ex0e4": 0x0E4,
 }
 
+# Temporary named super fields discovered from the probe pass.
+# f32/u16 decides how the edit dialog writes the value.
+_SUPER_FIELD_OFFSETS = {
+    "super_hit_react":    (0x00A, "u16"),  # CONFIRMED: hit reaction
+    "super_life":         (0x00E, "u16"),  # likely timer/lifetime
+    "super_air_kb_y":     (0x038, "f32"),  # user-tested: super scale behaves like air KB Y
+    "super_speed":        (0x090, "f32"),  # user-tested: speed on several supers
+    "super_accel":        (0x094, "f32"),  # user-tested: secondary accel / release behavior
+    "super_speed_2":      (0x09C, "f32"),  # user-tested: additional speed value
+    "super_accel_b":      (0x0B0, "f32"),  # Ryu has 32 here; secondary motion/offset candidate
+    "super_accel_c":      (0x0D4, "f32"),  # Ryu has 60 here; secondary motion/decel candidate
+    "super_multihit_cap": (0x0D8, "u32"),  # semi-confirmed: high values instant-max multihits
+    "super_radius":       (0x0E4, "f32"),  # CONFIRMED: super radius
+}
+
 
 # ---------------------------------------------------------------------------
 # Scan parameters
@@ -492,6 +507,14 @@ def _read_u16(addr: int) -> str:
     except Exception:
         return "?"
 
+def _read_u32(addr: int) -> str:
+    if rbytes is None: return "?"
+    try:
+        b = rbytes(addr, 4)
+        return str(struct.unpack(">I", b)[0]) if b and len(b) == 4 else "?"
+    except Exception:
+        return "?"
+
 def _read_u16_hex(addr: int) -> str:
     if rbytes is None: return "?"
     try:
@@ -548,6 +571,10 @@ _OPCODE_HIT_FIELDS = {
     "cluster": "script",
     "ex03c": "?", "ex060": "?", "ex090": "?", "ex094": "?",
     "ex09c": "?", "ex0d4": "?", "ex0e4": "?",
+    "super_speed": "?", "super_accel": "?",
+    "super_speed_2": "?", "super_accel_b": "?", "super_accel_c": "?",
+    "super_air_kb_y": "?", "super_multihit_cap": "?",
+    "super_radius": "?", "super_hit_react": "?", "super_life": "?",
 }
 
 
@@ -1146,6 +1173,16 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
         ex_base = _super_ex_base(addr, fmt)
         ex03c = _read_f32(ex_base + _SUPER_EX_OFFSETS["ex03c"])
         hit_base.update({
+            "super_hit_react":    _read_u16(ex_base + _SUPER_FIELD_OFFSETS["super_hit_react"][0]),
+            "super_life":         _read_u16(ex_base + _SUPER_FIELD_OFFSETS["super_life"][0]),
+            "super_air_kb_y":        _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_air_kb_y"][0]),
+            "super_speed": _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_speed"][0]),
+            "super_accel": _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_accel"][0]),
+            "super_speed_2":      _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_speed_2"][0]),
+            "super_accel_b":      _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_accel_b"][0]),
+            "super_accel_c":      _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_accel_c"][0]),
+            "super_multihit_cap":    _read_u32(ex_base + _SUPER_FIELD_OFFSETS["super_multihit_cap"][0]),
+            "super_radius":       _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_radius"][0]),
             "ex03c": ex03c,
             "ex060": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex060"]),
             "ex090": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex090"]),
@@ -1188,6 +1225,59 @@ def _super_ex_base(addr: int, fmt: str) -> int:
     if fmt == "super_struct_card2":
         return addr - 0x0C
     return addr
+
+
+def _super_probe_string(ex_base: int, max_items: int = 28) -> str:
+    """
+    Compact experimental dump for super structs.
+
+    Reads 0x120 bytes from the inferred local base and reports plausible
+    aligned f32/u16 values. This is intentionally noisy: the point is to
+    expose candidate lifetime/radius/speed/scale fields quickly.
+    """
+    if rbytes is None:
+        return "?"
+    try:
+        data = rbytes(ex_base, 0x120)
+    except Exception:
+        data = b""
+    if not data or len(data) < 0x20:
+        return "?"
+
+    out = []
+
+    def _add(label: str, val: str):
+        if len(out) < max_items:
+            out.append(f"{label}={val}")
+
+    # Floats: good for radius/speed/scale/gravity/arc.
+    for off in range(0, min(len(data) - 4, 0x120), 4):
+        try:
+            f = struct.unpack_from(">f", data, off)[0]
+        except Exception:
+            continue
+        if not (-5000.0 <= f <= 5000.0):
+            continue
+        af = abs(f)
+        # Skip pure zeros and denormal-looking trash; keep common constants.
+        if af == 0.0 or (0.0 < af < 0.0001):
+            continue
+        if af <= 5000.0:
+            _add(f"F{off:03X}", f"{f:.3g}")
+
+    # U16s: good for damage/lifetime/type/id/flags.
+    for off in range(0, min(len(data) - 2, 0x120), 2):
+        try:
+            u = struct.unpack_from(">H", data, off)[0]
+        except Exception:
+            continue
+        if u in (0, 1, 4, 10, 12, 35, 255, 256, 512, 1024, 1200, 1600, 2000, 2400, 3200, 4800, 5200, 6000, 10000):
+            _add(f"U{off:03X}", str(u))
+        elif 2 <= u <= 240 and off % 2 == 0:
+            # possible timers / small flags / type bytes packed into u16
+            _add(f"U{off:03X}", str(u))
+
+    return " ".join(out) if out else "?"
 
 def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
                               lookup: dict, char_damage_map: dict,
@@ -1400,6 +1490,20 @@ _COLS = [
     ("move",     "Move",      None,       False),
     ("dmg",      "Damage",    "dmg",      False),
     ("cluster",  "Cluster",   None,       False),
+
+    # Named super fields. These are editable for super_struct / super_struct_card rows.
+    ("super_hit_react",    "HitReact",     "super_hit_react", False),
+    ("super_life",         "SuperLife?",   "super_life", False),
+    ("super_air_kb_y",        "AirKBY?",  "super_air_kb_y", True),
+    ("super_speed", "SuperSpeed", "super_speed", True),
+    ("super_accel", "SuperAccel?", "super_accel", True),
+    ("super_speed_2",      "SuperSpeed2?",      "super_speed_2", True),
+    ("super_accel_b",      "AccelB?",      "super_accel_b", True),
+    ("super_accel_c",      "AccelC?",      "super_accel_c", True),
+    ("super_multihit_cap",    "MultiHitCap?",    "super_multihit_cap", False),
+    ("super_radius",       "SuperRadius",  "super_radius", True),
+
+    # Standard projectile/template fields.
     ("radius",   "Radius",    "radius",   True),
     ("speed",    "Speed",     "speed",    True),
     ("accel",    "Accel",     "accel",    True),
@@ -1411,38 +1515,10 @@ _COLS = [
     ("spawn_y",  "Spawn Y",   "spawn_y",  True),
     ("hitbox",   "Hitbox",    "hitbox",   True),
     ("type",     "Type",      "type",     False),
-    ("ex03c",    "EX 03C",    "ex03c",    True),
-    ("ex060",    "EX 060",    "ex060",    True),
-    ("ex090",    "EX 090",    "ex090",    True),
-    ("ex094",    "EX 094",    "ex094",    True),
-    ("ex09c",    "EX 09C",    "ex09c",    True),
-    ("ex0d4",    "EX 0D4",    "ex0d4",    True),
-    ("ex0e4",    "EX 0E4",    "ex0e4",    True),
     ("id",       "ID",        "id",       False),
     ("lifetime", "Lifetime",  "lifetime", False),
     ("hb_size",  "HB Size",   "hb_size",  False),
     ("fmt",      "Fmt",       None,       False),
-    ("preA",     "PreA",      None,       False),
-    ("preB",     "PreB",      None,       False),
-    ("opcode",   "Opcode",    None,       False),
-    ("param1",   "Param1",    None,       False),
-    ("param2",   "Param2",    None,       False),
-    ("param3",   "Param3",    None,       False),
-    ("f32_1",    "F32+8",     None,       True),
-    ("f32_2",    "F32+C",     None,       True),
-    ("f32_3",    "F32+10",    None,       True),
-    ("vel2_x",   "Vel2 X",    "vel2_x",   True),
-    ("vel2_y",   "Vel2 Y",    "vel2_y",   True),
-    ("vel2_s",   "Vel2 S",    "vel2_s",   True),
-    ("u01",      "?? 01",     "u01",      True),
-    ("u02",      "?? 02",     "u02",      True),
-    ("u03",      "?? 03",     "u03",      True),
-    ("u04",      "?? 04",     "u04",      False),
-    ("u05",      "?? 05",     "u05",      False),
-    ("u06",      "?? 06",     "u06",      False),
-    ("u07",      "?? 07",     "u07",      False),
-    ("u08",      "?? 08",     "u08",      False),
-    ("u09",      "?? 09",     "u09",      False),
 ]
 _COL_IDS    = [c[0] for c in _COLS]
 _FMT_COL_IDX = _COL_IDS.index("fmt")
@@ -1492,7 +1568,11 @@ class ProjScannerWindow:
 
         self._tree = ttk.Treeview(frame, columns=_COL_IDS, show="headings", height=24)
         widths = {"address": 110, "char": 80, "move": 160, "dmg": 65,
-                  "cluster": 220, "speed": 75, "accel": 75, "arc": 75}
+                  "cluster": 220, "super_hit_react": 90, "super_life": 90,
+                  "super_air_kb_y": 100, "super_speed": 110, "super_accel": 110,
+                  "super_speed_2": 90, "super_accel_b": 90, "super_accel_c": 90,
+                  "super_multihit_cap": 90, "super_radius": 105,
+                  "speed": 75, "accel": 75, "arc": 75}
         self._sort_col = None
         self._sort_asc = True
 
@@ -1520,8 +1600,7 @@ class ProjScannerWindow:
 
 
         ttk.Label(self.root,
-                  text="Double-click Dmg/Speed/Accel/Arc/Lifetime to edit. "
-                       "Right-click to copy address. Cluster column groups by proj-ID + type family.",
+                  text="Double-click editable fields to write. Right-click any cell to copy/go to its address. AirKBY/SuperSpeed2/MultiHitCap/AccelC are experimental probes.",
                   foreground="gray").pack(anchor="w", padx=8, pady=(0, 4))
 
     def _auto_scan(self):
@@ -1595,28 +1674,23 @@ class ProjScannerWindow:
                     f"0x{h['addr']:08X}",
                     h["key"], h["move"], h["dmg"],
                     h.get("cluster", ""),
+                    h.get("super_hit_react", "?"),
+                    h.get("super_life", "?"),
+                    h.get("super_air_kb_y", "?"),
+                    h.get("super_speed", "?"),
+                    h.get("super_accel", "?"),
+                    h.get("super_speed_2", "?"),
+                    h.get("super_accel_b", "?"),
+                    h.get("super_accel_c", "?"),
+                    h.get("super_multihit_cap", "?"),
+                    h.get("super_radius", "?"),
                     h["radius"], h["speed"], h["accel"],
                     h["kb_x"], h["kb_y"],
                     h["arc"], h["arc2"],
                     h.get("spawn_x", "?"), h.get("spawn_y", "?"), h["hitbox"],
                     type_str,
-                    h.get("ex03c", "?"),
-                    h.get("ex060", "?"),
-                    h.get("ex090", "?"),
-                    h.get("ex094", "?"),
-                    h.get("ex09c", "?"),
-                    h.get("ex0d4", "?"),
-                    h.get("ex0e4", "?"),
                     h["id"], h["lifetime"], h["hb_size"],
                     h.get("fmt", ""),
-                    h.get("preA", "?"), h.get("preB", "?"),
-                    h.get("opcode", "?"),
-                    h.get("param1", "?"), h.get("param2", "?"), h.get("param3", "?"),
-                    h.get("f32_1", "?"), h.get("f32_2", "?"), h.get("f32_3", "?"),
-                    h["vel2_x"], h["vel2_y"], h["vel2_s"],
-                    h["u01"], h["u02"], h["u03"],
-                    h["u04"], h["u05"], h["u06"],
-                    h["u07"], h["u08"], h["u09"],
                 ))
                 self._addr_by_iid[iid]      = h["addr"]
                 self._dmg_write_by_iid[iid] = h.get("dmg_write_addr", h["addr"] + 2)
@@ -1674,6 +1748,10 @@ class ProjScannerWindow:
             elif move_name == "Zombie Attack" and fkey == "spawn_x":
                 field_addr = addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X
                 field_label = header
+            elif fkey in _SUPER_FIELD_OFFSETS and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2"):
+                ex_base = _super_ex_base(addr, self._fmt_for_iid(iid))
+                field_addr = ex_base + _SUPER_FIELD_OFFSETS[fkey][0]
+                field_label = header
             elif fkey == "hitbox" and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2"):
                 ex_base = _super_ex_base(addr, self._fmt_for_iid(iid))
                 field_addr = ex_base + _SUPER_EX_OFFSETS["ex03c"]
@@ -1720,9 +1798,14 @@ class ProjScannerWindow:
         menu = tk.Menu(self.root, tearoff=0)
         menu.add_command(label=f"Copy base address (0x{addr:08X})",
                          command=lambda: self._copy(f"0x{addr:08X}"))
+        menu.add_command(label=f"Go to base address (0x{addr:08X})",
+                         command=lambda: self._show_address_info(addr, f"Base @ 0x{addr:08X}"))
         if field_addr != addr:
+            menu.add_separator()
             menu.add_command(label=f"Copy {field_label} address (0x{field_addr:08X})",
                              command=lambda: self._copy(f"0x{field_addr:08X}"))
+            menu.add_command(label=f"Go to {field_label} address (0x{field_addr:08X})",
+                             command=lambda: self._show_address_info(field_addr, f"{field_label} @ 0x{field_addr:08X}"))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -1732,6 +1815,42 @@ class ProjScannerWindow:
         self.root.clipboard_clear()
         self.root.clipboard_append(text)
         self._status.set(f"Copied {text}")
+
+    def _show_address_info(self, addr: int, title: str):
+        if rbytes is None:
+            messagebox.showerror("Address", "dolphin_io.rbytes unavailable", parent=self.root)
+            return
+
+        line_size = 16
+        context_lines = 8
+        line_base = addr & ~(line_size - 1)
+        start = max(SCAN_START, line_base - context_lines * line_size)
+        total_lines = context_lines * 2 + 1
+        size = total_lines * line_size
+        try:
+            data = rbytes(start, size) or b""
+        except Exception as e:
+            messagebox.showerror("Address", f"Read failed: {e}", parent=self.root)
+            return
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title(title)
+        dlg.geometry("780x440")
+
+        txt = tk.Text(dlg, wrap="none", font=("Consolas", 10), bg="#101214", fg="#E8E8E8")
+        txt.pack(fill="both", expand=True, padx=8, pady=8)
+        txt.insert("end", "Right-click menu address view. '>>' marks the selected line.\n\n")
+
+        current_line = (line_base - start) // line_size
+        for i in range(total_lines):
+            off = i * line_size
+            chunk = data[off:off + line_size]
+            a = start + off
+            hx = " ".join(f"{b:02X}" for b in chunk)
+            asc = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
+            prefix = ">>" if i == current_line else "  "
+            txt.insert("end", f"{prefix} 0x{a:08X}: {hx:<47} {asc}\n")
+        txt.config(state="disabled")
 
     def _on_double_click(self, event):
         col_idx = self._col_index(event)
@@ -1768,6 +1887,9 @@ class ProjScannerWindow:
 
         elif move_name == "Zombie Attack" and fkey == "spawn_x":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X
+        elif fkey in _SUPER_FIELD_OFFSETS and fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
+            ex_base = _super_ex_base(addr, fmt)
+            write_addr = ex_base + _SUPER_FIELD_OFFSETS[fkey][0]
         elif move_name.startswith("Zombie Spree "):
             if fkey == "kb_y":
                 if move_name == "Zombie Spree L":
@@ -1815,6 +1937,10 @@ class ProjScannerWindow:
             return
         new_val = new_val.strip()
 
+        super_field_type = None
+        if fkey in _SUPER_FIELD_OFFSETS:
+            super_field_type = _SUPER_FIELD_OFFSETS[fkey][1]
+
         if is_float:
             try:
                 fval = float(new_val)
@@ -1846,6 +1972,11 @@ class ProjScannerWindow:
                         messagebox.showerror("Out of range", "Spawn X must be 0–255.",
                                              parent=self.root)
                         return
+                elif super_field_type == "u32":
+                    if not (0 <= ival <= 0xFFFFFFFF):
+                        messagebox.showerror("Out of range", "Value must be 0–4294967295.",
+                                             parent=self.root)
+                        return
                 elif not (0 <= ival <= 0xFFFF):
                     messagebox.showerror("Out of range", "Value must be 0–65535.",
                                          parent=self.root)
@@ -1869,6 +2000,8 @@ class ProjScannerWindow:
                     ok = _write_dmg(addr, ival, fmt)
             elif fkey == "spawn_x":
                 ok = bool(wbytes(write_addr, bytes([ival]))) if wbytes is not None else False
+            elif super_field_type == "u32":
+                ok = _write_u32(write_addr, ival)
             else:
                 ok = _write_u16(write_addr, ival)
             if ok:

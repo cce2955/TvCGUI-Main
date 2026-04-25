@@ -1,9 +1,0 @@
-
-[MasterLoopCrash]
-error=error(1400, 'GetClientRect', 'Invalid window handle.')
-Traceback (most recent call last):
-  File "master_overlay.py", line 1710, in run
-  File "master_overlay.py", line 178, in sync_overlay_to_dolphin
-  File "master_overlay.py", line 139, in get_client_screen_rect
-pywintypes.error: (1400, 'GetClientRect', 'Invalid window handle.')
-

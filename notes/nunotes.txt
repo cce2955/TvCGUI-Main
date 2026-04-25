@@ -1842,3 +1842,6 @@ in projectile pool 91b15a0c, make a weird MvC2 Shinkuu Effect by changing this, 
 828f5c3f
 8147ae3f
 8147ae00
+
+
+908c7681 assist called for Ryu P1-C1
