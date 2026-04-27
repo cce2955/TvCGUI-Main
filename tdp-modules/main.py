@@ -85,6 +85,7 @@ except Exception:
 
 from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
+from assist_scanner_window import open_assist_scanner_window
 
 from mission_manager import MissionManager
 from hud_overlay_manager import HudOverlayManager
@@ -291,39 +292,16 @@ def legacy_main():
     last_scan_time    = 0.0
     scan_anim         = None
 
-    def _move_quality(mv):
-        score = 0
-        if mv.get("damage") not in (None, "", 0):
-            score += 100
-        if mv.get("active_start") is not None and mv.get("active_end") is not None:
-            score += 80
-        if mv.get("hitstun") is not None:
-            score += 40
-        if mv.get("blockstun") is not None:
-            score += 40
-        if mv.get("kb0") is not None or mv.get("kb1") is not None:
-            score += 25
-        if mv.get("kind") == "normal":
-            score += 10
-        return score
-
     def _scan_move_window_for_slot(slot_label: str, cur_anim: int | None):
         if cur_anim is None or not last_scan_normals:
             return None, None
         try:
-            candidates = []
             for slot_data in last_scan_normals:
                 if slot_data.get("slot_label") != slot_label:
                     continue
                 for mv in slot_data.get("moves", []):
                     if mv.get("id") == cur_anim:
-                        candidates.append(mv)
-
-            if not candidates:
-                return None, None
-
-            best = max(candidates, key=_move_quality)
-            return best.get("active_start"), best.get("active_end")
+                        return mv.get("active_start"), mv.get("active_end")
         except Exception:
             pass
         return None, None
@@ -830,7 +808,16 @@ def legacy_main():
         screen.blit(smallfont.render("Proj Scanner", True, (230, 230, 230)),
                     (PS_BTN_X + 6, HB_BTN_Y + 4))
 
-        HUD_BTN_X = PS_BTN_X + PS_BTN_W + 8
+        AS_BTN_X = PS_BTN_X + PS_BTN_W + 8
+        AS_BTN_W, AS_BTN_H = 130, 22
+        as_btn_rect = pygame.Rect(AS_BTN_X, HB_BTN_Y, AS_BTN_W, AS_BTN_H)
+        as_col = (90, 70, 150) if not as_btn_rect.collidepoint(mx_h, my_h) else (120, 100, 190)
+        pygame.draw.rect(screen, as_col, as_btn_rect, border_radius=3)
+        pygame.draw.rect(screen, (200, 200, 200), as_btn_rect, 1, border_radius=3)
+        screen.blit(smallfont.render("Assist Scanner", True, (230, 230, 230)),
+                    (AS_BTN_X + 6, HB_BTN_Y + 4))
+
+        HUD_BTN_X = AS_BTN_X + AS_BTN_W + 8
         HUD_BTN_W, HUD_BTN_H = 140, 22
         hud_btn_rect = pygame.Rect(HUD_BTN_X, HB_BTN_Y, HUD_BTN_W, HUD_BTN_H)
         hud_btn_col   = (160, 110, 30) if overlay_enabled else (80, 80, 80)
@@ -1018,6 +1005,11 @@ def legacy_main():
                             for s in [render_snap_by_slot.get(slot)]
                             if s and s.get("name")]
                 open_proj_scanner_window(_get_active_chars)
+                mouse_clicked_pos = None
+                continue
+
+            elif as_btn_rect.collidepoint(mx, my):
+                open_assist_scanner_window()
                 mouse_clicked_pos = None
                 continue
 
