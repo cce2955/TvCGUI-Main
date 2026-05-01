@@ -13,6 +13,12 @@ except Exception:
     rbytes = None
     wbytes = None
 
+try:
+    from move_id_map import lookup_move_name as _lookup_move_name
+except Exception:
+    def _lookup_move_name(aid: int) -> str | None:
+        return None
+
 SCAN_START = 0x90000000
 SCAN_END = 0x94000000
 SCAN_BLOCK = 0x40000
@@ -146,6 +152,57 @@ RYU_SELECTOR_WORD_PRESETS = [
     ("Ryu Shoryu 0003146C", 0x0003146C),
     ("Ryu Tatsu 00031CDC", 0x00031CDC),
 ]
+
+
+# Generic assist selector graft probing.
+#
+# This is the experimental path for every other character. It looks for two
+# shapes:
+#   1) Native Ryu-style selector tables:
+#      0F060027 01500060 000044B4 00000003 [3 words] 3732203F ... 3733203F ...
+#   2) Chun-style graftable assist blocks:
+#      0F060027 3732203F [arg] 3733203F [arg] 013C0000 ...
+#
+# Double-clicking a generic lane writes a full Ryu-style selector setup first.
+# For graft candidates that do not have selector words yet, the chosen manual
+# word is applied to all three lanes by default so the install has valid words.
+GENERIC_SELECTOR_SETUP_PREFIX = bytes.fromhex(
+    "0F 06 00 27 "
+    "01 50 00 60 00 00 44 B4 00 00 00 03"
+)
+GENERIC_SELECTOR_WORD_OFFSETS = (0x10, 0x14, 0x18)
+GENERIC_SELECTOR_TABLE_LEN = 0x2C
+GENERIC_SELECTOR_DEFAULT_ARG_32 = bytes.fromhex("00 00 00 03")
+GENERIC_SELECTOR_DEFAULT_ARG_33 = bytes.fromhex("00 00 00 09")
+GENERIC_SELECTOR_MANUAL_PRESETS = [
+    ("Chun 0003D620", 0x0003D620),
+    ("Chun 0003BCC8", 0x0003BCC8),
+    ("Chun 0003C4AC", 0x0003C4AC),
+    ("Chun 0003CC90", 0x0003CC90),
+    ("Ryu Hadouken 0003110C", 0x0003110C),
+    ("Ryu Shoryu 0003146C", 0x0003146C),
+    ("Ryu Tatsu 00031CDC", 0x00031CDC),
+]
+
+# Move preset harvesting for assist grafts.
+#
+# These rows use the same basic logic as scan normals all:
+#   selector_word = move_abs - chr_tbl_abs
+# Double-clicking one writes that selector word into the active graft lanes.
+MOVE_PRESET_CHR_TBL_NUM_ENTRIES = 705
+MOVE_PRESET_DATA_START_OFF = 0x3600
+MOVE_PRESET_SLOT_SIZE = 0x90000
+MOVE_PRESET_LOOKAHEAD = 0x80
+MOVE_PRESET_ENTRY_OFFSETS = (0x00, 0x10, 0x20, 0x40, 0x70, 0x90)
+MOVE_PRESET_ANIM_HDR = bytes.fromhex("04 01 60 00 00 00 01 E8 3F 00 00 00")
+MOVE_PRESET_NORMAL_LABELS = {
+    0x00: "5A", 0x01: "5B", 0x02: "5C",
+    0x03: "2A", 0x04: "2B", 0x05: "2C",
+    0x06: "6C", 0x08: "3C",
+    0x09: "j.A", 0x0A: "j.B", 0x0B: "j.C",
+    0x0E: "6B",
+}
+MOVE_PRESET_NORMAL_IDS = set(MOVE_PRESET_NORMAL_LABELS.keys())
 
 SELECTOR_TAIL = b"\x37\x32\x20\x3F"
 SELECTOR_COMPANION_TAIL = b"\x37\x33\x20\x3F"
@@ -507,6 +564,8 @@ def _scan_chun_selector_graft_tables(data: bytes, base_addr: int,
             pos = idx + 1
             if idx in seen:
                 continue
+            if _slot_cid(base_addr + idx, slot_char_ids) != "0x0D":
+                continue
             seen.add(idx)
             _append_chun_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, source)
 
@@ -524,6 +583,8 @@ def _scan_chun_selector_graft_tables(data: bytes, base_addr: int,
         if data[idx:idx + 4] != b"\x0F\x06\x00\x27":
             continue
         if idx in seen:
+            continue
+        if _slot_cid(base_addr + idx, slot_char_ids) != "0x0D":
             continue
         seen.add(idx)
         _append_chun_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, "wrapper-fallback")
@@ -611,6 +672,8 @@ def _scan_ryu_selector_graft_tables(data: bytes, base_addr: int,
         pos = idx + 1
         if idx in seen:
             continue
+        if _slot_cid(base_addr + idx, slot_char_ids) != "0x0C":
+            continue
         seen.add(idx)
         _append_ryu_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, "graft")
 
@@ -624,11 +687,480 @@ def _scan_ryu_selector_graft_tables(data: bytes, base_addr: int,
         pos = idx + 1
         if idx in seen:
             continue
+        if _slot_cid(base_addr + idx, slot_char_ids) != "0x0C":
+            continue
         if not _looks_like_ryu_selector_graft_shape(data, idx):
             continue
         seen.add(idx)
         _append_ryu_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, "shape-fallback")
 
+
+
+def _is_known_chun_or_ryu_slot(addr: int, slot_char_ids: dict[int, int]) -> bool:
+    base = _owning_chr_tbl(addr)
+    if base is None:
+        return False
+    return slot_char_ids.get(base) in (12, 13)
+
+
+def _looks_like_generic_native_selector_shape(data: bytes, idx: int) -> bool:
+    if idx < 0 or idx + GENERIC_SELECTOR_TABLE_LEN > len(data):
+        return False
+    if data[idx:idx + 0x10] != GENERIC_SELECTOR_SETUP_PREFIX:
+        return False
+    if data[idx + 0x1C:idx + 0x20] != SELECTOR_TAIL:
+        return False
+    if data[idx + 0x24:idx + 0x28] != SELECTOR_COMPANION_TAIL:
+        return False
+
+    # Require three plausible local selector words. Most known words are slot-local
+    # offsets and sit below the 0x90000 character window.
+    for off in GENERIC_SELECTOR_WORD_OFFSETS:
+        raw = _u32be(data, idx + off)
+        if raw is None or raw <= 0 or raw > 0x90000:
+            return False
+    return True
+
+
+def _looks_like_generic_graft_candidate_shape(data: bytes, idx: int) -> bool:
+    if idx < 0 or idx + GENERIC_SELECTOR_TABLE_LEN > len(data):
+        return False
+    if data[idx:idx + 4] != b"\x0F\x06\x00\x27":
+        return False
+    if data[idx + 4:idx + 8] != SELECTOR_TAIL:
+        return False
+    if data[idx + 0x0C:idx + 0x10] != SELECTOR_COMPANION_TAIL:
+        return False
+
+    # Chun's confirmed graft site had three 01 3C rows after 37 33. Keep the
+    # requirement soft enough for other characters: at least two 01 3C rows in
+    # the next 0x28 bytes.
+    rows = 0
+    for off in (0x14, 0x1C, 0x24):
+        if data[idx + off:idx + off + 4] == b"\x01\x3C\x00\x00":
+            rows += 1
+    return rows >= 2
+
+
+def _build_generic_selector_graft_block(words: tuple[int, int, int], arg32: bytes | None = None,
+                                        arg33: bytes | None = None) -> bytes:
+    if arg32 is None or len(arg32) != 4:
+        arg32 = GENERIC_SELECTOR_DEFAULT_ARG_32
+    if arg33 is None or len(arg33) != 4:
+        arg33 = GENERIC_SELECTOR_DEFAULT_ARG_33
+    out = bytearray()
+    out.extend(GENERIC_SELECTOR_SETUP_PREFIX)
+    for word in words:
+        out.extend(struct.pack(">I", word & 0xFFFFFFFF))
+    out.extend(SELECTOR_TAIL)
+    out.extend(arg32)
+    out.extend(SELECTOR_COMPANION_TAIL)
+    out.extend(arg33)
+    return bytes(out)
+
+
+def _append_generic_selector_table(data: bytes, base_addr: int, idx: int,
+                                   slot_char_ids: dict[int, int], hits: list[dict],
+                                   source: str) -> None:
+    block_addr = base_addr + idx
+    owner_base = _owning_chr_tbl(block_addr)
+    if owner_base is None:
+        return
+    if idx < 0 or idx + GENERIC_SELECTOR_TABLE_LEN > len(data):
+        return
+
+    owner = _owner_name(block_addr, slot_char_ids)
+    slot = _slot_cid(block_addr, slot_char_ids)
+    current_block = data[idx:idx + GENERIC_SELECTOR_TABLE_LEN]
+    is_native = source in ("native", "installed")
+    label = "native/installed selector" if is_native else "graft candidate"
+    kind = "generic-native-table" if is_native else "generic-graft-table"
+    score = 85 if is_native else 75
+    if slot not in ("?", "0x0C", "0x0D"):
+        score += 10
+
+    hits.append({
+        "kind": kind,
+        "block": block_addr,
+        "addr": block_addr,
+        "owner": owner,
+        "slot": slot,
+        "entry": label,
+        "raw": current_block.hex(" ").upper(),
+        "target": "",
+        "guess": "experimental generic selector candidate; double-click a lane to install/update with preset or manual word",
+        "score": score,
+        "ctx": _fmt_context(data, idx, mark_len=GENERIC_SELECTOR_TABLE_LEN),
+        "editable": False,
+        "typ": "raw-window",
+        "source": source,
+    })
+
+    for lane_index, off in enumerate(GENERIC_SELECTOR_WORD_OFFSETS, start=1):
+        lane_addr = block_addr + off
+        raw = _u32be(data, idx + off) if is_native else None
+        display_raw = raw if raw is not None else 0
+        target_addr = owner_base + display_raw if 0 < display_raw <= 0x100000 else 0
+        note = "native words present" if is_native else "no words yet; chosen word installs graft"
+        hits.append({
+            "kind": "generic-selector-word",
+            "block": block_addr,
+            "addr": lane_addr,
+            "owner": owner,
+            "slot": slot,
+            "entry": f"lane {lane_index}",
+            "raw": f"0x{display_raw:08X}",
+            "target": f"0x{target_addr:08X}" if target_addr else "",
+            "guess": f"double-click: generic selector word; {note}; source {source}",
+            "score": score,
+            "ctx": _fmt_context(data, idx + off, mark_len=4),
+            "editable": True,
+            "typ": "u32-generic-selector",
+            "source": source,
+        })
+
+
+def _scan_generic_selector_candidates(data: bytes, base_addr: int,
+                                      slot_char_ids: dict[int, int], hits: list[dict]) -> None:
+    seen: set[int] = set()
+
+    # Native/installed full selector tables for non-Ryu/non-Chun characters.
+    pos = 0
+    while True:
+        idx = data.find(b"\x0F\x06\x00\x27", pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+        if idx in seen:
+            continue
+        block_addr = base_addr + idx
+        if _is_known_chun_or_ryu_slot(block_addr, slot_char_ids):
+            continue
+        if _looks_like_generic_native_selector_shape(data, idx):
+            seen.add(idx)
+            _append_generic_selector_table(data, base_addr, idx, slot_char_ids, hits, "native")
+            continue
+        if _looks_like_generic_graft_candidate_shape(data, idx):
+            seen.add(idx)
+            _append_generic_selector_table(data, base_addr, idx, slot_char_ids, hits, "graft-candidate")
+
+
+def _read_mem_region_raw(start_addr: int, size: int) -> bytes:
+    if rbytes is None:
+        return b""
+    out = bytearray()
+    off = 0
+    while off < size:
+        n = min(SCAN_BLOCK, size - off)
+        try:
+            chunk = rbytes(start_addr + off, n) or b""
+        except Exception:
+            return b""
+        if len(chunk) != n:
+            return b""
+        out.extend(chunk)
+        off += n
+    return bytes(out)
+
+
+def _looks_like_chr_tbl_at(data: bytes, idx: int) -> bool:
+    """Validate a chr_tbl start inside a local memory blob."""
+    if idx < 0 or idx + 0xB0C > len(data):
+        return False
+    try:
+        if _u32be(data, idx) != 0x3600:
+            return False
+        if _u32be(data, idx + 0xB00) != 0xFFFFFFFF:
+            return False
+    except Exception:
+        return False
+    return data[idx + 0xB04:idx + 0xB0C] == b"chr_act\n"
+
+
+def _find_runtime_chr_tbl_base_for_region(region_base: int) -> int | None:
+    """Find the actual live chr_tbl base inside one broad character slot region.
+
+    _CHR_TBL_BASES are stable ownership windows, but the actual chr_tbl
+    can sit deeper in the region after character load. Selector words are
+    relative to this actual chr_tbl base, not always the ownership window.
+    """
+    if rbytes is None:
+        return None
+
+    # Include bytes before region_base because a chr_tbl label lives at base-0x18
+    # when the table starts exactly at the region base.
+    scan_start = max(SCAN_START, region_base - 0x40)
+    scan_size = MOVE_PRESET_SLOT_SIZE + (region_base - scan_start)
+    data = _read_mem_region_raw(scan_start, scan_size)
+    if not data:
+        return None
+
+    label = b"chr_tbl\n"
+    pos = 0
+    candidates: list[int] = []
+    while True:
+        j = data.find(label, pos)
+        if j < 0:
+            break
+        pos = j + 1
+        tbl_idx = j + 0x18
+        if not _looks_like_chr_tbl_at(data, tbl_idx):
+            continue
+        cand = scan_start + tbl_idx
+        if region_base - 0x100 <= cand < region_base + MOVE_PRESET_SLOT_SIZE:
+            candidates.append(cand)
+
+    if not candidates:
+        # Very old/static layouts can still have the table exactly at the
+        # ownership base with no readable label in this pass.
+        base_idx = region_base - scan_start
+        if _looks_like_chr_tbl_at(data, base_idx):
+            return region_base
+        return None
+
+    # Prefer the first validated table in this ownership window.
+    candidates.sort()
+    return candidates[0]
+
+
+def _runtime_chr_tbl_base_for_owner_base(owner_base: int | None) -> int | None:
+    if owner_base is None:
+        return None
+    return _find_runtime_chr_tbl_base_for_region(owner_base)
+
+
+def _selector_base_for_address(addr: int) -> int | None:
+    owner_base = _owning_chr_tbl(addr)
+    if owner_base is None:
+        return None
+    return _runtime_chr_tbl_base_for_owner_base(owner_base)
+
+
+def _move_preset_anim_id_after_hdr(data: bytes, off: int) -> int | None:
+    if off < 0 or off >= len(data):
+        return None
+    end = min(off + MOVE_PRESET_LOOKAHEAD, len(data) - 4 + 1)
+    start = off
+    for p in range(start, end):
+        if p + len(MOVE_PRESET_ANIM_HDR) <= len(data) and data[p:p + len(MOVE_PRESET_ANIM_HDR)] == MOVE_PRESET_ANIM_HDR:
+            q0 = p + len(MOVE_PRESET_ANIM_HDR)
+            q1 = min(q0 + MOVE_PRESET_LOOKAHEAD, len(data) - 4 + 1)
+            for q in range(q0, q1):
+                op = data[q + 2]
+                fps = data[q + 3]
+                if fps == 0x3C and op in (0x01, 0x04):
+                    aid = (data[q] << 8) | data[q + 1]
+                    if 1 <= aid <= 0x0500:
+                        return aid
+        op = data[p + 2]
+        fps = data[p + 3]
+        if fps == 0x3C and op in (0x01, 0x04):
+            aid = (data[p] << 8) | data[p + 1]
+            if 1 <= aid <= 0x0500:
+                return aid
+    return None
+
+
+def _move_preset_name(aid: int | None) -> str:
+    if aid is None:
+        return "move_????"
+    name = _lookup_move_name(aid)
+    if name:
+        return str(name)
+    low = aid & 0xFF
+    if low in MOVE_PRESET_NORMAL_LABELS:
+        return MOVE_PRESET_NORMAL_LABELS[low]
+    return f"anim_{aid:04X}"
+
+
+def _append_assist_move_preset_row(base: int, move_abs: int, aid: int | None,
+                                   source: str, slot_char_ids: dict[int, int],
+                                   data: bytes, hits: list[dict]) -> None:
+    cid = slot_char_ids.get(base)
+    owner = _owner_name(move_abs, slot_char_ids)
+    slot = _slot_cid(move_abs, slot_char_ids)
+    word = move_abs - base
+    if word <= 0 or word > 0x100000:
+        return
+    name = _move_preset_name(aid)
+    low = (aid & 0xFF) if aid is not None else None
+    is_normal = aid is not None and aid >= 0x0100 and low in MOVE_PRESET_NORMAL_IDS
+    kind_label = "normal" if is_normal else "move"
+    local = move_abs - base
+    score = 88 if kind_label == "normal" else 72
+    if cid in (12, 13):
+        score += 8
+    raw = f"0x{word:08X}"
+    hits.append({
+        "kind": "assist-move-preset",
+        "block": move_abs,
+        "addr": move_abs,
+        "owner": owner,
+        "slot": slot,
+        "entry": f"{kind_label} {name}",
+        "raw": raw,
+        "target": f"0x{move_abs:08X}",
+        "guess": f"double-click: point graft lanes to {name}; base word from {source}",
+        "score": score,
+        "ctx": _fmt_context(data, local, mark_len=4) if 0 <= local < len(data) else "",
+        "editable": True,
+        "typ": "assist-move-preset",
+        "selector_word": word,
+        "move_abs": move_abs,
+        "move_id": aid if aid is not None else 0,
+        "move_name": name,
+        "owner_base": base,
+        "char_id": cid if cid is not None else 0,
+        "source": source,
+    })
+
+
+def _move_preset_entry_name(table_index: int, aid: int | None) -> str:
+    """Best-effort display name for a chr_tbl entry.
+
+    The normal scanner can often recover an animation/state id from the move
+    body, but not every chr_tbl entry has that header close enough to the
+    anchor. For selector presets we still want the row, because the selector
+    word is just the chr_tbl entry value. So fall back to the chr_tbl index.
+    """
+    if aid is not None:
+        name = _move_preset_name(aid)
+        if name and not name.startswith("anim_"):
+            return name
+
+    # Global universal normals are table-indexed as 0x100 + normal id.
+    if 0x100 <= table_index <= 0x10F:
+        low = table_index & 0xFF
+        if low in MOVE_PRESET_NORMAL_LABELS:
+            return MOVE_PRESET_NORMAL_LABELS[low]
+
+    # Try the project's move map both ways. Some maps are keyed by anim/state id,
+    # others by table/action id.
+    try:
+        name = _lookup_move_name(table_index)
+        if name:
+            return str(name)
+    except Exception:
+        pass
+
+    if aid is not None:
+        return f"move 0x{table_index:03X} / anim 0x{aid:04X}"
+    return f"move 0x{table_index:03X}"
+
+
+def _is_preset_worthy_table_index(table_index: int, aid: int | None) -> bool:
+    """Keep attack/move rows, not idle/block/KO/system action spam."""
+    # Normals and air normals.
+    if 0x100 <= table_index <= 0x10F:
+        return True
+
+    # Common character move / special / super / throw / follow-up regions.
+    if 0x130 <= table_index <= 0x18F:
+        return True
+    if 0x200 <= table_index <= 0x230:
+        return True
+
+    # Some characters store extra move-ish entries in these late ranges, but do
+    # not include the global assist/tag/system cluster unless the recovered anim
+    # id makes it look like a real character move.
+    if 0x1C0 <= table_index <= 0x1FF:
+        return aid is not None and aid >= 0x0100
+
+    # If the table index is odd, but the recovered anim id is a normal/special,
+    # keep it as a fallback. This catches character-specific weirdness without
+    # bringing back idle/block/KO spam.
+    if aid is not None and aid >= 0x0100:
+        low = aid & 0xFF
+        if low in MOVE_PRESET_NORMAL_IDS:
+            return True
+        name = _move_preset_name(aid)
+        if name and not name.startswith("anim_"):
+            return True
+
+    return False
+
+
+def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -> None:
+    # Dedicated full-slot pass. Do this outside the 0x40000 MEM2 chunk scan so
+    # chr_tbl entries can resolve into the whole character script region.
+    #
+    # Critical correction: _CHR_TBL_BASES are broad ownership windows, not
+    # always the actual live chr_tbl base. The selector word must be relative
+    # to the actual live chr_tbl base found by the "chr_tbl\n" label.
+    seen: set[tuple[int, int]] = set()
+    for owner_base in _CHR_TBL_BASES:
+        chr_tbl_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
+        if chr_tbl_base is None:
+            continue
+
+        data = _read_mem_region_raw(chr_tbl_base, MOVE_PRESET_SLOT_SIZE)
+        if not data:
+            continue
+
+        cid = slot_char_ids.get(owner_base)
+        if cid is None:
+            continue
+
+        for table_index in range(MOVE_PRESET_CHR_TBL_NUM_ENTRIES - 1):
+            off = table_index * 4
+            if off + 4 > len(data):
+                break
+            entry = _u32be(data, off)
+            if entry is None:
+                continue
+            if entry in (0, 0xFFFFFFFF):
+                continue
+            if entry % 4 != 0 or entry < MOVE_PRESET_DATA_START_OFF:
+                continue
+            if entry >= len(data):
+                continue
+
+            aid = _move_preset_anim_id_after_hdr(data, entry)
+            if not _is_preset_worthy_table_index(table_index, aid):
+                continue
+
+            move_abs = chr_tbl_base + entry
+            key = (chr_tbl_base, table_index)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            name = _move_preset_entry_name(table_index, aid)
+            low = table_index & 0xFF
+            is_normal = 0x100 <= table_index <= 0x10F and low in MOVE_PRESET_NORMAL_IDS
+            kind_label = "normal" if is_normal else "move"
+            owner = _owner_name(move_abs, slot_char_ids)
+            slot = _slot_cid(move_abs, slot_char_ids)
+            score = 95 if is_normal else 80
+            if cid in (12, 13):
+                score += 5
+
+            hits.append({
+                "kind": "assist-move-preset",
+                "block": move_abs,
+                "addr": move_abs,
+                "owner": owner,
+                "slot": slot,
+                "entry": f"{kind_label} {name}",
+                "raw": f"0x{entry:08X}",
+                "target": f"0x{move_abs:08X}",
+                "guess": f"point graft lanes to {name}; chr_tbl[{table_index}] @ 0x{chr_tbl_base:08X}",
+                "score": score,
+                "ctx": _fmt_context(data, entry, mark_len=4) if 0 <= entry < len(data) else "",
+                "editable": True,
+                "typ": "assist-move-preset",
+                "selector_word": entry,
+                "move_abs": move_abs,
+                "move_id": aid if aid is not None else table_index,
+                "table_index": table_index,
+                "move_name": name,
+                # owner_base is the broad slot window used by graft lanes.
+                # chr_tbl_base is the real selector base used by the VM.
+                "owner_base": owner_base,
+                "chr_tbl_base": chr_tbl_base,
+                "char_id": cid if cid is not None else 0,
+                "source": "chr_tbl",
+            })
 
 def _append_state_wrapper(data: bytes, base_addr: int, idx: int, slot_char_ids: dict[int, int],
                           hits: list[dict]) -> None:
@@ -889,19 +1421,8 @@ def _scan_tensho_descriptors(data: bytes, base_addr: int, slot_char_ids: dict[in
 
 
 def _scan_block(data: bytes, base_addr: int, slot_char_ids: dict[int, int], hits: list[dict]) -> None:
-    # Keep Ryu selector chains because they are known-good proof of the selector model.
-    pos = 0
-    while True:
-        idx = data.find(SELECTOR_TAIL, pos)
-        if idx < 0:
-            break
-        pos = idx + 1
-        start = idx - 12
-        if start >= 0 and _selector_count(data, start) >= 2:
-            _append_selector_block(data, base_addr, start, slot_char_ids, hits)
-
-    # Confirmed Chun/Ryu paths: surface graft tables and editable lanes.
-    # The old Tensho descriptor/wrapper scans are intentionally not shown here.
+    # Keep the main table focused: only confirmed graft tables and their lanes.
+    # Move/normal presets are harvested on demand from the lane chooser.
     _scan_chun_selector_graft_tables(data, base_addr, slot_char_ids, hits)
     _scan_ryu_selector_graft_tables(data, base_addr, slot_char_ids, hits)
 
@@ -936,6 +1457,8 @@ def _run_scan(progress_cb, done_cb):
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
 
+    # Move presets are harvested on demand from the selector-lane chooser.
+
     seen = set()
     uniq = []
     for h in hits:
@@ -952,7 +1475,11 @@ def _run_scan(progress_cb, done_cb):
             "chun-selector-word": 1,
             "ryu-graft-table": 2,
             "ryu-selector-word": 3,
-            "selector-chain": 4,
+            "generic-native-table": 4,
+            "generic-graft-table": 5,
+            "generic-selector-word": 6,
+            "assist-move-preset": 7,
+            "selector-chain": 8,
             "selector-loose": 5,
             "selector": 6,
             "confirmed-wrapper": 7,
@@ -971,7 +1498,7 @@ def _run_scan(progress_cb, done_cb):
 class AssistScannerWindow:
     def __init__(self, master):
         self.root = tk.Toplevel(master)
-        self.root.title("Assist Scanner - Chun/Ryu Assist Selector Grafts")
+        self.root.title("Assist Scanner - Graft Move Picker")
         self.root.geometry("1420x700")
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
         self._scanning = False
@@ -990,8 +1517,8 @@ class AssistScannerWindow:
         ttk.Label(
             top,
             text=(
-                "Finds confirmed Chun and Ryu assist selector graft tables. "
-                "Double-click a lane to install/restore the graft and write a preset or manual selector word."
+                "Finds confirmed Chun/Ryu tables plus experimental generic selector candidates. "
+                "Double-click a selector lane to point the graft at a loaded move/normal preset or manual word."
             ),
         ).pack(side="left")
         self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
@@ -1044,7 +1571,7 @@ class AssistScannerWindow:
         self._hit_by_iid.clear()
         for iid in self._tree.get_children():
             self._tree.delete(iid)
-        self._status.set("Scanning MEM2 for Chun/Ryu graft tables and selector proof blocks...")
+        self._status.set("Scanning MEM2 for confirmed Chun/Ryu graft tables and selector lanes...")
         threading.Thread(target=_run_scan, args=(self._on_prog, self._on_done), daemon=True).start()
 
     def _on_prog(self, pct: float):
@@ -1076,7 +1603,7 @@ class AssistScannerWindow:
             selector_blocks = len({h["block"] for h in hits if h["kind"] in ("selector-chain", "selector-loose")})
             chun_tables = len({h["block"] for h in hits if h["kind"] == "chun-graft-table"})
             self._status.set(
-                f"Done - {chun_tables} Chun graft table(s), {selector_blocks} Ryu selector block(s), {len(hits)} row(s)."
+                f"Done - {chun_tables} Chun graft table(s), {len({h["block"] for h in hits if h["kind"] == "ryu-graft-table"})} Ryu graft table(s), {len(hits)} row(s). Move presets are in the lane popup."
             )
         try:
             self.root.after(0, _f)
@@ -1583,11 +2110,183 @@ class AssistScannerWindow:
             parent=self.root,
         )
 
+    def _collect_move_preset_rows_for_base(self, owner_base: int) -> list[dict]:
+        """Harvest move/normal presets for one loaded character slot without showing rows."""
+        if owner_base is None:
+            return []
+        slot_char_ids = _read_slot_char_ids()
+        temp_hits: list[dict] = []
+        try:
+            _scan_assist_move_presets(slot_char_ids, temp_hits)
+        except Exception:
+            return []
+
+        rows = [h for h in temp_hits if int(h.get("owner_base", 0)) == int(owner_base)]
+        normal_order = {
+            0x00: 0, 0x01: 1, 0x02: 2,
+            0x03: 3, 0x04: 4, 0x05: 5,
+            0x06: 6, 0x08: 7,
+            0x09: 8, 0x0A: 9, 0x0B: 10,
+            0x0E: 11,
+        }
+
+        def row_key(row: dict) -> tuple:
+            aid = int(row.get("move_id", 0))
+            low = aid & 0xFF
+            is_normal = aid >= 0x0100 and low in MOVE_PRESET_NORMAL_IDS
+            name = str(row.get("move_name", ""))
+            word = int(row.get("selector_word", 0))
+            return (0 if is_normal else 1, normal_order.get(low, 999), name.lower(), aid, word)
+
+        return sorted(rows, key=row_key)
+
+    def _choose_loaded_move_preset_word(self, owner_base: int, parent: tk.Toplevel) -> tuple[int, str] | None:
+        rows = self._collect_move_preset_rows_for_base(owner_base)
+        if not rows:
+            messagebox.showerror(
+                "Move presets unavailable",
+                f"No move/normal presets were harvested for slot base 0x{owner_base:08X}.",
+                parent=parent,
+            )
+            return None
+
+        result: dict[str, object] = {"value": None, "label": ""}
+        dlg = tk.Toplevel(parent)
+        dlg.title("Choose loaded move preset")
+        dlg.geometry("760x520")
+        dlg.transient(parent)
+        dlg.grab_set()
+
+        top = ttk.Frame(dlg)
+        top.pack(fill="x", padx=10, pady=(10, 6))
+        ttk.Label(
+            top,
+            text=(
+                f"Slot base: 0x{owner_base:08X}\n"
+                "Pick a loaded move/normal. The selector word is move_address - chr_tbl_base."
+            ),
+            justify="left",
+        ).pack(anchor="w")
+
+        controls = ttk.Frame(dlg)
+        controls.pack(fill="x", padx=10, pady=(0, 6))
+        ttk.Label(controls, text="Filter:").pack(side="left")
+        filter_var = tk.StringVar()
+        filter_entry = ttk.Entry(controls, textvariable=filter_var, width=28)
+        filter_entry.pack(side="left", padx=(4, 12))
+        ttk.Label(controls, text="Entry offset:").pack(side="left")
+        offset_var = tk.StringVar(value="+0x00")
+        offset_box = ttk.Combobox(
+            controls,
+            textvariable=offset_var,
+            values=[f"+0x{delta:02X}" for delta in MOVE_PRESET_ENTRY_OFFSETS],
+            width=8,
+            state="readonly",
+        )
+        offset_box.pack(side="left")
+
+        frame = ttk.Frame(dlg)
+        frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        cols = ("name", "id", "word", "addr", "source")
+        tree = ttk.Treeview(frame, columns=cols, show="headings", height=16)
+        tree.heading("name", text="Move")
+        tree.heading("id", text="AnimID")
+        tree.heading("word", text="Base Word")
+        tree.heading("addr", text="Move Address")
+        tree.heading("source", text="Source")
+        tree.column("name", width=230, anchor="w")
+        tree.column("id", width=80, anchor="center")
+        tree.column("word", width=105, anchor="center")
+        tree.column("addr", width=115, anchor="center")
+        tree.column("source", width=90, anchor="center")
+        vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        frame.grid_rowconfigure(0, weight=1)
+        frame.grid_columnconfigure(0, weight=1)
+
+        row_by_iid: dict[str, dict] = {}
+
+        def populate() -> None:
+            needle = filter_var.get().strip().lower()
+            for iid in tree.get_children():
+                tree.delete(iid)
+            row_by_iid.clear()
+            for row in rows:
+                name = str(row.get("move_name", "move"))
+                entry = str(row.get("entry", name))
+                aid = int(row.get("move_id", 0))
+                word = int(row.get("selector_word", 0))
+                move_abs = int(row.get("move_abs", row.get("addr", 0)))
+                source = str(row.get("source", ""))
+                table_index = int(row.get("table_index", 0))
+                hay = f"{name} {entry} {aid:04X} {table_index:03X} {word:08X} {source}".lower()
+                if needle and needle not in hay:
+                    continue
+                iid = tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        entry,
+                        f"0x{aid:04X}" if aid else "?",
+                        f"0x{word:08X}",
+                        f"0x{move_abs:08X}",
+                        source,
+                    ),
+                )
+                row_by_iid[iid] = row
+
+        def parse_offset() -> int:
+            text = offset_var.get().strip().replace("+", "")
+            try:
+                return int(text, 16)
+            except Exception:
+                return 0
+
+        def choose_selected() -> None:
+            sel = tree.selection()
+            if not sel:
+                messagebox.showerror("No move selected", "Select a move preset first.", parent=dlg)
+                return
+            row = row_by_iid.get(sel[0])
+            if not row:
+                return
+            delta = parse_offset()
+            base_word = int(row.get("selector_word", 0))
+            value = (base_word + delta) & 0xFFFFFFFF
+            name = str(row.get("entry", row.get("move_name", "move")))
+            result["value"] = value
+            result["label"] = f"{name} +0x{delta:02X}"
+            dlg.destroy()
+
+        def on_filter(*_args) -> None:
+            populate()
+
+        filter_var.trace_add("write", on_filter)
+        tree.bind("<Double-Button-1>", lambda _event: choose_selected())
+        populate()
+        first = tree.get_children()
+        if first:
+            tree.selection_set(first[0])
+            tree.focus(first[0])
+
+        bottom = ttk.Frame(dlg)
+        bottom.pack(fill="x", padx=10, pady=(0, 10))
+        ttk.Button(bottom, text="Use selected move", command=choose_selected).pack(side="right", padx=(8, 0))
+        ttk.Button(bottom, text="Cancel", command=dlg.destroy).pack(side="right")
+        filter_entry.focus_set()
+
+        parent.wait_window(dlg)
+        if result["value"] is None:
+            return None
+        return int(result["value"]), str(result["label"])
+
     def _choose_chun_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": False}
         dlg = tk.Toplevel(self.root)
         dlg.title("Choose Chun selector word")
-        dlg.geometry("440x360")
+        dlg.geometry("470x400")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -1649,7 +2348,20 @@ class AssistScannerWindow:
                 return
             set_value(value)
 
-        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=(10, 3))
+        def choose_loaded_move():
+            owner_base = _owning_chr_tbl(addr)
+            if owner_base is None:
+                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
+                return
+            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
+            if picked is None:
+                return
+            value, _label = picked
+            apply_all_var.set(True)
+            set_value(value)
+
+        ttk.Button(btn_frame, text="Choose loaded move/normal preset", command=choose_loaded_move).pack(fill="x", pady=(10, 3))
+        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
         self.root.wait_window(dlg)
 
@@ -1658,10 +2370,10 @@ class AssistScannerWindow:
         return int(result["value"]), bool(result["apply_all"])
 
     def _selector_target_for_display(self, addr: int, raw_val: int) -> str:
-        owner_base = _owning_chr_tbl(addr)
-        if owner_base is None or raw_val > 0x100000:
+        selector_base = _selector_base_for_address(addr)
+        if selector_base is None or raw_val > 0x100000:
             return ""
-        return f"0x{owner_base + raw_val:08X}"
+        return f"0x{selector_base + raw_val:08X}"
 
     def _apply_chun_selector_word(self, h: dict) -> None:
         graft_addr = int(h["block"])
@@ -1820,7 +2532,7 @@ class AssistScannerWindow:
         result: dict[str, object] = {"value": None, "apply_all": False}
         dlg = tk.Toplevel(self.root)
         dlg.title("Choose Ryu selector word")
-        dlg.geometry("440x340")
+        dlg.geometry("470x390")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -1882,7 +2594,20 @@ class AssistScannerWindow:
                 return
             set_value(value)
 
-        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=(10, 3))
+        def choose_loaded_move():
+            owner_base = _owning_chr_tbl(addr)
+            if owner_base is None:
+                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
+                return
+            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
+            if picked is None:
+                return
+            value, _label = picked
+            apply_all_var.set(True)
+            set_value(value)
+
+        ttk.Button(btn_frame, text="Choose loaded move/normal preset", command=choose_loaded_move).pack(fill="x", pady=(10, 3))
+        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
         self.root.wait_window(dlg)
 
@@ -1953,6 +2678,378 @@ class AssistScannerWindow:
             + (" to all lanes." if apply_all else f" to 0x{lane_addr:08X}.")
         )
 
+    def _choose_generic_selector_value(self, addr: int, current: str, source: str) -> tuple[int, bool] | None:
+        result: dict[str, object] = {"value": None, "apply_all": False}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose generic selector word")
+        dlg.geometry("500x470")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        # For a graft candidate, there are no valid selector words in the block yet.
+        # Applying the chosen value to all lanes gives the graft safe/consistent words.
+        apply_all_var = tk.BooleanVar(value=(source != "native"))
+
+        ttk.Label(
+            dlg,
+            text=(
+                f"Address: 0x{addr:08X}\n"
+                f"Current: {current}\n"
+                f"Source: {source}\n\n"
+                "Choosing a value writes/installs a generic Ryu-style selector setup first.\n"
+                "Use manual U32 for character-specific payload offsets."
+            ),
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(12, 8))
+
+        ttk.Checkbutton(
+            dlg,
+            text="Apply this word to all three generic selector lanes",
+            variable=apply_all_var,
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(fill="x", padx=12, pady=4)
+
+        def set_value(v: int):
+            result["value"] = v
+            result["apply_all"] = bool(apply_all_var.get())
+            dlg.destroy()
+
+        for label, value in GENERIC_SELECTOR_MANUAL_PRESETS:
+            ttk.Button(
+                btn_frame,
+                text=f"{label}  0x{value:08X}",
+                command=lambda v=value: set_value(v),
+            ).pack(fill="x", pady=2)
+
+        def manual():
+            text = simpledialog.askstring(
+                "Manual generic selector word",
+                "Enter raw U32 selector word. Examples:\n"
+                "0x0003D620\n"
+                "0003110C\n"
+                "00 03 C4 AC",
+                parent=dlg,
+                initialvalue=current,
+            )
+            if text is None:
+                return
+            cleaned = text.strip().replace(" ", "").replace("_", "")
+            if cleaned.lower().startswith("0x"):
+                cleaned = cleaned[2:]
+            try:
+                value = int(cleaned, 16)
+            except ValueError:
+                messagebox.showerror("Invalid", f"{text!r} is not a u32 value.", parent=dlg)
+                return
+            if not (0 <= value <= 0xFFFFFFFF):
+                messagebox.showerror("Out of range", "Value must be 0-0xFFFFFFFF.", parent=dlg)
+                return
+            set_value(value)
+
+        def choose_loaded_move():
+            owner_base = _owning_chr_tbl(addr)
+            if owner_base is None:
+                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
+                return
+            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
+            if picked is None:
+                return
+            value, _label = picked
+            apply_all_var.set(True)
+            set_value(value)
+
+        ttk.Button(btn_frame, text="Choose loaded move/normal preset", command=choose_loaded_move).pack(fill="x", pady=(10, 3))
+        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
+        self.root.wait_window(dlg)
+
+        if result["value"] is None:
+            return None
+        return int(result["value"]), bool(result["apply_all"])
+
+    def _read_generic_block_for_graft(self, graft_addr: int) -> bytes:
+        if rbytes is None:
+            raise RuntimeError("dolphin_io.rbytes unavailable.")
+        data = rbytes(graft_addr, GENERIC_SELECTOR_TABLE_LEN) or b""
+        if len(data) != GENERIC_SELECTOR_TABLE_LEN:
+            raise RuntimeError(
+                f"Could not read generic graft block at 0x{graft_addr:08X}; got 0x{len(data):X} byte(s)."
+            )
+        return data
+
+    def _generic_block_args_and_words(self, graft_addr: int, source: str,
+                                      raw_val: int, apply_all: bool,
+                                      lane_addr: int) -> bytes:
+        try:
+            current = self._read_generic_block_for_graft(graft_addr)
+        except Exception:
+            current = b""
+
+        words = [raw_val, raw_val, raw_val]
+        arg32 = GENERIC_SELECTOR_DEFAULT_ARG_32
+        arg33 = GENERIC_SELECTOR_DEFAULT_ARG_33
+
+        if len(current) == GENERIC_SELECTOR_TABLE_LEN and current.startswith(GENERIC_SELECTOR_SETUP_PREFIX):
+            # Already native/installed. Preserve existing words unless applying all.
+            for i, off in enumerate(GENERIC_SELECTOR_WORD_OFFSETS):
+                old = struct.unpack(">I", current[off:off + 4])[0]
+                words[i] = raw_val if (apply_all or graft_addr + off == lane_addr) else old
+            arg32 = current[0x20:0x24]
+            arg33 = current[0x28:0x2C]
+        elif len(current) == GENERIC_SELECTOR_TABLE_LEN and current[0:4] == b"\x0F\x06\x00\x27" and current[4:8] == SELECTOR_TAIL:
+            # Graft candidate. Preserve the original 37 32 / 37 33 args, and use
+            # the chosen word for all lanes unless the user unchecks apply-all.
+            # If apply-all was unchecked, still fill uninitialized lanes with the
+            # chosen value because there are no valid selector words yet.
+            words = [raw_val, raw_val, raw_val]
+            arg32 = current[0x08:0x0C]
+            arg33 = current[0x10:0x14]
+
+        return _build_generic_selector_graft_block(tuple(words), arg32, arg33)
+
+    def _apply_generic_selector_word(self, h: dict) -> None:
+        graft_addr = int(h["block"])
+        lane_addr = int(h["addr"])
+        source = str(h.get("source", "unknown"))
+        current = str(h.get("raw", "0x00000000"))
+
+        choice = self._choose_generic_selector_value(lane_addr, current, source)
+        if choice is None:
+            return
+        raw_val, apply_all = choice
+
+        try:
+            block = self._generic_block_args_and_words(graft_addr, source, raw_val, apply_all, lane_addr)
+        except Exception as e:
+            messagebox.showerror("Generic graft failed", str(e), parent=self.root)
+            return
+
+        ok = self._write_many(
+            {graft_addr: block},
+            f"Installed generic selector table at 0x{graft_addr:08X} and wrote selector 0x{raw_val:08X}."
+        )
+        if not ok:
+            return
+
+        for iid, row in self._hit_by_iid.items():
+            if int(row.get("block", -1)) != graft_addr:
+                continue
+            if row.get("kind") in ("generic-native-table", "generic-graft-table"):
+                hx = block.hex(" ").upper()
+                self._tree.set(iid, "raw", hx)
+                row["raw"] = hx
+                row["guess"] = "experimental generic selector table; installed/edited"
+                self._tree.set(iid, "guess", row["guess"])
+                row["source"] = "installed"
+                continue
+            if row.get("kind") != "generic-selector-word":
+                continue
+            row_addr = int(row["addr"])
+            off = row_addr - graft_addr
+            if off not in GENERIC_SELECTOR_WORD_OFFSETS:
+                continue
+            display_val = struct.unpack(">I", block[off:off + 4])[0]
+            row["raw"] = f"0x{display_val:08X}"
+            row["target"] = self._selector_target_for_display(row_addr, display_val)
+            row["guess"] = "double-click: generic selector word; installed/edited"
+            row["source"] = "installed"
+            self._tree.set(iid, "raw", row["raw"])
+            self._tree.set(iid, "target", row["target"])
+            self._tree.set(iid, "guess", row["guess"])
+
+        self._status.set(
+            f"Generic selector table installed at 0x{graft_addr:08X}; wrote 0x{raw_val:08X}"
+            + (" to all lanes." if apply_all else f" using lane 0x{lane_addr:08X}.")
+        )
+
+
+    def _find_generic_selector_graft_addr_for_base(self, owner_base: int) -> tuple[int, str]:
+        data = self._read_memory_region(owner_base, 0x90000, f"slot @ 0x{owner_base:08X}")
+        candidates: list[tuple[int, int, str]] = []
+
+        pos = 0
+        while True:
+            idx = data.find(b"\x0F\x06\x00\x27", pos)
+            if idx < 0:
+                break
+            pos = idx + 1
+            if _looks_like_generic_native_selector_shape(data, idx):
+                candidates.append((100, owner_base + idx, "native"))
+            elif _looks_like_generic_graft_candidate_shape(data, idx):
+                candidates.append((80, owner_base + idx, "graft-candidate"))
+
+        if not candidates:
+            raise RuntimeError(
+                f"No generic selector/graft candidate found in slot base 0x{owner_base:08X}. "
+                "For this character, find the assist block first or use a confirmed Chun/Ryu table."
+            )
+
+        candidates.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+        _, addr, source = candidates[0]
+        return addr, source
+
+    def _choose_assist_move_preset_word(self, h: dict) -> tuple[int, bool, str] | None:
+        move_name = str(h.get("move_name", "move"))
+        move_abs = int(h.get("move_abs", h.get("addr", 0)))
+        base_word = int(h.get("selector_word", 0))
+        current = f"0x{base_word:08X}"
+
+        result: dict[str, object] = {"value": None, "apply_all": True, "label": ""}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose assist move entry")
+        dlg.geometry("500x430")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        apply_all_var = tk.BooleanVar(value=True)
+
+        ttk.Label(
+            dlg,
+            text=(
+                f"Move: {move_name}\n"
+                f"Move address: 0x{move_abs:08X}\n"
+                f"Base selector word: {current}\n\n"
+                "Pick which entry point to write into the graft lanes. "
+                "Base is fastest; +0x70/+0x90 are useful Ryu-style continuation probes."
+            ),
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(12, 8))
+
+        ttk.Checkbutton(
+            dlg,
+            text="Apply this word to all three selector lanes",
+            variable=apply_all_var,
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(fill="x", padx=12, pady=4)
+
+        def set_value(v: int, label: str):
+            result["value"] = v
+            result["label"] = label
+            result["apply_all"] = bool(apply_all_var.get())
+            dlg.destroy()
+
+        for delta in MOVE_PRESET_ENTRY_OFFSETS:
+            v = (base_word + delta) & 0xFFFFFFFF
+            ttk.Button(
+                btn_frame,
+                text=f"{move_name} +0x{delta:02X}  0x{v:08X}",
+                command=lambda vv=v, dd=delta: set_value(vv, f"{move_name} +0x{dd:02X}"),
+            ).pack(fill="x", pady=2)
+
+        def manual():
+            text = simpledialog.askstring(
+                "Manual selector word",
+                "Enter raw U32 selector word. Examples:\n"
+                "0x000378AC\n"
+                "00057480\n"
+                "00 03 C4 AC",
+                parent=dlg,
+                initialvalue=current,
+            )
+            if text is None:
+                return
+            cleaned = text.strip().replace(" ", "").replace("_", "")
+            if cleaned.lower().startswith("0x"):
+                cleaned = cleaned[2:]
+            try:
+                value = int(cleaned, 16)
+            except ValueError:
+                messagebox.showerror("Invalid", f"{text!r} is not a u32 value.", parent=dlg)
+                return
+            if not (0 <= value <= 0xFFFFFFFF):
+                messagebox.showerror("Out of range", "Value must be 0-0xFFFFFFFF.", parent=dlg)
+                return
+            set_value(value, "manual")
+
+        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=(10, 3))
+        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
+        self.root.wait_window(dlg)
+
+        if result["value"] is None:
+            return None
+        return int(result["value"]), bool(result["apply_all"]), str(result["label"])
+
+    def _apply_assist_move_preset(self, h: dict) -> None:
+        choice = self._choose_assist_move_preset_word(h)
+        if choice is None:
+            return
+
+        raw_val, apply_all, label = choice
+        owner_base = int(h.get("owner_base", 0))
+        char_id = int(h.get("char_id", 0))
+        move_name = str(h.get("move_name", "move"))
+        payload = struct.pack(">I", raw_val)
+
+        try:
+            if char_id == 13:
+                graft_addr, source = self._find_chun_selector_graft_addr()
+                writes: dict[int, bytes] = {graft_addr: CHUN_SELECTOR_GRAFT_BLOCK}
+                lane_offsets = CHUN_SELECTOR_WORD_OFFSETS
+                table_name = "Chun"
+            elif char_id == 12:
+                graft_addr, source = self._find_ryu_selector_graft_addr()
+                writes = {graft_addr: RYU_SELECTOR_GRAFT_BLOCK}
+                lane_offsets = RYU_SELECTOR_WORD_OFFSETS
+                table_name = "Ryu"
+            else:
+                graft_addr, source = self._find_generic_selector_graft_addr_for_base(owner_base)
+                block = self._generic_block_args_and_words(
+                    graft_addr,
+                    source,
+                    raw_val,
+                    True,
+                    graft_addr + GENERIC_SELECTOR_WORD_OFFSETS[0],
+                )
+                writes = {graft_addr: block}
+                lane_offsets = GENERIC_SELECTOR_WORD_OFFSETS
+                table_name = "generic"
+        except Exception as e:
+            self._status.set("Assist move preset failed")
+            messagebox.showerror("Assist move preset failed", str(e), parent=self.root)
+            return
+
+        if char_id in (12, 13):
+            if apply_all:
+                for off in lane_offsets:
+                    writes[graft_addr + off] = payload
+            else:
+                writes[graft_addr + lane_offsets[0]] = payload
+
+        ok = self._write_many(
+            writes,
+            f"Applied {move_name} selector 0x{raw_val:08X} to {table_name} graft at 0x{graft_addr:08X}."
+        )
+        if not ok:
+            return
+
+        lane_lines = []
+        if char_id in (12, 13):
+            target_offsets = lane_offsets if apply_all else (lane_offsets[0],)
+            lane_lines = [f"0x{graft_addr + off:08X} <- {payload.hex(' ').upper()}" for off in target_offsets]
+        else:
+            lane_lines = [f"0x{graft_addr + off:08X} <- {payload.hex(' ').upper()}" for off in lane_offsets]
+
+        messagebox.showinfo(
+            "Assist move preset applied",
+            (
+                f"{label}\n"
+                f"Move: {move_name}\n"
+                f"Selector word: 0x{raw_val:08X}\n"
+                f"Table: {table_name} at 0x{graft_addr:08X} ({source})\n\n"
+                + "\n".join(lane_lines)
+                + "\n\nTest assist now. If it stalls, retry the same move with +0x10, +0x20, +0x70, or +0x90."
+            ),
+            parent=self.root,
+        )
+
+        self._status.set(
+            f"Applied assist move preset {move_name} ({label}) as 0x{raw_val:08X}."
+        )
+
     def _on_double_click(self, event):
         iid = self._tree.identify_row(event.y)
         col_idx = self._col_index(event)
@@ -1973,6 +3070,14 @@ class AssistScannerWindow:
 
         if typ == "u32-ryu-selector-graft":
             self._apply_ryu_selector_word(h)
+            return
+
+        if typ == "u32-generic-selector":
+            self._apply_generic_selector_word(h)
+            return
+
+        if typ == "assist-move-preset":
+            self._apply_assist_move_preset(h)
             return
 
         if wbytes is None:
