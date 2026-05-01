@@ -25,110 +25,65 @@ _CHR_TBL_BASES = [
     0x9099D9C0,
 ]
 
-# Chun selector / route flip tests. Button applies one set at a time.
+# Confirmed Chun assist selector graft.
 #
-# Research-mode test bank:
-#   1) Strongest Ryu-style Chun candidate: compact selector bank at 0x909697B4.
-#      This is the one to test pre-match if mid-match gives no reaction.
-#   2) Two low16/vector probes that numerically brush the confirmed live wrapper.
-#   3) Three route-bundle force tests from the 0x90959A20 family.
+# User-confirmed live patch:
+#   Graft this 0x2C-byte Ryu-style selector setup over the active Chun assist
+#   block that begins 0x48 bytes before the live Tensho state wrapper.
 #
-# Each button press restores every candidate address to baseline first, then
-# applies exactly one set. That keeps each yay/nay isolated.
-CHUN_ROUTE_BASELINE = {
-    # Strongest Chun Ryu-style selector-shaped bank.
-    0x909697B4: bytes.fromhex("00 03 BC C8"),
-    0x909697BC: bytes.fromhex("00 03 C4 AC"),
-    0x909697C4: bytes.fromhex("00 03 CC 90"),
-    0x909697CC: bytes.fromhex("00 03 D6 20"),
+# Original live Chun block:
+#   0F060027 3732203F 00000003 3733203F 00000009
+#   013C0000 00001610 013C0000 000016C8 013C0000 00001744
+#
+# Grafted selector block:
+#   0F060027 01500060 000044B4 00000003
+#   0003BCC8 0003C4AC 0003CC90
+#   3732203F 00000003 3733203F 00000009
+#
+# After install, the selector words are:
+#   graft_addr + 0x10
+#   graft_addr + 0x14
+#   graft_addr + 0x18
+CHUN_SELECTOR_ORIGINAL_BLOCK = bytes.fromhex(
+    "0F 06 00 27 "
+    "37 32 20 3F 00 00 00 03 "
+    "37 33 20 3F 00 00 00 09 "
+    "01 3C 00 00 00 00 16 10 "
+    "01 3C 00 00 00 00 16 C8 "
+    "01 3C 00 00 00 00 17 44"
+)
 
-    # Pure low16 vector candidate near 0x9094C7E0.
-    0x9094C7E8: bytes.fromhex("00 00 D4 68"),
+CHUN_SELECTOR_GRAFT_BLOCK = bytes.fromhex(
+    "0F 06 00 27 "
+    "01 50 00 60 00 00 44 B4 00 00 00 03 "
+    "00 03 BC C8 00 03 C4 AC 00 03 CC 90 "
+    "37 32 20 3F 00 00 00 03 "
+    "37 33 20 3F 00 00 00 09"
+)
 
-    # Route-bundle candidate near 0x90959A20.
-    0x90959A24: bytes.fromhex("00 00 D4 0C"),
-    0x90959A3C: bytes.fromhex("00 00 D4 F0"),
-    0x90959A54: bytes.fromhex("00 00 D4 F0"),
-    0x90959A6C: bytes.fromhex("00 00 D4 D0"),
+CHUN_SELECTOR_GRAFT_DELTA_TO_WRAPPER = 0x48
+CHUN_SELECTOR_WORD_OFFSETS = (0x10, 0x14, 0x18)
+
+CHUN_SELECTOR_PAYLOADS = [
+    ("force all lanes -> 0003D620", bytes.fromhex("00 03 D6 20")),
+    ("force all lanes -> 0003BCC8", bytes.fromhex("00 03 BC C8")),
+    ("force all lanes -> 0003C4AC", bytes.fromhex("00 03 C4 AC")),
+    ("force all lanes -> 0003CC90", bytes.fromhex("00 03 CC 90")),
+]
+
+CHUN_SELECTOR_RESET_WORDS = {
+    0x10: bytes.fromhex("00 03 BC C8"),
+    0x14: bytes.fromhex("00 03 C4 AC"),
+    0x18: bytes.fromhex("00 03 CC 90"),
 }
 
-CHUN_ROUTE_TESTS = [
-    (
-        "S1 PREMATCH: force 0x909697B4 bank all -> 0003D620",
-        {
-            0x909697B4: bytes.fromhex("00 03 D6 20"),
-            0x909697BC: bytes.fromhex("00 03 D6 20"),
-            0x909697C4: bytes.fromhex("00 03 D6 20"),
-            0x909697CC: bytes.fromhex("00 03 D6 20"),
-        },
-    ),
-    (
-        "S2 PREMATCH: force 0x909697B4 bank all -> 0003CC90",
-        {
-            0x909697B4: bytes.fromhex("00 03 CC 90"),
-            0x909697BC: bytes.fromhex("00 03 CC 90"),
-            0x909697C4: bytes.fromhex("00 03 CC 90"),
-            0x909697CC: bytes.fromhex("00 03 CC 90"),
-        },
-    ),
-    (
-        "S3 PREMATCH: force 0x909697B4 bank all -> 0003C4AC",
-        {
-            0x909697B4: bytes.fromhex("00 03 C4 AC"),
-            0x909697BC: bytes.fromhex("00 03 C4 AC"),
-            0x909697C4: bytes.fromhex("00 03 C4 AC"),
-            0x909697CC: bytes.fromhex("00 03 C4 AC"),
-        },
-    ),
-    (
-        "S4 PREMATCH: force 0x909697B4 bank all -> 0003BCC8",
-        {
-            0x909697B4: bytes.fromhex("00 03 BC C8"),
-            0x909697BC: bytes.fromhex("00 03 BC C8"),
-            0x909697C4: bytes.fromhex("00 03 BC C8"),
-            0x909697CC: bytes.fromhex("00 03 BC C8"),
-        },
-    ),
-    (
-        "V1 PREMATCH: 0x9094C7E8 D468 -> D230",
-        {
-            0x9094C7E8: bytes.fromhex("00 00 D2 30"),
-        },
-    ),
-    (
-        "V2 PREMATCH: 0x9094C7E8 D468 -> D594",
-        {
-            0x9094C7E8: bytes.fromhex("00 00 D5 94"),
-        },
-    ),
-    (
-        "R1 PREMATCH: force 0x90959A route bundle all -> D40C",
-        {
-            0x90959A24: bytes.fromhex("00 00 D4 0C"),
-            0x90959A3C: bytes.fromhex("00 00 D4 0C"),
-            0x90959A54: bytes.fromhex("00 00 D4 0C"),
-            0x90959A6C: bytes.fromhex("00 00 D4 0C"),
-        },
-    ),
-    (
-        "R2 PREMATCH: force 0x90959A route bundle all -> D4D0",
-        {
-            0x90959A24: bytes.fromhex("00 00 D4 D0"),
-            0x90959A3C: bytes.fromhex("00 00 D4 D0"),
-            0x90959A54: bytes.fromhex("00 00 D4 D0"),
-            0x90959A6C: bytes.fromhex("00 00 D4 D0"),
-        },
-    ),
-    (
-        "R3 PREMATCH: force 0x90959A route bundle all -> D4F0",
-        {
-            0x90959A24: bytes.fromhex("00 00 D4 F0"),
-            0x90959A3C: bytes.fromhex("00 00 D4 F0"),
-            0x90959A54: bytes.fromhex("00 00 D4 F0"),
-            0x90959A6C: bytes.fromhex("00 00 D4 F0"),
-        },
-    ),
+CHUN_SELECTOR_WORD_PRESETS = [
+    ("Chun payload 0003D620", 0x0003D620),
+    ("Chun payload 0003BCC8", 0x0003BCC8),
+    ("Chun payload 0003C4AC", 0x0003C4AC),
+    ("Chun payload 0003CC90", 0x0003CC90),
 ]
+
 _FIGHTER_BASES = [
     0x9246B9C0,
     0x927EB9E0,
@@ -449,6 +404,103 @@ def _append_selector_block(data: bytes, base_addr: int, idx: int, slot_char_ids:
 
 
 
+def _append_chun_selector_graft_table(data: bytes, base_addr: int, idx: int,
+                                      slot_char_ids: dict[int, int], hits: list[dict],
+                                      source: str) -> None:
+    block_addr = base_addr + idx
+    owner_base = _owning_chr_tbl(block_addr)
+    if owner_base is None:
+        return
+    if idx < 0 or idx + len(CHUN_SELECTOR_GRAFT_BLOCK) > len(data):
+        return
+
+    owner = _owner_name(block_addr, slot_char_ids)
+    slot = _slot_cid(block_addr, slot_char_ids)
+    current_block = data[idx:idx + len(CHUN_SELECTOR_GRAFT_BLOCK)]
+    label = "installed graft" if source == "graft" else "original slot" if source == "original" else "live wrapper fallback"
+
+    hits.append({
+        "kind": "chun-graft-table",
+        "block": block_addr,
+        "addr": block_addr,
+        "owner": owner,
+        "slot": slot,
+        "entry": label,
+        "raw": current_block.hex(" ").upper(),
+        "target": "",
+        "guess": "confirmed Chun assist selector graft table; double-click a lane to install/update",
+        "score": 100 if slot == "0x0D" else 90,
+        "ctx": _fmt_context(data, idx, mark_len=len(CHUN_SELECTOR_GRAFT_BLOCK)),
+        "editable": False,
+        "typ": "raw-window",
+    })
+
+    for lane_index, off in enumerate(CHUN_SELECTOR_WORD_OFFSETS, start=1):
+        raw = _u32be(data, idx + off)
+        default_raw = _u32be(CHUN_SELECTOR_GRAFT_BLOCK, off)
+        if raw is None or default_raw is None:
+            continue
+        lane_addr = block_addr + off
+        display_raw = raw if source != "original" else default_raw
+        target_addr = owner_base + display_raw if 0 <= display_raw <= 0x100000 else 0
+        actual_note = "" if source != "original" else f" current bytes 0x{raw:08X};"
+        hits.append({
+            "kind": "chun-selector-word",
+            "block": block_addr,
+            "addr": lane_addr,
+            "owner": owner,
+            "slot": slot,
+            "entry": f"lane {lane_index}",
+            "raw": f"0x{display_raw:08X}",
+            "target": f"0x{target_addr:08X}" if target_addr else "",
+            "guess": f"double-click: install graft then write selector word;{actual_note} source {source}",
+            "score": 100,
+            "ctx": _fmt_context(data, idx + off, mark_len=4),
+            "editable": True,
+            "typ": "u32-chun-selector",
+        })
+
+
+def _scan_chun_selector_graft_tables(data: bytes, base_addr: int,
+                                     slot_char_ids: dict[int, int], hits: list[dict]) -> None:
+    patterns = [
+        ("graft", CHUN_SELECTOR_GRAFT_BLOCK),
+        ("original", CHUN_SELECTOR_ORIGINAL_BLOCK),
+    ]
+    wrapper_sig = STATE_WRAPPER_PREFIX + b"\x00\x00\x01\x12\x01\x3C"
+    seen: set[int] = set()
+
+    for source, pattern in patterns:
+        pos = 0
+        while True:
+            idx = data.find(pattern, pos)
+            if idx < 0:
+                break
+            pos = idx + 1
+            if idx in seen:
+                continue
+            seen.add(idx)
+            _append_chun_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, source)
+
+    # Fallback for a graft whose selector words have already been edited: find the
+    # live 0112 wrapper and step back to the selector table start.
+    pos = 0
+    while True:
+        wrapper_idx = data.find(wrapper_sig, pos)
+        if wrapper_idx < 0:
+            break
+        pos = wrapper_idx + 1
+        idx = wrapper_idx - CHUN_SELECTOR_GRAFT_DELTA_TO_WRAPPER
+        if idx < 0 or idx + len(CHUN_SELECTOR_GRAFT_BLOCK) > len(data):
+            continue
+        if data[idx:idx + 4] != b"\x0F\x06\x00\x27":
+            continue
+        if idx in seen:
+            continue
+        seen.add(idx)
+        _append_chun_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, "wrapper-fallback")
+
+
 def _append_state_wrapper(data: bytes, base_addr: int, idx: int, slot_char_ids: dict[int, int],
                           hits: list[dict]) -> None:
     block_addr = base_addr + idx
@@ -719,21 +771,9 @@ def _scan_block(data: bytes, base_addr: int, slot_char_ids: dict[int, int], hits
         if start >= 0 and _selector_count(data, start) >= 2:
             _append_selector_block(data, base_addr, start, slot_char_ids, hits)
 
-    # New targeted scan: live Tensho 0xD0 descriptors, exposing likely X/Y float fields.
-    _scan_tensho_descriptors(data, base_addr, slot_char_ids, hits)
-
-    # Keep only the confirmed Chun wrapper neighborhood. Do not broad-scan every
-    # state wrapper or every nearby phrase anymore; that was noise for this pass.
-    _append_confirmed_wrapper_neighborhood(
-        data=data,
-        base_addr=base_addr,
-        block_addr=0x90984D40,
-        state_addr=0x90984D52,
-        state_id=0x0112,
-        label="Chun confirmed Tensho assist wrapper",
-        slot_char_ids=slot_char_ids,
-        hits=hits,
-    )
+    # Confirmed Chun path: only surface the graft table and its editable lanes.
+    # The old Tensho descriptor/wrapper scans are intentionally not shown here.
+    _scan_chun_selector_graft_tables(data, base_addr, slot_char_ids, hits)
 
 
 def _run_scan(progress_cb, done_cb):
@@ -778,19 +818,18 @@ def _run_scan(progress_cb, done_cb):
     def sort_key(h: dict):
         priority = 0 if h["block"] == 0x908C7680 else 1
         kind_order = {
-            "confirmed-wrapper": 0,
-            "confirmed-state-id": 1,
-            "wrapper-poke": 2,
-            "tensho-desc": 3,
-            "tensho-float": 4,
-            "tensho-meta": 5,
-            "selector-chain": 6,
-            "selector-loose": 4,
-            "state-wrapper": 5,
-            "selector": 6,
-            "state-id": 7,
-            "phrase": 8,
-        }.get(h["kind"], 9)
+            "chun-graft-table": 0,
+            "chun-selector-word": 1,
+            "selector-chain": 2,
+            "selector-loose": 3,
+            "selector": 4,
+            "confirmed-wrapper": 5,
+            "confirmed-state-id": 6,
+            "wrapper-poke": 7,
+            "state-wrapper": 8,
+            "state-id": 9,
+            "phrase": 10,
+        }.get(h["kind"], 11)
         return (priority, h["block"], kind_order, h["addr"], h["entry"])
 
     uniq.sort(key=sort_key)
@@ -800,15 +839,16 @@ def _run_scan(progress_cb, done_cb):
 class AssistScannerWindow:
     def __init__(self, master):
         self.root = tk.Toplevel(master)
-        self.root.title("Assist Scanner - Ryu Selectors + Chun Tensho Descriptor Tests")
+        self.root.title("Assist Scanner - Ryu Selectors + Chun Assist Selector Graft")
         self.root.geometry("1420x700")
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
         self._scanning = False
         self._hit_by_iid: dict[str, dict] = {}
         self._sort_col = None
         self._sort_asc = True
-        self._chun_route_test_index = 0
-        self._last_chun_route_test = None
+        self._chun_selector_test_index = 0
+        self._last_chun_selector_addr = None
+        self._last_chun_selector_test = None
         self._build()
         self._start()
 
@@ -818,18 +858,18 @@ class AssistScannerWindow:
         ttk.Label(
             top,
             text=(
-                "Scans confirmed Ryu selector chains plus targeted Chun/Tensho 0xD0 descriptors. "
-                "Double-click editable Raw cells to poke selector words, StateID, or f32 descriptor offsets."
+                "Finds the confirmed Chun assist selector graft table plus Ryu selector proof blocks. "
+                "Double-click a Chun lane to install the graft and write a preset or manual selector word."
             ),
         ).pack(side="left")
         self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
         self._scan_btn.pack(side="right")
 
-        self._route_restore_btn = ttk.Button(top, text="Restore Chun Research", command=self._restore_chun_route_baseline)
+        self._route_restore_btn = ttk.Button(top, text="Restore Chun Original", command=self._restore_chun_selector_block)
         self._route_restore_btn.pack(side="right", padx=(0, 8))
 
-        self._route_next_btn = ttk.Button(top, text="Next Chun Research Set", command=self._apply_next_chun_route_test)
-        self._route_next_btn.pack(side="right", padx=(0, 8))
+        self._dump_slots_btn = ttk.Button(top, text="Dump Char Slots", command=self._dump_char_slots)
+        self._dump_slots_btn.pack(side="right", padx=(0, 8))
 
         self._prog = tk.DoubleVar()
         ttk.Progressbar(self.root, variable=self._prog, maximum=100).pack(fill="x", padx=8, pady=(0, 4))
@@ -869,7 +909,7 @@ class AssistScannerWindow:
         self._hit_by_iid.clear()
         for iid in self._tree.get_children():
             self._tree.delete(iid)
-        self._status.set("Scanning MEM2 for Ryu selectors and targeted Tensho descriptors...")
+        self._status.set("Scanning MEM2 for Chun graft table and Ryu selectors...")
         threading.Thread(target=_run_scan, args=(self._on_prog, self._on_done), daemon=True).start()
 
     def _on_prog(self, pct: float):
@@ -899,9 +939,9 @@ class AssistScannerWindow:
             self._scan_btn.config(state="normal")
             self._prog.set(100)
             selector_blocks = len({h["block"] for h in hits if h["kind"] in ("selector-chain", "selector-loose")})
-            wrapper_blocks = len({h["block"] for h in hits if h["kind"] == "state-wrapper"})
+            chun_tables = len({h["block"] for h in hits if h["kind"] == "chun-graft-table"})
             self._status.set(
-                f"Done - {selector_blocks} selector block(s), {wrapper_blocks} Tensho descriptor row source(s), {len(hits)} row(s)."
+                f"Done - {chun_tables} Chun graft table(s), {selector_blocks} Ryu selector block(s), {len(hits)} row(s)."
             )
         try:
             self.root.after(0, _f)
@@ -1077,35 +1117,480 @@ class AssistScannerWindow:
         self._status.set(label)
         return True
 
-    def _restore_chun_route_baseline(self):
-        ok = self._write_many(CHUN_ROUTE_BASELINE, "Restored Chun research candidate baseline.")
-        if ok:
-            self._last_chun_route_test = None
-
-    def _apply_next_chun_route_test(self):
-        if not CHUN_ROUTE_TESTS:
+    def _dump_char_slots(self):
+        if rbytes is None:
+            messagebox.showerror("Dump failed", "dolphin_io.rbytes unavailable.", parent=self.root)
             return
-        name, writes = CHUN_ROUTE_TESTS[self._chun_route_test_index]
 
-        # Restore whole cluster first, then apply the current set.
-        # This keeps each yay/nay test isolated.
-        merged = dict(CHUN_ROUTE_BASELINE)
-        merged.update(writes)
+        import os
+        import time
+
+        def read_region(start_addr: int, size: int, label: str) -> bytes:
+            out = bytearray()
+            off = 0
+            while off < size:
+                n = min(SCAN_BLOCK, size - off)
+                addr = start_addr + off
+                try:
+                    chunk = rbytes(addr, n)
+                except Exception as e:
+                    raise RuntimeError(f"{label}: read failed at 0x{addr:08X}: {e}") from e
+
+                if not chunk:
+                    raise RuntimeError(f"{label}: empty read at 0x{addr:08X}")
+
+                if len(chunk) != n:
+                    raise RuntimeError(
+                        f"{label}: short read at 0x{addr:08X}; got 0x{len(chunk):X}, expected 0x{n:X}"
+                    )
+
+                out.extend(chunk)
+                off += n
+
+                try:
+                    self._status.set(f"Dumping {label}: 0x{off:06X}/0x{size:06X}")
+                    self.root.update_idletasks()
+                except Exception:
+                    pass
+
+            return bytes(out)
+
+        try:
+            bases = list(_CHR_TBL_BASES)
+            if not bases:
+                messagebox.showerror("Dump failed", "_CHR_TBL_BASES is empty.", parent=self.root)
+                return
+
+            # Fixed raw window per character-table slot. This intentionally captures
+            # more than the currently known selector area so you can search it elsewhere.
+            slot_size = 0x90000
+
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            out_dir = os.path.join(os.getcwd(), f"assist_char_slot_dump_{stamp}")
+            os.makedirs(out_dir, exist_ok=True)
+
+            index_lines = [
+                "Assist Scanner character slot raw dump",
+                f"Created: {stamp}",
+                f"Slot dump size: 0x{slot_size:08X} bytes",
+                "",
+                "Individual slot dumps:",
+            ]
+
+            for i, base in enumerate(bases):
+                label = f"slot {i} @ 0x{base:08X}"
+                data = read_region(base, slot_size, label)
+                filename = f"char_slot_{i}_base_0x{base:08X}_size_0x{slot_size:08X}.bin"
+                path = os.path.join(out_dir, filename)
+                with open(path, "wb") as f:
+                    f.write(data)
+                index_lines.append(
+                    f"slot {i}: base=0x{base:08X}, size=0x{slot_size:08X}, file={filename}"
+                )
+
+            combined_start = min(bases)
+            combined_end = max(bases) + slot_size
+            combined_size = combined_end - combined_start
+            combined_label = f"combined 0x{combined_start:08X}-0x{combined_end - 1:08X}"
+            combined_data = read_region(combined_start, combined_size, combined_label)
+            combined_filename = (
+                f"char_slots_combined_0x{combined_start:08X}_"
+                f"to_0x{combined_end - 1:08X}_size_0x{combined_size:08X}.bin"
+            )
+            combined_path = os.path.join(out_dir, combined_filename)
+            with open(combined_path, "wb") as f:
+                f.write(combined_data)
+
+            index_lines.extend([
+                "",
+                "Combined contiguous dump:",
+                f"start=0x{combined_start:08X}",
+                f"end=0x{combined_end - 1:08X}",
+                f"size=0x{combined_size:08X}",
+                f"file={combined_filename}",
+                "",
+                "Known slot bases:",
+                *[f"0x{base:08X}" for base in bases],
+                "",
+            ])
+
+            index_path = os.path.join(out_dir, "README_dump_index.txt")
+            with open(index_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(index_lines))
+
+            self._status.set(f"Dump complete: {out_dir}")
+            messagebox.showinfo(
+                "Dump complete",
+                (
+                    f"Dumped {len(bases)} character slot window(s) plus one combined raw dump.\n\n"
+                    f"Saved to:\n{out_dir}"
+                ),
+                parent=self.root,
+            )
+
+        except Exception as e:
+            self._status.set("Dump failed")
+            messagebox.showerror("Dump failed", str(e), parent=self.root)
+
+    def _read_memory_region(self, start_addr: int, size: int, label: str = "region") -> bytes:
+        if rbytes is None:
+            raise RuntimeError("dolphin_io.rbytes unavailable.")
+
+        out = bytearray()
+        off = 0
+        while off < size:
+            n = min(SCAN_BLOCK, size - off)
+            addr = start_addr + off
+            try:
+                chunk = rbytes(addr, n)
+            except Exception as e:
+                raise RuntimeError(f"{label}: read failed at 0x{addr:08X}: {e}") from e
+
+            if not chunk:
+                raise RuntimeError(f"{label}: empty read at 0x{addr:08X}")
+
+            if len(chunk) != n:
+                raise RuntimeError(
+                    f"{label}: short read at 0x{addr:08X}; got 0x{len(chunk):X}, expected 0x{n:X}"
+                )
+
+            out.extend(chunk)
+            off += n
+
+        return bytes(out)
+
+    def _chun_selector_candidate_score(self, base: int, idx: int, data: bytes,
+                                       slot_char_ids: dict[int, int], source: str) -> int:
+        addr = base + idx
+        score = 0
+
+        cid = slot_char_ids.get(base)
+        if cid == 13:
+            score += 100
+        elif cid is not None:
+            score -= 100
+
+        if source == "graft":
+            score += 40
+        elif source == "original":
+            score += 30
+        else:
+            score += 10
+
+        wrapper_idx = idx + CHUN_SELECTOR_GRAFT_DELTA_TO_WRAPPER
+        wrapper_sig = STATE_WRAPPER_PREFIX + b"\x00\x00\x01\x12\x01\x3C"
+        if 0 <= wrapper_idx and wrapper_idx + len(wrapper_sig) <= len(data):
+            if data[wrapper_idx:wrapper_idx + len(wrapper_sig)] == wrapper_sig:
+                score += 80
+
+        # Prefer candidates that have the confirmed pre-wrapper setup nearby.
+        if idx >= 0 and idx + 0x50 <= len(data):
+            window = data[idx:idx + 0x50]
+            if b"\x04\x17\x60\x00" in window:
+                score += 10
+            if b"\x04\x01\x60\x00" in window:
+                score += 10
+
+        # Small deterministic tie-breaker: lower slot/base first, then lower address.
+        score -= (_slot_index_for_base(base) or 0)
+        score -= (addr & 0xFF) // 0x10
+        return score
+
+    def _find_chun_selector_graft_addr(self) -> tuple[int, str]:
+        if rbytes is None:
+            raise RuntimeError("dolphin_io.rbytes unavailable.")
+
+        slot_char_ids = _read_slot_char_ids()
+        patterns = [
+            ("graft", CHUN_SELECTOR_GRAFT_BLOCK),
+            ("original", CHUN_SELECTOR_ORIGINAL_BLOCK),
+        ]
+        wrapper_sig = STATE_WRAPPER_PREFIX + b"\x00\x00\x01\x12\x01\x3C"
+
+        candidates: list[tuple[int, int, str]] = []
+
+        for base in _CHR_TBL_BASES:
+            try:
+                data = self._read_memory_region(base, 0x90000, f"slot @ 0x{base:08X}")
+            except Exception:
+                continue
+
+            for source, pattern in patterns:
+                pos = 0
+                while True:
+                    idx = data.find(pattern, pos)
+                    if idx < 0:
+                        break
+                    pos = idx + 1
+                    score = self._chun_selector_candidate_score(base, idx, data, slot_char_ids, source)
+                    candidates.append((score, base + idx, source))
+
+            # Fallback for already-mutated grafts: find the live 0112 wrapper and
+            # step back 0x48 to the selector slot.
+            pos = 0
+            while True:
+                wrapper_idx = data.find(wrapper_sig, pos)
+                if wrapper_idx < 0:
+                    break
+                pos = wrapper_idx + 1
+                idx = wrapper_idx - CHUN_SELECTOR_GRAFT_DELTA_TO_WRAPPER
+                if idx < 0 or idx + len(CHUN_SELECTOR_GRAFT_BLOCK) > len(data):
+                    continue
+                if data[idx:idx + 4] != b"\x0F\x06\x00\x27":
+                    continue
+                score = self._chun_selector_candidate_score(base, idx, data, slot_char_ids, "wrapper-fallback")
+                candidates.append((score, base + idx, "wrapper-fallback"))
+
+        if not candidates:
+            raise RuntimeError(
+                "Could not find the Chun assist selector slot. Load Chun, call the assist once, then try again."
+            )
+
+        candidates.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+        _, addr, source = candidates[0]
+        return addr, source
+
+    def _install_chun_selector_graft(self):
+        try:
+            addr, source = self._find_chun_selector_graft_addr()
+        except Exception as e:
+            self._status.set("Chun selector install failed")
+            messagebox.showerror("Install Chun Selector failed", str(e), parent=self.root)
+            return
 
         ok = self._write_many(
-            merged,
-            f"Applied {name}. Test Chun assist, then press Next or Restore."
+            {addr: CHUN_SELECTOR_GRAFT_BLOCK},
+            f"Installed Chun selector graft at 0x{addr:08X}."
         )
         if not ok:
             return
 
-        self._last_chun_route_test = name
-        self._chun_route_test_index = (self._chun_route_test_index + 1) % len(CHUN_ROUTE_TESTS)
-        details = "\n".join(f"0x{addr:08X} <- {payload.hex(' ').upper()}" for addr, payload in writes.items())
+        self._last_chun_selector_addr = addr
+        selector_addrs = [addr + off for off in CHUN_SELECTOR_WORD_OFFSETS]
         messagebox.showinfo(
-            "Chun route test applied",
-            f"{name}\n\n{details}\n\nTest assist now. Press Next Chun Research Set for the next test, or Restore Chun Research to reset.",
+            "Chun selector installed",
+            (
+                f"Installed graft at 0x{addr:08X} using {source} match.\n\n"
+                f"Selector lanes:\n"
+                f"0x{selector_addrs[0]:08X}\n"
+                f"0x{selector_addrs[1]:08X}\n"
+                f"0x{selector_addrs[2]:08X}\n\n"
+                "Use Next Chun Payload to force all three lanes."
+            ),
             parent=self.root,
+        )
+
+    def _restore_chun_selector_block(self):
+        try:
+            addr, source = self._find_chun_selector_graft_addr()
+        except Exception as e:
+            self._status.set("Chun selector restore failed")
+            messagebox.showerror("Restore Chun Selector failed", str(e), parent=self.root)
+            return
+
+        ok = self._write_many(
+            {addr: CHUN_SELECTOR_ORIGINAL_BLOCK},
+            f"Restored original Chun assist block at 0x{addr:08X}."
+        )
+        if not ok:
+            return
+
+        self._last_chun_selector_addr = addr
+        self._last_chun_selector_test = None
+        messagebox.showinfo(
+            "Chun selector restored",
+            f"Restored original block at 0x{addr:08X} using {source} match.",
+            parent=self.root,
+        )
+
+    def _apply_next_chun_selector_payload(self):
+        if not CHUN_SELECTOR_PAYLOADS:
+            return
+
+        try:
+            addr, source = self._find_chun_selector_graft_addr()
+        except Exception as e:
+            self._status.set("Chun payload apply failed")
+            messagebox.showerror("Next Chun Payload failed", str(e), parent=self.root)
+            return
+
+        # Ensure the confirmed graft is installed first. This is harmless if it is
+        # already installed, and it avoids applying lane words to the original block.
+        writes: dict[int, bytes] = {addr: CHUN_SELECTOR_GRAFT_BLOCK}
+
+        name, payload = CHUN_SELECTOR_PAYLOADS[self._chun_selector_test_index]
+        for off in CHUN_SELECTOR_WORD_OFFSETS:
+            writes[addr + off] = payload
+
+        ok = self._write_many(
+            writes,
+            f"Applied Chun selector payload {payload.hex(' ').upper()} at 0x{addr:08X}."
+        )
+        if not ok:
+            return
+
+        self._last_chun_selector_addr = addr
+        self._last_chun_selector_test = name
+        self._chun_selector_test_index = (self._chun_selector_test_index + 1) % len(CHUN_SELECTOR_PAYLOADS)
+
+        details = "\n".join(
+            f"0x{addr + off:08X} <- {payload.hex(' ').upper()}"
+            for off in CHUN_SELECTOR_WORD_OFFSETS
+        )
+        messagebox.showinfo(
+            "Chun selector payload applied",
+            (
+                f"{name}\n\n"
+                f"Graft address: 0x{addr:08X} ({source})\n\n"
+                f"{details}\n\n"
+                "Test Chun assist now. Press Next Chun Payload for the next forced route."
+            ),
+            parent=self.root,
+        )
+
+    def _choose_chun_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
+        result: dict[str, object] = {"value": None, "apply_all": False}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose Chun selector word")
+        dlg.geometry("440x360")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        apply_all_var = tk.BooleanVar(value=False)
+
+        ttk.Label(
+            dlg,
+            text=(
+                f"Address: 0x{addr:08X}\n"
+                f"Current: {current}\n\n"
+                "Choosing a value installs the confirmed graft first, then writes the selector word."
+            ),
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(12, 8))
+
+        ttk.Checkbutton(
+            dlg,
+            text="Apply this word to all three Chun selector lanes",
+            variable=apply_all_var,
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(fill="x", padx=12, pady=4)
+
+        def set_value(v: int):
+            result["value"] = v
+            result["apply_all"] = bool(apply_all_var.get())
+            dlg.destroy()
+
+        for label, value in CHUN_SELECTOR_WORD_PRESETS:
+            ttk.Button(
+                btn_frame,
+                text=f"{label}  0x{value:08X}",
+                command=lambda v=value: set_value(v),
+            ).pack(fill="x", pady=3)
+
+        def manual():
+            text = simpledialog.askstring(
+                "Manual Chun selector word",
+                "Enter raw U32 selector word. Examples:\n"
+                "0x0003D620\n"
+                "0003BCC8\n"
+                "00 03 C4 AC",
+                parent=dlg,
+                initialvalue=current,
+            )
+            if text is None:
+                return
+            cleaned = text.strip().replace(" ", "").replace("_", "")
+            if cleaned.lower().startswith("0x"):
+                cleaned = cleaned[2:]
+            try:
+                value = int(cleaned, 16)
+            except ValueError:
+                messagebox.showerror("Invalid", f"{text!r} is not a u32 value.", parent=dlg)
+                return
+            if not (0 <= value <= 0xFFFFFFFF):
+                messagebox.showerror("Out of range", "Value must be 0-0xFFFFFFFF.", parent=dlg)
+                return
+            set_value(value)
+
+        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=(10, 3))
+        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
+        self.root.wait_window(dlg)
+
+        if result["value"] is None:
+            return None
+        return int(result["value"]), bool(result["apply_all"])
+
+    def _selector_target_for_display(self, addr: int, raw_val: int) -> str:
+        owner_base = _owning_chr_tbl(addr)
+        if owner_base is None or raw_val > 0x100000:
+            return ""
+        return f"0x{owner_base + raw_val:08X}"
+
+    def _apply_chun_selector_word(self, h: dict) -> None:
+        graft_addr = int(h["block"])
+        lane_addr = int(h["addr"])
+        current = str(h.get("raw", "0x00000000"))
+
+        choice = self._choose_chun_selector_value(lane_addr, current)
+        if choice is None:
+            return
+        raw_val, apply_all = choice
+        payload = struct.pack(">I", raw_val)
+
+        writes: dict[int, bytes] = {graft_addr: CHUN_SELECTOR_GRAFT_BLOCK}
+        if apply_all:
+            for off in CHUN_SELECTOR_WORD_OFFSETS:
+                writes[graft_addr + off] = payload
+        else:
+            writes[lane_addr] = payload
+
+        ok = self._write_many(
+            writes,
+            f"Installed Chun graft at 0x{graft_addr:08X} and wrote selector 0x{raw_val:08X}."
+        )
+        if not ok:
+            return
+
+        block_bytes = bytearray(CHUN_SELECTOR_GRAFT_BLOCK)
+        for off in CHUN_SELECTOR_WORD_OFFSETS:
+            if apply_all or graft_addr + off == lane_addr:
+                block_bytes[off:off + 4] = payload
+
+        for iid, row in self._hit_by_iid.items():
+            if int(row.get("block", -1)) != graft_addr:
+                continue
+            if row.get("kind") == "chun-graft-table":
+                hx = bytes(block_bytes).hex(" ").upper()
+                self._tree.set(iid, "raw", hx)
+                row["raw"] = hx
+                row["guess"] = "confirmed Chun assist selector graft table; installed/edited"
+                self._tree.set(iid, "guess", row["guess"])
+                continue
+            if row.get("kind") != "chun-selector-word":
+                continue
+            row_addr = int(row["addr"])
+            off = row_addr - graft_addr
+            if off not in CHUN_SELECTOR_WORD_OFFSETS:
+                continue
+            if apply_all or row_addr == lane_addr:
+                display_val = raw_val
+            else:
+                default_payload = CHUN_SELECTOR_RESET_WORDS.get(off)
+                display_val = struct.unpack(">I", default_payload)[0] if default_payload else 0
+            row["raw"] = f"0x{display_val:08X}"
+            row["target"] = self._selector_target_for_display(row_addr, display_val)
+            row["guess"] = "double-click: install graft then write selector word"
+            self._tree.set(iid, "raw", row["raw"])
+            self._tree.set(iid, "target", row["target"])
+            self._tree.set(iid, "guess", row["guess"])
+
+        self._last_chun_selector_addr = graft_addr
+        self._last_chun_selector_test = f"0x{raw_val:08X}" + (" all lanes" if apply_all else f" at 0x{lane_addr:08X}")
+        self._status.set(
+            f"Chun graft installed at 0x{graft_addr:08X}; wrote 0x{raw_val:08X}"
+            + (" to all lanes." if apply_all else f" to 0x{lane_addr:08X}.")
         )
 
     def _on_double_click(self, event):
@@ -1121,6 +1606,10 @@ class AssistScannerWindow:
             return
         addr = int(h["addr"])
         typ = str(h.get("typ", ""))
+
+        if typ == "u32-chun-selector":
+            self._apply_chun_selector_word(h)
+            return
 
         if wbytes is None:
             messagebox.showerror("Write failed", "dolphin_io.wbytes unavailable.", parent=self.root)
