@@ -119,6 +119,34 @@ RYU_PRESETS = [
     ("Tatsu", 0x00031CDC),
 ]
 
+
+# Confirmed Ryu assist selector graft/table.
+#
+# Ryu already has the full Ryu-style selector setup in the live assist route.
+# This exposes it the same way as the Chun graft table, so a lane can be
+# double-clicked and written with a preset/manual selector word.
+RYU_SELECTOR_GRAFT_BLOCK = bytes.fromhex(
+    "0F 06 00 27 "
+    "01 50 00 60 00 00 44 B4 00 00 00 03 "
+    "00 03 11 0C 00 03 14 6C 00 03 1C DC "
+    "37 32 20 3F 00 00 00 02 "
+    "37 33 20 3F 00 00 00 04"
+)
+
+RYU_SELECTOR_WORD_OFFSETS = (0x10, 0x14, 0x18)
+
+RYU_SELECTOR_RESET_WORDS = {
+    0x10: bytes.fromhex("00 03 11 0C"),
+    0x14: bytes.fromhex("00 03 14 6C"),
+    0x18: bytes.fromhex("00 03 1C DC"),
+}
+
+RYU_SELECTOR_WORD_PRESETS = [
+    ("Ryu Hadouken 0003110C", 0x0003110C),
+    ("Ryu Shoryu 0003146C", 0x0003146C),
+    ("Ryu Tatsu 00031CDC", 0x00031CDC),
+]
+
 SELECTOR_TAIL = b"\x37\x32\x20\x3F"
 SELECTOR_COMPANION_TAIL = b"\x37\x33\x20\x3F"
 STATE_WRAPPER_PREFIX = (
@@ -501,6 +529,107 @@ def _scan_chun_selector_graft_tables(data: bytes, base_addr: int,
         _append_chun_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, "wrapper-fallback")
 
 
+def _looks_like_ryu_selector_graft_shape(data: bytes, idx: int) -> bool:
+    if idx < 0 or idx + len(RYU_SELECTOR_GRAFT_BLOCK) > len(data):
+        return False
+    checks = [
+        (0x00, bytes.fromhex("0F 06 00 27")),
+        (0x04, bytes.fromhex("01 50 00 60")),
+        (0x08, bytes.fromhex("00 00 44 B4")),
+        (0x0C, bytes.fromhex("00 00 00 03")),
+        (0x1C, bytes.fromhex("37 32 20 3F")),
+        (0x20, bytes.fromhex("00 00 00 02")),
+        (0x24, bytes.fromhex("37 33 20 3F")),
+        (0x28, bytes.fromhex("00 00 00 04")),
+    ]
+    return all(data[idx + off:idx + off + len(sig)] == sig for off, sig in checks)
+
+
+def _append_ryu_selector_graft_table(data: bytes, base_addr: int, idx: int,
+                                     slot_char_ids: dict[int, int], hits: list[dict],
+                                     source: str) -> None:
+    block_addr = base_addr + idx
+    owner_base = _owning_chr_tbl(block_addr)
+    if owner_base is None:
+        return
+    if idx < 0 or idx + len(RYU_SELECTOR_GRAFT_BLOCK) > len(data):
+        return
+
+    owner = _owner_name(block_addr, slot_char_ids)
+    slot = _slot_cid(block_addr, slot_char_ids)
+    current_block = data[idx:idx + len(RYU_SELECTOR_GRAFT_BLOCK)]
+    label = "installed/native graft" if source == "graft" else "shape fallback"
+
+    hits.append({
+        "kind": "ryu-graft-table",
+        "block": block_addr,
+        "addr": block_addr,
+        "owner": owner,
+        "slot": slot,
+        "entry": label,
+        "raw": current_block.hex(" ").upper(),
+        "target": "",
+        "guess": "confirmed Ryu assist selector table; double-click a lane to write preset/manual word",
+        "score": 100 if slot == "0x0C" else 90,
+        "ctx": _fmt_context(data, idx, mark_len=len(RYU_SELECTOR_GRAFT_BLOCK)),
+        "editable": False,
+        "typ": "raw-window",
+    })
+
+    for lane_index, off in enumerate(RYU_SELECTOR_WORD_OFFSETS, start=1):
+        raw = _u32be(data, idx + off)
+        if raw is None:
+            continue
+        lane_addr = block_addr + off
+        target_addr = owner_base + raw if 0 <= raw <= 0x100000 else 0
+        hits.append({
+            "kind": "ryu-selector-word",
+            "block": block_addr,
+            "addr": lane_addr,
+            "owner": owner,
+            "slot": slot,
+            "entry": f"lane {lane_index}",
+            "raw": f"0x{raw:08X}",
+            "target": f"0x{target_addr:08X}" if target_addr else "",
+            "guess": f"double-click: restore/install Ryu selector setup then write selector word; source {source}",
+            "score": 100,
+            "ctx": _fmt_context(data, idx + off, mark_len=4),
+            "editable": True,
+            "typ": "u32-ryu-selector-graft",
+        })
+
+
+def _scan_ryu_selector_graft_tables(data: bytes, base_addr: int,
+                                    slot_char_ids: dict[int, int], hits: list[dict]) -> None:
+    seen: set[int] = set()
+
+    pos = 0
+    while True:
+        idx = data.find(RYU_SELECTOR_GRAFT_BLOCK, pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+        if idx in seen:
+            continue
+        seen.add(idx)
+        _append_ryu_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, "graft")
+
+    # Fallback for already-mutated selector words: match the fixed setup/tail
+    # bytes and ignore the three lane dwords.
+    pos = 0
+    while True:
+        idx = data.find(b"\x0F\x06\x00\x27", pos)
+        if idx < 0:
+            break
+        pos = idx + 1
+        if idx in seen:
+            continue
+        if not _looks_like_ryu_selector_graft_shape(data, idx):
+            continue
+        seen.add(idx)
+        _append_ryu_selector_graft_table(data, base_addr, idx, slot_char_ids, hits, "shape-fallback")
+
+
 def _append_state_wrapper(data: bytes, base_addr: int, idx: int, slot_char_ids: dict[int, int],
                           hits: list[dict]) -> None:
     block_addr = base_addr + idx
@@ -771,9 +900,10 @@ def _scan_block(data: bytes, base_addr: int, slot_char_ids: dict[int, int], hits
         if start >= 0 and _selector_count(data, start) >= 2:
             _append_selector_block(data, base_addr, start, slot_char_ids, hits)
 
-    # Confirmed Chun path: only surface the graft table and its editable lanes.
+    # Confirmed Chun/Ryu paths: surface graft tables and editable lanes.
     # The old Tensho descriptor/wrapper scans are intentionally not shown here.
     _scan_chun_selector_graft_tables(data, base_addr, slot_char_ids, hits)
+    _scan_ryu_selector_graft_tables(data, base_addr, slot_char_ids, hits)
 
 
 def _run_scan(progress_cb, done_cb):
@@ -820,16 +950,18 @@ def _run_scan(progress_cb, done_cb):
         kind_order = {
             "chun-graft-table": 0,
             "chun-selector-word": 1,
-            "selector-chain": 2,
-            "selector-loose": 3,
-            "selector": 4,
-            "confirmed-wrapper": 5,
-            "confirmed-state-id": 6,
-            "wrapper-poke": 7,
-            "state-wrapper": 8,
-            "state-id": 9,
-            "phrase": 10,
-        }.get(h["kind"], 11)
+            "ryu-graft-table": 2,
+            "ryu-selector-word": 3,
+            "selector-chain": 4,
+            "selector-loose": 5,
+            "selector": 6,
+            "confirmed-wrapper": 7,
+            "confirmed-state-id": 8,
+            "wrapper-poke": 9,
+            "state-wrapper": 10,
+            "state-id": 11,
+            "phrase": 12,
+        }.get(h["kind"], 13)
         return (priority, h["block"], kind_order, h["addr"], h["entry"])
 
     uniq.sort(key=sort_key)
@@ -839,7 +971,7 @@ def _run_scan(progress_cb, done_cb):
 class AssistScannerWindow:
     def __init__(self, master):
         self.root = tk.Toplevel(master)
-        self.root.title("Assist Scanner - Ryu Selectors + Chun Assist Selector Graft")
+        self.root.title("Assist Scanner - Chun/Ryu Assist Selector Grafts")
         self.root.geometry("1420x700")
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
         self._scanning = False
@@ -858,8 +990,8 @@ class AssistScannerWindow:
         ttk.Label(
             top,
             text=(
-                "Finds the confirmed Chun assist selector graft table plus Ryu selector proof blocks. "
-                "Double-click a Chun lane to install the graft and write a preset or manual selector word."
+                "Finds confirmed Chun and Ryu assist selector graft tables. "
+                "Double-click a lane to install/restore the graft and write a preset or manual selector word."
             ),
         ).pack(side="left")
         self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
@@ -867,6 +999,9 @@ class AssistScannerWindow:
 
         self._route_restore_btn = ttk.Button(top, text="Restore Chun Original", command=self._restore_chun_selector_block)
         self._route_restore_btn.pack(side="right", padx=(0, 8))
+
+        self._ryu_restore_btn = ttk.Button(top, text="Restore Ryu Selector", command=self._restore_ryu_selector_block)
+        self._ryu_restore_btn.pack(side="right", padx=(0, 8))
 
         self._dump_slots_btn = ttk.Button(top, text="Dump Char Slots", command=self._dump_char_slots)
         self._dump_slots_btn.pack(side="right", padx=(0, 8))
@@ -909,7 +1044,7 @@ class AssistScannerWindow:
         self._hit_by_iid.clear()
         for iid in self._tree.get_children():
             self._tree.delete(iid)
-        self._status.set("Scanning MEM2 for Chun graft table and Ryu selectors...")
+        self._status.set("Scanning MEM2 for Chun/Ryu graft tables and selector proof blocks...")
         threading.Thread(target=_run_scan, args=(self._on_prog, self._on_done), daemon=True).start()
 
     def _on_prog(self, pct: float):
@@ -1593,6 +1728,231 @@ class AssistScannerWindow:
             + (" to all lanes." if apply_all else f" to 0x{lane_addr:08X}.")
         )
 
+
+    def _ryu_selector_candidate_score(self, base: int, idx: int, data: bytes,
+                                      slot_char_ids: dict[int, int], source: str) -> int:
+        addr = base + idx
+        score = 0
+
+        cid = slot_char_ids.get(base)
+        if cid == 12:
+            score += 100
+        elif cid is not None:
+            score -= 100
+
+        if source == "graft":
+            score += 40
+        else:
+            score += 20
+
+        if _looks_like_ryu_selector_graft_shape(data, idx):
+            score += 80
+
+        score -= (_slot_index_for_base(base) or 0)
+        score -= (addr & 0xFF) // 0x10
+        return score
+
+    def _find_ryu_selector_graft_addr(self) -> tuple[int, str]:
+        if rbytes is None:
+            raise RuntimeError("dolphin_io.rbytes unavailable.")
+
+        slot_char_ids = _read_slot_char_ids()
+        candidates: list[tuple[int, int, str]] = []
+
+        for base in _CHR_TBL_BASES:
+            try:
+                data = self._read_memory_region(base, 0x90000, f"slot @ 0x{base:08X}")
+            except Exception:
+                continue
+
+            pos = 0
+            while True:
+                idx = data.find(RYU_SELECTOR_GRAFT_BLOCK, pos)
+                if idx < 0:
+                    break
+                pos = idx + 1
+                score = self._ryu_selector_candidate_score(base, idx, data, slot_char_ids, "graft")
+                candidates.append((score, base + idx, "graft"))
+
+            pos = 0
+            while True:
+                idx = data.find(b"\x0F\x06\x00\x27", pos)
+                if idx < 0:
+                    break
+                pos = idx + 1
+                if not _looks_like_ryu_selector_graft_shape(data, idx):
+                    continue
+                score = self._ryu_selector_candidate_score(base, idx, data, slot_char_ids, "shape-fallback")
+                candidates.append((score, base + idx, "shape-fallback"))
+
+        if not candidates:
+            raise RuntimeError(
+                "Could not find the Ryu assist selector table. Load Ryu, call the assist once, then try again."
+            )
+
+        candidates.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+        _, addr, source = candidates[0]
+        return addr, source
+
+    def _restore_ryu_selector_block(self):
+        try:
+            addr, source = self._find_ryu_selector_graft_addr()
+        except Exception as e:
+            self._status.set("Ryu selector restore failed")
+            messagebox.showerror("Restore Ryu Selector failed", str(e), parent=self.root)
+            return
+
+        ok = self._write_many(
+            {addr: RYU_SELECTOR_GRAFT_BLOCK},
+            f"Restored Ryu selector table at 0x{addr:08X}."
+        )
+        if not ok:
+            return
+
+        self._status.set(f"Restored Ryu selector table at 0x{addr:08X} using {source} match.")
+        messagebox.showinfo(
+            "Ryu selector restored",
+            f"Restored Ryu selector table at 0x{addr:08X} using {source} match.",
+            parent=self.root,
+        )
+
+    def _choose_ryu_graft_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
+        result: dict[str, object] = {"value": None, "apply_all": False}
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose Ryu selector word")
+        dlg.geometry("440x340")
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        apply_all_var = tk.BooleanVar(value=False)
+
+        ttk.Label(
+            dlg,
+            text=(
+                f"Address: 0x{addr:08X}\n"
+                f"Current: {current}\n\n"
+                "Choosing a value restores the Ryu selector setup first, then writes the selector word."
+            ),
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(12, 8))
+
+        ttk.Checkbutton(
+            dlg,
+            text="Apply this word to all three Ryu selector lanes",
+            variable=apply_all_var,
+        ).pack(anchor="w", padx=12, pady=(0, 8))
+
+        btn_frame = ttk.Frame(dlg)
+        btn_frame.pack(fill="x", padx=12, pady=4)
+
+        def set_value(v: int):
+            result["value"] = v
+            result["apply_all"] = bool(apply_all_var.get())
+            dlg.destroy()
+
+        for label, value in RYU_SELECTOR_WORD_PRESETS:
+            ttk.Button(
+                btn_frame,
+                text=f"{label}  0x{value:08X}",
+                command=lambda v=value: set_value(v),
+            ).pack(fill="x", pady=3)
+
+        def manual():
+            text = simpledialog.askstring(
+                "Manual Ryu selector word",
+                "Enter raw U32 selector word. Examples:\n"
+                "0x0003110C\n"
+                "0003146C\n"
+                "00 03 1C DC",
+                parent=dlg,
+                initialvalue=current,
+            )
+            if text is None:
+                return
+            cleaned = text.strip().replace(" ", "").replace("_", "")
+            if cleaned.lower().startswith("0x"):
+                cleaned = cleaned[2:]
+            try:
+                value = int(cleaned, 16)
+            except ValueError:
+                messagebox.showerror("Invalid", f"{text!r} is not a u32 value.", parent=dlg)
+                return
+            if not (0 <= value <= 0xFFFFFFFF):
+                messagebox.showerror("Out of range", "Value must be 0-0xFFFFFFFF.", parent=dlg)
+                return
+            set_value(value)
+
+        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=(10, 3))
+        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
+        self.root.wait_window(dlg)
+
+        if result["value"] is None:
+            return None
+        return int(result["value"]), bool(result["apply_all"])
+
+    def _apply_ryu_selector_word(self, h: dict) -> None:
+        graft_addr = int(h["block"])
+        lane_addr = int(h["addr"])
+        current = str(h.get("raw", "0x00000000"))
+
+        choice = self._choose_ryu_graft_selector_value(lane_addr, current)
+        if choice is None:
+            return
+        raw_val, apply_all = choice
+        payload = struct.pack(">I", raw_val)
+
+        writes: dict[int, bytes] = {graft_addr: RYU_SELECTOR_GRAFT_BLOCK}
+        if apply_all:
+            for off in RYU_SELECTOR_WORD_OFFSETS:
+                writes[graft_addr + off] = payload
+        else:
+            writes[lane_addr] = payload
+
+        ok = self._write_many(
+            writes,
+            f"Restored Ryu selector table at 0x{graft_addr:08X} and wrote selector 0x{raw_val:08X}."
+        )
+        if not ok:
+            return
+
+        block_bytes = bytearray(RYU_SELECTOR_GRAFT_BLOCK)
+        for off in RYU_SELECTOR_WORD_OFFSETS:
+            if apply_all or graft_addr + off == lane_addr:
+                block_bytes[off:off + 4] = payload
+
+        for iid, row in self._hit_by_iid.items():
+            if int(row.get("block", -1)) != graft_addr:
+                continue
+            if row.get("kind") == "ryu-graft-table":
+                hx = bytes(block_bytes).hex(" ").upper()
+                self._tree.set(iid, "raw", hx)
+                row["raw"] = hx
+                row["guess"] = "confirmed Ryu assist selector table; installed/edited"
+                self._tree.set(iid, "guess", row["guess"])
+                continue
+            if row.get("kind") != "ryu-selector-word":
+                continue
+            row_addr = int(row["addr"])
+            off = row_addr - graft_addr
+            if off not in RYU_SELECTOR_WORD_OFFSETS:
+                continue
+            if apply_all or row_addr == lane_addr:
+                display_val = raw_val
+            else:
+                default_payload = RYU_SELECTOR_RESET_WORDS.get(off)
+                display_val = struct.unpack(">I", default_payload)[0] if default_payload else 0
+            row["raw"] = f"0x{display_val:08X}"
+            row["target"] = self._selector_target_for_display(row_addr, display_val)
+            row["guess"] = "double-click: restore/install Ryu selector setup then write selector word"
+            self._tree.set(iid, "raw", row["raw"])
+            self._tree.set(iid, "target", row["target"])
+            self._tree.set(iid, "guess", row["guess"])
+
+        self._status.set(
+            f"Ryu selector table restored at 0x{graft_addr:08X}; wrote 0x{raw_val:08X}"
+            + (" to all lanes." if apply_all else f" to 0x{lane_addr:08X}.")
+        )
+
     def _on_double_click(self, event):
         iid = self._tree.identify_row(event.y)
         col_idx = self._col_index(event)
@@ -1609,6 +1969,10 @@ class AssistScannerWindow:
 
         if typ == "u32-chun-selector":
             self._apply_chun_selector_word(h)
+            return
+
+        if typ == "u32-ryu-selector-graft":
+            self._apply_ryu_selector_word(h)
             return
 
         if wbytes is None:
