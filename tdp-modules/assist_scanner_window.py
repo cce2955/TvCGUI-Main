@@ -1087,9 +1087,34 @@ def _build_generic_selector_graft_block(words: tuple[int, int, int], arg32: byte
     return bytes(out)
 
 
+def _generic_candidate_score(data: bytes, idx: int, source: str) -> int:
+    score = 0
+    if source in ("native", "installed"):
+        score += 120
+    elif source == "graft-candidate":
+        score += 95
+    elif source == "tail-pair":
+        score += 70
+    else:
+        score += 40
+
+    window = data[idx:min(len(data), idx + 0xC0)]
+    score += min(window.count(b"\x01\x3C\x00\x00"), 4) * 6
+    for sig in (
+        b"\x04\x17\x60\x00",
+        b"\x04\x01\x60\x00",
+        b"\x04\x01\x02\x3F",
+        b"\x33\x35\x20\x3F",
+    ):
+        if sig in window:
+            score += 4
+    return score
+
+
 def _append_generic_selector_table(data: bytes, base_addr: int, idx: int,
                                    slot_char_ids: dict[int, int], hits: list[dict],
                                    source: str) -> None:
+    """Append one flattened generic assist selector row."""
     block_addr = base_addr + idx
     owner_base = _owning_chr_tbl(block_addr)
     if owner_base is None:
@@ -1100,59 +1125,73 @@ def _append_generic_selector_table(data: bytes, base_addr: int, idx: int,
     owner = _owner_name(block_addr, slot_char_ids)
     slot = _slot_cid(block_addr, slot_char_ids)
     current_block = data[idx:idx + GENERIC_SELECTOR_TABLE_LEN]
-    is_native = source in ("native", "installed")
-    label = "native/installed selector" if is_native else "graft candidate"
-    kind = "generic-native-table" if is_native else "generic-graft-table"
-    score = 85 if is_native else 75
-    if slot not in ("?", "0x0C", "0x0D"):
-        score += 10
+    is_native = source in ("native", "installed") and current_block.startswith(GENERIC_SELECTOR_SETUP_PREFIX)
+
+    if is_native:
+        words: list[int] = []
+        for off in GENERIC_SELECTOR_WORD_OFFSETS:
+            raw = _u32be(data, idx + off)
+            if raw is None:
+                return
+            words.append(raw)
+    else:
+        # Deliberately mixed so the flat UI says default until a preset/custom
+        # assist word is written.
+        words = [0, 1, 2]
+
+    first_lane_addr = block_addr + GENERIC_SELECTOR_WORD_OFFSETS[0]
+    entry = _flat_selector_entry_label(owner_base, words, slot_char_ids, "Generic assist")
+    raw_txt = _flat_selector_raw(words)
+    target_txt = _flat_selector_target(owner_base, words)
+    score = _generic_candidate_score(data, idx, source)
 
     hits.append({
-        "kind": kind,
+        "kind": "generic-selector-word",
         "block": block_addr,
-        "addr": block_addr,
+        "addr": first_lane_addr,
         "owner": owner,
         "slot": slot,
-        "entry": label,
-        "raw": current_block.hex(" ").upper(),
-        "target": "",
-        "guess": "experimental generic selector candidate; double-click a lane to install/update with preset or manual word",
+        "entry": entry,
+        "raw": raw_txt,
+        "target": target_txt,
+        "guess": f"double-click to change generic assist; table 0x{block_addr:08X}; source {source}",
         "score": score,
         "ctx": _fmt_context(data, idx, mark_len=GENERIC_SELECTOR_TABLE_LEN),
-        "editable": False,
-        "typ": "raw-window",
+        "editable": True,
+        "typ": "u32-generic-selector",
         "source": source,
+        "selector_words": words,
+        "table_raw": current_block.hex(" ").upper(),
     })
 
-    for lane_index, off in enumerate(GENERIC_SELECTOR_WORD_OFFSETS, start=1):
-        lane_addr = block_addr + off
-        raw = _u32be(data, idx + off) if is_native else None
-        display_raw = raw if raw is not None else 0
-        target_addr = owner_base + display_raw if 0 < display_raw <= 0x100000 else 0
-        note = "native words present" if is_native else "no words yet; chosen word installs graft"
-        hits.append({
-            "kind": "generic-selector-word",
-            "block": block_addr,
-            "addr": lane_addr,
-            "owner": owner,
-            "slot": slot,
-            "entry": f"lane {lane_index}",
-            "raw": f"0x{display_raw:08X}",
-            "target": f"0x{target_addr:08X}" if target_addr else "",
-            "guess": f"double-click: generic selector word; {note}; source {source}",
-            "score": score,
-            "ctx": _fmt_context(data, idx + off, mark_len=4),
-            "editable": True,
-            "typ": "u32-generic-selector",
-            "source": source,
-        })
+
+def _looks_like_generic_tail_pair_candidate(data: bytes, tail_idx: int) -> bool:
+    """Loose Batsu-style fallback: 37 32 / 37 33 pair with 01 3C rows."""
+    if tail_idx < 0 or tail_idx + 0x30 > len(data):
+        return False
+    if data[tail_idx:tail_idx + 4] != SELECTOR_TAIL:
+        return False
+    if data[tail_idx + 0x08:tail_idx + 0x0C] != SELECTOR_COMPANION_TAIL:
+        return False
+    rows = 0
+    for off in range(0x10, 0x58, 4):
+        if data[tail_idx + off:tail_idx + off + 4] == b"\x01\x3C\x00\x00":
+            rows += 1
+    if rows < 2:
+        return False
+    window = data[max(0, tail_idx - 0x70):min(len(data), tail_idx + 0x90)]
+    return any(sig in window for sig in (
+        b"\x0F\x06\x00\x27",
+        b"\x04\x17\x60\x00",
+        b"\x04\x01\x60\x00",
+        b"\x33\x35\x20\x3F",
+    ))
 
 
 def _scan_generic_selector_candidates(data: bytes, base_addr: int,
                                       slot_char_ids: dict[int, int], hits: list[dict]) -> None:
     seen: set[int] = set()
 
-    # Native/installed full selector tables for non-Ryu/non-Chun characters.
     pos = 0
     while True:
         idx = data.find(b"\x0F\x06\x00\x27", pos)
@@ -1171,6 +1210,25 @@ def _scan_generic_selector_candidates(data: bytes, base_addr: int,
         if _looks_like_generic_graft_candidate_shape(data, idx):
             seen.add(idx)
             _append_generic_selector_table(data, base_addr, idx, slot_char_ids, hits, "graft-candidate")
+
+    # Experimental Batsu-ish fallback: align a synthetic graft 0x1C bytes
+    # before a good 37 32 / 37 33 tail pair.
+    pos = 0
+    while True:
+        tail_idx = data.find(SELECTOR_TAIL, pos)
+        if tail_idx < 0:
+            break
+        pos = tail_idx + 1
+        idx = tail_idx - 0x1C
+        if idx < 0 or idx in seen:
+            continue
+        block_addr = base_addr + idx
+        if _is_known_chun_or_ryu_slot(block_addr, slot_char_ids):
+            continue
+        if not _looks_like_generic_tail_pair_candidate(data, tail_idx):
+            continue
+        seen.add(idx)
+        _append_generic_selector_table(data, base_addr, idx, slot_char_ids, hits, "tail-pair")
 
 
 def _read_mem_region_raw(start_addr: int, size: int) -> bytes:
@@ -1859,10 +1917,11 @@ def _scan_tensho_descriptors(data: bytes, base_addr: int, slot_char_ids: dict[in
 
 
 def _scan_block(data: bytes, base_addr: int, slot_char_ids: dict[int, int], hits: list[dict]) -> None:
-    # Keep the main table focused: only confirmed graft tables and their lanes.
-    # Move/normal presets are harvested on demand from the lane chooser.
+    # Keep the main table focused: one active selector row per loaded assist table.
+    # Move/normal presets are harvested on demand from the row chooser.
     _scan_chun_selector_graft_tables(data, base_addr, slot_char_ids, hits)
     _scan_ryu_selector_graft_tables(data, base_addr, slot_char_ids, hits)
+    _scan_generic_selector_candidates(data, base_addr, slot_char_ids, hits)
 
 
 def _run_scan(progress_cb, done_cb):
@@ -1905,6 +1964,29 @@ def _run_scan(progress_cb, done_cb):
             continue
         seen.add(k)
         uniq.append(h)
+
+    # Keep the friendly flat view to one generic candidate per non-Ryu/non-Chun
+    # character slot. Native/installed wins, then clean graft-candidate, then
+    # loose tail-pair. This prevents the experimental fallback from spamming.
+    best_generic: dict[int, dict] = {}
+    filtered = []
+    for h in uniq:
+        if h.get("kind") != "generic-selector-word":
+            filtered.append(h)
+            continue
+        owner_base = _owning_chr_tbl(int(h.get("block", 0)))
+        if owner_base is None:
+            continue
+        old = best_generic.get(owner_base)
+        if old is None:
+            best_generic[owner_base] = h
+            continue
+        old_key = (int(old.get("score", 0)), -int(old.get("block", 0)))
+        new_key = (int(h.get("score", 0)), -int(h.get("block", 0)))
+        if new_key > old_key:
+            best_generic[owner_base] = h
+    filtered.extend(best_generic.values())
+    uniq = filtered
 
     def sort_key(h: dict):
         priority = 0 if h["block"] == 0x908C7680 else 1
@@ -1955,7 +2037,7 @@ class AssistScannerWindow:
         ttk.Label(
             top,
             text=(
-                "Shows one active assist selector per loaded Ryu/Chun table. "
+                "Shows one active assist selector per loaded Ryu/Chun/generic table. "
                 "Double-click a row to choose a preset assist or custom raw U32."
             ),
         ).pack(side="left")
@@ -2034,8 +2116,9 @@ class AssistScannerWindow:
             self._prog.set(100)
             chun_rows = len([h for h in hits if h["kind"] == "chun-selector-word"])
             ryu_rows = len([h for h in hits if h["kind"] == "ryu-selector-word"])
+            generic_rows = len([h for h in hits if h["kind"] == "generic-selector-word"])
             self._status.set(
-                f"Done - {ryu_rows} Ryu active selector(s), {chun_rows} Chun active selector(s). Double-click a row to change assist."
+                f"Done - {ryu_rows} Ryu, {chun_rows} Chun, {generic_rows} generic active selector(s). Double-click a row to change assist."
             )
         try:
             self.root.after(0, _f)
@@ -3232,13 +3315,17 @@ class AssistScannerWindow:
             arg32 = current[0x20:0x24]
             arg33 = current[0x28:0x2C]
         elif len(current) == GENERIC_SELECTOR_TABLE_LEN and current[0:4] == b"\x0F\x06\x00\x27" and current[4:8] == SELECTOR_TAIL:
-            # Graft candidate. Preserve the original 37 32 / 37 33 args, and use
-            # the chosen word for all lanes unless the user unchecks apply-all.
-            # If apply-all was unchecked, still fill uninitialized lanes with the
-            # chosen value because there are no valid selector words yet.
+            # Chun/Morrigan-style graft candidate. Preserve the original
+            # 37 32 / 37 33 args.
             words = [raw_val, raw_val, raw_val]
             arg32 = current[0x08:0x0C]
             arg33 = current[0x10:0x14]
+        elif len(current) == GENERIC_SELECTOR_TABLE_LEN and current[0x1C:0x20] == SELECTOR_TAIL and current[0x24:0x28] == SELECTOR_COMPANION_TAIL:
+            # Loose Batsu-style tail-pair candidate. The graft is aligned so the
+            # existing 37 32 / 37 33 pair lands at +0x1C/+0x24.
+            words = [raw_val, raw_val, raw_val]
+            arg32 = current[0x20:0x24]
+            arg33 = current[0x28:0x2C]
 
         return _build_generic_selector_graft_block(tuple(words), arg32, arg33)
 
@@ -3309,9 +3396,24 @@ class AssistScannerWindow:
                 break
             pos = idx + 1
             if _looks_like_generic_native_selector_shape(data, idx):
-                candidates.append((100, owner_base + idx, "native"))
+                candidates.append((_generic_candidate_score(data, idx, "native"), owner_base + idx, "native"))
             elif _looks_like_generic_graft_candidate_shape(data, idx):
-                candidates.append((80, owner_base + idx, "graft-candidate"))
+                candidates.append((_generic_candidate_score(data, idx, "graft-candidate"), owner_base + idx, "graft-candidate"))
+
+        # Experimental Batsu-ish fallback: align a synthetic graft 0x1C bytes
+        # before a good 37 32 / 37 33 tail pair.
+        pos = 0
+        while True:
+            tail_idx = data.find(SELECTOR_TAIL, pos)
+            if tail_idx < 0:
+                break
+            pos = tail_idx + 1
+            idx = tail_idx - 0x1C
+            if idx < 0 or idx + GENERIC_SELECTOR_TABLE_LEN > len(data):
+                continue
+            if not _looks_like_generic_tail_pair_candidate(data, tail_idx):
+                continue
+            candidates.append((_generic_candidate_score(data, idx, "tail-pair"), owner_base + idx, "tail-pair"))
 
         if not candidates:
             raise RuntimeError(
