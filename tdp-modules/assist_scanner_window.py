@@ -2750,6 +2750,32 @@ class AssistScannerWindow:
             and not _is_filtered_assist_preset_name(str(h.get("move_name", "")))
         ]
 
+        # Multiple valid-looking chr_tbl copies can exist inside one character
+        # slot. Only one is the selector base the assist VM actually uses.
+        # Duplicate visible rows usually mean the same table_index was harvested
+        # from a stale/secondary chr_tbl copy. Prefer the active runtime base.
+        preferred_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
+
+        def preset_row_rank(row: dict) -> tuple:
+            chr_tbl_base = int(row.get("chr_tbl_base") or 0)
+            preferred_miss = (
+                0
+                if preferred_base is not None and chr_tbl_base == int(preferred_base)
+                else 1
+            )
+            owner_dist = abs(chr_tbl_base - int(owner_base)) if chr_tbl_base else 0x7FFFFFFF
+            word = int(row.get("selector_word", 0))
+            return (preferred_miss, owner_dist, word)
+
+        best_by_table: dict[int, dict] = {}
+        for row in rows:
+            table_index = int(row.get("table_index", -1))
+            old = best_by_table.get(table_index)
+            if old is None or preset_row_rank(row) < preset_row_rank(old):
+                best_by_table[table_index] = row
+
+        rows = list(best_by_table.values())
+
         def band_priority(table_index: int, named: bool) -> int:
             # Named rows keep the requested assist order. Unnamed rows go to
             # the bottom, even if their table index is inside a priority band.
