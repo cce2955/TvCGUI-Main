@@ -114,6 +114,15 @@ ASSIST_RUNTIME_PREFETCH_STATES = {430, 424, 425, 432, 433}
 ASSIST_RUNTIME_STATE_PRIORITY = {426: 100, 430: 45, 424: 35, 425: 30, 427: 30}
 FIGHTER_MOVE_SCAN_SIZE = 0x6000
 
+# Generic characters may have many selector-looking tables. For assist
+# hijacking, prefer candidates physically near the assist route entries.
+GENERIC_ASSIST_ROUTE_TABLE_INDICES = (420, 424, 425, 426, 427, 428, 430, 431, 432, 433)
+GENERIC_ASSIST_ROUTE_BEFORE = 0x40
+GENERIC_ASSIST_ROUTE_AFTER = 0x260
+GENERIC_ASSIST_ROUTE_SCORE_BONUS = 600
+ALEX_CHAR_ID = 16
+ALEX_ASSIST_ATTACK_TABLE_INDEX = 426
+ALEX_ASSIST_ATTACK_DEFAULT_WORD = 0x0003045C
 CHAR_ID_TO_KEY = {
     1: "Ken the Eagle", 2: "Casshan", 3: "Tekkaman", 4: "Polimar",
     5: "Yatterman-1", 6: "Doronjo", 7: "Ippatsuman", 8: "Jun the Swan",
@@ -263,8 +272,14 @@ def _is_filtered_assist_preset_name(name: str | None) -> bool:
         return False
     normalized = "".join(ch if ch.isalnum() else " " for ch in s)
     tokens = set(normalized.split())
-    return bool(tokens.intersection({"idle", "landing", "filler?", "air dash"}))
 
+    if tokens.intersection({"idle", "landing", "filler"}):
+        return True
+
+    if "air dash" in s or "airdash" in s:
+        return True
+
+    return False
 
 def _is_named_preset_name(name: str | None) -> bool:
     s = _clean_preset_name(name)
@@ -1180,11 +1195,17 @@ def _build_generic_selector_graft_block(words: tuple[int, int, int], arg32: byte
 
 def _generic_candidate_score(data: bytes, idx: int, source: str) -> int:
     score = 0
-    if source in ("native", "installed"):
+    base_source = (
+        str(source or "")
+        .replace("+assist-route", "")
+        .replace("-assist-route", "")
+    )
+
+    if base_source in ("native", "installed"):
         score += 120
-    elif source == "graft-candidate":
+    elif base_source == "graft-candidate":
         score += 95
-    elif source == "tail-pair":
+    elif base_source == "tail-pair":
         score += 70
     else:
         score += 40
@@ -1200,6 +1221,51 @@ def _generic_candidate_score(data: bytes, idx: int, source: str) -> int:
         if sig in window:
             score += 4
     return score
+
+
+def _generic_assist_route_ranges_for_owner_base(owner_base: int | None) -> list[tuple[int, int, int]]:
+    """Return broad memory windows around this character's assist route entries."""
+    if owner_base is None:
+        return []
+
+    chr_tbl_base = _runtime_chr_tbl_base_for_owner_base(owner_base) or owner_base
+    table_size = (max(GENERIC_ASSIST_ROUTE_TABLE_INDICES) + 1) * 4
+    table_data = _read_mem_region_raw(chr_tbl_base, table_size)
+    if not table_data or len(table_data) < table_size:
+        return []
+
+    ranges: list[tuple[int, int, int]] = []
+    for table_index in GENERIC_ASSIST_ROUTE_TABLE_INDICES:
+        off = table_index * 4
+        entry = _u32be(table_data, off)
+        if entry is None:
+            continue
+        if entry in (0, 0xFFFFFFFF):
+            continue
+        if entry <= 0 or entry >= MOVE_PRESET_SLOT_SIZE:
+            continue
+
+        entry_addr = chr_tbl_base + entry
+        ranges.append((
+            entry_addr - GENERIC_ASSIST_ROUTE_BEFORE,
+            entry_addr + GENERIC_ASSIST_ROUTE_AFTER,
+            table_index,
+        ))
+
+    return ranges
+
+
+def _generic_assist_route_bonus(owner_base: int | None, block_addr: int) -> int:
+    """Score boost for generic selector candidates near assist route entries."""
+    best = 0
+    for start, end, table_index in _generic_assist_route_ranges_for_owner_base(owner_base):
+        if start <= block_addr <= end:
+            entry_addr = start + GENERIC_ASSIST_ROUTE_BEFORE
+            dist = abs(block_addr - entry_addr)
+            bonus = GENERIC_ASSIST_ROUTE_SCORE_BONUS - min(dist // 0x20, 80)
+            if bonus > best:
+                best = bonus
+    return max(0, best)
 
 
 def _append_generic_selector_table(data: bytes, base_addr: int, idx: int,
@@ -1234,7 +1300,13 @@ def _append_generic_selector_table(data: bytes, base_addr: int, idx: int,
     entry = _flat_selector_entry_label(owner_base, words, slot_char_ids, "Generic assist")
     raw_txt = _flat_selector_raw(words)
     target_txt = _flat_selector_target(owner_base, words)
-    score = _generic_candidate_score(data, idx, source)
+
+    assist_bonus = _generic_assist_route_bonus(owner_base, block_addr)
+    source_label = str(source or "unknown")
+    if assist_bonus and "assist-route" not in source_label:
+        source_label = f"{source_label}+assist-route"
+
+    score = _generic_candidate_score(data, idx, source_label) + assist_bonus
 
     hits.append({
         "kind": "generic-selector-word",
@@ -1245,37 +1317,47 @@ def _append_generic_selector_table(data: bytes, base_addr: int, idx: int,
         "entry": entry,
         "raw": raw_txt,
         "target": target_txt,
-        "guess": f"double-click to change generic assist; table 0x{block_addr:08X}; source {source}",
+        "guess": f"double-click to change generic assist; table 0x{block_addr:08X}; source {source_label}",
         "score": score,
         "ctx": _fmt_context(data, idx, mark_len=GENERIC_SELECTOR_TABLE_LEN),
         "editable": True,
         "typ": "u32-generic-selector",
-        "source": source,
+        "source": source_label,
         "selector_words": words,
         "table_raw": current_block.hex(" ").upper(),
     })
 
 
-def _looks_like_generic_tail_pair_candidate(data: bytes, tail_idx: int) -> bool:
-    """Loose Batsu-style fallback: 37 32 / 37 33 pair with 01 3C rows."""
+def _looks_like_generic_tail_pair_candidate(data: bytes, tail_idx: int, allow_single_row: bool = False) -> bool:
+    """Loose fallback: 37 32 / 37 33 pair with nearby route rows.
+
+    Normal generic scanning still wants two 01 3C rows. Assist-route scanning
+    allows one row because Alex's assist route has a thinner tail shape.
+    """
     if tail_idx < 0 or tail_idx + 0x30 > len(data):
         return False
     if data[tail_idx:tail_idx + 4] != SELECTOR_TAIL:
         return False
     if data[tail_idx + 0x08:tail_idx + 0x0C] != SELECTOR_COMPANION_TAIL:
         return False
+
     rows = 0
     for off in range(0x10, 0x58, 4):
         if data[tail_idx + off:tail_idx + off + 4] == b"\x01\x3C\x00\x00":
             rows += 1
-    if rows < 2:
+
+    min_rows = 1 if allow_single_row else 2
+    if rows < min_rows:
         return False
+
     window = data[max(0, tail_idx - 0x70):min(len(data), tail_idx + 0x90)]
     return any(sig in window for sig in (
         b"\x0F\x06\x00\x27",
         b"\x04\x17\x60\x00",
         b"\x04\x01\x60\x00",
+        b"\x04\x01\x02\x3F",
         b"\x33\x35\x20\x3F",
+        b"\x34\x04\x00\x20",
     ))
 
 
@@ -1302,8 +1384,9 @@ def _scan_generic_selector_candidates(data: bytes, base_addr: int,
             seen.add(idx)
             _append_generic_selector_table(data, base_addr, idx, slot_char_ids, hits, "graft-candidate")
 
-    # Experimental Batsu-ish fallback: align a synthetic graft 0x1C bytes
-    # before a good 37 32 / 37 33 tail pair.
+    # Experimental fallback: align a synthetic graft 0x1C bytes before a
+    # 37 32 / 37 33 tail pair. If the candidate sits inside an assist route,
+    # allow Alex's thinner one-row shape.
     pos = 0
     while True:
         tail_idx = data.find(SELECTOR_TAIL, pos)
@@ -1313,13 +1396,19 @@ def _scan_generic_selector_candidates(data: bytes, base_addr: int,
         idx = tail_idx - 0x1C
         if idx < 0 or idx in seen:
             continue
+
         block_addr = base_addr + idx
         if _is_known_chun_or_ryu_slot(block_addr, slot_char_ids):
             continue
-        if not _looks_like_generic_tail_pair_candidate(data, tail_idx):
+
+        owner_base = _owning_chr_tbl(block_addr)
+        assist_route = bool(_generic_assist_route_bonus(owner_base, block_addr))
+        if not _looks_like_generic_tail_pair_candidate(data, tail_idx, allow_single_row=assist_route):
             continue
+
         seen.add(idx)
-        _append_generic_selector_table(data, base_addr, idx, slot_char_ids, hits, "tail-pair")
+        source = "tail-pair+assist-route" if assist_route else "tail-pair"
+        _append_generic_selector_table(data, base_addr, idx, slot_char_ids, hits, source)
 
 
 def _read_mem_region_raw(start_addr: int, size: int) -> bytes:
@@ -1484,6 +1573,24 @@ def _selector_base_for_address(addr: int) -> int | None:
     if owner_base is None:
         return None
     return _runtime_chr_tbl_base_for_owner_base(owner_base)
+
+
+def _alex_direct_assist_table_writes(owner_base: int | None, raw_val: int | None) -> dict[int, bytes]:
+    """Build writes for Alex's direct chr_tbl[426] assist route.
+
+    Alex keeps doing Slash Elbow because the generic selector table is not his
+    live assist selector. For him, patch the actual assist attack table pointer.
+    """
+    if owner_base is None:
+        return {}
+
+    chr_tbl_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
+    if chr_tbl_base is None:
+        chr_tbl_base = int(owner_base)
+
+    word = ALEX_ASSIST_ATTACK_DEFAULT_WORD if raw_val is None else (int(raw_val) & 0xFFFFFFFF)
+    entry_addr = chr_tbl_base + (ALEX_ASSIST_ATTACK_TABLE_INDEX * 4)
+    return {entry_addr: struct.pack(">I", word)}
 
 
 def _move_preset_anim_id_after_hdr(data: bytes, off: int) -> int | None:
@@ -2756,6 +2863,14 @@ class AssistScannerWindow:
         # from a stale/secondary chr_tbl copy. Prefer the active runtime base.
         preferred_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
 
+        if preferred_base is not None:
+            preferred_rows = [
+                row for row in rows
+                if int(row.get("chr_tbl_base") or 0) == int(preferred_base)
+            ]
+            if preferred_rows:
+                rows = preferred_rows
+
         def preset_row_rank(row: dict) -> tuple:
             chr_tbl_base = int(row.get("chr_tbl_base") or 0)
             preferred_miss = (
@@ -2821,7 +2936,7 @@ class AssistScannerWindow:
             top,
             text=(
                 f"Slot base: 0x{owner_base:08X}\n"
-                "Pick a loaded move/normal. Named presets are ordered: 304-368, then 510-520, then 256-270, then named leftovers. Entries 369-400, idle, and landing are filtered out. Unnamed entries are at the bottom."
+                "Pick a loaded move/normal. Named presets are ordered: 304-368, then 510-520, then 256-270, then named leftovers. Entries 369-400, idle, landing, filler, and air dash are filtered out. Unnamed entries are at the bottom."
             ),
             justify="left",
         ).pack(anchor="w")
@@ -3521,11 +3636,54 @@ class AssistScannerWindow:
             return
         raw_val, apply_all = choice
         if raw_val is None:
+            if int(h.get("char_id") or 0) == ALEX_CHAR_ID:
+                owner_base = int(h.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+                writes = _alex_direct_assist_table_writes(owner_base, None)
+                self._write_many(
+                    writes,
+                    f"Restored Alex chr_tbl[{ALEX_ASSIST_ATTACK_TABLE_INDEX}] default assist route."
+                )
             self._record_slot_profile(h, None, "default")
             h["entry"] = "default"
             h["raw"] = "default"
             h["target"] = "default"
             self._status.set(f"Stored default generic assist profile for this fighter; shared table will restore on assist attack if possible.")
+            return
+
+        if int(h.get("char_id") or 0) == ALEX_CHAR_ID:
+            owner_base = int(h.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+            writes = _alex_direct_assist_table_writes(owner_base, raw_val)
+            if not writes:
+                messagebox.showerror("Alex patch failed", "Could not resolve Alex chr_tbl[426].", parent=self.root)
+                return
+
+            ok = self._write_many(
+                writes,
+                f"Patched Alex chr_tbl[{ALEX_ASSIST_ATTACK_TABLE_INDEX}] to 0x{raw_val:08X}."
+            )
+            if not ok:
+                return
+
+            self._record_slot_profile(h, raw_val, "Alex direct assist")
+            self._update_flat_row_display(h, raw_val)
+
+            for iid, row in self._hit_by_iid.items():
+                if row is h or (
+                    int(row.get("fighter_base") or 0) == int(h.get("fighter_base") or -1)
+                    and int(row.get("char_id") or 0) == ALEX_CHAR_ID
+                ):
+                    row["entry"] = h["entry"]
+                    row["raw"] = h["raw"]
+                    row["target"] = h["target"]
+                    row["guess"] = f"Alex direct chr_tbl[{ALEX_ASSIST_ATTACK_TABLE_INDEX}] profile"
+                    self._tree.set(iid, "entry", row["entry"])
+                    self._tree.set(iid, "raw", row["raw"])
+                    self._tree.set(iid, "target", row["target"])
+                    self._tree.set(iid, "guess", row["guess"])
+
+            self._status.set(
+                f"Alex direct assist profile stored; chr_tbl[{ALEX_ASSIST_ATTACK_TABLE_INDEX}] now points to 0x{raw_val:08X}."
+            )
             return
 
         try:
@@ -3563,10 +3721,18 @@ class AssistScannerWindow:
             if off not in GENERIC_SELECTOR_WORD_OFFSETS:
                 continue
             display_val = struct.unpack(">I", block[off:off + 4])[0]
+            owner_base = _owning_chr_tbl(row_addr)
             row["raw"] = f"0x{display_val:08X}"
             row["target"] = self._selector_target_for_display(row_addr, display_val)
+            row["entry"] = _flat_selector_entry_label(
+                owner_base,
+                [display_val],
+                _read_slot_char_ids(),
+                "generic assist",
+            )
             row["guess"] = "double-click to set generic fighter profile"
             row["source"] = "installed"
+            self._tree.set(iid, "entry", row["entry"])
             self._tree.set(iid, "raw", row["raw"])
             self._tree.set(iid, "target", row["target"])
             self._tree.set(iid, "guess", row["guess"])
@@ -3581,6 +3747,17 @@ class AssistScannerWindow:
         data = self._read_memory_region(owner_base, 0x90000, f"slot @ 0x{owner_base:08X}")
         candidates: list[tuple[int, int, str]] = []
 
+        def add_candidate(idx: int, source: str) -> None:
+            if idx < 0 or idx + GENERIC_SELECTOR_TABLE_LEN > len(data):
+                return
+            block_addr = owner_base + idx
+            bonus = _generic_assist_route_bonus(owner_base, block_addr)
+            source_label = source
+            if bonus and "assist-route" not in source_label:
+                source_label = f"{source_label}+assist-route"
+            score = _generic_candidate_score(data, idx, source) + bonus
+            candidates.append((score, block_addr, source_label))
+
         pos = 0
         while True:
             idx = data.find(b"\x0F\x06\x00\x27", pos)
@@ -3588,12 +3765,12 @@ class AssistScannerWindow:
                 break
             pos = idx + 1
             if _looks_like_generic_native_selector_shape(data, idx):
-                candidates.append((_generic_candidate_score(data, idx, "native"), owner_base + idx, "native"))
+                add_candidate(idx, "native")
             elif _looks_like_generic_graft_candidate_shape(data, idx):
-                candidates.append((_generic_candidate_score(data, idx, "graft-candidate"), owner_base + idx, "graft-candidate"))
+                add_candidate(idx, "graft-candidate")
 
-        # Experimental Batsu-ish fallback: align a synthetic graft 0x1C bytes
-        # before a good 37 32 / 37 33 tail pair.
+        # Experimental fallback: align a synthetic graft 0x1C bytes before a
+        # 37 32 / 37 33 tail pair. Assist-route candidates can be thinner.
         pos = 0
         while True:
             tail_idx = data.find(SELECTOR_TAIL, pos)
@@ -3603,9 +3780,13 @@ class AssistScannerWindow:
             idx = tail_idx - 0x1C
             if idx < 0 or idx + GENERIC_SELECTOR_TABLE_LEN > len(data):
                 continue
-            if not _looks_like_generic_tail_pair_candidate(data, tail_idx):
+
+            block_addr = owner_base + idx
+            assist_route = bool(_generic_assist_route_bonus(owner_base, block_addr))
+            if not _looks_like_generic_tail_pair_candidate(data, tail_idx, allow_single_row=assist_route):
                 continue
-            candidates.append((_generic_candidate_score(data, idx, "tail-pair"), owner_base + idx, "tail-pair"))
+
+            add_candidate(idx, "tail-pair")
 
         if not candidates:
             raise RuntimeError(
@@ -3614,7 +3795,7 @@ class AssistScannerWindow:
             )
 
         candidates.sort(key=lambda x: (x[0], -x[1]), reverse=True)
-        _, addr, source = candidates[0]
+        _score, addr, source = candidates[0]
         return addr, source
 
     def _choose_assist_move_preset_word(self, h: dict) -> tuple[int, bool, str] | None:
@@ -3863,6 +4044,9 @@ class AssistScannerWindow:
                 return {graft_addr: CHUN_SELECTOR_ORIGINAL_BLOCK}
             if typ == "u32-ryu-selector-graft":
                 return {graft_addr: RYU_SELECTOR_GRAFT_BLOCK}
+            if typ == "u32-generic-selector" and int(row.get("char_id") or 0) == ALEX_CHAR_ID:
+                owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+                return _alex_direct_assist_table_writes(owner_base, None)
             if typ == "u32-generic-selector":
                 raw_hex = str(row.get("table_raw", "")).replace(" ", "")
                 try:
@@ -3887,6 +4071,10 @@ class AssistScannerWindow:
             for off in RYU_SELECTOR_WORD_OFFSETS:
                 writes[graft_addr + off] = payload
             return writes
+
+        if typ == "u32-generic-selector" and int(row.get("char_id") or 0) == ALEX_CHAR_ID:
+            owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+            return _alex_direct_assist_table_writes(owner_base, int(raw_val))
 
         if typ == "u32-generic-selector":
             source = str(row.get("source", "unknown"))
@@ -4044,11 +4232,7 @@ class AssistScannerWindow:
             return None
 
     def _snap_is_assist_attack(self, snap: dict) -> bool:
-        """Return True when main.py says this fighter is being called as assist.
-
-        Main already resolves attA/attB into mv_id_display and mv_label. Treat
-        the whole assist-attack family as a trigger, not just literal 426.
-        """
+        """Return True when main.py says this fighter is in assist attack."""
         if not snap:
             return False
         mv = self._snap_assist_state_id(snap)
@@ -4056,6 +4240,31 @@ class AssistScannerWindow:
             return True
         label = str(snap.get("mv_label") or "").strip().lower()
         return label == "assist attack" or "assist attack" in label
+
+    def _snap_is_assist_prefetch(self, snap: dict) -> bool:
+        """Return True for earlier assist states before the attack route locks.
+
+        Alex appears to bind his assist route before literal Assist Attack, so
+        patching only on 426 is too late. Use standby/jump-in style states too.
+        """
+        if not snap:
+            return False
+        mv = self._snap_assist_state_id(snap)
+        if mv in ASSIST_RUNTIME_PREFETCH_STATES:
+            return True
+
+        label = str(snap.get("mv_label") or "").strip().lower()
+        return (
+            "assist standby" in label
+            or "assist jump" in label
+            or "assist jump in" in label
+            or "assist call" in label
+            or "assist enter" in label
+        )
+
+    def _snap_is_assist_profile_trigger(self, snap: dict) -> bool:
+        """Patch as early as possible, then latch until the assist state ends."""
+        return self._snap_is_assist_prefetch(snap) or self._snap_is_assist_attack(snap)
 
     def _set_runtime_status_from_main(self, text: str) -> None:
         try:
@@ -4086,15 +4295,15 @@ class AssistScannerWindow:
                 if not fighter_base:
                     continue
 
-                is_attack = self._snap_is_assist_attack(snap)
+                is_trigger = self._snap_is_assist_profile_trigger(snap)
                 state = self._snap_assist_state_id(snap)
-                was_attack = bool(self._main_last_assist_attack_by_base.get(fighter_base, False))
-                self._main_last_assist_attack_by_base[fighter_base] = bool(is_attack)
+                was_trigger = bool(self._main_last_assist_attack_by_base.get(fighter_base, False))
+                self._main_last_assist_attack_by_base[fighter_base] = bool(is_trigger)
 
-                # Only act on the rising edge: first frame entering assist attack.
-                # Holding assist attack must not re-write; that would clobber the
-                # other duplicate's profile the moment it fires its own assist.
-                if not is_attack or was_attack:
+                # Only act on the rising edge: first frame entering assist
+                # standby/jump/attack. Alex locks too early for attack-only
+                # patching, so this must fire before 426 when possible.
+                if not is_trigger or was_trigger:
                     continue
 
                 profile = self._slot_assist_profiles.get(fighter_base)
@@ -4124,7 +4333,7 @@ class AssistScannerWindow:
                         label = str(profile.get("label", "assist"))
                         word_txt = "default" if raw_val is None else f"0x{raw_val:08X}"
                         self._set_runtime_status_from_main(
-                            f"Auto Assist Trigger ON - {fighter_label} assist attack edge; wrote {label} {word_txt}."
+                            f"Auto Assist Trigger ON - {fighter_label} assist trigger edge; wrote {label} {word_txt}."
                         )
                 else:
                     self._set_runtime_status_from_main(
