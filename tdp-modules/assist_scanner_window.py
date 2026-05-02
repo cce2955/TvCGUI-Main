@@ -46,7 +46,7 @@ _CHR_TBL_BASES = [
 # Grafted selector block:
 #   0F060027 01500060 000044B4 00000003
 #   0003BCC8 0003C4AC 0003CC90
-#   3732203F 00000003 3733203F 00000009
+#   3732203F 00000002 3733203F 00000004
 #
 # After install, the selector words are:
 #   graft_addr + 0x10
@@ -65,8 +65,11 @@ CHUN_SELECTOR_GRAFT_BLOCK = bytes.fromhex(
     "0F 06 00 27 "
     "01 50 00 60 00 00 44 B4 00 00 00 03 "
     "00 03 BC C8 00 03 C4 AC 00 03 CC 90 "
-    "37 32 20 3F 00 00 00 03 "
-    "37 33 20 3F 00 00 00 09"
+    # Ryu-style selector args. The original Chun graft used 3/9; that proved
+    # the graft mechanism, but direct chr_tbl move presets behave more like
+    # Ryu's native assist selector and need 2/4.
+    "37 32 20 3F 00 00 00 02 "
+    "37 33 20 3F 00 00 00 04"
 )
 
 CHUN_SELECTOR_GRAFT_DELTA_TO_WRAPPER = 0x48
@@ -242,9 +245,21 @@ def _clean_preset_name(name: str | None) -> str:
     return s
 
 
+def _is_filtered_assist_preset_name(name: str | None) -> bool:
+    """Hide noisy non-attack presets from the assist preset picker."""
+    s = _clean_preset_name(name).lower()
+    if not s:
+        return False
+    normalized = "".join(ch if ch.isalnum() else " " for ch in s)
+    tokens = set(normalized.split())
+    return bool(tokens.intersection({"idle", "landing"}))
+
+
 def _is_named_preset_name(name: str | None) -> bool:
     s = _clean_preset_name(name)
     if not s:
+        return False
+    if _is_filtered_assist_preset_name(s):
         return False
     low = s.lower()
     if low in ("?", "unknown", "none", "move_????", "anim_--"):
@@ -490,17 +505,13 @@ PHRASES: list[tuple[str, bytes]] = [
 ]
 
 COLS = [
-    ("kind", "Kind"),
-    ("block", "Block"),
-    ("owner", "Owner"),
-    ("slot", "SlotCID"),
-    ("entry", "Entry"),
-    ("address", "Address"),
+    ("owner", "Character"),
+    ("slot", "CID"),
+    ("entry", "Current Assist"),
+    ("address", "Selector Address"),
     ("raw", "Raw"),
-    ("target", "AsLocal"),
-    ("guess", "Guess"),
-    ("score", "Score"),
-    ("ctx", "Context"),
+    ("target", "Target"),
+    ("guess", "Action"),
 ]
 COL_IDS = [c[0] for c in COLS]
 
@@ -729,6 +740,95 @@ def _append_selector_block(data: bytes, base_addr: int, idx: int, slot_char_ids:
 
 
 
+
+def _flat_selector_raw(words: list[int]) -> str:
+    if not words:
+        return "?"
+    if all(w == words[0] for w in words):
+        return f"0x{words[0]:08X}"
+    return "default"
+
+
+def _flat_selector_target(owner_base: int | None, words: list[int]) -> str:
+    if owner_base is None or not words:
+        return ""
+    if not all(w == words[0] for w in words):
+        return "default"
+    raw = words[0]
+    selector_base = _runtime_chr_tbl_base_for_owner_base(owner_base) or owner_base
+    if 0 <= raw <= 0x100000:
+        return f"0x{selector_base + raw:08X}"
+    return ""
+
+
+def _selector_word_to_move_name(owner_base: int | None, raw_word: int, slot_char_ids: dict[int, int]) -> str | None:
+    if owner_base is None:
+        return None
+
+    cid = slot_char_ids.get(owner_base)
+    char_name = CHAR_ID_TO_KEY.get(cid, "") if cid is not None else ""
+
+    # First handle known Ryu native selector words without needing a chr_tbl pass.
+    if cid == 12 and raw_word in RYU_KNOWN_TARGETS:
+        return RYU_KNOWN_TARGETS.get(raw_word)
+
+    chr_tbl_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
+    if chr_tbl_base is None:
+        return None
+
+    data = _read_mem_region_raw(chr_tbl_base, MOVE_PRESET_SLOT_SIZE)
+    if not data:
+        return None
+
+    best: tuple[int, str] | None = None
+    for table_index in range(MOVE_PRESET_CHR_TBL_NUM_ENTRIES - 1):
+        off = table_index * 4
+        entry = _u32be(data, off)
+        if entry is None:
+            continue
+        if entry in (0, 0xFFFFFFFF):
+            continue
+        if entry % 4 != 0 or entry < MOVE_PRESET_DATA_START_OFF:
+            continue
+        if entry >= len(data):
+            continue
+
+        for delta in MOVE_PRESET_ENTRY_OFFSETS:
+            if (entry + delta) != raw_word:
+                continue
+            aid = _move_preset_anim_id_after_hdr(data, entry)
+            name, _source, is_named = _resolve_move_preset_entry_name(table_index, aid, cid, char_name)
+            if not name:
+                continue
+            suffix = "" if delta == 0 else f" +0x{delta:02X}"
+            # Prefer named exact matches, then named offset matches, then fallback exact.
+            rank = 0
+            if is_named and delta == 0:
+                rank = 0
+            elif is_named:
+                rank = 1
+            elif delta == 0:
+                rank = 2
+            else:
+                rank = 3
+            candidate = (rank, f"{name}{suffix}")
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+
+    return best[1] if best else None
+
+
+def _flat_selector_entry_label(owner_base: int | None, words: list[int], slot_char_ids: dict[int, int], fallback: str) -> str:
+    if not words:
+        return fallback
+    names = []
+    for w in words:
+        nm = _selector_word_to_move_name(owner_base, w, slot_char_ids)
+        names.append(nm or f"0x{w:08X}")
+    if all(n == names[0] for n in names):
+        return names[0]
+    return "default"
+
 def _append_chun_selector_graft_table(data: bytes, base_addr: int, idx: int,
                                       slot_char_ids: dict[int, int], hits: list[dict],
                                       source: str) -> None:
@@ -742,49 +842,43 @@ def _append_chun_selector_graft_table(data: bytes, base_addr: int, idx: int,
     owner = _owner_name(block_addr, slot_char_ids)
     slot = _slot_cid(block_addr, slot_char_ids)
     current_block = data[idx:idx + len(CHUN_SELECTOR_GRAFT_BLOCK)]
-    label = "installed graft" if source == "graft" else "original slot" if source == "original" else "live wrapper fallback"
 
-    hits.append({
-        "kind": "chun-graft-table",
-        "block": block_addr,
-        "addr": block_addr,
-        "owner": owner,
-        "slot": slot,
-        "entry": label,
-        "raw": current_block.hex(" ").upper(),
-        "target": "",
-        "guess": "confirmed Chun assist selector graft table; double-click a lane to install/update",
-        "score": 100 if slot == "0x0D" else 90,
-        "ctx": _fmt_context(data, idx, mark_len=len(CHUN_SELECTOR_GRAFT_BLOCK)),
-        "editable": False,
-        "typ": "raw-window",
-    })
-
-    for lane_index, off in enumerate(CHUN_SELECTOR_WORD_OFFSETS, start=1):
+    words: list[int] = []
+    for off in CHUN_SELECTOR_WORD_OFFSETS:
         raw = _u32be(data, idx + off)
         default_raw = _u32be(CHUN_SELECTOR_GRAFT_BLOCK, off)
         if raw is None or default_raw is None:
             continue
-        lane_addr = block_addr + off
-        display_raw = raw if source != "original" else default_raw
-        target_addr = owner_base + display_raw if 0 <= display_raw <= 0x100000 else 0
-        actual_note = "" if source != "original" else f" current bytes 0x{raw:08X};"
-        hits.append({
-            "kind": "chun-selector-word",
-            "block": block_addr,
-            "addr": lane_addr,
-            "owner": owner,
-            "slot": slot,
-            "entry": f"lane {lane_index}",
-            "raw": f"0x{display_raw:08X}",
-            "target": f"0x{target_addr:08X}" if target_addr else "",
-            "guess": f"double-click: install graft then write selector word;{actual_note} source {source}",
-            "score": 100,
-            "ctx": _fmt_context(data, idx + off, mark_len=4),
-            "editable": True,
-            "typ": "u32-chun-selector",
-        })
+        # If this is the untouched original Chun block, show the selector words
+        # that will be installed by the graft. Installed/fallback rows show live bytes.
+        words.append(raw if source != "original" else default_raw)
 
+    if len(words) != len(CHUN_SELECTOR_WORD_OFFSETS):
+        return
+
+    first_lane_addr = block_addr + CHUN_SELECTOR_WORD_OFFSETS[0]
+    entry = _flat_selector_entry_label(owner_base, words, slot_char_ids, "Chun assist")
+    raw_txt = _flat_selector_raw(words)
+    target_txt = _flat_selector_target(owner_base, words)
+
+    hits.append({
+        "kind": "chun-selector-word",
+        "block": block_addr,
+        "addr": first_lane_addr,
+        "owner": owner,
+        "slot": slot,
+        "entry": entry,
+        "raw": raw_txt,
+        "target": target_txt,
+        "guess": f"double-click to change Chun assist; table 0x{block_addr:08X}; source {source}",
+        "score": 100,
+        "ctx": _fmt_context(data, idx, mark_len=len(CHUN_SELECTOR_GRAFT_BLOCK)),
+        "editable": True,
+        "typ": "u32-chun-selector",
+        "source": source,
+        "selector_words": words,
+        "table_raw": current_block.hex(" ").upper(),
+    })
 
 def _scan_chun_selector_graft_tables(data: bytes, base_addr: int,
                                      slot_char_ids: dict[int, int], hits: list[dict]) -> None:
@@ -859,46 +953,40 @@ def _append_ryu_selector_graft_table(data: bytes, base_addr: int, idx: int,
     owner = _owner_name(block_addr, slot_char_ids)
     slot = _slot_cid(block_addr, slot_char_ids)
     current_block = data[idx:idx + len(RYU_SELECTOR_GRAFT_BLOCK)]
-    label = "installed/native graft" if source == "graft" else "shape fallback"
 
-    hits.append({
-        "kind": "ryu-graft-table",
-        "block": block_addr,
-        "addr": block_addr,
-        "owner": owner,
-        "slot": slot,
-        "entry": label,
-        "raw": current_block.hex(" ").upper(),
-        "target": "",
-        "guess": "confirmed Ryu assist selector table; double-click a lane to write preset/manual word",
-        "score": 100 if slot == "0x0C" else 90,
-        "ctx": _fmt_context(data, idx, mark_len=len(RYU_SELECTOR_GRAFT_BLOCK)),
-        "editable": False,
-        "typ": "raw-window",
-    })
-
-    for lane_index, off in enumerate(RYU_SELECTOR_WORD_OFFSETS, start=1):
+    words: list[int] = []
+    for off in RYU_SELECTOR_WORD_OFFSETS:
         raw = _u32be(data, idx + off)
         if raw is None:
             continue
-        lane_addr = block_addr + off
-        target_addr = owner_base + raw if 0 <= raw <= 0x100000 else 0
-        hits.append({
-            "kind": "ryu-selector-word",
-            "block": block_addr,
-            "addr": lane_addr,
-            "owner": owner,
-            "slot": slot,
-            "entry": f"lane {lane_index}",
-            "raw": f"0x{raw:08X}",
-            "target": f"0x{target_addr:08X}" if target_addr else "",
-            "guess": f"double-click: restore/install Ryu selector setup then write selector word; source {source}",
-            "score": 100,
-            "ctx": _fmt_context(data, idx + off, mark_len=4),
-            "editable": True,
-            "typ": "u32-ryu-selector-graft",
-        })
+        words.append(raw)
 
+    if len(words) != len(RYU_SELECTOR_WORD_OFFSETS):
+        return
+
+    first_lane_addr = block_addr + RYU_SELECTOR_WORD_OFFSETS[0]
+    entry = _flat_selector_entry_label(owner_base, words, slot_char_ids, "Ryu assist")
+    raw_txt = _flat_selector_raw(words)
+    target_txt = _flat_selector_target(owner_base, words)
+
+    hits.append({
+        "kind": "ryu-selector-word",
+        "block": block_addr,
+        "addr": first_lane_addr,
+        "owner": owner,
+        "slot": slot,
+        "entry": entry,
+        "raw": raw_txt,
+        "target": target_txt,
+        "guess": f"double-click to change Ryu assist; table 0x{block_addr:08X}; source {source}",
+        "score": 100,
+        "ctx": _fmt_context(data, idx, mark_len=len(RYU_SELECTOR_GRAFT_BLOCK)),
+        "editable": True,
+        "typ": "u32-ryu-selector-graft",
+        "source": source,
+        "selector_words": words,
+        "table_raw": current_block.hex(" ").upper(),
+    })
 
 def _scan_ryu_selector_graft_tables(data: bytes, base_addr: int,
                                     slot_char_ids: dict[int, int], hits: list[dict]) -> None:
@@ -1129,8 +1217,11 @@ def _find_runtime_chr_tbl_base_for_region(region_base: int) -> int | None:
 
     # Include bytes before region_base because a chr_tbl label lives at base-0x18
     # when the table starts exactly at the region base.
+    next_bases = [b for b in _CHR_TBL_BASES if b > region_base]
+    slot_end = min(region_base + MOVE_PRESET_SLOT_SIZE, min(next_bases) if next_bases else region_base + MOVE_PRESET_SLOT_SIZE)
+
     scan_start = max(SCAN_START, region_base - 0x40)
-    scan_size = MOVE_PRESET_SLOT_SIZE + (region_base - scan_start)
+    scan_size = max(0, slot_end - scan_start)
     data = _read_mem_region_raw(scan_start, scan_size)
     if not data:
         return None
@@ -1147,7 +1238,7 @@ def _find_runtime_chr_tbl_base_for_region(region_base: int) -> int | None:
         if not _looks_like_chr_tbl_at(data, tbl_idx):
             continue
         cand = scan_start + tbl_idx
-        if region_base - 0x100 <= cand < region_base + MOVE_PRESET_SLOT_SIZE:
+        if region_base - 0x100 <= cand < slot_end:
             candidates.append(cand)
 
     if not candidates:
@@ -1163,10 +1254,80 @@ def _find_runtime_chr_tbl_base_for_region(region_base: int) -> int | None:
     return candidates[0]
 
 
+def _find_runtime_chr_tbl_bases_for_region(region_base: int) -> list[int]:
+    """Find every plausible live chr_tbl base inside one broad character slot.
+
+    Some loaded slots expose more than one valid chr_tbl-shaped table, and some
+    slots do not satisfy the strict chr_tbl label path during assist state. The
+    preset picker only needs valid chr_tbl entry offsets, so collect every
+    validated candidate and let the picker harvest from all of them.
+    """
+    if rbytes is None:
+        return []
+
+    next_bases = [b for b in _CHR_TBL_BASES if b > region_base]
+    slot_end = min(region_base + MOVE_PRESET_SLOT_SIZE, min(next_bases) if next_bases else region_base + MOVE_PRESET_SLOT_SIZE)
+
+    scan_start = max(SCAN_START, region_base - 0x40)
+    scan_size = max(0, slot_end - scan_start)
+    data = _read_mem_region_raw(scan_start, scan_size)
+    if not data:
+        return []
+
+    candidates: list[int] = []
+
+    def add_candidate(tbl_idx: int) -> None:
+        if not _looks_like_chr_tbl_at(data, tbl_idx):
+            return
+        cand = scan_start + tbl_idx
+        if region_base - 0x100 <= cand < slot_end:
+            candidates.append(cand)
+
+    # Preferred path: the normal chr_tbl label sits 0x18 bytes before the table.
+    label = b"chr_tbl\n"
+    pos = 0
+    while True:
+        j = data.find(label, pos)
+        if j < 0:
+            break
+        pos = j + 1
+        add_candidate(j + 0x18)
+
+    # Backup path: scan the slot for the actual table shape, not just the label.
+    # This fixes cases where the selector lane is live but the label path misses
+    # the loaded chr_tbl for that slot.
+    scan_limit = len(data) - 0xB0C
+    for tbl_idx in range(0, max(0, scan_limit), 4):
+        try:
+            if _u32be(data, tbl_idx) != MOVE_PRESET_DATA_START_OFF:
+                continue
+            if _u32be(data, tbl_idx + 0xB00) != 0xFFFFFFFF:
+                continue
+            if data[tbl_idx + 0xB04:tbl_idx + 0xB0C] != b"chr_act\n":
+                continue
+        except Exception:
+            continue
+        add_candidate(tbl_idx)
+
+    # Very old/static layouts can still have the table exactly at the ownership
+    # base with no readable label in this pass.
+    add_candidate(region_base - scan_start)
+
+    out: list[int] = []
+    seen: set[int] = set()
+    for cand in sorted(candidates):
+        if cand in seen:
+            continue
+        seen.add(cand)
+        out.append(cand)
+    return out
+
+
 def _runtime_chr_tbl_base_for_owner_base(owner_base: int | None) -> int | None:
     if owner_base is None:
         return None
-    return _find_runtime_chr_tbl_base_for_region(owner_base)
+    bases = _find_runtime_chr_tbl_bases_for_region(owner_base)
+    return bases[0] if bases else None
 
 
 def _selector_base_for_address(addr: int) -> int | None:
@@ -1224,6 +1385,8 @@ def _append_assist_move_preset_row(base: int, move_abs: int, aid: int | None,
     if word <= 0 or word > 0x100000:
         return
     name, name_source, is_named = _resolve_move_preset_entry_name(aid or 0, aid, cid, char_name)
+    if _is_filtered_assist_preset_name(name):
+        return
     low = (aid & 0xFF) if aid is not None else None
     is_normal = aid is not None and aid >= 0x0100 and low in MOVE_PRESET_NORMAL_IDS
     kind_label = "normal" if is_normal else "move"
@@ -1308,6 +1471,8 @@ def _is_preset_worthy_table_index(table_index: int, aid: int | None, char_id: in
 
     char_name = CHAR_ID_TO_KEY.get(char_id, "") if char_id is not None else ""
     _name, _source, is_named = _resolve_move_preset_entry_name(table_index, aid, char_id, char_name)
+    if _is_filtered_assist_preset_name(_name):
+        return False
     if is_named:
         return True
 
@@ -1349,86 +1514,91 @@ def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -
     #
     # Critical correction: _CHR_TBL_BASES are broad ownership windows, not
     # always the actual live chr_tbl base. The selector word must be relative
-    # to the actual live chr_tbl base found by the "chr_tbl\n" label.
+    # to the actual live chr_tbl base found by the chr_tbl/chr_act table shape.
+    # Harvest all validated table candidates in the slot so one missed label
+    # does not make the preset picker empty.
     seen: set[tuple[int, int]] = set()
     for owner_base in _CHR_TBL_BASES:
-        chr_tbl_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
-        if chr_tbl_base is None:
-            continue
-
-        data = _read_mem_region_raw(chr_tbl_base, MOVE_PRESET_SLOT_SIZE)
-        if not data:
-            continue
-
         cid = slot_char_ids.get(owner_base)
         if cid is None:
             continue
 
-        for table_index in range(MOVE_PRESET_CHR_TBL_NUM_ENTRIES - 1):
-            off = table_index * 4
-            if off + 4 > len(data):
-                break
-            entry = _u32be(data, off)
-            if entry is None:
-                continue
-            if entry in (0, 0xFFFFFFFF):
-                continue
-            if entry % 4 != 0 or entry < MOVE_PRESET_DATA_START_OFF:
-                continue
-            if entry >= len(data):
+        chr_tbl_bases = _find_runtime_chr_tbl_bases_for_region(owner_base)
+        if not chr_tbl_bases:
+            continue
+
+        for chr_tbl_base in chr_tbl_bases:
+            data = _read_mem_region_raw(chr_tbl_base, MOVE_PRESET_SLOT_SIZE)
+            if not data:
                 continue
 
-            aid = _move_preset_anim_id_after_hdr(data, entry)
-            if not _is_preset_worthy_table_index(table_index, aid, cid):
-                continue
+            for table_index in range(MOVE_PRESET_CHR_TBL_NUM_ENTRIES - 1):
+                off = table_index * 4
+                if off + 4 > len(data):
+                    break
+                entry = _u32be(data, off)
+                if entry is None:
+                    continue
+                if entry in (0, 0xFFFFFFFF):
+                    continue
+                if entry % 4 != 0 or entry < MOVE_PRESET_DATA_START_OFF:
+                    continue
+                if entry >= len(data):
+                    continue
 
-            move_abs = chr_tbl_base + entry
-            key = (chr_tbl_base, table_index)
-            if key in seen:
-                continue
-            seen.add(key)
+                aid = _move_preset_anim_id_after_hdr(data, entry)
+                if not _is_preset_worthy_table_index(table_index, aid, cid):
+                    continue
 
-            char_name = CHAR_ID_TO_KEY.get(cid, "") if cid is not None else ""
-            name, name_source, is_named = _resolve_move_preset_entry_name(table_index, aid, cid, char_name)
-            low = table_index & 0xFF
-            is_normal = 0x100 <= table_index <= 0x10F and low in MOVE_PRESET_NORMAL_IDS
-            kind_label = "normal" if is_normal else "move"
-            owner = _owner_name(move_abs, slot_char_ids)
-            slot = _slot_cid(move_abs, slot_char_ids)
-            score = 95 if is_normal else 80
-            if is_named:
-                score += 10
-            if cid in (12, 13):
-                score += 5
+                move_abs = chr_tbl_base + entry
+                key = (chr_tbl_base, table_index)
+                if key in seen:
+                    continue
+                seen.add(key)
 
-            hits.append({
-                "kind": "assist-move-preset",
-                "block": move_abs,
-                "addr": move_abs,
-                "owner": owner,
-                "slot": slot,
-                "entry": name,
-                "raw": f"0x{entry:08X}",
-                "target": f"0x{move_abs:08X}",
-                "guess": f"point graft lanes to {name}; chr_tbl[{table_index}] @ 0x{chr_tbl_base:08X}",
-                "score": score,
-                "ctx": _fmt_context(data, entry, mark_len=4) if 0 <= entry < len(data) else "",
-                "editable": True,
-                "typ": "assist-move-preset",
-                "selector_word": entry,
-                "move_abs": move_abs,
-                "move_id": aid if aid is not None else table_index,
-                "table_index": table_index,
-                "move_name": name,
-                "move_named": is_named,
-                "name_source": name_source,
-                # owner_base is the broad slot window used by graft lanes.
-                # chr_tbl_base is the real selector base used by the VM.
-                "owner_base": owner_base,
-                "chr_tbl_base": chr_tbl_base,
-                "char_id": cid if cid is not None else 0,
-                "source": f"chr_tbl+{name_source}",
-            })
+                char_name = CHAR_ID_TO_KEY.get(cid, "") if cid is not None else ""
+                name, name_source, is_named = _resolve_move_preset_entry_name(table_index, aid, cid, char_name)
+                if _is_filtered_assist_preset_name(name):
+                    continue
+                low = table_index & 0xFF
+                is_normal = 0x100 <= table_index <= 0x10F and low in MOVE_PRESET_NORMAL_IDS
+                kind_label = "normal" if is_normal else "move"
+                owner = _owner_name(move_abs, slot_char_ids)
+                slot = _slot_cid(move_abs, slot_char_ids)
+                score = 95 if is_normal else 80
+                if is_named:
+                    score += 10
+                if cid in (12, 13):
+                    score += 5
+
+                hits.append({
+                    "kind": "assist-move-preset",
+                    "block": move_abs,
+                    "addr": move_abs,
+                    "owner": owner,
+                    "slot": slot,
+                    "entry": name,
+                    "raw": f"0x{entry:08X}",
+                    "target": f"0x{move_abs:08X}",
+                    "guess": f"point graft lanes to {name}; chr_tbl[{table_index}] @ 0x{chr_tbl_base:08X}",
+                    "score": score,
+                    "ctx": _fmt_context(data, entry, mark_len=4) if 0 <= entry < len(data) else "",
+                    "editable": True,
+                    "typ": "assist-move-preset",
+                    "selector_word": entry,
+                    "move_abs": move_abs,
+                    "move_id": aid if aid is not None else table_index,
+                    "table_index": table_index,
+                    "move_name": name,
+                    "move_named": is_named,
+                    "name_source": name_source,
+                    # owner_base is the broad slot window used by graft lanes.
+                    # chr_tbl_base is the real selector base used by the VM.
+                    "owner_base": owner_base,
+                    "chr_tbl_base": chr_tbl_base,
+                    "char_id": cid if cid is not None else 0,
+                    "source": f"chr_tbl+{name_source}",
+                })
 
 def _append_state_wrapper(data: bytes, base_addr: int, idx: int, slot_char_ids: dict[int, int],
                           hits: list[dict]) -> None:
@@ -1739,10 +1909,10 @@ def _run_scan(progress_cb, done_cb):
     def sort_key(h: dict):
         priority = 0 if h["block"] == 0x908C7680 else 1
         kind_order = {
-            "chun-graft-table": 0,
+            "ryu-selector-word": 0,
             "chun-selector-word": 1,
-            "ryu-graft-table": 2,
-            "ryu-selector-word": 3,
+            "chun-graft-table": 2,
+            "ryu-graft-table": 3,
             "generic-native-table": 4,
             "generic-graft-table": 5,
             "generic-selector-word": 6,
@@ -1766,7 +1936,7 @@ def _run_scan(progress_cb, done_cb):
 class AssistScannerWindow:
     def __init__(self, master):
         self.root = tk.Toplevel(master)
-        self.root.title("Assist Scanner - Graft Move Picker")
+        self.root.title("Assist Scanner - Active Assist Picker")
         self.root.geometry("1420x700")
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
         self._scanning = False
@@ -1785,8 +1955,8 @@ class AssistScannerWindow:
         ttk.Label(
             top,
             text=(
-                "Finds confirmed Chun/Ryu tables plus experimental generic selector candidates. "
-                "Double-click a selector lane, then choose Preset assist or Custom raw U32."
+                "Shows one active assist selector per loaded Ryu/Chun table. "
+                "Double-click a row to choose a preset assist or custom raw U32."
             ),
         ).pack(side="left")
         self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
@@ -1810,15 +1980,15 @@ class AssistScannerWindow:
         frame.pack(fill="both", expand=True, padx=8, pady=6)
         self._tree = ttk.Treeview(frame, columns=COL_IDS, show="headings", height=28)
         widths = {
-            "kind": 115, "block": 110, "owner": 210, "slot": 70, "entry": 105,
-            "address": 110, "raw": 180, "target": 120, "guess": 220,
-            "score": 70, "ctx": 680,
+            "owner": 230, "slot": 60, "entry": 300,
+            "address": 130, "raw": 240, "target": 130, "guess": 420,
         }
         for col_id, header in COLS:
             self._tree.heading(col_id, text=header, command=lambda c=col_id: self._sort_by(c))
             self._tree.column(col_id, width=widths.get(col_id, 80), anchor="center")
-        for c in ("owner", "guess", "ctx"):
-            self._tree.column(c, anchor="w")
+        for c in ("owner", "entry", "guess"):
+            if c in COL_IDS:
+                self._tree.column(c, anchor="w")
         vsb = ttk.Scrollbar(frame, orient="vertical", command=self._tree.yview)
         hsb = ttk.Scrollbar(frame, orient="horizontal", command=self._tree.xview)
         self._tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
@@ -1839,7 +2009,7 @@ class AssistScannerWindow:
         self._hit_by_iid.clear()
         for iid in self._tree.get_children():
             self._tree.delete(iid)
-        self._status.set("Scanning MEM2 for confirmed Chun/Ryu graft tables and selector lanes...")
+        self._status.set("Scanning MEM2 for active assist selectors...")
         threading.Thread(target=_run_scan, args=(self._on_prog, self._on_done), daemon=True).start()
 
     def _on_prog(self, pct: float):
@@ -1851,27 +2021,21 @@ class AssistScannerWindow:
     def _on_done(self, hits: list[dict]):
         def _f():
             for h in hits:
-                iid = self._tree.insert("", "end", values=(
-                    h["kind"],
-                    f"0x{h['block']:08X}",
-                    h["owner"],
-                    h["slot"],
-                    h["entry"],
-                    f"0x{h['addr']:08X}",
-                    h["raw"],
-                    h["target"],
-                    h["guess"],
-                    h["score"],
-                    h["ctx"],
-                ))
+                def _val(col_id: str) -> str:
+                    if col_id == "block":
+                        return f"0x{h['block']:08X}"
+                    if col_id == "address":
+                        return f"0x{h['addr']:08X}"
+                    return str(h.get(col_id, ""))
+                iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS))
                 self._hit_by_iid[iid] = h
             self._scanning = False
             self._scan_btn.config(state="normal")
             self._prog.set(100)
-            selector_blocks = len({h["block"] for h in hits if h["kind"] in ("selector-chain", "selector-loose")})
-            chun_tables = len({h["block"] for h in hits if h["kind"] == "chun-graft-table"})
+            chun_rows = len([h for h in hits if h["kind"] == "chun-selector-word"])
+            ryu_rows = len([h for h in hits if h["kind"] == "ryu-selector-word"])
             self._status.set(
-                f"Done - {chun_tables} Chun graft table(s), {len({h["block"] for h in hits if h["kind"] == "ryu-graft-table"})} Ryu graft table(s), {len(hits)} row(s). Move presets are in the lane popup."
+                f"Done - {ryu_rows} Ryu active selector(s), {chun_rows} Chun active selector(s). Double-click a row to change assist."
             )
         try:
             self.root.after(0, _f)
@@ -2389,7 +2553,11 @@ class AssistScannerWindow:
         except Exception:
             return []
 
-        rows = [h for h in temp_hits if int(h.get("owner_base", 0)) == int(owner_base)]
+        rows = [
+            h for h in temp_hits
+            if int(h.get("owner_base", 0)) == int(owner_base)
+            and not _is_filtered_assist_preset_name(str(h.get("move_name", "")))
+        ]
 
         def band_priority(table_index: int, named: bool) -> int:
             # Named rows keep the requested assist order. Unnamed rows go to
@@ -2436,7 +2604,7 @@ class AssistScannerWindow:
             top,
             text=(
                 f"Slot base: 0x{owner_base:08X}\n"
-                "Pick a loaded move/normal. Named presets are ordered: 304-368, then 510-520, then 256-270, then named leftovers. Entries 369-400 are filtered out. Unnamed entries are at the bottom."
+                "Pick a loaded move/normal. Named presets are ordered: 304-368, then 510-520, then 256-270, then named leftovers. Entries 369-400, idle, and landing are filtered out. Unnamed entries are at the bottom."
             ),
             justify="left",
         ).pack(anchor="w")
@@ -2581,10 +2749,10 @@ class AssistScannerWindow:
             justify="left",
         ).pack(anchor="w", padx=12, pady=(12, 8))
 
-        ttk.Checkbutton(
+        ttk.Label(
             dlg,
-            text="Apply this word to all three Chun selector lanes",
-            variable=apply_all_var,
+            text="This writes all three Chun selector lanes together.",
+            justify="left",
         ).pack(anchor="w", padx=12, pady=(0, 8))
 
         btn_frame = ttk.Frame(dlg)
@@ -2592,7 +2760,7 @@ class AssistScannerWindow:
 
         def set_value(v: int):
             result["value"] = v
-            result["apply_all"] = bool(apply_all_var.get())
+            result["apply_all"] = True
             dlg.destroy()
 
         def choose_loaded_move():
@@ -2700,7 +2868,9 @@ class AssistScannerWindow:
                 display_val = struct.unpack(">I", default_payload)[0] if default_payload else 0
             row["raw"] = f"0x{display_val:08X}"
             row["target"] = self._selector_target_for_display(row_addr, display_val)
-            row["guess"] = "double-click: install graft then write selector word"
+            row["entry"] = _flat_selector_entry_label(_owning_chr_tbl(row_addr), [display_val], _read_slot_char_ids(), "Chun assist")
+            row["guess"] = f"double-click to change Chun assist; table 0x{graft_addr:08X}"
+            self._tree.set(iid, "entry", row["entry"])
             self._tree.set(iid, "raw", row["raw"])
             self._tree.set(iid, "target", row["target"])
             self._tree.set(iid, "guess", row["guess"])
@@ -2822,10 +2992,10 @@ class AssistScannerWindow:
             justify="left",
         ).pack(anchor="w", padx=12, pady=(12, 8))
 
-        ttk.Checkbutton(
+        ttk.Label(
             dlg,
-            text="Apply this word to all three Ryu selector lanes",
-            variable=apply_all_var,
+            text="This writes all three Ryu selector lanes together.",
+            justify="left",
         ).pack(anchor="w", padx=12, pady=(0, 8))
 
         btn_frame = ttk.Frame(dlg)
@@ -2833,7 +3003,7 @@ class AssistScannerWindow:
 
         def set_value(v: int):
             result["value"] = v
-            result["apply_all"] = bool(apply_all_var.get())
+            result["apply_all"] = True
             dlg.destroy()
 
         def choose_loaded_move():
@@ -2935,7 +3105,9 @@ class AssistScannerWindow:
                 display_val = struct.unpack(">I", default_payload)[0] if default_payload else 0
             row["raw"] = f"0x{display_val:08X}"
             row["target"] = self._selector_target_for_display(row_addr, display_val)
-            row["guess"] = "double-click: restore/install Ryu selector setup then write selector word"
+            row["entry"] = _flat_selector_entry_label(_owning_chr_tbl(row_addr), [display_val], _read_slot_char_ids(), "Ryu assist")
+            row["guess"] = f"double-click to change Ryu assist; table 0x{graft_addr:08X}"
+            self._tree.set(iid, "entry", row["entry"])
             self._tree.set(iid, "raw", row["raw"])
             self._tree.set(iid, "target", row["target"])
             self._tree.set(iid, "guess", row["guess"])
@@ -3317,8 +3489,6 @@ class AssistScannerWindow:
         if not iid or col_idx < 0:
             return
         col_id = COL_IDS[col_idx]
-        if col_id != "raw":
-            return
         h = self._hit_by_iid.get(iid)
         if not h or not h.get("editable"):
             return
