@@ -103,6 +103,17 @@ _FIGHTER_BASES = [
 ]
 _CHAR_ID_OFF = 0x14
 
+FIGHTER_SLOT_LABELS = ("P1-C1", "P2-C1", "P1-C2", "P2-C2")
+
+# Shared-character selector tables mean duplicate characters cannot keep
+# separate table bytes at rest. Per-fighter profiles are stored separately,
+# then Auto Slot Switch patches the shared character table when that fighter
+# enters an assist-ish state.
+ASSIST_RUNTIME_ATTACK_STATES = {420, 426, 427, 428}
+ASSIST_RUNTIME_PREFETCH_STATES = {430, 424, 425, 432, 433}
+ASSIST_RUNTIME_STATE_PRIORITY = {426: 100, 430: 45, 424: 35, 425: 30, 427: 30}
+FIGHTER_MOVE_SCAN_SIZE = 0x6000
+
 CHAR_ID_TO_KEY = {
     1: "Ken the Eagle", 2: "Casshan", 3: "Tekkaman", 4: "Polimar",
     5: "Yatterman-1", 6: "Doronjo", 7: "Ippatsuman", 8: "Jun the Swan",
@@ -555,6 +566,86 @@ def _read_slot_char_ids() -> dict[int, int]:
     return result
 
 
+def _read_fighter_slots() -> list[dict[str, int | str]]:
+    slots: list[dict[str, int | str]] = []
+    if rbytes is None:
+        return slots
+    for idx, fighter_base in enumerate(_FIGHTER_BASES):
+        try:
+            b = rbytes(fighter_base + _CHAR_ID_OFF, 4)
+            if not b or len(b) != 4:
+                continue
+            cid = struct.unpack(">I", b)[0]
+        except Exception:
+            continue
+        if cid <= 0 or cid == 0xFFFFFFFF:
+            continue
+        label = FIGHTER_SLOT_LABELS[idx] if idx < len(FIGHTER_SLOT_LABELS) else f"F{idx}"
+        name = CHAR_ID_TO_KEY.get(cid, f"CID 0x{cid:02X}")
+        slots.append({
+            "index": idx,
+            "fighter_base": fighter_base,
+            "char_id": cid,
+            "label": label,
+            "name": name,
+        })
+    return slots
+
+
+def _expand_selector_hits_to_fighter_rows(hits: list[dict]) -> list[dict]:
+    """Duplicate each shared character selector row for each loaded fighter using it.
+
+    The selector table is per loaded character, but the UI needs per-fighter
+    profiles when both teams load the same character. Rows produced here can
+    share the same selector table address while storing different desired words.
+    """
+    slot_char_ids = _read_slot_char_ids()
+    fighters = _read_fighter_slots()
+    out: list[dict] = []
+    selector_types = {"u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector"}
+
+    for h in hits:
+        if h.get("typ") not in selector_types:
+            out.append(h)
+            continue
+
+        owner_base = _owning_chr_tbl(int(h.get("addr", h.get("block", 0))))
+        if owner_base is None:
+            out.append(h)
+            continue
+        cid = slot_char_ids.get(owner_base)
+        if cid is None:
+            out.append(h)
+            continue
+
+        matches = [f for f in fighters if int(f.get("char_id", -1)) == int(cid)]
+        if not matches:
+            nh = dict(h)
+            nh["owner_base"] = owner_base
+            nh["char_id"] = cid
+            out.append(nh)
+            continue
+
+        for f in matches:
+            nh = dict(h)
+            nh["owner_base"] = owner_base
+            nh["char_id"] = cid
+            nh["fighter_index"] = int(f["index"])
+            nh["fighter_base"] = int(f["fighter_base"])
+            nh["fighter_label"] = str(f["label"])
+            nh["owner"] = f"{f['label']} {f['name']} @0x{int(f['fighter_base']):08X}"
+            nh["guess"] = (
+                f"double-click to set {f['label']} profile; shared table 0x{int(h.get('block', 0)):08X}"
+            )
+            out.append(nh)
+
+    def key(row: dict) -> tuple:
+        return (int(row.get("fighter_index", 99)), int(row.get("block", 0)), str(row.get("kind", "")))
+
+    out.sort(key=key)
+    return out
+
+
 def _owner_name(addr: int, slot_char_ids: dict[int, int]) -> str:
     base = _owning_chr_tbl(addr)
     if base is None:
@@ -870,7 +961,7 @@ def _append_chun_selector_graft_table(data: bytes, base_addr: int, idx: int,
         "entry": entry,
         "raw": raw_txt,
         "target": target_txt,
-        "guess": f"double-click to change Chun assist; table 0x{block_addr:08X}; source {source}",
+        "guess": f"double-click to set Chun fighter profile; table 0x{block_addr:08X}; source {source}",
         "score": 100,
         "ctx": _fmt_context(data, idx, mark_len=len(CHUN_SELECTOR_GRAFT_BLOCK)),
         "editable": True,
@@ -978,7 +1069,7 @@ def _append_ryu_selector_graft_table(data: bytes, base_addr: int, idx: int,
         "entry": entry,
         "raw": raw_txt,
         "target": target_txt,
-        "guess": f"double-click to change Ryu assist; table 0x{block_addr:08X}; source {source}",
+        "guess": f"double-click to set Ryu fighter profile; table 0x{block_addr:08X}; source {source}",
         "score": 100,
         "ctx": _fmt_context(data, idx, mark_len=len(RYU_SELECTOR_GRAFT_BLOCK)),
         "editable": True,
@@ -2018,7 +2109,7 @@ def _run_scan(progress_cb, done_cb):
 class AssistScannerWindow:
     def __init__(self, master):
         self.root = tk.Toplevel(master)
-        self.root.title("Assist Scanner - Active Assist Picker")
+        self.root.title("Assist Scanner - Shared Character Assist Picker")
         self.root.geometry("1420x700")
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
         self._scanning = False
@@ -2028,6 +2119,17 @@ class AssistScannerWindow:
         self._chun_selector_test_index = 0
         self._last_chun_selector_addr = None
         self._last_chun_selector_test = None
+        self._slot_assist_profiles: dict[int, dict[str, object]] = {}
+        self._auto_reapply_enabled = True
+        self._auto_reapply_after_id = None
+        self._auto_btn = None
+        self._runtime_move_offset: tuple[int, int] | None = None  # (offset, width)
+        self._runtime_last_profile_key: int | None = None
+        # Main-HUD driven runtime switch. main.py already knows each fighter's
+        # current move label/id, so this avoids guessing a fighter struct offset.
+        self._main_last_assist_attack_by_base: dict[int, bool] = {}
+        self._main_patch_latch_by_base: dict[int, int] = {}
+        self._main_last_patch_key: tuple[int, int] | None = None
         self._build()
         self._start()
 
@@ -2037,8 +2139,8 @@ class AssistScannerWindow:
         ttk.Label(
             top,
             text=(
-                "Shows one active assist selector per loaded Ryu/Chun/generic table. "
-                "Double-click a row to choose a preset assist or custom raw U32."
+                "Shows one profile row per loaded fighter using each shared character selector table. "
+                "Double-click a row to choose that fighter's assist. Use Auto Assist Trigger for duplicate characters."
             ),
         ).pack(side="left")
         self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
@@ -2052,6 +2154,9 @@ class AssistScannerWindow:
 
         self._dump_slots_btn = ttk.Button(top, text="Dump Char Slots", command=self._dump_char_slots)
         self._dump_slots_btn.pack(side="right", padx=(0, 8))
+
+        self._auto_btn = ttk.Button(top, text="Auto Assist Trigger: ON", command=self._toggle_auto_reapply)
+        self._auto_btn.pack(side="right", padx=(0, 8))
 
         self._prog = tk.DoubleVar()
         ttk.Progressbar(self.root, variable=self._prog, maximum=100).pack(fill="x", padx=8, pady=(0, 4))
@@ -2102,7 +2207,8 @@ class AssistScannerWindow:
 
     def _on_done(self, hits: list[dict]):
         def _f():
-            for h in hits:
+            hits_expanded = _expand_selector_hits_to_fighter_rows(hits)
+            for h in hits_expanded:
                 def _val(col_id: str) -> str:
                     if col_id == "block":
                         return f"0x{h['block']:08X}"
@@ -2111,14 +2217,16 @@ class AssistScannerWindow:
                     return str(h.get(col_id, ""))
                 iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS))
                 self._hit_by_iid[iid] = h
+                if h.get("typ") in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector"):
+                    self._record_default_slot_profile(h)
             self._scanning = False
             self._scan_btn.config(state="normal")
             self._prog.set(100)
-            chun_rows = len([h for h in hits if h["kind"] == "chun-selector-word"])
-            ryu_rows = len([h for h in hits if h["kind"] == "ryu-selector-word"])
-            generic_rows = len([h for h in hits if h["kind"] == "generic-selector-word"])
+            chun_rows = len([h for h in hits_expanded if h["kind"] == "chun-selector-word"])
+            ryu_rows = len([h for h in hits_expanded if h["kind"] == "ryu-selector-word"])
+            generic_rows = len([h for h in hits_expanded if h["kind"] == "generic-selector-word"])
             self._status.set(
-                f"Done - {ryu_rows} Ryu, {chun_rows} Chun, {generic_rows} generic active selector(s). Double-click a row to change assist."
+                f"Done - {ryu_rows} Ryu, {chun_rows} Chun, {generic_rows} generic fighter profile row(s). Tables are shared per character; Auto Assist Trigger patches on assist attack."
             )
         try:
             self.root.after(0, _f)
@@ -2846,6 +2954,11 @@ class AssistScannerWindow:
             result["apply_all"] = True
             dlg.destroy()
 
+        def set_default():
+            result["value"] = "DEFAULT"
+            result["apply_all"] = True
+            dlg.destroy()
+
         def choose_loaded_move():
             owner_base = _owning_chr_tbl(addr)
             if owner_base is None:
@@ -2885,11 +2998,14 @@ class AssistScannerWindow:
 
         ttk.Button(btn_frame, text="Preset assist / loaded move", command=choose_loaded_move).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Custom raw U32", command=manual).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Default / original assist", command=lambda: set_default()).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
         self.root.wait_window(dlg)
 
         if result["value"] is None:
             return None
+        if result["value"] == "DEFAULT":
+            return None, True
         return int(result["value"]), bool(result["apply_all"])
 
     def _selector_target_for_display(self, addr: int, raw_val: int) -> str:
@@ -2907,6 +3023,14 @@ class AssistScannerWindow:
         if choice is None:
             return
         raw_val, apply_all = choice
+        if raw_val is None:
+            self._record_slot_profile(h, None, "default")
+            self._update_flat_row_display(h, 0)
+            h["entry"] = "default"
+            h["raw"] = "default"
+            h["target"] = "default"
+            self._status.set(f"Stored default Chun assist profile for this fighter; shared table will restore on assist attack.")
+            return
         payload = struct.pack(">I", raw_val)
 
         writes: dict[int, bytes] = {graft_addr: CHUN_SELECTOR_GRAFT_BLOCK}
@@ -2922,6 +3046,8 @@ class AssistScannerWindow:
         )
         if not ok:
             return
+
+        self._record_slot_profile(h, raw_val, "Chun assist")
 
         block_bytes = bytearray(CHUN_SELECTOR_GRAFT_BLOCK)
         for off in CHUN_SELECTOR_WORD_OFFSETS:
@@ -2940,6 +3066,8 @@ class AssistScannerWindow:
                 continue
             if row.get("kind") != "chun-selector-word":
                 continue
+            if h.get("fighter_base") is not None and row.get("fighter_base") != h.get("fighter_base"):
+                continue
             row_addr = int(row["addr"])
             off = row_addr - graft_addr
             if off not in CHUN_SELECTOR_WORD_OFFSETS:
@@ -2952,7 +3080,7 @@ class AssistScannerWindow:
             row["raw"] = f"0x{display_val:08X}"
             row["target"] = self._selector_target_for_display(row_addr, display_val)
             row["entry"] = _flat_selector_entry_label(_owning_chr_tbl(row_addr), [display_val], _read_slot_char_ids(), "Chun assist")
-            row["guess"] = f"double-click to change Chun assist; table 0x{graft_addr:08X}"
+            row["guess"] = f"double-click to set Chun fighter profile; table 0x{graft_addr:08X}"
             self._tree.set(iid, "entry", row["entry"])
             self._tree.set(iid, "raw", row["raw"])
             self._tree.set(iid, "target", row["target"])
@@ -2962,7 +3090,7 @@ class AssistScannerWindow:
         self._last_chun_selector_test = f"0x{raw_val:08X}" + (" all lanes" if apply_all else f" at 0x{lane_addr:08X}")
         self._status.set(
             f"Chun graft installed at 0x{graft_addr:08X}; wrote 0x{raw_val:08X}"
-            + (" to all lanes." if apply_all else f" to 0x{lane_addr:08X}.")
+            + (" to shared table lanes." if apply_all else f" to 0x{lane_addr:08X}.")
         )
 
 
@@ -3089,6 +3217,11 @@ class AssistScannerWindow:
             result["apply_all"] = True
             dlg.destroy()
 
+        def set_default():
+            result["value"] = "DEFAULT"
+            result["apply_all"] = True
+            dlg.destroy()
+
         def choose_loaded_move():
             owner_base = _owning_chr_tbl(addr)
             if owner_base is None:
@@ -3128,11 +3261,14 @@ class AssistScannerWindow:
 
         ttk.Button(btn_frame, text="Preset assist / loaded move", command=choose_loaded_move).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Custom raw U32", command=manual).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Default / original assist", command=lambda: set_default()).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
         self.root.wait_window(dlg)
 
         if result["value"] is None:
             return None
+        if result["value"] == "DEFAULT":
+            return None, True
         return int(result["value"]), bool(result["apply_all"])
 
     def _apply_ryu_selector_word(self, h: dict) -> None:
@@ -3144,6 +3280,13 @@ class AssistScannerWindow:
         if choice is None:
             return
         raw_val, apply_all = choice
+        if raw_val is None:
+            self._record_slot_profile(h, None, "default")
+            h["entry"] = "default"
+            h["raw"] = "default"
+            h["target"] = "default"
+            self._status.set(f"Stored default Ryu assist profile for this fighter; shared table will restore on assist attack.")
+            return
         payload = struct.pack(">I", raw_val)
 
         writes: dict[int, bytes] = {graft_addr: RYU_SELECTOR_GRAFT_BLOCK}
@@ -3159,6 +3302,8 @@ class AssistScannerWindow:
         )
         if not ok:
             return
+
+        self._record_slot_profile(h, raw_val, "Ryu assist")
 
         block_bytes = bytearray(RYU_SELECTOR_GRAFT_BLOCK)
         for off in RYU_SELECTOR_WORD_OFFSETS:
@@ -3177,6 +3322,8 @@ class AssistScannerWindow:
                 continue
             if row.get("kind") != "ryu-selector-word":
                 continue
+            if h.get("fighter_base") is not None and row.get("fighter_base") != h.get("fighter_base"):
+                continue
             row_addr = int(row["addr"])
             off = row_addr - graft_addr
             if off not in RYU_SELECTOR_WORD_OFFSETS:
@@ -3189,7 +3336,7 @@ class AssistScannerWindow:
             row["raw"] = f"0x{display_val:08X}"
             row["target"] = self._selector_target_for_display(row_addr, display_val)
             row["entry"] = _flat_selector_entry_label(_owning_chr_tbl(row_addr), [display_val], _read_slot_char_ids(), "Ryu assist")
-            row["guess"] = f"double-click to change Ryu assist; table 0x{graft_addr:08X}"
+            row["guess"] = f"double-click to set Ryu fighter profile; table 0x{graft_addr:08X}"
             self._tree.set(iid, "entry", row["entry"])
             self._tree.set(iid, "raw", row["raw"])
             self._tree.set(iid, "target", row["target"])
@@ -3197,7 +3344,7 @@ class AssistScannerWindow:
 
         self._status.set(
             f"Ryu selector table restored at 0x{graft_addr:08X}; wrote 0x{raw_val:08X}"
-            + (" to all lanes." if apply_all else f" to 0x{lane_addr:08X}.")
+            + (" to shared table lanes." if apply_all else f" to 0x{lane_addr:08X}.")
         )
 
 
@@ -3239,6 +3386,11 @@ class AssistScannerWindow:
             result["apply_all"] = bool(apply_all_var.get())
             dlg.destroy()
 
+        def set_default():
+            result["value"] = "DEFAULT"
+            result["apply_all"] = True
+            dlg.destroy()
+
         def choose_loaded_move():
             owner_base = _owning_chr_tbl(addr)
             if owner_base is None:
@@ -3278,11 +3430,14 @@ class AssistScannerWindow:
 
         ttk.Button(btn_frame, text="Preset assist / loaded move", command=choose_loaded_move).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Custom raw U32", command=manual).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Default / original assist", command=lambda: set_default()).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
         self.root.wait_window(dlg)
 
         if result["value"] is None:
             return None
+        if result["value"] == "DEFAULT":
+            return None, True
         return int(result["value"]), bool(result["apply_all"])
 
     def _read_generic_block_for_graft(self, graft_addr: int) -> bytes:
@@ -3339,6 +3494,13 @@ class AssistScannerWindow:
         if choice is None:
             return
         raw_val, apply_all = choice
+        if raw_val is None:
+            self._record_slot_profile(h, None, "default")
+            h["entry"] = "default"
+            h["raw"] = "default"
+            h["target"] = "default"
+            self._status.set(f"Stored default generic assist profile for this fighter; shared table will restore on assist attack if possible.")
+            return
 
         try:
             block = self._generic_block_args_and_words(graft_addr, source, raw_val, apply_all, lane_addr)
@@ -3353,6 +3515,8 @@ class AssistScannerWindow:
         if not ok:
             return
 
+        self._record_slot_profile(h, raw_val, "generic assist")
+
         for iid, row in self._hit_by_iid.items():
             if int(row.get("block", -1)) != graft_addr:
                 continue
@@ -3366,6 +3530,8 @@ class AssistScannerWindow:
                 continue
             if row.get("kind") != "generic-selector-word":
                 continue
+            if h.get("fighter_base") is not None and row.get("fighter_base") != h.get("fighter_base"):
+                continue
             row_addr = int(row["addr"])
             off = row_addr - graft_addr
             if off not in GENERIC_SELECTOR_WORD_OFFSETS:
@@ -3373,7 +3539,7 @@ class AssistScannerWindow:
             display_val = struct.unpack(">I", block[off:off + 4])[0]
             row["raw"] = f"0x{display_val:08X}"
             row["target"] = self._selector_target_for_display(row_addr, display_val)
-            row["guess"] = "double-click: generic selector word; installed/edited"
+            row["guess"] = "double-click to set generic fighter profile"
             row["source"] = "installed"
             self._tree.set(iid, "raw", row["raw"])
             self._tree.set(iid, "target", row["target"])
@@ -3381,7 +3547,7 @@ class AssistScannerWindow:
 
         self._status.set(
             f"Generic selector table installed at 0x{graft_addr:08X}; wrote 0x{raw_val:08X}"
-            + (" to all lanes." if apply_all else f" using lane 0x{lane_addr:08X}.")
+            + (" to shared table lanes." if apply_all else f" using lane 0x{lane_addr:08X}.")
         )
 
 
@@ -3506,6 +3672,8 @@ class AssistScannerWindow:
 
         if result["value"] is None:
             return None
+        if result["value"] == "DEFAULT":
+            return None, True
         return int(result["value"]), bool(result["apply_all"]), str(result["label"])
 
     def _apply_assist_move_preset(self, h: dict) -> None:
@@ -3584,6 +3752,381 @@ class AssistScannerWindow:
         self._status.set(
             f"Applied assist move preset {move_name} ({label}) as 0x{raw_val:08X}."
         )
+
+    def _profile_key_for_row(self, h: dict) -> int | None:
+        fighter_base = int(h.get("fighter_base") or 0)
+        if fighter_base:
+            return fighter_base
+        owner_base = _owning_chr_tbl(int(h.get("addr", h.get("block", 0))))
+        if owner_base is None:
+            owner_base = _owning_chr_tbl(int(h.get("block", 0)))
+        return int(owner_base) if owner_base is not None else None
+
+    def _default_profile_label_for_row(self, h: dict) -> str:
+        return "default"
+
+    def _record_default_slot_profile(self, h: dict) -> None:
+            fighter_base = int(h.get("fighter_base") or 0)
+            owner_base = int(h.get("owner_base") or (_owning_chr_tbl(int(h.get("addr", h.get("block", 0)))) or 0))
+            char_id = int(h.get("char_id") or 0)
+            profile = {
+                "word": None,
+                "label": self._default_profile_label_for_row(h),
+                "row": dict(h),
+                "fighter_base": fighter_base or owner_base,
+                "owner_base": owner_base,
+                "char_id": char_id,
+                "is_default": True,
+            }
+            # Key by fighter_base when available (duplicate-char path), always also
+            # key by owner_base so the runtime snap lookup finds it by either key.
+            keys = set()
+            if fighter_base:
+                keys.add(fighter_base)
+            if owner_base:
+                keys.add(owner_base)
+            for key in keys:
+                if key not in self._slot_assist_profiles:
+                    self._slot_assist_profiles[key] = profile
+
+    def _record_slot_profile(self, h: dict, raw_val: int | None, label: str = "assist") -> None:
+            fighter_base = int(h.get("fighter_base") or 0)
+            owner_base = int(h.get("owner_base") or (_owning_chr_tbl(int(h.get("addr", h.get("block", 0)))) or 0))
+            char_id = int(h.get("char_id") or 0)
+            profile = {
+                "word": None if raw_val is None else (int(raw_val) & 0xFFFFFFFF),
+                "label": str(label or "assist"),
+                "row": dict(h),
+                "fighter_base": fighter_base or owner_base,
+                "owner_base": owner_base,
+                "char_id": char_id,
+                "is_default": raw_val is None,
+            }
+            # Key by fighter_base (duplicate-char) and owner_base. An explicit set
+            # always overwrites both keys so the runtime snap lookup is always fresh.
+            keys = set()
+            if fighter_base:
+                keys.add(fighter_base)
+            if owner_base:
+                keys.add(owner_base)
+            for key in keys:
+                self._slot_assist_profiles[key] = profile
+
+    def _write_many_silent(self, writes: dict[int, bytes]) -> bool:
+        if wbytes is None:
+            return False
+        for addr, payload in writes.items():
+            try:
+                if not bool(wbytes(addr, payload)):
+                    return False
+            except Exception:
+                return False
+        return True
+
+    def _selector_writes_for_row(self, row: dict, raw_val: int | None) -> dict[int, bytes]:
+        graft_addr = int(row["block"])
+        lane_addr = int(row.get("addr", graft_addr))
+        typ = str(row.get("typ", ""))
+
+        # Default is an explicit profile. This is what lets duplicate characters
+        # switch back from the other duplicate's custom route.
+        if raw_val is None:
+            if typ == "u32-chun-selector":
+                # Chun default should be the real/original assist block, not the
+                # last forced all-lanes graft. Custom profiles reinstall graft.
+                return {graft_addr: CHUN_SELECTOR_ORIGINAL_BLOCK}
+            if typ == "u32-ryu-selector-graft":
+                return {graft_addr: RYU_SELECTOR_GRAFT_BLOCK}
+            if typ == "u32-generic-selector":
+                raw_hex = str(row.get("table_raw", "")).replace(" ", "")
+                try:
+                    block = bytes.fromhex(raw_hex)
+                except Exception:
+                    block = b""
+                if len(block) == GENERIC_SELECTOR_TABLE_LEN:
+                    return {graft_addr: block}
+                return {}
+            return {}
+
+        payload = struct.pack(">I", int(raw_val) & 0xFFFFFFFF)
+
+        if typ == "u32-chun-selector":
+            writes: dict[int, bytes] = {graft_addr: CHUN_SELECTOR_GRAFT_BLOCK}
+            for off in CHUN_SELECTOR_WORD_OFFSETS:
+                writes[graft_addr + off] = payload
+            return writes
+
+        if typ == "u32-ryu-selector-graft":
+            writes = {graft_addr: RYU_SELECTOR_GRAFT_BLOCK}
+            for off in RYU_SELECTOR_WORD_OFFSETS:
+                writes[graft_addr + off] = payload
+            return writes
+
+        if typ == "u32-generic-selector":
+            source = str(row.get("source", "unknown"))
+            block = self._generic_block_args_and_words(graft_addr, source, int(raw_val), True, lane_addr)
+            return {graft_addr: block}
+
+        return {}
+
+    def _update_flat_row_display(self, row: dict, raw_val: int) -> None:
+        owner_base = _owning_chr_tbl(int(row.get("addr", row.get("block", 0))))
+        slot_char_ids = _read_slot_char_ids()
+        raw_val = int(raw_val) & 0xFFFFFFFF
+        row["raw"] = f"0x{raw_val:08X}"
+        row["target"] = self._selector_target_for_display(int(row.get("addr", 0)), raw_val)
+        row["entry"] = _flat_selector_entry_label(owner_base, [raw_val], slot_char_ids, "assist")
+        row["guess"] = f"double-click to change this fighter profile; table 0x{int(row.get('block', 0)):08X}"
+
+    def _refresh_display_for_block(self, graft_addr: int, raw_val: int) -> None:
+        for iid, row in self._hit_by_iid.items():
+            if int(row.get("block", -1)) != int(graft_addr):
+                continue
+            if row.get("typ") not in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector"):
+                continue
+            self._update_flat_row_display(row, raw_val)
+            self._tree.set(iid, "entry", row["entry"])
+            self._tree.set(iid, "raw", row["raw"])
+            self._tree.set(iid, "target", row["target"])
+            self._tree.set(iid, "guess", row["guess"])
+
+    def _read_fighter_move_values_at(self, offset: int, width: int) -> dict[int, int]:
+        vals: dict[int, int] = {}
+        if rbytes is None:
+            return vals
+        for fighter_base in _FIGHTER_BASES:
+            try:
+                b = rbytes(fighter_base + offset, width)
+                if not b or len(b) != width:
+                    continue
+                vals[fighter_base] = int.from_bytes(b, "big", signed=False)
+            except Exception:
+                continue
+        return vals
+
+    def _discover_runtime_move_offset(self) -> tuple[int, int] | None:
+        """Best-effort discovery for the fighter current-action field.
+
+        This intentionally learns from live assist-ish values. If no assist is
+        happening yet, it may return None and the next tick will retry.
+        """
+        if rbytes is None:
+            return None
+        blobs: dict[int, bytes] = {}
+        for fighter_base in _FIGHTER_BASES:
+            try:
+                b = rbytes(fighter_base, FIGHTER_MOVE_SCAN_SIZE)
+                if b and len(b) == FIGHTER_MOVE_SCAN_SIZE:
+                    blobs[fighter_base] = b
+            except Exception:
+                pass
+        if len(blobs) < 2:
+            return None
+
+        best: tuple[int, int, int] | None = None  # score, offset, width
+        for width in (2, 4):
+            step = 2 if width == 2 else 4
+            limit = FIGHTER_MOVE_SCAN_SIZE - width
+            for off in range(0, limit, step):
+                vals = []
+                ok = True
+                for fighter_base, blob in blobs.items():
+                    v = int.from_bytes(blob[off:off + width], "big", signed=False)
+                    if v > 0x700 and v != 0xFFFFFFFF:
+                        ok = False
+                        break
+                    vals.append(v)
+                if not ok:
+                    continue
+                score = 0
+                for v in vals:
+                    score += ASSIST_RUNTIME_STATE_PRIORITY.get(v, 0)
+                    if v == 1:
+                        score += 1
+                if score <= 0:
+                    continue
+                # Prefer real assist attack, then standby/taunt, then lower offsets.
+                if any(v in ASSIST_RUNTIME_ATTACK_STATES for v in vals):
+                    score += 500
+                if any(v in ASSIST_RUNTIME_PREFETCH_STATES for v in vals):
+                    score += 100
+                score -= off // 0x100
+                cand = (score, off, width)
+                if best is None or cand[0] > best[0]:
+                    best = cand
+        if best is None:
+            return None
+        _score, off, width = best
+        return (off, width)
+
+    def _active_profile_from_runtime_state(self) -> tuple[int, dict[str, object], int] | None:
+        if not self._slot_assist_profiles:
+            return None
+
+        if self._runtime_move_offset is None:
+            self._runtime_move_offset = self._discover_runtime_move_offset()
+        if self._runtime_move_offset is None:
+            return None
+
+        off, width = self._runtime_move_offset
+        vals = self._read_fighter_move_values_at(off, width)
+        candidates: list[tuple[int, int, dict[str, object], int]] = []
+        for fighter_base, profile in self._slot_assist_profiles.items():
+            state = vals.get(int(fighter_base))
+            if state is None:
+                continue
+            pri = ASSIST_RUNTIME_STATE_PRIORITY.get(int(state), 0)
+            if pri <= 0:
+                continue
+            candidates.append((pri, int(fighter_base), profile, int(state)))
+
+        if not candidates:
+            # Offset may have been guessed during a transient false positive. Retry discovery.
+            self._runtime_move_offset = None
+            return None
+
+        candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        pri, fighter_base, profile, state = candidates[0]
+
+        # Do not switch on ambiguous standby between duplicate same-character profiles.
+        if state not in ASSIST_RUNTIME_ATTACK_STATES:
+            same_pri = [c for c in candidates if c[0] == pri and int(c[2].get("char_id", 0)) == int(profile.get("char_id", 0))]
+            if len(same_pri) > 1:
+                return None
+
+        return fighter_base, profile, state
+
+    def _apply_profile_silent(self, profile: dict[str, object]) -> bool:
+        raw_obj = profile.get("word", None)
+        raw_val = None if raw_obj is None else (int(raw_obj) & 0xFFFFFFFF)
+        row = dict(profile.get("row", {}) or {})
+        if not row:
+            return False
+        writes = self._selector_writes_for_row(row, raw_val)
+        return bool(writes and self._write_many_silent(writes))
+
+    def _snap_assist_state_id(self, snap: dict) -> int | None:
+        """Return the current HUD-resolved move/state id for one fighter."""
+        if not snap:
+            return None
+        mv = snap.get("mv_id_display")
+        if mv is None:
+            mv = snap.get("attA") or snap.get("attB")
+        try:
+            return int(mv)
+        except Exception:
+            return None
+
+    def _snap_is_assist_attack(self, snap: dict) -> bool:
+        """Return True when main.py says this fighter is being called as assist.
+
+        Main already resolves attA/attB into mv_id_display and mv_label. Treat
+        the whole assist-attack family as a trigger, not just literal 426.
+        """
+        if not snap:
+            return False
+        mv = self._snap_assist_state_id(snap)
+        if mv in ASSIST_RUNTIME_ATTACK_STATES:
+            return True
+        label = str(snap.get("mv_label") or "").strip().lower()
+        return label == "assist attack" or "assist attack" in label
+
+    def _set_runtime_status_from_main(self, text: str) -> None:
+        try:
+            if self.root and self.root.winfo_exists():
+                self.root.after(0, lambda msg=text: self._status.set(msg))
+        except Exception:
+            pass
+
+    def _runtime_patch_from_main(self, snaps: dict) -> None:
+            if not self._auto_reapply_enabled:
+                return
+            if not self._slot_assist_profiles:
+                return
+            if not isinstance(snaps, dict):
+                return
+
+            ordered_keys = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
+            ordered_keys.extend(k for k in snaps.keys() if k not in ordered_keys)
+
+            for slot_label in ordered_keys:
+                snap = snaps.get(slot_label)
+                if not snap:
+                    continue
+                try:
+                    fighter_base = int(snap.get("base") or 0)
+                except Exception:
+                    fighter_base = 0
+                if not fighter_base:
+                    continue
+
+                is_attack = self._snap_is_assist_attack(snap)
+                state = self._snap_assist_state_id(snap)
+                was_attack = bool(self._main_last_assist_attack_by_base.get(fighter_base, False))
+                self._main_last_assist_attack_by_base[fighter_base] = bool(is_attack)
+
+                # Only act on the rising edge: first frame entering assist attack.
+                # Holding assist attack must not re-write; that would clobber the
+                # other duplicate's profile the moment it fires its own assist.
+                if not is_attack or was_attack:
+                    continue
+
+                profile = self._slot_assist_profiles.get(fighter_base)
+                if profile is None:
+                    # Non-duplicate path: profile keyed on owner_base (CHR_TBL slot index).
+                    fi = next((i for i, b in enumerate(_FIGHTER_BASES) if b == fighter_base), None)
+                    if fi is not None and fi < len(_CHR_TBL_BASES):
+                        profile = self._slot_assist_profiles.get(_CHR_TBL_BASES[fi])
+                if not profile:
+                    msg_key = (fighter_base, int(state or -1))
+                    if self._main_last_patch_key != msg_key:
+                        self._main_last_patch_key = msg_key
+                        self._set_runtime_status_from_main(
+                            f"Auto Assist Trigger ON - {slot_label} assist attack edge, no profile for 0x{fighter_base:08X}."
+                        )
+                    continue
+
+                raw_obj = profile.get("word", None)
+                raw_val = None if raw_obj is None else (int(raw_obj) & 0xFFFFFFFF)
+
+                if self._apply_profile_silent(profile):
+                    patch_key = (fighter_base, -1 if raw_val is None else raw_val)
+                    if self._main_last_patch_key != patch_key:
+                        self._main_last_patch_key = patch_key
+                        row = dict(profile.get("row", {}) or {})
+                        fighter_label = row.get("fighter_label") or slot_label
+                        label = str(profile.get("label", "assist"))
+                        word_txt = "default" if raw_val is None else f"0x{raw_val:08X}"
+                        self._set_runtime_status_from_main(
+                            f"Auto Assist Trigger ON - {fighter_label} assist attack edge; wrote {label} {word_txt}."
+                        )
+                else:
+                    self._set_runtime_status_from_main(
+                        f"Auto Assist Trigger ON - {slot_label} assist attack edge, write failed."
+                    )
+
+    def _toggle_auto_reapply(self) -> None:
+        self._auto_reapply_enabled = not bool(self._auto_reapply_enabled)
+        if self._auto_btn is not None:
+            self._auto_btn.config(text="Auto Assist Trigger: ON" if self._auto_reapply_enabled else "Auto Assist Trigger: OFF")
+        if self._auto_reapply_enabled:
+            self._runtime_move_offset = None
+            self._runtime_last_profile_key = None
+            self._main_last_patch_key = None
+            self._main_last_assist_attack_by_base.clear()
+            self._main_patch_latch_by_base.clear()
+            self._status.set("Auto Assist Trigger ON - main.py only; patches the shared table when a configured fighter enters assist attack.")
+        else:
+            self._status.set("Auto Assist Trigger OFF")
+
+    def _auto_reapply_tick(self) -> None:
+        """Deprecated old background guesser.
+
+        Kept as a no-op so older button/timer paths cannot overwrite the shared
+        table with the last selected profile. Runtime switching now comes only
+        from tick_assist_profiles_from_main(snaps).
+        """
+        return
 
     def _on_double_click(self, event):
         iid = self._tree.identify_row(event.y)
@@ -3723,6 +4266,20 @@ class AssistScannerWindow:
 
 
 _inst = None
+
+
+def tick_assist_profiles_from_main(snaps: dict) -> None:
+    """Called once per HUD frame from main.py after snapshots are built."""
+    inst = _inst
+    if inst is None:
+        return
+    try:
+        inst._runtime_patch_from_main(snaps)
+    except Exception as e:
+        try:
+            print(f"[assist scanner] runtime patch failed: {e!r}")
+        except Exception:
+            pass
 
 
 def open_assist_scanner_window():

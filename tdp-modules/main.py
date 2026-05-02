@@ -85,7 +85,12 @@ except Exception:
 
 from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
-from assist_scanner_window import open_assist_scanner_window
+try:
+    from assist_scanner_window import open_assist_scanner_window, tick_assist_profiles_from_main
+except Exception:
+    from assist_scanner_window import open_assist_scanner_window
+    def tick_assist_profiles_from_main(_snaps):
+        return None
 
 from mission_manager import MissionManager
 from hud_overlay_manager import HudOverlayManager
@@ -618,6 +623,16 @@ def legacy_main():
         p1_giant_solo, p2_giant_solo = compute_team_giant_solo(snaps)
         if p1_giant_solo or p2_giant_solo:
             snaps = reassign_slots_for_giants(snaps)
+
+        # Assist selector runtime hook. The assist scanner stores per-fighter
+        # desired assists; main.py owns the reliable current move label/id, so
+        # when a fighter enters assist attack (426), patch that fighter profile
+        # into the shared character selector table immediately.
+        try:
+            tick_assist_profiles_from_main(snaps)
+        except Exception as e:
+            if frame_idx % 60 == 0:
+                print(f"[assist scanner] main trigger failed: {e!r}")
 
         # Mission manager tick
         mission_mgr.update(snaps, render_snap_by_slot, frame_idx, now)
