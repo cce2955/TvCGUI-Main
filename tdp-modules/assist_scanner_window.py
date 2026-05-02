@@ -263,7 +263,7 @@ def _is_filtered_assist_preset_name(name: str | None) -> bool:
         return False
     normalized = "".join(ch if ch.isalnum() else " " for ch in s)
     tokens = set(normalized.split())
-    return bool(tokens.intersection({"idle", "landing"}))
+    return bool(tokens.intersection({"idle", "landing", "filler?", "air dash"}))
 
 
 def _is_named_preset_name(name: str | None) -> bool:
