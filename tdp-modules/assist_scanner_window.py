@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import os
 import struct
 import threading
 import tkinter as tk
@@ -203,6 +205,244 @@ MOVE_PRESET_NORMAL_LABELS = {
     0x0E: "6B",
 }
 MOVE_PRESET_NORMAL_IDS = set(MOVE_PRESET_NORMAL_LABELS.keys())
+
+# Optional assist preset name map.
+#
+# Do not embed/manual-define the preset names here. The assist picker reads
+# move_id_map_charagnostic.csv at runtime and uses its table/index number as
+# the preset key. Put the CSV beside this scanner/module, in the current
+# working directory, or in ./assets or ./data.
+ASSIST_PRESET_NAME_FILE = "move_id_map_charagnostic.csv"
+ASSIST_PRESET_NAME_FILE_CANDIDATES = (
+    ASSIST_PRESET_NAME_FILE,
+    os.path.join("assets", ASSIST_PRESET_NAME_FILE),
+    os.path.join("data", ASSIST_PRESET_NAME_FILE),
+)
+
+_ASSIST_PRESET_NAME_CACHE: dict[tuple[int, int], tuple[int, str]] | None = None
+
+
+def _parse_int_loose(text: str) -> int | None:
+    s = (text or "").strip().lower()
+    if not s:
+        return None
+    try:
+        return int(s, 0)
+    except Exception:
+        try:
+            return int(s, 16)
+        except Exception:
+            return None
+
+
+def _clean_preset_name(name: str | None) -> str:
+    s = str(name or "").strip()
+    while "  " in s:
+        s = s.replace("  ", " ")
+    return s
+
+
+def _is_named_preset_name(name: str | None) -> bool:
+    s = _clean_preset_name(name)
+    if not s:
+        return False
+    low = s.lower()
+    if low in ("?", "unknown", "none", "move_????", "anim_--"):
+        return False
+    if low.startswith("anim_"):
+        return False
+    if low.startswith("move 0x"):
+        return False
+    if " / anim 0x" in low:
+        return False
+    return True
+
+
+def _norm_csv_key(key: str | None) -> str:
+    return "".join(ch for ch in str(key or "").strip().lower() if ch.isalnum())
+
+
+def _dict_pick(row: dict[str, str], names: tuple[str, ...]) -> str | None:
+    wanted = {_norm_csv_key(n) for n in names}
+    for key, value in row.items():
+        if _norm_csv_key(key) in wanted:
+            return value
+    return None
+
+
+def _candidate_assist_csv_paths() -> list[str]:
+    search_dirs: list[str] = []
+    try:
+        search_dirs.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+    try:
+        search_dirs.append(os.getcwd())
+    except Exception:
+        pass
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for folder in search_dirs:
+        if not folder:
+            continue
+        for filename in ASSIST_PRESET_NAME_FILE_CANDIDATES:
+            path = filename if os.path.isabs(filename) else os.path.join(folder, filename)
+            norm = os.path.normcase(os.path.abspath(path))
+            if norm in seen:
+                continue
+            seen.add(norm)
+            out.append(path)
+    return out
+
+
+def _parse_assist_csv_dict_row(row: dict[str, str]) -> tuple[int, int, int, str] | None:
+    table_text = _dict_pick(row, (
+        "table_index", "table", "entry", "index", "number", "num", "action", "action_id",
+        "input", "input_id", "input_number", "move_index", "move_number",
+    ))
+    anim_text = _dict_pick(row, (
+        "anim_id", "animation_id", "anim", "animation", "state_id", "state", "aid",
+    ))
+    name_text = _dict_pick(row, (
+        "name", "move", "move_name", "label", "display", "display_name", "description",
+    ))
+    char_text = _dict_pick(row, (
+        "char_id", "character_id", "cid", "character", "character_num", "character_number",
+    ))
+
+    table_index = _parse_int_loose(table_text or "")
+    anim_id = _parse_int_loose(anim_text or "")
+    char_id = _parse_int_loose(char_text or "")
+    name = _clean_preset_name(name_text)
+    if table_index is None or anim_id is None or char_id is None or not name:
+        return None
+    return int(char_id), int(table_index), int(anim_id), name
+
+
+def _parse_assist_csv_list_row(parts: list[str]) -> tuple[int, int, int, str] | None:
+    # Current move_id_map_charagnostic.csv layout used by the project:
+    #   table/index number, anim/state id, name, ..., ..., ..., char_id
+    # Keep a couple of fallbacks so older local copies still work.
+    layouts = (
+        (0, 1, 2, 6),  # table, anim, name, char_id
+        (0, 1, 2, 3),  # table, anim, name, char_id
+        (1, 2, 3, 0),  # char_id, table, anim, name
+    )
+    for table_i, anim_i, name_i, char_i in layouts:
+        if max(table_i, anim_i, name_i, char_i) >= len(parts):
+            continue
+        table_index = _parse_int_loose(parts[table_i])
+        anim_id = _parse_int_loose(parts[anim_i])
+        char_id = _parse_int_loose(parts[char_i])
+        name = _clean_preset_name(parts[name_i])
+        if table_index is None or anim_id is None or char_id is None or not name:
+            continue
+        return int(char_id), int(table_index), int(anim_id), name
+    return None
+
+
+def _load_assist_preset_name_map() -> dict[tuple[int, int], tuple[int, str]]:
+    global _ASSIST_PRESET_NAME_CACHE
+    if _ASSIST_PRESET_NAME_CACHE is not None:
+        return _ASSIST_PRESET_NAME_CACHE
+
+    out: dict[tuple[int, int], tuple[int, str]] = {}
+
+    for path in _candidate_assist_csv_paths():
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8-sig", errors="ignore", newline="") as f:
+                sample = f.read(4096)
+                f.seek(0)
+                try:
+                    dialect = csv.Sniffer().sniff(sample) if sample else csv.excel
+                except Exception:
+                    dialect = csv.excel
+
+                reader = csv.reader(f, dialect)
+                rows = [row for row in reader if row and any(str(cell).strip() for cell in row)]
+        except Exception:
+            continue
+
+        if not rows:
+            continue
+
+        header = rows[0]
+        header_norm = {_norm_csv_key(c) for c in header}
+        has_header = bool(header_norm & {
+            "tableindex", "table", "entry", "number", "animid", "animationid",
+            "name", "movename", "charid", "characterid", "cid",
+        })
+
+        if has_header:
+            for parts in rows[1:]:
+                row = {header[i]: parts[i] if i < len(parts) else "" for i in range(len(header))}
+                parsed = _parse_assist_csv_dict_row(row)
+                if parsed is None:
+                    parsed = _parse_assist_csv_list_row(parts)
+                if parsed is None:
+                    continue
+                char_id, table_index, anim_id, name = parsed
+                out[(char_id, table_index)] = (anim_id, name)
+        else:
+            for parts in rows:
+                parsed = _parse_assist_csv_list_row(parts)
+                if parsed is None:
+                    continue
+                char_id, table_index, anim_id, name = parsed
+                out[(char_id, table_index)] = (anim_id, name)
+
+    _ASSIST_PRESET_NAME_CACHE = out
+    return out
+
+
+def _assist_csv_name(char_id: int | None, table_index: int, aid: int | None = None) -> str | None:
+    names = _load_assist_preset_name_map()
+    keys: list[tuple[int, int]] = []
+    if char_id is not None:
+        keys.append((int(char_id), int(table_index)))
+    # Universal normals/fallback rows use char id 100 in the CSV.
+    keys.append((100, int(table_index)))
+    if aid is not None:
+        if char_id is not None:
+            keys.append((int(char_id), int(aid)))
+        keys.append((100, int(aid)))
+
+    for key in keys:
+        row = names.get(key)
+        if not row:
+            continue
+        _anim, name = row
+        name = _clean_preset_name(name)
+        if name:
+            return name
+    return None
+
+
+def _lookup_move_name_safe(char_id: int | None, char_name: str | None, value: int | None) -> str | None:
+    if value is None:
+        return None
+    tries: list[tuple] = []
+    if char_name:
+        tries.append((char_name, int(value)))
+    if char_id is not None:
+        tries.append((int(value), int(char_id)))
+        tries.append((int(char_id), int(value)))
+    tries.append((int(value),))
+
+    for args in tries:
+        try:
+            s = _lookup_move_name(*args)
+        except TypeError:
+            continue
+        except Exception:
+            continue
+        s = _clean_preset_name(s)
+        if s:
+            return s
+    return None
 
 SELECTOR_TAIL = b"\x37\x32\x20\x3F"
 SELECTOR_COMPANION_TAIL = b"\x37\x33\x20\x3F"
@@ -961,12 +1201,12 @@ def _move_preset_anim_id_after_hdr(data: bytes, off: int) -> int | None:
     return None
 
 
-def _move_preset_name(aid: int | None) -> str:
+def _move_preset_name(aid: int | None, char_id: int | None = None, char_name: str | None = None) -> str:
     if aid is None:
         return "move_????"
-    name = _lookup_move_name(aid)
+    name = _lookup_move_name_safe(char_id, char_name, aid)
     if name:
-        return str(name)
+        return name
     low = aid & 0xFF
     if low in MOVE_PRESET_NORMAL_LABELS:
         return MOVE_PRESET_NORMAL_LABELS[low]
@@ -977,17 +1217,20 @@ def _append_assist_move_preset_row(base: int, move_abs: int, aid: int | None,
                                    source: str, slot_char_ids: dict[int, int],
                                    data: bytes, hits: list[dict]) -> None:
     cid = slot_char_ids.get(base)
+    char_name = CHAR_ID_TO_KEY.get(cid, "") if cid is not None else ""
     owner = _owner_name(move_abs, slot_char_ids)
     slot = _slot_cid(move_abs, slot_char_ids)
     word = move_abs - base
     if word <= 0 or word > 0x100000:
         return
-    name = _move_preset_name(aid)
+    name, name_source, is_named = _resolve_move_preset_entry_name(aid or 0, aid, cid, char_name)
     low = (aid & 0xFF) if aid is not None else None
     is_normal = aid is not None and aid >= 0x0100 and low in MOVE_PRESET_NORMAL_IDS
     kind_label = "normal" if is_normal else "move"
     local = move_abs - base
     score = 88 if kind_label == "normal" else 72
+    if is_named:
+        score += 10
     if cid in (12, 13):
         score += 8
     raw = f"0x{word:08X}"
@@ -997,7 +1240,7 @@ def _append_assist_move_preset_row(base: int, move_abs: int, aid: int | None,
         "addr": move_abs,
         "owner": owner,
         "slot": slot,
-        "entry": f"{kind_label} {name}",
+        "entry": name,
         "raw": raw,
         "target": f"0x{move_abs:08X}",
         "guess": f"double-click: point graft lanes to {name}; base word from {source}",
@@ -1008,73 +1251,93 @@ def _append_assist_move_preset_row(base: int, move_abs: int, aid: int | None,
         "selector_word": word,
         "move_abs": move_abs,
         "move_id": aid if aid is not None else 0,
+        "table_index": aid if aid is not None else 0,
         "move_name": name,
+        "move_named": is_named,
+        "name_source": name_source,
         "owner_base": base,
         "char_id": cid if cid is not None else 0,
         "source": source,
     })
 
 
-def _move_preset_entry_name(table_index: int, aid: int | None) -> str:
-    """Best-effort display name for a chr_tbl entry.
-
-    The normal scanner can often recover an animation/state id from the move
-    body, but not every chr_tbl entry has that header close enough to the
-    anchor. For selector presets we still want the row, because the selector
-    word is just the chr_tbl entry value. So fall back to the chr_tbl index.
-    """
-    if aid is not None:
-        name = _move_preset_name(aid)
-        if name and not name.startswith("anim_"):
-            return name
+def _resolve_move_preset_entry_name(table_index: int, aid: int | None,
+                                    char_id: int | None = None,
+                                    char_name: str | None = None) -> tuple[str, str, bool]:
+    """Return display name, source, and whether it is a real named preset."""
+    csv_name = _assist_csv_name(char_id, table_index, aid)
+    if csv_name:
+        return csv_name, "csv", True
 
     # Global universal normals are table-indexed as 0x100 + normal id.
     if 0x100 <= table_index <= 0x10F:
         low = table_index & 0xFF
         if low in MOVE_PRESET_NORMAL_LABELS:
-            return MOVE_PRESET_NORMAL_LABELS[low]
+            return MOVE_PRESET_NORMAL_LABELS[low], "normal", True
 
-    # Try the project's move map both ways. Some maps are keyed by anim/state id,
-    # others by table/action id.
-    try:
-        name = _lookup_move_name(table_index)
-        if name:
-            return str(name)
-    except Exception:
-        pass
+    # Try the project move map with character context. This matches how the
+    # frame-data window resolves pretty names through move_id_map/fd_utils.
+    mapped = _lookup_move_name_safe(char_id, char_name, table_index)
+    if mapped and _is_named_preset_name(mapped):
+        return mapped, "move_id_map", True
 
     if aid is not None:
-        return f"move 0x{table_index:03X} / anim 0x{aid:04X}"
-    return f"move 0x{table_index:03X}"
+        mapped = _lookup_move_name_safe(char_id, char_name, aid)
+        if mapped and _is_named_preset_name(mapped):
+            return mapped, "move_id_map", True
+
+        aid_name = _move_preset_name(aid, char_id, char_name)
+        if _is_named_preset_name(aid_name):
+            return aid_name, "anim", True
+        return f"move 0x{table_index:03X} / anim 0x{aid:04X}", "fallback", False
+
+    return f"move 0x{table_index:03X}", "fallback", False
 
 
-def _is_preset_worthy_table_index(table_index: int, aid: int | None) -> bool:
+def _move_preset_entry_name(table_index: int, aid: int | None,
+                            char_id: int | None = None,
+                            char_name: str | None = None) -> str:
+    return _resolve_move_preset_entry_name(table_index, aid, char_id, char_name)[0]
+
+
+def _is_preset_worthy_table_index(table_index: int, aid: int | None, char_id: int | None = None) -> bool:
     """Keep attack/move rows, not idle/block/KO/system action spam."""
-    # Normals and air normals.
-    if 0x100 <= table_index <= 0x10F:
+    # Filter out the noisy 369-400 band from assist presets entirely.
+    if 369 <= table_index <= 400:
+        return False
+
+    char_name = CHAR_ID_TO_KEY.get(char_id, "") if char_id is not None else ""
+    _name, _source, is_named = _resolve_move_preset_entry_name(table_index, aid, char_id, char_name)
+    if is_named:
         return True
 
-    # Common character move / special / super / throw / follow-up regions.
+    # User-facing assist preset bands. Keep unnamed rows too, but the picker
+    # pushes unnamed rows to the bottom instead of the priority sections.
+    if 304 <= table_index <= 368:
+        return True
+    if 510 <= table_index <= 520:
+        return True
+    if 256 <= table_index <= 270:
+        return True
+
+    # Keep the broader known move-ish table ranges after the priority bands so
+    # oddball character entries still show in the picker, but below named rows.
+    if 0x100 <= table_index <= 0x10F:
+        return True
     if 0x130 <= table_index <= 0x18F:
         return True
     if 0x200 <= table_index <= 0x230:
         return True
 
-    # Some characters store extra move-ish entries in these late ranges, but do
-    # not include the global assist/tag/system cluster unless the recovered anim
-    # id makes it look like a real character move.
     if 0x1C0 <= table_index <= 0x1FF:
         return aid is not None and aid >= 0x0100
 
-    # If the table index is odd, but the recovered anim id is a normal/special,
-    # keep it as a fallback. This catches character-specific weirdness without
-    # bringing back idle/block/KO spam.
     if aid is not None and aid >= 0x0100:
         low = aid & 0xFF
         if low in MOVE_PRESET_NORMAL_IDS:
             return True
-        name = _move_preset_name(aid)
-        if name and not name.startswith("anim_"):
+        name = _move_preset_name(aid, char_id, char_name)
+        if _is_named_preset_name(name):
             return True
 
     return False
@@ -1116,7 +1379,7 @@ def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -
                 continue
 
             aid = _move_preset_anim_id_after_hdr(data, entry)
-            if not _is_preset_worthy_table_index(table_index, aid):
+            if not _is_preset_worthy_table_index(table_index, aid, cid):
                 continue
 
             move_abs = chr_tbl_base + entry
@@ -1125,13 +1388,16 @@ def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -
                 continue
             seen.add(key)
 
-            name = _move_preset_entry_name(table_index, aid)
+            char_name = CHAR_ID_TO_KEY.get(cid, "") if cid is not None else ""
+            name, name_source, is_named = _resolve_move_preset_entry_name(table_index, aid, cid, char_name)
             low = table_index & 0xFF
             is_normal = 0x100 <= table_index <= 0x10F and low in MOVE_PRESET_NORMAL_IDS
             kind_label = "normal" if is_normal else "move"
             owner = _owner_name(move_abs, slot_char_ids)
             slot = _slot_cid(move_abs, slot_char_ids)
             score = 95 if is_normal else 80
+            if is_named:
+                score += 10
             if cid in (12, 13):
                 score += 5
 
@@ -1141,7 +1407,7 @@ def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -
                 "addr": move_abs,
                 "owner": owner,
                 "slot": slot,
-                "entry": f"{kind_label} {name}",
+                "entry": name,
                 "raw": f"0x{entry:08X}",
                 "target": f"0x{move_abs:08X}",
                 "guess": f"point graft lanes to {name}; chr_tbl[{table_index}] @ 0x{chr_tbl_base:08X}",
@@ -1154,12 +1420,14 @@ def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -
                 "move_id": aid if aid is not None else table_index,
                 "table_index": table_index,
                 "move_name": name,
+                "move_named": is_named,
+                "name_source": name_source,
                 # owner_base is the broad slot window used by graft lanes.
                 # chr_tbl_base is the real selector base used by the VM.
                 "owner_base": owner_base,
                 "chr_tbl_base": chr_tbl_base,
                 "char_id": cid if cid is not None else 0,
-                "source": "chr_tbl",
+                "source": f"chr_tbl+{name_source}",
             })
 
 def _append_state_wrapper(data: bytes, base_addr: int, idx: int, slot_char_ids: dict[int, int],
@@ -1518,7 +1786,7 @@ class AssistScannerWindow:
             top,
             text=(
                 "Finds confirmed Chun/Ryu tables plus experimental generic selector candidates. "
-                "Double-click a selector lane to point the graft at a loaded move/normal preset or manual word."
+                "Double-click a selector lane, then choose Preset assist or Custom raw U32."
             ),
         ).pack(side="left")
         self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
@@ -2122,21 +2390,26 @@ class AssistScannerWindow:
             return []
 
         rows = [h for h in temp_hits if int(h.get("owner_base", 0)) == int(owner_base)]
-        normal_order = {
-            0x00: 0, 0x01: 1, 0x02: 2,
-            0x03: 3, 0x04: 4, 0x05: 5,
-            0x06: 6, 0x08: 7,
-            0x09: 8, 0x0A: 9, 0x0B: 10,
-            0x0E: 11,
-        }
+
+        def band_priority(table_index: int, named: bool) -> int:
+            # Named rows keep the requested assist order. Unnamed rows go to
+            # the bottom, even if their table index is inside a priority band.
+            if not named:
+                return 4
+            if 304 <= table_index <= 368:
+                return 0
+            if 510 <= table_index <= 520:
+                return 1
+            if 256 <= table_index <= 270:
+                return 2
+            return 3
 
         def row_key(row: dict) -> tuple:
-            aid = int(row.get("move_id", 0))
-            low = aid & 0xFF
-            is_normal = aid >= 0x0100 and low in MOVE_PRESET_NORMAL_IDS
+            table_index = int(row.get("table_index", 0))
             name = str(row.get("move_name", ""))
             word = int(row.get("selector_word", 0))
-            return (0 if is_normal else 1, normal_order.get(low, 999), name.lower(), aid, word)
+            named = bool(row.get("move_named")) and _is_named_preset_name(name)
+            return (band_priority(table_index, named), table_index, name.lower(), word)
 
         return sorted(rows, key=row_key)
 
@@ -2163,7 +2436,7 @@ class AssistScannerWindow:
             top,
             text=(
                 f"Slot base: 0x{owner_base:08X}\n"
-                "Pick a loaded move/normal. The selector word is move_address - chr_tbl_base."
+                "Pick a loaded move/normal. Named presets are ordered: 304-368, then 510-520, then 256-270, then named leftovers. Entries 369-400 are filtered out. Unnamed entries are at the bottom."
             ),
             justify="left",
         ).pack(anchor="w")
@@ -2187,14 +2460,16 @@ class AssistScannerWindow:
 
         frame = ttk.Frame(dlg)
         frame.pack(fill="both", expand=True, padx=10, pady=(0, 8))
-        cols = ("name", "id", "word", "addr", "source")
+        cols = ("name", "table", "id", "word", "addr", "source")
         tree = ttk.Treeview(frame, columns=cols, show="headings", height=16)
         tree.heading("name", text="Move")
+        tree.heading("table", text="Table")
         tree.heading("id", text="AnimID")
         tree.heading("word", text="Base Word")
         tree.heading("addr", text="Move Address")
         tree.heading("source", text="Source")
-        tree.column("name", width=230, anchor="w")
+        tree.column("name", width=250, anchor="w")
+        tree.column("table", width=70, anchor="center")
         tree.column("id", width=80, anchor="center")
         tree.column("word", width=105, anchor="center")
         tree.column("addr", width=115, anchor="center")
@@ -2215,20 +2490,22 @@ class AssistScannerWindow:
             row_by_iid.clear()
             for row in rows:
                 name = str(row.get("move_name", "move"))
-                entry = str(row.get("entry", name))
                 aid = int(row.get("move_id", 0))
                 word = int(row.get("selector_word", 0))
                 move_abs = int(row.get("move_abs", row.get("addr", 0)))
                 source = str(row.get("source", ""))
                 table_index = int(row.get("table_index", 0))
-                hay = f"{name} {entry} {aid:04X} {table_index:03X} {word:08X} {source}".lower()
+                named = bool(row.get("move_named")) and _is_named_preset_name(name)
+                display_name = name if named else f"{name} (unnamed)"
+                hay = f"{name} {aid:04X} {table_index:03X} {word:08X} {source}".lower()
                 if needle and needle not in hay:
                     continue
                 iid = tree.insert(
                     "",
                     "end",
                     values=(
-                        entry,
+                        display_name,
+                        f"{table_index}",
                         f"0x{aid:04X}" if aid else "?",
                         f"0x{word:08X}",
                         f"0x{move_abs:08X}",
@@ -2255,7 +2532,7 @@ class AssistScannerWindow:
             delta = parse_offset()
             base_word = int(row.get("selector_word", 0))
             value = (base_word + delta) & 0xFFFFFFFF
-            name = str(row.get("entry", row.get("move_name", "move")))
+            name = str(row.get("move_name", "move"))
             result["value"] = value
             result["label"] = f"{name} +0x{delta:02X}"
             dlg.destroy()
@@ -2282,22 +2559,24 @@ class AssistScannerWindow:
             return None
         return int(result["value"]), str(result["label"])
 
+
     def _choose_chun_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
-        result: dict[str, object] = {"value": None, "apply_all": False}
+        result: dict[str, object] = {"value": None, "apply_all": True}
         dlg = tk.Toplevel(self.root)
         dlg.title("Choose Chun selector word")
-        dlg.geometry("470x400")
+        dlg.geometry("430x260")
         dlg.transient(self.root)
         dlg.grab_set()
 
-        apply_all_var = tk.BooleanVar(value=False)
+        apply_all_var = tk.BooleanVar(value=True)
 
         ttk.Label(
             dlg,
             text=(
                 f"Address: 0x{addr:08X}\n"
                 f"Current: {current}\n\n"
-                "Choosing a value installs the confirmed graft first, then writes the selector word."
+                "Choose a loaded preset or enter a custom selector word. "
+                "The confirmed Chun graft is installed before writing."
             ),
             justify="left",
         ).pack(anchor="w", padx=12, pady=(12, 8))
@@ -2316,19 +2595,24 @@ class AssistScannerWindow:
             result["apply_all"] = bool(apply_all_var.get())
             dlg.destroy()
 
-        for label, value in CHUN_SELECTOR_WORD_PRESETS:
-            ttk.Button(
-                btn_frame,
-                text=f"{label}  0x{value:08X}",
-                command=lambda v=value: set_value(v),
-            ).pack(fill="x", pady=3)
+        def choose_loaded_move():
+            owner_base = _owning_chr_tbl(addr)
+            if owner_base is None:
+                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
+                return
+            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
+            if picked is None:
+                return
+            value, _label = picked
+            apply_all_var.set(True)
+            set_value(value)
 
         def manual():
             text = simpledialog.askstring(
-                "Manual Chun selector word",
+                "Custom Chun selector word",
                 "Enter raw U32 selector word. Examples:\n"
-                "0x0003D620\n"
-                "0003BCC8\n"
+                "0x000378AC\n"
+                "00057480\n"
                 "00 03 C4 AC",
                 parent=dlg,
                 initialvalue=current,
@@ -2348,20 +2632,8 @@ class AssistScannerWindow:
                 return
             set_value(value)
 
-        def choose_loaded_move():
-            owner_base = _owning_chr_tbl(addr)
-            if owner_base is None:
-                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
-                return
-            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
-            if picked is None:
-                return
-            value, _label = picked
-            apply_all_var.set(True)
-            set_value(value)
-
-        ttk.Button(btn_frame, text="Choose loaded move/normal preset", command=choose_loaded_move).pack(fill="x", pady=(10, 3))
-        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Preset assist / loaded move", command=choose_loaded_move).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Custom raw U32", command=manual).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
         self.root.wait_window(dlg)
 
@@ -2528,22 +2800,24 @@ class AssistScannerWindow:
             parent=self.root,
         )
 
+
     def _choose_ryu_graft_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
-        result: dict[str, object] = {"value": None, "apply_all": False}
+        result: dict[str, object] = {"value": None, "apply_all": True}
         dlg = tk.Toplevel(self.root)
         dlg.title("Choose Ryu selector word")
-        dlg.geometry("470x390")
+        dlg.geometry("430x260")
         dlg.transient(self.root)
         dlg.grab_set()
 
-        apply_all_var = tk.BooleanVar(value=False)
+        apply_all_var = tk.BooleanVar(value=True)
 
         ttk.Label(
             dlg,
             text=(
                 f"Address: 0x{addr:08X}\n"
                 f"Current: {current}\n\n"
-                "Choosing a value restores the Ryu selector setup first, then writes the selector word."
+                "Choose a loaded preset or enter a custom selector word. "
+                "The Ryu selector setup is restored before writing."
             ),
             justify="left",
         ).pack(anchor="w", padx=12, pady=(12, 8))
@@ -2562,16 +2836,21 @@ class AssistScannerWindow:
             result["apply_all"] = bool(apply_all_var.get())
             dlg.destroy()
 
-        for label, value in RYU_SELECTOR_WORD_PRESETS:
-            ttk.Button(
-                btn_frame,
-                text=f"{label}  0x{value:08X}",
-                command=lambda v=value: set_value(v),
-            ).pack(fill="x", pady=3)
+        def choose_loaded_move():
+            owner_base = _owning_chr_tbl(addr)
+            if owner_base is None:
+                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
+                return
+            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
+            if picked is None:
+                return
+            value, _label = picked
+            apply_all_var.set(True)
+            set_value(value)
 
         def manual():
             text = simpledialog.askstring(
-                "Manual Ryu selector word",
+                "Custom Ryu selector word",
                 "Enter raw U32 selector word. Examples:\n"
                 "0x0003110C\n"
                 "0003146C\n"
@@ -2594,20 +2873,8 @@ class AssistScannerWindow:
                 return
             set_value(value)
 
-        def choose_loaded_move():
-            owner_base = _owning_chr_tbl(addr)
-            if owner_base is None:
-                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
-                return
-            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
-            if picked is None:
-                return
-            value, _label = picked
-            apply_all_var.set(True)
-            set_value(value)
-
-        ttk.Button(btn_frame, text="Choose loaded move/normal preset", command=choose_loaded_move).pack(fill="x", pady=(10, 3))
-        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Preset assist / loaded move", command=choose_loaded_move).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Custom raw U32", command=manual).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
         self.root.wait_window(dlg)
 
@@ -2678,17 +2945,18 @@ class AssistScannerWindow:
             + (" to all lanes." if apply_all else f" to 0x{lane_addr:08X}.")
         )
 
+
     def _choose_generic_selector_value(self, addr: int, current: str, source: str) -> tuple[int, bool] | None:
-        result: dict[str, object] = {"value": None, "apply_all": False}
+        result: dict[str, object] = {"value": None, "apply_all": True}
         dlg = tk.Toplevel(self.root)
         dlg.title("Choose generic selector word")
-        dlg.geometry("500x470")
+        dlg.geometry("450x280")
         dlg.transient(self.root)
         dlg.grab_set()
 
         # For a graft candidate, there are no valid selector words in the block yet.
         # Applying the chosen value to all lanes gives the graft safe/consistent words.
-        apply_all_var = tk.BooleanVar(value=(source != "native"))
+        apply_all_var = tk.BooleanVar(value=True)
 
         ttk.Label(
             dlg,
@@ -2696,8 +2964,8 @@ class AssistScannerWindow:
                 f"Address: 0x{addr:08X}\n"
                 f"Current: {current}\n"
                 f"Source: {source}\n\n"
-                "Choosing a value writes/installs a generic Ryu-style selector setup first.\n"
-                "Use manual U32 for character-specific payload offsets."
+                "Choose a loaded preset or enter a custom selector word. "
+                "The generic selector setup is installed before writing."
             ),
             justify="left",
         ).pack(anchor="w", padx=12, pady=(12, 8))
@@ -2716,16 +2984,21 @@ class AssistScannerWindow:
             result["apply_all"] = bool(apply_all_var.get())
             dlg.destroy()
 
-        for label, value in GENERIC_SELECTOR_MANUAL_PRESETS:
-            ttk.Button(
-                btn_frame,
-                text=f"{label}  0x{value:08X}",
-                command=lambda v=value: set_value(v),
-            ).pack(fill="x", pady=2)
+        def choose_loaded_move():
+            owner_base = _owning_chr_tbl(addr)
+            if owner_base is None:
+                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
+                return
+            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
+            if picked is None:
+                return
+            value, _label = picked
+            apply_all_var.set(True)
+            set_value(value)
 
         def manual():
             text = simpledialog.askstring(
-                "Manual generic selector word",
+                "Custom generic selector word",
                 "Enter raw U32 selector word. Examples:\n"
                 "0x0003D620\n"
                 "0003110C\n"
@@ -2748,20 +3021,8 @@ class AssistScannerWindow:
                 return
             set_value(value)
 
-        def choose_loaded_move():
-            owner_base = _owning_chr_tbl(addr)
-            if owner_base is None:
-                messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
-                return
-            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
-            if picked is None:
-                return
-            value, _label = picked
-            apply_all_var.set(True)
-            set_value(value)
-
-        ttk.Button(btn_frame, text="Choose loaded move/normal preset", command=choose_loaded_move).pack(fill="x", pady=(10, 3))
-        ttk.Button(btn_frame, text="Manual raw U32", command=manual).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Preset assist / loaded move", command=choose_loaded_move).pack(fill="x", pady=3)
+        ttk.Button(btn_frame, text="Custom raw U32", command=manual).pack(fill="x", pady=3)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy).pack(fill="x", pady=3)
         self.root.wait_window(dlg)
 
