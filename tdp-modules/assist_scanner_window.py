@@ -120,9 +120,22 @@ GENERIC_ASSIST_ROUTE_TABLE_INDICES = (420, 424, 425, 426, 427, 428, 430, 431, 43
 GENERIC_ASSIST_ROUTE_BEFORE = 0x40
 GENERIC_ASSIST_ROUTE_AFTER = 0x260
 GENERIC_ASSIST_ROUTE_SCORE_BONUS = 600
-ALEX_CHAR_ID = 16
-ALEX_ASSIST_ATTACK_TABLE_INDEX = 426
-ALEX_ASSIST_ATTACK_DEFAULT_WORD = 0x0003045C
+
+# Generic fallback for characters whose assist route does not expose a usable
+# Ryu/Chun-style selector table. This keeps the assist attack chr_tbl entry
+# pointed at the original wrapper, then patches internal wrapper call operands.
+# That preserves hop-in/positioning while redirecting the attack body.
+ANCHOR_ASSIST_FALLBACK_TABLE_INDEX = 426
+ANCHOR_ASSIST_WRAPPER_SCAN_SIZE = 0x900
+ANCHOR_ASSIST_OPERAND_MIN = 0x00003600
+ANCHOR_ASSIST_OPERAND_MAX = 0x00090000
+ANCHOR_ASSIST_MAX_OPERANDS = 8
+ANCHOR_ASSIST_CALL_OPS = (
+    b"\x01\x32\x00\x00",
+    b"\x01\x33\x00\x00",
+    b"\x01\x36\x00\x00",
+)
+
 CHAR_ID_TO_KEY = {
     1: "Ken the Eagle", 2: "Casshan", 3: "Tekkaman", 4: "Polimar",
     5: "Yatterman-1", 6: "Doronjo", 7: "Ippatsuman", 8: "Jun the Swan",
@@ -280,6 +293,7 @@ def _is_filtered_assist_preset_name(name: str | None) -> bool:
         return True
 
     return False
+
 
 def _is_named_preset_name(name: str | None) -> bool:
     s = _clean_preset_name(name)
@@ -617,7 +631,12 @@ def _expand_selector_hits_to_fighter_rows(hits: list[dict]) -> list[dict]:
     slot_char_ids = _read_slot_char_ids()
     fighters = _read_fighter_slots()
     out: list[dict] = []
-    selector_types = {"u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector"}
+    selector_types = {
+        "u32-chun-selector",
+        "u32-ryu-selector-graft",
+        "u32-generic-selector",
+        "u32-anchored-assist-fallback",
+    }
 
     for h in hits:
         if h.get("typ") not in selector_types:
@@ -1268,6 +1287,7 @@ def _generic_assist_route_bonus(owner_base: int | None, block_addr: int) -> int:
     return max(0, best)
 
 
+
 def _append_generic_selector_table(data: bytes, base_addr: int, idx: int,
                                    slot_char_ids: dict[int, int], hits: list[dict],
                                    source: str) -> None:
@@ -1308,31 +1328,80 @@ def _append_generic_selector_table(data: bytes, base_addr: int, idx: int,
 
     score = _generic_candidate_score(data, idx, source_label) + assist_bonus
 
+    # If this was only found by the loose assist-route tail-pair fallback and
+    # is not already a real selector setup, do not pretend it is a selector
+    # table. Treat it as a generic anchored assist-wrapper fallback.
+    base_source_label = (
+        source_label
+        .replace("+assist-route", "")
+        .replace("-assist-route", "")
+    )
+
+    # Important: only the loose tail-pair assist-route fallback should become
+    # anchored. Real generic selector/graft candidates may also sit near the
+    # assist route, and those were the working path for older characters.
+    # Misclassifying graft-candidate+assist-route as anchored makes those
+    # characters stop responding to selector lane writes.
+    anchored_fallback = (
+        base_source_label == "tail-pair"
+        and "assist-route" in source_label
+        and not current_block.startswith(GENERIC_SELECTOR_SETUP_PREFIX)
+    )
+
+    typ = "u32-anchored-assist-fallback" if anchored_fallback else "u32-generic-selector"
+    action = (
+        f"double-click to change anchored assist-wrapper fallback; keeps chr_tbl[{ANCHOR_ASSIST_FALLBACK_TABLE_INDEX}] on wrapper"
+        if anchored_fallback
+        else f"double-click to change generic assist; table 0x{block_addr:08X}; source {source_label}"
+    )
+
+    anchor_default_word = _chr_tbl_word_for_owner_base(owner_base, ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+    anchor_operands = (
+        _anchored_assist_operands_for_owner_base(
+            owner_base,
+            ANCHOR_ASSIST_FALLBACK_TABLE_INDEX,
+            anchor_default_word,
+        )
+        if anchored_fallback
+        else []
+    )
+
+    row_addr = first_lane_addr
+    if anchored_fallback and anchor_default_word is not None and anchor_operands:
+        anchor_base = _chr_tbl_base_for_owner_base(owner_base)
+        if anchor_base is not None:
+            row_addr = anchor_base + int(anchor_default_word) + int(anchor_operands[0][0])
+
     hits.append({
         "kind": "generic-selector-word",
         "block": block_addr,
-        "addr": first_lane_addr,
+        "addr": row_addr,
         "owner": owner,
         "slot": slot,
         "entry": entry,
         "raw": raw_txt,
         "target": target_txt,
-        "guess": f"double-click to change generic assist; table 0x{block_addr:08X}; source {source_label}",
+        "guess": action,
         "score": score,
         "ctx": _fmt_context(data, idx, mark_len=GENERIC_SELECTOR_TABLE_LEN),
         "editable": True,
-        "typ": "u32-generic-selector",
+        "typ": typ,
+        "anchor_table_index": ANCHOR_ASSIST_FALLBACK_TABLE_INDEX,
+        "anchor_default_word": anchor_default_word if anchor_default_word is not None else 0,
+        "anchor_operand_offsets": [off for off, _word in anchor_operands],
+        "anchor_operand_words": [word for _off, word in anchor_operands],
         "source": source_label,
         "selector_words": words,
         "table_raw": current_block.hex(" ").upper(),
     })
 
 
+
 def _looks_like_generic_tail_pair_candidate(data: bytes, tail_idx: int, allow_single_row: bool = False) -> bool:
     """Loose fallback: 37 32 / 37 33 pair with nearby route rows.
 
     Normal generic scanning still wants two 01 3C rows. Assist-route scanning
-    allows one row because Alex's assist route has a thinner tail shape.
+    allows one row because some assist routes have a thinner tail shape.
     """
     if tail_idx < 0 or tail_idx + 0x30 > len(data):
         return False
@@ -1386,7 +1455,7 @@ def _scan_generic_selector_candidates(data: bytes, base_addr: int,
 
     # Experimental fallback: align a synthetic graft 0x1C bytes before a
     # 37 32 / 37 33 tail pair. If the candidate sits inside an assist route,
-    # allow Alex's thinner one-row shape.
+    # allow thinner one-row shapes and classify them as anchored fallback later.
     pos = 0
     while True:
         tail_idx = data.find(SELECTOR_TAIL, pos)
@@ -1409,6 +1478,7 @@ def _scan_generic_selector_candidates(data: bytes, base_addr: int,
         seen.add(idx)
         source = "tail-pair+assist-route" if assist_route else "tail-pair"
         _append_generic_selector_table(data, base_addr, idx, slot_char_ids, hits, source)
+
 
 
 def _read_mem_region_raw(start_addr: int, size: int) -> bytes:
@@ -1575,22 +1645,146 @@ def _selector_base_for_address(addr: int) -> int | None:
     return _runtime_chr_tbl_base_for_owner_base(owner_base)
 
 
-def _alex_direct_assist_table_writes(owner_base: int | None, raw_val: int | None) -> dict[int, bytes]:
-    """Build writes for Alex's direct chr_tbl[426] assist route.
-
-    Alex keeps doing Slash Elbow because the generic selector table is not his
-    live assist selector. For him, patch the actual assist attack table pointer.
-    """
+def _chr_tbl_word_for_owner_base(owner_base: int | None, table_index: int) -> int | None:
     if owner_base is None:
-        return {}
+        return None
 
     chr_tbl_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
     if chr_tbl_base is None:
         chr_tbl_base = int(owner_base)
 
-    word = ALEX_ASSIST_ATTACK_DEFAULT_WORD if raw_val is None else (int(raw_val) & 0xFFFFFFFF)
-    entry_addr = chr_tbl_base + (ALEX_ASSIST_ATTACK_TABLE_INDEX * 4)
-    return {entry_addr: struct.pack(">I", word)}
+    data = _read_mem_region_raw(chr_tbl_base + (int(table_index) * 4), 4)
+    if not data or len(data) != 4:
+        return None
+
+    return struct.unpack(">I", data)[0]
+
+
+def _chr_tbl_base_for_owner_base(owner_base: int | None) -> int | None:
+    if owner_base is None:
+        return None
+    chr_tbl_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
+    if chr_tbl_base is None:
+        chr_tbl_base = int(owner_base)
+    return chr_tbl_base
+
+
+def _anchored_assist_operands_for_owner_base(
+    owner_base: int | None,
+    table_index: int = ANCHOR_ASSIST_FALLBACK_TABLE_INDEX,
+    default_word: int | None = None,
+) -> list[tuple[int, int]]:
+    """Find internal wrapper call operands for the generic anchored fallback.
+
+    The returned tuples are (operand_offset_from_wrapper, original_word). Only
+    operands immediately following known local call opcodes are included. This
+    avoids replacing chr_tbl[426] and preserves the wrapper's positioning work.
+    """
+    chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base)
+    if chr_tbl_base is None:
+        return []
+
+    if default_word is None:
+        default_word = _chr_tbl_word_for_owner_base(owner_base, table_index)
+    if default_word is None:
+        return []
+
+    wrapper_addr = chr_tbl_base + (int(default_word) & 0xFFFFFFFF)
+    data = _read_mem_region_raw(wrapper_addr, ANCHOR_ASSIST_WRAPPER_SCAN_SIZE)
+    if not data:
+        return []
+
+    out: list[tuple[int, int]] = []
+    seen: set[int] = set()
+    limit = max(0, len(data) - 8)
+    for off in range(0, limit + 1, 4):
+        cmd = data[off:off + 4]
+        if cmd not in ANCHOR_ASSIST_CALL_OPS:
+            continue
+
+        operand_off = off + 4
+        val = _u32be(data, operand_off)
+        if val is None:
+            continue
+        if val % 4 != 0:
+            continue
+        if not (ANCHOR_ASSIST_OPERAND_MIN <= val < ANCHOR_ASSIST_OPERAND_MAX):
+            continue
+        if default_word is not None and val == int(default_word):
+            continue
+        if operand_off in seen:
+            continue
+        seen.add(operand_off)
+        out.append((operand_off, val))
+
+    def rank(item: tuple[int, int]) -> tuple[int, int]:
+        off, val = item
+        # Prefer calls that stay in the same broad wrapper/body neighborhood,
+        # then earlier calls in the wrapper. This is generic; it does not rely
+        # on a character id.
+        if default_word is None:
+            band = 1
+        else:
+            band = 0 if abs(int(val) - int(default_word)) <= 0x10000 else 1
+        return (band, off)
+
+    out.sort(key=rank)
+    return out[:ANCHOR_ASSIST_MAX_OPERANDS]
+
+
+def _anchored_assist_fallback_writes(
+    owner_base: int | None,
+    raw_val: int | None,
+    table_index: int = ANCHOR_ASSIST_FALLBACK_TABLE_INDEX,
+    default_word: int | None = None,
+    operand_offsets: list[int] | tuple[int, ...] | None = None,
+    operand_words: list[int] | tuple[int, ...] | None = None,
+) -> dict[int, bytes]:
+    """Generic wrapper-preserving fallback writes.
+
+    raw_val=None restores the original wrapper entry and original internal
+    operands. Non-default values keep chr_tbl[table_index] on the wrapper and
+    redirect internal wrapper call operands to the selected move word.
+    """
+    chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base)
+    if chr_tbl_base is None:
+        return {}
+
+    if default_word is None:
+        default_word = _chr_tbl_word_for_owner_base(owner_base, table_index)
+    if default_word is None:
+        return {}
+
+    default_word = int(default_word) & 0xFFFFFFFF
+    table_entry_addr = chr_tbl_base + (int(table_index) * 4)
+    wrapper_addr = chr_tbl_base + default_word
+
+    writes: dict[int, bytes] = {
+        table_entry_addr: struct.pack(">I", default_word),
+    }
+
+    if operand_offsets is None or not list(operand_offsets):
+        pairs = _anchored_assist_operands_for_owner_base(owner_base, table_index, default_word)
+    else:
+        words = list(operand_words or [])
+        pairs = []
+        for i, off in enumerate(list(operand_offsets)):
+            old_word = int(words[i]) if i < len(words) else 0
+            pairs.append((int(off), old_word))
+
+    if raw_val is None:
+        for off, old_word in pairs:
+            if old_word:
+                writes[wrapper_addr + int(off)] = struct.pack(">I", int(old_word) & 0xFFFFFFFF)
+        return writes
+
+    if not pairs:
+        return {}
+
+    word = int(raw_val) & 0xFFFFFFFF
+    for off, _old_word in pairs:
+        writes[wrapper_addr + int(off)] = struct.pack(">I", word)
+    return writes
 
 
 def _move_preset_anim_id_after_hdr(data: bytes, off: int) -> int | None:
@@ -2179,9 +2373,34 @@ def _run_scan(progress_cb, done_cb):
         if old is None:
             best_generic[owner_base] = h
             continue
-        old_key = (int(old.get("score", 0)), -int(old.get("block", 0)))
-        new_key = (int(h.get("score", 0)), -int(h.get("block", 0)))
-        if new_key > old_key:
+        def pick_key(row: dict) -> tuple[int, int, int]:
+            typ = str(row.get("typ", ""))
+            source = str(row.get("source", ""))
+            base_source = (
+                source
+                .replace("+assist-route", "")
+                .replace("-assist-route", "")
+            )
+
+            # Preserve the working old-character selector path. A real
+            # graft-candidate should beat the anchored tail-pair fallback even
+            # if the tail-pair has the assist-route score bonus. For Alex-style
+            # slots, the only useful route is the tail-pair assist wrapper, so
+            # that still beats unrelated native selector-looking tables.
+            if typ == "u32-generic-selector" and base_source in ("graft-candidate", "installed"):
+                priority = 50
+            elif typ == "u32-generic-selector" and "assist-route" in source and base_source == "native":
+                priority = 45
+            elif typ == "u32-anchored-assist-fallback":
+                priority = 40
+            elif typ == "u32-generic-selector" and base_source == "native":
+                priority = 30
+            else:
+                priority = 10
+
+            return (priority, int(row.get("score", 0)), -int(row.get("block", 0)))
+
+        if pick_key(h) > pick_key(old):
             best_generic[owner_base] = h
     filtered.extend(best_generic.values())
     uniq = filtered
@@ -2324,7 +2543,12 @@ class AssistScannerWindow:
                     return str(h.get(col_id, ""))
                 iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS))
                 self._hit_by_iid[iid] = h
-                if h.get("typ") in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector"):
+                if h.get("typ") in (
+                    "u32-chun-selector",
+                    "u32-ryu-selector-graft",
+                    "u32-generic-selector",
+                    "u32-anchored-assist-fallback",
+                ):
                     self._record_default_slot_profile(h)
             self._scanning = False
             self._scan_btn.config(state="normal")
@@ -2912,6 +3136,7 @@ class AssistScannerWindow:
             return (band_priority(table_index, named), table_index, name.lower(), word)
 
         return sorted(rows, key=row_key)
+
 
     def _choose_loaded_move_preset_word(self, owner_base: int, parent: tk.Toplevel) -> tuple[int, str] | None:
         rows = self._collect_move_preset_rows_for_base(owner_base)
@@ -3635,54 +3860,75 @@ class AssistScannerWindow:
         if choice is None:
             return
         raw_val, apply_all = choice
+
         if raw_val is None:
-            if int(h.get("char_id") or 0) == ALEX_CHAR_ID:
+            if str(h.get("typ", "")) == "u32-anchored-assist-fallback":
                 owner_base = int(h.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
-                writes = _alex_direct_assist_table_writes(owner_base, None)
-                self._write_many(
-                    writes,
-                    f"Restored Alex chr_tbl[{ALEX_ASSIST_ATTACK_TABLE_INDEX}] default assist route."
+                table_index = int(h.get("anchor_table_index") or ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+                default_word = int(h.get("anchor_default_word") or 0) or None
+                operand_offsets = list(h.get("anchor_operand_offsets") or [])
+                operand_words = list(h.get("anchor_operand_words") or [])
+                writes = _anchored_assist_fallback_writes(
+                    owner_base, None, table_index, default_word, operand_offsets, operand_words
                 )
+                if writes:
+                    self._write_many(
+                        writes,
+                        f"Restored anchored fallback chr_tbl[{table_index}] wrapper and internal operands."
+                    )
+
             self._record_slot_profile(h, None, "default")
             h["entry"] = "default"
             h["raw"] = "default"
             h["target"] = "default"
-            self._status.set(f"Stored default generic assist profile for this fighter; shared table will restore on assist attack if possible.")
+            self._status.set("Stored default generic assist profile for this fighter; shared table will restore on assist attack if possible.")
             return
 
-        if int(h.get("char_id") or 0) == ALEX_CHAR_ID:
+        if str(h.get("typ", "")) == "u32-anchored-assist-fallback":
             owner_base = int(h.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
-            writes = _alex_direct_assist_table_writes(owner_base, raw_val)
+            table_index = int(h.get("anchor_table_index") or ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+            default_word = int(h.get("anchor_default_word") or 0) or None
+            operand_offsets = list(h.get("anchor_operand_offsets") or [])
+            operand_words = list(h.get("anchor_operand_words") or [])
+
+            writes = _anchored_assist_fallback_writes(
+                owner_base, raw_val, table_index, default_word, operand_offsets, operand_words
+            )
             if not writes:
-                messagebox.showerror("Alex patch failed", "Could not resolve Alex chr_tbl[426].", parent=self.root)
+                messagebox.showerror(
+                    "Anchored assist fallback failed",
+                    f"Could not resolve internal wrapper operands for chr_tbl[{table_index}].",
+                    parent=self.root,
+                )
                 return
 
             ok = self._write_many(
                 writes,
-                f"Patched Alex chr_tbl[{ALEX_ASSIST_ATTACK_TABLE_INDEX}] to 0x{raw_val:08X}."
+                f"Patched anchored fallback internal operands to 0x{raw_val:08X}; chr_tbl[{table_index}] kept on wrapper."
             )
             if not ok:
                 return
 
-            self._record_slot_profile(h, raw_val, "Alex direct assist")
+            self._record_slot_profile(h, raw_val, "anchored assist fallback")
             self._update_flat_row_display(h, raw_val)
 
             for iid, row in self._hit_by_iid.items():
                 if row is h or (
                     int(row.get("fighter_base") or 0) == int(h.get("fighter_base") or -1)
-                    and int(row.get("char_id") or 0) == ALEX_CHAR_ID
+                    and int(row.get("char_id") or 0) == int(h.get("char_id") or -2)
+                    and str(row.get("typ", "")) == "u32-anchored-assist-fallback"
                 ):
                     row["entry"] = h["entry"]
                     row["raw"] = h["raw"]
                     row["target"] = h["target"]
-                    row["guess"] = f"Alex direct chr_tbl[{ALEX_ASSIST_ATTACK_TABLE_INDEX}] profile"
+                    row["guess"] = f"anchored wrapper profile; chr_tbl[{table_index}] preserved"
                     self._tree.set(iid, "entry", row["entry"])
                     self._tree.set(iid, "raw", row["raw"])
                     self._tree.set(iid, "target", row["target"])
                     self._tree.set(iid, "guess", row["guess"])
 
             self._status.set(
-                f"Alex direct assist profile stored; chr_tbl[{ALEX_ASSIST_ATTACK_TABLE_INDEX}] now points to 0x{raw_val:08X}."
+                f"Anchored assist fallback profile stored as 0x{raw_val:08X}; chr_tbl[{table_index}] stays on wrapper."
             )
             return
 
@@ -3743,6 +3989,7 @@ class AssistScannerWindow:
         )
 
 
+
     def _find_generic_selector_graft_addr_for_base(self, owner_base: int) -> tuple[int, str]:
         data = self._read_memory_region(owner_base, 0x90000, f"slot @ 0x{owner_base:08X}")
         candidates: list[tuple[int, int, str]] = []
@@ -3755,7 +4002,7 @@ class AssistScannerWindow:
             source_label = source
             if bonus and "assist-route" not in source_label:
                 source_label = f"{source_label}+assist-route"
-            score = _generic_candidate_score(data, idx, source) + bonus
+            score = _generic_candidate_score(data, idx, source_label) + bonus
             candidates.append((score, block_addr, source_label))
 
         pos = 0
@@ -3794,9 +4041,35 @@ class AssistScannerWindow:
                 "For this character, find the assist block first or use a confirmed Chun/Ryu table."
             )
 
-        candidates.sort(key=lambda x: (x[0], -x[1]), reverse=True)
+        def candidate_key(item: tuple[int, int, str]) -> tuple[int, int, int]:
+            score, addr, source = item
+            base_source = (
+                str(source or "")
+                .replace("+assist-route", "")
+                .replace("-assist-route", "")
+            )
+
+            # Keep legacy generic grafts ahead of loose tail-pair fallback, but
+            # let the anchored tail-pair route beat unrelated native-looking
+            # selector tables. This is what keeps Alex fixed without stealing
+            # Jun/Ken-style generic grafts.
+            if base_source in ("graft-candidate", "installed"):
+                priority = 50
+            elif "assist-route" in str(source or "") and base_source == "native":
+                priority = 45
+            elif base_source == "tail-pair" and "assist-route" in str(source or ""):
+                priority = 40
+            elif base_source == "native":
+                priority = 30
+            else:
+                priority = 10
+
+            return (priority, int(score), -int(addr))
+
+        candidates.sort(key=candidate_key, reverse=True)
         _score, addr, source = candidates[0]
         return addr, source
+
 
     def _choose_assist_move_preset_word(self, h: dict) -> tuple[int, bool, str] | None:
         move_name = str(h.get("move_name", "move"))
@@ -3907,16 +4180,45 @@ class AssistScannerWindow:
                 table_name = "Ryu"
             else:
                 graft_addr, source = self._find_generic_selector_graft_addr_for_base(owner_base)
-                block = self._generic_block_args_and_words(
-                    graft_addr,
-                    source,
-                    raw_val,
-                    True,
-                    graft_addr + GENERIC_SELECTOR_WORD_OFFSETS[0],
+                source_base = (
+                    str(source or "")
+                    .replace("+assist-route", "")
+                    .replace("-assist-route", "")
                 )
-                writes = {graft_addr: block}
-                lane_offsets = GENERIC_SELECTOR_WORD_OFFSETS
-                table_name = "generic"
+
+                if source_base == "tail-pair" and "assist-route" in str(source or ""):
+                    table_index = ANCHOR_ASSIST_FALLBACK_TABLE_INDEX
+                    default_word = _chr_tbl_word_for_owner_base(owner_base, table_index)
+                    anchor_operands = _anchored_assist_operands_for_owner_base(
+                        owner_base,
+                        table_index,
+                        default_word,
+                    )
+                    writes = _anchored_assist_fallback_writes(
+                        owner_base,
+                        raw_val,
+                        table_index,
+                        default_word,
+                        [off for off, _word in anchor_operands],
+                        [word for _off, word in anchor_operands],
+                    )
+                    if not writes:
+                        raise RuntimeError(
+                            "Found only an anchored assist fallback, but no internal wrapper operands were writable."
+                        )
+                    lane_offsets = ()
+                    table_name = "anchored generic"
+                else:
+                    block = self._generic_block_args_and_words(
+                        graft_addr,
+                        source,
+                        raw_val,
+                        True,
+                        graft_addr + GENERIC_SELECTOR_WORD_OFFSETS[0],
+                    )
+                    writes = {graft_addr: block}
+                    lane_offsets = GENERIC_SELECTOR_WORD_OFFSETS
+                    table_name = "generic"
         except Exception as e:
             self._status.set("Assist move preset failed")
             messagebox.showerror("Assist move preset failed", str(e), parent=self.root)
@@ -3941,7 +4243,13 @@ class AssistScannerWindow:
             target_offsets = lane_offsets if apply_all else (lane_offsets[0],)
             lane_lines = [f"0x{graft_addr + off:08X} <- {payload.hex(' ').upper()}" for off in target_offsets]
         else:
-            lane_lines = [f"0x{graft_addr + off:08X} <- {payload.hex(' ').upper()}" for off in lane_offsets]
+            if lane_offsets:
+                lane_lines = [f"0x{graft_addr + off:08X} <- {payload.hex(' ').upper()}" for off in lane_offsets]
+            else:
+                lane_lines = [
+                    f"0x{addr:08X} <- {data.hex(' ').upper()}"
+                    for addr, data in sorted(writes.items())
+                ]
 
         messagebox.showinfo(
             "Assist move preset applied",
@@ -4044,9 +4352,15 @@ class AssistScannerWindow:
                 return {graft_addr: CHUN_SELECTOR_ORIGINAL_BLOCK}
             if typ == "u32-ryu-selector-graft":
                 return {graft_addr: RYU_SELECTOR_GRAFT_BLOCK}
-            if typ == "u32-generic-selector" and int(row.get("char_id") or 0) == ALEX_CHAR_ID:
+            if typ == "u32-anchored-assist-fallback":
                 owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
-                return _alex_direct_assist_table_writes(owner_base, None)
+                table_index = int(row.get("anchor_table_index") or ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+                default_word = int(row.get("anchor_default_word") or 0) or None
+                operand_offsets = list(row.get("anchor_operand_offsets") or [])
+                operand_words = list(row.get("anchor_operand_words") or [])
+                return _anchored_assist_fallback_writes(
+                    owner_base, None, table_index, default_word, operand_offsets, operand_words
+                )
             if typ == "u32-generic-selector":
                 raw_hex = str(row.get("table_raw", "")).replace(" ", "")
                 try:
@@ -4072,9 +4386,15 @@ class AssistScannerWindow:
                 writes[graft_addr + off] = payload
             return writes
 
-        if typ == "u32-generic-selector" and int(row.get("char_id") or 0) == ALEX_CHAR_ID:
+        if typ == "u32-anchored-assist-fallback":
             owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
-            return _alex_direct_assist_table_writes(owner_base, int(raw_val))
+            table_index = int(row.get("anchor_table_index") or ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+            default_word = int(row.get("anchor_default_word") or 0) or None
+            operand_offsets = list(row.get("anchor_operand_offsets") or [])
+            operand_words = list(row.get("anchor_operand_words") or [])
+            return _anchored_assist_fallback_writes(
+                owner_base, int(raw_val), table_index, default_word, operand_offsets, operand_words
+            )
 
         if typ == "u32-generic-selector":
             source = str(row.get("source", "unknown"))
@@ -4082,6 +4402,7 @@ class AssistScannerWindow:
             return {graft_addr: block}
 
         return {}
+
 
     def _update_flat_row_display(self, row: dict, raw_val: int) -> None:
         owner_base = _owning_chr_tbl(int(row.get("addr", row.get("block", 0))))
@@ -4096,7 +4417,7 @@ class AssistScannerWindow:
         for iid, row in self._hit_by_iid.items():
             if int(row.get("block", -1)) != int(graft_addr):
                 continue
-            if row.get("typ") not in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector"):
+            if row.get("typ") not in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector", "u32-anchored-assist-fallback"):
                 continue
             self._update_flat_row_display(row, raw_val)
             self._tree.set(iid, "entry", row["entry"])
@@ -4232,7 +4553,11 @@ class AssistScannerWindow:
             return None
 
     def _snap_is_assist_attack(self, snap: dict) -> bool:
-        """Return True when main.py says this fighter is in assist attack."""
+        """Return True when main.py says this fighter is being called as assist.
+
+        Main already resolves attA/attB into mv_id_display and mv_label. Treat
+        the whole assist-attack family as a trigger, not just literal 426.
+        """
         if not snap:
             return False
         mv = self._snap_assist_state_id(snap)
@@ -4240,31 +4565,6 @@ class AssistScannerWindow:
             return True
         label = str(snap.get("mv_label") or "").strip().lower()
         return label == "assist attack" or "assist attack" in label
-
-    def _snap_is_assist_prefetch(self, snap: dict) -> bool:
-        """Return True for earlier assist states before the attack route locks.
-
-        Alex appears to bind his assist route before literal Assist Attack, so
-        patching only on 426 is too late. Use standby/jump-in style states too.
-        """
-        if not snap:
-            return False
-        mv = self._snap_assist_state_id(snap)
-        if mv in ASSIST_RUNTIME_PREFETCH_STATES:
-            return True
-
-        label = str(snap.get("mv_label") or "").strip().lower()
-        return (
-            "assist standby" in label
-            or "assist jump" in label
-            or "assist jump in" in label
-            or "assist call" in label
-            or "assist enter" in label
-        )
-
-    def _snap_is_assist_profile_trigger(self, snap: dict) -> bool:
-        """Patch as early as possible, then latch until the assist state ends."""
-        return self._snap_is_assist_prefetch(snap) or self._snap_is_assist_attack(snap)
 
     def _set_runtime_status_from_main(self, text: str) -> None:
         try:
@@ -4295,15 +4595,15 @@ class AssistScannerWindow:
                 if not fighter_base:
                     continue
 
-                is_trigger = self._snap_is_assist_profile_trigger(snap)
+                is_attack = self._snap_is_assist_attack(snap)
                 state = self._snap_assist_state_id(snap)
-                was_trigger = bool(self._main_last_assist_attack_by_base.get(fighter_base, False))
-                self._main_last_assist_attack_by_base[fighter_base] = bool(is_trigger)
+                was_attack = bool(self._main_last_assist_attack_by_base.get(fighter_base, False))
+                self._main_last_assist_attack_by_base[fighter_base] = bool(is_attack)
 
-                # Only act on the rising edge: first frame entering assist
-                # standby/jump/attack. Alex locks too early for attack-only
-                # patching, so this must fire before 426 when possible.
-                if not is_trigger or was_trigger:
+                # Only act on the rising edge: first frame entering assist attack.
+                # Holding assist attack must not re-write; that would clobber the
+                # other duplicate's profile the moment it fires its own assist.
+                if not is_attack or was_attack:
                     continue
 
                 profile = self._slot_assist_profiles.get(fighter_base)
@@ -4333,7 +4633,7 @@ class AssistScannerWindow:
                         label = str(profile.get("label", "assist"))
                         word_txt = "default" if raw_val is None else f"0x{raw_val:08X}"
                         self._set_runtime_status_from_main(
-                            f"Auto Assist Trigger ON - {fighter_label} assist trigger edge; wrote {label} {word_txt}."
+                            f"Auto Assist Trigger ON - {fighter_label} assist attack edge; wrote {label} {word_txt}."
                         )
                 else:
                     self._set_runtime_status_from_main(
@@ -4383,7 +4683,7 @@ class AssistScannerWindow:
             self._apply_ryu_selector_word(h)
             return
 
-        if typ == "u32-generic-selector":
+        if typ in ("u32-generic-selector", "u32-anchored-assist-fallback"):
             self._apply_generic_selector_word(h)
             return
 
