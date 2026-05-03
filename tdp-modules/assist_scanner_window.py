@@ -136,6 +136,27 @@ ANCHOR_ASSIST_CALL_OPS = (
     b"\x01\x36\x00\x00",
 )
 
+# Viewtiful Joe special case.
+#
+# Viewtiful Joe special case.
+#
+# VJoe is handled as a static/direct chr_tbl[426] route patch for testing.
+# Selecting a VJoe preset writes chr_tbl[426] immediately and leaves it there.
+# The main auto-trigger deliberately does not prearm/rewrite VJoe during 430,
+# because the 430-prearm route tested worse than the static/direct write.
+VJOE_CHAR_ID = 17
+VJOE_TRAMPOLINE_SCAN_SIZE = 0x2400
+VJOE_TRAMPOLINE_STATE_SEARCH_START = 0x80
+VJOE_TRAMPOLINE_STATE_SEARCH_END = 0x600
+VJOE_TRAMPOLINE_CONT_OFF_FROM_STATE_WRAPPER = 0x18
+VJOE_TRAMPOLINE_STATE_FIELD_OFF = 0x12
+VJOE_TRAMPOLINE_STATE_BY_TABLE_INDEX = {
+    304: 0x0112,  # Voomerang A
+    305: 0x0113,  # Voomerang B
+    306: 0x0114,  # Voomerang C
+}
+
+
 CHAR_ID_TO_KEY = {
     1: "Ken the Eagle", 2: "Casshan", 3: "Tekkaman", 4: "Polimar",
     5: "Yatterman-1", 6: "Doronjo", 7: "Ippatsuman", 8: "Jun the Swan",
@@ -636,6 +657,7 @@ def _expand_selector_hits_to_fighter_rows(hits: list[dict]) -> list[dict]:
         "u32-ryu-selector-graft",
         "u32-generic-selector",
         "u32-anchored-assist-fallback",
+        "u32-vjoe-trampoline",
     }
 
     for h in hits:
@@ -643,7 +665,7 @@ def _expand_selector_hits_to_fighter_rows(hits: list[dict]) -> list[dict]:
             out.append(h)
             continue
 
-        owner_base = _owning_chr_tbl(int(h.get("addr", h.get("block", 0))))
+        owner_base = int(h.get("owner_base") or 0) or _owning_chr_tbl(int(h.get("addr", h.get("block", 0))))
         if owner_base is None:
             out.append(h)
             continue
@@ -1500,11 +1522,17 @@ def _read_mem_region_raw(start_addr: int, size: int) -> bytes:
 
 
 def _looks_like_chr_tbl_at(data: bytes, idx: int) -> bool:
-    """Validate a chr_tbl start inside a local memory blob."""
+    """Validate a chr_tbl start inside a local memory blob.
+
+    Most tables start with 0x3600, but Volnutt-style loaded tables can start
+    at nearby aligned headers such as 0x3610.  Require the normal chr_act
+    marker so this loose header band does not grab random script data.
+    """
     if idx < 0 or idx + 0xB0C > len(data):
         return False
     try:
-        if _u32be(data, idx) != 0x3600:
+        first = _u32be(data, idx)
+        if first is None or not (0x3400 <= int(first) <= 0x3800 and (int(first) & 0xF) == 0):
             return False
         if _u32be(data, idx + 0xB00) != 0xFFFFFFFF:
             return False
@@ -1785,6 +1813,615 @@ def _anchored_assist_fallback_writes(
     for off, _old_word in pairs:
         writes[wrapper_addr + int(off)] = struct.pack(">I", word)
     return writes
+
+
+
+def _is_vjoe_owner_base(owner_base: int | None, slot_char_ids: dict[int, int] | None = None) -> bool:
+    if owner_base is None:
+        return False
+    if slot_char_ids is None:
+        slot_char_ids = _read_slot_char_ids()
+    return int(slot_char_ids.get(int(owner_base), -1)) == VJOE_CHAR_ID
+
+
+def _vjoe_find_attack_state_wrapper(wrapper_data: bytes) -> int | None:
+    """Find VJoe's confirmed live attack animation wrapper inside chr_tbl[426]."""
+    start = max(0, VJOE_TRAMPOLINE_STATE_SEARCH_START)
+    end = min(len(wrapper_data) - STATE_WRAPPER_LEN, VJOE_TRAMPOLINE_STATE_SEARCH_END)
+    if end <= start:
+        return None
+
+    candidates: list[tuple[int, int]] = []
+    for idx in range(start, end + 1):
+        if wrapper_data[idx:idx + len(STATE_WRAPPER_PREFIX)] != STATE_WRAPPER_PREFIX:
+            continue
+        if wrapper_data[idx + STATE_MARKER_OFF:idx + STATE_MARKER_OFF + 2] != b"\x01\x3C":
+            continue
+        state_id = _u16be(wrapper_data, idx + STATE_ID_OFF)
+        cont = _u32be(wrapper_data, idx + VJOE_TRAMPOLINE_CONT_OFF_FROM_STATE_WRAPPER)
+        if state_id is None or not (0x0001 <= state_id <= 0x0500):
+            continue
+        if cont is None or cont <= 0 or cont >= MOVE_PRESET_SLOT_SIZE:
+            continue
+        # Prefer the early attack wrapper, not assist taunt/leave wrappers.
+        if state_id in (0x01A1, 0x01A8, 0x01AE):
+            continue
+        candidates.append((idx, state_id))
+
+    if not candidates:
+        return None
+
+    # The confirmed VJoe attack state is the first state wrapper after the
+    # selector/setup region. In current dumps it is around wrapper+0x19C.
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][0]
+
+
+def _vjoe_find_assist_taunt_payload_off(wrapper_data: bytes) -> int | None:
+    """Find the payload offset for VJoe's assist-taunt block, if present.
+
+    This is diagnostic/restore metadata. The trampoline does not jump here by
+    default; it redirects to the selected move. But exposing this lets us know
+    where the original cleanup family lives.
+    """
+    # VJoe's assist taunt block in dumps begins:
+    #   0F060027 04016000 000001E8 ... 000001A8 013C0000 ...
+    sig = bytes.fromhex(
+        "0F 06 00 27 "
+        "04 01 60 00 00 00 01 E8 "
+        "3F 00 00 00 00 00 01 A8 "
+        "01 3C"
+    )
+    pos = wrapper_data.find(sig)
+    if pos >= 0:
+        return pos + 4
+
+    # Softer fallback: find a state wrapper/command area that contains 0x01A8.
+    needle = b"\x00\x00\x01\xA8\x01\x3C"
+    pos = wrapper_data.find(needle)
+    if pos >= 0:
+        # Usually the taunt block has a 0F060027 four bytes before its payload.
+        # Return the payload start if that prefix is present, otherwise the
+        # state field itself is still useful for diagnostics.
+        start = max(0, pos - 0x10)
+        rel = wrapper_data[start:pos].rfind(b"\x0F\x06\x00\x27")
+        if rel >= 0:
+            return start + rel + 4
+        return pos
+
+    return None
+
+
+def _vjoe_table_index_for_selector_word(owner_base: int | None, raw_val: int | None) -> int | None:
+    if owner_base is None or raw_val is None:
+        return None
+
+    active = _vjoe_active_selector_info_for_owner_base(owner_base) or {}
+    chr_tbl_base = int(active.get("chr_tbl_base") or 0)
+    if not chr_tbl_base:
+        chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base) or 0
+    if not chr_tbl_base:
+        return None
+
+    table_data = _read_mem_region_raw(chr_tbl_base, MOVE_PRESET_CHR_TBL_NUM_ENTRIES * 4)
+    if not table_data:
+        return None
+
+    raw = int(raw_val) & 0xFFFFFFFF
+    for table_index in range(MOVE_PRESET_CHR_TBL_NUM_ENTRIES):
+        entry = _u32be(table_data, table_index * 4)
+        if entry is None:
+            continue
+        for delta in MOVE_PRESET_ENTRY_OFFSETS:
+            if ((int(entry) + int(delta)) & 0xFFFFFFFF) == raw:
+                return table_index
+    return None
+
+
+def _vjoe_state_id_for_selector_word(owner_base: int | None, raw_val: int | None) -> int | None:
+    table_index = _vjoe_table_index_for_selector_word(owner_base, raw_val)
+    if table_index in VJOE_TRAMPOLINE_STATE_BY_TABLE_INDEX:
+        return VJOE_TRAMPOLINE_STATE_BY_TABLE_INDEX[int(table_index)]
+
+    # Generic fallback: if the selected target itself contains a normal state
+    # wrapper early, borrow that state id. Many VJoe projectile scripts do not,
+    # so this intentionally returns None for those.
+    chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base)
+    if chr_tbl_base is None or raw_val is None:
+        return None
+    move_addr = chr_tbl_base + (int(raw_val) & 0xFFFFFFFF)
+    data = _read_mem_region_raw(move_addr, 0x400)
+    if not data:
+        return None
+    idx = data.find(STATE_WRAPPER_PREFIX)
+    if idx >= 0 and idx + STATE_ID_OFF + 2 <= len(data):
+        sid = _u16be(data, idx + STATE_ID_OFF)
+        if sid is not None and 0x0001 <= sid <= 0x0500:
+            return sid
+    return None
+
+
+def _vjoe_trampoline_info_for_owner_base(owner_base: int | None) -> dict[str, int] | None:
+    """Resolve VJoe's live assist wrapper and confirmed continuation field."""
+    if owner_base is None:
+        return None
+    if not _is_vjoe_owner_base(owner_base):
+        return None
+
+    chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base)
+    if chr_tbl_base is None:
+        return None
+
+    default_word = _chr_tbl_word_for_owner_base(owner_base, ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+    if default_word is None or default_word <= 0 or default_word >= MOVE_PRESET_SLOT_SIZE:
+        return None
+
+    wrapper_addr = int(chr_tbl_base) + (int(default_word) & 0xFFFFFFFF)
+    wrapper_data = _read_mem_region_raw(wrapper_addr, VJOE_TRAMPOLINE_SCAN_SIZE)
+    if not wrapper_data:
+        return None
+
+    state_off = _vjoe_find_attack_state_wrapper(wrapper_data)
+    if state_off is None:
+        return None
+
+    state_addr = wrapper_addr + state_off + VJOE_TRAMPOLINE_STATE_FIELD_OFF
+    cont_addr = wrapper_addr + state_off + VJOE_TRAMPOLINE_CONT_OFF_FROM_STATE_WRAPPER
+    orig_state = _u16be(wrapper_data, state_off + VJOE_TRAMPOLINE_STATE_FIELD_OFF)
+    orig_cont = _u32be(wrapper_data, state_off + VJOE_TRAMPOLINE_CONT_OFF_FROM_STATE_WRAPPER)
+    if orig_state is None or orig_cont is None:
+        return None
+
+    taunt_payload_off = _vjoe_find_assist_taunt_payload_off(wrapper_data)
+
+    return {
+        "owner_base": int(owner_base),
+        "chr_tbl_base": int(chr_tbl_base),
+        "table_index": ANCHOR_ASSIST_FALLBACK_TABLE_INDEX,
+        "default_word": int(default_word) & 0xFFFFFFFF,
+        "wrapper_addr": int(wrapper_addr),
+        "state_wrapper_off": int(state_off),
+        "state_addr": int(state_addr),
+        "orig_state": int(orig_state) & 0xFFFF,
+        "cont_addr": int(cont_addr),
+        "orig_cont": int(orig_cont) & 0xFFFFFFFF,
+        "taunt_payload_off": int(taunt_payload_off) if taunt_payload_off is not None else 0,
+    }
+
+
+
+
+def _vjoe_candidate_chr_tbl_bases_global() -> list[int]:
+    """Return every validated chr_tbl base in the broad character windows.
+
+    VJoe is the character that exposed the flaw in using one static ownership
+    window.  His active table can sit in spillover space while stale/secondary
+    VJoe-shaped tables remain readable elsewhere.  This pass deliberately
+    de-duplicates all valid chr_tbl shapes across all broad windows.
+    """
+    if rbytes is None:
+        return []
+
+    out: list[int] = []
+    seen: set[int] = set()
+    for region_base in _CHR_TBL_BASES:
+        data = _read_mem_region_raw(region_base, MOVE_PRESET_SLOT_SIZE)
+        if not data:
+            continue
+
+        def add_idx(idx: int) -> None:
+            if not _looks_like_chr_tbl_at(data, idx):
+                return
+            cand = int(region_base) + int(idx)
+            if cand in seen:
+                return
+            seen.add(cand)
+            out.append(cand)
+
+        pos = 0
+        while True:
+            j = data.find(b"chr_tbl\n", pos)
+            if j < 0:
+                break
+            pos = j + 1
+            add_idx(j + 0x18)
+
+        scan_limit = max(0, len(data) - 0xB0C)
+        for idx in range(0, scan_limit, 4):
+            # Cheap prefilter before the full marker validation.
+            first = _u32be(data, idx)
+            if first is None or not (0x3400 <= int(first) <= 0x3800 and (int(first) & 0xF) == 0):
+                continue
+            add_idx(idx)
+
+    out.sort()
+    return out
+
+
+def _vjoe_chr_tbl_shape_score(chr_tbl_base: int) -> tuple[int, dict[str, int]] | None:
+    """Score one chr_tbl candidate as a live VJoe assist table."""
+    data = _read_mem_region_raw(chr_tbl_base, MOVE_PRESET_SLOT_SIZE)
+    if not data:
+        return None
+
+    def entry(table_index: int) -> int | None:
+        return _u32be(data, table_index * 4)
+
+    move_entries = [entry(i) for i in range(304, 310)]
+    if any(v is None for v in move_entries):
+        return None
+    vals = [int(v or 0) for v in move_entries]
+    if any(v <= 0 or v >= MOVE_PRESET_SLOT_SIZE or (v % 4) for v in vals):
+        return None
+    if vals != sorted(vals):
+        return None
+
+    # VJoe's 304-309 region is a compact Voomerang/Shocking Pink cluster.  Do
+    # not require exact offsets across loads; require a tight, monotonic cluster.
+    span = vals[-1] - vals[0]
+    if not (0x1000 <= span <= 0x5000):
+        return None
+
+    default_word = entry(ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+    if default_word is None or int(default_word) <= 0 or int(default_word) >= MOVE_PRESET_SLOT_SIZE:
+        return None
+
+    wrapper_addr = int(chr_tbl_base) + int(default_word)
+    wrapper_data = _read_mem_region_raw(wrapper_addr, VJOE_TRAMPOLINE_SCAN_SIZE)
+    if not wrapper_data:
+        return None
+
+    graft_off = _vjoe_find_active_selector_graft_off(wrapper_data)
+    state_off = _vjoe_find_attack_state_wrapper(wrapper_data)
+    taunt_off = _vjoe_find_assist_taunt_payload_off(wrapper_data)
+
+    score = 100
+    # The move cluster is very VJoe-like.
+    if 0x1000 <= span <= 0x3000:
+        score += 120
+    if vals[3] - vals[2] <= 0x1000:
+        score += 20
+
+    # The active assist table must point chr_tbl[426] at an assist wrapper that
+    # contains the selector/graft block.  This is the key distinction from stale
+    # tables and from tables where previous tests made chr_tbl[426] point to a
+    # raw move body.
+    if graft_off is not None:
+        score += 700
+    else:
+        score -= 500
+
+    if state_off is not None:
+        score += 90
+    if taunt_off is not None:
+        score += 50
+    if wrapper_data.startswith(b"\xBB\x83\x12\x6F"):
+        score += 30
+
+    return score, {
+        "chr_tbl_base": int(chr_tbl_base),
+        "table_index": ANCHOR_ASSIST_FALLBACK_TABLE_INDEX,
+        "default_word": int(default_word) & 0xFFFFFFFF,
+        "wrapper_addr": int(wrapper_addr),
+        "graft_off": int(graft_off) if graft_off is not None else 0,
+        "graft_addr": int(wrapper_addr) + int(graft_off or 0),
+        "state_wrapper_off": int(state_off) if state_off is not None else 0,
+        "state_addr": int(wrapper_addr) + int(state_off or 0) + VJOE_TRAMPOLINE_STATE_FIELD_OFF if state_off is not None else 0,
+        "orig_state": int(_u16be(wrapper_data, int(state_off) + VJOE_TRAMPOLINE_STATE_FIELD_OFF) or 0) if state_off is not None else 0,
+        "taunt_payload_off": int(taunt_off) if taunt_off is not None else 0,
+        "move_304": vals[0],
+        "move_305": vals[1],
+        "move_306": vals[2],
+        "move_307": vals[3],
+        "move_308": vals[4],
+        "move_309": vals[5],
+    }
+
+
+def _vjoe_find_active_selector_graft_off(wrapper_data: bytes) -> int | None:
+    """Find the real VJoe assist graft block inside chr_tbl[426].
+
+    Confirmed live examples put this around wrapper+0x154.  It can be either
+    an already-installed Ryu-style selector table or the original 37 32 / 37 33
+    graftable block.  Return the block start, not the 37 32 tail address.
+    """
+    if not wrapper_data:
+        return None
+
+    candidates: list[tuple[int, int, str]] = []
+    limit = max(0, min(len(wrapper_data) - GENERIC_SELECTOR_TABLE_LEN, 0x700))
+    for idx in range(0, limit + 1):
+        if wrapper_data[idx:idx + 4] != b"\x0F\x06\x00\x27":
+            continue
+
+        source = ""
+        score = 0
+        if _looks_like_generic_native_selector_shape(wrapper_data, idx):
+            source = "installed/native"
+            score += 420
+        elif _looks_like_generic_graft_candidate_shape(wrapper_data, idx):
+            source = "graft-candidate"
+            score += 360
+        elif idx + 0x2C <= len(wrapper_data) and wrapper_data[idx + 0x1C:idx + 0x20] == SELECTOR_TAIL and wrapper_data[idx + 0x24:idx + 0x28] == SELECTOR_COMPANION_TAIL:
+            source = "aligned-tail-pair"
+            score += 260
+        else:
+            continue
+
+        local = wrapper_data[idx:min(len(wrapper_data), idx + 0x120)]
+        if STATE_WRAPPER_PREFIX in local:
+            score += 80
+        if b"\x00\x00\x01\xA8" in wrapper_data[idx:min(len(wrapper_data), idx + 0x300)]:
+            score += 35
+        # Confirmed VJoe grafts are close to +0x154 / +0x170 depending on
+        # whether we are measuring block start or tail address.
+        score -= abs(idx - 0x154) // 4
+        candidates.append((score, idx, source))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+    return int(candidates[0][1])
+
+
+def _vjoe_active_selector_info_for_owner_base(
+    owner_base: int | None,
+    slot_char_ids: dict[int, int] | None = None,
+) -> dict[str, int] | None:
+    """Resolve VJoe by the active 426 wrapper, not by static address ownership."""
+    if owner_base is None:
+        return None
+    if slot_char_ids is None:
+        slot_char_ids = _read_slot_char_ids()
+    if not _is_vjoe_owner_base(owner_base, slot_char_ids):
+        return None
+
+    scored: list[tuple[int, int, dict[str, int]]] = []
+    for chr_tbl_base in _vjoe_candidate_chr_tbl_bases_global():
+        row = _vjoe_chr_tbl_shape_score(chr_tbl_base)
+        if row is None:
+            continue
+        score, info = row
+        # Soft tie-breaker: prefer tables near this owner, but do not require
+        # physical ownership.  That was the old bug.
+        score -= min(abs(int(chr_tbl_base) - int(owner_base)) // 0x4000, 80)
+        scored.append((score, int(chr_tbl_base), info))
+
+    if not scored:
+        return None
+
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    info = dict(scored[0][2])
+    info["owner_base"] = int(owner_base)
+    info["score"] = int(scored[0][0])
+    return info
+
+
+def _collect_vjoe_move_preset_rows_from_chr_tbl(
+    owner_base: int,
+    chr_tbl_base: int,
+    slot_char_ids: dict[int, int],
+) -> list[dict]:
+    """Harvest VJoe presets from the resolved active chr_tbl, even if it spills."""
+    data = _read_mem_region_raw(chr_tbl_base, MOVE_PRESET_SLOT_SIZE)
+    if not data:
+        return []
+
+    cid = VJOE_CHAR_ID
+    char_name = CHAR_ID_TO_KEY.get(cid, "Viewtiful Joe")
+    rows: list[dict] = []
+    seen: set[int] = set()
+    for table_index in range(MOVE_PRESET_CHR_TBL_NUM_ENTRIES - 1):
+        off = table_index * 4
+        if off + 4 > len(data):
+            break
+        entry = _u32be(data, off)
+        if entry is None:
+            continue
+        entry = int(entry)
+        if entry in (0, 0xFFFFFFFF):
+            continue
+        if entry % 4 != 0 or entry < MOVE_PRESET_DATA_START_OFF or entry >= len(data):
+            continue
+        aid = _move_preset_anim_id_after_hdr(data, entry)
+        if not _is_preset_worthy_table_index(table_index, aid, cid):
+            continue
+        if table_index in seen:
+            continue
+        seen.add(table_index)
+
+        name, name_source, is_named = _resolve_move_preset_entry_name(table_index, aid, cid, char_name)
+        if _is_filtered_assist_preset_name(name):
+            continue
+        move_abs = int(chr_tbl_base) + entry
+        low = table_index & 0xFF
+        is_normal = 0x100 <= table_index <= 0x10F and low in MOVE_PRESET_NORMAL_IDS
+        score = 95 if is_normal else 80
+        if is_named:
+            score += 10
+
+        rows.append({
+            "kind": "assist-move-preset",
+            "block": move_abs,
+            "addr": move_abs,
+            "owner": f"VJoe active chr_tbl @0x{int(chr_tbl_base):08X}",
+            "slot": "0x11",
+            "entry": name,
+            "raw": f"0x{entry:08X}",
+            "target": f"0x{move_abs:08X}",
+            "guess": f"point VJoe active wrapper lanes to {name}; chr_tbl[{table_index}] @ 0x{int(chr_tbl_base):08X}",
+            "score": score,
+            "ctx": _fmt_context(data, entry, mark_len=4) if 0 <= entry < len(data) else "",
+            "editable": True,
+            "typ": "assist-move-preset",
+            "selector_word": entry,
+            "move_abs": move_abs,
+            "move_id": aid if aid is not None else table_index,
+            "table_index": table_index,
+            "move_name": name,
+            "move_named": is_named,
+            "name_source": name_source,
+            "owner_base": int(owner_base),
+            "chr_tbl_base": int(chr_tbl_base),
+            "char_id": cid,
+            "source": f"vjoe-active+{name_source}",
+        })
+
+    return rows
+
+def _vjoe_animation_state_writes(
+    owner_base: int | None,
+    raw_val: int | None,
+    info: dict[str, int] | None = None,
+) -> dict[int, bytes]:
+    """Patch VJoe's confirmed visible attack animation state field.
+
+    The semi-working direct/generic paths can affect the object/spawn side,
+    but they leave Joe's baked Shocking Pink pose alone. This companion write
+    updates the state wrapper we already resolved inside the original 426
+    assist route.
+    """
+    if owner_base is None:
+        return {}
+
+    if info is None or not isinstance(info, dict) or not info:
+        info = _vjoe_active_selector_info_for_owner_base(owner_base) or _vjoe_trampoline_info_for_owner_base(owner_base) or {}
+
+    state_addr = int(info.get("state_addr") or 0)
+    if not state_addr:
+        return {}
+
+    if raw_val is None:
+        sid = int(info.get("orig_state") or 0)
+    else:
+        sid = _vjoe_state_id_for_selector_word(owner_base, int(raw_val) & 0xFFFFFFFF) or 0
+
+    if not (0x0001 <= int(sid) <= 0x0500):
+        return {}
+
+    return {state_addr: struct.pack(">H", int(sid) & 0xFFFF)}
+
+
+def _vjoe_trampoline_writes(
+    owner_base: int | None,
+    raw_val: int | None,
+    info: dict[str, int] | None = None,
+) -> dict[int, bytes]:
+    """VJoe-specific static/direct chr_tbl[426] write.
+
+    This intentionally does not touch selector lanes, wrapper operands, or the
+    in-wrapper Shocking Pink package. Selecting a move writes chr_tbl[426]
+    immediately and leaves it there; runtime auto-trigger skips VJoe when
+    VJoe Static Direct is ON.
+    """
+    if owner_base is None:
+        return {}
+
+    if info is None or not isinstance(info, dict) or not info:
+        info = _vjoe_trampoline_info_for_owner_base(owner_base) or {}
+
+    chr_tbl_base = int(info.get("chr_tbl_base") or 0)
+    if not chr_tbl_base:
+        chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base) or 0
+    if not chr_tbl_base:
+        return {}
+
+    table_index = int(info.get("table_index") or ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+    table_entry_addr = chr_tbl_base + (table_index * 4)
+
+    default_word = int(info.get("default_word") or 0)
+    if not default_word:
+        default_word = _chr_tbl_word_for_owner_base(owner_base, table_index) or 0
+    if not default_word:
+        return {}
+
+    word = default_word if raw_val is None else (int(raw_val) & 0xFFFFFFFF)
+    writes = {table_entry_addr: struct.pack(">I", word & 0xFFFFFFFF)}
+    writes.update(_vjoe_animation_state_writes(owner_base, raw_val, info))
+    return writes
+
+
+def _append_vjoe_trampoline_profile(slot_char_ids: dict[int, int], hits: list[dict]) -> None:
+    """Expose VJoe's active in-wrapper selector/graft site.
+
+    Older VJoe experiments exposed chr_tbl[426] directly.  That produced only
+    partial reactions because 426 is an assist wrapper/package.  The useful
+    target is the selector/graft block inside the active 426 wrapper.
+    """
+    for owner_base, cid in slot_char_ids.items():
+        if int(cid) != VJOE_CHAR_ID:
+            continue
+
+        info = _vjoe_active_selector_info_for_owner_base(int(owner_base), slot_char_ids)
+        if not info:
+            # Last-ditch fallback keeps the old diagnostic row visible, but it is
+            # deliberately scored lower and labelled as fallback.
+            info = _vjoe_trampoline_info_for_owner_base(owner_base)
+            if not info:
+                continue
+            info = dict(info)
+            info["graft_addr"] = int(info.get("wrapper_addr", 0))
+            info["fallback_static"] = 1
+
+        idx = _slot_index_for_base(int(owner_base))
+        cid_name = CHAR_ID_TO_KEY.get(int(cid), "?")
+        owner = f"S{idx if idx is not None else '?'} {cid_name} @0x{int(owner_base):08X}"
+        slot = f"0x{int(cid):02X}"
+
+        graft_addr = int(info.get("graft_addr") or 0)
+        if not graft_addr:
+            continue
+        current_block = _read_mem_region_raw(graft_addr, GENERIC_SELECTOR_TABLE_LEN)
+        if not current_block or len(current_block) != GENERIC_SELECTOR_TABLE_LEN:
+            continue
+
+        words: list[int] = []
+        if current_block.startswith(GENERIC_SELECTOR_SETUP_PREFIX):
+            for off in GENERIC_SELECTOR_WORD_OFFSETS:
+                raw = _u32be(current_block, off)
+                if raw is not None:
+                    words.append(int(raw))
+        if len(words) != len(GENERIC_SELECTOR_WORD_OFFSETS):
+            words = [0, 1, 2]
+
+        chr_tbl_base = int(info.get("chr_tbl_base") or 0)
+        raw_txt = _flat_selector_raw(words)
+        if words and all(w == words[0] for w in words) and chr_tbl_base and words[0] <= MOVE_PRESET_SLOT_SIZE:
+            target_txt = f"0x{chr_tbl_base + int(words[0]):08X}"
+        else:
+            target_txt = "default"
+        entry = _flat_selector_entry_label(int(owner_base), words, slot_char_ids, "VJoe active assist")
+
+        hits.append({
+            "kind": "vjoe-active-selector-word",
+            "block": graft_addr,
+            "addr": graft_addr + GENERIC_SELECTOR_WORD_OFFSETS[0],
+            "owner": owner,
+            "slot": slot,
+            "entry": entry,
+            "raw": raw_txt,
+            "target": target_txt,
+            "guess": (
+                "VJoe active wrapper graft: preserves chr_tbl[426]/hop/taunt; writes the in-wrapper selector lanes"
+            ),
+            "score": 1500 if not int(info.get("fallback_static", 0)) else 500,
+            "ctx": (
+                f"chr_tbl=0x{chr_tbl_base:08X}; "
+                f"wrapper=0x{int(info.get('wrapper_addr', 0)):08X}; "
+                f"graft=0x{graft_addr:08X}; "
+                f"orig426=0x{int(info.get('default_word', 0)):08X}; "
+                f"score={int(info.get('score', 0))}"
+            ),
+            "editable": True,
+            "typ": "u32-generic-selector",
+            "owner_base": int(owner_base),
+            "char_id": VJOE_CHAR_ID,
+            "vjoe_info": dict(info),
+            "selector_words": words,
+            "table_raw": current_block.hex(" ").upper(),
+            "source": "vjoe-active-wrapper" if not int(info.get("fallback_static", 0)) else "vjoe-fallback-static",
+        })
+
 
 
 def _move_preset_anim_id_after_hdr(data: bytes, off: int) -> int | None:
@@ -2347,6 +2984,9 @@ def _run_scan(progress_cb, done_cb):
         addr += sz
 
     # Move presets are harvested on demand from the selector-lane chooser.
+    # VJoe is a compiled projectile-assist package, so expose a dedicated
+    # trampoline row instead of relying on generic selector/anchor guesses.
+    _append_vjoe_trampoline_profile(slot_char_ids, hits)
 
     seen = set()
     uniq = []
@@ -2360,6 +3000,14 @@ def _run_scan(progress_cb, done_cb):
     # Keep the friendly flat view to one generic candidate per non-Ryu/non-Chun
     # character slot. Native/installed wins, then clean graft-candidate, then
     # loose tail-pair. This prevents the experimental fallback from spamming.
+    # VJoe now has its own active-wrapper row; hide the older generic/static
+    # VJoe row so the UI shows one VJoe profile only.
+    vjoe_active_owner_bases = {
+        int(h.get("owner_base") or 0)
+        for h in uniq
+        if h.get("kind") == "vjoe-active-selector-word"
+        and int(h.get("owner_base") or 0)
+    }
     best_generic: dict[int, dict] = {}
     filtered = []
     for h in uniq:
@@ -2368,6 +3016,10 @@ def _run_scan(progress_cb, done_cb):
             continue
         owner_base = _owning_chr_tbl(int(h.get("block", 0)))
         if owner_base is None:
+            continue
+        # Do not also show stale/old generic VJoe rows when the resolved
+        # active-wrapper VJoe row is present for that slot.
+        if int(owner_base) in vjoe_active_owner_bases:
             continue
         old = best_generic.get(owner_base)
         if old is None:
@@ -2415,6 +3067,8 @@ def _run_scan(progress_cb, done_cb):
             "generic-native-table": 4,
             "generic-graft-table": 5,
             "generic-selector-word": 6,
+            "vjoe-trampoline-word": 6,
+            "vjoe-active-selector-word": 6,
             "assist-move-preset": 7,
             "selector-chain": 8,
             "selector-loose": 5,
@@ -2449,6 +3103,8 @@ class AssistScannerWindow:
         self._auto_reapply_enabled = True
         self._auto_reapply_after_id = None
         self._auto_btn = None
+        self._vjoe_static_direct_enabled = True
+        self._vjoe_static_btn = None
         self._runtime_move_offset: tuple[int, int] | None = None  # (offset, width)
         self._runtime_last_profile_key: int | None = None
         # Main-HUD driven runtime switch. main.py already knows each fighter's
@@ -2472,17 +3128,13 @@ class AssistScannerWindow:
         self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
         self._scan_btn.pack(side="right")
 
-        self._route_restore_btn = ttk.Button(top, text="Restore Chun Original", command=self._restore_chun_selector_block)
-        self._route_restore_btn.pack(side="right", padx=(0, 8))
-
-        self._ryu_restore_btn = ttk.Button(top, text="Restore Ryu Selector", command=self._restore_ryu_selector_block)
-        self._ryu_restore_btn.pack(side="right", padx=(0, 8))
 
         self._dump_slots_btn = ttk.Button(top, text="Dump Char Slots", command=self._dump_char_slots)
         self._dump_slots_btn.pack(side="right", padx=(0, 8))
 
         self._auto_btn = ttk.Button(top, text="Auto Assist Trigger: ON", command=self._toggle_auto_reapply)
         self._auto_btn.pack(side="right", padx=(0, 8))
+
 
         self._prog = tk.DoubleVar()
         ttk.Progressbar(self.root, variable=self._prog, maximum=100).pack(fill="x", padx=8, pady=(0, 4))
@@ -2548,6 +3200,7 @@ class AssistScannerWindow:
                     "u32-ryu-selector-graft",
                     "u32-generic-selector",
                     "u32-anchored-assist-fallback",
+                    "u32-vjoe-trampoline",
                 ):
                     self._record_default_slot_profile(h)
             self._scanning = False
@@ -3081,11 +3734,32 @@ class AssistScannerWindow:
             and not _is_filtered_assist_preset_name(str(h.get("move_name", "")))
         ]
 
+        # VJoe's active chr_tbl can live outside the static owner window.  Add
+        # rows from the resolved active table first, then let the normal
+        # de-duplication/ranking collapse stale copies.
+        active_vjoe = _vjoe_active_selector_info_for_owner_base(owner_base, slot_char_ids)
+        if active_vjoe and int(active_vjoe.get("chr_tbl_base") or 0):
+            active_rows = _collect_vjoe_move_preset_rows_from_chr_tbl(
+                int(owner_base),
+                int(active_vjoe["chr_tbl_base"]),
+                slot_char_ids,
+            )
+            if active_rows:
+                rows = active_rows + [
+                    row for row in rows
+                    if int(row.get("chr_tbl_base") or 0) != int(active_vjoe["chr_tbl_base"])
+                ]
+
         # Multiple valid-looking chr_tbl copies can exist inside one character
         # slot. Only one is the selector base the assist VM actually uses.
         # Duplicate visible rows usually mean the same table_index was harvested
         # from a stale/secondary chr_tbl copy. Prefer the active runtime base.
-        preferred_base = _runtime_chr_tbl_base_for_owner_base(owner_base)
+        active_vjoe_for_preferred = _vjoe_active_selector_info_for_owner_base(owner_base, slot_char_ids)
+        preferred_base = (
+            int(active_vjoe_for_preferred["chr_tbl_base"])
+            if active_vjoe_for_preferred and int(active_vjoe_for_preferred.get("chr_tbl_base") or 0)
+            else _runtime_chr_tbl_base_for_owner_base(owner_base)
+        )
 
         if preferred_base is not None:
             preferred_rows = [
@@ -3647,6 +4321,17 @@ class AssistScannerWindow:
             return
         raw_val, apply_all = choice
         if raw_val is None:
+            # VJoe generic/direct rows may have also patched the visible
+            # animation state. Restore that state when returning this profile
+            # to default.
+            if int(h.get("char_id") or 0) == VJOE_CHAR_ID or _is_vjoe_owner_base(
+                int(h.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+            ):
+                owner_base = int(h.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+                state_writes = _vjoe_animation_state_writes(owner_base, None)
+                if state_writes:
+                    self._write_many(state_writes, "Restored VJoe visible attack animation state.")
+
             self._record_slot_profile(h, None, "default")
             h["entry"] = "default"
             h["raw"] = "default"
@@ -3714,7 +4399,7 @@ class AssistScannerWindow:
         )
 
 
-    def _choose_generic_selector_value(self, addr: int, current: str, source: str) -> tuple[int, bool] | None:
+    def _choose_generic_selector_value(self, addr: int, current: str, source: str, owner_base_override: int | None = None) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": True}
         dlg = tk.Toplevel(self.root)
         dlg.title("Choose generic selector word")
@@ -3731,7 +4416,8 @@ class AssistScannerWindow:
             text=(
                 f"Address: 0x{addr:08X}\n"
                 f"Current: {current}\n"
-                f"Source: {source}\n\n"
+                f"Source: {source}\n"
+                f"Preset owner: 0x{(int(owner_base_override) if owner_base_override else (_owning_chr_tbl(addr) or 0)):08X}\n\n"
                 "Choose a loaded preset or enter a custom selector word. "
                 "The generic selector setup is installed before writing."
             ),
@@ -3758,7 +4444,7 @@ class AssistScannerWindow:
             dlg.destroy()
 
         def choose_loaded_move():
-            owner_base = _owning_chr_tbl(addr)
+            owner_base = int(owner_base_override) if owner_base_override else _owning_chr_tbl(addr)
             if owner_base is None:
                 messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
                 return
@@ -3850,13 +4536,84 @@ class AssistScannerWindow:
 
         return _build_generic_selector_graft_block(tuple(words), arg32, arg33)
 
+    def _apply_vjoe_trampoline_word(self, h: dict) -> None:
+        lane_addr = int(h["addr"])
+        source = str(h.get("source", "vjoe-static-426"))
+        current = str(h.get("raw", "default"))
+
+        owner_base = int(h.get("owner_base") or (_owning_chr_tbl(lane_addr) or 0))
+        choice = self._choose_generic_selector_value(lane_addr, current, source, owner_base)
+        if choice is None:
+            return
+        raw_val, _apply_all = choice
+
+        info = dict(h.get("vjoe_info") or {})
+        writes = _vjoe_trampoline_writes(owner_base, raw_val, info)
+        if not writes:
+            messagebox.showerror(
+                "VJoe static direct failed",
+                "Could not resolve VJoe chr_tbl[426] for static/direct patch.",
+                parent=self.root,
+            )
+            return
+
+        if raw_val is None:
+            ok = self._write_many(writes, "Restored VJoe chr_tbl[426] to the original assist attack route.")
+            if not ok:
+                return
+            self._record_slot_profile(h, None, "default")
+            h["entry"] = "VJoe default"
+            h["raw"] = "default"
+            h["target"] = f"orig 0x{int(info.get('default_word', 0)):08X}"
+            h["guess"] = "VJoe static direct default; chr_tbl[426] restores original route"
+            self._status.set("Stored VJoe default profile; chr_tbl[426] restored immediately.")
+        else:
+            ok = self._write_many(
+                writes,
+                f"VJoe static direct wrote chr_tbl[426] -> 0x{int(raw_val) & 0xFFFFFFFF:08X}."
+            )
+            if not ok:
+                return
+            self._record_slot_profile(h, int(raw_val), "VJoe static 426")
+            slot_char_ids = _read_slot_char_ids()
+            name = _flat_selector_entry_label(owner_base, [int(raw_val)], slot_char_ids, "VJoe selected move")
+            h["entry"] = name
+            h["raw"] = f"0x{int(raw_val) & 0xFFFFFFFF:08X}"
+            sid = _vjoe_state_id_for_selector_word(owner_base, int(raw_val))
+            state_txt = f"; state 0x{int(sid):04X}" if sid is not None else "; state unchanged"
+            h["target"] = f"chr_tbl[426] <- 0x{int(raw_val) & 0xFFFFFFFF:08X}" + state_txt
+            h["guess"] = "VJoe static/direct active; route/spawn path plus visible attack state are patched"
+
+        for iid, row in self._hit_by_iid.items():
+            if row is h or (
+                str(row.get("typ", "")) == "u32-vjoe-trampoline"
+                and int(row.get("owner_base") or 0) == owner_base
+            ):
+                row["entry"] = h["entry"]
+                row["raw"] = h["raw"]
+                row["target"] = h["target"]
+                row["guess"] = h["guess"]
+                self._tree.set(iid, "entry", row["entry"])
+                self._tree.set(iid, "raw", row["raw"])
+                self._tree.set(iid, "target", row["target"])
+                self._tree.set(iid, "guess", row["guess"])
+
+        self._status.set(
+            "VJoe static-direct profile stored and written immediately. Auto Assist Trigger will skip VJoe while VJoe Static Direct is ON."
+        )
+
+
+
     def _apply_generic_selector_word(self, h: dict) -> None:
         graft_addr = int(h["block"])
         lane_addr = int(h["addr"])
         source = str(h.get("source", "unknown"))
         current = str(h.get("raw", "0x00000000"))
 
-        choice = self._choose_generic_selector_value(lane_addr, current, source)
+        owner_override = None
+        if int(h.get("char_id") or 0) == VJOE_CHAR_ID or str(h.get("source", "")).startswith("vjoe-"):
+            owner_override = int(h.get("owner_base") or 0) or None
+        choice = self._choose_generic_selector_value(lane_addr, current, source, owner_override)
         if choice is None:
             return
         raw_val, apply_all = choice
@@ -3938,8 +4695,13 @@ class AssistScannerWindow:
             messagebox.showerror("Generic graft failed", str(e), parent=self.root)
             return
 
+        writes = {graft_addr: block}
+        owner_base_for_state = int(h.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+        if int(h.get("char_id") or 0) == VJOE_CHAR_ID or _is_vjoe_owner_base(owner_base_for_state):
+            writes.update(_vjoe_animation_state_writes(owner_base_for_state, int(raw_val)))
+
         ok = self._write_many(
-            {graft_addr: block},
+            writes,
             f"Installed generic selector table at 0x{graft_addr:08X} and wrote selector 0x{raw_val:08X}."
         )
         if not ok:
@@ -4368,8 +5130,15 @@ class AssistScannerWindow:
                 except Exception:
                     block = b""
                 if len(block) == GENERIC_SELECTOR_TABLE_LEN:
-                    return {graft_addr: block}
+                    writes = {graft_addr: block}
+                    owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+                    if int(row.get("char_id") or 0) == VJOE_CHAR_ID or _is_vjoe_owner_base(owner_base):
+                        writes.update(_vjoe_animation_state_writes(owner_base, None, dict(row.get("vjoe_info") or {})))
+                    return writes
                 return {}
+            if typ == "u32-vjoe-trampoline":
+                owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+                return _vjoe_trampoline_writes(owner_base, None, dict(row.get("vjoe_info") or {}))
             return {}
 
         payload = struct.pack(">I", int(raw_val) & 0xFFFFFFFF)
@@ -4399,13 +5168,21 @@ class AssistScannerWindow:
         if typ == "u32-generic-selector":
             source = str(row.get("source", "unknown"))
             block = self._generic_block_args_and_words(graft_addr, source, int(raw_val), True, lane_addr)
-            return {graft_addr: block}
+            writes = {graft_addr: block}
+            owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+            if int(row.get("char_id") or 0) == VJOE_CHAR_ID or _is_vjoe_owner_base(owner_base):
+                writes.update(_vjoe_animation_state_writes(owner_base, int(raw_val), dict(row.get("vjoe_info") or {})))
+            return writes
+
+        if typ == "u32-vjoe-trampoline":
+            owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+            return _vjoe_trampoline_writes(owner_base, int(raw_val), dict(row.get("vjoe_info") or {}))
 
         return {}
 
 
     def _update_flat_row_display(self, row: dict, raw_val: int) -> None:
-        owner_base = _owning_chr_tbl(int(row.get("addr", row.get("block", 0))))
+        owner_base = int(row.get("owner_base") or 0) or _owning_chr_tbl(int(row.get("addr", row.get("block", 0))))
         slot_char_ids = _read_slot_char_ids()
         raw_val = int(raw_val) & 0xFFFFFFFF
         row["raw"] = f"0x{raw_val:08X}"
@@ -4417,7 +5194,7 @@ class AssistScannerWindow:
         for iid, row in self._hit_by_iid.items():
             if int(row.get("block", -1)) != int(graft_addr):
                 continue
-            if row.get("typ") not in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector", "u32-anchored-assist-fallback"):
+            if row.get("typ") not in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector", "u32-anchored-assist-fallback", "u32-vjoe-trampoline"):
                 continue
             self._update_flat_row_display(row, raw_val)
             self._tree.set(iid, "entry", row["entry"])
@@ -4574,71 +5351,97 @@ class AssistScannerWindow:
             pass
 
     def _runtime_patch_from_main(self, snaps: dict) -> None:
-            if not self._auto_reapply_enabled:
-                return
-            if not self._slot_assist_profiles:
-                return
-            if not isinstance(snaps, dict):
-                return
+        if not self._auto_reapply_enabled:
+            return
+        if not self._slot_assist_profiles:
+            return
+        if not isinstance(snaps, dict):
+            return
 
-            ordered_keys = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
-            ordered_keys.extend(k for k in snaps.keys() if k not in ordered_keys)
+        ordered_keys = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
+        ordered_keys.extend(k for k in snaps.keys() if k not in ordered_keys)
 
-            for slot_label in ordered_keys:
-                snap = snaps.get(slot_label)
-                if not snap:
-                    continue
-                try:
-                    fighter_base = int(snap.get("base") or 0)
-                except Exception:
-                    fighter_base = 0
-                if not fighter_base:
-                    continue
+        for slot_label in ordered_keys:
+            snap = snaps.get(slot_label)
+            if not snap:
+                continue
+            try:
+                fighter_base = int(snap.get("base") or 0)
+            except Exception:
+                fighter_base = 0
+            if not fighter_base:
+                continue
 
-                is_attack = self._snap_is_assist_attack(snap)
-                state = self._snap_assist_state_id(snap)
-                was_attack = bool(self._main_last_assist_attack_by_base.get(fighter_base, False))
-                self._main_last_assist_attack_by_base[fighter_base] = bool(is_attack)
+            state = self._snap_assist_state_id(snap)
 
-                # Only act on the rising edge: first frame entering assist attack.
-                # Holding assist attack must not re-write; that would clobber the
-                # other duplicate's profile the moment it fires its own assist.
-                if not is_attack or was_attack:
-                    continue
+            profile = self._slot_assist_profiles.get(fighter_base)
+            if profile is None:
+                # Non-duplicate path: profile keyed on owner_base (CHR_TBL slot index).
+                fi = next((i for i, b in enumerate(_FIGHTER_BASES) if b == fighter_base), None)
+                if fi is not None and fi < len(_CHR_TBL_BASES):
+                    profile = self._slot_assist_profiles.get(_CHR_TBL_BASES[fi])
 
-                profile = self._slot_assist_profiles.get(fighter_base)
-                if profile is None:
-                    # Non-duplicate path: profile keyed on owner_base (CHR_TBL slot index).
-                    fi = next((i for i, b in enumerate(_FIGHTER_BASES) if b == fighter_base), None)
-                    if fi is not None and fi < len(_CHR_TBL_BASES):
-                        profile = self._slot_assist_profiles.get(_CHR_TBL_BASES[fi])
-                if not profile:
+            is_attack = self._snap_is_assist_attack(snap)
+            was_attack = bool(self._main_last_assist_attack_by_base.get(fighter_base, False))
+            self._main_last_assist_attack_by_base[fighter_base] = bool(is_attack)
+
+            if not profile:
+                if is_attack and not was_attack:
                     msg_key = (fighter_base, int(state or -1))
                     if self._main_last_patch_key != msg_key:
                         self._main_last_patch_key = msg_key
                         self._set_runtime_status_from_main(
                             f"Auto Assist Trigger ON - {slot_label} assist attack edge, no profile for 0x{fighter_base:08X}."
                         )
-                    continue
+                continue
 
-                raw_obj = profile.get("word", None)
-                raw_val = None if raw_obj is None else (int(raw_obj) & 0xFFFFFFFF)
+            row = dict(profile.get("row", {}) or {})
+            typ = str(row.get("typ", ""))
+            char_id = int(profile.get("char_id") or row.get("char_id") or 0)
+            is_vjoe_static = (char_id == VJOE_CHAR_ID or typ == "u32-vjoe-trampoline")
 
-                if self._apply_profile_silent(profile):
-                    patch_key = (fighter_base, -1 if raw_val is None else raw_val)
-                    if self._main_last_patch_key != patch_key:
-                        self._main_last_patch_key = patch_key
-                        row = dict(profile.get("row", {}) or {})
-                        fighter_label = row.get("fighter_label") or slot_label
-                        label = str(profile.get("label", "assist"))
-                        word_txt = "default" if raw_val is None else f"0x{raw_val:08X}"
-                        self._set_runtime_status_from_main(
-                            f"Auto Assist Trigger ON - {fighter_label} assist attack edge; wrote {label} {word_txt}."
-                        )
-                else:
+            if is_vjoe_static and bool(getattr(self, "_vjoe_static_direct_enabled", True)):
+                # VJoe static-direct mode is intentionally not runtime-driven.
+                # The selected chr_tbl[426] value is written immediately when chosen
+                # and left at rest. The 430 standby/prearm path tested worse.
+                continue
+
+            # Normal selector/graft characters can still patch on the 426
+            # assist-attack edge because their selector is read inside 426.
+            # If VJoe Static Direct is OFF, VJoe also falls through to this older
+            # attack-edge behavior as a comparison/debug path.
+            if not is_attack or was_attack:
+                continue
+            event_text = "assist attack edge"
+
+            raw_obj = profile.get("word", None)
+            raw_val = None if raw_obj is None else (int(raw_obj) & 0xFFFFFFFF)
+
+            if self._apply_profile_silent(profile):
+                patch_key = (fighter_base, -1 if raw_val is None else raw_val, int(state or -1), 1 if is_vjoe_static else 0)
+                if self._main_last_patch_key != patch_key:
+                    self._main_last_patch_key = patch_key
+                    fighter_label = row.get("fighter_label") or slot_label
+                    prof_label = str(profile.get("label", "assist"))
+                    word_txt = "default" if raw_val is None else f"0x{raw_val:08X}"
                     self._set_runtime_status_from_main(
-                        f"Auto Assist Trigger ON - {slot_label} assist attack edge, write failed."
+                        f"Auto Assist Trigger ON - {fighter_label} {event_text}; wrote {prof_label} {word_txt}."
                     )
+            else:
+                self._set_runtime_status_from_main(
+                    f"Auto Assist Trigger ON - {slot_label} {event_text}, write failed."
+                )
+
+    def _toggle_vjoe_static_direct(self) -> None:
+        self._vjoe_static_direct_enabled = not bool(getattr(self, "_vjoe_static_direct_enabled", True))
+        if self._vjoe_static_btn is not None:
+            self._vjoe_static_btn.config(
+                text="VJoe Static Direct: ON" if self._vjoe_static_direct_enabled else "VJoe Static Direct: OFF"
+            )
+        if self._vjoe_static_direct_enabled:
+            self._status.set("VJoe Static Direct ON - selected VJoe chr_tbl[426] is written immediately and not prearmed on 430.")
+        else:
+            self._status.set("VJoe Static Direct OFF - VJoe falls back to normal attack-edge auto patching for comparison.")
 
     def _toggle_auto_reapply(self) -> None:
         self._auto_reapply_enabled = not bool(self._auto_reapply_enabled)
@@ -4650,7 +5453,7 @@ class AssistScannerWindow:
             self._main_last_patch_key = None
             self._main_last_assist_attack_by_base.clear()
             self._main_patch_latch_by_base.clear()
-            self._status.set("Auto Assist Trigger ON - main.py only; patches the shared table when a configured fighter enters assist attack.")
+            self._status.set("Auto Assist Trigger ON - main.py only; patches VJoe on standby 430 and others on assist attack.")
         else:
             self._status.set("Auto Assist Trigger OFF")
 
@@ -4681,6 +5484,10 @@ class AssistScannerWindow:
 
         if typ == "u32-ryu-selector-graft":
             self._apply_ryu_selector_word(h)
+            return
+
+        if typ == "u32-vjoe-trampoline":
+            self._apply_vjoe_trampoline_word(h)
             return
 
         if typ in ("u32-generic-selector", "u32-anchored-assist-fallback"):
