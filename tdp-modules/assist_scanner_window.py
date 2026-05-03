@@ -156,6 +156,22 @@ VJOE_TRAMPOLINE_STATE_BY_TABLE_INDEX = {
     306: 0x0114,  # Voomerang C
 }
 
+# Tatsunoko fallback class. These characters do not always expose a clean
+# Ryu/Chun-style selector block. For them, the assist hop-in is handled by
+# standby/430, while chr_tbl[426] is the attack route. A wrapper-preserving row patches the active chr_tbl[426]
+# wrapper operands instead of trusting the broad slot base. This avoids fake
+# direct rows when the real chr_tbl sits shortly before the nominal slot.
+TATSUNOKO_DIRECT_426_CHAR_IDS = {
+    1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 26, 27, 28,
+}
+DIRECT_426_TABLE_INDEX = 426
+# Tatsunoko assists use the same 430 -> 426 -> taunt -> leave flow, but the
+# first visible attack body starts inside the 426 wrapper around +0x154.
+# Patching the later anchored call makes Casshan do default first, then the
+# selected move. Graft at the attack-body start instead.
+TATSUNOKO_WRAPPER_GRAFT_OFF = 0x154
+TATSUNOKO_WRAPPER_GRAFT_SCAN_END = 0x380
+
 
 CHAR_ID_TO_KEY = {
     1: "Ken the Eagle", 2: "Casshan", 3: "Tekkaman", 4: "Polimar",
@@ -251,6 +267,10 @@ GENERIC_SELECTOR_MANUAL_PRESETS = [
 MOVE_PRESET_CHR_TBL_NUM_ENTRIES = 705
 MOVE_PRESET_DATA_START_OFF = 0x3600
 MOVE_PRESET_SLOT_SIZE = 0x90000
+# Some Tatsunoko/Capcom runtime chr_tbls are laid down shortly before
+# the nominal broad slot base. Scan back far enough to catch the active
+# table instead of falling back to random script bytes at the broad base.
+CHR_TBL_PRE_START_BACK = 0x12000
 MOVE_PRESET_LOOKAHEAD = 0x80
 MOVE_PRESET_ENTRY_OFFSETS = (0x00, 0x10, 0x20, 0x40, 0x70, 0x90)
 MOVE_PRESET_ANIM_HDR = bytes.fromhex("04 01 60 00 00 00 01 E8 3F 00 00 00")
@@ -307,7 +327,15 @@ def _is_filtered_assist_preset_name(name: str | None) -> bool:
     normalized = "".join(ch if ch.isalnum() else " " for ch in s)
     tokens = set(normalized.split())
 
-    if tokens.intersection({"idle", "landing", "filler"}):
+    # Movement/system labels are real frame-data names, but they are noise for
+    # the assist move picker. Tekkaman exposed a table where many low entries
+    # resolved as "backward", which pushed every useful 304+ move off-screen.
+    movement_noise = {
+        "backward", "forward", "walk", "run", "dash", "jump",
+        "turn", "stand", "crouch", "guard", "block", "wait",
+        "neutral", "landing", "idle", "filler",
+    }
+    if s in movement_noise or tokens.intersection({"idle", "landing", "filler"}):
         return True
 
     if "air dash" in s or "airdash" in s:
@@ -658,6 +686,7 @@ def _expand_selector_hits_to_fighter_rows(hits: list[dict]) -> list[dict]:
         "u32-generic-selector",
         "u32-anchored-assist-fallback",
         "u32-vjoe-trampoline",
+        "u32-direct-426-fallback",
     }
 
     for h in hits:
@@ -1556,7 +1585,7 @@ def _find_runtime_chr_tbl_base_for_region(region_base: int) -> int | None:
     next_bases = [b for b in _CHR_TBL_BASES if b > region_base]
     slot_end = min(region_base + MOVE_PRESET_SLOT_SIZE, min(next_bases) if next_bases else region_base + MOVE_PRESET_SLOT_SIZE)
 
-    scan_start = max(SCAN_START, region_base - 0x40)
+    scan_start = max(SCAN_START, region_base - CHR_TBL_PRE_START_BACK)
     scan_size = max(0, slot_end - scan_start)
     data = _read_mem_region_raw(scan_start, scan_size)
     if not data:
@@ -1574,7 +1603,7 @@ def _find_runtime_chr_tbl_base_for_region(region_base: int) -> int | None:
         if not _looks_like_chr_tbl_at(data, tbl_idx):
             continue
         cand = scan_start + tbl_idx
-        if region_base - 0x100 <= cand < slot_end:
+        if region_base - CHR_TBL_PRE_START_BACK <= cand < slot_end:
             candidates.append(cand)
 
     if not candidates:
@@ -1604,7 +1633,7 @@ def _find_runtime_chr_tbl_bases_for_region(region_base: int) -> list[int]:
     next_bases = [b for b in _CHR_TBL_BASES if b > region_base]
     slot_end = min(region_base + MOVE_PRESET_SLOT_SIZE, min(next_bases) if next_bases else region_base + MOVE_PRESET_SLOT_SIZE)
 
-    scan_start = max(SCAN_START, region_base - 0x40)
+    scan_start = max(SCAN_START, region_base - CHR_TBL_PRE_START_BACK)
     scan_size = max(0, slot_end - scan_start)
     data = _read_mem_region_raw(scan_start, scan_size)
     if not data:
@@ -1616,7 +1645,7 @@ def _find_runtime_chr_tbl_bases_for_region(region_base: int) -> list[int]:
         if not _looks_like_chr_tbl_at(data, tbl_idx):
             return
         cand = scan_start + tbl_idx
-        if region_base - 0x100 <= cand < slot_end:
+        if region_base - CHR_TBL_PRE_START_BACK <= cand < slot_end:
             candidates.append(cand)
 
     # Preferred path: the normal chr_tbl label sits 0x18 bytes before the table.
@@ -1649,9 +1678,22 @@ def _find_runtime_chr_tbl_bases_for_region(region_base: int) -> list[int]:
     # base with no readable label in this pass.
     add_candidate(region_base - scan_start)
 
+    def candidate_rank(cand: int) -> tuple[int, int, int]:
+        # The backward scan can see the previous character's spillover table.
+        # Prefer tables at/after this owner base; only use pre-base tables when
+        # there is no table after the owner. This fixes Tekkaman being resolved
+        # to the prior slot's chr_tbl while still allowing true pre-base tables.
+        if int(cand) == int(region_base):
+            band = 0
+        elif int(cand) > int(region_base):
+            band = 1
+        else:
+            band = 2
+        return (band, abs(int(cand) - int(region_base)), int(cand))
+
     out: list[int] = []
     seen: set[int] = set()
-    for cand in sorted(candidates):
+    for cand in sorted(candidates, key=candidate_rank):
         if cand in seen:
             continue
         seen.add(cand)
@@ -2269,6 +2311,99 @@ def _collect_vjoe_move_preset_rows_from_chr_tbl(
 
     return rows
 
+
+def _collect_move_preset_rows_from_chr_tbl_base(
+    owner_base: int,
+    chr_tbl_base: int,
+    char_id: int | None,
+    slot_char_ids: dict[int, int],
+    source_prefix: str = "forced-chr_tbl",
+) -> list[dict]:
+    """Harvest presets from an explicitly resolved chr_tbl base.
+
+    This is the row-specific escape hatch for spillover characters. Tekkaman's
+    active wrapper row can resolve from a chr_tbl that sits before/away from the
+    nominal owner window, while the generic preset picker only knew the owner
+    base. Passing the row's resolved chr_tbl here avoids the empty preset list
+    and avoids harvesting stale movement/system tables.
+    """
+    data = _read_mem_region_raw(int(chr_tbl_base), MOVE_PRESET_SLOT_SIZE)
+    if not data:
+        return []
+
+    cid = int(char_id) if char_id is not None else int(slot_char_ids.get(int(owner_base), 0) or 0)
+    char_name = CHAR_ID_TO_KEY.get(cid, "")
+    rows: list[dict] = []
+    seen: set[int] = set()
+
+    for table_index in range(MOVE_PRESET_CHR_TBL_NUM_ENTRIES - 1):
+        off = table_index * 4
+        if off + 4 > len(data):
+            break
+        entry = _u32be(data, off)
+        if entry is None:
+            continue
+        entry = int(entry)
+        if entry in (0, 0xFFFFFFFF):
+            continue
+        if entry % 4 != 0 or entry < MOVE_PRESET_DATA_START_OFF or entry >= len(data):
+            continue
+
+        aid = _move_preset_anim_id_after_hdr(data, entry)
+        if not _is_preset_worthy_table_index(table_index, aid, cid):
+            continue
+        if table_index in seen:
+            continue
+        seen.add(table_index)
+
+        name, name_source, is_named = _resolve_move_preset_entry_name(table_index, aid, cid, char_name)
+        if _is_filtered_assist_preset_name(name):
+            # Do not throw away priority-band moves just because the external
+            # name map mislabeled them as movement. Fall back to a stable table
+            # label so 304+ entries still appear and can be tested.
+            if 304 <= table_index <= 368 or 510 <= table_index <= 520 or 256 <= table_index <= 270:
+                name = f"move 0x{table_index:03X}"
+                name_source = "fallback"
+                is_named = False
+            else:
+                continue
+
+        move_abs = int(chr_tbl_base) + entry
+        low = table_index & 0xFF
+        is_normal = 0x100 <= table_index <= 0x10F and low in MOVE_PRESET_NORMAL_IDS
+        score = 95 if is_normal else 80
+        if is_named:
+            score += 10
+
+        rows.append({
+            "kind": "assist-move-preset",
+            "block": move_abs,
+            "addr": move_abs,
+            "owner": f"{CHAR_ID_TO_KEY.get(cid, 'char')} chr_tbl @0x{int(chr_tbl_base):08X}",
+            "slot": f"0x{cid:02X}" if cid else "?",
+            "entry": name,
+            "raw": f"0x{entry:08X}",
+            "target": f"0x{move_abs:08X}",
+            "guess": f"point row graft lanes to {name}; chr_tbl[{table_index}] @ 0x{int(chr_tbl_base):08X}",
+            "score": score,
+            "ctx": _fmt_context(data, entry, mark_len=4) if 0 <= entry < len(data) else "",
+            "editable": True,
+            "typ": "assist-move-preset",
+            "selector_word": entry,
+            "move_abs": move_abs,
+            "move_id": aid if aid is not None else table_index,
+            "table_index": table_index,
+            "move_name": name,
+            "move_named": is_named,
+            "name_source": name_source,
+            "owner_base": int(owner_base),
+            "chr_tbl_base": int(chr_tbl_base),
+            "char_id": cid,
+            "source": f"{source_prefix}+{name_source}",
+        })
+
+    return rows
+
 def _vjoe_animation_state_writes(
     owner_base: int | None,
     raw_val: int | None,
@@ -2424,6 +2559,235 @@ def _append_vjoe_trampoline_profile(slot_char_ids: dict[int, int], hits: list[di
 
 
 
+def _is_tatsunoko_direct_426_char_id(cid: int | None) -> bool:
+    try:
+        return int(cid) in TATSUNOKO_DIRECT_426_CHAR_IDS
+    except Exception:
+        return False
+
+
+def _direct_426_info_for_owner_base(owner_base: int | None, slot_char_ids: dict[int, int] | None = None) -> dict[str, int] | None:
+    """Resolve a direct chr_tbl[426] fallback row for Tatsunoko characters."""
+    if owner_base is None:
+        return None
+    owner_base = int(owner_base)
+    if slot_char_ids is None:
+        slot_char_ids = _read_slot_char_ids()
+    cid = int(slot_char_ids.get(owner_base, -1))
+    if not _is_tatsunoko_direct_426_char_id(cid):
+        return None
+
+    chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base)
+    if chr_tbl_base is None:
+        return None
+
+    default_word = _chr_tbl_word_for_owner_base(owner_base, DIRECT_426_TABLE_INDEX)
+    if default_word is None:
+        return None
+    default_word = int(default_word) & 0xFFFFFFFF
+    if default_word <= 0 or default_word >= MOVE_PRESET_SLOT_SIZE:
+        return None
+
+    return {
+        "owner_base": owner_base,
+        "char_id": cid,
+        "chr_tbl_base": int(chr_tbl_base),
+        "table_index": DIRECT_426_TABLE_INDEX,
+        "table_entry_addr": int(chr_tbl_base) + DIRECT_426_TABLE_INDEX * 4,
+        "default_word": default_word,
+        "default_target": int(chr_tbl_base) + default_word,
+    }
+
+
+def _direct_426_writes(owner_base: int | None, raw_val: int | None, info: dict | None = None) -> dict[int, bytes]:
+    """Tatsunoko wrapper-preserving writes.
+
+    The older direct-426 experiment wrote chr_tbl[426] itself. That is wrong
+    for characters whose active chr_tbl lives before the nominal slot base or
+    whose assist 426 wrapper owns the state/cleanup flow. Use the same safe
+    idea as anchored fallback instead: keep chr_tbl[426] on the original assist
+    wrapper, but patch the wrapper's internal local call operands to the chosen
+    move. This restores Casshan's previous semi-working behavior and gives
+    Tekkaman a real target once the pre-slot chr_tbl is found.
+    """
+    if info is None or not isinstance(info, dict) or not info:
+        info = _direct_426_info_for_owner_base(owner_base) or {}
+    if not info:
+        return {}
+
+    owner_base = int(info.get("owner_base") or owner_base or 0)
+    if not owner_base:
+        return {}
+
+    table_index = int(info.get("table_index") or DIRECT_426_TABLE_INDEX)
+    default_word = int(info.get("default_word") or 0) or None
+    if default_word is None:
+        default_word = _chr_tbl_word_for_owner_base(owner_base, table_index)
+    if default_word is None:
+        return {}
+
+    pairs = _anchored_assist_operands_for_owner_base(owner_base, table_index, default_word)
+
+    # Preferred path: preserve the real assist wrapper and patch all discovered
+    # internal body-call operands. This prevents table-base mistakes and keeps
+    # hop/taunt/leave intact.
+    if pairs:
+        return _anchored_assist_fallback_writes(
+            owner_base,
+            None if raw_val is None else int(raw_val),
+            table_index,
+            int(default_word),
+            [off for off, _word in pairs],
+            [word for _off, word in pairs],
+        )
+
+    # Last-resort fallback only when the wrapper exposes no call operands.
+    table_entry_addr = int(info.get("table_entry_addr") or 0)
+    if not table_entry_addr:
+        chr_tbl_base = int(info.get("chr_tbl_base") or 0)
+        if not chr_tbl_base:
+            chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base) or 0
+        if not chr_tbl_base:
+            return {}
+        table_entry_addr = chr_tbl_base + table_index * 4
+
+    word = int(default_word) if raw_val is None else (int(raw_val) & 0xFFFFFFFF)
+    if not word:
+        return {}
+    return {table_entry_addr: struct.pack(">I", word & 0xFFFFFFFF)}
+
+def _tatsunoko_find_wrapper_graft_off(wrapper_data: bytes) -> int | None:
+    """Find the early attack-body block inside a Tatsunoko chr_tbl[426] wrapper.
+
+    Casshan and Tekkaman both have the useful block at wrapper+0x154. That is
+    before the assist-taunt block and before the later internal call operands.
+    Grafting here replaces the default attack instead of appending after it.
+    """
+    if not wrapper_data:
+        return None
+
+    preferred = TATSUNOKO_WRAPPER_GRAFT_OFF
+    if preferred + 4 <= len(wrapper_data) and wrapper_data[preferred:preferred + 4] == b"\x0F\x06\x00\x27":
+        return preferred
+
+    candidates: list[tuple[int, int]] = []
+    limit = max(0, min(len(wrapper_data) - GENERIC_SELECTOR_TABLE_LEN, TATSUNOKO_WRAPPER_GRAFT_SCAN_END))
+    for idx in range(0, limit + 1):
+        if wrapper_data[idx:idx + 4] != b"\x0F\x06\x00\x27":
+            continue
+        # Avoid taunt/leave blocks. The attack-body block should not contain
+        # assist taunt 0x01A8 immediately after the header.
+        local = wrapper_data[idx:min(len(wrapper_data), idx + 0x90)]
+        if b"\x00\x00\x01\xA8" in local:
+            continue
+        score = 100 - abs(idx - preferred)
+        if STATE_WRAPPER_PREFIX in local or b"\x04\x01\x02\x3F" in local:
+            score += 80
+        if b"\x01\x3C\x00\x00" in local:
+            score += 20
+        candidates.append((score, idx))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], -item[1]), reverse=True)
+    return int(candidates[0][1])
+
+
+def _tatsunoko_wrapper_graft_info_for_owner_base(owner_base: int | None, slot_char_ids: dict[int, int] | None = None) -> dict[str, int] | None:
+    """Resolve the active early attack-body graft site for a Tatsunoko slot."""
+    info = _direct_426_info_for_owner_base(owner_base, slot_char_ids)
+    if not info:
+        return None
+
+    wrapper_addr = int(info["default_target"])
+    wrapper_data = _read_mem_region_raw(wrapper_addr, ANCHOR_ASSIST_WRAPPER_SCAN_SIZE)
+    if not wrapper_data:
+        return None
+
+    graft_off = _tatsunoko_find_wrapper_graft_off(wrapper_data)
+    if graft_off is None:
+        return None
+
+    current_block = wrapper_data[graft_off:graft_off + GENERIC_SELECTOR_TABLE_LEN]
+    if len(current_block) != GENERIC_SELECTOR_TABLE_LEN:
+        return None
+
+    out = dict(info)
+    out["wrapper_addr"] = wrapper_addr
+    out["graft_off"] = int(graft_off)
+    out["graft_addr"] = wrapper_addr + int(graft_off)
+    return out
+
+
+def _append_direct_426_profiles(slot_char_ids: dict[int, int], hits: list[dict]) -> None:
+    """Append one early-wrapper graft row for Tatsunoko characters.
+
+    Kept under this historical function name so the rest of the scanner call
+    site stays stable. The row is now a real generic selector graft at the
+    start of the 426 attack body, not the older direct/anchored 426 fallback.
+    """
+    for owner_base, cid in slot_char_ids.items():
+        if not _is_tatsunoko_direct_426_char_id(cid):
+            continue
+        info = _tatsunoko_wrapper_graft_info_for_owner_base(int(owner_base), slot_char_ids)
+        if not info:
+            continue
+
+        idx = _slot_index_for_base(int(owner_base))
+        name = CHAR_ID_TO_KEY.get(int(cid), f"CID 0x{int(cid):02X}")
+        owner = f"S{idx if idx is not None else '?'} {name} @0x{int(owner_base):08X}"
+        slot = f"0x{int(cid):02X}"
+        graft_addr = int(info["graft_addr"])
+        chr_tbl_base = int(info["chr_tbl_base"])
+        wrapper_addr = int(info["wrapper_addr"])
+        default_word = int(info["default_word"])
+
+        current_block = _read_mem_region_raw(graft_addr, GENERIC_SELECTOR_TABLE_LEN)
+        if not current_block or len(current_block) != GENERIC_SELECTOR_TABLE_LEN:
+            continue
+
+        is_installed = current_block.startswith(GENERIC_SELECTOR_SETUP_PREFIX)
+        if is_installed:
+            words = []
+            for off in GENERIC_SELECTOR_WORD_OFFSETS:
+                raw = _u32be(current_block, off)
+                if raw is None:
+                    words = []
+                    break
+                words.append(int(raw))
+        else:
+            words = [0, 1, 2]
+
+        entry = _flat_selector_entry_label(int(owner_base), words, slot_char_ids, "default")
+        raw_txt = _flat_selector_raw(words)
+        target_txt = _flat_selector_target(int(owner_base), words)
+
+        hits.append({
+            "kind": "generic-selector-word",
+            "block": graft_addr,
+            "addr": graft_addr + GENERIC_SELECTOR_WORD_OFFSETS[0],
+            "owner": owner,
+            "slot": slot,
+            "entry": entry,
+            "raw": raw_txt,
+            "target": target_txt,
+            "guess": "Tatsunoko wrapper graft; replaces early 426 attack body instead of appending after default",
+            "score": 1600,
+            "ctx": (
+                f"chr_tbl=0x{chr_tbl_base:08X}; wrapper=0x{wrapper_addr:08X}; "
+                f"graft=0x{graft_addr:08X}; chr_tbl[426]=0x{default_word:08X}"
+            ),
+            "editable": True,
+            "typ": "u32-generic-selector",
+            "owner_base": int(owner_base),
+            "char_id": int(cid),
+            "direct_426_info": dict(info),
+            "selector_words": words,
+            "table_raw": current_block.hex(" ").upper(),
+            "source": "tatsunoko-wrapper-graft",
+        })
+
+
 def _move_preset_anim_id_after_hdr(data: bytes, off: int) -> int | None:
     if off < 0 or off >= len(data):
         return None
@@ -2557,14 +2921,12 @@ def _is_preset_worthy_table_index(table_index: int, aid: int | None, char_id: in
         return False
 
     char_name = CHAR_ID_TO_KEY.get(char_id, "") if char_id is not None else ""
-    _name, _source, is_named = _resolve_move_preset_entry_name(table_index, aid, char_id, char_name)
-    if _is_filtered_assist_preset_name(_name):
+    name, name_source, is_named = _resolve_move_preset_entry_name(table_index, aid, char_id, char_name)
+    if _is_filtered_assist_preset_name(name):
         return False
-    if is_named:
-        return True
 
-    # User-facing assist preset bands. Keep unnamed rows too, but the picker
-    # pushes unnamed rows to the bottom instead of the priority sections.
+    # User-facing assist preset bands. Keep these even if the pretty-name map
+    # is missing or wrong, because these are the actual special/assist ranges.
     if 304 <= table_index <= 368:
         return True
     if 510 <= table_index <= 520:
@@ -2572,28 +2934,33 @@ def _is_preset_worthy_table_index(table_index: int, aid: int | None, char_id: in
     if 256 <= table_index <= 270:
         return True
 
-    # Keep the broader known move-ish table ranges after the priority bands so
-    # oddball character entries still show in the picker, but below named rows.
+    # Universal normals.
     if 0x100 <= table_index <= 0x10F:
         return True
+
+    # Broader move-ish ranges, but do not let low table entries like 0/1/4
+    # through just because the frame-data map calls them "backward".
     if 0x130 <= table_index <= 0x18F:
         return True
     if 0x200 <= table_index <= 0x230:
         return True
-
     if 0x1C0 <= table_index <= 0x1FF:
         return aid is not None and aid >= 0x0100
+
+    # CSV names are curated by table index, so allow named leftovers from CSV.
+    # Generic move_id_map/anim names for low system rows are not enough.
+    if is_named and name_source == "csv":
+        return True
 
     if aid is not None and aid >= 0x0100:
         low = aid & 0xFF
         if low in MOVE_PRESET_NORMAL_IDS:
             return True
-        name = _move_preset_name(aid, char_id, char_name)
-        if _is_named_preset_name(name):
+        fallback_name = _move_preset_name(aid, char_id, char_name)
+        if _is_named_preset_name(fallback_name) and not _is_filtered_assist_preset_name(fallback_name):
             return True
 
     return False
-
 
 def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -> None:
     # Dedicated full-slot pass. Do this outside the 0x40000 MEM2 chunk scan so
@@ -2611,6 +2978,18 @@ def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -
             continue
 
         chr_tbl_bases = _find_runtime_chr_tbl_bases_for_region(owner_base)
+
+        # Some Tatsunoko slots expose a useful action-offset table at the broad
+        # ownership base even though it does not pass the strict chr_tbl/chr_act
+        # header test. Tekkaman is the current example: the direct-426 row is
+        # valid enough to target chr_tbl[426]-style offsets, but the preset
+        # picker was empty because no strict runtime chr_tbl was harvested.
+        # Use this loose fallback only for the direct-426 Tatsunoko class and
+        # only when the strict path found nothing, so Capcom/VJoe/Ryu/Chun stay
+        # on their confirmed table logic.
+        if not chr_tbl_bases and _is_tatsunoko_direct_426_char_id(cid):
+            chr_tbl_bases = [int(owner_base)]
+
         if not chr_tbl_bases:
             continue
 
@@ -2684,7 +3063,11 @@ def _scan_assist_move_presets(slot_char_ids: dict[int, int], hits: list[dict]) -
                     "owner_base": owner_base,
                     "chr_tbl_base": chr_tbl_base,
                     "char_id": cid if cid is not None else 0,
-                    "source": f"chr_tbl+{name_source}",
+                    "source": (
+                        f"loose_chr_tbl+{name_source}"
+                        if _is_tatsunoko_direct_426_char_id(cid) and int(chr_tbl_base) == int(owner_base)
+                        else f"chr_tbl+{name_source}"
+                    ),
                 })
 
 def _append_state_wrapper(data: bytes, base_addr: int, idx: int, slot_char_ids: dict[int, int],
@@ -2987,6 +3370,7 @@ def _run_scan(progress_cb, done_cb):
     # VJoe is a compiled projectile-assist package, so expose a dedicated
     # trampoline row instead of relying on generic selector/anchor guesses.
     _append_vjoe_trampoline_profile(slot_char_ids, hits)
+    _append_direct_426_profiles(slot_char_ids, hits)
 
     seen = set()
     uniq = []
@@ -3008,6 +3392,12 @@ def _run_scan(progress_cb, done_cb):
         if h.get("kind") == "vjoe-active-selector-word"
         and int(h.get("owner_base") or 0)
     }
+    direct_426_owner_bases = {
+        int(h.get("owner_base") or 0)
+        for h in uniq
+        if h.get("kind") == "direct-426-word"
+        and int(h.get("owner_base") or 0)
+    }
     best_generic: dict[int, dict] = {}
     filtered = []
     for h in uniq:
@@ -3020,6 +3410,10 @@ def _run_scan(progress_cb, done_cb):
         # Do not also show stale/old generic VJoe rows when the resolved
         # active-wrapper VJoe row is present for that slot.
         if int(owner_base) in vjoe_active_owner_bases:
+            continue
+        # Tatsunoko direct-426 rows are cleaner than anchored fallback for
+        # Casshan/Tekkaman style routes, so hide the older generic/anchor row.
+        if int(owner_base) in direct_426_owner_bases:
             continue
         old = best_generic.get(owner_base)
         if old is None:
@@ -3039,7 +3433,9 @@ def _run_scan(progress_cb, done_cb):
             # if the tail-pair has the assist-route score bonus. For Alex-style
             # slots, the only useful route is the tail-pair assist wrapper, so
             # that still beats unrelated native selector-looking tables.
-            if typ == "u32-generic-selector" and base_source in ("graft-candidate", "installed"):
+            if typ == "u32-generic-selector" and str(source or "").startswith("tatsunoko-wrapper-graft"):
+                priority = 60
+            elif typ == "u32-generic-selector" and base_source in ("graft-candidate", "installed"):
                 priority = 50
             elif typ == "u32-generic-selector" and "assist-route" in source and base_source == "native":
                 priority = 45
@@ -3069,6 +3465,7 @@ def _run_scan(progress_cb, done_cb):
             "generic-selector-word": 6,
             "vjoe-trampoline-word": 6,
             "vjoe-active-selector-word": 6,
+            "direct-426-word": 6,
             "assist-move-preset": 7,
             "selector-chain": 8,
             "selector-loose": 5,
@@ -3201,6 +3598,7 @@ class AssistScannerWindow:
                     "u32-generic-selector",
                     "u32-anchored-assist-fallback",
                     "u32-vjoe-trampoline",
+                    "u32-direct-426-fallback",
                 ):
                     self._record_default_slot_profile(h)
             self._scanning = False
@@ -3717,22 +4115,34 @@ class AssistScannerWindow:
             parent=self.root,
         )
 
-    def _collect_move_preset_rows_for_base(self, owner_base: int) -> list[dict]:
+    def _collect_move_preset_rows_for_base(self, owner_base: int, chr_tbl_base_override: int | None = None) -> list[dict]:
         """Harvest move/normal presets for one loaded character slot without showing rows."""
         if owner_base is None:
             return []
         slot_char_ids = _read_slot_char_ids()
+
+        rows: list[dict] = []
+        if chr_tbl_base_override:
+            cid = slot_char_ids.get(int(owner_base))
+            rows = _collect_move_preset_rows_from_chr_tbl_base(
+                int(owner_base),
+                int(chr_tbl_base_override),
+                cid,
+                slot_char_ids,
+                "row-chr_tbl",
+            )
+
         temp_hits: list[dict] = []
         try:
             _scan_assist_move_presets(slot_char_ids, temp_hits)
         except Exception:
-            return []
+            temp_hits = []
 
-        rows = [
+        rows.extend([
             h for h in temp_hits
             if int(h.get("owner_base", 0)) == int(owner_base)
             and not _is_filtered_assist_preset_name(str(h.get("move_name", "")))
-        ]
+        ])
 
         # VJoe's active chr_tbl can live outside the static owner window.  Add
         # rows from the resolved active table first, then let the normal
@@ -3756,9 +4166,13 @@ class AssistScannerWindow:
         # from a stale/secondary chr_tbl copy. Prefer the active runtime base.
         active_vjoe_for_preferred = _vjoe_active_selector_info_for_owner_base(owner_base, slot_char_ids)
         preferred_base = (
-            int(active_vjoe_for_preferred["chr_tbl_base"])
-            if active_vjoe_for_preferred and int(active_vjoe_for_preferred.get("chr_tbl_base") or 0)
-            else _runtime_chr_tbl_base_for_owner_base(owner_base)
+            int(chr_tbl_base_override)
+            if chr_tbl_base_override
+            else (
+                int(active_vjoe_for_preferred["chr_tbl_base"])
+                if active_vjoe_for_preferred and int(active_vjoe_for_preferred.get("chr_tbl_base") or 0)
+                else _runtime_chr_tbl_base_for_owner_base(owner_base)
+            )
         )
 
         if preferred_base is not None:
@@ -3790,16 +4204,18 @@ class AssistScannerWindow:
         rows = list(best_by_table.values())
 
         def band_priority(table_index: int, named: bool) -> int:
-            # Named rows keep the requested assist order. Unnamed rows go to
-            # the bottom, even if their table index is inside a priority band.
-            if not named:
-                return 4
+            # Keep the known assist/special bands at the top even when the
+            # local name map is missing or wrong. This is needed for Tekkaman:
+            # otherwise movement/system labels like "backward" can bury the
+            # real 304+ move entries.
             if 304 <= table_index <= 368:
                 return 0
             if 510 <= table_index <= 520:
                 return 1
             if 256 <= table_index <= 270:
                 return 2
+            if not named:
+                return 4
             return 3
 
         def row_key(row: dict) -> tuple:
@@ -3812,8 +4228,8 @@ class AssistScannerWindow:
         return sorted(rows, key=row_key)
 
 
-    def _choose_loaded_move_preset_word(self, owner_base: int, parent: tk.Toplevel) -> tuple[int, str] | None:
-        rows = self._collect_move_preset_rows_for_base(owner_base)
+    def _choose_loaded_move_preset_word(self, owner_base: int, parent: tk.Toplevel, chr_tbl_base_override: int | None = None) -> tuple[int, str] | None:
+        rows = self._collect_move_preset_rows_for_base(owner_base, chr_tbl_base_override)
         if not rows:
             messagebox.showerror(
                 "Move presets unavailable",
@@ -3835,7 +4251,8 @@ class AssistScannerWindow:
             top,
             text=(
                 f"Slot base: 0x{owner_base:08X}\n"
-                "Pick a loaded move/normal. Named presets are ordered: 304-368, then 510-520, then 256-270, then named leftovers. Entries 369-400, idle, landing, filler, and air dash are filtered out. Unnamed entries are at the bottom."
+                + (f"Forced chr_tbl: 0x{int(chr_tbl_base_override):08X}\n" if chr_tbl_base_override else "")
+                + "Pick a loaded move/normal. Named presets are ordered: 304-368, then 510-520, then 256-270, then named leftovers. Entries 369-400, idle, landing, filler, backward/forward movement, and air dash are filtered out. Unnamed entries are at the bottom."
             ),
             justify="left",
         ).pack(anchor="w")
@@ -4399,7 +4816,7 @@ class AssistScannerWindow:
         )
 
 
-    def _choose_generic_selector_value(self, addr: int, current: str, source: str, owner_base_override: int | None = None) -> tuple[int, bool] | None:
+    def _choose_generic_selector_value(self, addr: int, current: str, source: str, owner_base_override: int | None = None, chr_tbl_base_override: int | None = None) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": True}
         dlg = tk.Toplevel(self.root)
         dlg.title("Choose generic selector word")
@@ -4417,9 +4834,14 @@ class AssistScannerWindow:
                 f"Address: 0x{addr:08X}\n"
                 f"Current: {current}\n"
                 f"Source: {source}\n"
-                f"Preset owner: 0x{(int(owner_base_override) if owner_base_override else (_owning_chr_tbl(addr) or 0)):08X}\n\n"
-                "Choose a loaded preset or enter a custom selector word. "
-                "The generic selector setup is installed before writing."
+                f"Preset owner: 0x{(int(owner_base_override) if owner_base_override else (_owning_chr_tbl(addr) or 0)):08X}\n"
+                + (f"Preset chr_tbl: 0x{int(chr_tbl_base_override):08X}\n" if chr_tbl_base_override else "")
+                + "\nChoose a loaded preset or enter a custom selector word. "
+                + ("This Tatsunoko row preserves chr_tbl[426] and grafts the early 426 attack body."
+                   if "tatsunoko-wrapper-graft" in str(source) else
+                   ("This Tatsunoko row preserves chr_tbl[426] and patches internal wrapper calls."
+                    if "direct-426" in str(source) else
+                    "The generic selector setup is installed before writing."))
             ),
             justify="left",
         ).pack(anchor="w", padx=12, pady=(12, 8))
@@ -4448,7 +4870,7 @@ class AssistScannerWindow:
             if owner_base is None:
                 messagebox.showerror("No owner", "Could not resolve the character slot for this selector lane.", parent=dlg)
                 return
-            picked = self._choose_loaded_move_preset_word(owner_base, dlg)
+            picked = self._choose_loaded_move_preset_word(owner_base, dlg, chr_tbl_base_override)
             if picked is None:
                 return
             value, _label = picked
@@ -4536,6 +4958,67 @@ class AssistScannerWindow:
 
         return _build_generic_selector_graft_block(tuple(words), arg32, arg33)
 
+    def _apply_direct_426_word(self, h: dict) -> None:
+        lane_addr = int(h["addr"])
+        source = str(h.get("source", "tatsunoko-direct-426"))
+        current = str(h.get("raw", "default"))
+        owner_base = int(h.get("owner_base") or (_owning_chr_tbl(lane_addr) or 0))
+
+        choice = self._choose_generic_selector_value(lane_addr, current, source, owner_base)
+        if choice is None:
+            return
+        raw_val, _apply_all = choice
+
+        info = dict(h.get("direct_426_info") or {})
+        writes = _direct_426_writes(owner_base, raw_val, info)
+        if not writes:
+            messagebox.showerror(
+                "Direct 426 failed",
+                "Could not resolve this character's chr_tbl[426] entry.",
+                parent=self.root,
+            )
+            return
+
+        if raw_val is None:
+            ok = self._write_many(writes, "Restored Tatsunoko active wrapper operands to the original assist route.")
+            if not ok:
+                return
+            self._record_slot_profile(h, None, "default")
+            h["entry"] = "default"
+            h["raw"] = "default"
+            h["target"] = f"orig 0x{int(info.get('default_word', 0)):08X}"
+            h["guess"] = "Tatsunoko wrapper default; original assist attack restored"
+        else:
+            raw_val = int(raw_val) & 0xFFFFFFFF
+            ok = self._write_many(writes, f"Tatsunoko active wrapper wrote internal attack calls -> 0x{raw_val:08X}.")
+            if not ok:
+                return
+            self._record_slot_profile(h, raw_val, "Tatsunoko active wrapper")
+            slot_char_ids = _read_slot_char_ids()
+            name = _flat_selector_entry_label(owner_base, [raw_val], slot_char_ids, "selected move")
+            chr_tbl_base = int(info.get("chr_tbl_base") or (_chr_tbl_base_for_owner_base(owner_base) or 0))
+            h["entry"] = name
+            h["raw"] = f"0x{raw_val:08X}"
+            h["target"] = f"0x{chr_tbl_base + raw_val:08X}" if chr_tbl_base and raw_val <= MOVE_PRESET_SLOT_SIZE else ""
+            h["guess"] = "Tatsunoko active wrapper profile; chr_tbl[426] preserved and internal attack calls patched"
+
+        for iid, row in self._hit_by_iid.items():
+            if row is h or (
+                str(row.get("typ", "")) == "u32-direct-426-fallback"
+                and int(row.get("owner_base") or 0) == owner_base
+            ):
+                row["entry"] = h["entry"]
+                row["raw"] = h["raw"]
+                row["target"] = h["target"]
+                row["guess"] = h["guess"]
+                self._tree.set(iid, "entry", row["entry"])
+                self._tree.set(iid, "raw", row["raw"])
+                self._tree.set(iid, "target", row["target"])
+                self._tree.set(iid, "guess", row["guess"])
+
+        self._status.set("Tatsunoko active-wrapper profile stored and written immediately.")
+
+
     def _apply_vjoe_trampoline_word(self, h: dict) -> None:
         lane_addr = int(h["addr"])
         source = str(h.get("source", "vjoe-static-426"))
@@ -4611,9 +5094,23 @@ class AssistScannerWindow:
         current = str(h.get("raw", "0x00000000"))
 
         owner_override = None
-        if int(h.get("char_id") or 0) == VJOE_CHAR_ID or str(h.get("source", "")).startswith("vjoe-"):
+        chr_tbl_override = None
+        row_source = str(h.get("source", ""))
+        if int(h.get("char_id") or 0) == VJOE_CHAR_ID or row_source.startswith("vjoe-"):
             owner_override = int(h.get("owner_base") or 0) or None
-        choice = self._choose_generic_selector_value(lane_addr, current, source, owner_override)
+
+        # Tatsunoko wrapper rows keep direct_426_info even after the first
+        # successful install changes source to "installed" for display. Do not
+        # re-resolve presets from the clicked edit address on later edits; that
+        # falls back to the broad 0x909478E0 slot and can return an empty picker.
+        if row_source.startswith("tatsunoko-wrapper-graft") or h.get("direct_426_info"):
+            owner_override = int(h.get("owner_base") or 0) or None
+            info = h.get("direct_426_info") or {}
+            try:
+                chr_tbl_override = int(info.get("chr_tbl_base") or 0) or None
+            except Exception:
+                chr_tbl_override = None
+        choice = self._choose_generic_selector_value(lane_addr, current, source, owner_override, chr_tbl_override)
         if choice is None:
             return
         raw_val, apply_all = choice
@@ -4718,7 +5215,10 @@ class AssistScannerWindow:
                 row["raw"] = hx
                 row["guess"] = "experimental generic selector table; installed/edited"
                 self._tree.set(iid, "guess", row["guess"])
-                row["source"] = "installed"
+                if row.get("direct_426_info"):
+                    row["source"] = "tatsunoko-wrapper-graft-installed"
+                else:
+                    row["source"] = "installed"
                 continue
             if row.get("kind") != "generic-selector-word":
                 continue
@@ -4739,7 +5239,10 @@ class AssistScannerWindow:
                 "generic assist",
             )
             row["guess"] = "double-click to set generic fighter profile"
-            row["source"] = "installed"
+            if row.get("direct_426_info"):
+                row["source"] = "tatsunoko-wrapper-graft-installed"
+            else:
+                row["source"] = "installed"
             self._tree.set(iid, "entry", row["entry"])
             self._tree.set(iid, "raw", row["raw"])
             self._tree.set(iid, "target", row["target"])
@@ -5139,6 +5642,9 @@ class AssistScannerWindow:
             if typ == "u32-vjoe-trampoline":
                 owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
                 return _vjoe_trampoline_writes(owner_base, None, dict(row.get("vjoe_info") or {}))
+            if typ == "u32-direct-426-fallback":
+                owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+                return _direct_426_writes(owner_base, None, dict(row.get("direct_426_info") or {}))
             return {}
 
         payload = struct.pack(">I", int(raw_val) & 0xFFFFFFFF)
@@ -5178,6 +5684,10 @@ class AssistScannerWindow:
             owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
             return _vjoe_trampoline_writes(owner_base, int(raw_val), dict(row.get("vjoe_info") or {}))
 
+        if typ == "u32-direct-426-fallback":
+            owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
+            return _direct_426_writes(owner_base, int(raw_val), dict(row.get("direct_426_info") or {}))
+
         return {}
 
 
@@ -5194,7 +5704,7 @@ class AssistScannerWindow:
         for iid, row in self._hit_by_iid.items():
             if int(row.get("block", -1)) != int(graft_addr):
                 continue
-            if row.get("typ") not in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector", "u32-anchored-assist-fallback", "u32-vjoe-trampoline"):
+            if row.get("typ") not in ("u32-chun-selector", "u32-ryu-selector-graft", "u32-generic-selector", "u32-anchored-assist-fallback", "u32-vjoe-trampoline", "u32-direct-426-fallback"):
                 continue
             self._update_flat_row_display(row, raw_val)
             self._tree.set(iid, "entry", row["entry"])
@@ -5488,6 +5998,10 @@ class AssistScannerWindow:
 
         if typ == "u32-vjoe-trampoline":
             self._apply_vjoe_trampoline_word(h)
+            return
+
+        if typ == "u32-direct-426-fallback":
+            self._apply_direct_426_word(h)
             return
 
         if typ in ("u32-generic-selector", "u32-anchored-assist-fallback"):
