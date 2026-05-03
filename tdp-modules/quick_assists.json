@@ -1,0 +1,54 @@
+{
+  "Ryu": [
+    { "label": "Hado L", "table": 304 },
+    { "label": "Tatsu H", "table": 309 },
+    { "label": "Air Tatsu H", "table": 325 },
+    { "label": "Default", "default": true }
+  ],
+  "Chun-Li": [
+    { "label": "Kikoken L", "table": 304 },
+    { "label": "Hyakuretsu", "table": 315 },
+    { "label": "SBK H", "table": 309 },
+    { "label": "Default", "default": true }
+  ], "Alex": [
+    { "label": "Knee Drop C", "table": 315 },
+    { "label": "Wild Stomp C", "table": 309 },
+    { "label": "Dropkick", "table": 272 },
+    { "label": "Default", "default": true }
+  ], "Morrigan": [
+    { "label": "SRK H", "table": 312 },
+    { "label": "j.Soul Fist A", "table": 320 },
+    { "label": "Soul Fist A", "table": 304 },
+    { "label": "Default", "default": true }
+  ],
+  "Viewtiful Joe": [
+    { "label": "Voom A", "table": 304 },
+    { "label": "Voom B", "table": 305 },
+    { "label": "Voom C", "table": 306 },
+    { "label": "Default", "default": true }
+  ],
+  "Casshan": [
+    { "label": "Assist 1", "table": 304 },
+    { "label": "Assist 2", "table": 305 },
+    { "label": "Assist 3", "table": 306 },
+    { "label": "Default", "default": true }
+  ],
+  "Tekkaman": [
+    { "label": "Gatling A", "table": 304 },
+    { "label": "Gatling B", "table": 305 },
+    { "label": "Gatling C", "table": 306 },
+    { "label": "Default", "default": true }
+  ],
+  "Tekkaman Blade": [
+    { "label": "Assist 1", "table": 304 },
+    { "label": "Assist 2", "table": 305 },
+    { "label": "Assist 3", "table": 306 },
+    { "label": "Default", "default": true }
+  ],
+  "default": [
+    { "label": "A", "table": 304 },
+    { "label": "B", "table": 305 },
+    { "label": "C", "table": 306 },
+    { "label": "Default", "default": true }
+  ]
+}

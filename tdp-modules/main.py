@@ -86,11 +86,25 @@ except Exception:
 from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
 try:
-    from assist_scanner_window import open_assist_scanner_window, tick_assist_profiles_from_main
+    from assist_scanner_window import (
+        open_assist_scanner_window,
+        tick_assist_profiles_from_main,
+        get_quick_assists_for_slot,
+        apply_quick_assist_from_main,
+    )
 except Exception:
     from assist_scanner_window import open_assist_scanner_window
     def tick_assist_profiles_from_main(_snaps):
         return None
+    def get_quick_assists_for_slot(_slot_label, _snap=None):
+        return [
+            {"label": "304", "table": 304},
+            {"label": "305", "table": 305},
+            {"label": "306", "table": 306},
+            {"label": "Default", "default": True},
+        ]
+    def apply_quick_assist_from_main(_slot_label, _quick_index, _snap=None):
+        return False
 
 from mission_manager import MissionManager
 from hud_overlay_manager import HudOverlayManager
@@ -877,6 +891,8 @@ def legacy_main():
         r_p1c2, a_p1c2 = anim_rect_and_alpha("P1-C2", layout["p1c2"])
         r_p2c2, a_p2c2 = anim_rect_and_alpha("P2-C2", layout["p2c2"])
 
+        quick_btn_areas = {}
+
         def blit_panel_with_buttons(panel_rect, slot_label, alpha, header):
             snap     = render_snap_by_slot.get(slot_label)
             portrait = render_portrait_by_slot.get(slot_label, placeholder_portrait)
@@ -935,6 +951,46 @@ def legacy_main():
             if flash_left > 0:
                 pygame.draw.rect(surf, (255, 255, 255),
                                  frame_btn_local.inflate(4, 4), 2, border_radius=4)
+
+            # Optional quick-assist buttons. main.py only draws/clicks these;
+            # assist_scanner_window owns the JSON, route resolution, and writes.
+            quick_defs = []
+            if snap:
+                try:
+                    quick_defs = get_quick_assists_for_slot(slot_label, snap)[:4]
+                except Exception:
+                    quick_defs = []
+            if not quick_defs and snap:
+                quick_defs = [
+                    {"label": "304", "table": 304},
+                    {"label": "305", "table": 305},
+                    {"label": "306", "table": 306},
+                    {"label": "Default", "default": True},
+                ]
+            if quick_defs:
+                qa_gap = 4
+                qa_count = min(4, len(quick_defs))
+                qa_y = max(6, btn_y - btn_h - 6)
+                qa_total_w = panel_rect.width - 12
+                qa_w = max(44, int((qa_total_w - qa_gap * (qa_count - 1)) / qa_count))
+                for qi, quick in enumerate(quick_defs):
+                    qx = 6 + qi * (qa_w + qa_gap)
+                    qrect_local = pygame.Rect(qx, qa_y, qa_w, btn_h)
+                    qhover = qrect_local.collidepoint(mx_local, my_local)
+                    qbase = (50, 65, 95) if not qhover else (75, 95, 135)
+                    pygame.draw.rect(surf, qbase, qrect_local, border_radius=3)
+                    pygame.draw.rect(surf, (170, 190, 220), qrect_local, 1, border_radius=3)
+                    qlabel = str(quick.get("label", f"A{qi + 1}"))
+                    if len(qlabel) > 12:
+                        qlabel = qlabel[:11] + "."
+                    surf.blit(smallfont.render(qlabel, True, (225, 225, 230)),
+                              (qrect_local.x + 4, qrect_local.y + 2))
+                    quick_btn_areas[(slot_label, qi)] = pygame.Rect(
+                        panel_rect.x + qrect_local.x,
+                        panel_rect.y + qrect_local.y,
+                        qrect_local.width,
+                        qrect_local.height,
+                    )
 
             surf.set_alpha(alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))
@@ -1043,6 +1099,23 @@ def legacy_main():
                         _write_master_control()
                         _sync_master_overlay_state()
                         break
+
+            quick_clicked = False
+            for (slot_label, quick_index), qrect in list(quick_btn_areas.items()):
+                if qrect.collidepoint(mx, my):
+                    snap = render_snap_by_slot.get(slot_label) or snaps.get(slot_label)
+                    try:
+                        ok = bool(apply_quick_assist_from_main(slot_label, quick_index, snap))
+                    except Exception as e:
+                        ok = False
+                        print(f"[assist quick] click failed: {e!r}")
+                    if ok:
+                        panel_btn_flash[slot_label] = PANEL_FLASH_FRAMES
+                    quick_clicked = True
+                    break
+            if quick_clicked:
+                mouse_clicked_pos = None
+                continue
 
             # Debug panel row -> copy address
             copied = False
