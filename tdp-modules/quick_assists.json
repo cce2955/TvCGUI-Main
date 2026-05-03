@@ -1,54 +1,452 @@
 {
   "Ryu": [
-    { "label": "Hado L", "table": 304 },
-    { "label": "Tatsu H", "table": 309 },
-    { "label": "Air Tatsu H", "table": 325 },
-    { "label": "Default", "default": true }
+    {
+      "label": "Hado L",
+      "table": 304
+    },
+    {
+      "label": "Tatsu H",
+      "table": 309
+    },
+    {
+      "label": "Air Tatsu H",
+      "table": 325
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
   ],
   "Chun-Li": [
-    { "label": "Kikoken L", "table": 304 },
-    { "label": "Hyakuretsu", "table": 315 },
-    { "label": "SBK H", "table": 309 },
-    { "label": "Default", "default": true }
-  ], "Alex": [
-    { "label": "Knee Drop C", "table": 315 },
-    { "label": "Wild Stomp C", "table": 309 },
-    { "label": "Dropkick", "table": 272 },
-    { "label": "Default", "default": true }
-  ], "Morrigan": [
-    { "label": "SRK H", "table": 312 },
-    { "label": "j.Soul Fist A", "table": 320 },
-    { "label": "Soul Fist A", "table": 304 },
-    { "label": "Default", "default": true }
+    {
+      "label": "Kikoken L",
+      "table": 304
+    },
+    {
+      "label": "Hyakuretsu",
+      "table": 315
+    },
+    {
+      "label": "SBK H",
+      "table": 309
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
   ],
-  "Viewtiful Joe": [
-    { "label": "Voom A", "table": 304 },
-    { "label": "Voom B", "table": 305 },
-    { "label": "Voom C", "table": 306 },
-    { "label": "Default", "default": true }
+  "Alex": [
+    {
+      "label": "Knee Drop C",
+      "table": 315
+    },
+    {
+      "label": "Wild Stomp C",
+      "table": 309
+    },
+    {
+      "label": "Dropkick",
+      "table": 272
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Morrigan": [
+    {
+      "label": "SRK H",
+      "table": 312
+    },
+    {
+      "label": "j.Soul Fist A",
+      "table": 320
+    },
+    {
+      "label": "Soul Fist A",
+      "table": 304
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Ken the Eagle": [
+    {
+      "label": "Air Bird Shoot A",
+      "table": 326
+    },
+    {
+      "label": "Eagle Rush C",
+      "table": 322
+    },
+    {
+      "label": "Bird Shoot C",
+      "table": 309
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Jun the Swan": [
+    {
+      "label": "Dancing Swan A",
+      "table": 314
+    },
+    {
+      "label": "Lightning Kick A",
+      "table": 307
+    },
+    {
+      "label": "Yoyo C",
+      "table": 306
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
   ],
   "Casshan": [
-    { "label": "Assist 1", "table": 304 },
-    { "label": "Assist 2", "table": 305 },
-    { "label": "Assist 3", "table": 306 },
-    { "label": "Default", "default": true }
+    {
+      "label": "Friender A",
+      "table": 313
+    },
+    {
+      "label": "Friender B",
+      "table": 314
+    },
+    {
+      "label": "Friender C",
+      "table": 315
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
   ],
   "Tekkaman": [
-    { "label": "Gatling A", "table": 304 },
-    { "label": "Gatling B", "table": 305 },
-    { "label": "Gatling C", "table": 306 },
-    { "label": "Default", "default": true }
+    {
+      "label": "Tek Win A",
+      "table": 313
+    },
+    {
+      "label": "Tek Lancer C",
+      "table": 309
+    },
+    {
+      "label": "Air Windmill C",
+      "table": 325
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Yatterman-1": [
+    {
+      "label": "Yatter Hop C",
+      "table": 316
+    },
+    {
+      "label": "6B",
+      "table": 270
+    },
+    {
+      "label": "6C",
+      "table": 262
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Doronjo": [
+    {
+      "label": "Breakdance",
+      "table": 338
+    },
+    {
+      "label": "Rock C",
+      "table": 309
+    },
+    {
+      "label": "Pummel C",
+      "table": 306
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Polimar": [
+    {
+      "label": "Hurricane Fist A",
+      "table": 304
+    },
+    {
+      "label": "Storm Overhead",
+      "table": 315
+    },
+    {
+      "label": "Storm Low",
+      "table": 314
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Ippatsuman": [
+    {
+      "label": "Rainball C",
+      "table": 306
+    },
+    {
+      "label": "Dash DP",
+      "table": 316
+    },
+    {
+      "label": "Mound C",
+      "table": 309
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Karas": [
+    {
+      "label": "2B",
+      "table": 260
+    },
+    {
+      "label": "Yato",
+      "table": 317
+    },
+    {
+      "label": "Kasha Overhead",
+      "table": 321
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Batsu": [
+    {
+      "label": "Tardy C",
+      "table": 273
+    },
+    {
+      "label": "Guts Bullet C",
+      "table": 306
+    },
+    {
+      "label": "Divekick C",
+      "table": 325
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Viewtiful Joe": [
+    {
+      "label": "Voom A",
+      "table": 304
+    },
+    {
+      "label": "Voom B",
+      "table": 305
+    },
+    {
+      "label": "Voom C",
+      "table": 306
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Volnutt": [
+    {
+      "label": "Under Construction",
+      "table": 304
+    },
+    {
+      "label": "Under Construction",
+      "table": 305
+    },
+    {
+      "label": "Under Construction",
+      "table": 306
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Roll": [
+    {
+      "label": "Charged Swing C",
+      "table": 309
+    },
+    {
+      "label": "Mop Up Charge C",
+      "table": 321
+    },
+    {
+      "label": "Healing",
+      "table": 352
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Saki": [
+    {
+      "label": "Load Ammo C",
+      "table": 312
+    },
+    {
+      "label": "Headbutt",
+      "table": 313
+    },
+    {
+      "label": "Grenade C",
+      "table": 309
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Soki": [
+    {
+      "label": "Overhead Splitter C",
+      "table": 309
+    },
+    {
+      "label": "Slam C",
+      "table": 306
+    },
+    {
+      "label": "Issen",
+      "table": 314
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
   ],
   "Tekkaman Blade": [
-    { "label": "Assist 1", "table": 304 },
-    { "label": "Assist 2", "table": 305 },
-    { "label": "Assist 3", "table": 306 },
-    { "label": "Default", "default": true }
+    {
+      "label": "Air Baselard A",
+      "table": 326
+    },
+    {
+      "label": "Blitz C",
+      "table": 312
+    },
+    {
+      "label": "Shamshir C",
+      "table": 306
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Joe the Condor": [
+    {
+      "label": "Cactus Bunker C",
+      "table": 315
+    },
+    {
+      "label": "2C",
+      "table": 261
+    },
+    {
+      "label": "Air Savage C",
+      "table": 322
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Yatterman-2": [
+    {
+      "label": "Yatter Shield A",
+      "table": 304
+    },
+    {
+      "label": "Step B",
+      "table": 311
+    },
+    {
+      "label": "Step C",
+      "table": 312
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Zero": [
+    {
+      "label": "Hyper Blaster",
+      "table": 315
+    },
+    {
+      "label": "Sentsuizan C",
+      "table": 322
+    },
+    {
+      "label": "Hadengeki C",
+      "table": 306
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
+  ],
+  "Frank West": [
+    {
+      "label": "Zombie Grab C",
+      "table": 306
+    },
+    {
+      "label": "Zombie Spree C",
+      "table": 309
+    },
+    {
+      "label": "Grand Slam C",
+      "table": 312
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
   ],
   "default": [
-    { "label": "A", "table": 304 },
-    { "label": "B", "table": 305 },
-    { "label": "C", "table": 306 },
-    { "label": "Default", "default": true }
+    {
+      "label": "A",
+      "table": 304
+    },
+    {
+      "label": "B",
+      "table": 305
+    },
+    {
+      "label": "C",
+      "table": 306
+    },
+    {
+      "label": "Default",
+      "default": true
+    }
   ]
 }
