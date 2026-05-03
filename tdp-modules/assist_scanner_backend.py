@@ -138,6 +138,14 @@ _HEADLESS_ASSIST_PROFILES: dict[int, dict[str, object]] = {}
 _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE: dict[int, bool] = {}
 _HEADLESS_LAST_PATCH_KEY: tuple[int, int] | None = None
 
+# Quick route cache. Quick assist buttons should not rescan/re-resolve the
+# active graft route on every click. main.py feeds live snaps each frame; this
+# cache is warmed in the background when a loaded character is seen, then quick
+# clicks only resolve table -> word and write the already-known route bytes.
+_QUICK_ROUTE_CACHE: dict[tuple[int, int], dict] = {}
+_QUICK_ROUTE_INFLIGHT: set[tuple[int, int]] = set()
+_QUICK_ROUTE_LOCK = threading.RLock()
+
 # Shared-character selector tables mean duplicate characters cannot keep
 # separate table bytes at rest. Per-fighter profiles are stored separately,
 # then Auto Slot Switch patches the shared character table when that fighter
@@ -3527,6 +3535,14 @@ def update_assist_context_from_main(snaps: dict | None) -> None:
     with _MAIN_SNAPS_LOCK:
         _MAIN_SNAPS_CACHE = clean
 
+    # Warm quick-assist route rows from main's reliable live slot context.
+    # This keeps main dumb, but prevents every HUD button click from doing a
+    # slot-window scan just to rediscover a graft that is already stable.
+    try:
+        _prewarm_quick_routes_from_snaps(clean)
+    except Exception:
+        pass
+
 
 def _main_snaps_snapshot() -> dict[str, dict]:
     with _MAIN_SNAPS_LOCK:
@@ -3564,6 +3580,83 @@ def _slot_owner_base_from_label(slot_label: str | None) -> int | None:
     if idx < 0 or idx >= len(_CHR_TBL_BASES):
         return None
     return int(_CHR_TBL_BASES[idx])
+
+
+
+def _quick_route_key(owner_base: int | None, char_id: int | None = None) -> tuple[int, int] | None:
+    if owner_base is None:
+        return None
+    try:
+        return (int(owner_base), int(char_id or 0))
+    except Exception:
+        return None
+
+
+def _quick_route_cache_get(owner_base: int | None, char_id: int | None = None) -> dict | None:
+    key = _quick_route_key(owner_base, char_id)
+    if key is None:
+        return None
+    with _QUICK_ROUTE_LOCK:
+        row = _QUICK_ROUTE_CACHE.get(key)
+        return dict(row) if row else None
+
+
+def _quick_route_cache_put(owner_base: int | None, char_id: int | None, row: dict | None) -> None:
+    key = _quick_route_key(owner_base, char_id)
+    if key is None or not row:
+        return
+    with _QUICK_ROUTE_LOCK:
+        _QUICK_ROUTE_CACHE[key] = dict(row)
+
+
+def _schedule_quick_route_prewarm(owner_base: int | None, char_id: int | None = None) -> None:
+    key = _quick_route_key(owner_base, char_id)
+    if key is None:
+        return
+    with _QUICK_ROUTE_LOCK:
+        if key in _QUICK_ROUTE_CACHE or key in _QUICK_ROUTE_INFLIGHT:
+            return
+        _QUICK_ROUTE_INFLIGHT.add(key)
+
+    def _worker() -> None:
+        row = None
+        try:
+            row = _resolve_quick_route_row_uncached(key[0], key[1] if key[1] else None)
+        except Exception as e:
+            try:
+                print(f"[assist quick] route prewarm failed for 0x{key[0]:08X}/cid {key[1]}: {e!r}")
+            except Exception:
+                pass
+        with _QUICK_ROUTE_LOCK:
+            if row:
+                _QUICK_ROUTE_CACHE[key] = dict(row)
+            _QUICK_ROUTE_INFLIGHT.discard(key)
+
+    try:
+        threading.Thread(target=_worker, daemon=True).start()
+    except Exception:
+        with _QUICK_ROUTE_LOCK:
+            _QUICK_ROUTE_INFLIGHT.discard(key)
+
+
+def _prewarm_quick_routes_from_snaps(snaps: dict[str, dict]) -> None:
+    if not isinstance(snaps, dict):
+        return
+    for slot_label, snap in snaps.items():
+        if not isinstance(snap, dict) or not snap.get("base"):
+            continue
+        owner_base = _slot_owner_base_from_label(str(slot_label))
+        if owner_base is None:
+            continue
+        char_id = 0
+        for field in ("id", "csv_char_id", "char_id"):
+            try:
+                char_id = int(snap.get(field) or 0)
+            except Exception:
+                char_id = 0
+            if char_id:
+                break
+        _schedule_quick_route_prewarm(owner_base, char_id if char_id else None)
 
 
 def _quick_assist_paths() -> list[str]:
@@ -3815,7 +3908,7 @@ def _write_many_module(writes: dict[int, bytes]) -> bool:
     return True
 
 
-def _resolve_quick_route_row(owner_base: int, char_id: int | None = None) -> dict | None:
+def _resolve_quick_route_row_uncached(owner_base: int, char_id: int | None = None) -> dict | None:
     slot_char_ids = _read_slot_char_ids()
     if char_id is not None and int(char_id) > 0:
         slot_char_ids[int(owner_base)] = int(char_id)
@@ -3888,6 +3981,17 @@ def _resolve_quick_route_row(owner_base: int, char_id: int | None = None) -> dic
 
     candidates.sort(key=rank, reverse=True)
     return candidates[0]
+
+
+def _resolve_quick_route_row(owner_base: int, char_id: int | None = None) -> dict | None:
+    cached = _quick_route_cache_get(owner_base, char_id)
+    if cached:
+        return cached
+
+    row = _resolve_quick_route_row_uncached(owner_base, char_id)
+    if row:
+        _quick_route_cache_put(owner_base, char_id, row)
+    return row
 
 
 def _selector_word_for_quick_preset(owner_base: int, row: dict, preset: dict) -> int | None | str:
