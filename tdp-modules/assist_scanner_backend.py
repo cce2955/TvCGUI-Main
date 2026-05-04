@@ -4,6 +4,7 @@ import csv
 import os
 import json
 import struct
+import time
 import threading
 import tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
@@ -145,6 +146,16 @@ _HEADLESS_LAST_PATCH_KEY: tuple[int, int] | None = None
 _QUICK_ROUTE_CACHE: dict[tuple[int, int], dict] = {}
 _QUICK_ROUTE_INFLIGHT: set[tuple[int, int]] = set()
 _QUICK_ROUTE_LOCK = threading.RLock()
+_QUICK_ROUTE_FAIL_UNTIL: dict[tuple[int, int], float] = {}
+_QUICK_ROUTE_FAIL_TTL_SECONDS = 0.75
+_QUICK_ROUTE_MAX_INFLIGHT = 1
+
+# UI scan result cache. This never changes assist write behavior. It only lets
+# the scanner window reuse rows that the proven scanner already found, instead
+# of rescanning MEM2 just to redraw the same table.
+_ASSIST_SCAN_CACHE_LOCK = threading.RLock()
+_ASSIST_SCAN_CACHE_SIGNATURE: tuple | None = None
+_ASSIST_SCAN_CACHE_HITS: list[dict] = []
 
 # Shared-character selector tables mean duplicate characters cannot keep
 # separate table bytes at rest. Per-fighter profiles are stored separately,
@@ -3377,6 +3388,96 @@ def _scan_block(data: bytes, base_addr: int, slot_char_ids: dict[int, int], hits
     _scan_generic_selector_candidates(data, base_addr, slot_char_ids, hits)
 
 
+
+def _append_route_candidates_for_character(
+    owner_base: int,
+    char_id: int | None,
+    slot_char_ids: dict[int, int],
+    hits: list[dict],
+    *,
+    allow_fallback: bool = True,
+) -> None:
+    """Append route candidates for exactly one loaded character owner window.
+
+    This is a read-side optimization only. It reuses the existing proven row
+    builders and does not change any selector/graft write payloads.
+
+    The old scanner fed every character window through the Chun, Ryu, generic,
+    VJoe, and Tatsunoko paths. That was safe but expensive. This dispatcher
+    only calls the path that matches the loaded character. If that path does not
+    find anything and allow_fallback=True, it falls back to the previous broad
+    per-owner scan so functionality is preserved.
+    """
+    try:
+        owner_base = int(owner_base)
+    except Exception:
+        return
+
+    cid = 0
+    try:
+        cid = int(char_id or slot_char_ids.get(owner_base) or 0)
+    except Exception:
+        cid = 0
+    if cid:
+        slot_char_ids[owner_base] = cid
+
+    before = len(hits)
+
+    def _scan_owner_slice_with(kind: str) -> None:
+        data = _read_mem_region_raw(owner_base, MOVE_PRESET_SLOT_SIZE)
+        if not data:
+            return
+        if kind == "ryu":
+            _scan_ryu_selector_graft_tables(data, owner_base, slot_char_ids, hits)
+        elif kind == "chun":
+            _scan_chun_selector_graft_tables(data, owner_base, slot_char_ids, hits)
+        elif kind == "generic":
+            _scan_generic_selector_candidates(data, owner_base, slot_char_ids, hits)
+        else:
+            _scan_block(data, owner_base, slot_char_ids, hits)
+
+    try:
+        if cid == VJOE_CHAR_ID:
+            # VJoe's active-wrapper resolver is expensive because it may verify
+            # chr_tbl candidates globally. Only run it when VJoe is actually
+            # loaded for this owner slot.
+            _append_vjoe_trampoline_profile(slot_char_ids, hits)
+        elif _is_tatsunoko_direct_426_char_id(cid):
+            # Tatsunoko pass characters use the early 426 wrapper graft row.
+            _append_direct_426_profiles(slot_char_ids, hits)
+        elif cid == 12:
+            _scan_owner_slice_with("ryu")
+        elif cid == 13:
+            _scan_owner_slice_with("chun")
+        elif cid:
+            _scan_owner_slice_with("generic")
+        else:
+            # Unknown/missing ID: keep the old safe behavior for this one owner
+            # window only.
+            _scan_owner_slice_with("all")
+            _append_vjoe_trampoline_profile(slot_char_ids, hits)
+            _append_direct_426_profiles(slot_char_ids, hits)
+    except Exception:
+        pass
+
+    if allow_fallback and len(hits) == before:
+        # Preserve behavior if the character-gated path missed a weird route.
+        # This is still only one owner slice, not the entire MEM2 sweep.
+        try:
+            _scan_owner_slice_with("all")
+        except Exception:
+            pass
+        try:
+            if cid == VJOE_CHAR_ID:
+                _append_vjoe_trampoline_profile(slot_char_ids, hits)
+        except Exception:
+            pass
+        try:
+            if _is_tatsunoko_direct_426_char_id(cid):
+                _append_direct_426_profiles(slot_char_ids, hits)
+        except Exception:
+            pass
+
 def _run_scan(progress_cb, done_cb):
     if rbytes is None:
         done_cb([])
@@ -3392,18 +3493,21 @@ def _run_scan(progress_cb, done_cb):
     total = max(1, len(owner_bases))
     for n, owner_base in enumerate(owner_bases, start=1):
         try:
-            data = _read_mem_region_raw(int(owner_base), MOVE_PRESET_SLOT_SIZE)
+            cid = int(slot_char_ids.get(int(owner_base), 0) or 0)
         except Exception:
-            data = b""
-        if data:
-            _scan_block(data, int(owner_base), slot_char_ids, hits)
+            cid = 0
+        _append_route_candidates_for_character(
+            int(owner_base),
+            cid if cid else None,
+            slot_char_ids,
+            hits,
+            allow_fallback=True,
+        )
         progress_cb(n / total * 100.0)
 
     # Move presets are harvested on demand from the selector-lane chooser.
-    # VJoe is a compiled projectile-assist package, so expose a dedicated
-    # trampoline row instead of relying on generic selector/anchor guesses.
-    _append_vjoe_trampoline_profile(slot_char_ids, hits)
-    _append_direct_426_profiles(slot_char_ids, hits)
+    # Character-specific route rows above already append VJoe/Tatsunoko rows
+    # only when those characters are loaded.
 
     seen = set()
     uniq = []
@@ -3513,14 +3617,18 @@ def _run_scan(progress_cb, done_cb):
         return (priority, h["block"], kind_order, h["addr"], h["entry"])
 
     uniq.sort(key=sort_key)
+    _assist_scan_cache_put(_assist_team_signature_from_main(), uniq)
     done_cb(uniq)
 
 
 def update_assist_context_from_main(snaps: dict | None) -> None:
     """Receive the current HUD snapshots from main.py.
 
-    This does not move scanner logic into main. It only lets the scanner avoid
-    rediscovering loaded slots and assist timing by rescanning all of MEM2.
+    Per-frame main.py calls must stay cheap. This function ONLY copies the
+    live slot context into the assist module cache. It deliberately does not
+    schedule route scans, VJoe discovery, generic selector scans, or chr_tbl
+    walks from the frame loop. Route discovery now happens only on explicit
+    scanner actions or on the first quick-assist click for that character.
     """
     global _MAIN_SNAPS_CACHE
     if not isinstance(snaps, dict):
@@ -3534,14 +3642,6 @@ def update_assist_context_from_main(snaps: dict | None) -> None:
                 pass
     with _MAIN_SNAPS_LOCK:
         _MAIN_SNAPS_CACHE = clean
-
-    # Warm quick-assist route rows from main's reliable live slot context.
-    # This keeps main dumb, but prevents every HUD button click from doing a
-    # slot-window scan just to rediscover a graft that is already stable.
-    try:
-        _prewarm_quick_routes_from_snaps(clean)
-    except Exception:
-        pass
 
 
 def _main_snaps_snapshot() -> dict[str, dict]:
@@ -3569,6 +3669,53 @@ def _loaded_owner_bases_from_main() -> list[int]:
         uniq.append(base)
     return uniq
 
+
+
+def _assist_team_signature_from_main() -> tuple:
+    """Passive cache key for UI scan results.
+
+    This is only an invalidation key. It does not participate in route
+    selection, graft writes, VJoe logic, Tatsunoko logic, or duplicate-character
+    runtime patching.
+    """
+    snaps = _main_snaps_snapshot()
+    parts: list[tuple[str, int, int, int]] = []
+    for idx, slot_label in enumerate(FIGHTER_SLOT_LABELS):
+        snap = snaps.get(slot_label) if isinstance(snaps, dict) else None
+        owner_base = int(_CHR_TBL_BASES[idx]) if idx < len(_CHR_TBL_BASES) else 0
+        fighter_base = 0
+        char_id = 0
+        if isinstance(snap, dict):
+            try:
+                fighter_base = int(snap.get("base") or 0)
+            except Exception:
+                fighter_base = 0
+            for field in ("id", "csv_char_id", "char_id"):
+                try:
+                    char_id = int(snap.get(field) or 0)
+                except Exception:
+                    char_id = 0
+                if char_id:
+                    break
+        parts.append((str(slot_label), owner_base, fighter_base, char_id))
+    return tuple(parts)
+
+
+def _assist_scan_cache_get(signature: tuple | None = None) -> list[dict] | None:
+    sig = signature if signature is not None else _assist_team_signature_from_main()
+    with _ASSIST_SCAN_CACHE_LOCK:
+        if _ASSIST_SCAN_CACHE_SIGNATURE != sig or not _ASSIST_SCAN_CACHE_HITS:
+            return None
+        return [dict(h) for h in _ASSIST_SCAN_CACHE_HITS]
+
+
+def _assist_scan_cache_put(signature: tuple | None, hits: list[dict]) -> None:
+    if signature is None:
+        signature = _assist_team_signature_from_main()
+    with _ASSIST_SCAN_CACHE_LOCK:
+        global _ASSIST_SCAN_CACHE_SIGNATURE, _ASSIST_SCAN_CACHE_HITS
+        _ASSIST_SCAN_CACHE_SIGNATURE = signature
+        _ASSIST_SCAN_CACHE_HITS = [dict(h) for h in (hits or [])]
 
 def _slot_owner_base_from_label(slot_label: str | None) -> int | None:
     if not slot_label:
@@ -3613,16 +3760,29 @@ def _schedule_quick_route_prewarm(owner_base: int | None, char_id: int | None = 
     key = _quick_route_key(owner_base, char_id)
     if key is None:
         return
+
+    now = time.monotonic()
     with _QUICK_ROUTE_LOCK:
         if key in _QUICK_ROUTE_CACHE or key in _QUICK_ROUTE_INFLIGHT:
+            return
+        # Do not let failed background warms hammer MEM2 every HUD frame. A
+        # manual quick-assist click still resolves immediately; this only
+        # throttles background prewarm.
+        if float(_QUICK_ROUTE_FAIL_UNTIL.get(key, 0.0)) > now:
+            return
+        # Serialize heavy background reads. main.py calls this every frame, so
+        # queued slots naturally get their turn on following frames.
+        if len(_QUICK_ROUTE_INFLIGHT) >= _QUICK_ROUTE_MAX_INFLIGHT:
             return
         _QUICK_ROUTE_INFLIGHT.add(key)
 
     def _worker() -> None:
         row = None
+        failed = False
         try:
             row = _resolve_quick_route_row_uncached(key[0], key[1] if key[1] else None)
         except Exception as e:
+            failed = True
             try:
                 print(f"[assist quick] route prewarm failed for 0x{key[0]:08X}/cid {key[1]}: {e!r}")
             except Exception:
@@ -3630,6 +3790,9 @@ def _schedule_quick_route_prewarm(owner_base: int | None, char_id: int | None = 
         with _QUICK_ROUTE_LOCK:
             if row:
                 _QUICK_ROUTE_CACHE[key] = dict(row)
+                _QUICK_ROUTE_FAIL_UNTIL.pop(key, None)
+            else:
+                _QUICK_ROUTE_FAIL_UNTIL[key] = time.monotonic() + _QUICK_ROUTE_FAIL_TTL_SECONDS
             _QUICK_ROUTE_INFLIGHT.discard(key)
 
     try:
@@ -3637,7 +3800,7 @@ def _schedule_quick_route_prewarm(owner_base: int | None, char_id: int | None = 
     except Exception:
         with _QUICK_ROUTE_LOCK:
             _QUICK_ROUTE_INFLIGHT.discard(key)
-
+            _QUICK_ROUTE_FAIL_UNTIL[key] = time.monotonic() + _QUICK_ROUTE_FAIL_TTL_SECONDS
 
 def _prewarm_quick_routes_from_snaps(snaps: dict[str, dict]) -> None:
     if not isinstance(snaps, dict):
@@ -3910,27 +4073,21 @@ def _write_many_module(writes: dict[int, bytes]) -> bool:
 
 def _resolve_quick_route_row_uncached(owner_base: int, char_id: int | None = None) -> dict | None:
     slot_char_ids = _read_slot_char_ids()
+    try:
+        owner_base = int(owner_base)
+    except Exception:
+        return None
     if char_id is not None and int(char_id) > 0:
-        slot_char_ids[int(owner_base)] = int(char_id)
+        slot_char_ids[owner_base] = int(char_id)
 
     hits: list[dict] = []
-    try:
-        data = _read_mem_region_raw(int(owner_base), MOVE_PRESET_SLOT_SIZE)
-        if data:
-            _scan_block(data, int(owner_base), slot_char_ids, hits)
-    except Exception:
-        pass
-
-    # Special rows are resolved from chr_tbl shape and are cheap compared to a
-    # full MEM2 scan.
-    try:
-        _append_vjoe_trampoline_profile(slot_char_ids, hits)
-    except Exception:
-        pass
-    try:
-        _append_direct_426_profiles(slot_char_ids, hits)
-    except Exception:
-        pass
+    _append_route_candidates_for_character(
+        owner_base,
+        int(char_id) if char_id is not None and int(char_id) > 0 else slot_char_ids.get(owner_base),
+        slot_char_ids,
+        hits,
+        allow_fallback=True,
+    )
 
     route_types = {
         "u32-chun-selector",
@@ -4204,6 +4361,14 @@ class AssistScannerWindow:
         # routes on demand. Press Rescan only when you actually want a targeted
         # diagnostic refresh.
         self._status.set("Ready - using main.py live slot context. Press Rescan for a targeted assist scan.")
+        # Show already-resolved routes from main's live context instead of
+        # opening to a blank table. This is cache-first and non-blocking. It
+        # does not scan on open; press Refresh Cache or Rescan Loaded manually.
+        try:
+            self.root.after(120, lambda: self._populate_from_main_context_cache(False))
+            self.root.after(900, lambda: self._populate_from_main_context_cache(False))
+        except Exception:
+            pass
 
     def _build(self):
         top = ttk.Frame(self.root)
@@ -4215,9 +4380,11 @@ class AssistScannerWindow:
                 "Double-click a row to choose that fighter's assist. Use Auto Assist Trigger for duplicate characters."
             ),
         ).pack(side="left")
-        self._scan_btn = ttk.Button(top, text="Rescan", command=self._start)
+        self._scan_btn = ttk.Button(top, text="Rescan Loaded", command=self._start)
         self._scan_btn.pack(side="right")
 
+        self._refresh_main_btn = ttk.Button(top, text="Refresh Cache", command=lambda: self._populate_from_main_context_cache(True))
+        self._refresh_main_btn.pack(side="right", padx=(0, 8))
 
         self._dump_slots_btn = ttk.Button(top, text="Dump Char Slots", command=self._dump_char_slots)
         self._dump_slots_btn.pack(side="right", padx=(0, 8))
@@ -4272,6 +4439,137 @@ class AssistScannerWindow:
             self.root.after(0, lambda: self._prog.set(pct))
         except Exception:
             pass
+
+    def _insert_hits_into_tree(self, hits: list[dict], status_prefix: str = "Cached") -> None:
+        """Replace the visible tree with already-known route rows.
+
+        This is intentionally UI-only. It does not scan MEM2. It lets the
+        scanner window show the route rows that main.py/quick assists already
+        warmed in _QUICK_ROUTE_CACHE, so opening the scanner does not look empty.
+        """
+        self._hit_by_iid.clear()
+        for iid in self._tree.get_children():
+            self._tree.delete(iid)
+
+        hits_expanded = _expand_selector_hits_to_fighter_rows(hits)
+        for h in hits_expanded:
+            def _val(col_id: str) -> str:
+                if col_id == "block":
+                    return f"0x{h['block']:08X}"
+                if col_id == "address":
+                    return f"0x{h['addr']:08X}"
+                return str(h.get(col_id, ""))
+            iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS))
+            self._hit_by_iid[iid] = h
+            if h.get("typ") in (
+                "u32-chun-selector",
+                "u32-ryu-selector-graft",
+                "u32-generic-selector",
+                "u32-anchored-assist-fallback",
+                "u32-vjoe-trampoline",
+                "u32-direct-426-fallback",
+            ):
+                self._record_default_slot_profile(h)
+
+        self._scanning = False
+        try:
+            self._scan_btn.config(state="normal")
+        except Exception:
+            pass
+        self._prog.set(100 if hits_expanded else 0)
+        chun_rows = len([h for h in hits_expanded if h["kind"] == "chun-selector-word"])
+        ryu_rows = len([h for h in hits_expanded if h["kind"] == "ryu-selector-word"])
+        generic_rows = len([h for h in hits_expanded if h["kind"] == "generic-selector-word"])
+        self._status.set(
+            f"{status_prefix} - {ryu_rows} Ryu, {chun_rows} Chun, {generic_rows} generic fighter profile row(s)."
+        )
+
+    def _populate_from_main_context_cache(self, schedule_missing: bool = False) -> None:
+        """Show main.py-fed route results without pressing Rescan.
+
+        Main already calls tick_assist_profiles_from_main(snaps), but that
+        frame path only caches slot context. The scanner window displays rows
+        already known from quick assists or manual scans. If a row is not warm
+        yet, the Refresh Cache button schedules character-gated route discovery
+        and refreshes again without blocking the UI.
+        """
+        snaps = _main_snaps_snapshot()
+        if not snaps:
+            cached = _assist_scan_cache_get(_assist_team_signature_from_main())
+            if cached:
+                self._insert_hits_into_tree(cached, "Scan cache")
+            else:
+                self._status.set("No main.py slot context yet. Start/load a match, then press Rescan Loaded.")
+            return
+
+        cached = _assist_scan_cache_get(_assist_team_signature_from_main())
+        if cached and not schedule_missing:
+            self._insert_hits_into_tree(cached, "Scan cache")
+            return
+
+        hits: list[dict] = []
+        missing: list[tuple[int, int | None]] = []
+        for slot_label in FIGHTER_SLOT_LABELS:
+            snap = snaps.get(slot_label)
+            if not isinstance(snap, dict) or not snap.get("base"):
+                continue
+            owner_base = _slot_owner_base_from_label(slot_label)
+            if owner_base is None:
+                continue
+            char_id = 0
+            for field in ("id", "csv_char_id", "char_id"):
+                try:
+                    char_id = int(snap.get(field) or 0)
+                except Exception:
+                    char_id = 0
+                if char_id:
+                    break
+
+            row = _quick_route_cache_get(owner_base, char_id if char_id else None)
+            if row is None:
+                # A previously chosen quick assist stores the same row even if
+                # the generic warm cache has not finished yet.
+                prof = _HEADLESS_ASSIST_PROFILES.get(int(snap.get("base") or 0)) or _HEADLESS_ASSIST_PROFILES.get(int(owner_base))
+                if isinstance(prof, dict) and isinstance(prof.get("row"), dict):
+                    row = dict(prof.get("row") or {})
+
+            if row is None:
+                missing.append((int(owner_base), int(char_id) if char_id else None))
+                if schedule_missing:
+                    _schedule_quick_route_prewarm(owner_base, char_id if char_id else None)
+                continue
+
+            row = dict(row)
+            row["owner_base"] = int(owner_base)
+            if char_id:
+                row["char_id"] = int(char_id)
+            try:
+                row["fighter_base"] = int(snap.get("base") or 0)
+            except Exception:
+                pass
+            row["fighter_label"] = str(slot_label)
+            char_name = str(snap.get("name") or CHAR_ID_TO_KEY.get(int(char_id or row.get("char_id") or 0), "?") or "?")
+            if row.get("fighter_base"):
+                row["owner"] = f"{slot_label} {char_name} @0x{int(row['fighter_base']):08X}"
+            hits.append(row)
+
+        if hits:
+            self._insert_hits_into_tree(hits, "Main cache")
+        else:
+            if schedule_missing:
+                self._status.set("No cached assist routes yet. Warming loaded slots from main context...")
+            else:
+                self._status.set("No cached assist routes yet. Press Refresh Cache to warm, or Rescan Loaded to scan.")
+
+        if missing and schedule_missing:
+            # Do not block the Tk thread. The prewarm worker fills the cache;
+            # refresh the visible table a moment later.
+            try:
+                self.root.after(900, lambda: self._populate_from_main_context_cache(False))
+            except Exception:
+                pass
+        elif missing and hits:
+            self._status.set(f"Main cache - {len(hits)} cached row(s), {len(missing)} still missing. Press Rescan Loaded if needed.")
 
     def _on_done(self, hits: list[dict]):
         def _f():

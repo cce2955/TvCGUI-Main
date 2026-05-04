@@ -734,6 +734,34 @@ def legacy_main():
             if isinstance(value, pygame.Rect):
                 value.y += TOP_UI_RESERVED
 
+        # Give the character panels a dedicated footer area for Quick Assists.
+        # This keeps the assist buttons from crowding the move text or the
+        # Frame Data / Mission Mode buttons, without making main.py own any
+        # assist logic. The lower HUD areas are shifted down and the scan
+        # preview absorbs the height loss.
+        qa_panel_extra = 26 if h >= 700 else 18
+        if qa_panel_extra > 0:
+            for _key in ("p1c1", "p2c1"):
+                _rect = layout.get(_key)
+                if isinstance(_rect, pygame.Rect):
+                    _rect.height += qa_panel_extra
+
+            for _key in ("p1c2", "p2c2"):
+                _rect = layout.get(_key)
+                if isinstance(_rect, pygame.Rect):
+                    _rect.y += qa_panel_extra
+                    _rect.height += qa_panel_extra
+
+            qa_total_shift = qa_panel_extra * 2
+            for _key in ("act", "events", "debug", "scan"):
+                _rect = layout.get(_key)
+                if isinstance(_rect, pygame.Rect):
+                    _rect.y += qa_total_shift
+
+            _scan_rect = layout.get("scan")
+            if isinstance(_scan_rect, pygame.Rect):
+                _scan_rect.height = max(54, _scan_rect.height - qa_total_shift)
+
         layout["p1_is_giant"] = bool(p1_giant_solo)
         layout["p2_is_giant"] = bool(p2_giant_solo)
 
@@ -903,10 +931,11 @@ def legacy_main():
             btn_h          = 20
             frame_btn_w    = 110
             mission_btn_w  = 110
-            btn_gap        = 6
+            btn_gap        = 8
+            bottom_pad     = 8
             total_btn_w    = frame_btn_w + btn_gap + mission_btn_w
-            btn_x          = panel_rect.width - total_btn_w - 6
-            btn_y          = panel_rect.height - btn_h - 6
+            btn_x          = panel_rect.width - total_btn_w - 10
+            btn_y          = panel_rect.height - btn_h - bottom_pad
 
             frame_btn_local   = pygame.Rect(btn_x, btn_y, frame_btn_w, btn_h)
             mission_btn_local = pygame.Rect(btn_x + frame_btn_w + btn_gap, btn_y, mission_btn_w, btn_h)
@@ -919,24 +948,24 @@ def legacy_main():
             flash_left   = panel_btn_flash.get(slot_label, 0)
 
             if flash_left > 0:
-                frame_base_col   = (90, 140, 255)
-                frame_border_col = (255, 255, 255)
+                frame_base_col   = (70, 105, 170)
+                frame_border_col = (235, 240, 255)
             elif frame_hover:
-                frame_base_col   = (55, 55, 55)
-                frame_border_col = (220, 220, 220)
+                frame_base_col   = (48, 54, 68)
+                frame_border_col = (210, 220, 235)
             else:
-                frame_base_col   = (40, 40, 40)
-                frame_border_col = (180, 180, 180)
+                frame_base_col   = (31, 33, 42)
+                frame_border_col = (135, 145, 165)
 
             if mission_mgr.active_slot == slot_label:
-                mission_base_col   = (120, 70, 170)
-                mission_border_col = (255, 255, 255)
+                mission_base_col   = (88, 68, 135)
+                mission_border_col = (235, 240, 255)
             elif mission_hover:
-                mission_base_col   = (55, 55, 55)
-                mission_border_col = (220, 220, 220)
+                mission_base_col   = (48, 54, 68)
+                mission_border_col = (210, 220, 235)
             else:
-                mission_base_col   = (40, 40, 40)
-                mission_border_col = (180, 180, 180)
+                mission_base_col   = (31, 33, 42)
+                mission_border_col = (135, 145, 165)
 
             pygame.draw.rect(surf, frame_base_col,   frame_btn_local,   border_radius=3)
             pygame.draw.rect(surf, frame_border_col, frame_btn_local,   1, border_radius=3)
@@ -968,23 +997,40 @@ def legacy_main():
                     {"label": "Default", "default": True},
                 ]
             if quick_defs:
-                qa_gap = 4
+                qa_gap = 6
                 qa_count = min(4, len(quick_defs))
-                qa_y = max(6, btn_y - btn_h - 6)
-                qa_total_w = panel_rect.width - 12
-                qa_w = max(44, int((qa_total_w - qa_gap * (qa_count - 1)) / qa_count))
+                qa_h = 20
+                qa_x0 = 10
+                qa_total_w = panel_rect.width - 20
+                qa_w = max(52, int((qa_total_w - qa_gap * (qa_count - 1)) / qa_count))
+                qa_y = max(78, btn_y - qa_h - 12)
+
+                # Sleek footer strip for Quick Assists. This visually separates
+                # them from the live fighter text above and from utility buttons
+                # below.
+                strip_y = max(0, qa_y - 7)
+                strip_h = min(panel_rect.height - strip_y - 4, qa_h + 16)
+                pygame.draw.rect(surf, (20, 22, 30),
+                                 pygame.Rect(6, strip_y, panel_rect.width - 12, strip_h),
+                                 border_radius=4)
+                pygame.draw.line(surf, (70, 76, 96),
+                                 (10, strip_y), (panel_rect.width - 10, strip_y))
+
                 for qi, quick in enumerate(quick_defs):
-                    qx = 6 + qi * (qa_w + qa_gap)
-                    qrect_local = pygame.Rect(qx, qa_y, qa_w, btn_h)
+                    qx = qa_x0 + qi * (qa_w + qa_gap)
+                    qrect_local = pygame.Rect(qx, qa_y, qa_w, qa_h)
                     qhover = qrect_local.collidepoint(mx_local, my_local)
-                    qbase = (50, 65, 95) if not qhover else (75, 95, 135)
-                    pygame.draw.rect(surf, qbase, qrect_local, border_radius=3)
-                    pygame.draw.rect(surf, (170, 190, 220), qrect_local, 1, border_radius=3)
+                    qbase = (42, 52, 76) if not qhover else (64, 78, 112)
+                    qborder = (110, 132, 170) if not qhover else (175, 195, 230)
+                    pygame.draw.rect(surf, qbase, qrect_local, border_radius=4)
+                    pygame.draw.rect(surf, qborder, qrect_local, 1, border_radius=4)
                     qlabel = str(quick.get("label", f"A{qi + 1}"))
-                    if len(qlabel) > 12:
-                        qlabel = qlabel[:11] + "."
-                    surf.blit(smallfont.render(qlabel, True, (225, 225, 230)),
-                              (qrect_local.x + 4, qrect_local.y + 2))
+                    max_chars = max(7, int((qa_w - 10) / 7))
+                    if len(qlabel) > max_chars:
+                        qlabel = qlabel[:max_chars - 1] + "."
+                    label_surf = smallfont.render(qlabel, True, (232, 235, 242))
+                    surf.blit(label_surf,
+                              (qrect_local.x + 5, qrect_local.y + (qa_h - label_surf.get_height()) // 2))
                     quick_btn_areas[(slot_label, qi)] = pygame.Rect(
                         panel_rect.x + qrect_local.x,
                         panel_rect.y + qrect_local.y,

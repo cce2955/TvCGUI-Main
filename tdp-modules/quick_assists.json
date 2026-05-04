@@ -59,8 +59,8 @@
       "table": 312
     },
     {
-      "label": "j.Soul Fist A",
-      "table": 320
+      "label": "Soul Fist C",
+      "table": 306
     },
     {
       "label": "Soul Fist A",
@@ -145,8 +145,8 @@
   ],
   "Yatterman-1": [
     {
-      "label": "Yatter Hop C",
-      "table": 316
+      "label": "Yatter Medium",
+      "table": 311
     },
     {
       "label": "6B",
@@ -253,16 +253,16 @@
   ],
   "Viewtiful Joe": [
     {
-      "label": "Voom A",
-      "table": 304
-    },
-    {
       "label": "Voom B",
       "table": 305
     },
     {
-      "label": "Voom C",
-      "table": 306
+      "label": "Red Hot Kick C",
+      "table": 325
+    },
+    {
+      "label": "Red Hot Kick B",
+      "table": 324
     },
     {
       "label": "Default",
@@ -343,8 +343,8 @@
   ],
   "Tekkaman Blade": [
     {
-      "label": "Air Baselard A",
-      "table": 326
+      "label": "Air Baselard B",
+      "table": 327
     },
     {
       "label": "Blitz C",
@@ -369,8 +369,8 @@
       "table": 261
     },
     {
-      "label": "Air Savage C",
-      "table": 322
+      "label": "Wild Lasso A",
+      "table": 316
     },
     {
       "label": "Default",
@@ -397,12 +397,12 @@
   ],
   "Zero": [
     {
-      "label": "Hyper Blaster",
-      "table": 315
+      "label": "Hadengeki A",
+      "table": 304
     },
     {
-      "label": "Sentsuizan C",
-      "table": 322
+      "label": "Hadengeki B",
+      "table": 305
     },
     {
       "label": "Hadengeki C",

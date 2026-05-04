@@ -135,11 +135,30 @@ def find_dolphin_hwnd() -> Optional[int]:
     return candidates[0][1]
 
 
-def get_client_screen_rect(hwnd: int) -> tuple[int, int, int, int]:
-    left, top, right, bottom = win32gui.GetClientRect(hwnd)
-    tl = win32gui.ClientToScreen(hwnd, (left, top))
-    br = win32gui.ClientToScreen(hwnd, (right, bottom))
-    return tl[0], tl[1], br[0] - tl[0], br[1] - tl[1]
+def is_valid_hwnd(hwnd: Optional[int]) -> bool:
+    try:
+        return bool(hwnd and win32gui.IsWindow(int(hwnd)))
+    except Exception:
+        return False
+
+
+def get_client_screen_rect(hwnd: Optional[int]) -> Optional[tuple[int, int, int, int]]:
+    if not is_valid_hwnd(hwnd):
+        return None
+
+    try:
+        left, top, right, bottom = win32gui.GetClientRect(int(hwnd))
+        tl = win32gui.ClientToScreen(int(hwnd), (left, top))
+        br = win32gui.ClientToScreen(int(hwnd), (right, bottom))
+    except Exception:
+        return None
+
+    w = br[0] - tl[0]
+    h = br[1] - tl[1]
+    if w <= 0 or h <= 0:
+        return None
+
+    return tl[0], tl[1], w, h
 
 
 def apply_overlay_style(hwnd: int) -> None:
@@ -174,17 +193,28 @@ def apply_overlay_style(hwnd: int) -> None:
     )
 
 
-def sync_overlay_to_dolphin(dolphin_hwnd: int, overlay_hwnd: int) -> tuple[int, int]:
-    x, y, w, h = get_client_screen_rect(dolphin_hwnd)
-    win32gui.SetWindowPos(
-        overlay_hwnd,
-        win32con.HWND_NOTOPMOST,
-        x,
-        y,
-        w,
-        h,
-        win32con.SWP_NOACTIVATE,
-    )
+def sync_overlay_to_dolphin(dolphin_hwnd: Optional[int], overlay_hwnd: Optional[int]) -> Optional[tuple[int, int]]:
+    if not is_valid_hwnd(overlay_hwnd):
+        return None
+
+    rect = get_client_screen_rect(dolphin_hwnd)
+    if rect is None:
+        return None
+
+    x, y, w, h = rect
+    try:
+        win32gui.SetWindowPos(
+            int(overlay_hwnd),
+            win32con.HWND_NOTOPMOST,
+            x,
+            y,
+            w,
+            h,
+            win32con.SWP_NOACTIVATE,
+        )
+    except Exception:
+        return None
+
     return w, h
 
 
@@ -1707,7 +1737,17 @@ class MasterOverlay:
 
         while self.running:
             try:
-                w, h = sync_overlay_to_dolphin(self.dolphin_hwnd, self.overlay_hwnd)
+                sync_size = sync_overlay_to_dolphin(self.dolphin_hwnd, self.overlay_hwnd)
+                if sync_size is None:
+                    self.dolphin_hwnd = find_dolphin_hwnd()
+                    sync_size = sync_overlay_to_dolphin(self.dolphin_hwnd, self.overlay_hwnd)
+
+                if sync_size is None:
+                    self.handle_events()
+                    self.clock.tick(TARGET_FPS)
+                    continue
+
+                w, h = sync_size
                 self.on_resize(w, h)
 
                 self._read_control_file()
