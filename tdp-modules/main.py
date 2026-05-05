@@ -999,7 +999,7 @@ def legacy_main():
             if quick_defs:
                 qa_gap = 6
                 qa_count = min(4, len(quick_defs))
-                qa_h = 20
+                qa_h = 22
                 qa_x0 = 10
                 qa_total_w = panel_rect.width - 20
                 qa_w = max(52, int((qa_total_w - qa_gap * (qa_count - 1)) / qa_count))
@@ -1031,12 +1031,16 @@ def legacy_main():
                     label_surf = smallfont.render(qlabel, True, (232, 235, 242))
                     surf.blit(label_surf,
                               (qrect_local.x + 5, qrect_local.y + (qa_h - label_surf.get_height()) // 2))
-                    quick_btn_areas[(slot_label, qi)] = pygame.Rect(
+                    # Drawn button stays compact, but the clickable area is
+                    # intentionally larger. The 20px footer buttons were too
+                    # easy to miss, especially on the lower-left P1-C2 panel.
+                    qclick = pygame.Rect(
                         panel_rect.x + qrect_local.x,
                         panel_rect.y + qrect_local.y,
                         qrect_local.width,
                         qrect_local.height,
-                    )
+                    ).inflate(8, 8)
+                    quick_btn_areas[(slot_label, qi)] = qclick
 
             surf.set_alpha(alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))

@@ -157,6 +157,18 @@ _ASSIST_SCAN_CACHE_LOCK = threading.RLock()
 _ASSIST_SCAN_CACHE_SIGNATURE: tuple | None = None
 _ASSIST_SCAN_CACHE_HITS: list[dict] = []
 
+# Runtime cache invalidation.
+#
+# Route rows are absolute MEM2 addresses. If a match ends and the same character
+# is picked again, owner_base + char_id can be identical while the live chr_tbl /
+# graft address has been rebuilt. Keep a cheap epoch and bump it whenever main.py
+# shows a slot unload, invalid/transitional char id, or character/base change.
+# Cached route rows from older epochs are ignored and re-resolved on the next
+# quick-assist click. This does not change any write/graft logic.
+_ASSIST_CACHE_EPOCH = 0
+_ASSIST_LAST_SLOT_SIGNATURES: dict[str, tuple[int, int]] = {}
+
+
 # Shared-character selector tables mean duplicate characters cannot keep
 # separate table bytes at rest. Per-fighter profiles are stored separately,
 # then Auto Slot Switch patches the shared character table when that fighter
@@ -207,6 +219,46 @@ VJOE_TRAMPOLINE_STATE_BY_TABLE_INDEX = {
     305: 0x0113,  # Voomerang B
     306: 0x0114,  # Voomerang C
 }
+
+# Volnutt special case.
+#
+# Volnutt's assist is not just a normal move selector. His 6B-style assist body
+# is augmented by the active weapon arm. Quick assists can therefore include a
+# Volnutt weapon value and still point the assist route at the normal 6B table.
+# The scanner searches only inside Volnutt's resolved chr_tbl[426] wrapper and
+# patches the small weapon selector bytes observed in the assist package.
+VOLNUTT_CHAR_ID = 18
+VOLNUTT_6B_TABLE_INDEX = 270
+VOLNUTT_WEAPON_NAMES = {
+    0: "Arm",
+    1: "Drill",
+    2: "Gun",
+    3: "Shield",
+}
+VOLNUTT_WEAPON_ALIASES = {
+    "arm": 0,
+    "normal": 0,
+    "default_arm": 0,
+    "default arm": 0,
+    "drill": 1,
+    "gun": 2,
+    "shield": 3,
+}
+VOLNUTT_WEAPON_WRAPPER_SCAN_SIZE = 0x3000
+VOLNUTT_WEAPON_ASSIST_START_HEAD = bytes.fromhex(
+    "04 01 60 00 00 00 00 58 3F 00 00 00 00 40 02 00 "
+    "04 02 60 00 00 00 45 FC 3F 00 00 00 00 00 00"
+)
+VOLNUTT_WEAPON_ASSIST_START_TAIL = bytes.fromhex(
+    "01 33 00 00 00 04 42 5C"
+)
+VOLNUTT_WEAPON_SETUP_HEAD = bytes.fromhex(
+    "04 15 60 00 00 00 46 04 3F 00 00 00 00 00 00 02 "
+    "04 01 60 00 00 00 46 00 3F 00 00 00 00 00 00"
+)
+VOLNUTT_WEAPON_SETUP_TAIL = bytes.fromhex(
+    "04 02 60 00 00 00 45 FC 3F 00 00 00 00 00 00 00"
+)
 
 # Tatsunoko fallback class. These characters do not always expose a clean
 # Ryu/Chun-style selector block. For them, the assist hop-in is handled by
@@ -3640,6 +3692,7 @@ def update_assist_context_from_main(snaps: dict | None) -> None:
                 clean[str(key)] = dict(snap)
             except Exception:
                 pass
+    _assist_note_main_snap_transitions(clean)
     with _MAIN_SNAPS_LOCK:
         _MAIN_SNAPS_CACHE = clean
 
@@ -3717,6 +3770,130 @@ def _assist_scan_cache_put(signature: tuple | None, hits: list[dict]) -> None:
         _ASSIST_SCAN_CACHE_SIGNATURE = signature
         _ASSIST_SCAN_CACHE_HITS = [dict(h) for h in (hits or [])]
 
+
+def _assist_snap_char_id(snap: dict | None) -> int:
+    if not isinstance(snap, dict):
+        return 0
+    for field in ("id", "csv_char_id", "char_id"):
+        try:
+            cid = int(snap.get(field) or 0)
+        except Exception:
+            cid = 0
+        if cid:
+            return cid
+    return 0
+
+
+def _assist_snap_fighter_base(snap: dict | None) -> int:
+    if not isinstance(snap, dict):
+        return 0
+    try:
+        return int(snap.get("base") or 0)
+    except Exception:
+        return 0
+
+
+def _assist_clear_slot_caches(slot_label: str, owner_base: int | None = None,
+                              fighter_base: int | None = None, char_id: int | None = None) -> None:
+    """Drop only stale read/profile caches for one HUD slot.
+
+    This is intentionally outside the proven graft/write code. It prevents a
+    route row from a previous match being reused after Dolphin rebuilds the same
+    character's live assist scripts at a different address.
+    """
+    global _HEADLESS_LAST_PATCH_KEY
+
+    if owner_base is None:
+        try:
+            owner_base = _slot_owner_base_from_label(slot_label)
+        except Exception:
+            owner_base = None
+
+    owner = int(owner_base or 0)
+    fighter = int(fighter_base or 0)
+
+    with _QUICK_ROUTE_LOCK:
+        if owner:
+            for key in list(_QUICK_ROUTE_CACHE.keys()):
+                if int(key[0]) == owner:
+                    _QUICK_ROUTE_CACHE.pop(key, None)
+            for key in list(_QUICK_ROUTE_INFLIGHT):
+                if int(key[0]) == owner:
+                    _QUICK_ROUTE_INFLIGHT.discard(key)
+            for key in list(_QUICK_ROUTE_FAIL_UNTIL.keys()):
+                if int(key[0]) == owner:
+                    _QUICK_ROUTE_FAIL_UNTIL.pop(key, None)
+
+    if owner:
+        _HEADLESS_ASSIST_PROFILES.pop(owner, None)
+    if fighter:
+        _HEADLESS_ASSIST_PROFILES.pop(fighter, None)
+        _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.pop(fighter, None)
+
+    _HEADLESS_LAST_PATCH_KEY = None
+
+    inst = _inst
+    if inst is not None:
+        try:
+            if owner:
+                inst._slot_assist_profiles.pop(owner, None)
+            if fighter:
+                inst._slot_assist_profiles.pop(fighter, None)
+                inst._main_last_assist_attack_by_base.pop(fighter, None)
+                inst._main_patch_latch_by_base.pop(fighter, None)
+            inst._main_last_patch_key = None
+        except Exception:
+            pass
+
+
+def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
+    """Invalidate route/profile caches when main.py sees a team transition.
+
+    main.py is already the reliable slot source. Use it only as a stale-cache
+    detector: valid slot stayed same -> keep caches; slot invalid/changed/missing
+    -> bump epoch and clear that slot's cached route/profile. This fixes the
+    same-character-next-match case without scanning every frame.
+    """
+    global _ASSIST_CACHE_EPOCH
+
+    changed = False
+    for slot_label in FIGHTER_SLOT_LABELS:
+        snap = clean_snaps.get(slot_label)
+        owner_base = _slot_owner_base_from_label(slot_label)
+        fighter_base = _assist_snap_fighter_base(snap)
+        char_id = _assist_snap_char_id(snap)
+        valid = bool(fighter_base and char_id in CHAR_ID_TO_KEY)
+        prev = _ASSIST_LAST_SLOT_SIGNATURES.get(slot_label)
+
+        if not valid:
+            if prev is not None:
+                _assist_clear_slot_caches(slot_label, owner_base, prev[0], prev[1])
+                _ASSIST_LAST_SLOT_SIGNATURES.pop(slot_label, None)
+                changed = True
+            elif owner_base is not None and char_id and char_id not in CHAR_ID_TO_KEY:
+                # Transitional garbage IDs are a strong signal that the match /
+                # character memory is being rebuilt. Clear this owner even if we
+                # did not have a previous valid signature in this process.
+                _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
+                changed = True
+            continue
+
+        cur = (int(fighter_base), int(char_id))
+        if prev != cur:
+            if prev is not None:
+                _assist_clear_slot_caches(slot_label, owner_base, prev[0], prev[1])
+            _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
+            _ASSIST_LAST_SLOT_SIGNATURES[slot_label] = cur
+            changed = True
+
+    if changed:
+        _ASSIST_CACHE_EPOCH += 1
+        with _ASSIST_SCAN_CACHE_LOCK:
+            global _ASSIST_SCAN_CACHE_SIGNATURE, _ASSIST_SCAN_CACHE_HITS
+            _ASSIST_SCAN_CACHE_SIGNATURE = None
+            _ASSIST_SCAN_CACHE_HITS = []
+
+
 def _slot_owner_base_from_label(slot_label: str | None) -> int | None:
     if not slot_label:
         return None
@@ -3745,15 +3922,26 @@ def _quick_route_cache_get(owner_base: int | None, char_id: int | None = None) -
         return None
     with _QUICK_ROUTE_LOCK:
         row = _QUICK_ROUTE_CACHE.get(key)
-        return dict(row) if row else None
+        if not row:
+            return None
+        try:
+            if int(row.get("_assist_epoch", -1)) != int(_ASSIST_CACHE_EPOCH):
+                _QUICK_ROUTE_CACHE.pop(key, None)
+                return None
+        except Exception:
+            _QUICK_ROUTE_CACHE.pop(key, None)
+            return None
+        return dict(row)
 
 
 def _quick_route_cache_put(owner_base: int | None, char_id: int | None, row: dict | None) -> None:
     key = _quick_route_key(owner_base, char_id)
     if key is None or not row:
         return
+    cached = dict(row)
+    cached["_assist_epoch"] = int(_ASSIST_CACHE_EPOCH)
     with _QUICK_ROUTE_LOCK:
-        _QUICK_ROUTE_CACHE[key] = dict(row)
+        _QUICK_ROUTE_CACHE[key] = cached
 
 
 def _schedule_quick_route_prewarm(owner_base: int | None, char_id: int | None = None) -> None:
@@ -3789,7 +3977,9 @@ def _schedule_quick_route_prewarm(owner_base: int | None, char_id: int | None = 
                 pass
         with _QUICK_ROUTE_LOCK:
             if row:
-                _QUICK_ROUTE_CACHE[key] = dict(row)
+                cached = dict(row)
+                cached["_assist_epoch"] = int(_ASSIST_CACHE_EPOCH)
+                _QUICK_ROUTE_CACHE[key] = cached
                 _QUICK_ROUTE_FAIL_UNTIL.pop(key, None)
             else:
                 _QUICK_ROUTE_FAIL_UNTIL[key] = time.monotonic() + _QUICK_ROUTE_FAIL_TTL_SECONDS
@@ -4071,6 +4261,217 @@ def _write_many_module(writes: dict[int, bytes]) -> bool:
     return True
 
 
+def _volnutt_weapon_value_from_preset(preset: dict | None) -> int | None:
+    if not isinstance(preset, dict):
+        return None
+
+    for key in ("volnutt_weapon", "weapon", "weapon_id", "arm"):
+        if key not in preset:
+            continue
+        value = preset.get(key)
+        if isinstance(value, int):
+            if 0 <= int(value) <= 3:
+                return int(value)
+            return None
+        text = str(value or "").strip()
+        parsed = _parse_int_loose(text)
+        if parsed is not None:
+            if 0 <= int(parsed) <= 3:
+                return int(parsed)
+            return None
+        norm = text.lower().replace("_", " ").strip()
+        if norm in VOLNUTT_WEAPON_ALIASES:
+            return int(VOLNUTT_WEAPON_ALIASES[norm])
+
+    # Allow labels like "Gun 6B" or "Shield Assist" without requiring a
+    # separate JSON field. This is Volnutt-only and only used by the Volnutt path.
+    label = str(preset.get("label") or preset.get("name") or "").lower()
+    for name, val in VOLNUTT_WEAPON_ALIASES.items():
+        if name and name in label:
+            return int(val)
+    return None
+
+
+def _volnutt_find_wildcard_offsets(data: bytes, head: bytes, tail: bytes) -> list[int]:
+    out: list[int] = []
+    if not data or not head or not tail:
+        return out
+    pos = 0
+    while True:
+        j = data.find(head, pos)
+        if j < 0:
+            break
+        wildcard_off = j + len(head)
+        tail_start = wildcard_off + 1
+        if tail_start + len(tail) <= len(data) and data[tail_start:tail_start + len(tail)] == tail:
+            current = data[wildcard_off]
+            # This byte is the observed weapon selector: 00 Arm, 01 Drill,
+            # 02 Gun, 03 Shield. Reject anything else so we do not patch random
+            # matching script bytes.
+            if current in (0, 1, 2, 3):
+                out.append(wildcard_off)
+        pos = j + 1
+    return out
+
+
+def _volnutt_weapon_writes(owner_base: int | None, weapon_value: int | None, row: dict | None = None) -> dict[int, bytes]:
+    """Return Volnutt weapon-byte writes for the resolved assist route.
+
+    Volnutt's 6B assist body is controlled by weapon selector bytes:
+        00 Arm, 01 Drill, 02 Gun, 03 Shield
+
+    The active latch sits immediately before the chr_tbl[426] wrapper in the
+    current dumps. Do not only scan from wrapper_addr forward; that misses the
+    tag-in/weapon-in block and leaves Drill stuck. This stays Volnutt-only and
+    only patches the exact observed Volnutt weapon-selector byte shapes.
+    """
+    try:
+        owner = int(owner_base or 0)
+        weapon = int(weapon_value)
+    except Exception:
+        return {}
+    if owner <= 0 or weapon not in (0, 1, 2, 3):
+        return {}
+
+    chr_tbl_base = 0
+    if isinstance(row, dict):
+        try:
+            chr_tbl_base = int(row.get("chr_tbl_base") or 0)
+        except Exception:
+            chr_tbl_base = 0
+    if not chr_tbl_base:
+        chr_tbl_base = _chr_tbl_base_for_owner_base(owner) or 0
+    if not chr_tbl_base:
+        return {}
+
+    def _find_setup_offsets(blob: bytes) -> set[int]:
+        out: set[int] = set()
+        if not blob:
+            return out
+        # 04 15 ... 46 04 ... 02 / 04 01 ... 46 00 ... XX / 04 02 ... 45 FC ...
+        out.update(_volnutt_find_wildcard_offsets(
+            blob,
+            VOLNUTT_WEAPON_SETUP_HEAD,
+            VOLNUTT_WEAPON_SETUP_TAIL,
+        ))
+        return out
+
+    def _find_assist_start_loose_offsets(blob: bytes) -> set[int]:
+        out: set[int] = set()
+        if not blob:
+            return out
+
+        head = VOLNUTT_WEAPON_ASSIST_START_HEAD
+        # The original strict tail included the continuation target. The graft
+        # changes that target, so only require the stable call opcode after the
+        # weapon byte: 01 33 00 00.
+        loose_tail = b"\x01\x33\x00\x00"
+
+        pos = 0
+        while True:
+            j = blob.find(head, pos)
+            if j < 0:
+                break
+            wildcard_off = j + len(head)
+            tail_start = wildcard_off + 1
+            if tail_start + len(loose_tail) <= len(blob) and blob[tail_start:tail_start + len(loose_tail)] == loose_tail:
+                current = blob[wildcard_off]
+                if current in (0, 1, 2, 3):
+                    out.add(wildcard_off)
+            pos = j + 1
+        return out
+
+    def _find_all_volnutt_weapon_offsets(blob: bytes) -> set[int]:
+        out: set[int] = set()
+        out.update(_find_assist_start_loose_offsets(blob))
+        out.update(_find_setup_offsets(blob))
+        return out
+
+    def _add_region(writes: dict[int, bytes], start_addr: int, size: int, label: str) -> None:
+        try:
+            start = int(start_addr)
+            n = int(size)
+        except Exception:
+            return
+        if start <= 0 or n <= 0:
+            return
+        data = _read_mem_region_raw(start, n)
+        if not data:
+            return
+
+        payload = bytes([weapon & 0xFF])
+        for off in sorted(_find_all_volnutt_weapon_offsets(data)):
+            writes[start + int(off)] = payload
+
+    writes: dict[int, bytes] = {}
+
+    default_word = None
+    if isinstance(row, dict):
+        for info_key in ("direct_426_info", "vjoe_info"):
+            info = row.get(info_key)
+            if isinstance(info, dict) and info.get("default_word") is not None:
+                try:
+                    default_word = int(info.get("default_word"))
+                    break
+                except Exception:
+                    default_word = None
+    if default_word is None:
+        default_word = _chr_tbl_word_for_owner_base(owner, ANCHOR_ASSIST_FALLBACK_TABLE_INDEX)
+
+    if default_word is not None:
+        default_word = int(default_word) & 0xFFFFFFFF
+        if 0 < default_word < MOVE_PRESET_SLOT_SIZE:
+            wrapper_addr = int(chr_tbl_base) + default_word
+
+            # Critical target from the before/after Volnutt dump:
+            # the weapon-in assist block is just BEFORE the table[426] wrapper.
+            # Scan a small pre-wrapper window plus the wrapper start. This catches
+            # both active bytes around wrapper-0xA1 and wrapper-0x79 without
+            # touching the static move-library copies elsewhere in the slot.
+            _add_region(writes, max(0, wrapper_addr - 0x140), 0x340, "426-prewrapper")
+
+            # Keep the old forward scan too, but it is no longer the only target.
+            _add_region(writes, wrapper_addr, VOLNUTT_WEAPON_WRAPPER_SCAN_SIZE, "426-wrapper")
+
+    # Row/graft-local backup. This remains route-local, not a broad full-slot
+    # scan, and catches weird cached rows where block is the pre-wrapper region.
+    if isinstance(row, dict):
+        try:
+            block_addr = int(row.get("block") or 0)
+        except Exception:
+            block_addr = 0
+        if block_addr:
+            _add_region(writes, max(0, block_addr - 0x800), 0x4800, "row-neighborhood")
+
+    # Selected 6B body backup. Since all Volnutt quick assists use table 270,
+    # the selected body may also carry a copy of the weapon byte.
+    try:
+        table270 = _read_mem_region_raw(int(chr_tbl_base) + (VOLNUTT_6B_TABLE_INDEX * 4), 4)
+        if table270 and len(table270) == 4:
+            move_word = struct.unpack(">I", table270)[0]
+            if 0 < int(move_word) < MOVE_PRESET_SLOT_SIZE:
+                _add_region(writes, int(chr_tbl_base) + int(move_word), VOLNUTT_WEAPON_WRAPPER_SCAN_SIZE, "6B-body")
+    except Exception:
+        pass
+
+    if writes:
+        try:
+            addr_list = ", ".join(f"0x{int(a):08X}" for a in sorted(writes.keys())[:8])
+            more = "" if len(writes) <= 8 else f" +{len(writes) - 8} more"
+            print(f"[assist quick] Volnutt weapon {weapon} writes={len(writes)} {addr_list}{more}")
+        except Exception:
+            pass
+        return writes
+
+    # Last-resort diagnostic fallback only. If this prints zero, we know the
+    # latch is not stored in the observed script-literal shapes.
+    try:
+        print(f"[assist quick] Volnutt weapon {weapon} writes=0")
+    except Exception:
+        pass
+    return {}
+
+
 def _resolve_quick_route_row_uncached(owner_base: int, char_id: int | None = None) -> dict | None:
     slot_char_ids = _read_slot_char_ids()
     try:
@@ -4160,6 +4561,8 @@ def _selector_word_for_quick_preset(owner_base: int, row: dict, preset: dict) ->
             if val is not None:
                 return int(val) & 0xFFFFFFFF
     table = preset.get("table", preset.get("table_index", preset.get("entry")))
+    if table is None and _volnutt_weapon_value_from_preset(preset) is not None:
+        table = VOLNUTT_6B_TABLE_INDEX
     table_index = _parse_int_loose(str(table)) if table is not None else None
     if table_index is None:
         name = str(preset.get("name") or preset.get("move") or preset.get("label") or "")
@@ -4187,6 +4590,7 @@ def _selector_word_for_quick_preset(owner_base: int, row: dict, preset: dict) ->
 
 
 def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict | None = None) -> bool:
+    global _HEADLESS_LAST_PATCH_KEY
     """Apply one JSON quick-assist entry for a HUD slot.
 
     This is the only function main.py needs for quick buttons. It resolves the
@@ -4200,10 +4604,26 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
     if quick_index < 0 or quick_index >= len(quicks):
         return False
     preset = quicks[quick_index]
-    try:
-        char_id = int((snap or {}).get("id") or (snap or {}).get("csv_char_id") or 0)
-    except Exception:
-        char_id = 0
+    _HEADLESS_LAST_PATCH_KEY = None
+    char_id = 0
+    if isinstance(snap, dict):
+        for field in ("id", "csv_char_id", "char_id"):
+            try:
+                char_id = int(snap.get(field) or 0)
+            except Exception:
+                char_id = 0
+            if char_id:
+                break
+
+    # Volnutt is special: every quick button points at the same 6B table, and
+    # the visible result is controlled by the requested weapon byte.  Do not
+    # gate this on snap["id"] only; some main.py snapshots use char_id instead,
+    # and if this stays 0 the selector works while the weapon remains whatever
+    # was already active, usually Drill.
+    requested_volnutt_weapon = _volnutt_weapon_value_from_preset(preset)
+    volnutt_weapon = requested_volnutt_weapon
+    if requested_volnutt_weapon is not None and char_id not in (0, VOLNUTT_CHAR_ID):
+        volnutt_weapon = None
 
     row = _resolve_quick_route_row(owner_base, char_id if char_id else None)
     if not row:
@@ -4213,6 +4633,20 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
             pass
         return False
 
+    if char_id == 0:
+        try:
+            char_id = int(row.get("char_id") or 0)
+        except Exception:
+            char_id = 0
+    if requested_volnutt_weapon is not None:
+        row_char_id = 0
+        try:
+            row_char_id = int(row.get("char_id") or 0)
+        except Exception:
+            row_char_id = 0
+        if char_id not in (0, VOLNUTT_CHAR_ID) and row_char_id not in (0, VOLNUTT_CHAR_ID):
+            volnutt_weapon = None
+
     raw = _selector_word_for_quick_preset(owner_base, row, preset)
     if isinstance(raw, str):
         try:
@@ -4221,6 +4655,15 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
             pass
         return False
     writes = _selector_writes_for_row_module(row, raw)
+    if volnutt_weapon is not None:
+        weapon_writes = _volnutt_weapon_writes(owner_base, int(volnutt_weapon), row)
+        if not weapon_writes:
+            try:
+                print(f"[assist quick] {slot_label} Volnutt weapon {volnutt_weapon} not found in active 426 wrapper")
+            except Exception:
+                pass
+            return False
+        writes.update(weapon_writes)
     if not writes or not _write_many_module(writes):
         try:
             print(f"[assist quick] write failed for {slot_label} {preset.get('label', quick_index)}")
@@ -4237,12 +4680,14 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
     profile = {
         "word": None if raw is None else (int(raw) & 0xFFFFFFFF),
         "label": label,
-        "row": dict(row),
+        "row": {**dict(row), "_assist_epoch": int(_ASSIST_CACHE_EPOCH)},
         "fighter_base": fighter_base or owner_base,
         "owner_base": int(owner_base),
         "char_id": int(char_id or row.get("char_id") or 0),
         "is_default": raw is None,
     }
+    if volnutt_weapon is not None:
+        profile["volnutt_weapon"] = int(volnutt_weapon)
     keys = {int(owner_base)}
     if fighter_base:
         keys.add(int(fighter_base))
@@ -4253,6 +4698,13 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
     if inst is not None:
         try:
             inst._record_slot_profile(row, None if raw is None else int(raw), label)
+            if volnutt_weapon is not None:
+                for key in keys:
+                    try:
+                        if key in inst._slot_assist_profiles:
+                            inst._slot_assist_profiles[key]["volnutt_weapon"] = int(volnutt_weapon)
+                    except Exception:
+                        pass
         except Exception:
             pass
         try:
@@ -4319,8 +4771,13 @@ def _headless_runtime_patch_from_main(snaps: dict) -> None:
         raw_val = None if raw_obj is None else int(raw_obj) & 0xFFFFFFFF
         row = dict(profile.get("row", {}) or {})
         writes = _selector_writes_for_row_module(row, raw_val)
+        volnutt_weapon = profile.get("volnutt_weapon")
+        if volnutt_weapon is not None:
+            owner_base_for_weapon = int(profile.get("owner_base") or row.get("owner_base") or 0)
+            writes.update(_volnutt_weapon_writes(owner_base_for_weapon, int(volnutt_weapon), row))
         if writes and _write_many_module(writes):
-            patch_key = (fighter_base, -1 if raw_val is None else raw_val)
+            weapon_key = -1 if volnutt_weapon is None else int(volnutt_weapon)
+            patch_key = (fighter_base, -1 if raw_val is None else raw_val, weapon_key)
             if _HEADLESS_LAST_PATCH_KEY != patch_key:
                 _HEADLESS_LAST_PATCH_KEY = patch_key
                 try:
@@ -6816,6 +7273,10 @@ class AssistScannerWindow:
         if not row:
             return False
         writes = self._selector_writes_for_row(row, raw_val)
+        volnutt_weapon = profile.get("volnutt_weapon")
+        if volnutt_weapon is not None:
+            owner_base_for_weapon = int(profile.get("owner_base") or row.get("owner_base") or 0)
+            writes.update(_volnutt_weapon_writes(owner_base_for_weapon, int(volnutt_weapon), row))
         return bool(writes and self._write_many_silent(writes))
 
     def _snap_assist_state_id(self, snap: dict) -> int | None:

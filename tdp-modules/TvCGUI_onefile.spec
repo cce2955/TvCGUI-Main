@@ -17,11 +17,13 @@ a = Analysis(
     ['launcher.py'],        # <-- single entry point, routes to main/overlays
     pathex=['.'],
     binaries=[],
-    datas=[
-        ('assets',  'assets'),      # portraits, icons — bundled inside EXE
-        ('*.csv',   '.'),           # move-mapping CSVs
-        ('missions', 'missions'),        
-    ],
+datas=[
+    ('assets',  'assets'),      # portraits, icons — bundled inside EXE
+    ('*.csv',   '.'),           # move-mapping CSVs
+    ('quick_assists.json', '.'),
+    ('master_overlay_control.json', '.'),
+    ('missions', 'missions'),
+],
     hiddenimports=[
         # All three scripts get pulled in as imports by launcher.py,
         # but list their deps explicitly so PyInstaller doesn't miss anything.
@@ -64,6 +66,9 @@ a = Analysis(
         'proj_scanner_window',
         'mission_mode',
         'subprocess_compat',
+        'assist_scanner_window',
+'assist_scanner_backend',
+'tk_host',
 
         # stdlib
         'csv',

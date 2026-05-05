@@ -271,20 +271,24 @@
   ],
   "Volnutt": [
     {
-      "label": "Under Construction",
-      "table": 304
+      "label": "Arm 6B",
+      "table": 270,
+      "volnutt_weapon": 0
     },
     {
-      "label": "Under Construction",
-      "table": 305
+      "label": "Drill 6B",
+      "table": 270,
+      "volnutt_weapon": 1
     },
     {
-      "label": "Under Construction",
-      "table": 306
+      "label": "Gun 6B",
+      "table": 270,
+      "volnutt_weapon": 2
     },
     {
-      "label": "Default",
-      "default": true
+      "label": "Shield 6B",
+      "table": 270,
+      "volnutt_weapon": 3
     }
   ],
   "Roll": [
