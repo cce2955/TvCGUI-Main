@@ -39,7 +39,7 @@ Built for players, lab monsters, modders, and researchers.
 ### 1. Requirements
 
 - Windows
-- Python 3.10+
+- TvC Continuo from the Release Page
 - Dolphin Emulator
 - Tatsunoko vs. Capcom (US build recommended)
 
@@ -51,9 +51,8 @@ Start the game and enter training mode or a match.
 ### 3. Run Continuo
 
 ```bash
-open run.bat
+open TvCGui.exe
 ```
-the bat file will do all the magic and then start the HUD for you, first time running includes an install that can take a few minutes,
 
 ### 4. Use the HUD
 

@@ -168,6 +168,22 @@ _ASSIST_SCAN_CACHE_HITS: list[dict] = []
 _ASSIST_CACHE_EPOCH = 0
 _ASSIST_LAST_SLOT_SIGNATURES: dict[str, tuple[int, int]] = {}
 
+# Session-persistent quick-assist intent.
+#
+# These are NOT route rows and do not store absolute MEM2 addresses. They only
+# remember "this slot/team character wanted quick button N". When a new match
+# rebuilds the same character's scripts, the stale route/profile caches are
+# still cleared, then this intent is reapplied through the normal proven
+# apply_quick_assist_from_main path after the current route is resolved.
+_PERSISTENT_SLOT_ASSIST_SELECTIONS: dict[tuple[str, int], dict] = {}
+_PERSISTENT_TEAM_ASSIST_SELECTIONS: dict[tuple[str, int], dict] = {}
+_PERSISTENT_REAPPLY_INFLIGHT: set[tuple] = set()
+_PERSISTENT_REAPPLY_DONE: set[tuple] = set()
+_PERSISTENT_REAPPLY_FAIL_UNTIL: dict[tuple, float] = {}
+_PERSISTENT_REAPPLY_LOCK = threading.RLock()
+_PERSISTENT_REAPPLY_RETRY_SECONDS = 0.85
+
+
 
 # Shared-character selector tables mean duplicate characters cannot keep
 # separate table bytes at rest. Per-fighter profiles are stored separately,
@@ -3771,6 +3787,217 @@ def _assist_scan_cache_put(signature: tuple | None, hits: list[dict]) -> None:
         _ASSIST_SCAN_CACHE_HITS = [dict(h) for h in (hits or [])]
 
 
+def _persistent_team_from_slot_label(slot_label: str | None) -> str:
+    text = str(slot_label or "")
+    if "-" in text:
+        return text.split("-", 1)[0].strip()
+    return text.strip()
+
+
+def _persistent_selection_key(slot_label: str | None, char_id: int | None) -> tuple[str, int] | None:
+    try:
+        cid = int(char_id or 0)
+    except Exception:
+        cid = 0
+    label = str(slot_label or "").strip()
+    if not label or cid <= 0:
+        return None
+    return (label, cid)
+
+
+def _persistent_team_key(slot_label: str | None, char_id: int | None) -> tuple[str, int] | None:
+    try:
+        cid = int(char_id or 0)
+    except Exception:
+        cid = 0
+    team = _persistent_team_from_slot_label(slot_label)
+    if not team or cid <= 0:
+        return None
+    return (team, cid)
+
+
+def _persistent_store_selection(slot_label: str, char_id: int, quick_index: int, preset: dict | None) -> None:
+    """Remember the selected quick-assist intent without storing MEM2 routes."""
+    slot_key = _persistent_selection_key(slot_label, char_id)
+    team_key = _persistent_team_key(slot_label, char_id)
+    if slot_key is None and team_key is None:
+        return
+
+    entry = {
+        "slot_label": str(slot_label),
+        "team": _persistent_team_from_slot_label(slot_label),
+        "char_id": int(char_id),
+        "quick_index": int(quick_index),
+        "preset": dict(preset or {}),
+        "label": str((preset or {}).get("label") or (preset or {}).get("name") or quick_index),
+        "saved_at": time.monotonic(),
+    }
+
+    with _PERSISTENT_REAPPLY_LOCK:
+        if slot_key is not None:
+            _PERSISTENT_SLOT_ASSIST_SELECTIONS[slot_key] = dict(entry)
+        if team_key is not None:
+            _PERSISTENT_TEAM_ASSIST_SELECTIONS[team_key] = dict(entry)
+
+
+def _persistent_lookup_selection(slot_label: str, char_id: int, snaps: dict | None = None) -> dict | None:
+    """Return a remembered quick-assist intent for this slot.
+
+    Exact slot+character is safe. Team+character fallback is only safe when
+    there is exactly one live copy of that character on that team. If two Franks
+    are on the same team/side, a team fallback would let the wrong Frank steal
+    the saved assist, so duplicates must use exact slot memory only.
+    """
+    slot_key = _persistent_selection_key(slot_label, char_id)
+    team_key = _persistent_team_key(slot_label, char_id)
+
+    with _PERSISTENT_REAPPLY_LOCK:
+        if slot_key is not None and slot_key in _PERSISTENT_SLOT_ASSIST_SELECTIONS:
+            return dict(_PERSISTENT_SLOT_ASSIST_SELECTIONS[slot_key])
+
+        if team_key is None or team_key not in _PERSISTENT_TEAM_ASSIST_SELECTIONS:
+            return None
+
+        # Duplicate guard for team fallback.
+        # Count live copies of this character on the same P1/P2 side. If there
+        # are multiple, only an exact slot save may restore.
+        if isinstance(snaps, dict):
+            team = _persistent_team_from_slot_label(slot_label)
+            live_count = 0
+            for other_label, other_snap in snaps.items():
+                if _persistent_team_from_slot_label(other_label) != team:
+                    continue
+                if _assist_snap_char_id(other_snap) == int(char_id):
+                    live_count += 1
+            if live_count > 1:
+                return None
+
+        return dict(_PERSISTENT_TEAM_ASSIST_SELECTIONS[team_key])
+
+
+def _persistent_reapply_identity(slot_label: str, fighter_base: int, char_id: int, quick_index: int) -> tuple:
+    return (
+        str(slot_label),
+        int(fighter_base or 0),
+        int(char_id or 0),
+        int(quick_index),
+        int(_ASSIST_CACHE_EPOCH),
+    )
+
+
+def _persistent_mark_applied(slot_label: str, fighter_base: int, char_id: int, quick_index: int) -> None:
+    ident = _persistent_reapply_identity(slot_label, fighter_base, char_id, quick_index)
+    with _PERSISTENT_REAPPLY_LOCK:
+        _PERSISTENT_REAPPLY_DONE.add(ident)
+        _PERSISTENT_REAPPLY_INFLIGHT.discard(ident)
+        _PERSISTENT_REAPPLY_FAIL_UNTIL.pop(ident, None)
+
+
+def _persistent_note_slot_invalidated(slot_label: str, owner_base: int | None = None,
+                                      fighter_base: int | None = None, char_id: int | None = None) -> None:
+    """Let a slot reapply its remembered intent after cache invalidation.
+
+    Do not delete _PERSISTENT_* selections here. This function only clears
+    per-epoch attempt state so a same-character rematch can resolve a fresh
+    route and reapply the remembered quick button.
+    """
+    label = str(slot_label or "")
+    with _PERSISTENT_REAPPLY_LOCK:
+        for coll in (_PERSISTENT_REAPPLY_DONE, _PERSISTENT_REAPPLY_INFLIGHT):
+            for ident in list(coll):
+                if ident and str(ident[0]) == label:
+                    coll.discard(ident)
+        for ident in list(_PERSISTENT_REAPPLY_FAIL_UNTIL.keys()):
+            if ident and str(ident[0]) == label:
+                _PERSISTENT_REAPPLY_FAIL_UNTIL.pop(ident, None)
+
+
+def _persistent_schedule_reapply_from_snaps(snaps: dict | None) -> None:
+    """Reapply remembered quick assists once per fresh slot/match epoch.
+
+    This stays out of the hot frame path. The frame tick only schedules at most
+    one small worker per eligible slot/epoch, with a retry cooldown if the new
+    match memory is not ready yet. The worker calls the same normal quick-assist
+    apply function the HUD button uses, so no duplicate write logic exists here.
+    """
+    if not isinstance(snaps, dict):
+        return
+
+    for slot_label in FIGHTER_SLOT_LABELS:
+        snap = snaps.get(slot_label)
+        if not isinstance(snap, dict):
+            continue
+
+        fighter_base = _assist_snap_fighter_base(snap)
+        char_id = _assist_snap_char_id(snap)
+        if not fighter_base or char_id not in CHAR_ID_TO_KEY:
+            continue
+
+        saved = _persistent_lookup_selection(slot_label, char_id, snaps)
+        if not saved:
+            continue
+
+        try:
+            quick_index = int(saved.get("quick_index", -1))
+        except Exception:
+            quick_index = -1
+        if quick_index < 0:
+            continue
+
+        ident = _persistent_reapply_identity(slot_label, fighter_base, char_id, quick_index)
+        now = time.monotonic()
+
+        with _PERSISTENT_REAPPLY_LOCK:
+            if ident in _PERSISTENT_REAPPLY_DONE or ident in _PERSISTENT_REAPPLY_INFLIGHT:
+                continue
+            if float(_PERSISTENT_REAPPLY_FAIL_UNTIL.get(ident, 0.0)) > now:
+                continue
+            _PERSISTENT_REAPPLY_INFLIGHT.add(ident)
+
+        try:
+            print(f"[assist persist] scheduling restore {slot_label}: {saved.get('label', quick_index)}")
+        except Exception:
+            pass
+
+        snap_copy = dict(snap)
+        saved_label = str(saved.get("label") or quick_index)
+
+        def _worker(slot_label=slot_label, quick_index=quick_index, snap_copy=snap_copy,
+                    ident=ident, saved_label=saved_label) -> None:
+            ok = False
+            try:
+                # Short delay lets the newly loaded match finish rebuilding the
+                # live chr_tbl/wrapper area before we resolve the fresh route.
+                time.sleep(0.12)
+                ok = bool(apply_quick_assist_from_main(slot_label, quick_index, snap_copy))
+            except Exception as e:
+                try:
+                    print(f"[assist persist] {slot_label} {saved_label} failed: {e!r}")
+                except Exception:
+                    pass
+                ok = False
+
+            with _PERSISTENT_REAPPLY_LOCK:
+                _PERSISTENT_REAPPLY_INFLIGHT.discard(ident)
+                if ok:
+                    _PERSISTENT_REAPPLY_DONE.add(ident)
+                    _PERSISTENT_REAPPLY_FAIL_UNTIL.pop(ident, None)
+                    try:
+                        print(f"[assist persist] restored {slot_label}: {saved_label}")
+                    except Exception:
+                        pass
+                else:
+                    _PERSISTENT_REAPPLY_FAIL_UNTIL[ident] = time.monotonic() + _PERSISTENT_REAPPLY_RETRY_SECONDS
+
+        try:
+            threading.Thread(target=_worker, daemon=True).start()
+        except Exception:
+            with _PERSISTENT_REAPPLY_LOCK:
+                _PERSISTENT_REAPPLY_INFLIGHT.discard(ident)
+                _PERSISTENT_REAPPLY_FAIL_UNTIL[ident] = time.monotonic() + _PERSISTENT_REAPPLY_RETRY_SECONDS
+
+
+
 def _assist_snap_char_id(snap: dict | None) -> int:
     if not isinstance(snap, dict):
         return 0
@@ -3831,6 +4058,10 @@ def _assist_clear_slot_caches(slot_label: str, owner_base: int | None = None,
         _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.pop(fighter, None)
 
     _HEADLESS_LAST_PATCH_KEY = None
+    try:
+        _persistent_note_slot_invalidated(slot_label, owner, fighter, int(char_id or 0))
+    except Exception:
+        pass
 
     inst = _inst
     if inst is not None:
@@ -4521,6 +4752,21 @@ def _resolve_quick_route_row_uncached(owner_base: int, char_id: int | None = Non
         source = str(row.get("source", ""))
         cid = int(row.get("char_id") or char_id or 0)
         pri = 0
+
+        # Roll-specific safety: Roll can expose generic selector-looking grafts
+        # that are not the actual assist route. For Roll only, prefer rows that
+        # are anchored to / scored by the assist route over a plain generic graft.
+        if cid == 19:
+            if typ == "u32-anchored-assist-fallback":
+                pri = 86
+            elif "assist-route" in source:
+                pri = 84
+            elif typ == "u32-generic-selector" and "graft" in source:
+                pri = 55
+            else:
+                pri = 50
+            return (pri, int(row.get("score", 0)), -int(row.get("block", 0)))
+
         if cid == VJOE_CHAR_ID or source.startswith("vjoe-active"):
             pri = 100
         elif source.startswith("tatsunoko-wrapper-graft") or row.get("direct_426_info"):
@@ -4626,6 +4872,11 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
         volnutt_weapon = None
 
     row = _resolve_quick_route_row(owner_base, char_id if char_id else None)
+    if int(char_id or 0) == 19 and row:
+        try:
+            print(f"[assist quick] Roll route typ={row.get('typ')} source={row.get('source')} block=0x{int(row.get('block', 0)):08X}")
+        except Exception:
+            pass
     if not row:
         try:
             print(f"[assist quick] no assist route for {slot_label} base 0x{owner_base:08X}")
@@ -4688,11 +4939,28 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
     }
     if volnutt_weapon is not None:
         profile["volnutt_weapon"] = int(volnutt_weapon)
+
+    profile_char_id = int(char_id or row.get("char_id") or 0)
+    if profile_char_id:
+        try:
+            _persistent_store_selection(slot_label, profile_char_id, int(quick_index), preset)
+            print(f"[assist persist] saved {slot_label}: {label}")
+        except Exception as e:
+            try:
+                print(f"[assist persist] save failed for {slot_label}: {e!r}")
+            except Exception:
+                pass
+
     keys = {int(owner_base)}
     if fighter_base:
         keys.add(int(fighter_base))
     for key in keys:
         _HEADLESS_ASSIST_PROFILES[key] = profile
+
+    try:
+        _persistent_mark_applied(slot_label, int(fighter_base or 0), int(profile_char_id or 0), int(quick_index))
+    except Exception:
+        pass
 
     inst = _inst
     if inst is not None:
@@ -7579,6 +7847,13 @@ _inst = None
 def tick_assist_profiles_from_main(snaps: dict) -> None:
     """Called once per HUD frame from main.py after snapshots are built."""
     update_assist_context_from_main(snaps)
+    try:
+        _persistent_schedule_reapply_from_snaps(snaps)
+    except Exception as e:
+        try:
+            print(f"[assist persist] schedule failed: {e!r}")
+        except Exception:
+            pass
     inst = _inst
     try:
         if inst is not None:
