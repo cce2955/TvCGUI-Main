@@ -168,6 +168,27 @@ _ASSIST_SCAN_CACHE_HITS: list[dict] = []
 _ASSIST_CACHE_EPOCH = 0
 _ASSIST_LAST_SLOT_SIGNATURES: dict[str, tuple[int, int]] = {}
 
+# Runtime chr_tbl base cache.
+#
+# This is read-side only. It does not cache selector words, move entries, or
+# writable script bytes. It only remembers where the live chr_tbl is for this
+# owner slot during this assist epoch.
+#
+# Keyed by:
+#   assist epoch
+#   owner_base
+#   current loaded char_id for that owner
+#
+# Empty misses are deliberately NOT cached. During match load, the chr_tbl may
+# not be readable yet; caching a miss could suppress a later valid resolve.
+_CHR_TBL_BASE_CACHE_LOCK = threading.RLock()
+_CHR_TBL_BASES_CACHE: dict[tuple[int, int, int], list[int]] = {}
+
+# VJoe's resolver can verify chr_tbl candidates across all four owner windows.
+# Cache only successful non-empty candidate lists for the current assist epoch.
+_VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH: int | None = None
+_VJOE_GLOBAL_CHR_TBL_BASES_CACHE: list[int] = []
+
 # Session-persistent quick-assist intent.
 #
 # These are NOT route rows and do not store absolute MEM2 addresses. They only
@@ -763,6 +784,68 @@ def _read_slot_char_ids() -> dict[int, int]:
             pass
     return result
 
+
+
+def _current_char_id_for_owner_base(owner_base: int | None) -> int:
+    """Return the currently loaded char id for a broad owner slot.
+
+    This is intentionally tiny: four 4-byte reads at worst through
+    _read_slot_char_ids(). It lets chr_tbl-base cache entries stay tied to the
+    loaded character and assist epoch.
+    """
+    if owner_base is None:
+        return 0
+    try:
+        owner = int(owner_base)
+    except Exception:
+        return 0
+    try:
+        return int(_read_slot_char_ids().get(owner, 0) or 0)
+    except Exception:
+        return 0
+
+
+def _chr_tbl_base_cache_key(owner_base: int | None) -> tuple[int, int, int] | None:
+    if owner_base is None:
+        return None
+    try:
+        owner = int(owner_base)
+    except Exception:
+        return None
+    return (
+        int(_ASSIST_CACHE_EPOCH),
+        owner,
+        _current_char_id_for_owner_base(owner),
+    )
+
+
+def _clear_chr_tbl_base_cache(owner_base: int | None = None) -> None:
+    """Clear cached runtime chr_tbl base resolutions.
+
+    owner_base=None clears all cached chr_tbl base resolutions. Passing an
+    owner clears only that broad slot. This is called from the same
+    invalidation path that clears route/profile caches, so it should not change
+    behavior, only avoid stale reads.
+    """
+    global _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH, _VJOE_GLOBAL_CHR_TBL_BASES_CACHE
+
+    with _CHR_TBL_BASE_CACHE_LOCK:
+        if owner_base is None:
+            _CHR_TBL_BASES_CACHE.clear()
+        else:
+            try:
+                owner = int(owner_base)
+            except Exception:
+                owner = 0
+            if owner:
+                for key in list(_CHR_TBL_BASES_CACHE.keys()):
+                    if int(key[1]) == owner:
+                        _CHR_TBL_BASES_CACHE.pop(key, None)
+
+        # VJoe's global candidate cache can include any owner window, so clear
+        # it whenever a slot-level chr_tbl cache is cleared.
+        _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH = None
+        _VJOE_GLOBAL_CHR_TBL_BASES_CACHE = []
 
 def _read_fighter_slots() -> list[dict[str, int | str]]:
     slots: list[dict[str, int | str]] = []
@@ -1821,6 +1904,35 @@ def _find_runtime_chr_tbl_bases_for_region(region_base: int) -> list[int]:
     return out
 
 
+
+_FIND_RUNTIME_CHR_TBL_BASES_FOR_REGION_UNCACHED = _find_runtime_chr_tbl_bases_for_region
+
+
+def _find_runtime_chr_tbl_bases_for_region(region_base: int) -> list[int]:
+    """Cached wrapper for runtime chr_tbl base discovery.
+
+    The original resolver is intentionally preserved as
+    _FIND_RUNTIME_CHR_TBL_BASES_FOR_REGION_UNCACHED. This wrapper only avoids
+    repeating the same expensive owner-band scan during the same assist epoch.
+
+    Important safety rule:
+        cache successful non-empty results only.
+    """
+    key = _chr_tbl_base_cache_key(region_base)
+    if key is not None:
+        with _CHR_TBL_BASE_CACHE_LOCK:
+            cached = _CHR_TBL_BASES_CACHE.get(key)
+            if cached:
+                return list(cached)
+
+    bases = _FIND_RUNTIME_CHR_TBL_BASES_FOR_REGION_UNCACHED(region_base)
+
+    if bases and key is not None:
+        with _CHR_TBL_BASE_CACHE_LOCK:
+            _CHR_TBL_BASES_CACHE[key] = [int(b) for b in bases]
+
+    return bases
+
 def _runtime_chr_tbl_base_for_owner_base(owner_base: int | None) -> int | None:
     if owner_base is None:
         return None
@@ -2199,6 +2311,36 @@ def _vjoe_candidate_chr_tbl_bases_global() -> list[int]:
     out.sort()
     return out
 
+
+
+_VJOE_CANDIDATE_CHR_TBL_BASES_GLOBAL_UNCACHED = _vjoe_candidate_chr_tbl_bases_global
+
+
+def _vjoe_candidate_chr_tbl_bases_global() -> list[int]:
+    """Cached wrapper for VJoe's global chr_tbl candidate discovery.
+
+    VJoe is the expensive case because it may verify table candidates across
+    all broad character windows. Cache only successful non-empty results for
+    the current assist epoch.
+    """
+    global _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH, _VJOE_GLOBAL_CHR_TBL_BASES_CACHE
+
+    epoch = int(_ASSIST_CACHE_EPOCH)
+    with _CHR_TBL_BASE_CACHE_LOCK:
+        if (
+            _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH == epoch
+            and _VJOE_GLOBAL_CHR_TBL_BASES_CACHE
+        ):
+            return list(_VJOE_GLOBAL_CHR_TBL_BASES_CACHE)
+
+    bases = _VJOE_CANDIDATE_CHR_TBL_BASES_GLOBAL_UNCACHED()
+
+    if bases:
+        with _CHR_TBL_BASE_CACHE_LOCK:
+            _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH = epoch
+            _VJOE_GLOBAL_CHR_TBL_BASES_CACHE = [int(b) for b in bases]
+
+    return bases
 
 def _vjoe_chr_tbl_shape_score(chr_tbl_base: int) -> tuple[int, dict[str, int]] | None:
     """Score one chr_tbl candidate as a live VJoe assist table."""
@@ -4052,6 +4194,9 @@ def _assist_clear_slot_caches(slot_label: str, owner_base: int | None = None,
                     _QUICK_ROUTE_FAIL_UNTIL.pop(key, None)
 
     if owner:
+        _clear_chr_tbl_base_cache(owner)
+
+    if owner:
         _HEADLESS_ASSIST_PROFILES.pop(owner, None)
     if fighter:
         _HEADLESS_ASSIST_PROFILES.pop(fighter, None)
@@ -4119,6 +4264,7 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
 
     if changed:
         _ASSIST_CACHE_EPOCH += 1
+        _clear_chr_tbl_base_cache(None)
         with _ASSIST_SCAN_CACHE_LOCK:
             global _ASSIST_SCAN_CACHE_SIGNATURE, _ASSIST_SCAN_CACHE_HITS
             _ASSIST_SCAN_CACHE_SIGNATURE = None
