@@ -541,6 +541,449 @@ def draw_status_rail(
     screen.blit(label, (8, rect.y + (rail_h - label.get_height()) // 2))
 
 
+
+
+def draw_bottom_workspace_tabs(
+    screen: pygame.Surface,
+    rect: pygame.Rect,
+    smallfont: pygame.font.Font,
+    active_tab: str,
+    mouse_pos: tuple[int, int],
+) -> tuple[pygame.Rect, dict[str, pygame.Rect]]:
+    """Draw the lower inspector as a tabbed workspace.
+
+    This replaces the old always-visible Events + Debug + Scan stack. The
+    default tab is Normals Preview, which gets the full lower workspace height
+    instead of being clipped at the bottom of the window.
+    """
+    mx, my = mouse_pos
+    tab_h = 24
+    pad = 4
+
+    if rect.width <= 0 or rect.height <= tab_h + 8:
+        return rect, {}
+
+    panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    _draw_vertical_gradient(
+        panel,
+        panel.get_rect(),
+        (14, 16, 23),
+        (10, 11, 16),
+        245,
+    )
+    pygame.draw.rect(panel, (52, 58, 76), panel.get_rect(), 1, border_radius=4)
+    screen.blit(panel, rect.topleft)
+
+    tabs = [
+        ("scan", "Normals Preview", GUI_ACCENT_BLUE),
+        ("events", "Events", GUI_ACCENT_PURPLE),
+        ("debug", "Debug Flags", GUI_ACCENT_GOLD),
+        ("activity", "Activity", GUI_ACCENT_GREEN),
+    ]
+
+    tab_rects: dict[str, pygame.Rect] = {}
+    x = rect.x + pad
+    y = rect.y + pad
+    gap = 6
+
+    for key, label, accent in tabs:
+        width = max(96, min(160, smallfont.size(label)[0] + 26))
+        tr = pygame.Rect(x, y, width, tab_h)
+        tab_rects[key] = tr
+        draw_glass_button(
+            screen,
+            tr,
+            label,
+            smallfont,
+            active=(key == active_tab),
+            hover=tr.collidepoint(mx, my),
+            accent=accent,
+            fill=(30, 36, 52) if key == active_tab else (21, 24, 34),
+            align="center",
+        )
+        x += width + gap
+
+    content = pygame.Rect(
+        rect.x + pad,
+        rect.y + tab_h + pad + 5,
+        rect.width - pad * 2,
+        rect.height - tab_h - pad * 2 - 5,
+    )
+    if content.height < 16:
+        content.height = 16
+
+    pygame.draw.rect(screen, (18, 20, 28), content, border_radius=4)
+    pygame.draw.rect(screen, (45, 52, 72), content, 1, border_radius=4)
+
+    return content, tab_rects
+
+
+def _normal_button_accent(label: str) -> tuple[int, int, int]:
+    text = str(label or "").upper()
+    if "A" in text or text.endswith("L"):
+        return (115, 155, 235)
+    if "B" in text or text.endswith("M"):
+        return (220, 195, 105)
+    if "C" in text or text.endswith("H"):
+        return (105, 215, 155)
+    return GUI_ACCENT_BLUE
+
+
+def _normal_move_label(mv: dict) -> str:
+    forced = mv.get("_normal_display_label") if isinstance(mv, dict) else None
+    if forced:
+        return str(forced)
+
+    for key in ("label", "name", "move", "pretty_name"):
+        value = mv.get(key)
+        if value:
+            return str(value)
+
+    aid = mv.get("id")
+    normal_names = {
+        0x0100: "5A",
+        0x0101: "5B",
+        0x0102: "5C",
+        0x0103: "6C",
+        0x0104: "3C",
+        0x0105: "2A",
+        0x0106: "2B",
+        0x0107: "2C",
+        0x0108: "j.A",
+        0x0109: "j.B",
+        0x010A: "j.C",
+        0x010B: "j.2B",
+        0x010C: "j.2C",
+        0x010E: "6B",
+    }
+    try:
+        if int(aid) in normal_names:
+            return normal_names[int(aid)]
+    except Exception:
+        pass
+
+    table_index = mv.get("table_index")
+    try:
+        if int(table_index) in normal_names:
+            return normal_names[int(table_index)]
+    except Exception:
+        pass
+
+    return "?"
+
+
+def _normal_int(mv: dict, *keys: str) -> int | None:
+    for key in keys:
+        value = mv.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            return int(value)
+        except Exception:
+            continue
+    return None
+
+
+
+_NORMAL_PREVIEW_ORDER = (
+    "5A", "2A",
+    "5B", "2B",
+    "6B",
+    "5C", "2C",
+    "4C", "6C", "3C",
+    "j.A", "j.B", "j.C", "j.2B", "j.2C",
+)
+_NORMAL_PREVIEW_RANK = {name.lower(): i for i, name in enumerate(_NORMAL_PREVIEW_ORDER)}
+
+
+def _normal_canonical_label(label: str) -> str | None:
+    text = str(label or "").strip()
+    if not text or text == "?":
+        return None
+
+    low = text.lower()
+    low = low.replace(" ", "")
+    low = low.replace("_", "")
+    low = low.replace("jump.", "j.")
+    low = low.replace("jump", "j.")
+    low = low.replace("air.", "j.")
+    low = low.replace("air", "j.")
+    low = low.replace("stand", "5")
+    low = low.replace("standing", "5")
+    low = low.replace("crouch", "2")
+    low = low.replace("crouching", "2")
+
+    aliases = {
+        "a": "5A", "5a": "5A",
+        "2a": "2A",
+        "b": "5B", "5b": "5B",
+        "2b": "2B",
+        "6b": "6B",
+        "c": "5C", "5c": "5C",
+        "2c": "2C",
+        "4c": "4C",
+        "6c": "6C",
+        "3c": "3C",
+        "j.a": "j.A", "ja": "j.A", "jA".lower(): "j.A",
+        "j.b": "j.B", "jb": "j.B", "jB".lower(): "j.B",
+        "j.c": "j.C", "jc": "j.C", "jC".lower(): "j.C",
+        "j.2b": "j.2B", "j2b": "j.2B", "j2B".lower(): "j.2B",
+        "j.2c": "j.2C", "j2c": "j.2C", "j2C".lower(): "j.2C",
+    }
+
+    return aliases.get(low)
+
+
+def _normal_row_quality(mv: dict) -> tuple[int, int, int, int]:
+    """Prefer rows that actually have useful frame values if duplicates exist."""
+    if not isinstance(mv, dict):
+        return (0, 0, 0, 0)
+    startup = _normal_int(mv, "startup", "start", "active_start")
+    a1 = _normal_int(mv, "active_start", "a_start")
+    a2 = _normal_int(mv, "active_end", "a_end")
+    hit = _normal_int(mv, "hitstun", "hit", "h")
+    block = _normal_int(mv, "blockstun", "block", "b")
+    filled = sum(v is not None for v in (startup, a1, a2, hit, block))
+    active_span = 0 if a1 is None or a2 is None else max(0, a2 - a1)
+    damage = _normal_int(mv, "damage", "dmg") or 0
+    return (filled, active_span, damage, -int(mv.get("_scan_index", 0) or 0))
+
+
+def _normal_visible_moves(moves: list) -> list:
+    """Return only the curated normal rows, in fighting-game notation order.
+
+    The scan can contain duplicate/system/debug rows, and some characters put
+    command normals before or after jump normals. The preview should not depend
+    on raw scan order. It shows the useful set only:
+      5A, 2A, 5B, 2B, optional 6B, 5C, 2C, optional 4C/6C/3C, j.A, j.B, j.C, optional j.2B/j.2C
+    """
+    if not isinstance(moves, list):
+        return []
+
+    best_by_label: dict[str, dict] = {}
+
+    for scan_i, mv in enumerate(moves):
+        if not isinstance(mv, dict):
+            continue
+
+        label = _normal_move_label(mv)
+        canon = _normal_canonical_label(label)
+        if canon is None:
+            continue
+
+        row = dict(mv)
+        row["_normal_display_label"] = canon
+        row.setdefault("_scan_index", scan_i)
+
+        old = best_by_label.get(canon)
+        if old is None or _normal_row_quality(row) > _normal_row_quality(old):
+            best_by_label[canon] = row
+
+    out: list[dict] = []
+    for label in _NORMAL_PREVIEW_ORDER:
+        row = best_by_label.get(label)
+        if row is not None:
+            out.append(row)
+    return out
+
+
+def _draw_scan_metric_chip(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    smallfont: pygame.font.Font,
+    label: str,
+    value: str,
+    accent: tuple[int, int, int],
+) -> None:
+    # Neutral metric chip. The row/slot can carry accent color; the data itself
+    # stays calm and readable.
+    _draw_vertical_gradient(
+        surf,
+        rect,
+        (24, 28, 40),
+        (16, 18, 26),
+        235,
+    )
+    pygame.draw.rect(surf, (48, 56, 78), rect, 1, border_radius=4)
+
+    label_s = smallfont.render(label, True, GUI_TEXT_DIM)
+    value_s = _render_outlined_text(
+        smallfont,
+        value,
+        GUI_TEXT,
+        (0, 0, 0),
+        rect.width - label_s.get_width() - 10,
+        outline_px=1,
+    )
+
+    x = rect.x + 5
+    y = rect.y + (rect.height - label_s.get_height()) // 2
+    surf.blit(label_s, (x, y))
+    surf.blit(value_s, (rect.right - value_s.get_width() - 5, rect.y + (rect.height - value_s.get_height()) // 2))
+
+
+def draw_scan_normals_polished(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    font: pygame.font.Font,
+    smallfont: pygame.font.Font,
+    scan_data,
+) -> None:
+    """Draw the normals preview as four readable cards instead of raw text.
+
+    This is display-only. It consumes the same scan result that hud_draw's
+    draw_scan_normals() used and does not change scan timing, memory reads, or
+    move detection.
+    """
+    if rect.width <= 0 or rect.height <= 0:
+        return
+
+    bg = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    _draw_vertical_gradient(
+        bg,
+        bg.get_rect(),
+        (17, 20, 29),
+        (12, 13, 19),
+        255,
+    )
+    surf.blit(bg, rect.topleft)
+
+    title = smallfont.render("Scan: Normals Preview", True, GUI_TEXT)
+    subtitle = smallfont.render("S startup | A active | H hit | B block", True, GUI_TEXT_DIM)
+    surf.blit(title, (rect.x + 10, rect.y + 8))
+    surf.blit(subtitle, (rect.right - subtitle.get_width() - 10, rect.y + 8))
+
+    if not scan_data:
+        msg = smallfont.render("No scan data yet. Trigger a normals scan or wait for the scan worker.", True, GUI_TEXT_MUTED)
+        surf.blit(msg, (rect.x + 10, rect.y + 34))
+        return
+
+    slots = []
+    try:
+        slots = list(scan_data or [])
+    except Exception:
+        slots = []
+
+    if not slots:
+        msg = smallfont.render("No normals found.", True, GUI_TEXT_MUTED)
+        surf.blit(msg, (rect.x + 10, rect.y + 34))
+        return
+
+    wanted_order = {"P1-C1": 0, "P1-C2": 1, "P2-C1": 2, "P2-C2": 3}
+
+    def slot_key(slot: dict) -> tuple[int, str]:
+        label = str(slot.get("slot_label") or slot.get("slot") or "")
+        return (wanted_order.get(label, 99), label)
+
+    slots = sorted([s for s in slots if isinstance(s, dict)], key=slot_key)[:4]
+
+    pad = 10
+    gap = 10
+    cards_top = rect.y + 32
+    cards_h = max(40, rect.height - 42)
+    card_w = max(120, (rect.width - pad * 2 - gap * (len(slots) - 1)) // max(1, len(slots)))
+
+    # Base rhythm. Each card can tighten further after we know how many curated
+    # normal rows that character actually has.
+    header_h = 22 if cards_h < 220 else 24
+    row_h = 15
+
+    for si, slot in enumerate(slots):
+        card_x = rect.x + pad + si * (card_w + gap)
+        card = pygame.Rect(card_x, cards_top, card_w, cards_h)
+
+        _draw_vertical_gradient(
+            surf,
+            card,
+            (22, 26, 38),
+            (14, 16, 23),
+            238,
+        )
+        pygame.draw.rect(surf, (52, 62, 86), card, 1, border_radius=6)
+
+        slot_label = str(slot.get("slot_label") or slot.get("slot") or f"S{si + 1}")
+        char_name = str(slot.get("char_name") or slot.get("character") or slot.get("name") or "?")
+        accent = GUI_ACCENT_BLUE
+        if slot_label.startswith("P1"):
+            accent = GUI_P1 if slot_label.endswith("C1") else GUI_P3
+        elif slot_label.startswith("P2"):
+            accent = GUI_P2 if slot_label.endswith("C1") else GUI_P4
+
+        accent_bar = pygame.Rect(card.x, card.y, 3, card.height)
+        pygame.draw.rect(surf, accent, accent_bar, border_radius=2)
+
+        header_rect = pygame.Rect(card.x + 1, card.y + 1, card.width - 2, header_h)
+        _draw_vertical_gradient(
+            surf,
+            header_rect,
+            (31, 37, 52),
+            (21, 25, 36),
+            235,
+        )
+
+        slot_s = _render_outlined_text(font, slot_label, accent, (0, 0, 0), 84, outline_px=1)
+        surf.blit(slot_s, (card.x + 10, card.y + 5))
+
+        char_s = _fit_text(smallfont, char_name, GUI_TEXT_MUTED, card.width - 88)
+        surf.blit(char_s, (card.x + 72, card.y + 8))
+
+        moves = slot.get("moves") or []
+        if not isinstance(moves, list):
+            moves = []
+
+        # Preview rows are curated and reordered; never show anonymous/debug
+        # rows and never cut off j.B/j.C just because raw scan order was odd.
+        visible_moves = _normal_visible_moves(moves)
+        desired_rows = max(1, len(visible_moves))
+        available_h = max(1, card.height - header_h - 8)
+        local_row_h = max(12, min(17, available_h // desired_rows))
+
+        y = card.y + header_h + 5
+        for mi, mv in enumerate(visible_moves):
+            if not isinstance(mv, dict):
+                continue
+
+            row = pygame.Rect(card.x + 8, y, card.width - 16, local_row_h)
+            row_fill = (19, 22, 31) if mi % 2 == 0 else (16, 18, 26)
+            pygame.draw.rect(surf, row_fill, row, border_radius=4)
+
+            label = _normal_move_label(mv)
+            btn_accent = _normal_button_accent(label)
+            pygame.draw.rect(surf, btn_accent, pygame.Rect(row.x, row.y, 3, row.height), border_radius=2)
+
+            label_s = _render_outlined_text(smallfont, label, GUI_TEXT, (0, 0, 0), 38, outline_px=1)
+            surf.blit(label_s, (row.x + 8, row.y + (row.height - label_s.get_height()) // 2))
+
+            startup = _normal_int(mv, "startup", "start", "active_start")
+            a1 = _normal_int(mv, "active_start", "a_start")
+            a2 = _normal_int(mv, "active_end", "a_end")
+            hit = _normal_int(mv, "hitstun", "hit", "h")
+            block = _normal_int(mv, "blockstun", "block", "b")
+
+            active_txt = "-"
+            if a1 is not None and a2 is not None:
+                active_txt = f"{a1}-{a2}"
+            elif a1 is not None:
+                active_txt = str(a1)
+
+            metrics = [
+                ("S", "-" if startup is None else str(startup), GUI_TEXT_MUTED),
+                ("A", active_txt, btn_accent),
+                ("H", "-" if hit is None else str(hit), (175, 205, 245)),
+                ("B", "-" if block is None else str(block), (215, 190, 235)),
+            ]
+
+            metric_w = max(34, min(54, (row.width - 52) // 4))
+            mx = row.right - metric_w * 4 - 4
+            chip_h = max(10, row.height - 2)
+            for label2, value, col in metrics:
+                chip = pygame.Rect(mx, row.y + 1, metric_w - 4, chip_h)
+                _draw_scan_metric_chip(surf, chip, smallfont, label2, value, col)
+                mx += metric_w
+
+            y += local_row_h
+
+
 def draw_quick_assist_footer(
     surf: pygame.Surface,
     panel_rect: pygame.Rect,
@@ -962,6 +1405,12 @@ def legacy_main():
     debug_cache         = []
     DEBUG_REFRESH_EVERY = 6
 
+    # Lower inspector workspace. Default to Normals Preview because it is the
+    # most useful always-on view, while Events/Debug/Activity are available as
+    # tabs without stealing vertical room.
+    active_bottom_tab = "scan"
+    bottom_tab_rects: dict[str, pygame.Rect] = {}
+
     # Momentary write restore
     hype_restore_addr  = None
     hype_restore_ts    = 0.0
@@ -989,13 +1438,13 @@ def legacy_main():
             elif ev.type == pygame.MOUSEBUTTONDOWN:
                 if ev.button == 1:
                     mouse_clicked_pos = ev.pos
-                elif ev.button == 4 and debug_overlay:
+                elif ev.button == 4 and debug_overlay and active_bottom_tab == "debug":
                     if debug_scroll_offset > 0:
                         debug_scroll_offset -= 1
-                elif ev.button == 5 and debug_overlay:
+                elif ev.button == 5 and debug_overlay and active_bottom_tab == "debug":
                     if debug_scroll_offset < debug_max_scroll:
                         debug_scroll_offset += 1
-            elif ev.type == pygame.MOUSEWHEEL and debug_overlay:
+            elif ev.type == pygame.MOUSEWHEEL and debug_overlay and active_bottom_tab == "debug":
                 if ev.y > 0 and debug_scroll_offset > 0:
                     debug_scroll_offset -= 1
                 elif ev.y < 0 and debug_scroll_offset < debug_max_scroll:
@@ -1519,30 +1968,59 @@ def legacy_main():
             btn_p2c2        = pygame.Rect(0, 0, 0, 0)
             mission_btn_p2c2 = pygame.Rect(0, 0, 0, 0)
 
-        draw_activity(screen, layout["act"], font, last_adv_display)
-        draw_event_log(screen, layout["events"], font, smallfont)
-
-        debug_rect = layout["debug"]
-        if frame_idx % DEBUG_REFRESH_EVERY == 0:
-            debug_cache = merged_debug_values()
-        debug_click_areas, debug_max_scroll = draw_debug_overlay(
-            screen, debug_rect, smallfont, debug_cache, debug_scroll_offset
+        # Bottom inspector workspace: one active tab at a time. This prevents
+        # the Normals Preview from being clipped while keeping Events, Debug,
+        # and Activity one click away.
+        lower_keys = ("act", "events", "debug", "scan")
+        lower_tops = [layout[k].y for k in lower_keys if isinstance(layout.get(k), pygame.Rect)]
+        lower_top = min(lower_tops) if lower_tops else max(TOP_UI_RESERVED, int(h * 0.62))
+        status_rail_h = 22
+        bottom_workspace_rect = pygame.Rect(
+            0,
+            lower_top,
+            w,
+            max(60, h - status_rail_h - lower_top),
         )
 
-        scan_rect = layout["scan"]
-        scan_surf = pygame.Surface((scan_rect.width, scan_rect.height), pygame.SRCALPHA)
-        draw_scan_normals(scan_surf, scan_surf.get_rect(), font, smallfont, last_scan_normals)
-        if scan_anim is not None:
-            t    = now - scan_anim["start"]
-            dur  = scan_anim.get("dur", SCAN_SLIDE_DURATION)
-            frac = max(0.0, min(1.0, t / dur)) if dur else 1.0
-            y    = (scan_rect.y + scan_rect.height + 8) + (scan_rect.y - (scan_rect.y + scan_rect.height + 8)) * frac
-            if frac >= 1.0:
-                scan_anim = None
-        else:
-            y = scan_rect.y
-        scan_surf.set_alpha(255)
-        screen.blit(scan_surf, (scan_rect.x, int(y)))
+        bottom_content_rect, bottom_tab_rects = draw_bottom_workspace_tabs(
+            screen,
+            bottom_workspace_rect,
+            smallfont,
+            active_bottom_tab,
+            pygame.mouse.get_pos(),
+        )
+
+        debug_click_areas = {}
+        debug_max_scroll = 0
+
+        if active_bottom_tab == "scan":
+            scan_rect = bottom_content_rect
+            scan_surf = pygame.Surface((scan_rect.width, scan_rect.height), pygame.SRCALPHA)
+            draw_scan_normals_polished(scan_surf, scan_surf.get_rect(), font, smallfont, last_scan_normals)
+            if scan_anim is not None:
+                t    = now - scan_anim["start"]
+                dur  = scan_anim.get("dur", SCAN_SLIDE_DURATION)
+                frac = max(0.0, min(1.0, t / dur)) if dur else 1.0
+                y    = (scan_rect.y + scan_rect.height + 8) + (scan_rect.y - (scan_rect.y + scan_rect.height + 8)) * frac
+                if frac >= 1.0:
+                    scan_anim = None
+            else:
+                y = scan_rect.y
+            scan_surf.set_alpha(255)
+            screen.blit(scan_surf, (scan_rect.x, int(y)))
+
+        elif active_bottom_tab == "events":
+            draw_event_log(screen, bottom_content_rect, font, smallfont)
+
+        elif active_bottom_tab == "debug":
+            if frame_idx % DEBUG_REFRESH_EVERY == 0:
+                debug_cache = merged_debug_values()
+            debug_click_areas, debug_max_scroll = draw_debug_overlay(
+                screen, bottom_content_rect, smallfont, debug_cache, debug_scroll_offset
+            )
+
+        elif active_bottom_tab == "activity":
+            draw_activity(screen, bottom_content_rect, font, last_adv_display)
 
         # Write data files for subprocesses
         mission_mgr.write_overlay_data(render_snap_by_slot)
@@ -1559,9 +2037,6 @@ def legacy_main():
             status_parts.append("Hitboxes OFF")
         if mission_mgr.active_slot:
             status_parts.append(f"Mission {mission_mgr.active_slot}")
-        if last_scan_time:
-            age = max(0.0, time.time() - last_scan_time)
-            status_parts.append(f"Normals scan {age:.1f}s")
 
         draw_status_rail(
             screen,
@@ -1617,6 +2092,14 @@ def legacy_main():
                         _sync_master_overlay_state()
                         break
 
+            for _tab_key, _tab_rect in list(bottom_tab_rects.items()):
+                if _tab_rect.collidepoint(mx, my):
+                    active_bottom_tab = _tab_key
+                    mouse_clicked_pos = None
+                    break
+            if mouse_clicked_pos is None:
+                continue
+
             quick_clicked = False
             for (slot_label, quick_index), qrect in list(quick_btn_areas.items()):
                 if qrect.collidepoint(mx, my):
@@ -1661,11 +2144,12 @@ def legacy_main():
 
             # Debug panel row -> copy address
             copied = False
-            for name, (r, addr) in debug_click_areas.items():
-                if r.collidepoint(mx, my):
-                    _copy_to_clipboard(f"0x{addr:08X}" if isinstance(addr, int) else str(addr))
-                    copied = True
-                    break
+            if active_bottom_tab == "debug":
+                for name, (r, addr) in debug_click_areas.items():
+                    if r.collidepoint(mx, my):
+                        _copy_to_clipboard(f"0x{addr:08X}" if isinstance(addr, int) else str(addr))
+                        copied = True
+                        break
 
             # Character panel -> copy base
             if not copied:

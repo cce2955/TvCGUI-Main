@@ -345,10 +345,11 @@
 512,0x1d4,Shin Sho,Back Throw,Back Throw,yes,12
 
 # Chun-Li (ID: 13)
-262,0x130,j.2B,Kikoken L,Kikoken L,yes,13
+
 
 268,0x130,j.C (Second hit),Kikoken L,Kikoken L,yes,13
-272,0x130,SBK,Kikoken L,Kikoken L,yes,13
+270,0x130,6C,Kikoken L,Kikoken L,yes,13
+272,0x130,j.2B,Kikoken L,Kikoken L,yes,13
 273,0x130,Anim from either 6C or 2B I dunno,Kikoken L,Kikoken L,yes,13
 274,0x130,Tensho,Kikoken L,Kikoken L,yes,13
 275,0x130,Tensho Second Phase,Kikoken L,Kikoken L,yes,13
