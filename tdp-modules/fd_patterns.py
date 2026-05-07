@@ -122,6 +122,80 @@ def find_assist_tables(base: int, rbytes_func) -> list[int]:
             valid.append(addr)
 
     return valid
+ATTACK_PROPERTY_VALUES = {
+    0x04: "Unblockable",
+    0x09: "Mid, Light Hit",
+    0x0A: "Mid, Medium Hit",
+    0x0C: "Mid, Heavy Hit",
+    0x11: "High, Light Hit",
+    0x12: "High, Medium Hit",
+    0x14: "High, Heavy Hit",
+    0x21: "Low, Light Hit",
+    0x22: "Low, Medium Hit",
+    0x24: "Low, Heavy Hit",
+}
+
+
+def fmt_attack_property(value: int | None) -> str:
+    """Human-readable Attack Property cell text."""
+    if value is None:
+        return ""
+    try:
+        v = int(value) & 0xFF
+    except Exception:
+        return str(value)
+    label = ATTACK_PROPERTY_VALUES.get(v, "Unknown")
+    return f"0x{v:02X} {label}"
+
+
+def parse_attack_property(text: str) -> int | None:
+    """Parse a property byte from hex/decimal/list cell text."""
+    s = str(text or "").strip()
+    if not s:
+        return None
+    token = s.split()[0].strip().rstrip(",")
+    try:
+        if token.lower().startswith("0x"):
+            return int(token, 16) & 0xFF
+        # Most users will type the guide values as hex, e.g. 21/22/24.
+        # Treat two hex-looking chars containing A-F as hex, otherwise decimal.
+        if any(ch in token.lower() for ch in "abcdef"):
+            return int(token, 16) & 0xFF
+        return int(token, 10) & 0xFF
+    except Exception:
+        try:
+            return int(token, 16) & 0xFF
+        except Exception:
+            return None
+
+
+def _score_speed_candidate(buf: bytes, i: int, value_off: int, move_abs: int) -> int:
+    score = 0
+    # Your known 5A case is move_abs + 0x57; prefer this when it validates.
+    if value_off == 0x57:
+        score += 100
+    # Values around normal speed are more likely than random script values.
+    try:
+        v = buf[value_off]
+        if v == 0x40:
+            score += 40
+        elif 0x20 <= v <= 0x80:
+            score += 20
+    except Exception:
+        pass
+    # Full packet tail is stronger than 04 17 alone.
+    if value_off + 4 <= len(buf) and buf[value_off + 1:value_off + 4] == b"\x04\x17\x60":
+        score += 45
+    elif value_off + 2 <= len(buf) and buf[value_off + 1:value_off + 3] == b"\x04\x17":
+        score += 20
+    # Prefer earlier move-definition packets over later script repeats.
+    if i < 0x120:
+        score += 20
+    elif i < 0x240:
+        score += 10
+    return score
+
+
 def find_speed_mod_addr(
     move_abs: int,
     rbytes: Callable[[int, int], bytes],
@@ -129,17 +203,17 @@ def find_speed_mod_addr(
     scan_len: int = 0x800,
 ) -> Tuple[Optional[int], Optional[int], Optional[bytes]]:
     """
-    Speed modifier locator (tight pattern).
+    Speed modifier locator.
 
-    Observed layout inside move block:
-        ... 20 3F 00 00 00 XX 04 17 ...
+    Strong packet shape:
+        20 3F 00 00 00 XX 04 17 60 00
+                         ^^ speed byte
 
-    - Anchor: 20 3F 00 00 00
-    - Value:  XX (1 byte) immediately after anchor
-    - Tail:   04 17 immediately after XX
+    Older fallback shape:
+        20 3F 00 00 00 XX 04 17
 
-    Returns:
-      (absolute_addr_of_value, current_value_byte, context_bytes)
+    This ranks candidates instead of returning the first lookalike packet,
+    because move scripts can contain several similar 20 3F packets.
     """
     if not move_abs:
         return (None, None, None)
@@ -152,28 +226,113 @@ def find_speed_mod_addr(
     if not buf:
         return (None, None, None)
 
-    anchor = b"\x20\x3F\x00\x00\x00"  # 5 bytes
-    tail = b"\x04\x17"                # 2 bytes
+    anchor = b"\x20\x3F\x00\x00\x00"
+    candidates: list[tuple[int, int, int, bytes]] = []
 
     start = 0
     while True:
         i = buf.find(anchor, start)
         if i < 0:
             break
-
-        # Need: anchor(5) + value(1) + tail(2)
         value_off = i + len(anchor)
-        tail_off = value_off + 1
-        if tail_off + len(tail) <= len(buf):
-            if buf[tail_off:tail_off + len(tail)] == tail:
-                addr = move_abs + value_off
-                cur = buf[value_off]
-                ctx = buf[i:min(len(buf), i + 16)]
-                return (addr, cur, ctx)
-
+        if value_off < len(buf):
+            has_strong_tail = value_off + 4 <= len(buf) and buf[value_off + 1:value_off + 4] == b"\x04\x17\x60"
+            has_loose_tail = value_off + 2 <= len(buf) and buf[value_off + 1:value_off + 3] == b"\x04\x17"
+            if has_strong_tail or has_loose_tail:
+                score = _score_speed_candidate(buf, i, value_off, move_abs)
+                ctx = buf[max(0, i - 4):min(len(buf), value_off + 12)]
+                candidates.append((score, move_abs + value_off, buf[value_off], ctx))
         start = i + 1
 
-    return (None, None, None)
+    if not candidates:
+        return (None, None, None)
+
+    candidates.sort(key=lambda row: (-row[0], row[1]))
+    _score, addr, cur, ctx = candidates[0]
+    return (addr, cur, ctx)
+
+
+def find_attack_property_addr(
+    move_abs: int,
+    rbytes: Callable[[int, int], bytes],
+    *,
+    scan_len: int = 0x800,
+) -> Tuple[Optional[int], Optional[int], Optional[bytes]]:
+    """
+    Attack Property locator.
+
+    Guide pattern:
+        04 01 60 00 00 00 02 40 3F 00 00 00 00 00 00 XX 04 01 60
+                                               ^^ attack property byte
+
+    XX values observed/known:
+        04 unblockable
+        09/0A/0C mid light/medium/heavy
+        11/12/14 high light/medium/heavy
+        21/22/24 low light/medium/heavy
+
+    Returns:
+      (absolute_addr_of_xx, current_value_byte, context_bytes)
+    """
+    if not move_abs:
+        return (None, None, None)
+
+    try:
+        buf = rbytes(move_abs, scan_len)
+    except Exception:
+        return (None, None, None)
+
+    if not buf:
+        return (None, None, None)
+
+    prefix = b"\x04\x01\x60\x00\x00\x00\x02\x40\x3F\x00\x00\x00\x00\x00\x00"
+    tail = b"\x04\x01\x60"
+    valid = set(ATTACK_PROPERTY_VALUES.keys())
+    candidates: list[tuple[int, int, int, bytes]] = []
+
+    start = 0
+    while True:
+        i = buf.find(prefix, start)
+        if i < 0:
+            break
+        value_off = i + len(prefix)
+        tail_off = value_off + 1
+        if tail_off + len(tail) <= len(buf) and buf[tail_off:tail_off + len(tail)] == tail:
+            v = buf[value_off]
+            score = 100
+            if v in valid:
+                score += 80
+            # Prefer early definition area over later script repeats.
+            if i < 0x180:
+                score += 25
+            elif i < 0x300:
+                score += 10
+            ctx = buf[max(0, i - 4):min(len(buf), tail_off + len(tail) + 8)]
+            candidates.append((score, move_abs + value_off, v, ctx))
+        start = i + 1
+
+    # Controlled fallback: same prefix semantics, but allow 04 ?? 60 as tail.
+    # Useful if a character uses a different trailing subcommand index.
+    if not candidates:
+        start = 0
+        while True:
+            i = buf.find(prefix, start)
+            if i < 0:
+                break
+            value_off = i + len(prefix)
+            if value_off + 4 <= len(buf) and buf[value_off + 1] == 0x04 and buf[value_off + 3] == 0x60:
+                v = buf[value_off]
+                score = 50 + (80 if v in valid else 0)
+                ctx = buf[max(0, i - 4):min(len(buf), value_off + 12)]
+                candidates.append((score, move_abs + value_off, v, ctx))
+            start = i + 1
+
+    if not candidates:
+        return (None, None, None)
+
+    candidates.sort(key=lambda row: (-row[0], row[1]))
+    _score, addr, cur, ctx = candidates[0]
+    return (addr, cur, ctx)
 
 
 def _find_legacy_anim_hdr_offset(buf: bytes) -> int | None:

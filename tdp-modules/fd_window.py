@@ -12,16 +12,18 @@ from config import INTERVAL
 from fd_editors import FDCellEditorsMixin
 
 from fd_patterns import (
-    find_combo_kb_mod_addr,
     find_superbg_addr,
     find_speed_mod_addr,
+    find_attack_property_addr,
+    fmt_attack_property,
+    parse_attack_property,
+    ATTACK_PROPERTY_VALUES,
     SUPERBG_ON,
 )
 
 from fd_write_helpers import (
     write_hit_reaction_inline,
     write_active2_frames_inline,
-    write_combo_kb_mod_inline,
     write_superbg_inline,
     write_speed_mod_inline,
 )
@@ -493,13 +495,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if kb_txt.strip():
             tags.add("kb_hot")
 
-        combo_txt = self.tree.set(item_id, "combo_kb_mod")
-        if combo_txt.strip() and combo_txt.strip() != "?":
-            tags.add("combo_hot")
-
         speed_txt = self.tree.set(item_id, "speed_mod").strip()
         if speed_txt:
             tags.add("combo_hot")
+
+        property_txt = self.tree.set(item_id, "attack_property").strip()
+        if property_txt:
+            tags.add("property_hot")
 
         super_txt = self.tree.set(item_id, "superbg").strip()
         if super_txt == "ON":
@@ -842,9 +844,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if mv.get("speed_mod_addr"):
             addr_hits.append(mv["speed_mod_addr"])
 
-        if mv.get("combo_kb_mod_addr"):
-            addr_hits.append(mv["combo_kb_mod_addr"])
-
         if mv.get("superbg_addr"):
             addr_hits.append(mv["superbg_addr"])
 
@@ -903,6 +902,160 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         else:
             messagebox.showerror("Speed Modifier", "Failed to write speed modifier byte.")
 
+    def _ensure_attack_property(self, mv) -> None:
+        if mv.get("attack_property_addr") is not None:
+            return
+        move_abs = mv.get("abs")
+        if not move_abs:
+            return
+        try:
+            from dolphin_io import rbytes
+            addr, cur, sig = find_attack_property_addr(move_abs, rbytes)
+        except Exception:
+            addr, cur, sig = (None, None, None)
+        if addr:
+            mv["attack_property_addr"] = addr
+            mv["attack_property"] = cur
+            mv["attack_property_sig"] = sig
+
+    def _write_attack_property_inline(self, mv, value: int) -> bool:
+        if not U.WRITER_AVAILABLE:
+            return False
+        addr = mv.get("attack_property_addr")
+        if not addr:
+            return False
+        try:
+            from dolphin_io import wbytes
+            wbytes(int(addr), bytes([int(value) & 0xFF]))
+            return True
+        except Exception:
+            pass
+        try:
+            from dolphin_io import wr8
+            wr8(int(addr), int(value) & 0xFF)
+            return True
+        except Exception:
+            return False
+
+    def _choose_attack_property_value(self, addr: int, cur_val: int) -> int | None:
+        """Modal picker for attack property.
+
+        Most edits should be click-select from the known guide values. Manual
+        byte entry remains available for testing unknown/experimental values.
+        """
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Attack Property")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        result = {"value": None}
+
+        body = ttk.Frame(dlg, padding=12)
+        body.pack(fill="both", expand=True)
+
+        ttk.Label(
+            body,
+            text=f"Attack Property @ 0x{addr:08X}",
+        ).pack(anchor="w", pady=(0, 8))
+
+        known_options = [
+            f"0x{k:02X}  {v}"
+            for k, v in sorted(ATTACK_PROPERTY_VALUES.items())
+        ]
+        current_text = fmt_attack_property(cur_val)
+        if current_text not in known_options:
+            known_options.insert(0, current_text)
+
+        ttk.Label(body, text="Known values:").pack(anchor="w")
+        choice_var = tk.StringVar(master=dlg, value=current_text)
+        combo = ttk.Combobox(
+            body,
+            textvariable=choice_var,
+            values=known_options,
+            width=34,
+            state="readonly",
+        )
+        combo.pack(fill="x", pady=(2, 10))
+
+        manual_on = tk.BooleanVar(master=dlg, value=False)
+        manual_row = ttk.Frame(body)
+        manual_row.pack(fill="x", pady=(0, 10))
+
+        chk = ttk.Checkbutton(
+            manual_row,
+            text="Manual byte:",
+            variable=manual_on,
+        )
+        chk.pack(side="left")
+
+        manual_var = tk.StringVar(master=dlg, value=f"0x{int(cur_val) & 0xFF:02X}")
+        manual_ent = ttk.Entry(manual_row, textvariable=manual_var, width=10)
+        manual_ent.pack(side="left", padx=(6, 0))
+
+        hint = ttk.Label(
+            body,
+            text="Use manual only for unknown/test values. Examples: 0x09, 0x21, 24",
+            style="Muted.Top.TLabel" if self.root else None,
+        )
+        hint.pack(anchor="w", pady=(0, 10))
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x")
+
+        def apply_value():
+            if manual_on.get():
+                val = parse_attack_property(manual_var.get())
+            else:
+                val = parse_attack_property(choice_var.get())
+            if val is None:
+                messagebox.showerror("Attack Property", "Invalid value. Use values like 0x09, 0x21, or 24.", parent=dlg)
+                return
+            result["value"] = int(val) & 0xFF
+            dlg.destroy()
+
+        def cancel():
+            result["value"] = None
+            dlg.destroy()
+
+        ttk.Button(buttons, text="Apply", command=apply_value).pack(side="right", padx=(6, 0))
+        ttk.Button(buttons, text="Cancel", command=cancel).pack(side="right")
+
+        combo.focus_set()
+        dlg.bind("<Return>", lambda _e: apply_value())
+        dlg.bind("<Escape>", lambda _e: cancel())
+
+        try:
+            self.root.wait_window(dlg)
+        except Exception:
+            pass
+
+        return result["value"]
+
+    def _edit_attack_property(self, item, mv, current: str):
+        self._ensure_attack_property(mv)
+        addr = mv.get("attack_property_addr")
+        if not addr:
+            messagebox.showerror(
+                "Attack Property",
+                "Signature not found for this move.\nTry Refresh visible, or this move may not have the attack-property pattern.",
+            )
+            return
+
+        cur_val = mv.get("attack_property")
+        if cur_val is None:
+            cur_val = parse_attack_property(current) or 0x09
+
+        new_val = self._choose_attack_property_value(int(addr), int(cur_val) & 0xFF)
+        if new_val is None:
+            return
+
+        if self._write_attack_property_inline(mv, int(new_val)):
+            mv["attack_property"] = int(new_val) & 0xFF
+            self.tree.set(item, "attack_property", fmt_attack_property(new_val))
+        else:
+            messagebox.showerror("Attack Property", "Failed to write attack property byte.")
+
     # ---------- Refresh visible ----------
 
     def _refresh_visible(self):
@@ -934,8 +1087,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 if mv.get("speed_mod_addr"):
                     hits.append(mv["speed_mod_addr"])
 
-                if mv.get("combo_kb_mod_addr"):
-                    hits.append(mv["combo_kb_mod_addr"])
+                if mv.get("attack_property_addr"):
+                    hits.append(mv["attack_property_addr"])
 
                 if mv.get("superbg_addr"):
                     hits.append(mv["superbg_addr"])
@@ -965,8 +1118,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 if mv.get("speed_mod_addr"):
                     hits.append(mv["speed_mod_addr"])
 
-                if mv.get("combo_kb_mod_addr"):
-                    hits.append(mv["combo_kb_mod_addr"])
+                if mv.get("attack_property_addr"):
+                    hits.append(mv["attack_property_addr"])
 
                 if mv.get("superbg_addr"):
                     hits.append(mv["superbg_addr"])
@@ -986,29 +1139,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             except Exception:
                 pass
 
-            hb_cands = U.scan_hitbox_candidates(move_abs)
-            hb_off, hb_val = U.select_primary_hitbox(hb_cands)
-            mv["hb_candidates"] = hb_cands
-            mv["hb_off"] = hb_off
-            mv["hb_r"] = hb_val
-            self.tree.set(item_id, "hb", U.format_candidate_list(hb_cands))
-            self.tree.set(item_id, "hb_main", (f"{hb_val:.1f}" if hb_val is not None else ""))
-
-            # combo kb mod (lazy resolve)
-            if mv.get("combo_kb_mod_addr") is None:
-                try:
-                    from dolphin_io import rbytes
-                    addr, cur, sig = find_combo_kb_mod_addr(move_abs, rbytes)
-                except Exception:
-                    addr, cur, sig = (None, None, None)
-                if addr:
-                    mv["combo_kb_mod_addr"] = addr
-                    mv["combo_kb_mod"] = cur
-                    mv["combo_kb_sig"] = sig
-            if mv.get("combo_kb_mod_addr"):
-                v = mv.get("combo_kb_mod")
-                self.tree.set(item_id, "combo_kb_mod", f"{v} (0x{v:02X})" if v is not None else "?")
-
             # speed mod
             if mv.get("speed_mod_addr") is None:
                 try:
@@ -1022,6 +1152,20 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     mv["speed_mod_sig"] = ssig
             if mv.get("speed_mod_addr"):
                 self.tree.set(item_id, "speed_mod", U.fmt_speed_mod_ui(mv.get("speed_mod")))
+
+            # attack property (lazy resolve)
+            if mv.get("attack_property_addr") is None:
+                try:
+                    from dolphin_io import rbytes
+                    ap_addr, ap_val, ap_sig = find_attack_property_addr(move_abs, rbytes)
+                except Exception:
+                    ap_addr, ap_val, ap_sig = (None, None, None)
+                if ap_addr:
+                    mv["attack_property_addr"] = ap_addr
+                    mv["attack_property"] = ap_val
+                    mv["attack_property_sig"] = ap_sig
+            if mv.get("attack_property_addr"):
+                self.tree.set(item_id, "attack_property", fmt_attack_property(mv.get("attack_property")))
 
             # projectile radius (lazy resolve)
             if mv.get("proj_radius") is None:
@@ -1081,6 +1225,16 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 else:
                     failed_writes.append(f"speed_mod @ 0x{abs_addr:08X}")
 
+            # Attack property
+            if orig.get("attack_property_addr") and orig.get("attack_property") is not None:
+                mv["attack_property_addr"] = orig["attack_property_addr"]
+                if self._write_attack_property_inline(mv, orig["attack_property"]):
+                    mv["attack_property"] = orig["attack_property"]
+                    self.tree.set(item_id, "attack_property", fmt_attack_property(orig["attack_property"]))
+                    reset_count += 1
+                else:
+                    failed_writes.append(f"attack_property @ 0x{abs_addr:08X}")
+
             self._apply_row_tags(item_id, mv)
 
         msg = f"Reset complete: {reset_count} writes successful"
@@ -1120,6 +1274,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         if col_name == "speed_mod":
             self._edit_speed_mod(item, mv, current_val)
+        elif col_name == "attack_property":
+            self._edit_attack_property(item, mv, current_val)
         else:
             self._route_standard_edit(col_name, item, mv, current_val)
 
@@ -1141,16 +1297,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._edit_hitstun(item, mv, current_val)
         elif col_name == "blockstun":
             self._edit_blockstun(item, mv, current_val)
-        elif col_name == "hitstop":
-            self._edit_hitstop(item, mv, current_val)
-        elif col_name == "hb_main":
-            self._edit_hitbox_main(item, mv, current_val)
-        elif col_name == "hb":
-            self._edit_hitbox(item, mv, current_val)
         elif col_name == "kb":
             self._edit_knockback(item, mv, current_val)
-        elif col_name == "combo_kb_mod":
-            self._edit_combo_kb_mod(item, mv, current_val)
         elif col_name == "hit_reaction":
             self._edit_hit_reaction(item, mv, current_val)
         elif col_name == "superbg":
@@ -1180,13 +1328,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "active2": ("active2_addr", "Active 2"),
             "hitstun": ("stun_addr", "Stun"),
             "blockstun": ("stun_addr", "Stun"),
-            "hitstop": ("stun_addr", "Stun"),
             "kb": ("knockback_addr", "Knockback"),
-            "combo_kb_mod": ("combo_kb_mod_addr", "Combo KB Mod"),
             "speed_mod": ("speed_mod_addr", "Speed Mod"),
+            "attack_property": ("attack_property_addr", "Attack Property"),
             "superbg": ("superbg_addr", "SuperBG"),
-            "hb_main": ("hb_off", "Hitbox"),
-            "hb": ("hb_off", "Hitbox"),
             "abs": ("abs", "Move"),
         }
 
@@ -1194,32 +1339,17 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             addr_key, label = addr_map[col_name]
             addr = mv.get(addr_key)
 
-            if addr_key == "hb_off":
-                move_abs = mv.get("abs")
-                if move_abs and addr is not None:
-                    addr = move_abs + addr
-
             if addr_key == "speed_mod_addr" and not addr:
                 self._ensure_speed_mod(mv)
                 addr = mv.get("speed_mod_addr")
                 if addr:
                     self.tree.set(item, "speed_mod", U.fmt_speed_mod_ui(mv.get("speed_mod")))
 
-            if addr_key == "combo_kb_mod_addr" and not addr:
-                move_abs = mv.get("abs")
-                if move_abs:
-                    try:
-                        from dolphin_io import rbytes
-                        daddr, cur, sig = find_combo_kb_mod_addr(move_abs, rbytes)
-                    except Exception:
-                        daddr, cur, sig = (None, None, None)
-                    if daddr:
-                        mv["combo_kb_mod_addr"] = daddr
-                        mv["combo_kb_mod"] = cur
-                        mv["combo_kb_sig"] = sig
-                        addr = daddr
-                        v = mv.get("combo_kb_mod")
-                        self.tree.set(item, "combo_kb_mod", f"{v} (0x{v:02X})" if v is not None else "?")
+            if addr_key == "attack_property_addr" and not addr:
+                self._ensure_attack_property(mv)
+                addr = mv.get("attack_property_addr")
+                if addr:
+                    self.tree.set(item, "attack_property", fmt_attack_property(mv.get("attack_property")))
 
             if addr_key == "superbg_addr" and not addr:
                 move_abs = mv.get("abs")

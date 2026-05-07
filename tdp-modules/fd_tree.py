@@ -10,7 +10,12 @@ import tkinter as tk
 from tkinter import ttk
 
 import fd_utils as U
-from fd_patterns import find_combo_kb_mod_addr, find_superbg_addr, find_speed_mod_addr
+from fd_patterns import (
+    find_superbg_addr,
+    find_speed_mod_addr,
+    find_attack_property_addr,
+    fmt_attack_property,
+)
 from fd_widgets import Tooltip
 
 
@@ -117,10 +122,8 @@ def build_tree_widget(win) -> ttk.Frame:
         "damage",
         "meter",
         "startup", "active", "active2",
-        "hitstun", "blockstun", "hitstop",
-        "hb_main", "hb",
-        "kb", "combo_kb_mod", "speed_mod", "hit_reaction",
-           "assist",
+        "hitstun", "blockstun",
+        "kb", "speed_mod", "attack_property", "hit_reaction",
         "superbg",
         "abs",
     )
@@ -157,12 +160,9 @@ def build_tree_widget(win) -> ttk.Frame:
         "active2": 10,
         "hitstun": 8,
         "blockstun": 8,
-        "hitstop": 8,
-        "hb_main": 8,
-        "hb": 18,
         "kb": 16,
-        "combo_kb_mod": 12,
         "speed_mod": 10,
+        "attack_property": 14,
         "hit_reaction": 16,
         "superbg": 10,
         "abs": 12,
@@ -179,12 +179,9 @@ def build_tree_widget(win) -> ttk.Frame:
         "active2": "Active2",
         "hitstun": "HS",
         "blockstun": "BS",
-        "hitstop": "Stop",
-        "hb_main": "Hitbox",
-        "hb": "HB cand.",
         "kb": "Knockback",
-        "combo_kb_mod": "ComboKB",
         "speed_mod": "Speed",
+        "attack_property": "Property",
         "hit_reaction": "HitReact",
         "superbg": "SuperBG",
         "abs": "Abs",
@@ -288,14 +285,10 @@ def build_tree_widget(win) -> ttk.Frame:
         ("active2", "Active 2"),
         ("hitstun", "HS"),
         ("blockstun", "BS"),
-        ("hitstop", "Stop"),
-        ("hb_main", "Hitbox"),
-        ("hb", "Hitbox cand."),
         ("kb", "Knockback"),
-        ("combo_kb_mod", "Combo KB Mod"),
         ("speed_mod", "Speed Mod"),
+        ("attack_property", "Attack Property"),
         ("hit_reaction", "Hit Reaction"),
-         ("assist", "Assist"),
         ("superbg", "SuperBG"),
         ("abs", "Address"),
     ]
@@ -316,12 +309,9 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("active2", width=98, anchor="center")
     win.tree.column("hitstun", width=52, anchor="center")
     win.tree.column("blockstun", width=52, anchor="center")
-    win.tree.column("hitstop", width=56, anchor="center")
-    win.tree.column("hb_main", width=74, anchor="center")
-    win.tree.column("hb", width=260, anchor="w")
     win.tree.column("kb", width=180, anchor="w")
-    win.tree.column("combo_kb_mod", width=140, anchor="center")
     win.tree.column("speed_mod", width=120, anchor="center")
+    win.tree.column("attack_property", width=180, anchor="w")
     win.tree.column("hit_reaction", width=280, anchor="w")
     win.tree.column("superbg", width=80, anchor="center")
     win.tree.column("abs", width=120, anchor="w")
@@ -330,6 +320,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("row_odd", background="#EEF2F7")
     win.tree.tag_configure("kb_hot", foreground="#3B6FA5")
     win.tree.tag_configure("combo_hot", foreground="#4C7FB8")
+    win.tree.tag_configure("property_hot", foreground="#5F6FA8")
     win.tree.tag_configure("super_on", foreground="#3C8C6E")
     win.tree.tag_configure("missing_addr", foreground="#A65C5C")
     win.tree.tag_configure("group_parent", foreground="#5A4E2F")
@@ -381,18 +372,6 @@ def populate_tree(win) -> None:
         else:
             active2_txt = _fmt(a2_s or a2_e)
 
-        hb_main_txt = ""
-        hb_txt = ""
-        hb_cands = []
-        hb_off = None
-        hb_val = None
-
-        # DEFER hitbox scanning (done in Refresh visible instead)
-        if mv.get("hb_r") is not None:
-            hb_main_txt = f"{mv['hb_r']:.1f}"
-        if mv.get("hb_candidates"):
-            hb_txt = U.format_candidate_list(mv["hb_candidates"])
-
         kb_parts = []
         if mv.get("kb0") is not None:
             kb_parts.append(f"K0:{mv['kb0']}")
@@ -401,23 +380,6 @@ def populate_tree(win) -> None:
         if mv.get("kb_traj") is not None:
             kb_parts.append(U.fmt_kb_traj(mv["kb_traj"]))
         kb_txt = " ".join(kb_parts)
-
-        combo_txt = ""
-        if move_abs:
-            if mv.get("combo_kb_mod_addr") is None:
-                try:
-                    from dolphin_io import rbytes
-                    addr, cur, sig = find_combo_kb_mod_addr(move_abs, rbytes)
-                    if addr:
-                        mv["combo_kb_mod_addr"] = addr
-                        mv["combo_kb_mod"] = cur
-                except Exception:
-                    pass
-        if mv.get("combo_kb_mod_addr"):
-            v = mv.get("combo_kb_mod")
-            combo_txt = f"{v} (0x{v:02X})" if v is not None else "?"
-
-        assist_txt = getattr(win, "_assist_table_count", "")
 
         speed_txt = ""
         if move_abs:
@@ -432,6 +394,20 @@ def populate_tree(win) -> None:
                     pass
         if mv.get("speed_mod_addr"):
             speed_txt = U.fmt_speed_mod_ui(mv.get("speed_mod"))
+
+        attack_property_txt = ""
+        if move_abs:
+            if mv.get("attack_property_addr") is None:
+                try:
+                    from dolphin_io import rbytes
+                    ap_addr, ap_val, _ = find_attack_property_addr(move_abs, rbytes)
+                    if ap_addr:
+                        mv["attack_property_addr"] = ap_addr
+                        mv["attack_property"] = ap_val
+                except Exception:
+                    pass
+        if mv.get("attack_property_addr"):
+            attack_property_txt = fmt_attack_property(mv.get("attack_property"))
 
         superbg_txt = ""
         if move_abs:
@@ -471,14 +447,10 @@ def populate_tree(win) -> None:
                 active2_txt,
                 U.fmt_stun(mv.get("hitstun")),
                 U.fmt_stun(mv.get("blockstun")),
-                _fmt(mv.get("hitstop")),
-                hb_main_txt,
-                hb_txt,
                 kb_txt,
-                combo_txt,
                 speed_txt,
+                attack_property_txt,
                 hr_txt,
-                assist_txt,
                 superbg_txt,
                 f"0x{move_abs:08X}" if move_abs else "",
             ),
