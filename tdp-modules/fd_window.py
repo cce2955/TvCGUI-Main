@@ -946,8 +946,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 if mv.get("active_addr"):
                     hits.append(mv["active_addr"])
 
-                if mv.get("proj_tpl"):
-                    hits.append(mv["proj_tpl"])
 
                 if hits:
                     print(f"[FD] writing {len(hits)} hits -> {path}")
@@ -979,8 +977,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 if mv.get("active_addr"):
                     hits.append(mv["active_addr"])
 
-                if mv.get("proj_tpl"):
-                    hits.append(mv["proj_tpl"])
 
                 if hits:
                     print("WRITING REGION HITS")
@@ -1026,19 +1022,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     mv["speed_mod_sig"] = ssig
             if mv.get("speed_mod_addr"):
                 self.tree.set(item_id, "speed_mod", U.fmt_speed_mod_ui(mv.get("speed_mod")))
-
-            # projectile refresh
-            if mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
-                try:
-                    U.resolve_projectile_fields_for_move(mv, region_abs=move_abs)
-                    self.tree.set(item_id, "proj_dmg", mv.get("proj_dmg") or "")
-                    self.tree.set(
-                        item_id,
-                        "proj_tpl",
-                        f"0x{mv['proj_tpl']:08X}" if mv.get("proj_tpl") else ""
-                    )
-                except Exception:
-                    pass
 
             # projectile radius (lazy resolve)
             if mv.get("proj_radius") is None:
@@ -1158,8 +1141,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._edit_hitstun(item, mv, current_val)
         elif col_name == "blockstun":
             self._edit_blockstun(item, mv, current_val)
-        elif col_name == "proj_dmg":
-            self._edit_proj_dmg(item, mv, current_val)
         elif col_name == "hitstop":
             self._edit_hitstop(item, mv, current_val)
         elif col_name == "hb_main":

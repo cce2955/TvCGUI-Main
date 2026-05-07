@@ -1,12 +1,8 @@
 # fd_tree.py
 #
-# Update: projectile display columns:
-#   - proj_dmg  (ProjDmg)
-#   - proj_tpl  (ProjTpl)
-#
 # This file owns tree column definitions + row population wiring.
-# Projectile resolution itself is upstream; here we only display whatever
-# mv carries (mv["proj_dmg"], mv["proj_tpl"]).
+# Projectile columns were removed from the tree; speed_mod remains visible
+# and editable through fd_window.
 
 from __future__ import annotations
 
@@ -118,7 +114,7 @@ def build_tree_widget(win) -> ttk.Frame:
 
     cols = (
         "move", "kind",
-        "damage", "proj_dmg", "proj_tpl",
+        "damage",
         "meter",
         "startup", "active", "active2",
         "hitstun", "blockstun", "hitstop",
@@ -155,8 +151,6 @@ def build_tree_widget(win) -> ttk.Frame:
         "move": 34,
         "kind": 10,
         "damage": 8,
-        "proj_dmg": 8,
-        "proj_tpl": 12,
         "meter": 8,
         "startup": 8,
         "active": 10,
@@ -179,8 +173,6 @@ def build_tree_widget(win) -> ttk.Frame:
         "move": "Move",
         "kind": "Kind",
         "damage": "Dmg",
-        "proj_dmg": "ProjDmg",
-        "proj_tpl": "ProjTpl",
         "meter": "Meter",
         "startup": "Start",
         "active": "Active",
@@ -290,8 +282,6 @@ def build_tree_widget(win) -> ttk.Frame:
         ("move", "Move"),
         ("kind", "Kind"),
         ("damage", "Dmg"),
-        ("proj_dmg", "ProjDmg"),
-        ("proj_tpl", "ProjTpl"),
         ("meter", "Meter"),
         ("startup", "Start"),
         ("active", "Active"),
@@ -320,9 +310,6 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("kind", width=70, anchor="w")
 
     win.tree.column("damage", width=70, anchor="center")
-    win.tree.column("proj_dmg", width=70, anchor="center")
-    win.tree.column("proj_tpl", width=120, anchor="w")
-
     win.tree.column("meter", width=60, anchor="center")
     win.tree.column("startup", width=60, anchor="center")
     win.tree.column("active", width=98, anchor="center")
@@ -360,27 +347,6 @@ def populate_tree(win) -> None:
     def _fmt(v):
         return "" if v is None else str(v)
 
-    def _fmt_proj_tpl(v):
-        if v is None:
-            return ""
-        if isinstance(v, str):
-            return v
-        try:
-            return f"0x{int(v):08X}"
-        except Exception:
-            return str(v)
-
-    def _infer_strength_from_move_name(name):
-        if not name:
-            return None
-        s = name.lower()
-        if " l" in s or s.endswith("l"):
-            return 1
-        if " m" in s or s.endswith("m"):
-            return 2
-        if " h" in s or " c" in s or s.endswith("h") or s.endswith("c"):
-            return 3
-        return None
 
     def insert_move_row(mv, parent=""):
         aid = mv.get("id")
@@ -398,28 +364,6 @@ def populate_tree(win) -> None:
         # -------------------------
         # Resolve optional fields (SAFE)
         # -------------------------
-
-        if move_abs:
-            if mv.get("proj_slices") is None:
-                try:
-                    U.resolve_projectile_strength_slices_for_move(
-                        mv,
-                        region_abs=move_abs,
-                        region_size=0x1400,
-                        move_name_for_strength=pretty,
-                    )
-                except Exception:
-                    pass
-
-            if mv.get("proj_dmg") is None and mv.get("proj_tpl") is None:
-                try:
-                    U.resolve_projectile_fields_for_move(
-                        mv,
-                        region_abs=move_abs,
-                        region_size=0x1400,
-                    )
-                except Exception:
-                    pass
 
         # -------------------------
         # Display formatting (ALWAYS RUNS)
@@ -505,12 +449,6 @@ def populate_tree(win) -> None:
 
         hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
 
-        proj_dmg = mv.get("proj_dmg")
-        if proj_dmg is None:
-            proj_dmg = _infer_strength_from_move_name(pretty)
-
-        proj_tpl = mv.get("proj_slice") or mv.get("proj_tpl")
-
         # -------------------------
         # Insert row
         # -------------------------
@@ -527,8 +465,6 @@ def populate_tree(win) -> None:
                 pretty,
                 mv.get("kind", ""),
                 _fmt(mv.get("damage")),
-                _fmt(proj_dmg),
-                _fmt_proj_tpl(proj_tpl),
                 _fmt(mv.get("meter")),
                 startup_txt,
                 active_txt,
@@ -542,7 +478,7 @@ def populate_tree(win) -> None:
                 combo_txt,
                 speed_txt,
                 hr_txt,
-                  assist_txt, 
+                assist_txt,
                 superbg_txt,
                 f"0x{move_abs:08X}" if move_abs else "",
             ),
