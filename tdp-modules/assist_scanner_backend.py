@@ -204,6 +204,15 @@ _PERSISTENT_REAPPLY_FAIL_UNTIL: dict[tuple, float] = {}
 _PERSISTENT_REAPPLY_LOCK = threading.RLock()
 _PERSISTENT_REAPPLY_RETRY_SECONDS = 0.85
 
+# Assist lifecycle debounce. main.py can see valid character IDs before the
+# freshly loaded match has rebuilt every live chr_tbl/wrapper route. Keep
+# reapply/prewarm workers out of that unstable window. This is frame-count
+# based because tick_assist_profiles_from_main() runs once per HUD frame.
+_ASSIST_STABLE_FRAMES_REQUIRED = 30
+_ASSIST_REAPPLY_WORKER_DELAY_SECONDS = 0.35
+_ASSIST_SLOT_STABILITY: dict[str, dict[str, int | tuple]] = {}
+_ASSIST_LAST_SLOT_HP: dict[str, tuple[int, int]] = {}
+_ASSIST_REAPPLY_STATUS: dict[str, str] = {}
 
 
 # Shared-character selector tables mean duplicate characters cannot keep
@@ -4017,6 +4026,83 @@ def _persistent_lookup_selection(slot_label: str, char_id: int, snaps: dict | No
         return dict(_PERSISTENT_TEAM_ASSIST_SELECTIONS[team_key])
 
 
+def _assist_set_status(slot_label: str, text: str) -> None:
+    try:
+        _ASSIST_REAPPLY_STATUS[str(slot_label)] = str(text)
+    except Exception:
+        pass
+
+
+def _assist_slot_stability_signature(slot_label: str, fighter_base: int, char_id: int, snap: dict | None = None) -> tuple:
+    hp_max = 0
+    if isinstance(snap, dict):
+        try:
+            hp_max = int(snap.get("max") or 0)
+        except Exception:
+            hp_max = 0
+    return (str(slot_label), int(fighter_base or 0), int(char_id or 0), int(hp_max or 0), int(_ASSIST_CACHE_EPOCH))
+
+
+def _assist_note_slot_stable_tick(slot_label: str, fighter_base: int, char_id: int, snap: dict | None = None) -> None:
+    sig = _assist_slot_stability_signature(slot_label, fighter_base, char_id, snap)
+    row = _ASSIST_SLOT_STABILITY.get(str(slot_label))
+    if not isinstance(row, dict) or row.get("sig") != sig:
+        _ASSIST_SLOT_STABILITY[str(slot_label)] = {"sig": sig, "frames": 1}
+        return
+    try:
+        row["frames"] = int(row.get("frames", 0)) + 1
+    except Exception:
+        row["frames"] = 1
+
+
+def _assist_slot_stable_for_reapply(slot_label: str, fighter_base: int, char_id: int, snap: dict | None = None) -> bool:
+    sig = _assist_slot_stability_signature(slot_label, fighter_base, char_id, snap)
+    row = _ASSIST_SLOT_STABILITY.get(str(slot_label))
+    if not isinstance(row, dict) or row.get("sig") != sig:
+        return False
+    try:
+        return int(row.get("frames", 0)) >= int(_ASSIST_STABLE_FRAMES_REQUIRED)
+    except Exception:
+        return False
+
+
+def _assist_hp_tuple(snap: dict | None) -> tuple[int, int]:
+    if not isinstance(snap, dict):
+        return (0, 0)
+    try:
+        cur = int(snap.get("cur") or 0)
+    except Exception:
+        cur = 0
+    try:
+        mx = int(snap.get("max") or 0)
+    except Exception:
+        mx = 0
+    return (cur, mx)
+
+
+def _assist_hp_reset_detected(slot_label: str, snap: dict | None) -> bool:
+    """Detect same-character rematches where base/cid never visibly changed.
+
+    The old invalidation only saw slot/base/char changes. Some future matches
+    rebuild assist route memory while the HUD still reports the same fighter
+    base and char id. A large HP jump back toward max is a cheap, reliable
+    round/match-reset hint, so force fresh route resolution when it happens.
+    """
+    cur, mx = _assist_hp_tuple(snap)
+    prev = _ASSIST_LAST_SLOT_HP.get(str(slot_label))
+    _ASSIST_LAST_SLOT_HP[str(slot_label)] = (cur, mx)
+    if prev is None or mx <= 0:
+        return False
+    prev_cur, prev_max = prev
+    if prev_max <= 0:
+        return False
+    # KO/low life -> near full life means the scripts may have been rebuilt
+    # even if fighter_base/char_id did not change.
+    big_jump = cur >= int(mx * 0.80) and (cur - prev_cur) >= int(mx * 0.35)
+    from_ko = prev_cur <= 0 and cur > 0
+    return bool(big_jump or from_ko)
+
+
 def _persistent_reapply_identity(slot_label: str, fighter_base: int, char_id: int, quick_index: int) -> tuple:
     return (
         str(slot_label),
@@ -4086,8 +4172,16 @@ def _persistent_schedule_reapply_from_snaps(snaps: dict | None) -> None:
         if quick_index < 0:
             continue
 
-        ident = _persistent_reapply_identity(slot_label, fighter_base, char_id, quick_index)
         now = time.monotonic()
+        ident = _persistent_reapply_identity(slot_label, fighter_base, char_id, quick_index)
+
+        if not _assist_slot_stable_for_reapply(slot_label, fighter_base, char_id, snap):
+            _assist_set_status(slot_label, "PENDING STABLE")
+            with _PERSISTENT_REAPPLY_LOCK:
+                _PERSISTENT_REAPPLY_FAIL_UNTIL[ident] = now + 0.12
+            continue
+
+        _assist_set_status(slot_label, "PENDING ROUTE")
 
         with _PERSISTENT_REAPPLY_LOCK:
             if ident in _PERSISTENT_REAPPLY_DONE or ident in _PERSISTENT_REAPPLY_INFLIGHT:
@@ -4110,7 +4204,7 @@ def _persistent_schedule_reapply_from_snaps(snaps: dict | None) -> None:
             try:
                 # Short delay lets the newly loaded match finish rebuilding the
                 # live chr_tbl/wrapper area before we resolve the fresh route.
-                time.sleep(0.12)
+                time.sleep(_ASSIST_REAPPLY_WORKER_DELAY_SECONDS)
                 ok = bool(apply_quick_assist_from_main(slot_label, quick_index, snap_copy))
             except Exception as e:
                 try:
@@ -4124,11 +4218,17 @@ def _persistent_schedule_reapply_from_snaps(snaps: dict | None) -> None:
                 if ok:
                     _PERSISTENT_REAPPLY_DONE.add(ident)
                     _PERSISTENT_REAPPLY_FAIL_UNTIL.pop(ident, None)
+                    _assist_set_status(slot_label, "REAPPLIED")
                     try:
                         print(f"[assist persist] restored {slot_label}: {saved_label}")
                     except Exception:
                         pass
                 else:
+                    _assist_set_status(slot_label, "FAILED RETRY")
+                    try:
+                        _assist_clear_slot_caches(slot_label, _slot_owner_base_from_label(slot_label), _assist_snap_fighter_base(snap_copy), _assist_snap_char_id(snap_copy))
+                    except Exception:
+                        pass
                     _PERSISTENT_REAPPLY_FAIL_UNTIL[ident] = time.monotonic() + _PERSISTENT_REAPPLY_RETRY_SECONDS
 
         try:
@@ -4245,6 +4345,9 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
             if prev is not None:
                 _assist_clear_slot_caches(slot_label, owner_base, prev[0], prev[1])
                 _ASSIST_LAST_SLOT_SIGNATURES.pop(slot_label, None)
+                _ASSIST_SLOT_STABILITY.pop(slot_label, None)
+                _ASSIST_LAST_SLOT_HP.pop(slot_label, None)
+                _assist_set_status(slot_label, "SLOT INVALID")
                 changed = True
             elif owner_base is not None and char_id and char_id not in CHAR_ID_TO_KEY:
                 # Transitional garbage IDs are a strong signal that the match /
@@ -4255,12 +4358,24 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
             continue
 
         cur = (int(fighter_base), int(char_id))
+        hp_reset = _assist_hp_reset_detected(slot_label, snap)
         if prev != cur:
             if prev is not None:
                 _assist_clear_slot_caches(slot_label, owner_base, prev[0], prev[1])
             _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
             _ASSIST_LAST_SLOT_SIGNATURES[slot_label] = cur
+            _ASSIST_SLOT_STABILITY.pop(slot_label, None)
+            _assist_set_status(slot_label, "ROUTE INVALIDATED")
             changed = True
+        elif hp_reset:
+            # Same slot/base/character, but a new round/match HP reset occurred.
+            # Force fresh absolute route resolution without deleting saved intent.
+            _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
+            _ASSIST_SLOT_STABILITY.pop(slot_label, None)
+            _assist_set_status(slot_label, "MATCH RESET")
+            changed = True
+
+        _assist_note_slot_stable_tick(slot_label, fighter_base, char_id, snap)
 
     if changed:
         _ASSIST_CACHE_EPOCH += 1
@@ -4386,6 +4501,12 @@ def _prewarm_quick_routes_from_snaps(snaps: dict[str, dict]) -> None:
                 char_id = 0
             if char_id:
                 break
+        try:
+            fighter_base = int(snap.get("base") or 0)
+        except Exception:
+            fighter_base = 0
+        if char_id and fighter_base and not _assist_slot_stable_for_reapply(str(slot_label), fighter_base, char_id, snap):
+            continue
         _schedule_quick_route_prewarm(owner_base, char_id if char_id else None)
 
 
@@ -4981,7 +5102,7 @@ def _selector_word_for_quick_preset(owner_base: int, row: dict, preset: dict) ->
     return (int(entry) + int(delta)) & 0xFFFFFFFF
 
 
-def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict | None = None) -> bool:
+def _apply_quick_assist_from_main_once(slot_label: str, quick_index: int, snap: dict | None = None) -> bool:
     global _HEADLESS_LAST_PATCH_KEY
     """Apply one JSON quick-assist entry for a HUD slot.
 
@@ -5132,6 +5253,35 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
         pass
     return True
 
+
+def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict | None = None) -> bool:
+    """Apply one quick assist with stale-route retry.
+
+    First try uses the normal cache path. If that fails, clear this slot's
+    absolute route/chr_tbl/profile caches, resolve a fresh row, and try once
+    more. This makes manual clicks and persistent restores recover from stale
+    same-character rematch addresses without requiring the scanner window.
+    """
+    ok = bool(_apply_quick_assist_from_main_once(slot_label, quick_index, snap))
+    if ok:
+        _assist_set_status(slot_label, "APPLIED")
+        return True
+
+    owner_base = _slot_owner_base_from_label(slot_label)
+    fighter_base = _assist_snap_fighter_base(snap)
+    char_id = _assist_snap_char_id(snap)
+    _assist_set_status(slot_label, "RETRY FRESH ROUTE")
+    try:
+        _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
+    except Exception:
+        pass
+    try:
+        time.sleep(0.03)
+    except Exception:
+        pass
+    ok = bool(_apply_quick_assist_from_main_once(slot_label, quick_index, snap))
+    _assist_set_status(slot_label, "APPLIED" if ok else "FAILED")
+    return ok
 
 def _snap_state_id_for_runtime(snap: dict) -> int | None:
     if not snap:
@@ -7998,6 +8148,13 @@ def tick_assist_profiles_from_main(snaps: dict) -> None:
     except Exception as e:
         try:
             print(f"[assist persist] schedule failed: {e!r}")
+        except Exception:
+            pass
+    try:
+        _prewarm_quick_routes_from_snaps(snaps)
+    except Exception as e:
+        try:
+            print(f"[assist quick] prewarm failed: {e!r}")
         except Exception:
             pass
     inst = _inst
