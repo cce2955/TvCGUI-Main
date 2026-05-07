@@ -528,7 +528,11 @@ def draw_top_command_dock(
     )
     pygame.draw.line(screen, (58, 64, 82), (0, dock_rect.bottom - 1), (w, dock_rect.bottom - 1))
 
-    # Intentionally no title/status text here; keep the command dock compact.
+    # Quiet status text so the top area feels more like a finished app.
+    status_text = "Left click to interact | Right click panels/debug rows to copy"
+    status_surf = _fit_text(smallfont, status_text, GUI_TEXT_DIM, max(80, w - 620))
+    screen.blit(status_surf, (w - status_surf.get_width() - 10, 11))
+
     x = 8
     y = 8
     btn_h = 23
@@ -1007,13 +1011,19 @@ def draw_scan_normals_polished(
         label = str(slot.get("slot_label") or slot.get("slot") or "")
         return (wanted_order.get(label, 99), label)
 
-    slots = sorted([s for s in slots if isinstance(s, dict)], key=slot_key)[:4]
+    ordered_labels = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
+    slot_map = {}
+    for _s in [s for s in slots if isinstance(s, dict)]:
+        _lbl = str(_s.get("slot_label") or _s.get("slot") or "")
+        if _lbl and _lbl not in slot_map:
+            slot_map[_lbl] = _s
+    slots = [slot_map.get(lbl, {"slot_label": lbl, "char_name": "No character", "moves": []}) for lbl in ordered_labels]
 
     pad = 8
     gap = 10
     top = rect.y + 36
     card_h = max(44, rect.height - 44)
-    count = max(1, len(slots))
+    count = 4
     card_w = max(140, (rect.width - pad * 2 - gap * (count - 1)) // count)
 
     dense = rect.height < 260 or rect.width < 930
@@ -1046,7 +1056,7 @@ def draw_scan_normals_polished(
         surf.blit(card_fill, card.topleft)
 
         slot_label = str(slot.get("slot_label") or slot.get("slot") or f"S{si + 1}")
-        char_name = str(slot.get("char_name") or slot.get("character") or slot.get("name") or "?")
+        char_name = str(slot.get("char_name") or slot.get("character") or slot.get("name") or "No character")
 
         accent = _slot_accent_for_label(slot_label, muted=True)
 
@@ -1081,6 +1091,7 @@ def draw_scan_normals_polished(
         if not isinstance(moves, list):
             moves = []
         visible_moves = _normal_visible_moves(moves)
+        is_empty_card = len(visible_moves) <= 0
 
         # Try to identify the current move for a soft live-row highlight. This
         # depends only on whatever the scan payload already happens to carry;
@@ -1125,6 +1136,16 @@ def draw_scan_normals_polished(
             col_left = grid_x + move_col_w + i * metric_col_w
             hdr_s = smallfont.render(txt, True, GUI_TEXT_DIM)
             surf.blit(hdr_s, (col_left + (metric_col_w - hdr_s.get_width()) // 2, hdr.y + (hdr.height - hdr_s.get_height()) // 2))
+
+        if is_empty_card:
+            empty_body = pygame.Rect(grid_x + 1, grid_y + table_header_h + 1, grid_w - 2, grid_h - table_header_h - 2)
+            pygame.draw.rect(surf, (11, 14, 21), empty_body, border_radius=4)
+            empty_msg = "Waiting for scan" if char_name != "No character" else "No character loaded"
+            msg1 = _render_outlined_text(font, empty_msg, GUI_TEXT_DIM, (0, 0, 0), empty_body.width - 16, 1)
+            msg2 = _fit_text(smallfont, "Normals will appear here when data is available", GUI_TEXT_DIM, empty_body.width - 16)
+            surf.blit(msg1, (empty_body.x + (empty_body.width - msg1.get_width()) // 2, empty_body.y + max(10, empty_body.height // 2 - 14)))
+            surf.blit(msg2, (empty_body.x + (empty_body.width - msg2.get_width()) // 2, empty_body.y + max(28, empty_body.height // 2 + 4)))
+            continue
 
         row_count = max(1, len(visible_moves))
         available_h = max(1, grid_h - table_header_h)
@@ -1666,6 +1687,43 @@ def _meter_fraction_from_snap(snap: dict | None) -> tuple[float, str]:
     return frac, f"{bars}/5"
 
 
+def _meter_value_text_color(raw_meter: int | float) -> tuple[int, int, int]:
+    """Color meter text by raw meter amount.
+
+    Near zero is intentionally dark/muted. At each bar threshold it brightens,
+    then ramps through cool light colors until it reaches red at 50k/max.
+    """
+    try:
+        raw = max(0.0, min(50000.0, float(raw_meter or 0)))
+    except Exception:
+        raw = 0.0
+
+    if raw <= 0:
+        return (72, 78, 92)
+
+    stops = [
+        (0.0,     (72, 78, 92)),     # near zero: dark steel
+        (10000.0, (132, 176, 245)),   # lvl 1: light blue
+        (20000.0, (110, 218, 190)),   # lvl 2: mint/cyan
+        (30000.0, (230, 210, 120)),   # lvl 3: pale gold
+        (40000.0, (245, 160, 95)),    # lvl 4: warm orange
+        (50000.0, (235, 80, 95)),     # max: red
+    ]
+
+    for i in range(len(stops) - 1):
+        a_raw, a_col = stops[i]
+        b_raw, b_col = stops[i + 1]
+        if raw <= b_raw:
+            t = (raw - a_raw) / max(1.0, b_raw - a_raw)
+            return (
+                int(a_col[0] + (b_col[0] - a_col[0]) * t),
+                int(a_col[1] + (b_col[1] - a_col[1]) * t),
+                int(a_col[2] + (b_col[2] - a_col[2]) * t),
+            )
+
+    return stops[-1][1]
+
+
 def draw_panel_polished_stats(
     surf: pygame.Surface,
     rect: pygame.Rect,
@@ -1726,6 +1784,7 @@ def draw_panel_polished_stats(
         or ("dead" in move_preview)
         or ("death" in move_preview)
         or ("defeat" in move_preview)
+        or ("slow motion" in move_preview and "ko" in move_preview)
         or (early_hp_cur <= 0)
     )
 
@@ -1738,14 +1797,22 @@ def draw_panel_polished_stats(
     )
     is_active_panel = not is_support
 
-    border_col = _brighten(accent, 22) if is_active_panel else (55, 63, 84)
+    if ko_state:
+        border_col = (84, 74, 74)
+    else:
+        border_col = _brighten(accent, 22) if is_active_panel else (55, 63, 84)
     pygame.draw.rect(surf, border_col, rect, 1, border_radius=5)
-    pygame.draw.rect(surf, accent, pygame.Rect(0, 0, 3, rect.height), border_radius=2)
+    side_accent = (116, 92, 92) if ko_state else accent
+    pygame.draw.rect(surf, side_accent, pygame.Rect(0, 0, 3, rect.height), border_radius=2)
 
     if is_active_panel:
         pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 2.2)
         glow = pygame.Surface((rect.width - 4, rect.height - 4), pygame.SRCALPHA)
         pygame.draw.rect(glow, (*accent, int(18 + 10 * pulse)), glow.get_rect(), 2, border_radius=6)
+        surf.blit(glow, (2, 2))
+    elif ko_state:
+        glow = pygame.Surface((rect.width - 4, rect.height - 4), pygame.SRCALPHA)
+        pygame.draw.rect(glow, (180, 90, 90, 22), glow.get_rect(), 1, border_radius=6)
         surf.blit(glow, (2, 2))
 
     pad = 8
@@ -1758,7 +1825,7 @@ def draw_panel_polished_stats(
     surf.blit(shadow, (portrait_rect.x - 4, portrait_rect.y + 4))
 
     glow = pygame.Surface((portrait_rect.width + 8, portrait_rect.height + 8), pygame.SRCALPHA)
-    glow_alpha = 46 if is_active_panel else 22
+    glow_alpha = 18 if ko_state else (46 if is_active_panel else 22)
     pygame.draw.rect(glow, (*accent, glow_alpha), glow.get_rect(), 2, border_radius=7)
     surf.blit(glow, (portrait_rect.x - 4, portrait_rect.y - 4))
 
@@ -1771,7 +1838,7 @@ def draw_panel_polished_stats(
             if not is_active_panel:
                 p = p.copy()
                 veil = pygame.Surface(p.get_size(), pygame.SRCALPHA)
-                veil.fill((0, 0, 0, 35))
+                veil.fill((18, 12, 12, 80) if ko_state else (0, 0, 0, 35))
                 p.blit(veil, (0, 0))
             surf.blit(p, portrait_rect.topleft)
         except Exception:
@@ -1791,9 +1858,16 @@ def draw_panel_polished_stats(
     except Exception:
         base_txt = ""
     title_text = f"{header}  {char_name}{base_txt}"
-    title_col = GUI_TEXT if is_active_panel else (210, 215, 225)
+    title_col = (220, 205, 205) if ko_state else (GUI_TEXT if is_active_panel else (210, 215, 225))
     title_s = _render_outlined_text(smallfont, title_text, title_col, (0, 0, 0), info_w, 1)
     surf.blit(title_s, (info_x, y))
+    if ko_state:
+        badge = pygame.Rect(max(info_x + 4, rect.width - 54), y + 1, 34, 14)
+        badge.x = min(rect.width - 44, info_x + min(info_w - 40, 220))
+        pygame.draw.rect(surf, (56, 30, 30), badge, border_radius=4)
+        pygame.draw.rect(surf, (148, 88, 88), badge, 1, border_radius=4)
+        badge_s = _render_outlined_text(smallfont, "KO", (235, 220, 220), (0, 0, 0), badge.width - 4, 1)
+        surf.blit(badge_s, (badge.x + (badge.width - badge_s.get_width()) // 2, badge.y + (badge.height - badge_s.get_height()) // 2))
     y += title_s.get_height() + 3
 
     hp_cur = snap.get("cur") or 0
@@ -1811,8 +1885,8 @@ def draw_panel_polished_stats(
     hp_text = f"HP {int(hp_cur or 0)}/{int(hp_max or 0)}"
     meter_text = f"Meter:{raw_meter}/Lvl {meter_txt.split('/')[0]}"
 
-    hp_s = _render_outlined_text(smallfont, hp_text, GUI_CONFIRM, (0, 0, 0), max(90, info_w // 2 - 8), 1)
-    meter_s = _render_outlined_text(smallfont, meter_text, GUI_TEXT_MUTED, (0, 0, 0), max(90, info_w // 2), 1)
+    hp_s = _render_outlined_text(smallfont, hp_text, hp_col, (0, 0, 0), max(90, info_w // 2 - 8), 1)
+    meter_s = _render_outlined_text(smallfont, meter_text, _meter_value_text_color(raw_meter), (0, 0, 0), max(90, info_w // 2), 1)
 
     hp_x = info_x
     meter_x = info_x + max(170, info_w // 2)
@@ -2071,6 +2145,7 @@ def legacy_main():
         now  = time.time()
         t_ms = pygame.time.get_ticks()
         mouse_clicked_pos = None
+        mouse_right_clicked_pos = None
 
         # Events
         for ev in pygame.event.get():
@@ -2081,6 +2156,8 @@ def legacy_main():
             elif ev.type == pygame.MOUSEBUTTONDOWN:
                 if ev.button == 1:
                     mouse_clicked_pos = ev.pos
+                elif ev.button == 3:
+                    mouse_right_clicked_pos = ev.pos
                 elif ev.button == 4 and debug_overlay and active_bottom_tab == "debug":
                     if debug_scroll_offset > 0:
                         debug_scroll_offset -= 1
@@ -2828,29 +2905,6 @@ def legacy_main():
                 mouse_clicked_pos = None
                 continue
 
-            # Debug panel row -> copy address
-            copied = False
-            if active_bottom_tab == "debug":
-                for name, (r, addr) in debug_click_areas.items():
-                    if r.collidepoint(mx, my):
-                        _copy_to_clipboard(f"0x{addr:08X}" if isinstance(addr, int) else str(addr))
-                        copied = True
-                        break
-
-            # Character panel -> copy base
-            if not copied:
-                slot_panels = [
-                    ("P1-C1", r_p1c1), ("P2-C1", r_p2c1),
-                    ("P1-C2", r_p1c2), ("P2-C2", r_p2c2),
-                ]
-                for slot_label, rect in slot_panels:
-                    if rect and rect.collidepoint(mx, my):
-                        snap = render_snap_by_slot.get(slot_label)
-                        if snap:
-                            base = snap.get("base")
-                            _copy_to_clipboard(f"0x{base:08X}" if isinstance(base, int) else str(base))
-                        break
-
             # Mission mode buttons
             for slot_label, btn_rect in [
                 ("P1-C1", mission_btn_p1c1), ("P2-C1", mission_btn_p2c1),
@@ -2871,6 +2925,32 @@ def legacy_main():
                         open_frame_data_window(slot_label, last_scan_normals)
                     panel_btn_flash[slot_label] = PANEL_FLASH_FRAMES
                     break
+
+
+        # Right-click copy handling
+        if mouse_right_clicked_pos is not None:
+            mx, my = mouse_right_clicked_pos
+
+            copied = False
+            if active_bottom_tab == "debug":
+                for name, (r, addr) in debug_click_areas.items():
+                    if r.collidepoint(mx, my):
+                        _copy_to_clipboard(f"0x{addr:08X}" if isinstance(addr, int) else str(addr))
+                        copied = True
+                        break
+
+            if not copied:
+                slot_panels = [
+                    ("P1-C1", r_p1c1), ("P2-C1", r_p2c1),
+                    ("P1-C2", r_p1c2), ("P2-C2", r_p2c2),
+                ]
+                for slot_label, rect in slot_panels:
+                    if rect and rect.collidepoint(mx, my):
+                        snap = render_snap_by_slot.get(slot_label)
+                        if snap:
+                            base = snap.get("base")
+                            _copy_to_clipboard(f"0x{base:08X}" if isinstance(base, int) else str(base))
+                        break
 
             else:
                 # Debug toggles / cycles
