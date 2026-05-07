@@ -514,6 +514,7 @@ def draw_top_command_dock(
     hitbox_slots: dict,
     overlay_enabled: bool,
     mouse_pos: tuple[int, int],
+    t_ms: int = 0,
 ) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
     mx, my = mouse_pos
     w, _h = screen.get_size()
@@ -528,10 +529,18 @@ def draw_top_command_dock(
     )
     pygame.draw.line(screen, (58, 64, 82), (0, dock_rect.bottom - 1), (w, dock_rect.bottom - 1))
 
-    # Quiet status text so the top area feels more like a finished app.
+    # Quiet status text plus a tiny heartbeat indicator.
     status_text = "Left click to interact | Right click panels/debug rows to copy"
-    status_surf = _fit_text(smallfont, status_text, GUI_TEXT_DIM, max(80, w - 620))
-    screen.blit(status_surf, (w - status_surf.get_width() - 10, 11))
+    status_surf = _fit_text(smallfont, status_text, GUI_TEXT_DIM, max(80, w - 640))
+    status_x = w - status_surf.get_width() - 10
+    pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 4.0)
+    dot_col = _brighten(GUI_APP_ACCENT, int(40 * pulse))
+    dot_alpha = int(120 + 80 * pulse)
+    dot = pygame.Surface((8, 8), pygame.SRCALPHA)
+    pygame.draw.circle(dot, (*dot_col, dot_alpha), (4, 4), 3)
+    pygame.draw.circle(dot, (*dot_col, 50), (4, 4), 4, 1)
+    screen.blit(dot, (status_x - 14, 13))
+    screen.blit(status_surf, (status_x, 11))
 
     x = 8
     y = 8
@@ -791,6 +800,28 @@ def _normal_move_label(mv: dict) -> str:
     return "?"
 
 
+def _normal_canon_label(label: str) -> str:
+    """Canonicalize display labels for preview-row highlighting.
+
+    The UI should prefer the live move label first, because multiple rows can
+    sometimes share a raw animation ID or carry overlapping fallback IDs. Using
+    the canonical display label avoids accidental double-highlighting.
+    """
+    text = str(label or "").strip().lower()
+    if not text:
+        return ""
+    text = text.replace(" ", "")
+    text = text.replace("jump.", "j.")
+    text = text.replace("jump", "j")
+    text = text.replace("crouching", "2")
+    text = text.replace("crouch", "2")
+    text = text.replace("standing", "5")
+    text = text.replace("stand", "5")
+    text = text.replace("close", "")
+    text = text.replace("far", "")
+    return text
+
+
 def _normal_int(mv: dict, *keys: str) -> int | None:
     for key in keys:
         value = mv.get(key)
@@ -960,24 +991,18 @@ def draw_scan_normals_polished(
     font: pygame.font.Font,
     smallfont: pygame.font.Font,
     scan_data,
+    *,
+    t_ms: int = 0,
+    scan_fx_by_slot: dict | None = None,
 ) -> None:
-    """Draw the normals preview as polished grid cards.
-
-    Display only. This keeps the same scan data and adds visual hierarchy:
-    section separators, a current-move highlight when available, softer card
-    shells, subtle column tinting, and a cleaner tabular grid.
-    """
+    """Draw the normals preview as polished grid cards with lightweight live FX."""
     if rect.width <= 0 or rect.height <= 0:
         return
 
+    scan_fx_by_slot = scan_fx_by_slot or {}
+
     panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-    _draw_vertical_gradient(
-        panel,
-        panel.get_rect(),
-        (14, 17, 26),
-        (10, 12, 18),
-        255,
-    )
+    _draw_vertical_gradient(panel, panel.get_rect(), (14, 17, 26), (10, 12, 18), 255)
     surf.blit(panel, rect.topleft)
 
     title = smallfont.render("Scan: Normals Preview", True, GUI_TEXT)
@@ -986,30 +1011,10 @@ def draw_scan_normals_polished(
     surf.blit(legend, (rect.right - legend.get_width() - 10, rect.y + 8))
     pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 28), (rect.right - 8, rect.y + 28))
 
-    if not scan_data:
-        msg = smallfont.render(
-            "No scan data yet. Trigger a normals scan or wait for the scan worker.",
-            True,
-            GUI_TEXT_MUTED,
-        )
-        surf.blit(msg, (rect.x + 10, rect.y + 38))
-        return
-
     try:
         slots = list(scan_data or [])
     except Exception:
         slots = []
-
-    if not slots:
-        msg = smallfont.render("No normals found.", True, GUI_TEXT_MUTED)
-        surf.blit(msg, (rect.x + 10, rect.y + 38))
-        return
-
-    wanted_order = {"P1-C1": 0, "P1-C2": 1, "P2-C1": 2, "P2-C2": 3}
-
-    def slot_key(slot: dict) -> tuple[int, str]:
-        label = str(slot.get("slot_label") or slot.get("slot") or "")
-        return (wanted_order.get(label, 99), label)
 
     ordered_labels = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
     slot_map = {}
@@ -1019,17 +1024,14 @@ def draw_scan_normals_polished(
             slot_map[_lbl] = _s
     slots = [slot_map.get(lbl, {"slot_label": lbl, "char_name": "No character", "moves": []}) for lbl in ordered_labels]
 
-    pad = 8
-    gap = 10
+    pad, gap = 8, 10
     top = rect.y + 36
     card_h = max(44, rect.height - 44)
     count = 4
     card_w = max(140, (rect.width - pad * 2 - gap * (count - 1)) // count)
-
     dense = rect.height < 260 or rect.width < 930
     header_h = 24 if not dense else 22
     table_header_h = 16 if not dense else 14
-    row_gap = 0
 
     def _section_for_label(label: str) -> str:
         low = str(label or "").lower()
@@ -1044,44 +1046,22 @@ def draw_scan_normals_polished(
     for si, slot in enumerate(slots):
         card_x = rect.x + pad + si * (card_w + gap)
         card = pygame.Rect(card_x, top, card_w, card_h)
+        slot_label = str(slot.get("slot_label") or slot.get("slot") or f"S{si + 1}")
+        slot_fx = scan_fx_by_slot.get(slot_label, {}) if isinstance(scan_fx_by_slot, dict) else {}
 
         card_fill = pygame.Surface((card.width, card.height), pygame.SRCALPHA)
-        _draw_vertical_gradient(
-            card_fill,
-            card_fill.get_rect(),
-            (18, 22, 32),
-            (12, 14, 21),
-            238,
-        )
+        _draw_vertical_gradient(card_fill, card_fill.get_rect(), (18, 22, 32), (12, 14, 21), 238)
         surf.blit(card_fill, card.topleft)
 
-        slot_label = str(slot.get("slot_label") or slot.get("slot") or f"S{si + 1}")
         char_name = str(slot.get("char_name") or slot.get("character") or slot.get("name") or "No character")
-
         accent = _slot_accent_for_label(slot_label, muted=True)
-
-        # Softer card shell; slot identity comes mostly from the accent gutter.
         pygame.draw.rect(surf, (43, 52, 72), card, 1, border_radius=6)
-        gutter = pygame.Rect(card.x, card.y, 3, card.height)
-        pygame.draw.rect(surf, accent, gutter, border_radius=2)
+        pygame.draw.rect(surf, accent, pygame.Rect(card.x, card.y, 3, card.height), border_radius=2)
 
         header_rect = pygame.Rect(card.x + 1, card.y + 1, card.width - 2, header_h)
-        _draw_vertical_gradient(
-            surf,
-            header_rect,
-            (25, 30, 43),
-            (17, 20, 30),
-            236,
-        )
-        # Subtle header shine only, not over the data.
-        pygame.draw.rect(
-            surf,
-            (180, 205, 245, 16),
-            pygame.Rect(header_rect.x + 4, header_rect.y + 2, header_rect.width - 8, max(2, header_rect.height // 5)),
-            border_radius=3,
-        )
+        _draw_vertical_gradient(surf, header_rect, (25, 30, 43), (17, 20, 30), 236)
+        pygame.draw.rect(surf, (180, 205, 245, 16), pygame.Rect(header_rect.x + 4, header_rect.y + 2, header_rect.width - 8, max(2, header_rect.height // 5)), border_radius=3)
         pygame.draw.line(surf, (44, 52, 72), (header_rect.x + 6, header_rect.bottom), (header_rect.right - 6, header_rect.bottom))
-
         slot_s = _render_outlined_text(font, slot_label, accent, (0, 0, 0), 76, outline_px=1)
         surf.blit(slot_s, (card.x + 9, card.y + 4))
         name_s = _fit_text(smallfont, char_name, GUI_TEXT_MUTED, card.width - 90)
@@ -1093,9 +1073,6 @@ def draw_scan_normals_polished(
         visible_moves = _normal_visible_moves(moves)
         is_empty_card = len(visible_moves) <= 0
 
-        # Try to identify the current move for a soft live-row highlight. This
-        # depends only on whatever the scan payload already happens to carry;
-        # if absent, nothing special happens.
         cur_id = slot.get("cur_anim") or slot.get("current_anim") or slot.get("mv_id_display") or slot.get("move_id")
         try:
             cur_id = int(cur_id) if cur_id is not None else None
@@ -1107,31 +1084,24 @@ def draw_scan_normals_polished(
         table_y = card.y + header_h + 4
         table_w = card.width - 12
         table_h = card.height - header_h - 8
-
         move_col_w = 54 if card.width >= 220 else 48
         metric_col_w = max(24, (table_w - move_col_w) // 4)
-        grid_x = table_x
-        grid_y = table_y
-        grid_w = move_col_w + metric_col_w * 4
-        grid_h = table_h
+        grid_x, grid_y = table_x, table_y
+        grid_w, grid_h = move_col_w + metric_col_w * 4, table_h
 
         table_bg = pygame.Rect(grid_x, grid_y, grid_w, grid_h)
         pygame.draw.rect(surf, (13, 16, 24), table_bg, border_radius=4)
         pygame.draw.rect(surf, (34, 42, 58), table_bg, 1, border_radius=4)
 
-        # Faint column bands. This helps column tracking without coloring the
-        # values themselves.
         for i in range(4):
             col_left = grid_x + move_col_w + i * metric_col_w
-            band_col = (18, 22, 31, 80) if i % 2 == 0 else (15, 18, 27, 55)
             band = pygame.Surface((metric_col_w, grid_h - 2), pygame.SRCALPHA)
-            band.fill(band_col)
+            band.fill((18, 22, 31, 80) if i % 2 == 0 else (15, 18, 27, 55))
             surf.blit(band, (col_left, grid_y + 1))
 
         hdr = pygame.Rect(grid_x, grid_y, grid_w, table_header_h)
         pygame.draw.rect(surf, (18, 22, 31), hdr, border_radius=4)
         pygame.draw.line(surf, (48, 56, 76), (hdr.x + 1, hdr.bottom), (hdr.right - 1, hdr.bottom))
-
         for i, txt in enumerate(("S", "A", "H", "B")):
             col_left = grid_x + move_col_w + i * metric_col_w
             hdr_s = smallfont.render(txt, True, GUI_TEXT_DIM)
@@ -1140,32 +1110,35 @@ def draw_scan_normals_polished(
         if is_empty_card:
             empty_body = pygame.Rect(grid_x + 1, grid_y + table_header_h + 1, grid_w - 2, grid_h - table_header_h - 2)
             pygame.draw.rect(surf, (11, 14, 21), empty_body, border_radius=4)
-            empty_msg = "Waiting for scan" if char_name != "No character" else "No character loaded"
+            had_scan_entry = bool(slot.get("_had_scan_entry"))
+            if char_name == "No character":
+                empty_msg = "No character loaded"
+                sub_msg = "This slot is currently empty"
+            elif had_scan_entry:
+                empty_msg = "No normals returned"
+                sub_msg = "The scan completed, but this slot returned no normal data"
+            else:
+                empty_msg = "Waiting for scan"
+                sub_msg = "Normals will appear here when data is available"
             msg1 = _render_outlined_text(font, empty_msg, GUI_TEXT_DIM, (0, 0, 0), empty_body.width - 16, 1)
-            msg2 = _fit_text(smallfont, "Normals will appear here when data is available", GUI_TEXT_DIM, empty_body.width - 16)
+            msg2 = _fit_text(smallfont, sub_msg, GUI_TEXT_DIM, empty_body.width - 16)
             surf.blit(msg1, (empty_body.x + (empty_body.width - msg1.get_width()) // 2, empty_body.y + max(10, empty_body.height // 2 - 14)))
             surf.blit(msg2, (empty_body.x + (empty_body.width - msg2.get_width()) // 2, empty_body.y + max(28, empty_body.height // 2 + 4)))
             continue
 
         row_count = max(1, len(visible_moves))
         available_h = max(1, grid_h - table_header_h)
-        row_h = max(13, min(18, (available_h - row_gap * max(0, row_count - 1)) // row_count))
+        row_h = max(13, min(18, available_h // row_count))
 
-        for vx in (
-            grid_x + move_col_w,
-            grid_x + move_col_w + metric_col_w,
-            grid_x + move_col_w + metric_col_w * 2,
-            grid_x + move_col_w + metric_col_w * 3,
-            grid_x + move_col_w + metric_col_w * 4,
-        ):
+        for vx in (grid_x + move_col_w, grid_x + move_col_w + metric_col_w, grid_x + move_col_w + metric_col_w * 2, grid_x + move_col_w + metric_col_w * 3, grid_x + move_col_w + metric_col_w * 4):
             pygame.draw.line(surf, (38, 46, 64), (vx, grid_y + 1), (vx, grid_y + grid_h - 2))
 
         y = grid_y + table_header_h
         last_section = None
+        sweep_frac = float(slot_fx.get("row_sweep", 0.0) or 0.0)
         for mi, mv in enumerate(visible_moves):
             if not isinstance(mv, dict):
                 continue
-
             label = _normal_move_label(mv)
             section = _section_for_label(label)
             if last_section is not None and section != last_section:
@@ -1175,24 +1148,32 @@ def draw_scan_normals_polished(
 
             row = pygame.Rect(grid_x, y, grid_w, row_h)
             row_fill = (16, 19, 28) if mi % 2 == 0 else (13, 16, 24)
-
             mv_id = mv.get("id") or mv.get("anim") or mv.get("move_id")
             try:
                 mv_id = int(mv_id) if mv_id is not None else None
             except Exception:
                 mv_id = None
-            is_current = (cur_id is not None and mv_id == cur_id) or (cur_label and cur_label == label.lower())
-
+            row_label_canon = _normal_canon_label(label)
+            cur_label_canon = _normal_canon_label(cur_label)
+            if cur_label_canon:
+                is_current = (row_label_canon == cur_label_canon)
+            else:
+                is_current = (cur_id is not None and mv_id == cur_id)
             if is_current:
                 glow = pygame.Surface((row.width, row.height), pygame.SRCALPHA)
                 glow.fill((*accent, 48))
                 surf.blit(glow, row.topleft)
                 pygame.draw.rect(surf, (*accent, 130), row, 1)
                 pygame.draw.line(surf, (*accent, 95), (row.x + 1, row.bottom - 1), (row.right - 1, row.bottom - 1))
+                if sweep_frac > 0.0:
+                    sweep_x = row.x - 20 + int((row.width + 40) * sweep_frac)
+                    sweep = pygame.Surface((24, row.height + 6), pygame.SRCALPHA)
+                    pygame.draw.rect(sweep, (*_brighten(accent, 28), 70), pygame.Rect(0, 0, 10, row.height + 6), border_radius=4)
+                    pygame.draw.rect(sweep, (*_brighten(accent, 48), 28), pygame.Rect(8, 0, 16, row.height + 6), border_radius=4)
+                    surf.blit(sweep, (sweep_x, row.y - 3), special_flags=pygame.BLEND_ALPHA_SDL2 if hasattr(pygame, 'BLEND_ALPHA_SDL2') else 0)
             else:
                 pygame.draw.rect(surf, row_fill, row)
                 pygame.draw.rect(surf, (34, 41, 58), row, 1)
-
             pygame.draw.line(surf, (28, 34, 48), (row.x + 1, row.bottom), (row.right - 1, row.bottom))
 
             label_col = GUI_TEXT if is_current else (218, 224, 234)
@@ -1204,41 +1185,18 @@ def draw_scan_normals_polished(
             a2 = _normal_int(mv, "active_end", "a_end")
             hit = _normal_int(mv, "hitstun", "hit", "h")
             block = _normal_int(mv, "blockstun", "block", "b")
-
             active_txt = "-"
             if a1 is not None and a2 is not None:
                 active_txt = f"{a1}-{a2}"
             elif a1 is not None:
                 active_txt = str(a1)
-
-            values = [
-                "-" if startup is None else str(startup),
-                active_txt,
-                "-" if hit is None else str(hit),
-                "-" if block is None else str(block),
-            ]
-
+            values = ["-" if startup is None else str(startup), active_txt, "-" if hit is None else str(hit), "-" if block is None else str(block)]
             value_col = GUI_TEXT if is_current else (205, 211, 224)
             for i, value in enumerate(values):
                 col_left = grid_x + move_col_w + i * metric_col_w
-                val_s = _render_outlined_text(
-                    smallfont,
-                    value,
-                    value_col,
-                    (0, 0, 0),
-                    metric_col_w - 6,
-                    outline_px=1,
-                )
-                surf.blit(
-                    val_s,
-                    (
-                        col_left + (metric_col_w - val_s.get_width()) // 2,
-                        row.y + (row.height - val_s.get_height()) // 2,
-                    ),
-                )
-
-            y += row_h + row_gap
-
+                val_s = _render_outlined_text(smallfont, value, value_col, (0, 0, 0), metric_col_w - 6, outline_px=1)
+                surf.blit(val_s, (col_left + (metric_col_w - val_s.get_width()) // 2, row.y + (row.height - val_s.get_height()) // 2))
+            y += row_h
 
 
 def _quick_assist_accent_for_label(label: str, is_default: bool = False) -> tuple[int, int, int]:
@@ -1474,6 +1432,29 @@ def draw_quick_assist_footer(
             rail_h,
         )
         pygame.draw.rect(surf, selected_accent, rail_rect, border_radius=2)
+
+        # Tiny settle pulse after the slide lands.
+        if isinstance(slide_anim, dict):
+            try:
+                start_ts = float(slide_anim.get("start", 0.0) or 0.0)
+                dur = max(0.001, float(slide_anim.get("dur", 0.38) or 0.38))
+                raw = (time.time() - start_ts) / dur if start_ts else 99.0
+                if 1.0 <= raw <= 1.32:
+                    settle_t = (raw - 1.0) / 0.32
+                    ring_alpha = int((1.0 - settle_t) * 85)
+                    ring_expand = int(settle_t * 7)
+                    pulse_rect = marker_rect.inflate(6 + ring_expand * 2, 4 + ring_expand * 2)
+                    pulse = pygame.Surface((pulse_rect.width + 8, pulse_rect.height + 8), pygame.SRCALPHA)
+                    pygame.draw.rect(
+                        pulse,
+                        (*selected_accent, ring_alpha),
+                        pygame.Rect(4, 4, pulse_rect.width, pulse_rect.height),
+                        2,
+                        border_radius=10,
+                    )
+                    surf.blit(pulse, (pulse_rect.x - 4, pulse_rect.y - 4))
+            except Exception:
+                pass
 
     for qi, quick, qrect_local, qlabel, accent in button_rows:
         qhover = qrect_local.collidepoint(mx_local, my_local)
@@ -1735,81 +1716,73 @@ def draw_panel_polished_stats(
     t_ms: int,
     *,
     assist_label: str = "--",
+    panel_fx: dict | None = None,
 ) -> None:
-    """Compact fighter card with stronger hierarchy and subtle live emphasis."""
-    _draw_vertical_gradient(
-        surf,
-        rect,
-        (20, 22, 30),
-        (14, 15, 22),
-        255,
-    )
+    """Compact fighter card with strong hierarchy plus lightweight premium FX."""
+    panel_fx = panel_fx or {}
+    now = time.time()
 
+    def _fx(entry):
+        if not isinstance(entry, dict):
+            return 0.0
+        try:
+            start = float(entry.get("start", 0.0) or 0.0)
+            dur = max(0.001, float(entry.get("dur", 0.3) or 0.3))
+        except Exception:
+            return 0.0
+        if not start:
+            return 0.0
+        return max(0.0, min(1.0, (now - start) / dur))
+
+    _draw_vertical_gradient(surf, rect, (20, 22, 30), (14, 15, 22), 255)
     if not isinstance(snap, dict):
         pygame.draw.rect(surf, (55, 63, 84), rect, 1, border_radius=5)
         title = _render_outlined_text(smallfont, f"{header}  empty", GUI_TEXT_DIM, (0, 0, 0), rect.width - 20, 1)
         surf.blit(title, (10, 8))
         return
 
-    teamtag = str(snap.get("teamtag") or header.split("-", 1)[0])
     accent = _slot_accent_for_label(header, muted=False)
-
-    # Active state should come from the live animation/label, not C1/C2.
-    # After a tag, C2 can be the point character, so treating all C2 panels as
-    # support makes the visual emphasis wrong.  The old reliable rule is:
-    # assist-anything is support/inactive.
     move_preview = str(snap.get("mv_label") or "").strip().lower()
     try:
         early_move_id = int(snap.get("mv_id_display") or 0)
     except Exception:
         early_move_id = 0
-
-    assist_state_ids = {
-        420, 424, 425, 426, 427, 428, 430, 431, 432, 433,
-        0x01A1, 0x01A8, 0x01AE,
-    }
-
-    # Active-panel detection should follow live state, not slot position.
-    # Treat assist states, tag-out states, and KO/death states as non-active
-    # so the visual emphasis follows the actual point character on screen.
     try:
         early_hp_cur = int(snap.get("cur") or 0)
     except Exception:
         early_hp_cur = 0
 
-    ko_state = (
-        ("ko" in move_preview)
-        or ("k.o" in move_preview)
-        or ("knock out" in move_preview)
-        or ("dead" in move_preview)
-        or ("death" in move_preview)
-        or ("defeat" in move_preview)
-        or ("slow motion" in move_preview and "ko" in move_preview)
-        or (early_hp_cur <= 0)
-    )
-
-    is_support = (
-        ("assist" in move_preview)
-        or ("tag out" in move_preview)
-        or ("tag in taunt" in move_preview)
-        or ko_state
-        or (early_move_id in assist_state_ids)
-    )
+    assist_state_ids = {420, 424, 425, 426, 427, 428, 430, 431, 432, 433, 0x01A1, 0x01A8, 0x01AE}
+    ko_state = (("ko" in move_preview) or ("k.o" in move_preview) or ("knock out" in move_preview) or ("dead" in move_preview) or ("death" in move_preview) or ("defeat" in move_preview) or ("slow motion" in move_preview and "ko" in move_preview) or (early_hp_cur <= 0))
+    is_support = (("assist" in move_preview) or ("tag out" in move_preview) or ("tag in taunt" in move_preview) or ko_state or (early_move_id in assist_state_ids))
     is_active_panel = not is_support
 
-    if ko_state:
-        border_col = (84, 74, 74)
-    else:
-        border_col = _brighten(accent, 22) if is_active_panel else (55, 63, 84)
+    border_col = (84, 74, 74) if ko_state else (_brighten(accent, 22) if is_active_panel else (55, 63, 84))
     pygame.draw.rect(surf, border_col, rect, 1, border_radius=5)
     side_accent = (116, 92, 92) if ko_state else accent
     pygame.draw.rect(surf, side_accent, pygame.Rect(0, 0, 3, rect.height), border_radius=2)
 
+    victory_pulse_live = bool(panel_fx.get("victory_pulse_live")) and not ko_state
+    if victory_pulse_live:
+        vp = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 5.2)
+        halo = pygame.Surface((rect.width + 10, rect.height + 10), pygame.SRCALPHA)
+        pygame.draw.rect(halo, (*_brighten(accent, 34), int(34 + 24 * vp)), pygame.Rect(5, 5, rect.width, rect.height), 2, border_radius=8)
+        surf.blit(halo, (-5, -5))
+        pulse_rail = pygame.Surface((7, rect.height), pygame.SRCALPHA)
+        pygame.draw.rect(pulse_rail, (*_brighten(accent, 30), int(55 + 55 * vp)), pulse_rail.get_rect(), border_radius=3)
+        surf.blit(pulse_rail, (0, 0))
+
+    # Active point panels get a very faint moving scanline.
     if is_active_panel:
         pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 2.2)
         glow = pygame.Surface((rect.width - 4, rect.height - 4), pygame.SRCALPHA)
         pygame.draw.rect(glow, (*accent, int(18 + 10 * pulse)), glow.get_rect(), 2, border_radius=6)
         surf.blit(glow, (2, 2))
+        sweep_x = int((rect.width + 60) * (((t_ms / 1000.0) * 0.16) % 1.0)) - 30
+        scanline = pygame.Surface((18, rect.height - 10), pygame.SRCALPHA)
+        pygame.draw.rect(scanline, (*_brighten(accent, 24), 16), pygame.Rect(0, 0, 8, rect.height - 10), border_radius=3)
+        pygame.draw.rect(scanline, (*_brighten(accent, 40), 8), pygame.Rect(8, 0, 10, rect.height - 10), border_radius=3)
+        surf.blit(scanline, (sweep_x, 5))
     elif ko_state:
         glow = pygame.Surface((rect.width - 4, rect.height - 4), pygame.SRCALPHA)
         pygame.draw.rect(glow, (180, 90, 90, 22), glow.get_rect(), 1, border_radius=6)
@@ -1818,17 +1791,13 @@ def draw_panel_polished_stats(
     pad = 8
     portrait_size = max(48, min(64, rect.height - 58))
     portrait_rect = pygame.Rect(pad, pad + 8, portrait_size, portrait_size)
-
-    # Portrait integration: shadow + frame + soft slot glow.
     shadow = pygame.Surface((portrait_rect.width + 12, portrait_rect.height + 12), pygame.SRCALPHA)
     pygame.draw.rect(shadow, (0, 0, 0, 52), shadow.get_rect(), border_radius=8)
     surf.blit(shadow, (portrait_rect.x - 4, portrait_rect.y + 4))
-
     glow = pygame.Surface((portrait_rect.width + 8, portrait_rect.height + 8), pygame.SRCALPHA)
     glow_alpha = 18 if ko_state else (46 if is_active_panel else 22)
     pygame.draw.rect(glow, (*accent, glow_alpha), glow.get_rect(), 2, border_radius=7)
     surf.blit(glow, (portrait_rect.x - 4, portrait_rect.y - 4))
-
     frame_rect = portrait_rect.inflate(6, 6)
     pygame.draw.rect(surf, (11, 13, 19), frame_rect, border_radius=6)
     pygame.draw.rect(surf, _brighten(accent, 10) if is_active_panel else (62, 70, 94), frame_rect, 1, border_radius=6)
@@ -1850,7 +1819,6 @@ def draw_panel_polished_stats(
     info_right = rect.width - 10
     info_w = max(160, info_right - info_x)
     y = pad + 2
-
     char_name = str(snap.get("name") or "???")
     try:
         base_addr = int(snap.get("base") or 0)
@@ -1862,37 +1830,37 @@ def draw_panel_polished_stats(
     title_s = _render_outlined_text(smallfont, title_text, title_col, (0, 0, 0), info_w, 1)
     surf.blit(title_s, (info_x, y))
     if ko_state:
-        badge = pygame.Rect(max(info_x + 4, rect.width - 54), y + 1, 34, 14)
-        badge.x = min(rect.width - 44, info_x + min(info_w - 40, 220))
-        pygame.draw.rect(surf, (56, 30, 30), badge, border_radius=4)
-        pygame.draw.rect(surf, (148, 88, 88), badge, 1, border_radius=4)
-        badge_s = _render_outlined_text(smallfont, "KO", (235, 220, 220), (0, 0, 0), badge.width - 4, 1)
-        surf.blit(badge_s, (badge.x + (badge.width - badge_s.get_width()) // 2, badge.y + (badge.height - badge_s.get_height()) // 2))
+        kf = _fx(panel_fx.get("ko_fade"))
+        badge_alpha = int(255 * (kf if kf > 0 else 1.0))
+        badge_w, badge_h = 46, 18
+        badge = pygame.Surface((badge_w, badge_h), pygame.SRCALPHA)
+        pygame.draw.rect(badge, (66, 32, 32, badge_alpha), badge.get_rect(), border_radius=5)
+        pygame.draw.rect(badge, (176, 102, 102, badge_alpha), badge.get_rect(), 1, border_radius=5)
+        badge_s = _render_outlined_text(font, "KO", (240, 228, 228), (0, 0, 0), badge_w - 6, 1)
+        badge.blit(badge_s, ((badge_w - badge_s.get_width()) // 2, (badge_h - badge_s.get_height()) // 2 - 1))
+        bx = rect.width - badge_w - 10
+        by = 8
+        surf.blit(badge, (bx, by))
     y += title_s.get_height() + 3
 
     hp_cur = snap.get("cur") or 0
     hp_max = snap.get("max") or 0
     hp_frac = _panel_bar_fraction(hp_cur, hp_max)
     hp_col = GUI_DANGER if hp_frac <= 0.30 else GUI_CONFIRM
-
     meter_frac, meter_txt = _meter_fraction_from_snap(snap)
     meter_val = snap.get("meter")
     try:
         raw_meter = int(float(meter_val if meter_val is not None else 0))
     except Exception:
         raw_meter = 0
-
     hp_text = f"HP {int(hp_cur or 0)}/{int(hp_max or 0)}"
     meter_text = f"Meter:{raw_meter}/Lvl {meter_txt.split('/')[0]}"
-
     hp_s = _render_outlined_text(smallfont, hp_text, hp_col, (0, 0, 0), max(90, info_w // 2 - 8), 1)
     meter_s = _render_outlined_text(smallfont, meter_text, _meter_value_text_color(raw_meter), (0, 0, 0), max(90, info_w // 2), 1)
-
     hp_x = info_x
     meter_x = info_x + max(170, info_w // 2)
     if meter_x + meter_s.get_width() > info_right:
         meter_x = info_x + min(190, max(150, info_w - meter_s.get_width()))
-
     surf.blit(hp_s, (hp_x, y))
     surf.blit(meter_s, (meter_x, y))
 
@@ -1903,8 +1871,39 @@ def draw_panel_polished_stats(
     meter_bar = pygame.Rect(meter_x, bar_y, meter_bar_w, 3)
     _draw_panel_stat_bar(surf, hp_bar, hp_frac, hp_col, empty_col=(18, 20, 28), border_col=(38, 44, 60))
     _draw_panel_stat_bar(surf, meter_bar, meter_frac, GUI_APP_ACCENT, empty_col=(18, 20, 28), border_col=(38, 44, 60))
-    y = bar_y + 7
 
+    # HP trailing damage segment.
+    hp_loss = panel_fx.get("hp_loss")
+    hp_loss_t = _fx(hp_loss)
+    if hp_loss_t > 0.0 and isinstance(hp_loss, dict):
+        old_frac = float(hp_loss.get("from_frac", hp_frac) or hp_frac)
+        cur_frac = float(hp_loss.get("to_frac", hp_frac) or hp_frac)
+        if old_frac > cur_frac:
+            x1 = hp_bar.x + 1 + int((hp_bar.width - 2) * cur_frac)
+            x2 = hp_bar.x + 1 + int((hp_bar.width - 2) * old_frac)
+            if x2 > x1:
+                trail_rect = pygame.Rect(x1, hp_bar.y + 1, x2 - x1, max(1, hp_bar.height - 2))
+                trail_alpha = int((1.0 - hp_loss_t) * 170)
+                trail = pygame.Surface((trail_rect.width, trail_rect.height), pygame.SRCALPHA)
+                _draw_vertical_gradient(trail, trail.get_rect(), (210, 72, 72), (140, 42, 42), trail_alpha)
+                surf.blit(trail, trail_rect.topleft)
+
+    # Meter gain flash + tiny floating gain indicator.
+    meter_gain = panel_fx.get("meter_gain")
+    meter_gain_t = _fx(meter_gain)
+    if meter_gain_t > 0.0 and isinstance(meter_gain, dict):
+        flash_alpha = int((1.0 - meter_gain_t) * 120)
+        flash = pygame.Surface((meter_bar.width, max(4, meter_bar.height + 2)), pygame.SRCALPHA)
+        pygame.draw.rect(flash, (*GUI_APP_ACCENT, flash_alpha), flash.get_rect(), border_radius=3)
+        surf.blit(flash, (meter_bar.x, meter_bar.y - 1))
+        delta = int(meter_gain.get("delta", 0) or 0)
+        if delta > 0:
+            plus = _render_outlined_text(smallfont, f"+{delta}", GUI_APP_ACCENT, (0, 0, 0), 60, 1)
+            float_y = meter_bar.y - 12 - int(10 * meter_gain_t)
+            plus.set_alpha(max(0, int(255 * (1.0 - meter_gain_t))))
+            surf.blit(plus, (meter_bar.right - plus.get_width(), float_y))
+
+    y = bar_y + 7
     try:
         pool_pct = float(snap.get("pool_pct") or 0.0)
     except Exception:
@@ -1913,7 +1912,6 @@ def draw_panel_polished_stats(
         raw_pool = int(snap.get("hp_pool_byte") or 0)
     except Exception:
         raw_pool = 0
-
     pool_text = f"POOL (02A): {pool_pct:5.1f}%   raw:{raw_pool}"
     pool_s = _render_outlined_text(smallfont, pool_text, GUI_TEXT, (0, 0, 0), info_w, 1)
     surf.blit(pool_s, (info_x, y))
@@ -1928,6 +1926,12 @@ def draw_panel_polished_stats(
     else:
         bq_s = _render_outlined_text(smallfont, baroque_text, GUI_TEXT_MUTED, (0, 0, 0), info_w, 1)
     surf.blit(bq_s, (info_x, y))
+    ready_ping_t = _fx(panel_fx.get("baroque_ready"))
+    if ready_ping_t > 0.0:
+        sweep_x = info_x - 20 + int((bq_s.get_width() + 40) * ready_ping_t)
+        sweep = pygame.Surface((18, bq_s.get_height() + 2), pygame.SRCALPHA)
+        pygame.draw.rect(sweep, (255, 255, 255, int((1.0 - ready_ping_t) * 42)), pygame.Rect(0, 0, 8, bq_s.get_height() + 2), border_radius=3)
+        surf.blit(sweep, (sweep_x, y - 1))
     y += bq_s.get_height() + 2
 
     move_id = snap.get("mv_id_display")
@@ -1940,9 +1944,19 @@ def draw_panel_polished_stats(
     if not mv_label:
         mv_label = "--"
 
-    move_col = GUI_TEXT if is_active_panel else GUI_TEXT_MUTED
+    move_pulse_t = _fx(panel_fx.get("move_pulse"))
+    if move_pulse_t > 0.0:
+        move_col = _brighten(GUI_TEXT if is_active_panel else GUI_TEXT_MUTED, int((1.0 - move_pulse_t) * 40))
+    else:
+        move_col = GUI_TEXT if is_active_panel else GUI_TEXT_MUTED
     move_s = _render_outlined_text(smallfont, f"Move: {mv_label}", move_col, (0, 0, 0), info_w, 1)
     surf.blit(move_s, (info_x, y))
+    if move_pulse_t > 0.0:
+        pulse_w = min(info_w, max(60, move_s.get_width() + 12))
+        pulse_bg = pygame.Surface((pulse_w, move_s.get_height() + 4), pygame.SRCALPHA)
+        pygame.draw.rect(pulse_bg, (*accent, int((1.0 - move_pulse_t) * 36)), pulse_bg.get_rect(), border_radius=4)
+        surf.blit(pulse_bg, (info_x - 2, y - 2))
+        surf.blit(move_s, (info_x, y))
 
     pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 3.0)
     alpha = int((18 if is_active_panel else 8) + (14 if is_active_panel else 6) * pulse)
@@ -2030,6 +2044,13 @@ def legacy_main():
     quick_btn_flash       = {}
     active_quick_assist_by_slot = {}
     quick_assist_slide_by_slot = {}
+    panel_fx_state = {}
+    prev_hp_frac_by_slot = {}
+    prev_meter_by_slot = {}
+    prev_move_by_slot = {}
+    prev_baroque_ready_by_slot = {}
+    prev_ko_by_slot = {}
+    bottom_tab_fade = None
 
     manual_scan_requested = False
     need_rescan_normals   = False
@@ -2307,6 +2328,40 @@ def legacy_main():
 
             snap["meter"] = meter_p1 if teamtag == "P1" else meter_p2
 
+            # Lightweight state-driven UI effects.
+            slot_fx = panel_fx_state.setdefault(slotname, {})
+            hp_frac_now = _panel_bar_fraction(snap.get("cur") or 0, snap.get("max") or 0)
+            prev_hp_frac = prev_hp_frac_by_slot.get(slotname, hp_frac_now)
+            if hp_frac_now < (prev_hp_frac - 0.0005):
+                slot_fx["hp_loss"] = {"start": now, "dur": 0.55, "from_frac": prev_hp_frac, "to_frac": hp_frac_now}
+            prev_hp_frac_by_slot[slotname] = hp_frac_now
+
+            try:
+                meter_now = int(float(snap.get("meter") or 0))
+            except Exception:
+                meter_now = 0
+            prev_meter = prev_meter_by_slot.get(slotname, meter_now)
+            if meter_now > prev_meter:
+                slot_fx["meter_gain"] = {"start": now, "dur": 0.45, "delta": meter_now - prev_meter}
+            prev_meter_by_slot[slotname] = meter_now
+
+            move_key = (snap.get("mv_id_display"), str(snap.get("mv_label") or ""))
+            prev_move = prev_move_by_slot.get(slotname)
+            if prev_move is not None and prev_move != move_key:
+                slot_fx["move_pulse"] = {"start": now, "dur": 0.34}
+                slot_fx["row_sweep"] = {"start": now, "dur": 0.36}
+            prev_move_by_slot[slotname] = move_key
+
+            ready_now = bool(snap.get("baroque_ready_local", False))
+            if ready_now and not bool(prev_baroque_ready_by_slot.get(slotname, False)):
+                slot_fx["baroque_ready"] = {"start": now, "dur": 0.55}
+            prev_baroque_ready_by_slot[slotname] = ready_now
+
+            ko_now = bool((("ko" in str(snap.get("mv_label") or "").lower()) or ((snap.get("cur") or 0) <= 0)))
+            if ko_now and not bool(prev_ko_by_slot.get(slotname, False)):
+                slot_fx["ko_fade"] = {"start": now, "dur": 0.40}
+            prev_ko_by_slot[slotname] = ko_now
+
             if teamtag == "P1":
                 inputs_struct = {}
                 for key, addr in INPUT_MONITOR_ADDRS.items():
@@ -2545,6 +2600,7 @@ def legacy_main():
             hitbox_slots=hitbox_slots,
             overlay_enabled=overlay_enabled,
             mouse_pos=(mx_h, my_h),
+            t_ms=t_ms,
         )
 
         # Panel rects
@@ -2554,6 +2610,30 @@ def legacy_main():
         r_p2c2, a_p2c2 = anim_rect_and_alpha("P2-C2", layout["p2c2"])
 
         quick_btn_areas = {}
+
+        # If an entire team is KO'd, let the winning team's slots pulse a bit.
+        def _snap_is_ko(_snap):
+            if not isinstance(_snap, dict):
+                return False
+            try:
+                if int(_snap.get("cur") or 0) <= 0:
+                    return True
+            except Exception:
+                pass
+            _mv = str(_snap.get("mv_label") or "").strip().lower()
+            return ("ko" in _mv) or ("k.o" in _mv) or ("dead" in _mv) or ("defeat" in _mv)
+
+        victory_slots = set()
+        _p1c1 = render_snap_by_slot.get("P1-C1")
+        _p1c2 = render_snap_by_slot.get("P1-C2")
+        _p2c1 = render_snap_by_slot.get("P2-C1")
+        _p2c2 = render_snap_by_slot.get("P2-C2")
+        p1_team_ko = _snap_is_ko(_p1c1) and _snap_is_ko(_p1c2)
+        p2_team_ko = _snap_is_ko(_p2c1) and _snap_is_ko(_p2c2)
+        if p1_team_ko and not p2_team_ko:
+            victory_slots.update(("P2-C1", "P2-C2"))
+        elif p2_team_ko and not p1_team_ko:
+            victory_slots.update(("P1-C1", "P1-C2"))
 
         def blit_panel_with_buttons(panel_rect, slot_label, alpha, header):
             snap     = render_snap_by_slot.get(slot_label)
@@ -2587,6 +2667,7 @@ def legacy_main():
                 header,
                 t_ms,
                 assist_label=current_assist_label,
+                panel_fx={**panel_fx_state.get(slot_label, {}), "victory_pulse_live": (slot_label in victory_slots)},
             )
 
             btn_h          = 20
@@ -2734,7 +2815,43 @@ def legacy_main():
         if active_bottom_tab == "scan":
             scan_rect = bottom_content_rect
             scan_surf = pygame.Surface((scan_rect.width, scan_rect.height), pygame.SRCALPHA)
-            draw_scan_normals_polished(scan_surf, scan_surf.get_rect(), font, smallfont, last_scan_normals)
+
+            scan_display = []
+            base_scan_map = {}
+            try:
+                for _row in list(last_scan_normals or []):
+                    if isinstance(_row, dict):
+                        _lbl = str(_row.get("slot_label") or _row.get("slot") or "")
+                        if _lbl:
+                            base_scan_map[_lbl] = dict(_row)
+            except Exception:
+                base_scan_map = {}
+            for _lbl in ("P1-C1", "P1-C2", "P2-C1", "P2-C2"):
+                _row = dict(base_scan_map.get(_lbl, {"slot_label": _lbl, "moves": []}))
+                _row["_had_scan_entry"] = (_lbl in base_scan_map)
+                _snap = render_snap_by_slot.get(_lbl)
+                if isinstance(_snap, dict):
+                    _row["mv_id_display"] = _snap.get("mv_id_display")
+                    _row["mv_label"] = _snap.get("mv_label")
+                    _row["char_name"] = _snap.get("name") or _row.get("char_name")
+                scan_display.append(_row)
+
+            scan_fx = {}
+            for _lbl, _fxs in panel_fx_state.items():
+                if not isinstance(_fxs, dict):
+                    continue
+                _entry = _fxs.get("row_sweep")
+                if isinstance(_entry, dict):
+                    try:
+                        _start = float(_entry.get("start", 0.0) or 0.0)
+                        _dur = max(0.001, float(_entry.get("dur", 0.3) or 0.3))
+                        _prog = max(0.0, min(1.0, (now - _start) / _dur)) if _start else 0.0
+                        if _prog < 1.0:
+                            scan_fx[_lbl] = {"row_sweep": _prog}
+                    except Exception:
+                        pass
+
+            draw_scan_normals_polished(scan_surf, scan_surf.get_rect(), font, smallfont, scan_display, t_ms=t_ms, scan_fx_by_slot=scan_fx)
             if scan_anim is not None:
                 t    = now - scan_anim["start"]
                 dur  = scan_anim.get("dur", SCAN_SLIDE_DURATION)
@@ -2759,6 +2876,18 @@ def legacy_main():
 
         elif active_bottom_tab == "activity":
             draw_activity(screen, bottom_content_rect, font, last_adv_display)
+
+        if bottom_tab_fade is not None:
+            try:
+                frac = max(0.0, min(1.0, (now - float(bottom_tab_fade.get("start", 0.0) or 0.0)) / max(0.001, float(bottom_tab_fade.get("dur", 0.18) or 0.18))))
+            except Exception:
+                frac = 1.0
+            if frac >= 1.0:
+                bottom_tab_fade = None
+            else:
+                fade = pygame.Surface((bottom_content_rect.width, bottom_content_rect.height), pygame.SRCALPHA)
+                fade.fill((5, 7, 10, int((1.0 - frac) * 120)))
+                screen.blit(fade, bottom_content_rect.topleft)
 
         # Write data files for subprocesses
         mission_mgr.write_overlay_data(render_snap_by_slot)
@@ -2832,7 +2961,9 @@ def legacy_main():
 
             for _tab_key, _tab_rect in list(bottom_tab_rects.items()):
                 if _tab_rect.collidepoint(mx, my):
-                    active_bottom_tab = _tab_key
+                    if active_bottom_tab != _tab_key:
+                        active_bottom_tab = _tab_key
+                        bottom_tab_fade = {"start": now, "dur": 0.18}
                     mouse_clicked_pos = None
                     break
             if mouse_clicked_pos is None:
@@ -3111,6 +3242,20 @@ def legacy_main():
                     quick_assist_slide_by_slot.pop(_slot, None)
             except Exception:
                 quick_assist_slide_by_slot.pop(_slot, None)
+
+        # Expire one-shot panel effects.
+        for _slot, _fxs in list(panel_fx_state.items()):
+            if not isinstance(_fxs, dict):
+                panel_fx_state[_slot] = {}
+                continue
+            for _name, _entry in list(_fxs.items()):
+                try:
+                    _start = float(_entry.get("start", 0.0) or 0.0)
+                    _dur = float(_entry.get("dur", 0.3) or 0.3)
+                    if _start and (now - _start) > (_dur + 0.06):
+                        _fxs.pop(_name, None)
+                except Exception:
+                    _fxs.pop(_name, None)
 
         # Normals rescan triggers
         if HAVE_SCAN_NORMALS and need_rescan_normals and scan_worker:

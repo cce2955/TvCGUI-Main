@@ -16,12 +16,19 @@ LOOKAHEAD_AFTER_HDR = 0x80
 
 CHR_TBL_PTR_OFF       = 0x1E0
 CHR_TBL_LABEL_REL     = -0x18
+# Most characters use a 0xB04-byte chr_tbl, but a few do not:
+#   Volnutt starts entry0 at 0x3610 instead of 0x3600.
+#   Soki's chr_tbl is longer; chr_act appears at 0x14C4 instead of 0xB04.
+# Keep the old constants for default expectations, but validate/parse flexibly.
 CHR_TBL_LEN_BYTES     = 0xB04
 CHR_TBL_NUM_ENTRIES   = 705
 CHR_TBL_SENTINEL_REL  = 0xB00
 CHR_ACT_LABEL_REL     = 0xB04
 CHR_TBL_ENTRY0_VAL    = 0x3600
+CHR_TBL_ENTRY0_ALT_VALS = {0x3600, 0x3610}
+CHR_TBL_SCAN_MAX_BYTES = 0x2000
 MOVE_DATA_START_OFF   = 0x3600
+CHR_TBL_MAX_MOVE_OFFSET = 0x90000
 
 SLOT_STRIDE = 0x380020
 
@@ -138,7 +145,7 @@ HITBOX_OFF_Y = 0x48
 
 FIGHTER_READ_SIZE = 0x400
 CHR_TBL_READ_PAD_BEFORE = 0x18
-CHR_TBL_READ_SIZE = CHR_TBL_READ_PAD_BEFORE + CHR_TBL_LEN_BYTES + 0x08
+CHR_TBL_READ_SIZE = CHR_TBL_READ_PAD_BEFORE + CHR_TBL_SCAN_MAX_BYTES + 0x20
 SLOT_REGION_PAD = 0x2000
 
 
@@ -191,6 +198,21 @@ def safe_rbytes(addr: int, size: int) -> bytes:
 # chr_tbl validation / resolution
 # ============================================================
 
+def _find_chr_act_rel(buf: bytes, cand_off: int) -> Optional[int]:
+    """Find chr_act after chr_tbl and return its table-relative offset.
+
+    Standard cast members put chr_act at +0xB04, but Soki has a longer table
+    with chr_act at +0x14C4. Scanning for the label keeps validation strict
+    enough without rejecting non-standard characters.
+    """
+    search_start = cand_off + 4
+    search_end = min(len(buf), cand_off + CHR_TBL_SCAN_MAX_BYTES)
+    pos = buf.find(b"chr_act\n", search_start, search_end)
+    if pos < 0:
+        return None
+    return pos - cand_off
+
+
 def validate_chr_tbl(buf: bytes, mem_base: int, cand_abs: int) -> bool:
     if cand_abs % 0x20 != 0:
         return False
@@ -205,23 +227,23 @@ def validate_chr_tbl(buf: bytes, mem_base: int, cand_abs: int) -> bool:
 
     if cand_off + 4 > len(buf):
         return False
-    if rd_u32_be(buf, cand_off) != CHR_TBL_ENTRY0_VAL:
+
+    entry0 = rd_u32_be(buf, cand_off)
+    if entry0 not in CHR_TBL_ENTRY0_ALT_VALS:
         return False
 
-    sent_off = cand_off + CHR_TBL_SENTINEL_REL
-    if sent_off + 4 > len(buf):
+    act_rel = _find_chr_act_rel(buf, cand_off)
+    if act_rel is None:
+        return False
+
+    # The table should terminate with 0xFFFFFFFF immediately before chr_act.
+    sent_off = cand_off + act_rel - 4
+    if sent_off < cand_off or sent_off + 4 > len(buf):
         return False
     if rd_u32_be(buf, sent_off) != 0xFFFFFFFF:
         return False
 
-    act_off = cand_off + CHR_ACT_LABEL_REL
-    if act_off + 8 > len(buf):
-        return False
-    if buf[act_off:act_off + 8] != b"chr_act\n":
-        return False
-
     return True
-
 
 def resolve_chr_tbl(buf: bytes, mem_base: int, fighter_base_abs: int) -> Optional[int]:
     fb_off = abs_to_file_off(fighter_base_abs, mem_base)
@@ -286,22 +308,34 @@ def resolve_chr_tbl_from_live_memory(fighter_base_abs: int) -> Optional[int]:
 
 def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
     tbl_off = abs_to_file_off(chr_tbl_abs, mem_base)
-    if tbl_off < 0 or tbl_off + CHR_TBL_LEN_BYTES > len(buf):
+    if tbl_off < 0 or tbl_off + 4 > len(buf):
         return []
+
+    act_rel = _find_chr_act_rel(buf, tbl_off)
+    if act_rel is None:
+        # Safe fallback: bounded scan. Do not assume the old 705-entry size.
+        act_rel = min(CHR_TBL_SCAN_MAX_BYTES, len(buf) - tbl_off)
 
     moves: List[int] = []
     seen_moves: set = set()
-    for i in range(CHR_TBL_NUM_ENTRIES):
-        entry = rd_u32_be(buf, tbl_off + i * 4)
+    entry_count = max(0, act_rel // 4)
 
-        if i == CHR_TBL_NUM_ENTRIES - 1:
+    for i in range(entry_count):
+        off = tbl_off + i * 4
+        if off + 4 > len(buf):
             break
 
-        if entry == 0 or entry == 0xFFFFFFFF:
+        entry = rd_u32_be(buf, off)
+
+        if entry == 0xFFFFFFFF:
+            break
+        if entry == 0:
             continue
         if entry % 4 != 0:
             continue
         if entry < MOVE_DATA_START_OFF:
+            continue
+        if entry > CHR_TBL_MAX_MOVE_OFFSET:
             continue
 
         move_abs = chr_tbl_abs + entry
@@ -310,7 +344,6 @@ def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
             moves.append(move_abs)
 
     return moves
-
 
 # ============================================================
 # Slot model
@@ -994,12 +1027,25 @@ def slot_scan_region_from_tbl(tbl_buf: bytes,
     if tbl_off < 0:
         return (chr_tbl_abs, chr_tbl_abs + 0x80000)
 
+    act_rel = _find_chr_act_rel(tbl_buf, tbl_off)
+    if act_rel is None:
+        act_rel = min(CHR_TBL_SCAN_MAX_BYTES, len(tbl_buf) - tbl_off)
+
     max_offset = 0
-    for i in range(CHR_TBL_NUM_ENTRIES - 1):
-        entry = rd_u32_be(tbl_buf, tbl_off + i * 4)
-        if entry in (0, 0xFFFFFFFF):
+    entry_count = max(0, act_rel // 4)
+
+    for i in range(entry_count):
+        off = tbl_off + i * 4
+        if off + 4 > len(tbl_buf):
+            break
+        entry = rd_u32_be(tbl_buf, off)
+        if entry == 0xFFFFFFFF:
+            break
+        if entry == 0:
             continue
         if entry % 4 != 0 or entry < MOVE_DATA_START_OFF:
+            continue
+        if entry > CHR_TBL_MAX_MOVE_OFFSET:
             continue
         if entry > max_offset:
             max_offset = entry
@@ -1009,7 +1055,6 @@ def slot_scan_region_from_tbl(tbl_buf: bytes,
     region_end = min(region_end, MEM2_HI)
 
     return (region_start, region_end)
-
 
 # ============================================================
 # MAIN SCAN
