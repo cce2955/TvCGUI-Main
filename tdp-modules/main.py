@@ -177,16 +177,31 @@ GUI_TEXT = (226, 230, 238)
 GUI_TEXT_MUTED = (150, 158, 176)
 GUI_TEXT_DIM = (110, 116, 132)
 
-GUI_ACCENT_BLUE = (95, 135, 215)
-GUI_ACCENT_PURPLE = (145, 105, 210)
-GUI_ACCENT_GOLD = (190, 145, 60)
-GUI_ACCENT_GREEN = (80, 185, 115)
-GUI_ACCENT_RED = (210, 80, 90)
+# Cohesive accent system.
+# Most of the UI uses the same steel-blue accent. Slot/player identity stays
+# mostly in the slim side rails so the app feels unified instead of rainbow.
+GUI_APP_ACCENT = (105, 145, 210)
+GUI_CONFIRM = (95, 205, 165)
+GUI_WARNING = (205, 170, 90)
+GUI_DANGER = (205, 80, 90)
 
-GUI_P1 = (235, 90, 90)
-GUI_P2 = (95, 150, 240)
-GUI_P3 = (230, 90, 170)
-GUI_P4 = (90, 220, 140)
+GUI_ACCENT_BLUE = GUI_APP_ACCENT
+GUI_ACCENT_PURPLE = (125, 135, 185)
+GUI_ACCENT_GOLD = GUI_APP_ACCENT
+GUI_ACCENT_GREEN = GUI_CONFIRM
+GUI_ACCENT_RED = GUI_DANGER
+
+GUI_P1 = (205, 75, 82)
+GUI_P2 = (82, 135, 215)
+GUI_P3 = (180, 90, 175)
+GUI_P4 = (92, 185, 135)
+
+GUI_SLOT_MUTED = {
+    "P1": (185, 78, 86),
+    "P2": (82, 128, 200),
+    "P3": (165, 82, 160),
+    "P4": (82, 165, 122),
+}
 
 
 def _clamp_u8(v: int) -> int:
@@ -207,6 +222,28 @@ def _darken(col: tuple[int, int, int], amt: int) -> tuple[int, int, int]:
         _clamp_u8(col[1] - amt),
         _clamp_u8(col[2] - amt),
     )
+
+
+def _mix_col(a: tuple[int, int, int], b: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    t = max(0.0, min(1.0, float(t)))
+    return (
+        _clamp_u8(a[0] * (1.0 - t) + b[0] * t),
+        _clamp_u8(a[1] * (1.0 - t) + b[1] * t),
+        _clamp_u8(a[2] * (1.0 - t) + b[2] * t),
+    )
+
+
+def _slot_accent_for_label(slot_label: str, *, muted: bool = False) -> tuple[int, int, int]:
+    label = str(slot_label or "")
+    if label.startswith("P1"):
+        base = GUI_P1 if label.endswith("C1") else GUI_P3
+    elif label.startswith("P2"):
+        base = GUI_P2 if label.endswith("C1") else GUI_P4
+    else:
+        base = GUI_APP_ACCENT
+    if muted:
+        return _mix_col(base, GUI_APP_ACCENT, 0.45)
+    return base
 
 
 def _draw_vertical_gradient(
@@ -357,32 +394,43 @@ def draw_glass_button(
     fill: tuple[int, int, int] | None = None,
     align: str = "center",
 ) -> None:
+    """Shared button renderer with stronger hover/elevation feedback.
+
+    The goal is to make the GUI feel a little more premium without changing any
+    interaction logic. Hovered buttons lift slightly with a brighter shell and a
+    faint shadow. Active buttons keep the accent rail.
+    """
     base = fill if fill is not None else (GUI_PANEL_3 if active else GUI_PANEL_2)
     if hover:
-        base = _brighten(base, 18)
+        base = _brighten(base, 16)
 
     border = GUI_BORDER_HOT if hover else (accent if active else GUI_BORDER)
     text_col = GUI_TEXT if active or hover else GUI_TEXT_MUTED
 
+    # Soft shadow/elevation on hover/active.
+    if hover or active:
+        shadow = pygame.Surface((rect.width + 6, rect.height + 6), pygame.SRCALPHA)
+        pygame.draw.rect(shadow, (0, 0, 0, 45 if hover else 32), shadow.get_rect(), border_radius=6)
+        surf.blit(shadow, (rect.x - 1, rect.y + 2))
+
+    draw_rect = rect.move(0, -1 if hover else 0)
+
     _draw_vertical_gradient(
         surf,
-        rect,
+        draw_rect,
         _brighten(base, 12),
         _darken(base, 6),
         235,
     )
 
-    pygame.draw.rect(surf, border, rect, 1, border_radius=4)
+    pygame.draw.rect(surf, border, draw_rect, 1, border_radius=4)
 
-    # Soft graphite-blue topper instead of white gloss. The white strip looked
-    # too harsh on short buttons and fought the text outline. This keeps a
-    # glass/metal highlight without washing out the label.
-    shine = pygame.Rect(rect.x + 2, rect.y + 2, rect.width - 4, max(2, rect.height // 6))
+    shine = pygame.Rect(draw_rect.x + 2, draw_rect.y + 2, draw_rect.width - 4, max(2, draw_rect.height // 6))
     shine_col = (150, 165, 190, 16) if active or hover else (118, 128, 150, 11)
     pygame.draw.rect(surf, shine_col, shine, border_radius=3)
 
     if active:
-        accent_rect = pygame.Rect(rect.x + 4, rect.bottom - 3, rect.width - 8, 2)
+        accent_rect = pygame.Rect(draw_rect.x + 4, draw_rect.bottom - 3, draw_rect.width - 8, 2)
         pygame.draw.rect(surf, accent, accent_rect, border_radius=1)
 
     label_surf = _render_outlined_text(
@@ -390,19 +438,20 @@ def draw_glass_button(
         label,
         text_col,
         (0, 0, 0),
-        rect.width - 12,
+        draw_rect.width - 12,
         outline_px=1,
     )
 
     if align == "left":
-        tx = rect.x + 7
+        tx = draw_rect.x + 7
     elif align == "right":
-        tx = rect.right - label_surf.get_width() - 7
+        tx = draw_rect.right - label_surf.get_width() - 7
     else:
-        tx = rect.x + (rect.width - label_surf.get_width()) // 2
+        tx = draw_rect.x + (draw_rect.width - label_surf.get_width()) // 2
 
-    ty = rect.y + (rect.height - label_surf.get_height()) // 2
+    ty = draw_rect.y + (draw_rect.height - label_surf.get_height()) // 2
     surf.blit(label_surf, (tx, ty))
+
 
 
 def draw_slot_chip(
@@ -415,26 +464,31 @@ def draw_slot_chip(
     accent: tuple[int, int, int],
     hover: bool,
 ) -> None:
-    fill = GUI_PANEL_3 if enabled else (24, 25, 32)
-    border = accent if enabled else (70, 74, 88)
+    fill = (28, 31, 42) if enabled else (22, 24, 31)
+    border = accent if enabled else (62, 68, 84)
     text_col = GUI_TEXT if enabled else GUI_TEXT_DIM
 
     if hover:
-        fill = _brighten(fill, 16)
-        border = _brighten(border, 28)
+        fill = _brighten(fill, 12)
+        border = _brighten(border, 18)
 
     _draw_vertical_gradient(
         surf,
         rect,
-        _brighten(fill, 10),
-        _darken(fill, 8),
+        _brighten(fill, 8),
+        _darken(fill, 7),
         235,
     )
 
     pygame.draw.rect(surf, border, rect, 1, border_radius=4)
 
+    # Slot identity is a tiny left rail, not a full loud badge.
+    if enabled:
+        pygame.draw.rect(surf, accent, pygame.Rect(rect.x + 2, rect.y + 3, 2, rect.height - 6), border_radius=1)
+
     state = "ON" if enabled else "OFF"
     text = f"{label} {state}"
+
     label_surf = _render_outlined_text(
         font,
         text,
@@ -443,6 +497,7 @@ def draw_slot_chip(
         rect.width - 10,
         outline_px=1,
     )
+
     surf.blit(
         label_surf,
         (
@@ -488,7 +543,7 @@ def draw_top_command_dock(
         smallfont,
         active=hb_on,
         hover=hb_btn_rect.collidepoint(mx, my),
-        accent=GUI_ACCENT_GREEN,
+        accent=GUI_APP_ACCENT,
         align="center",
     )
 
@@ -501,7 +556,7 @@ def draw_top_command_dock(
         smallfont,
         active=False,
         hover=ps_btn_rect.collidepoint(mx, my),
-        accent=GUI_ACCENT_BLUE,
+        accent=GUI_APP_ACCENT,
         align="center",
     )
 
@@ -514,7 +569,7 @@ def draw_top_command_dock(
         smallfont,
         active=False,
         hover=as_btn_rect.collidepoint(mx, my),
-        accent=GUI_ACCENT_PURPLE,
+        accent=GUI_APP_ACCENT,
         align="center",
     )
 
@@ -527,7 +582,7 @@ def draw_top_command_dock(
         smallfont,
         active=overlay_enabled,
         hover=hud_btn_rect.collidepoint(mx, my),
-        accent=GUI_ACCENT_GOLD,
+        accent=GUI_APP_ACCENT,
         align="center",
     )
 
@@ -540,12 +595,7 @@ def draw_top_command_dock(
     chip_h = 18
     chip_gap = 7
 
-    slot_colors = {
-        "P1": GUI_P1,
-        "P2": GUI_P2,
-        "P3": GUI_P3,
-        "P4": GUI_P4,
-    }
+    slot_colors = dict(GUI_SLOT_MUTED)
 
     hb_filter_rects = {}
 
@@ -603,9 +653,9 @@ def draw_bottom_workspace_tabs(
 ) -> tuple[pygame.Rect, dict[str, pygame.Rect]]:
     """Draw the lower inspector as a tabbed workspace.
 
-    This replaces the old always-visible Events + Debug + Scan stack. The
-    default tab is Normals Preview, which gets the full lower workspace height
-    instead of being clipped at the bottom of the window.
+    This keeps the tabbed layout, but upgrades the presentation: active tabs
+    feel raised, get a clearer accent underline, and visually match the more
+    polished card language used elsewhere in the GUI.
     """
     mx, my = mouse_pos
     tab_h = 24
@@ -626,10 +676,10 @@ def draw_bottom_workspace_tabs(
     screen.blit(panel, rect.topleft)
 
     tabs = [
-        ("scan", "Normals Preview", GUI_ACCENT_BLUE),
-        ("events", "Events", GUI_ACCENT_PURPLE),
-        ("debug", "Debug Flags", GUI_ACCENT_GOLD),
-        ("activity", "Activity", GUI_ACCENT_GREEN),
+        ("scan", "Normals Preview", GUI_APP_ACCENT),
+        ("events", "Events", GUI_APP_ACCENT),
+        ("debug", "Debug Flags", GUI_APP_ACCENT),
+        ("activity", "Activity", GUI_APP_ACCENT),
     ]
 
     tab_rects: dict[str, pygame.Rect] = {}
@@ -641,17 +691,30 @@ def draw_bottom_workspace_tabs(
         width = max(96, min(160, smallfont.size(label)[0] + 26))
         tr = pygame.Rect(x, y, width, tab_h)
         tab_rects[key] = tr
+        is_active = key == active_tab
+        is_hover = tr.collidepoint(mx, my)
+
+        # Active tabs feel slightly raised and have a stronger accent cue.
+        fill = (31, 38, 56) if is_active else (21, 24, 34)
         draw_glass_button(
             screen,
             tr,
             label,
             smallfont,
-            active=(key == active_tab),
-            hover=tr.collidepoint(mx, my),
+            active=is_active,
+            hover=is_hover,
             accent=accent,
-            fill=(30, 36, 52) if key == active_tab else (21, 24, 34),
+            fill=fill,
             align="center",
         )
+
+        if is_active:
+            top_rail = pygame.Rect(tr.x + 5, tr.y + 2, tr.width - 10, 2)
+            pygame.draw.rect(screen, (*accent, 220), top_rail, border_radius=1)
+            glow = pygame.Surface((tr.width - 8, 8), pygame.SRCALPHA)
+            pygame.draw.rect(glow, (*accent, 34), glow.get_rect(), border_radius=4)
+            screen.blit(glow, (tr.x + 4, tr.bottom - 4))
+
         x += width + gap
 
     content = pygame.Rect(
@@ -667,6 +730,7 @@ def draw_bottom_workspace_tabs(
     pygame.draw.rect(screen, (45, 52, 72), content, 1, border_radius=4)
 
     return content, tab_rects
+
 
 
 def _normal_button_accent(label: str) -> tuple[int, int, int]:
@@ -984,11 +1048,7 @@ def draw_scan_normals_polished(
         slot_label = str(slot.get("slot_label") or slot.get("slot") or f"S{si + 1}")
         char_name = str(slot.get("char_name") or slot.get("character") or slot.get("name") or "?")
 
-        accent = GUI_ACCENT_BLUE
-        if slot_label.startswith("P1"):
-            accent = GUI_P1 if slot_label.endswith("C1") else GUI_P3
-        elif slot_label.startswith("P2"):
-            accent = GUI_P2 if slot_label.endswith("C1") else GUI_P4
+        accent = _slot_accent_for_label(slot_label, muted=True)
 
         # Softer card shell; slot identity comes mostly from the accent gutter.
         pygame.draw.rect(surf, (43, 52, 72), card, 1, border_radius=6)
@@ -1089,7 +1149,7 @@ def draw_scan_normals_polished(
             section = _section_for_label(label)
             if last_section is not None and section != last_section:
                 pygame.draw.line(surf, (66, 75, 98), (grid_x + 2, y), (grid_x + grid_w - 3, y))
-                pygame.draw.line(surf, (*accent, 70), (grid_x + 2, y + 1), (grid_x + 30, y + 1))
+                pygame.draw.line(surf, (*accent, 45), (grid_x + 2, y + 1), (grid_x + 30, y + 1))
             last_section = section
 
             row = pygame.Rect(grid_x, y, grid_w, row_h)
@@ -1104,9 +1164,10 @@ def draw_scan_normals_polished(
 
             if is_current:
                 glow = pygame.Surface((row.width, row.height), pygame.SRCALPHA)
-                glow.fill((*accent, 54))
+                glow.fill((*accent, 48))
                 surf.blit(glow, row.topleft)
                 pygame.draw.rect(surf, (*accent, 130), row, 1)
+                pygame.draw.line(surf, (*accent, 95), (row.x + 1, row.bottom - 1), (row.right - 1, row.bottom - 1))
             else:
                 pygame.draw.rect(surf, row_fill, row)
                 pygame.draw.rect(surf, (34, 41, 58), row, 1)
@@ -1160,18 +1221,15 @@ def draw_scan_normals_polished(
 
 
 def _quick_assist_accent_for_label(label: str, is_default: bool = False) -> tuple[int, int, int]:
-    """Return the soft accent color used by quick-assist buttons."""
+    """Return the cohesive accent color used by quick-assist buttons.
+
+    Earlier builds tinted each strength differently. That was readable, but it
+    made the main GUI feel like a stack of unrelated color systems. Quick
+    assists now use one selected/action accent, while default stays muted.
+    """
     if is_default:
         return GUI_TEXT_DIM
-
-    low = str(label or "").lower()
-    if " c" in low or low.endswith("c") or " h" in low or low.endswith("h"):
-        return (105, 215, 155)
-    if " b" in low or low.endswith("b") or " m" in low or low.endswith("m"):
-        return (220, 195, 105)
-    if " a" in low or low.endswith("a") or " l" in low or low.endswith("l"):
-        return (115, 155, 235)
-    return GUI_ACCENT_BLUE
+    return GUI_CONFIRM
 
 
 def _ease_out_cubic(t: float) -> float:
@@ -1620,12 +1678,7 @@ def draw_panel_polished_stats(
     *,
     assist_label: str = "--",
 ) -> None:
-    """Compact fighter card for the main pygame GUI.
-
-    Keeps the old information density, but adds small underline bars for HP and
-    meter. This is display-only and does not touch memory, scan, mission, or
-    assist write logic.
-    """
+    """Compact fighter card with stronger hierarchy and subtle live emphasis."""
     _draw_vertical_gradient(
         surf,
         rect,
@@ -1633,29 +1686,93 @@ def draw_panel_polished_stats(
         (14, 15, 22),
         255,
     )
-    pygame.draw.rect(surf, (55, 63, 84), rect, 1, border_radius=5)
 
     if not isinstance(snap, dict):
+        pygame.draw.rect(surf, (55, 63, 84), rect, 1, border_radius=5)
         title = _render_outlined_text(smallfont, f"{header}  empty", GUI_TEXT_DIM, (0, 0, 0), rect.width - 20, 1)
         surf.blit(title, (10, 8))
         return
 
     teamtag = str(snap.get("teamtag") or header.split("-", 1)[0])
-    accent = GUI_P1 if teamtag == "P1" else GUI_P2
-    if header.endswith("C2"):
-        accent = _brighten(accent, 22)
+    accent = _slot_accent_for_label(header, muted=False)
 
+    # Active state should come from the live animation/label, not C1/C2.
+    # After a tag, C2 can be the point character, so treating all C2 panels as
+    # support makes the visual emphasis wrong.  The old reliable rule is:
+    # assist-anything is support/inactive.
+    move_preview = str(snap.get("mv_label") or "").strip().lower()
+    try:
+        early_move_id = int(snap.get("mv_id_display") or 0)
+    except Exception:
+        early_move_id = 0
+
+    assist_state_ids = {
+        420, 424, 425, 426, 427, 428, 430, 431, 432, 433,
+        0x01A1, 0x01A8, 0x01AE,
+    }
+
+    # Active-panel detection should follow live state, not slot position.
+    # Treat assist states, tag-out states, and KO/death states as non-active
+    # so the visual emphasis follows the actual point character on screen.
+    try:
+        early_hp_cur = int(snap.get("cur") or 0)
+    except Exception:
+        early_hp_cur = 0
+
+    ko_state = (
+        ("ko" in move_preview)
+        or ("k.o" in move_preview)
+        or ("knock out" in move_preview)
+        or ("dead" in move_preview)
+        or ("death" in move_preview)
+        or ("defeat" in move_preview)
+        or (early_hp_cur <= 0)
+    )
+
+    is_support = (
+        ("assist" in move_preview)
+        or ("tag out" in move_preview)
+        or ("tag in taunt" in move_preview)
+        or ko_state
+        or (early_move_id in assist_state_ids)
+    )
+    is_active_panel = not is_support
+
+    border_col = _brighten(accent, 22) if is_active_panel else (55, 63, 84)
+    pygame.draw.rect(surf, border_col, rect, 1, border_radius=5)
     pygame.draw.rect(surf, accent, pygame.Rect(0, 0, 3, rect.height), border_radius=2)
+
+    if is_active_panel:
+        pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 2.2)
+        glow = pygame.Surface((rect.width - 4, rect.height - 4), pygame.SRCALPHA)
+        pygame.draw.rect(glow, (*accent, int(18 + 10 * pulse)), glow.get_rect(), 2, border_radius=6)
+        surf.blit(glow, (2, 2))
 
     pad = 8
     portrait_size = max(48, min(64, rect.height - 58))
     portrait_rect = pygame.Rect(pad, pad + 8, portrait_size, portrait_size)
 
-    pygame.draw.rect(surf, (12, 14, 20), portrait_rect.inflate(4, 4), border_radius=5)
-    pygame.draw.rect(surf, (62, 70, 94), portrait_rect.inflate(4, 4), 1, border_radius=5)
+    # Portrait integration: shadow + frame + soft slot glow.
+    shadow = pygame.Surface((portrait_rect.width + 12, portrait_rect.height + 12), pygame.SRCALPHA)
+    pygame.draw.rect(shadow, (0, 0, 0, 52), shadow.get_rect(), border_radius=8)
+    surf.blit(shadow, (portrait_rect.x - 4, portrait_rect.y + 4))
+
+    glow = pygame.Surface((portrait_rect.width + 8, portrait_rect.height + 8), pygame.SRCALPHA)
+    glow_alpha = 46 if is_active_panel else 22
+    pygame.draw.rect(glow, (*accent, glow_alpha), glow.get_rect(), 2, border_radius=7)
+    surf.blit(glow, (portrait_rect.x - 4, portrait_rect.y - 4))
+
+    frame_rect = portrait_rect.inflate(6, 6)
+    pygame.draw.rect(surf, (11, 13, 19), frame_rect, border_radius=6)
+    pygame.draw.rect(surf, _brighten(accent, 10) if is_active_panel else (62, 70, 94), frame_rect, 1, border_radius=6)
     if portrait is not None:
         try:
             p = pygame.transform.smoothscale(portrait, (portrait_rect.width, portrait_rect.height))
+            if not is_active_panel:
+                p = p.copy()
+                veil = pygame.Surface(p.get_size(), pygame.SRCALPHA)
+                veil.fill((0, 0, 0, 35))
+                p.blit(veil, (0, 0))
             surf.blit(p, portrait_rect.topleft)
         except Exception:
             pygame.draw.rect(surf, (28, 31, 42), portrait_rect, border_radius=4)
@@ -1674,14 +1791,15 @@ def draw_panel_polished_stats(
     except Exception:
         base_txt = ""
     title_text = f"{header}  {char_name}{base_txt}"
-    title_s = _render_outlined_text(smallfont, title_text, GUI_TEXT, (0, 0, 0), info_w, 1)
+    title_col = GUI_TEXT if is_active_panel else (210, 215, 225)
+    title_s = _render_outlined_text(smallfont, title_text, title_col, (0, 0, 0), info_w, 1)
     surf.blit(title_s, (info_x, y))
     y += title_s.get_height() + 3
 
     hp_cur = snap.get("cur") or 0
     hp_max = snap.get("max") or 0
     hp_frac = _panel_bar_fraction(hp_cur, hp_max)
-    hp_col = GUI_ACCENT_RED if hp_frac <= 0.30 else GUI_ACCENT_GREEN
+    hp_col = GUI_DANGER if hp_frac <= 0.30 else GUI_CONFIRM
 
     meter_frac, meter_txt = _meter_fraction_from_snap(snap)
     meter_val = snap.get("meter")
@@ -1693,7 +1811,7 @@ def draw_panel_polished_stats(
     hp_text = f"HP {int(hp_cur or 0)}/{int(hp_max or 0)}"
     meter_text = f"Meter:{raw_meter}/Lvl {meter_txt.split('/')[0]}"
 
-    hp_s = _render_outlined_text(smallfont, hp_text, GUI_ACCENT_GREEN, (0, 0, 0), max(90, info_w // 2 - 8), 1)
+    hp_s = _render_outlined_text(smallfont, hp_text, GUI_CONFIRM, (0, 0, 0), max(90, info_w // 2 - 8), 1)
     meter_s = _render_outlined_text(smallfont, meter_text, GUI_TEXT_MUTED, (0, 0, 0), max(90, info_w // 2), 1)
 
     hp_x = info_x
@@ -1704,29 +1822,13 @@ def draw_panel_polished_stats(
     surf.blit(hp_s, (hp_x, y))
     surf.blit(meter_s, (meter_x, y))
 
-    # Small underline bars, not full rows. These keep the old compact text
-    # layout while giving HP/meter a live visual read.
     bar_y = y + hp_s.get_height() + 2
     hp_bar_w = max(90, min(180, meter_x - hp_x - 16))
     meter_bar_w = max(90, min(180, info_right - meter_x))
     hp_bar = pygame.Rect(hp_x, bar_y, hp_bar_w, 3)
     meter_bar = pygame.Rect(meter_x, bar_y, meter_bar_w, 3)
-    _draw_panel_stat_bar(
-        surf,
-        hp_bar,
-        hp_frac,
-        hp_col,
-        empty_col=(18, 20, 28),
-        border_col=(38, 44, 60),
-    )
-    _draw_panel_stat_bar(
-        surf,
-        meter_bar,
-        meter_frac,
-        GUI_ACCENT_BLUE,
-        empty_col=(18, 20, 28),
-        border_col=(38, 44, 60),
-    )
+    _draw_panel_stat_bar(surf, hp_bar, hp_frac, hp_col, empty_col=(18, 20, 28), border_col=(38, 44, 60))
+    _draw_panel_stat_bar(surf, meter_bar, meter_frac, GUI_APP_ACCENT, empty_col=(18, 20, 28), border_col=(38, 44, 60))
     y = bar_y + 7
 
     try:
@@ -1747,27 +1849,10 @@ def draw_panel_polished_stats(
     ready = bool(snap.get("baroque_ready_local", False))
     ready_txt = "READY" if ready else "not ready"
     baroque_text = f"Baroque: {ready_txt}  red:{pct:.1f}%"
-
-    # Rainbow only reads well when Baroque is actually available. When it is
-    # not ready, keep the line muted so it does not look like an active state.
     if ready:
-        bq_s = _render_rainbow_outlined_text(
-            smallfont,
-            baroque_text,
-            info_w,
-            t_ms,
-            (0, 0, 0),
-            1,
-        )
+        bq_s = _render_rainbow_outlined_text(smallfont, baroque_text, info_w, t_ms, (0, 0, 0), 1)
     else:
-        bq_s = _render_outlined_text(
-            smallfont,
-            baroque_text,
-            GUI_TEXT_MUTED,
-            (0, 0, 0),
-            info_w,
-            1,
-        )
+        bq_s = _render_outlined_text(smallfont, baroque_text, GUI_TEXT_MUTED, (0, 0, 0), info_w, 1)
     surf.blit(bq_s, (info_x, y))
     y += bq_s.get_height() + 2
 
@@ -1781,27 +1866,15 @@ def draw_panel_polished_stats(
     if not mv_label:
         mv_label = "--"
 
-    # The assist footer already communicates the selected/current quick assist.
-    # Keeping a second Assist: field beside Move: was redundant and crowded the
-    # character text block, so the move row gets the full available width again.
-    move_s = _render_outlined_text(
-        smallfont,
-        f"Move: {mv_label}",
-        GUI_TEXT,
-        (0, 0, 0),
-        info_w,
-        1,
-    )
-
+    move_col = GUI_TEXT if is_active_panel else GUI_TEXT_MUTED
+    move_s = _render_outlined_text(smallfont, f"Move: {mv_label}", move_col, (0, 0, 0), info_w, 1)
     surf.blit(move_s, (info_x, y))
 
-    # Tiny accent line near the live text area; soft enough not to crowd.
-    if move_id is not None:
-        pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 3.0)
-        alpha = int(12 + 12 * pulse)
-        glow = pygame.Surface((min(info_w, 220), 1), pygame.SRCALPHA)
-        glow.fill((*accent, alpha))
-        surf.blit(glow, (info_x, max(4, y + move_s.get_height() + 2)))
+    pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 3.0)
+    alpha = int((18 if is_active_panel else 8) + (14 if is_active_panel else 6) * pulse)
+    glow_line = pygame.Surface((min(info_w, 220), 1), pygame.SRCALPHA)
+    glow_line.fill((*accent, alpha))
+    surf.blit(glow_line, (info_x, max(4, y + move_s.get_height() + 2)))
 
 
 # ---------------------------------------------------------------------------
@@ -2458,39 +2531,29 @@ def legacy_main():
             mission_hover = mission_btn_local.collidepoint(mx_local, my_local)
             flash_left   = panel_btn_flash.get(slot_label, 0)
 
-            if flash_left > 0:
-                frame_base_col   = (70, 105, 170)
-                frame_border_col = (235, 240, 255)
-            elif frame_hover:
-                frame_base_col   = (48, 54, 68)
-                frame_border_col = (210, 220, 235)
-            else:
-                frame_base_col   = (31, 33, 42)
-                frame_border_col = (135, 145, 165)
+            draw_glass_button(
+                surf,
+                frame_btn_local,
+                "Frame Data",
+                smallfont,
+                active=flash_left > 0,
+                hover=frame_hover,
+                accent=GUI_APP_ACCENT,
+                fill=(44, 56, 82) if flash_left > 0 else (31, 33, 42),
+                align="center",
+            )
 
-            if mission_mgr.active_slot == slot_label:
-                mission_base_col   = (88, 68, 135)
-                mission_border_col = (235, 240, 255)
-            elif mission_hover:
-                mission_base_col   = (48, 54, 68)
-                mission_border_col = (210, 220, 235)
-            else:
-                mission_base_col   = (31, 33, 42)
-                mission_border_col = (135, 145, 165)
-
-            pygame.draw.rect(surf, frame_base_col,   frame_btn_local,   border_radius=3)
-            pygame.draw.rect(surf, frame_border_col, frame_btn_local,   1, border_radius=3)
-            surf.blit(smallfont.render("Frame Data", True, (220, 220, 220)),
-                      (frame_btn_local.x + 6, frame_btn_local.y + 2))
-
-            pygame.draw.rect(surf, mission_base_col,   mission_btn_local, border_radius=3)
-            pygame.draw.rect(surf, mission_border_col, mission_btn_local, 1, border_radius=3)
-            surf.blit(smallfont.render("Mission Mode", True, (220, 220, 220)),
-                      (mission_btn_local.x + 6, mission_btn_local.y + 2))
-
-            if flash_left > 0:
-                pygame.draw.rect(surf, (255, 255, 255),
-                                 frame_btn_local.inflate(4, 4), 2, border_radius=4)
+            draw_glass_button(
+                surf,
+                mission_btn_local,
+                "Mission Mode",
+                smallfont,
+                active=(mission_mgr.active_slot == slot_label),
+                hover=mission_hover,
+                accent=GUI_APP_ACCENT,
+                fill=(44, 56, 82) if mission_mgr.active_slot == slot_label else (31, 33, 42),
+                align="center",
+            )
 
             # Optional quick-assist buttons. main.py only draws/clicks these;
             # assist_scanner_window owns the JSON, route resolution, and writes.
