@@ -130,7 +130,7 @@ GIANT_IDS = {11, 22}
 
 HB_BTN_X, HB_BTN_Y = 8, 8
 HB_BTN_W, HB_BTN_H = 130, 22
-TOP_UI_RESERVED = HB_BTN_Y + HB_BTN_H + 12
+TOP_UI_RESERVED = 60
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +159,530 @@ def _copy_to_clipboard(text: str) -> None:
         except Exception as e:
             print(f"[copy] failed ({e!r}) -> {text}")
     print(f"[copy] (no pyperclip) -> {text}")
+
+
+# GUI polish helpers
+# ---------------------------------------------------------------------------
+
+GUI_BG_DARK = (10, 11, 16)
+GUI_PANEL = (20, 22, 30)
+GUI_PANEL_2 = (28, 31, 42)
+GUI_PANEL_3 = (36, 41, 56)
+
+GUI_BORDER = (80, 88, 112)
+GUI_BORDER_HOT = (145, 165, 205)
+
+GUI_TEXT = (226, 230, 238)
+GUI_TEXT_MUTED = (150, 158, 176)
+GUI_TEXT_DIM = (110, 116, 132)
+
+GUI_ACCENT_BLUE = (95, 135, 215)
+GUI_ACCENT_PURPLE = (145, 105, 210)
+GUI_ACCENT_GOLD = (190, 145, 60)
+GUI_ACCENT_GREEN = (80, 185, 115)
+GUI_ACCENT_RED = (210, 80, 90)
+
+GUI_P1 = (235, 90, 90)
+GUI_P2 = (95, 150, 240)
+GUI_P3 = (230, 90, 170)
+GUI_P4 = (90, 220, 140)
+
+
+def _clamp_u8(v: int) -> int:
+    return max(0, min(255, int(v)))
+
+
+def _brighten(col: tuple[int, int, int], amt: int) -> tuple[int, int, int]:
+    return (
+        _clamp_u8(col[0] + amt),
+        _clamp_u8(col[1] + amt),
+        _clamp_u8(col[2] + amt),
+    )
+
+
+def _darken(col: tuple[int, int, int], amt: int) -> tuple[int, int, int]:
+    return (
+        _clamp_u8(col[0] - amt),
+        _clamp_u8(col[1] - amt),
+        _clamp_u8(col[2] - amt),
+    )
+
+
+def _draw_vertical_gradient(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    top_col: tuple[int, int, int],
+    bot_col: tuple[int, int, int],
+    alpha: int = 255,
+) -> None:
+    if rect.width <= 0 or rect.height <= 0:
+        return
+
+    grad = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+
+    for y in range(rect.height):
+        t = y / max(1, rect.height - 1)
+        r = int(top_col[0] * (1.0 - t) + bot_col[0] * t)
+        g = int(top_col[1] * (1.0 - t) + bot_col[1] * t)
+        b = int(top_col[2] * (1.0 - t) + bot_col[2] * t)
+        pygame.draw.line(grad, (r, g, b, alpha), (0, y), (rect.width, y))
+
+    surf.blit(grad, rect.topleft)
+
+
+def _fit_text(
+    font: pygame.font.Font,
+    text: str,
+    color: tuple[int, int, int],
+    max_width: int,
+) -> pygame.Surface:
+    text = str(text or "")
+    if max_width <= 8:
+        return font.render("", True, color)
+
+    surf = font.render(text, True, color)
+    if surf.get_width() <= max_width:
+        return surf
+
+    if len(text) <= 1:
+        return font.render("", True, color)
+
+    low = 0
+    high = len(text)
+    best = ""
+
+    while low <= high:
+        mid = (low + high) // 2
+        trial = text[:mid].rstrip() + "."
+        trial_surf = font.render(trial, True, color)
+        if trial_surf.get_width() <= max_width:
+            best = trial
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    return font.render(best, True, color)
+
+def _render_outlined_text(
+    font: pygame.font.Font,
+    text: str,
+    text_color: tuple[int, int, int],
+    outline_color: tuple[int, int, int],
+    max_width: int,
+    outline_px: int = 1,
+) -> pygame.Surface:
+    base = _fit_text(font, text, text_color, max_width)
+
+    w = base.get_width()
+    h = base.get_height()
+
+    if w <= 0 or h <= 0:
+        return base
+
+    pad = max(1, int(outline_px))
+    out = pygame.Surface((w + pad * 2, h + pad * 2), pygame.SRCALPHA)
+
+    for ox, oy in (
+        (-pad, -pad), (0, -pad), (pad, -pad),
+        (-pad, 0),                (pad, 0),
+        (-pad, pad),  (0, pad),   (pad, pad),
+    ):
+        outline = _fit_text(font, text, outline_color, max_width)
+        out.blit(outline, (pad + ox, pad + oy))
+
+    out.blit(base, (pad, pad))
+    return out
+
+
+def draw_glass_button(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    label: str,
+    font: pygame.font.Font,
+    *,
+    active: bool = False,
+    hover: bool = False,
+    accent: tuple[int, int, int] = GUI_ACCENT_BLUE,
+    fill: tuple[int, int, int] | None = None,
+    align: str = "center",
+) -> None:
+    base = fill if fill is not None else (GUI_PANEL_3 if active else GUI_PANEL_2)
+    if hover:
+        base = _brighten(base, 18)
+
+    border = GUI_BORDER_HOT if hover else (accent if active else GUI_BORDER)
+    text_col = GUI_TEXT if active or hover else GUI_TEXT_MUTED
+
+    _draw_vertical_gradient(
+        surf,
+        rect,
+        _brighten(base, 12),
+        _darken(base, 6),
+        235,
+    )
+
+    pygame.draw.rect(surf, border, rect, 1, border_radius=4)
+
+    # Soft graphite-blue topper instead of white gloss. The white strip looked
+    # too harsh on short buttons and fought the text outline. This keeps a
+    # glass/metal highlight without washing out the label.
+    shine = pygame.Rect(rect.x + 2, rect.y + 2, rect.width - 4, max(2, rect.height // 6))
+    shine_col = (150, 165, 190, 16) if active or hover else (118, 128, 150, 11)
+    pygame.draw.rect(surf, shine_col, shine, border_radius=3)
+
+    if active:
+        accent_rect = pygame.Rect(rect.x + 4, rect.bottom - 3, rect.width - 8, 2)
+        pygame.draw.rect(surf, accent, accent_rect, border_radius=1)
+
+    label_surf = _render_outlined_text(
+        font,
+        label,
+        text_col,
+        (0, 0, 0),
+        rect.width - 12,
+        outline_px=1,
+    )
+
+    if align == "left":
+        tx = rect.x + 7
+    elif align == "right":
+        tx = rect.right - label_surf.get_width() - 7
+    else:
+        tx = rect.x + (rect.width - label_surf.get_width()) // 2
+
+    ty = rect.y + (rect.height - label_surf.get_height()) // 2
+    surf.blit(label_surf, (tx, ty))
+
+
+def draw_slot_chip(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    label: str,
+    font: pygame.font.Font,
+    *,
+    enabled: bool,
+    accent: tuple[int, int, int],
+    hover: bool,
+) -> None:
+    fill = GUI_PANEL_3 if enabled else (24, 25, 32)
+    border = accent if enabled else (70, 74, 88)
+    text_col = GUI_TEXT if enabled else GUI_TEXT_DIM
+
+    if hover:
+        fill = _brighten(fill, 16)
+        border = _brighten(border, 28)
+
+    _draw_vertical_gradient(
+        surf,
+        rect,
+        _brighten(fill, 10),
+        _darken(fill, 8),
+        235,
+    )
+
+    pygame.draw.rect(surf, border, rect, 1, border_radius=4)
+
+    state = "ON" if enabled else "OFF"
+    text = f"{label} {state}"
+    label_surf = _render_outlined_text(
+        font,
+        text,
+        text_col,
+        (0, 0, 0),
+        rect.width - 10,
+        outline_px=1,
+    )
+    surf.blit(
+        label_surf,
+        (
+            rect.x + (rect.width - label_surf.get_width()) // 2,
+            rect.y + (rect.height - label_surf.get_height()) // 2,
+        ),
+    )
+
+
+def draw_top_command_dock(
+    screen: pygame.Surface,
+    smallfont: pygame.font.Font,
+    *,
+    hitbox_slots: dict,
+    overlay_enabled: bool,
+    mouse_pos: tuple[int, int],
+) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
+    mx, my = mouse_pos
+    w, _h = screen.get_size()
+
+    dock_rect = pygame.Rect(0, 0, w, TOP_UI_RESERVED - 4)
+    _draw_vertical_gradient(
+        screen,
+        dock_rect,
+        (12, 13, 19),
+        (8, 9, 13),
+        255,
+    )
+    pygame.draw.line(screen, (58, 64, 82), (0, dock_rect.bottom - 1), (w, dock_rect.bottom - 1))
+
+    # Intentionally no title/status text here; keep the command dock compact.
+    x = 8
+    y = 8
+    btn_h = 23
+    gap = 8
+
+    hb_btn_rect = pygame.Rect(x, y, 142, btn_h)
+    hb_on = any(hitbox_slots.values())
+    draw_glass_button(
+        screen,
+        hb_btn_rect,
+        "Hitboxes: ON" if hb_on else "Hitboxes: OFF",
+        smallfont,
+        active=hb_on,
+        hover=hb_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_GREEN,
+        align="center",
+    )
+
+    x = hb_btn_rect.right + gap
+    ps_btn_rect = pygame.Rect(x, y, 150, btn_h)
+    draw_glass_button(
+        screen,
+        ps_btn_rect,
+        "Proj Scanner",
+        smallfont,
+        active=False,
+        hover=ps_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_BLUE,
+        align="center",
+    )
+
+    x = ps_btn_rect.right + gap
+    as_btn_rect = pygame.Rect(x, y, 132, btn_h)
+    draw_glass_button(
+        screen,
+        as_btn_rect,
+        "Assist Scanner",
+        smallfont,
+        active=False,
+        hover=as_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_PURPLE,
+        align="center",
+    )
+
+    x = as_btn_rect.right + gap
+    hud_btn_rect = pygame.Rect(x, y, 142, btn_h)
+    draw_glass_button(
+        screen,
+        hud_btn_rect,
+        "Overlay: ON" if overlay_enabled else "Overlay: OFF",
+        smallfont,
+        active=overlay_enabled,
+        hover=hud_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_GOLD,
+        align="center",
+    )
+
+    chip_y = y + btn_h + 6
+    label_surf = smallfont.render("Hitbox Slots:", True, GUI_TEXT_MUTED)
+    screen.blit(label_surf, (8, chip_y + 3))
+
+    chip_x = 8 + label_surf.get_width() + 10
+    chip_w = 60
+    chip_h = 18
+    chip_gap = 7
+
+    slot_colors = {
+        "P1": GUI_P1,
+        "P2": GUI_P2,
+        "P3": GUI_P3,
+        "P4": GUI_P4,
+    }
+
+    hb_filter_rects = {}
+
+    for slot_name in ("P1", "P2", "P3", "P4"):
+        chip_rect = pygame.Rect(chip_x, chip_y, chip_w, chip_h)
+        draw_slot_chip(
+            screen,
+            chip_rect,
+            slot_name,
+            smallfont,
+            enabled=bool(hitbox_slots.get(slot_name, False)),
+            accent=slot_colors.get(slot_name, GUI_ACCENT_BLUE),
+            hover=chip_rect.collidepoint(mx, my),
+        )
+        hb_filter_rects[slot_name] = chip_rect.inflate(4, 4)
+        chip_x += chip_w + chip_gap
+
+    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, hb_filter_rects
+
+
+def draw_status_rail(
+    screen: pygame.Surface,
+    smallfont: pygame.font.Font,
+    *,
+    text: str,
+) -> None:
+    if not text:
+        return
+
+    w, h = screen.get_size()
+    rail_h = 22
+    rect = pygame.Rect(0, h - rail_h, w, rail_h)
+
+    _draw_vertical_gradient(
+        screen,
+        rect,
+        (18, 20, 28),
+        (12, 13, 18),
+        245,
+    )
+
+    pygame.draw.line(screen, (58, 64, 82), (0, rect.y), (w, rect.y))
+    label = _fit_text(smallfont, text, GUI_TEXT_MUTED, w - 18)
+    screen.blit(label, (8, rect.y + (rail_h - label.get_height()) // 2))
+
+
+def draw_quick_assist_footer(
+    surf: pygame.Surface,
+    panel_rect: pygame.Rect,
+    slot_label: str,
+    snap: dict | None,
+    smallfont: pygame.font.Font,
+    *,
+    mx_local: int,
+    my_local: int,
+    btn_y: int,
+    get_quick_defs_fn,
+    active_quick_index: int | None = None,
+    flash_quick_index: int | None = None,
+) -> dict:
+    """Draw a compact one-line quick-assist strip.
+
+    The first polish pass used a two-line footer with a visible header plus
+    buttons. It looked nice, but it stole too much vertical room from the
+    character panels. This version keeps the same click behavior and assist
+    logic, but compresses the UI into one clean row:
+
+        Assist | move | move | move | default
+    """
+    quick_defs = []
+
+    if snap:
+        try:
+            quick_defs = get_quick_defs_fn(slot_label, snap)[:4]
+        except Exception:
+            quick_defs = []
+
+    if not quick_defs and snap:
+        quick_defs = [
+            {"label": "304", "table": 304},
+            {"label": "305", "table": 305},
+            {"label": "306", "table": 306},
+            {"label": "Default", "default": True},
+        ]
+
+    if not quick_defs:
+        return {}
+
+    qa_count = min(4, len(quick_defs))
+    qa_gap = 6
+    qa_h = 20
+    label_w = 64
+    side_pad = 10
+
+    qa_y = max(72, btn_y - qa_h - 10)
+    strip_y = max(0, qa_y - 5)
+    strip_h = min(panel_rect.height - strip_y - 4, qa_h + 10)
+    strip_rect = pygame.Rect(6, strip_y, panel_rect.width - 12, strip_h)
+
+    _draw_vertical_gradient(
+        surf,
+        strip_rect,
+        (22, 25, 35),
+        (15, 17, 24),
+        230,
+    )
+    pygame.draw.rect(surf, (54, 62, 82), strip_rect, 1, border_radius=5)
+
+    label_surf = smallfont.render("Assist", True, GUI_TEXT_DIM)
+    surf.blit(
+        label_surf,
+        (
+            strip_rect.x + 8,
+            qa_y + (qa_h - label_surf.get_height()) // 2,
+        ),
+    )
+
+    qa_x0 = strip_rect.x + label_w
+    qa_total_w = strip_rect.width - label_w - side_pad
+    qa_w = max(48, int((qa_total_w - qa_gap * (qa_count - 1)) / qa_count))
+
+    out = {}
+
+    for qi, quick in enumerate(quick_defs):
+        qx = qa_x0 + qi * (qa_w + qa_gap)
+        qrect_local = pygame.Rect(qx, qa_y, qa_w, qa_h)
+        qhover = qrect_local.collidepoint(mx_local, my_local)
+
+        qlabel = str(quick.get("label", f"A{qi + 1}"))
+        is_selected = active_quick_index is not None and int(active_quick_index) == qi
+        is_flashing = flash_quick_index is not None and int(flash_quick_index) == qi
+        active = bool(quick.get("active", False)) or is_selected or is_flashing
+
+        accent = GUI_ACCENT_BLUE
+        low = qlabel.lower()
+        if bool(quick.get("default", False)):
+            accent = GUI_TEXT_DIM
+        elif " c" in low or low.endswith("c") or " h" in low or low.endswith("h"):
+            accent = (105, 215, 155)
+        elif " b" in low or low.endswith("b") or " m" in low or low.endswith("m"):
+            accent = (220, 195, 105)
+        elif " a" in low or low.endswith("a") or " l" in low or low.endswith("l"):
+            accent = (115, 155, 235)
+
+        fill = (48, 58, 82) if is_selected else (35, 43, 62)
+        if is_flashing:
+            fill = _brighten(fill, 22)
+
+        draw_glass_button(
+            surf,
+            qrect_local,
+            qlabel,
+            smallfont,
+            active=active,
+            hover=qhover,
+            accent=accent,
+            fill=fill,
+            align="center",
+        )
+
+        if is_selected:
+            # Persistent selected-assist marker: subtle inner glow + underline.
+            pygame.draw.rect(
+                surf,
+                (*accent, 48),
+                qrect_local.inflate(-3, -3),
+                1,
+                border_radius=4,
+            )
+            pygame.draw.rect(
+                surf,
+                accent,
+                pygame.Rect(qrect_local.x + 5, qrect_local.bottom - 4, qrect_local.width - 10, 2),
+                border_radius=1,
+            )
+
+        qclick = pygame.Rect(
+            panel_rect.x + qrect_local.x,
+            panel_rect.y + qrect_local.y,
+            qrect_local.width,
+            qrect_local.height,
+        ).inflate(8, 8)
+
+        out[(slot_label, qi)] = qclick
+
+    return out
+
+
 
 
 def merged_debug_values():
@@ -344,6 +868,8 @@ def legacy_main():
     panel_anim            = {}
     anim_queue_after_scan = set()
     panel_btn_flash       = {s: 0 for (s, _, _) in SLOTS}
+    quick_btn_flash       = {}
+    active_quick_assist_by_slot = {}
 
     manual_scan_requested = False
     need_rescan_normals   = False
@@ -840,78 +1366,17 @@ def legacy_main():
             r.y = int(y)
             return r, max(0, min(255, alpha))
 
-        # Top-bar buttons
+        # Top command dock
         _check_master_overlay_proc()
-        HB_BTN_X, HB_BTN_Y = 8, 8
-        HB_BTN_W, HB_BTN_H = 150, 22
-        hb_btn_rect = pygame.Rect(HB_BTN_X, HB_BTN_Y, HB_BTN_W, HB_BTN_H)
+        mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_col   = (60, 200, 80)  if any(hitbox_slots.values()) else (80, 80, 80)
-        hb_btn_label = "Hitboxes: ON" if any(hitbox_slots.values()) else "Hitboxes: OFF"
-        mx_h, my_h   = pygame.mouse.get_pos()
-        if hb_btn_rect.collidepoint(mx_h, my_h):
-            hb_btn_col = tuple(min(255, c + 30) for c in hb_btn_col)
-        pygame.draw.rect(screen, hb_btn_col, hb_btn_rect, border_radius=3)
-        pygame.draw.rect(screen, (200, 200, 200), hb_btn_rect, 1, border_radius=3)
-        screen.blit(smallfont.render(hb_btn_label, True, (230, 230, 230)),
-                    (HB_BTN_X + 6, HB_BTN_Y + 4))
-
-        PS_BTN_X = HB_BTN_X + HB_BTN_W + 8
-        PS_BTN_W, PS_BTN_H = 150, 22
-        ps_btn_rect = pygame.Rect(PS_BTN_X, HB_BTN_Y, PS_BTN_W, PS_BTN_H)
-        ps_col = (60, 80, 160) if not ps_btn_rect.collidepoint(mx_h, my_h) else (90, 110, 200)
-        pygame.draw.rect(screen, ps_col, ps_btn_rect, border_radius=3)
-        pygame.draw.rect(screen, (200, 200, 200), ps_btn_rect, 1, border_radius=3)
-        screen.blit(smallfont.render("Proj Scanner", True, (230, 230, 230)),
-                    (PS_BTN_X + 6, HB_BTN_Y + 4))
-
-        AS_BTN_X = PS_BTN_X + PS_BTN_W + 8
-        AS_BTN_W, AS_BTN_H = 130, 22
-        as_btn_rect = pygame.Rect(AS_BTN_X, HB_BTN_Y, AS_BTN_W, AS_BTN_H)
-        as_col = (90, 70, 150) if not as_btn_rect.collidepoint(mx_h, my_h) else (120, 100, 190)
-        pygame.draw.rect(screen, as_col, as_btn_rect, border_radius=3)
-        pygame.draw.rect(screen, (200, 200, 200), as_btn_rect, 1, border_radius=3)
-        screen.blit(smallfont.render("Assist Scanner", True, (230, 230, 230)),
-                    (AS_BTN_X + 6, HB_BTN_Y + 4))
-
-        HUD_BTN_X = AS_BTN_X + AS_BTN_W + 8
-        HUD_BTN_W, HUD_BTN_H = 140, 22
-        hud_btn_rect = pygame.Rect(HUD_BTN_X, HB_BTN_Y, HUD_BTN_W, HUD_BTN_H)
-        hud_btn_col   = (160, 110, 30) if overlay_enabled else (80, 80, 80)
-        hud_btn_label = "Overlay: ON"  if overlay_enabled else "Overlay: OFF"
-        if hud_btn_rect.collidepoint(mx_h, my_h):
-            hud_btn_col = tuple(min(255, c + 30) for c in hud_btn_col)
-        pygame.draw.rect(screen, hud_btn_col, hud_btn_rect, border_radius=3)
-        pygame.draw.rect(screen, (200, 200, 200), hud_btn_rect, 1, border_radius=3)
-        screen.blit(smallfont.render(hud_btn_label, True, (230, 230, 230)),
-                    (HUD_BTN_X + 6, HB_BTN_Y + 4))
-
-        # Hitbox filter checkboxes
-        hb_filter_rects = {}
-        fx = HB_BTN_X
-        fy = HB_BTN_Y + HB_BTN_H + 4
-        filter_label_surf = smallfont.render("Filter Hitboxes (click to toggle a slot):", True, (180, 180, 180))
-        screen.blit(filter_label_surf, (fx, fy))
-        fx += filter_label_surf.get_width() + 6
-        slot_colors = {
-            "P1": (255, 100, 100), "P2": (100, 160, 255),
-            "P3": (255, 100, 200), "P4": (100, 255, 140),
-        }
-        for slot_name in ("P1", "P2", "P3", "P4"):
-            col     = slot_colors[slot_name]
-            cb_rect = pygame.Rect(fx, fy, 14, 14)
-            if hitbox_slots[slot_name]:
-                pygame.draw.rect(screen, col, cb_rect, border_radius=2)
-                pygame.draw.rect(screen, (220, 220, 220), cb_rect, 1, border_radius=2)
-                screen.blit(smallfont.render("✓", True, (0, 0, 0)), (fx + 1, fy - 1))
-            else:
-                pygame.draw.rect(screen, (40, 40, 40), cb_rect, border_radius=2)
-                pygame.draw.rect(screen, (140, 140, 140), cb_rect, 1, border_radius=2)
-            label_surf = smallfont.render(slot_name, True, col)
-            screen.blit(label_surf, (fx + 18, fy))
-            total_w = 18 + label_surf.get_width() + 8
-            hb_filter_rects[slot_name] = pygame.Rect(fx, fy, total_w, 16)
-            fx += total_w + 10
+        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, hb_filter_rects = draw_top_command_dock(
+            screen,
+            smallfont,
+            hitbox_slots=hitbox_slots,
+            overlay_enabled=overlay_enabled,
+            mouse_pos=(mx_h, my_h),
+        )
 
         # Panel rects
         r_p1c1, a_p1c1 = anim_rect_and_alpha("P1-C1", layout["p1c1"])
@@ -983,64 +1448,46 @@ def legacy_main():
 
             # Optional quick-assist buttons. main.py only draws/clicks these;
             # assist_scanner_window owns the JSON, route resolution, and writes.
-            quick_defs = []
-            if snap:
-                try:
-                    quick_defs = get_quick_assists_for_slot(slot_label, snap)[:4]
-                except Exception:
-                    quick_defs = []
-            if not quick_defs and snap:
-                quick_defs = [
-                    {"label": "304", "table": 304},
-                    {"label": "305", "table": 305},
-                    {"label": "306", "table": 306},
-                    {"label": "Default", "default": True},
-                ]
-            if quick_defs:
-                qa_gap = 6
-                qa_count = min(4, len(quick_defs))
-                qa_h = 22
-                qa_x0 = 10
-                qa_total_w = panel_rect.width - 20
-                qa_w = max(52, int((qa_total_w - qa_gap * (qa_count - 1)) / qa_count))
-                qa_y = max(78, btn_y - qa_h - 12)
+            active_quick_index = None
+            active_row = active_quick_assist_by_slot.get(slot_label)
+            if isinstance(active_row, dict):
+                active_char_id = int(active_row.get("char_id") or 0)
+                snap_char_id = 0
+                if isinstance(snap, dict):
+                    for _field in ("id", "csv_char_id", "char_id"):
+                        try:
+                            snap_char_id = int(snap.get(_field) or 0)
+                        except Exception:
+                            snap_char_id = 0
+                        if snap_char_id:
+                            break
+                if active_char_id == 0 or snap_char_id == 0 or active_char_id == snap_char_id:
+                    try:
+                        active_quick_index = int(active_row.get("quick_index"))
+                    except Exception:
+                        active_quick_index = None
 
-                # Sleek footer strip for Quick Assists. This visually separates
-                # them from the live fighter text above and from utility buttons
-                # below.
-                strip_y = max(0, qa_y - 7)
-                strip_h = min(panel_rect.height - strip_y - 4, qa_h + 16)
-                pygame.draw.rect(surf, (20, 22, 30),
-                                 pygame.Rect(6, strip_y, panel_rect.width - 12, strip_h),
-                                 border_radius=4)
-                pygame.draw.line(surf, (70, 76, 96),
-                                 (10, strip_y), (panel_rect.width - 10, strip_y))
+            flash_quick_index = None
+            for (_slot, _qi), _frames in list(quick_btn_flash.items()):
+                if _slot == slot_label and int(_frames or 0) > 0:
+                    flash_quick_index = int(_qi)
+                    break
 
-                for qi, quick in enumerate(quick_defs):
-                    qx = qa_x0 + qi * (qa_w + qa_gap)
-                    qrect_local = pygame.Rect(qx, qa_y, qa_w, qa_h)
-                    qhover = qrect_local.collidepoint(mx_local, my_local)
-                    qbase = (42, 52, 76) if not qhover else (64, 78, 112)
-                    qborder = (110, 132, 170) if not qhover else (175, 195, 230)
-                    pygame.draw.rect(surf, qbase, qrect_local, border_radius=4)
-                    pygame.draw.rect(surf, qborder, qrect_local, 1, border_radius=4)
-                    qlabel = str(quick.get("label", f"A{qi + 1}"))
-                    max_chars = max(7, int((qa_w - 10) / 7))
-                    if len(qlabel) > max_chars:
-                        qlabel = qlabel[:max_chars - 1] + "."
-                    label_surf = smallfont.render(qlabel, True, (232, 235, 242))
-                    surf.blit(label_surf,
-                              (qrect_local.x + 5, qrect_local.y + (qa_h - label_surf.get_height()) // 2))
-                    # Drawn button stays compact, but the clickable area is
-                    # intentionally larger. The 20px footer buttons were too
-                    # easy to miss, especially on the lower-left P1-C2 panel.
-                    qclick = pygame.Rect(
-                        panel_rect.x + qrect_local.x,
-                        panel_rect.y + qrect_local.y,
-                        qrect_local.width,
-                        qrect_local.height,
-                    ).inflate(8, 8)
-                    quick_btn_areas[(slot_label, qi)] = qclick
+            quick_btn_areas.update(
+                draw_quick_assist_footer(
+                    surf,
+                    panel_rect,
+                    slot_label,
+                    snap,
+                    smallfont,
+                    mx_local=mx_local,
+                    my_local=my_local,
+                    btn_y=btn_y,
+                    get_quick_defs_fn=get_quick_assists_for_slot,
+                    active_quick_index=active_quick_index,
+                    flash_quick_index=flash_quick_index,
+                )
+            )
 
             surf.set_alpha(alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))
@@ -1102,6 +1549,26 @@ def legacy_main():
         hud_mgr.write_data(render_snap_by_slot, last_scan_normals, mission_mgr)
         hud_mgr.check_proc()
 
+        status_parts = []
+        status_parts.append("Dolphin hooked")
+        status_parts.append("Overlay ON" if overlay_enabled else "Overlay OFF")
+        if any(hitbox_slots.values()):
+            active_hitbox_slots = ", ".join(k for k, v in hitbox_slots.items() if v)
+            status_parts.append(f"Hitboxes {active_hitbox_slots}")
+        else:
+            status_parts.append("Hitboxes OFF")
+        if mission_mgr.active_slot:
+            status_parts.append(f"Mission {mission_mgr.active_slot}")
+        if last_scan_time:
+            age = max(0.0, time.time() - last_scan_time)
+            status_parts.append(f"Normals scan {age:.1f}s")
+
+        draw_status_rail(
+            screen,
+            smallfont,
+            text=" | ".join(status_parts),
+        )
+
         pygame.display.flip()
 
         # ------------------------------------------------------------------
@@ -1160,7 +1627,32 @@ def legacy_main():
                         ok = False
                         print(f"[assist quick] click failed: {e!r}")
                     if ok:
-                        panel_btn_flash[slot_label] = PANEL_FLASH_FRAMES
+                        char_id = 0
+                        if isinstance(snap, dict):
+                            for _field in ("id", "csv_char_id", "char_id"):
+                                try:
+                                    char_id = int(snap.get(_field) or 0)
+                                except Exception:
+                                    char_id = 0
+                                if char_id:
+                                    break
+                        active_quick_assist_by_slot[slot_label] = {
+                            "quick_index": int(quick_index),
+                            "char_id": int(char_id or 0),
+                        }
+
+                        # Only one assist button may be highlighted/flashing per
+                        # slot. Clear any previous flash entries for this slot so
+                        # changing assists on the same character does not leave
+                        # the old assist highlighted beside the new one.
+                        for _flash_key in list(quick_btn_flash.keys()):
+                            try:
+                                if _flash_key[0] == slot_label:
+                                    quick_btn_flash.pop(_flash_key, None)
+                            except Exception:
+                                quick_btn_flash.pop(_flash_key, None)
+
+                        quick_btn_flash[(slot_label, int(quick_index))] = PANEL_FLASH_FRAMES
                     quick_clicked = True
                     break
             if quick_clicked:
@@ -1351,6 +1843,15 @@ def legacy_main():
         for k in panel_btn_flash:
             if panel_btn_flash[k] > 0:
                 panel_btn_flash[k] -= 1
+
+        for k in list(quick_btn_flash.keys()):
+            try:
+                if int(quick_btn_flash.get(k, 0) or 0) > 0:
+                    quick_btn_flash[k] = int(quick_btn_flash.get(k, 0) or 0) - 1
+                if int(quick_btn_flash.get(k, 0) or 0) <= 0:
+                    quick_btn_flash.pop(k, None)
+            except Exception:
+                quick_btn_flash.pop(k, None)
 
         # Normals rescan triggers
         if HAVE_SCAN_NORMALS and need_rescan_normals and scan_worker:
