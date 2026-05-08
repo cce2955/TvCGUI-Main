@@ -1936,20 +1936,31 @@ def draw_panel_polished_stats(
 
     move_id = snap.get("mv_id_display")
     mv_label = str(snap.get("mv_label") or "").strip()
-    if not mv_label and move_id is not None:
+    move_id_dec = None
+    if move_id is not None:
         try:
-            mv_label = f"0x{int(move_id):04X}"
+            move_id_dec = int(move_id)
         except Exception:
-            mv_label = str(move_id)
+            move_id_dec = None
+
+    if not mv_label and move_id_dec is not None:
+        mv_label = f"0x{move_id_dec:04X}"
+    elif not mv_label and move_id is not None:
+        mv_label = str(move_id)
     if not mv_label:
         mv_label = "--"
+
+    if move_id_dec is not None:
+        move_text = f"Move: {mv_label} ({move_id_dec})"
+    else:
+        move_text = f"Move: {mv_label}"
 
     move_pulse_t = _fx(panel_fx.get("move_pulse"))
     if move_pulse_t > 0.0:
         move_col = _brighten(GUI_TEXT if is_active_panel else GUI_TEXT_MUTED, int((1.0 - move_pulse_t) * 40))
     else:
         move_col = GUI_TEXT if is_active_panel else GUI_TEXT_MUTED
-    move_s = _render_outlined_text(smallfont, f"Move: {mv_label}", move_col, (0, 0, 0), info_w, 1)
+    move_s = _render_outlined_text(smallfont, move_text, move_col, (0, 0, 0), info_w, 1)
     surf.blit(move_s, (info_x, y))
     if move_pulse_t > 0.0:
         pulse_w = min(info_w, max(60, move_s.get_width() + 12))
