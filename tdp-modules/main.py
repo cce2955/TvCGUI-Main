@@ -757,45 +757,70 @@ def _normal_button_accent(label: str) -> tuple[int, int, int]:
     return GUI_ACCENT_BLUE
 
 
+def _normal_id_to_label(value, *, allow_low: bool = True) -> str | None:
+    """Resolve a normal label from the scanner's authoritative ANIM_MAP.
+
+    The old preview table was shifted for crouching normals and also invented
+    j.2B/j.2C rows from raw ids. Keep this helper tied to scan_normals_all so
+    the preview cannot drift away from the actual scanner again.
+    """
+    try:
+        raw = int(value)
+    except Exception:
+        return None
+
+    if raw < 0:
+        return None
+
+    fallback_map = {
+        0x00: "5A",
+        0x01: "5B",
+        0x02: "5C",
+        0x03: "2A",
+        0x04: "2B",
+        0x05: "2C",
+        0x06: "6C",
+        0x08: "3C",
+        0x09: "j.A",
+        0x0A: "j.B",
+        0x0B: "j.C",
+        0x0E: "6B",
+    }
+
+    scan_map = SCAN_ANIM_MAP if isinstance(SCAN_ANIM_MAP, dict) and SCAN_ANIM_MAP else fallback_map
+    low = raw & 0xFF
+
+    if raw >= 0x100 and low in scan_map:
+        return str(scan_map[low])
+
+    if allow_low and raw in scan_map:
+        return str(scan_map[raw])
+
+    return None
+
+
 def _normal_move_label(mv: dict) -> str:
-    forced = mv.get("_normal_display_label") if isinstance(mv, dict) else None
+    if not isinstance(mv, dict):
+        return "?"
+
+    forced = mv.get("_normal_display_label")
     if forced:
         return str(forced)
 
-    for key in ("label", "name", "move", "pretty_name"):
+    # Prefer actual scanner/editor labels first. move_name is what
+    # scan_normals_all attaches; the older preview code accidentally ignored it.
+    for key in ("label", "move_name", "move", "pretty_name", "name"):
         value = mv.get(key)
         if value:
             return str(value)
 
-    aid = mv.get("id")
-    normal_names = {
-        0x0100: "5A",
-        0x0101: "5B",
-        0x0102: "5C",
-        0x0103: "6C",
-        0x0104: "3C",
-        0x0105: "2A",
-        0x0106: "2B",
-        0x0107: "2C",
-        0x0108: "j.A",
-        0x0109: "j.B",
-        0x010A: "j.C",
-        0x010B: "j.2B",
-        0x010C: "j.2C",
-        0x010E: "6B",
-    }
-    try:
-        if int(aid) in normal_names:
-            return normal_names[int(aid)]
-    except Exception:
-        pass
+    label = _normal_id_to_label(mv.get("id"), allow_low=True)
+    if label:
+        return label
 
-    table_index = mv.get("table_index")
-    try:
-        if int(table_index) in normal_names:
-            return normal_names[int(table_index)]
-    except Exception:
-        pass
+    label = _normal_id_to_label(mv.get("table_index"), allow_low=False)
+    if label:
+        return label
 
     return "?"
 
@@ -841,9 +866,15 @@ _NORMAL_PREVIEW_ORDER = (
     "6B",
     "5C", "2C",
     "4C", "6C", "3C",
-    "j.A", "j.B", "j.C", "j.2B", "j.2C",
+    "j.A", "j.B", "j.C",
 )
 _NORMAL_PREVIEW_RANK = {name.lower(): i for i, name in enumerate(_NORMAL_PREVIEW_ORDER)}
+
+# These labels are optional/character-specific. Do not let a raw fallback id
+# manufacture them for everyone. j.2B/j.2C are intentionally not in the preview
+# order until they are promoted by a real character-specific scanner label.
+_OPTIONAL_PREVIEW_NORMALS = {"6B"}
+_HIDDEN_PREVIEW_NORMALS = {"j.2B", "j.2C"}
 
 
 def _normal_canonical_label(label: str) -> str | None:
@@ -877,11 +908,44 @@ def _normal_canonical_label(label: str) -> str | None:
         "j.a": "j.A", "ja": "j.A", "jA".lower(): "j.A",
         "j.b": "j.B", "jb": "j.B", "jB".lower(): "j.B",
         "j.c": "j.C", "jc": "j.C", "jC".lower(): "j.C",
-        "j.2b": "j.2B", "j2b": "j.2B", "j2B".lower(): "j.2B",
-        "j.2c": "j.2C", "j2c": "j.2C", "j2C".lower(): "j.2C",
     }
 
     return aliases.get(low)
+
+
+def _normal_preview_label_allowed(mv: dict, canon: str, raw_label: str) -> bool:
+    """Gate optional labels that raw ids can falsely create.
+
+    Core normals are allowed from the scanner map. 6B is allowed only when the
+    row was produced by an explicit/character-specific label source. This keeps
+    random 0x010E system/script records from appearing as 6B for every cast
+    member. j.2B/j.2C stay hidden from the compact preview for now.
+    """
+    if canon in _HIDDEN_PREVIEW_NORMALS:
+        return False
+
+    if canon not in _OPTIONAL_PREVIEW_NORMALS:
+        return True
+
+    if not isinstance(mv, dict):
+        return False
+
+    if bool(mv.get("normal_confirmed")):
+        return True
+
+    source = str(mv.get("move_name_source") or mv.get("label_source") or "").strip().lower()
+    if source in {"lookup", "char_map", "character", "csv", "explicit"}:
+        return True
+
+    # If another module supplied an actual display label, trust that over the
+    # raw id fallback. Do not count move_name here because older scanner builds
+    # filled move_name from ANIM_MAP fallback.
+    for key in ("label", "move", "pretty_name"):
+        explicit = mv.get(key)
+        if explicit and _normal_canonical_label(str(explicit)) == canon:
+            return True
+
+    return False
 
 
 def _normal_row_quality(mv: dict) -> tuple[int, int, int, int]:
@@ -905,7 +969,7 @@ def _normal_visible_moves(moves: list) -> list:
     The scan can contain duplicate/system/debug rows, and some characters put
     command normals before or after jump normals. The preview should not depend
     on raw scan order. It shows the useful set only:
-      5A, 2A, 5B, 2B, optional 6B, 5C, 2C, optional 4C/6C/3C, j.A, j.B, j.C, optional j.2B/j.2C
+      5A, 2A, 5B, 2B, optional confirmed 6B, 5C, 2C, optional 4C/6C/3C, j.A, j.B, j.C
     """
     if not isinstance(moves, list):
         return []
@@ -919,6 +983,8 @@ def _normal_visible_moves(moves: list) -> list:
         label = _normal_move_label(mv)
         canon = _normal_canonical_label(label)
         if canon is None:
+            continue
+        if not _normal_preview_label_allowed(mv, canon, label):
             continue
 
         row = dict(mv)

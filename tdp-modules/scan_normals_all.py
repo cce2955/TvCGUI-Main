@@ -71,6 +71,12 @@ ANIM_MAP = {
     0x09: "j.A", 0x0A: "j.B", 0x0B: "j.C",
     0x0E: "6B",
 }
+
+# 0x0E can be a real 6B for some characters, but it is also easy to pick up
+# from non-normal script/system records. Treat it as optional until a
+# character-specific lookup confirms it.
+OPTIONAL_NORMAL_IDS = {0x0E}
+CORE_NORMAL_IDS = set(ANIM_MAP.keys()) - OPTIONAL_NORMAL_IDS
 NORMAL_IDS = set(ANIM_MAP.keys())
 
 DEFAULT_METER = {
@@ -812,7 +818,8 @@ def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
 
 def attach_move_fields(moves: List[Dict[str, Any]],
                        buf: bytes, base_abs: int,
-                       blocks: Dict[str, Any]) -> None:
+                       blocks: Dict[str, Any],
+                       char_id: Optional[int] = None) -> None:
     meters               = sorted(blocks["meters"], key=lambda x: x[0])
     active_blocks        = sorted(blocks["active_blocks"], key=lambda x: x[0])
     inline_active_blocks = sorted(blocks["inline_active_blocks"], key=lambda x: x[0])
@@ -918,13 +925,45 @@ def attach_move_fields(moves: List[Dict[str, Any]],
         mv["adv_hit"] = hs - recovery
         mv["adv_block"] = bs - recovery
 
+        mv["move_name_source"] = "none"
+        mv["normal_confirmed"] = False
         if aid is None:
             mv["move_name"] = "anim_--"
         else:
-            name = lookup_move_name(aid)
-            if not name:
-                name = ANIM_MAP.get(aid & 0xFF)
-            mv["move_name"] = name if name else f"anim_{aid:04X}"
+            name = None
+            try:
+                if char_id is not None:
+                    name = lookup_move_name(aid, char_id)
+                else:
+                    name = lookup_move_name(aid)
+            except TypeError:
+                # Older move_id_map builds only accept aid.
+                try:
+                    name = lookup_move_name(aid)
+                except Exception:
+                    name = None
+            except Exception:
+                name = None
+
+            if name:
+                mv["move_name"] = name
+                mv["move_name_source"] = "lookup"
+            else:
+                low = aid & 0xFF
+                # Do not auto-name optional normals from raw ANIM_MAP fallback.
+                # Otherwise non-normal 0x010E records appear as 6B for everyone.
+                fallback = None if low in OPTIONAL_NORMAL_IDS else ANIM_MAP.get(low)
+                mv["move_name"] = fallback if fallback else f"anim_{aid:04X}"
+                mv["move_name_source"] = "anim_map" if fallback else "anim"
+
+            low = aid & 0xFF
+            if low in CORE_NORMAL_IDS:
+                mv["normal_confirmed"] = True
+            elif low in OPTIONAL_NORMAL_IDS:
+                mv["normal_confirmed"] = (
+                    str(mv.get("move_name_source") or "") == "lookup"
+                    and str(mv.get("move_name") or "").strip().lower().replace(" ", "") == "6b"
+                )
 
 
 
@@ -972,6 +1011,13 @@ def collapse_duplicate_normals_by_quality(moves: List[Dict[str, Any]]) -> List[D
         low = (aid & 0xFF) if aid is not None else None
 
         if aid is not None and low in NORMAL_IDS:
+            if low in OPTIONAL_NORMAL_IDS and not bool(mv.get("normal_confirmed")):
+                # Keep the row available as a special/system record, but do not
+                # let it occupy the normal slot as a fake 6B.
+                mv["kind"] = "special"
+                extras.append(mv)
+                continue
+
             old = best_by_key.get(low)
             if old is None or move_quality_score(mv) > move_quality_score(old):
                 best_by_key[low] = mv
@@ -1110,7 +1156,7 @@ def scan_once():
 
         moves = collect_move_anchors(region_buf, region_start, tbl_move_addrs=in_slice)
         blocks = collect_blocks(region_buf, region_start)
-        attach_move_fields(moves, region_buf, region_start, blocks)
+        attach_move_fields(moves, region_buf, region_start, blocks, char_id=cid)
         moves = collapse_duplicate_normals_by_quality(moves)
 
         result[slot_idx] = {
