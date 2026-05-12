@@ -6,7 +6,7 @@ import ctypes
 import math
 import struct
 from dataclasses import dataclass
-from typing import Dict, List, Tuple, Optional
+from typing import Any, Dict, List, Tuple, Optional
 import os
 import pygame
 import win32con
@@ -92,6 +92,18 @@ PROJ_PTR_CANDIDATES = (
 
 OFF_CHAR_ID = 0x14
 OFF_STATE_ID = 0x1EA  # replace with the real current anim/state offset if 0x18 is not correct
+
+# Slot-local action-frame counter.
+# User observed slot 1 base 0x9246B9C0 and counter addr 0x9246BB98.
+# 0x9246BB98 - 0x9246B9C0 = 0x1D8.
+# Values are big-endian floats: 0x40000000=2.0, 0x40400000=3.0,
+# 0x40800000=4.0, etc. The -1 bias maps 2.0 to action frame 1.
+OFF_ACTION_COUNTER = 0x1D8
+ACTION_COUNTER_FRAME_BIAS = -1.0
+ACTION_COUNTER_MIN = 0.0
+ACTION_COUNTER_MAX = 600.0
+FRAME_DATA_SCAN_ENABLED = True
+
 
 PASSIVE_STATE_IDS = {
     1,   # idle
@@ -232,6 +244,185 @@ SLOT_BASES: Dict[str, int] = {
     "P3": 0x927EB9E0,
     "P4": 0x92EEBA20,
 }
+SLOT_ORDER: Tuple[str, ...] = tuple(SLOT_BASES.keys())
+
+
+@dataclass(frozen=True)
+class MoveFrameData:
+    move_id: int
+    move_name: str
+    active_windows: Tuple[Tuple[int, int], ...]
+
+    def active_text(self) -> str:
+        if not self.active_windows:
+            return "?"
+        return ",".join(f"{s}-{e}" if s != e else str(s) for s, e in self.active_windows)
+
+
+def _valid_active_window(start: Any, end: Any) -> Optional[Tuple[int, int]]:
+    try:
+        s = int(start)
+        e = int(end)
+    except Exception:
+        return None
+    if s <= 0 or e <= 0:
+        return None
+    if e < s:
+        e = s
+    return (s, e)
+
+
+def _state_lookup_keys(state_id: int) -> Tuple[int, ...]:
+    keys: List[int] = []
+    try:
+        raw = int(state_id) & 0xFFFF
+    except Exception:
+        return tuple(keys)
+
+    for candidate in (raw, raw & 0xFF, 0x0100 | (raw & 0xFF)):
+        if candidate not in keys:
+            keys.append(candidate)
+    return tuple(keys)
+
+
+def _dim_hitbox_color(color: Tuple[int, int, int]) -> Tuple[int, int, int]:
+    r, g, b = color[:3]
+    return (
+        max(35, int(r * 0.45)),
+        max(35, int(g * 0.45)),
+        max(35, int(b * 0.45)),
+    )
+
+
+def _renderer_slot_from_scan_label(label: str, fallback_idx: int) -> Optional[str]:
+    s = str(label or "").strip().lower().replace("_", "-").replace(" ", "")
+    mapping = {
+        "p1-c1": "P1", "p1c1": "P1", "p1-char1": "P1", "p1char1": "P1",
+        "p2-c1": "P2", "p2c1": "P2", "p2-char1": "P2", "p2char1": "P2",
+        "p1-c2": "P3", "p1c2": "P3", "p1-char2": "P3", "p1char2": "P3",
+        "p2-c2": "P4", "p2c2": "P4", "p2-char2": "P4", "p2char2": "P4",
+        "p1": "P1", "p2": "P2", "p3": "P3", "p4": "P4",
+    }
+    if s in mapping:
+        return mapping[s]
+    if 0 <= fallback_idx < len(SLOT_ORDER):
+        return SLOT_ORDER[fallback_idx]
+    return None
+
+
+def read_action_counter_float(slot_base: int) -> Optional[float]:
+    raw = rd32(slot_base + OFF_ACTION_COUNTER)
+    if raw is None:
+        return None
+    try:
+        value = struct.unpack(">f", struct.pack(">I", raw & 0xFFFFFFFF))[0]
+    except Exception:
+        return None
+    if not math.isfinite(value):
+        return None
+    if value < ACTION_COUNTER_MIN or value > ACTION_COUNTER_MAX:
+        return None
+    return value
+
+
+def read_action_frame(slot_base: int) -> Optional[int]:
+    value = read_action_counter_float(slot_base)
+    if value is None:
+        return None
+    return max(0, int(round(value + ACTION_COUNTER_FRAME_BIAS)))
+
+
+def is_frame_data_active(fd: Optional[MoveFrameData], action_frame: Optional[int]) -> bool:
+    if fd is None or action_frame is None:
+        return False
+    for start, end in fd.active_windows:
+        if start <= action_frame <= end:
+            return True
+    return False
+
+
+def lookup_frame_data(
+    fd_by_slot: Dict[str, Dict[int, MoveFrameData]],
+    slot_name: str,
+    state_id: int,
+) -> Optional[MoveFrameData]:
+    slot_fd = fd_by_slot.get(slot_name) or {}
+    if not slot_fd:
+        return None
+    for key in _state_lookup_keys(state_id):
+        fd = slot_fd.get(key)
+        if fd is not None:
+            return fd
+    return None
+
+
+def build_frame_data_cache() -> Dict[str, Dict[int, MoveFrameData]]:
+    """Build per-render-slot frame data from scan_normals_all.scan_once().
+
+    The scanner already resolves the current characters and attaches active-frame
+    windows. This cache maps those moves back onto the fixed renderer slot names
+    P1/P2/P3/P4 by scan order.
+    """
+    if not FRAME_DATA_SCAN_ENABLED:
+        return {}
+
+    try:
+        import scan_normals_all as fdscan
+    except Exception as exc:
+        print(f"[FrameGate] scan_normals_all import failed: {exc!r}")
+        return {}
+
+    try:
+        scanned = fdscan.scan_once()
+    except Exception as exc:
+        print(f"[FrameGate] frame-data scan failed: {exc!r}")
+        return {}
+
+    fd_by_slot: Dict[str, Dict[int, MoveFrameData]] = {}
+    for idx, entry in enumerate(scanned or []):
+        if not isinstance(entry, dict):
+            continue
+        slot_name = _renderer_slot_from_scan_label(str(entry.get("slot_label") or ""), idx)
+        if slot_name is None:
+            continue
+        slot_map: Dict[int, MoveFrameData] = {}
+
+        for mv in entry.get("moves", []):
+            move_id = mv.get("id")
+            if move_id is None:
+                continue
+
+            windows: List[Tuple[int, int]] = []
+            primary = _valid_active_window(mv.get("active_start"), mv.get("active_end"))
+            secondary = _valid_active_window(mv.get("active2_start"), mv.get("active2_end"))
+            for win in (primary, secondary):
+                if win is not None and win not in windows:
+                    windows.append(win)
+
+            if not windows:
+                continue
+
+            try:
+                mid = int(move_id) & 0xFFFF
+            except Exception:
+                continue
+
+            fd = MoveFrameData(
+                move_id=mid,
+                move_name=str(mv.get("move_name") or f"anim_{mid:04X}"),
+                active_windows=tuple(windows),
+            )
+
+            for key in _state_lookup_keys(mid):
+                if key not in slot_map:
+                    slot_map[key] = fd
+
+        fd_by_slot[slot_name] = slot_map
+
+    loaded = sum(len(v) for v in fd_by_slot.values())
+    print(f"[FrameGate] loaded {loaded} frame-data lookup entries")
+    return fd_by_slot
+
 
 PASSIVE_HOLD_FRAMES = 3
 _slot_passive_hold: Dict[str, int] = {k: 0 for k in SLOT_BASES}
@@ -1011,6 +1202,8 @@ class HitboxRenderer:
         self.cached_projectiles: List[Tuple[float, float, float]] = []
         self.last_char_ids: Dict[str, int] = {}
         self.last_counts: Dict[str, int] = {}
+        self.fd_by_slot: Dict[str, Dict[int, MoveFrameData]] = {}
+        self._fd_scan_done = False
 
         self.w = DISPLAY.baseline_w
         self.h = DISPLAY.baseline_h
@@ -1027,12 +1220,34 @@ class HitboxRenderer:
         self.overlay.on_resize(w, h)
         _surface_cache.clear()
 
+    def _refresh_frame_data_cache(self) -> None:
+        self.fd_by_slot = build_frame_data_cache()
+        self._fd_scan_done = True
+
+    def _frame_gate_for_slot(
+        self,
+        slot_name: str,
+        slot_base: int,
+        state_id: int,
+        hitbox_flag: int,
+    ) -> Tuple[bool, Optional[int], Optional[MoveFrameData]]:
+        fd = lookup_frame_data(self.fd_by_slot, slot_name, state_id)
+        action_frame = read_action_frame(slot_base)
+        if fd is not None and action_frame is not None:
+            return is_frame_data_active(fd, action_frame), action_frame, fd
+        return (hitbox_flag == 0x53), action_frame, fd
+
     def update(self, dt: float, control=None) -> None:
+        char_changed = False
         for name, base in SLOT_BASES.items():
             cid = rd32(base + OFF_CHAR_ID) or 0
             if self.last_char_ids.get(name) != cid:
                 print(f"[CharChange] {name} char_id {self.last_char_ids.get(name)} -> {cid}")
                 self.last_char_ids[name] = cid
+                char_changed = True
+
+        if char_changed or not self._fd_scan_done:
+            self._refresh_frame_data_cache()
 
         if pygame.time.get_ticks() % 2 == 0:
             pools = resolve_projectile_pools() or PROJECTILE_POOLS
@@ -1099,14 +1314,19 @@ class HitboxRenderer:
 
             boxes = read_hitboxes(base, HITBOX)
             palette = COLORS.get(name, [(255, 255, 255)])
+            debug_labels = bool(getattr(control, "show_debug", False))
 
             for i, (x, y, r, flag) in enumerate(boxes):
                 if r <= 0.001:
                     continue
 
                 base_color = palette[i % len(palette)]
-                is_active = (flag == 0x53)
-                ov.draw_hitbox(x, y, 0, r, base_color, f"{name}[{i}]", is_active=is_active)
+                is_active, action_frame, fd = self._frame_gate_for_slot(name, base, state_id, flag)
+                draw_color = base_color if is_active else _dim_hitbox_color(base_color)
+                label = f"{name}[{i}]"
+                if debug_labels and fd is not None and action_frame is not None:
+                    label = f"{name}[{i}] f={action_frame}/{fd.active_text()}"
+                ov.draw_hitbox(x, y, 0, r, draw_color, label, is_active=is_active)
 
         for x, y, z in self.cached_projectiles:
             ov.draw_projectile_hitbox(
@@ -1230,6 +1450,7 @@ def main():
     node_tracker = ProjectileNodeTracker(total_nodes)
 
     _last_char_ids: Dict[str, int] = {}
+    fd_by_slot: Dict[str, Dict[int, MoveFrameData]] = build_frame_data_cache()
 
     running = True
     while running:
@@ -1252,11 +1473,16 @@ def main():
                     elif event.key == pygame.K_F4:
                         debug_dump_pools()
 
+            char_changed = False
             for name, base in SLOT_BASES.items():
                 cid = rd32(base + OFF_CHAR_ID) or 0
                 if _last_char_ids.get(name) != cid:
                     print(f"[CharChange] {name} char_id {_last_char_ids.get(name)} -> {cid}")
                     _last_char_ids[name] = cid
+                    char_changed = True
+
+            if char_changed:
+                fd_by_slot = build_frame_data_cache()
 
             camx, camy, camz, camw = read_camera_pos(CAMERA)
             if USE_LIVE_CAMERA:
@@ -1309,19 +1535,24 @@ def main():
                     for i, (x, y, r, flag) in enumerate(boxes):
                         visible = motion_filter.update(name, i, x, y, r)
 
-                        if not visible:
+                        fd = lookup_frame_data(fd_by_slot, name, state_id)
+                        # When frame data is available, keep drawing the dim startup
+                        # hitboxes instead of letting the stillness filter hide them.
+                        if not visible and fd is None:
                             continue
 
                         if r > 0.001:
                             active += 1
                             base_color = palette[i % len(palette)]
-                            is_active = (flag == 0x53)
+                            action_frame = read_action_frame(base)
+                            is_active = is_frame_data_active(fd, action_frame) if fd is not None else (flag == 0x53)
+                            draw_color = base_color if is_active else _dim_hitbox_color(base_color)
                             overlay.draw_hitbox(
                                 x,
                                 y,
                                 0,
                                 r,
-                                base_color,
+                                draw_color,
                                 f"{name}[{i}]",
                                 is_active=is_active,
                             )

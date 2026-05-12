@@ -105,63 +105,7 @@ _FIGHTER_BASES = [
 ]
 _CHAR_ID_OFF = 0x14
 
-# Fighter object bases and character-table owner windows do not use the same
-# label order.  Fighter bases are ordered by the live fighter slots exposed to
-# main.py, while the character-table windows are ordered in MEM2 as:
-#   P1-C1, P1-C2, P2-C1, P2-C2
-# The old code used one label tuple for both arrays.  In mirror matches that
-# maps P2-C1 onto char-slot 1 instead of char-slot 2, so P1 writes a stale row
-# while P2 writes the live shared graft.  Keep the two orders explicit.
 FIGHTER_SLOT_LABELS = ("P1-C1", "P2-C1", "P1-C2", "P2-C2")
-CHR_TBL_SLOT_LABELS = ("P1-C1", "P1-C2", "P2-C1", "P2-C2")
-
-_LABEL_TO_FIGHTER_BASE = {
-    label: int(base) for label, base in zip(FIGHTER_SLOT_LABELS, _FIGHTER_BASES)
-}
-_LABEL_TO_CHR_TBL_BASE = {
-    label: int(base) for label, base in zip(CHR_TBL_SLOT_LABELS, _CHR_TBL_BASES)
-}
-_FIGHTER_BASE_TO_LABEL = {int(base): label for label, base in _LABEL_TO_FIGHTER_BASE.items()}
-_CHR_TBL_BASE_TO_LABEL = {int(base): label for label, base in _LABEL_TO_CHR_TBL_BASE.items()}
-
-
-def _chr_tbl_base_for_slot_label(slot_label: str | None) -> int | None:
-    if not slot_label:
-        return None
-    return _LABEL_TO_CHR_TBL_BASE.get(str(slot_label))
-
-
-def _fighter_base_for_slot_label(slot_label: str | None) -> int | None:
-    if not slot_label:
-        return None
-    return _LABEL_TO_FIGHTER_BASE.get(str(slot_label))
-
-
-def _slot_label_for_fighter_base(fighter_base: int | None) -> str | None:
-    try:
-        return _FIGHTER_BASE_TO_LABEL.get(int(fighter_base or 0))
-    except Exception:
-        return None
-
-
-def _slot_label_for_chr_tbl_base(owner_base: int | None) -> str | None:
-    try:
-        return _CHR_TBL_BASE_TO_LABEL.get(int(owner_base or 0))
-    except Exception:
-        return None
-
-
-def _owner_base_for_fighter_base(fighter_base: int | None) -> int | None:
-    label = _slot_label_for_fighter_base(fighter_base)
-    if label:
-        return _chr_tbl_base_for_slot_label(label)
-    try:
-        idx = _FIGHTER_BASES.index(int(fighter_base or 0))
-    except Exception:
-        return None
-    if 0 <= idx < len(_CHR_TBL_BASES):
-        return int(_CHR_TBL_BASES[idx])
-    return None
 
 
 # Main/HUD context piggyback.
@@ -192,17 +136,7 @@ DEFAULT_QUICK_ASSISTS = {
 # the Tk scanner window is not open. If the window is open, it mirrors the same
 # profiles in its existing per-fighter table.
 _HEADLESS_ASSIST_PROFILES: dict[int, dict[str, object]] = {}
-_HEADLESS_ASSIST_PROFILES_BY_SLOT: dict[str, dict[str, object]] = {}
-_HEADLESS_ASSIST_PROFILES_BY_TEAM: dict[str, dict[str, object]] = {}
 _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE: dict[int, bool] = {}
-_HEADLESS_LAST_ASSIST_STATE_BY_BASE: dict[int, int | None] = {}
-# Slot-label latches are the mirror-safe runtime source. Some mirror/assist
-# states can make two logical slots share or alias a fighter base, so base-keyed
-# latches can let the later P2 scan overwrite P1's call window. Keep the older
-# base dictionaries for compatibility, but runtime assist-edge detection below
-# keys by HUD slot label.
-_HEADLESS_LAST_ASSIST_ATTACK_BY_SLOT: dict[str, bool] = {}
-_HEADLESS_LAST_ASSIST_STATE_BY_SLOT: dict[str, int | None] = {}
 _HEADLESS_LAST_PATCH_KEY: tuple[int, int] | None = None
 
 # Quick route cache. Quick assist buttons should not rescan/re-resolve the
@@ -233,52 +167,6 @@ _ASSIST_SCAN_CACHE_HITS: list[dict] = []
 # quick-assist click. This does not change any write/graft logic.
 _ASSIST_CACHE_EPOCH = 0
 _ASSIST_LAST_SLOT_SIGNATURES: dict[str, tuple[int, int]] = {}
-
-# Runtime chr_tbl base cache.
-#
-# This is read-side only. It does not cache selector words, move entries, or
-# writable script bytes. It only remembers where the live chr_tbl is for this
-# owner slot during this assist epoch.
-#
-# Keyed by:
-#   assist epoch
-#   owner_base
-#   current loaded char_id for that owner
-#
-# Empty misses are deliberately NOT cached. During match load, the chr_tbl may
-# not be readable yet; caching a miss could suppress a later valid resolve.
-_CHR_TBL_BASE_CACHE_LOCK = threading.RLock()
-_CHR_TBL_BASES_CACHE: dict[tuple[int, int, int], list[int]] = {}
-
-# VJoe's resolver can verify chr_tbl candidates across all four owner windows.
-# Cache only successful non-empty candidate lists for the current assist epoch.
-_VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH: int | None = None
-_VJOE_GLOBAL_CHR_TBL_BASES_CACHE: list[int] = []
-
-# Session-persistent quick-assist intent.
-#
-# These are NOT route rows and do not store absolute MEM2 addresses. They only
-# remember "this slot/team character wanted quick button N". When a new match
-# rebuilds the same character's scripts, the stale route/profile caches are
-# still cleared, then this intent is reapplied through the normal proven
-# apply_quick_assist_from_main path after the current route is resolved.
-_PERSISTENT_SLOT_ASSIST_SELECTIONS: dict[tuple[str, int], dict] = {}
-_PERSISTENT_TEAM_ASSIST_SELECTIONS: dict[tuple[str, int], dict] = {}
-_PERSISTENT_REAPPLY_INFLIGHT: set[tuple] = set()
-_PERSISTENT_REAPPLY_DONE: set[tuple] = set()
-_PERSISTENT_REAPPLY_FAIL_UNTIL: dict[tuple, float] = {}
-_PERSISTENT_REAPPLY_LOCK = threading.RLock()
-_PERSISTENT_REAPPLY_RETRY_SECONDS = 0.85
-
-# Assist lifecycle debounce. main.py can see valid character IDs before the
-# freshly loaded match has rebuilt every live chr_tbl/wrapper route. Keep
-# reapply/prewarm workers out of that unstable window. This is frame-count
-# based because tick_assist_profiles_from_main() runs once per HUD frame.
-_ASSIST_STABLE_FRAMES_REQUIRED = 30
-_ASSIST_REAPPLY_WORKER_DELAY_SECONDS = 0.35
-_ASSIST_SLOT_STABILITY: dict[str, dict[str, int | tuple]] = {}
-_ASSIST_LAST_SLOT_HP: dict[str, tuple[int, int]] = {}
-_ASSIST_REAPPLY_STATUS: dict[str, str] = {}
 
 
 # Shared-character selector tables mean duplicate characters cannot keep
@@ -849,84 +737,16 @@ def _read_slot_char_ids() -> dict[int, int]:
     result: dict[int, int] = {}
     if rbytes is None:
         return result
-
-    # Character-table owner windows are keyed by CHR_TBL_SLOT_LABELS, not by
-    # the fighter-base array order.  This is the mirror-match fix: P2-C1 lives
-    # at char-slot 2 (0x909478E0), not char-slot 1.
-    for slot_label, chr_base in _LABEL_TO_CHR_TBL_BASE.items():
-        fighter_base = _fighter_base_for_slot_label(slot_label)
-        if fighter_base is None:
-            continue
+    for idx, chr_base in enumerate(_CHR_TBL_BASES):
+        fighter_base = _FIGHTER_BASES[idx]
         try:
-            b = rbytes(int(fighter_base) + _CHAR_ID_OFF, 4)
+            b = rbytes(fighter_base + _CHAR_ID_OFF, 4)
             if b and len(b) == 4:
-                result[int(chr_base)] = struct.unpack(">I", b)[0]
+                result[chr_base] = struct.unpack(">I", b)[0]
         except Exception:
             pass
     return result
 
-
-
-def _current_char_id_for_owner_base(owner_base: int | None) -> int:
-    """Return the currently loaded char id for a broad owner slot.
-
-    This is intentionally tiny: four 4-byte reads at worst through
-    _read_slot_char_ids(). It lets chr_tbl-base cache entries stay tied to the
-    loaded character and assist epoch.
-    """
-    if owner_base is None:
-        return 0
-    try:
-        owner = int(owner_base)
-    except Exception:
-        return 0
-    try:
-        return int(_read_slot_char_ids().get(owner, 0) or 0)
-    except Exception:
-        return 0
-
-
-def _chr_tbl_base_cache_key(owner_base: int | None) -> tuple[int, int, int] | None:
-    if owner_base is None:
-        return None
-    try:
-        owner = int(owner_base)
-    except Exception:
-        return None
-    return (
-        int(_ASSIST_CACHE_EPOCH),
-        owner,
-        _current_char_id_for_owner_base(owner),
-    )
-
-
-def _clear_chr_tbl_base_cache(owner_base: int | None = None) -> None:
-    """Clear cached runtime chr_tbl base resolutions.
-
-    owner_base=None clears all cached chr_tbl base resolutions. Passing an
-    owner clears only that broad slot. This is called from the same
-    invalidation path that clears route/profile caches, so it should not change
-    behavior, only avoid stale reads.
-    """
-    global _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH, _VJOE_GLOBAL_CHR_TBL_BASES_CACHE
-
-    with _CHR_TBL_BASE_CACHE_LOCK:
-        if owner_base is None:
-            _CHR_TBL_BASES_CACHE.clear()
-        else:
-            try:
-                owner = int(owner_base)
-            except Exception:
-                owner = 0
-            if owner:
-                for key in list(_CHR_TBL_BASES_CACHE.keys()):
-                    if int(key[1]) == owner:
-                        _CHR_TBL_BASES_CACHE.pop(key, None)
-
-        # VJoe's global candidate cache can include any owner window, so clear
-        # it whenever a slot-level chr_tbl cache is cleared.
-        _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH = None
-        _VJOE_GLOBAL_CHR_TBL_BASES_CACHE = []
 
 def _read_fighter_slots() -> list[dict[str, int | str]]:
     slots: list[dict[str, int | str]] = []
@@ -1985,35 +1805,6 @@ def _find_runtime_chr_tbl_bases_for_region(region_base: int) -> list[int]:
     return out
 
 
-
-_FIND_RUNTIME_CHR_TBL_BASES_FOR_REGION_UNCACHED = _find_runtime_chr_tbl_bases_for_region
-
-
-def _find_runtime_chr_tbl_bases_for_region(region_base: int) -> list[int]:
-    """Cached wrapper for runtime chr_tbl base discovery.
-
-    The original resolver is intentionally preserved as
-    _FIND_RUNTIME_CHR_TBL_BASES_FOR_REGION_UNCACHED. This wrapper only avoids
-    repeating the same expensive owner-band scan during the same assist epoch.
-
-    Important safety rule:
-        cache successful non-empty results only.
-    """
-    key = _chr_tbl_base_cache_key(region_base)
-    if key is not None:
-        with _CHR_TBL_BASE_CACHE_LOCK:
-            cached = _CHR_TBL_BASES_CACHE.get(key)
-            if cached:
-                return list(cached)
-
-    bases = _FIND_RUNTIME_CHR_TBL_BASES_FOR_REGION_UNCACHED(region_base)
-
-    if bases and key is not None:
-        with _CHR_TBL_BASE_CACHE_LOCK:
-            _CHR_TBL_BASES_CACHE[key] = [int(b) for b in bases]
-
-    return bases
-
 def _runtime_chr_tbl_base_for_owner_base(owner_base: int | None) -> int | None:
     if owner_base is None:
         return None
@@ -2392,36 +2183,6 @@ def _vjoe_candidate_chr_tbl_bases_global() -> list[int]:
     out.sort()
     return out
 
-
-
-_VJOE_CANDIDATE_CHR_TBL_BASES_GLOBAL_UNCACHED = _vjoe_candidate_chr_tbl_bases_global
-
-
-def _vjoe_candidate_chr_tbl_bases_global() -> list[int]:
-    """Cached wrapper for VJoe's global chr_tbl candidate discovery.
-
-    VJoe is the expensive case because it may verify table candidates across
-    all broad character windows. Cache only successful non-empty results for
-    the current assist epoch.
-    """
-    global _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH, _VJOE_GLOBAL_CHR_TBL_BASES_CACHE
-
-    epoch = int(_ASSIST_CACHE_EPOCH)
-    with _CHR_TBL_BASE_CACHE_LOCK:
-        if (
-            _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH == epoch
-            and _VJOE_GLOBAL_CHR_TBL_BASES_CACHE
-        ):
-            return list(_VJOE_GLOBAL_CHR_TBL_BASES_CACHE)
-
-    bases = _VJOE_CANDIDATE_CHR_TBL_BASES_GLOBAL_UNCACHED()
-
-    if bases:
-        with _CHR_TBL_BASE_CACHE_LOCK:
-            _VJOE_GLOBAL_CHR_TBL_BASES_CACHE_EPOCH = epoch
-            _VJOE_GLOBAL_CHR_TBL_BASES_CACHE = [int(b) for b in bases]
-
-    return bases
 
 def _vjoe_chr_tbl_shape_score(chr_tbl_base: int) -> tuple[int, dict[str, int]] | None:
     """Score one chr_tbl candidate as a live VJoe assist table."""
@@ -3944,13 +3705,14 @@ def _main_snaps_snapshot() -> dict[str, dict]:
 def _loaded_owner_bases_from_main() -> list[int]:
     snaps = _main_snaps_snapshot()
     out: list[int] = []
-    for label in FIGHTER_SLOT_LABELS:
+    for idx, label in enumerate(FIGHTER_SLOT_LABELS):
         snap = snaps.get(label)
-        if not snap or not snap.get("base"):
+        if not snap:
             continue
-        owner_base = _chr_tbl_base_for_slot_label(label)
-        if owner_base is not None:
-            out.append(int(owner_base))
+        if not snap.get("base"):
+            continue
+        if idx < len(_CHR_TBL_BASES):
+            out.append(int(_CHR_TBL_BASES[idx]))
     seen: set[int] = set()
     uniq: list[int] = []
     for base in out:
@@ -3971,9 +3733,9 @@ def _assist_team_signature_from_main() -> tuple:
     """
     snaps = _main_snaps_snapshot()
     parts: list[tuple[str, int, int, int]] = []
-    for slot_label in FIGHTER_SLOT_LABELS:
+    for idx, slot_label in enumerate(FIGHTER_SLOT_LABELS):
         snap = snaps.get(slot_label) if isinstance(snaps, dict) else None
-        owner_base = int(_chr_tbl_base_for_slot_label(slot_label) or 0)
+        owner_base = int(_CHR_TBL_BASES[idx]) if idx < len(_CHR_TBL_BASES) else 0
         fighter_base = 0
         char_id = 0
         if isinstance(snap, dict):
@@ -3992,7 +3754,6 @@ def _assist_team_signature_from_main() -> tuple:
     return tuple(parts)
 
 
-
 def _assist_scan_cache_get(signature: tuple | None = None) -> list[dict] | None:
     sig = signature if signature is not None else _assist_team_signature_from_main()
     with _ASSIST_SCAN_CACHE_LOCK:
@@ -4008,308 +3769,6 @@ def _assist_scan_cache_put(signature: tuple | None, hits: list[dict]) -> None:
         global _ASSIST_SCAN_CACHE_SIGNATURE, _ASSIST_SCAN_CACHE_HITS
         _ASSIST_SCAN_CACHE_SIGNATURE = signature
         _ASSIST_SCAN_CACHE_HITS = [dict(h) for h in (hits or [])]
-
-
-def _persistent_team_from_slot_label(slot_label: str | None) -> str:
-    text = str(slot_label or "")
-    if "-" in text:
-        return text.split("-", 1)[0].strip()
-    return text.strip()
-
-
-def _persistent_selection_key(slot_label: str | None, char_id: int | None) -> tuple[str, int] | None:
-    try:
-        cid = int(char_id or 0)
-    except Exception:
-        cid = 0
-    label = str(slot_label or "").strip()
-    if not label or cid <= 0:
-        return None
-    return (label, cid)
-
-
-def _persistent_team_key(slot_label: str | None, char_id: int | None) -> tuple[str, int] | None:
-    try:
-        cid = int(char_id or 0)
-    except Exception:
-        cid = 0
-    team = _persistent_team_from_slot_label(slot_label)
-    if not team or cid <= 0:
-        return None
-    return (team, cid)
-
-
-def _persistent_store_selection(slot_label: str, char_id: int, quick_index: int, preset: dict | None) -> None:
-    """Remember the selected quick-assist intent without storing MEM2 routes."""
-    slot_key = _persistent_selection_key(slot_label, char_id)
-    team_key = _persistent_team_key(slot_label, char_id)
-    if slot_key is None and team_key is None:
-        return
-
-    entry = {
-        "slot_label": str(slot_label),
-        "team": _persistent_team_from_slot_label(slot_label),
-        "char_id": int(char_id),
-        "quick_index": int(quick_index),
-        "preset": dict(preset or {}),
-        "label": str((preset or {}).get("label") or (preset or {}).get("name") or quick_index),
-        "saved_at": time.monotonic(),
-    }
-
-    with _PERSISTENT_REAPPLY_LOCK:
-        if slot_key is not None:
-            _PERSISTENT_SLOT_ASSIST_SELECTIONS[slot_key] = dict(entry)
-        if team_key is not None:
-            _PERSISTENT_TEAM_ASSIST_SELECTIONS[team_key] = dict(entry)
-
-
-def _persistent_lookup_selection(slot_label: str, char_id: int, snaps: dict | None = None) -> dict | None:
-    """Return a remembered quick-assist intent for this slot.
-
-    Exact slot+character is safe. Team+character fallback is only safe when
-    there is exactly one live copy of that character on that team. If two Franks
-    are on the same team/side, a team fallback would let the wrong Frank steal
-    the saved assist, so duplicates must use exact slot memory only.
-    """
-    slot_key = _persistent_selection_key(slot_label, char_id)
-    team_key = _persistent_team_key(slot_label, char_id)
-
-    with _PERSISTENT_REAPPLY_LOCK:
-        if slot_key is not None and slot_key in _PERSISTENT_SLOT_ASSIST_SELECTIONS:
-            return dict(_PERSISTENT_SLOT_ASSIST_SELECTIONS[slot_key])
-
-        if team_key is None or team_key not in _PERSISTENT_TEAM_ASSIST_SELECTIONS:
-            return None
-
-        # Duplicate guard for team fallback.
-        # Count live copies of this character on the same P1/P2 side. If there
-        # are multiple, only an exact slot save may restore.
-        if isinstance(snaps, dict):
-            team = _persistent_team_from_slot_label(slot_label)
-            live_count = 0
-            for other_label, other_snap in snaps.items():
-                if _persistent_team_from_slot_label(other_label) != team:
-                    continue
-                if _assist_snap_char_id(other_snap) == int(char_id):
-                    live_count += 1
-            if live_count > 1:
-                return None
-
-        return dict(_PERSISTENT_TEAM_ASSIST_SELECTIONS[team_key])
-
-
-def _assist_set_status(slot_label: str, text: str) -> None:
-    try:
-        _ASSIST_REAPPLY_STATUS[str(slot_label)] = str(text)
-    except Exception:
-        pass
-
-
-def _assist_slot_stability_signature(slot_label: str, fighter_base: int, char_id: int, snap: dict | None = None) -> tuple:
-    hp_max = 0
-    if isinstance(snap, dict):
-        try:
-            hp_max = int(snap.get("max") or 0)
-        except Exception:
-            hp_max = 0
-    return (str(slot_label), int(fighter_base or 0), int(char_id or 0), int(hp_max or 0), int(_ASSIST_CACHE_EPOCH))
-
-
-def _assist_note_slot_stable_tick(slot_label: str, fighter_base: int, char_id: int, snap: dict | None = None) -> None:
-    sig = _assist_slot_stability_signature(slot_label, fighter_base, char_id, snap)
-    row = _ASSIST_SLOT_STABILITY.get(str(slot_label))
-    if not isinstance(row, dict) or row.get("sig") != sig:
-        _ASSIST_SLOT_STABILITY[str(slot_label)] = {"sig": sig, "frames": 1}
-        return
-    try:
-        row["frames"] = int(row.get("frames", 0)) + 1
-    except Exception:
-        row["frames"] = 1
-
-
-def _assist_slot_stable_for_reapply(slot_label: str, fighter_base: int, char_id: int, snap: dict | None = None) -> bool:
-    sig = _assist_slot_stability_signature(slot_label, fighter_base, char_id, snap)
-    row = _ASSIST_SLOT_STABILITY.get(str(slot_label))
-    if not isinstance(row, dict) or row.get("sig") != sig:
-        return False
-    try:
-        return int(row.get("frames", 0)) >= int(_ASSIST_STABLE_FRAMES_REQUIRED)
-    except Exception:
-        return False
-
-
-def _assist_hp_tuple(snap: dict | None) -> tuple[int, int]:
-    if not isinstance(snap, dict):
-        return (0, 0)
-    try:
-        cur = int(snap.get("cur") or 0)
-    except Exception:
-        cur = 0
-    try:
-        mx = int(snap.get("max") or 0)
-    except Exception:
-        mx = 0
-    return (cur, mx)
-
-
-def _assist_hp_reset_detected(slot_label: str, snap: dict | None) -> bool:
-    """Detect same-character rematches where base/cid never visibly changed.
-
-    The old invalidation only saw slot/base/char changes. Some future matches
-    rebuild assist route memory while the HUD still reports the same fighter
-    base and char id. A large HP jump back toward max is a cheap, reliable
-    round/match-reset hint, so force fresh route resolution when it happens.
-    """
-    cur, mx = _assist_hp_tuple(snap)
-    prev = _ASSIST_LAST_SLOT_HP.get(str(slot_label))
-    _ASSIST_LAST_SLOT_HP[str(slot_label)] = (cur, mx)
-    if prev is None or mx <= 0:
-        return False
-    prev_cur, prev_max = prev
-    if prev_max <= 0:
-        return False
-    # KO/low life -> near full life means the scripts may have been rebuilt
-    # even if fighter_base/char_id did not change.
-    big_jump = cur >= int(mx * 0.80) and (cur - prev_cur) >= int(mx * 0.35)
-    from_ko = prev_cur <= 0 and cur > 0
-    return bool(big_jump or from_ko)
-
-
-def _persistent_reapply_identity(slot_label: str, fighter_base: int, char_id: int, quick_index: int) -> tuple:
-    return (
-        str(slot_label),
-        int(fighter_base or 0),
-        int(char_id or 0),
-        int(quick_index),
-        int(_ASSIST_CACHE_EPOCH),
-    )
-
-
-def _persistent_mark_applied(slot_label: str, fighter_base: int, char_id: int, quick_index: int) -> None:
-    ident = _persistent_reapply_identity(slot_label, fighter_base, char_id, quick_index)
-    with _PERSISTENT_REAPPLY_LOCK:
-        _PERSISTENT_REAPPLY_DONE.add(ident)
-        _PERSISTENT_REAPPLY_INFLIGHT.discard(ident)
-        _PERSISTENT_REAPPLY_FAIL_UNTIL.pop(ident, None)
-
-
-def _persistent_note_slot_invalidated(slot_label: str, owner_base: int | None = None,
-                                      fighter_base: int | None = None, char_id: int | None = None) -> None:
-    """Let a slot reapply its remembered intent after cache invalidation.
-
-    Do not delete _PERSISTENT_* selections here. This function only clears
-    per-epoch attempt state so a same-character rematch can resolve a fresh
-    route and reapply the remembered quick button.
-    """
-    label = str(slot_label or "")
-    with _PERSISTENT_REAPPLY_LOCK:
-        for coll in (_PERSISTENT_REAPPLY_DONE, _PERSISTENT_REAPPLY_INFLIGHT):
-            for ident in list(coll):
-                if ident and str(ident[0]) == label:
-                    coll.discard(ident)
-        for ident in list(_PERSISTENT_REAPPLY_FAIL_UNTIL.keys()):
-            if ident and str(ident[0]) == label:
-                _PERSISTENT_REAPPLY_FAIL_UNTIL.pop(ident, None)
-
-
-def _persistent_schedule_reapply_from_snaps(snaps: dict | None) -> None:
-    """Reapply remembered quick assists once per fresh slot/match epoch.
-
-    This stays out of the hot frame path. The frame tick only schedules at most
-    one small worker per eligible slot/epoch, with a retry cooldown if the new
-    match memory is not ready yet. The worker calls the same normal quick-assist
-    apply function the HUD button uses, so no duplicate write logic exists here.
-    """
-    if not isinstance(snaps, dict):
-        return
-
-    for slot_label in FIGHTER_SLOT_LABELS:
-        snap = snaps.get(slot_label)
-        if not isinstance(snap, dict):
-            continue
-
-        fighter_base = _assist_snap_fighter_base(snap)
-        char_id = _assist_snap_char_id(snap)
-        if not fighter_base or char_id not in CHAR_ID_TO_KEY:
-            continue
-
-        saved = _persistent_lookup_selection(slot_label, char_id, snaps)
-        if not saved:
-            continue
-
-        try:
-            quick_index = int(saved.get("quick_index", -1))
-        except Exception:
-            quick_index = -1
-        if quick_index < 0:
-            continue
-
-        now = time.monotonic()
-        ident = _persistent_reapply_identity(slot_label, fighter_base, char_id, quick_index)
-
-        if not _assist_slot_stable_for_reapply(slot_label, fighter_base, char_id, snap):
-            _assist_set_status(slot_label, "PENDING STABLE")
-            with _PERSISTENT_REAPPLY_LOCK:
-                _PERSISTENT_REAPPLY_FAIL_UNTIL[ident] = now + 0.12
-            continue
-
-        _assist_set_status(slot_label, "PENDING ROUTE")
-
-        with _PERSISTENT_REAPPLY_LOCK:
-            if ident in _PERSISTENT_REAPPLY_DONE or ident in _PERSISTENT_REAPPLY_INFLIGHT:
-                continue
-            if float(_PERSISTENT_REAPPLY_FAIL_UNTIL.get(ident, 0.0)) > now:
-                continue
-            _PERSISTENT_REAPPLY_INFLIGHT.add(ident)
-
-        try:
-            print(f"[assist persist] scheduling restore {slot_label}: {saved.get('label', quick_index)}")
-        except Exception:
-            pass
-
-        snap_copy = dict(snap)
-        saved_label = str(saved.get("label") or quick_index)
-
-        def _worker(slot_label=slot_label, quick_index=quick_index, snap_copy=snap_copy,
-                    ident=ident, saved_label=saved_label) -> None:
-            ok = False
-            try:
-                # Short delay lets the newly loaded match finish rebuilding the
-                # live chr_tbl/wrapper area before we resolve the fresh route.
-                time.sleep(_ASSIST_REAPPLY_WORKER_DELAY_SECONDS)
-                ok = bool(apply_quick_assist_from_main(slot_label, quick_index, snap_copy))
-            except Exception as e:
-                try:
-                    print(f"[assist persist] {slot_label} {saved_label} failed: {e!r}")
-                except Exception:
-                    pass
-                ok = False
-
-            with _PERSISTENT_REAPPLY_LOCK:
-                _PERSISTENT_REAPPLY_INFLIGHT.discard(ident)
-                if ok:
-                    _PERSISTENT_REAPPLY_DONE.add(ident)
-                    _PERSISTENT_REAPPLY_FAIL_UNTIL.pop(ident, None)
-                    _assist_set_status(slot_label, "REAPPLIED")
-                    try:
-                        print(f"[assist persist] restored {slot_label}: {saved_label}")
-                    except Exception:
-                        pass
-                else:
-                    _assist_set_status(slot_label, "FAILED RETRY")
-                    try:
-                        _assist_clear_slot_caches(slot_label, _slot_owner_base_from_label(slot_label), _assist_snap_fighter_base(snap_copy), _assist_snap_char_id(snap_copy))
-                    except Exception:
-                        pass
-                    _PERSISTENT_REAPPLY_FAIL_UNTIL[ident] = time.monotonic() + _PERSISTENT_REAPPLY_RETRY_SECONDS
-
-        try:
-            threading.Thread(target=_worker, daemon=True).start()
-        except Exception:
-            with _PERSISTENT_REAPPLY_LOCK:
-                _PERSISTENT_REAPPLY_INFLIGHT.discard(ident)
-                _PERSISTENT_REAPPLY_FAIL_UNTIL[ident] = time.monotonic() + _PERSISTENT_REAPPLY_RETRY_SECONDS
-
 
 
 def _assist_snap_char_id(snap: dict | None) -> int:
@@ -4366,30 +3825,12 @@ def _assist_clear_slot_caches(slot_label: str, owner_base: int | None = None,
                     _QUICK_ROUTE_FAIL_UNTIL.pop(key, None)
 
     if owner:
-        _clear_chr_tbl_base_cache(owner)
-
-    if owner:
         _HEADLESS_ASSIST_PROFILES.pop(owner, None)
     if fighter:
         _HEADLESS_ASSIST_PROFILES.pop(fighter, None)
         _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.pop(fighter, None)
-    try:
-        _HEADLESS_LAST_ASSIST_ATTACK_BY_SLOT.pop(str(slot_label), None)
-        _HEADLESS_LAST_ASSIST_STATE_BY_SLOT.pop(str(slot_label), None)
-    except Exception:
-        pass
-
-    # Do not clear slot/team runtime intent here. Assist call/standby can make
-    # main.py report transient slot changes; deleting the team intent at that
-    # moment leaves the shared graft stuck on whichever player patched last.
-    # Route caches are still cleared above, and persistent restore can refresh
-    # absolute rows after a real match rebuild.
 
     _HEADLESS_LAST_PATCH_KEY = None
-    try:
-        _persistent_note_slot_invalidated(slot_label, owner, fighter, int(char_id or 0))
-    except Exception:
-        pass
 
     inst = _inst
     if inst is not None:
@@ -4400,15 +3841,6 @@ def _assist_clear_slot_caches(slot_label: str, owner_base: int | None = None,
                 inst._slot_assist_profiles.pop(fighter, None)
                 inst._main_last_assist_attack_by_base.pop(fighter, None)
                 inst._main_patch_latch_by_base.pop(fighter, None)
-            try:
-                inst._main_last_assist_attack_by_slot.pop(str(slot_label), None)
-                inst._main_last_assist_state_by_slot.pop(str(slot_label), None)
-            except Exception:
-                pass
-            # Preserve slot/team runtime intent across assist standby/attack
-            # transients. Numeric owner/fighter caches above can be dropped, but
-            # team intent is what lets mirror matches flip the shared graft back
-            # when the other side calls assist.
             inst._main_last_patch_key = None
         except Exception:
             pass
@@ -4437,9 +3869,6 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
             if prev is not None:
                 _assist_clear_slot_caches(slot_label, owner_base, prev[0], prev[1])
                 _ASSIST_LAST_SLOT_SIGNATURES.pop(slot_label, None)
-                _ASSIST_SLOT_STABILITY.pop(slot_label, None)
-                _ASSIST_LAST_SLOT_HP.pop(slot_label, None)
-                _assist_set_status(slot_label, "SLOT INVALID")
                 changed = True
             elif owner_base is not None and char_id and char_id not in CHAR_ID_TO_KEY:
                 # Transitional garbage IDs are a strong signal that the match /
@@ -4450,28 +3879,15 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
             continue
 
         cur = (int(fighter_base), int(char_id))
-        hp_reset = _assist_hp_reset_detected(slot_label, snap)
         if prev != cur:
             if prev is not None:
                 _assist_clear_slot_caches(slot_label, owner_base, prev[0], prev[1])
             _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
             _ASSIST_LAST_SLOT_SIGNATURES[slot_label] = cur
-            _ASSIST_SLOT_STABILITY.pop(slot_label, None)
-            _assist_set_status(slot_label, "ROUTE INVALIDATED")
             changed = True
-        elif hp_reset:
-            # Same slot/base/character, but a new round/match HP reset occurred.
-            # Force fresh absolute route resolution without deleting saved intent.
-            _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
-            _ASSIST_SLOT_STABILITY.pop(slot_label, None)
-            _assist_set_status(slot_label, "MATCH RESET")
-            changed = True
-
-        _assist_note_slot_stable_tick(slot_label, fighter_base, char_id, snap)
 
     if changed:
         _ASSIST_CACHE_EPOCH += 1
-        _clear_chr_tbl_base_cache(None)
         with _ASSIST_SCAN_CACHE_LOCK:
             global _ASSIST_SCAN_CACHE_SIGNATURE, _ASSIST_SCAN_CACHE_HITS
             _ASSIST_SCAN_CACHE_SIGNATURE = None
@@ -4479,7 +3895,15 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
 
 
 def _slot_owner_base_from_label(slot_label: str | None) -> int | None:
-    return _chr_tbl_base_for_slot_label(slot_label)
+    if not slot_label:
+        return None
+    try:
+        idx = FIGHTER_SLOT_LABELS.index(str(slot_label))
+    except ValueError:
+        return None
+    if idx < 0 or idx >= len(_CHR_TBL_BASES):
+        return None
+    return int(_CHR_TBL_BASES[idx])
 
 
 
@@ -4502,16 +3926,6 @@ def _quick_route_cache_get(owner_base: int | None, char_id: int | None = None) -
             return None
         try:
             if int(row.get("_assist_epoch", -1)) != int(_ASSIST_CACHE_EPOCH):
-                _QUICK_ROUTE_CACHE.pop(key, None)
-                return None
-
-            # Safety for mirror-route fallback rows from older builds. A borrowed
-            # shared route may live under P1's owner base while being requested
-            # by P2. Such a row is valid only under the requested owner's cache
-            # key. If it appears under the route owner's key, it would make the
-            # wrong player dictate both profiles.
-            requested_owner = int(row.get("_requested_owner_base") or key[0])
-            if requested_owner != int(key[0]) and bool(row.get("_mirror_route_fallback")):
                 _QUICK_ROUTE_CACHE.pop(key, None)
                 return None
         except Exception:
@@ -4595,12 +4009,6 @@ def _prewarm_quick_routes_from_snaps(snaps: dict[str, dict]) -> None:
                 char_id = 0
             if char_id:
                 break
-        try:
-            fighter_base = int(snap.get("base") or 0)
-        except Exception:
-            fighter_base = 0
-        if char_id and fighter_base and not _assist_slot_stable_for_reapply(str(slot_label), fighter_base, char_id, snap):
-            continue
         _schedule_quick_route_prewarm(owner_base, char_id if char_id else None)
 
 
@@ -5113,21 +4521,6 @@ def _resolve_quick_route_row_uncached(owner_base: int, char_id: int | None = Non
         source = str(row.get("source", ""))
         cid = int(row.get("char_id") or char_id or 0)
         pri = 0
-
-        # Roll-specific safety: Roll can expose generic selector-looking grafts
-        # that are not the actual assist route. For Roll only, prefer rows that
-        # are anchored to / scored by the assist route over a plain generic graft.
-        if cid == 19:
-            if typ == "u32-anchored-assist-fallback":
-                pri = 86
-            elif "assist-route" in source:
-                pri = 84
-            elif typ == "u32-generic-selector" and "graft" in source:
-                pri = 55
-            else:
-                pri = 50
-            return (pri, int(row.get("score", 0)), -int(row.get("block", 0)))
-
         if cid == VJOE_CHAR_ID or source.startswith("vjoe-active"):
             pri = 100
         elif source.startswith("tatsunoko-wrapper-graft") or row.get("direct_426_info"):
@@ -5148,226 +4541,15 @@ def _resolve_quick_route_row_uncached(owner_base: int, char_id: int | None = Non
     return candidates[0]
 
 
-def _quick_route_rank_for_row(row: dict, char_id: int | None = None) -> tuple[int, int, int, int]:
-    """Rank quick-assist route rows outside the uncached resolver.
-
-    The uncached resolver has a local rank function, but mirror matches need to
-    compare rows across every loaded copy of the same character.  Higher block
-    address is the final tie-breaker on purpose: the lower-address mirror row
-    can be a valid-looking but inactive/stale copy, while the later duplicate is
-    often the live shared assist package.
-    """
-    typ = str((row or {}).get("typ", ""))
-    source = str((row or {}).get("source", ""))
-    try:
-        cid = int((row or {}).get("char_id") or char_id or 0)
-    except Exception:
-        cid = int(char_id or 0) if char_id else 0
-
-    pri = 0
-    if cid == 19:
-        if typ == "u32-anchored-assist-fallback":
-            pri = 86
-        elif "assist-route" in source:
-            pri = 84
-        elif typ == "u32-generic-selector" and "graft" in source:
-            pri = 55
-        else:
-            pri = 50
-    elif cid == VJOE_CHAR_ID or source.startswith("vjoe-active"):
-        pri = 100
-    elif source.startswith("tatsunoko-wrapper-graft") or (row or {}).get("direct_426_info"):
-        pri = 90
-    elif typ == "u32-chun-selector":
-        pri = 80
-    elif typ == "u32-ryu-selector-graft":
-        pri = 80
-    elif typ == "u32-generic-selector" and "graft" in source:
-        pri = 70
-    elif typ == "u32-anchored-assist-fallback":
-        pri = 60
-    else:
-        pri = 50
-
-    try:
-        score = int((row or {}).get("score", 0) or 0)
-    except Exception:
-        score = 0
-    try:
-        block = int((row or {}).get("block", 0) or 0)
-    except Exception:
-        block = 0
-    try:
-        route_owner = int((row or {}).get("owner_base", 0) or 0)
-    except Exception:
-        route_owner = 0
-    return (pri, score, block, route_owner)
-
-
-def _live_owner_bases_for_char_id(char_id: int | None) -> list[int]:
-    """Return logical owner windows currently loaded with char_id."""
-    try:
-        cid = int(char_id or 0)
-    except Exception:
-        cid = 0
-    if cid <= 0:
-        return []
-
-    out: list[int] = []
-
-    # main.py snapshots are the most reliable current-slot truth.  Convert from
-    # HUD slot label to the matching character-table window with the explicit
-    # CHR_TBL_SLOT_LABELS mapping.
-    try:
-        snaps = _main_snaps_snapshot()
-    except Exception:
-        snaps = {}
-    if isinstance(snaps, dict):
-        for label in FIGHTER_SLOT_LABELS:
-            snap = snaps.get(label)
-            if _assist_snap_char_id(snap) == cid:
-                owner_base = _chr_tbl_base_for_slot_label(label)
-                if owner_base is not None:
-                    out.append(int(owner_base))
-
-    # Dolphin slot IDs are a fallback when this is called before main has fed
-    # snapshots for the current frame.
-    try:
-        slot_ids = _read_slot_char_ids()
-        for owner, loaded_cid in slot_ids.items():
-            if int(loaded_cid or 0) == cid:
-                out.append(int(owner))
-    except Exception:
-        pass
-
-    seen: set[int] = set()
-    uniq: list[int] = []
-    for owner in out:
-        owner = int(owner)
-        if owner in seen:
-            continue
-        seen.add(owner)
-        uniq.append(owner)
-    return uniq
-
-
-def _resolve_duplicate_canonical_route_row(owner_base: int, char_id: int) -> dict | None:
-    """Resolve the one live route row all duplicate copies should write.
-
-    In a mirror match, the clicked owner can expose a plausible but inactive
-    selector row.  That is exactly the failure mode where P1's selection appears
-    to do nothing while P2's selection controls both players.  For duplicate
-    characters, compare all loaded owners and choose one canonical physical
-    route.  The returned row is still cached under/requested by the clicked
-    owner so P1 and P2 keep separate desired words; only the MEM2 write address
-    is shared.
-    """
-    owners = _live_owner_bases_for_char_id(char_id)
-    if len(owners) <= 1:
-        return None
-
-    candidates: list[dict] = []
-    for candidate_owner in owners:
-        try:
-            row = _resolve_quick_route_row_uncached(int(candidate_owner), int(char_id))
-        except Exception:
-            row = None
-        if not row:
-            continue
-        row = dict(row)
-        row["_candidate_owner_base"] = int(candidate_owner)
-        row["_candidate_requested_owner_base"] = int(owner_base)
-        candidates.append(row)
-
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda r: _quick_route_rank_for_row(r, char_id), reverse=True)
-    best = dict(candidates[0])
-    best["_requested_owner_base"] = int(owner_base)
-    best["requested_owner_base"] = int(owner_base)
-    best["_route_owner_base"] = int(best.get("owner_base") or best.get("_candidate_owner_base") or owner_base)
-    best["route_owner_base"] = int(best.get("_route_owner_base") or 0)
-    best["_mirror_route_canonical"] = True
-    best["_mirror_route_owner_candidates"] = [int(o) for o in owners]
-
-    _quick_route_cache_put(owner_base, char_id, best)
-
-    try:
-        print(
-            f"[assist quick] mirror canonical route: requested 0x{int(owner_base):08X} "
-            f"uses live route 0x{int(best.get('_route_owner_base') or 0):08X} "
-            f"block=0x{int(best.get('block', 0) or 0):08X} cid={int(char_id)} "
-            f"owners={[hex(int(o)) for o in owners]}"
-        )
-    except Exception:
-        pass
-
-    return best
-
-
 def _resolve_quick_route_row(owner_base: int, char_id: int | None = None) -> dict | None:
-    try:
-        cid = int(char_id or 0)
-    except Exception:
-        cid = 0
-
-    # Duplicate characters must use a canonical physical route even if the
-    # clicked slot has a route-looking row.  Otherwise P1 can write a stale copy
-    # while P2 writes the actual live shared graft, which makes P2 appear to
-    # control both players.
-    if cid > 0 and len(_live_owner_bases_for_char_id(cid)) > 1:
-        canonical = _resolve_duplicate_canonical_route_row(owner_base, cid)
-        if canonical:
-            return canonical
-
     cached = _quick_route_cache_get(owner_base, char_id)
     if cached:
         return cached
 
     row = _resolve_quick_route_row_uncached(owner_base, char_id)
     if row:
-        row = dict(row)
-        row.setdefault("_requested_owner_base", int(owner_base))
-        row.setdefault("requested_owner_base", int(owner_base))
-        row.setdefault("_route_owner_base", int(row.get("owner_base") or owner_base))
-        row.setdefault("route_owner_base", int(row.get("_route_owner_base") or 0))
         _quick_route_cache_put(owner_base, char_id, row)
-        return row
-
-    # Last fallback for unusual duplicate load orders: borrow any same-character
-    # route, but cache it only under the clicked/requesting owner.
-    if cid > 0:
-        for other_owner in _CHR_TBL_BASES:
-            other_owner = int(other_owner)
-            if other_owner == int(owner_base):
-                continue
-
-            other_row = _resolve_quick_route_row_uncached(other_owner, cid)
-            if not other_row:
-                continue
-
-            other_row = dict(other_row)
-            other_row["_requested_owner_base"] = int(owner_base)
-            other_row["requested_owner_base"] = int(owner_base)
-            other_row["_route_owner_base"] = int(other_row.get("owner_base") or other_owner)
-            other_row["route_owner_base"] = int(other_row.get("_route_owner_base") or 0)
-            other_row["_mirror_route_fallback"] = True
-
-            _quick_route_cache_put(owner_base, cid, other_row)
-
-            try:
-                print(
-                    f"[assist quick] mirror route fallback: requested 0x{int(owner_base):08X} "
-                    f"uses route 0x{int(other_row.get('_route_owner_base') or other_owner):08X} "
-                    f"for cid {cid}"
-                )
-            except Exception:
-                pass
-
-            return other_row
-
-    return None
+    return row
 
 
 def _selector_word_for_quick_preset(owner_base: int, row: dict, preset: dict) -> int | None | str:
@@ -5407,7 +4589,7 @@ def _selector_word_for_quick_preset(owner_base: int, row: dict, preset: dict) ->
     return (int(entry) + int(delta)) & 0xFFFFFFFF
 
 
-def _apply_quick_assist_from_main_once(slot_label: str, quick_index: int, snap: dict | None = None) -> bool:
+def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict | None = None) -> bool:
     global _HEADLESS_LAST_PATCH_KEY
     """Apply one JSON quick-assist entry for a HUD slot.
 
@@ -5444,11 +4626,6 @@ def _apply_quick_assist_from_main_once(slot_label: str, quick_index: int, snap: 
         volnutt_weapon = None
 
     row = _resolve_quick_route_row(owner_base, char_id if char_id else None)
-    if int(char_id or 0) == 19 and row:
-        try:
-            print(f"[assist quick] Roll route typ={row.get('typ')} source={row.get('source')} block=0x{int(row.get('block', 0)):08X}")
-        except Exception:
-            pass
     if not row:
         try:
             print(f"[assist quick] no assist route for {slot_label} base 0x{owner_base:08X}")
@@ -5470,10 +4647,7 @@ def _apply_quick_assist_from_main_once(slot_label: str, quick_index: int, snap: 
         if char_id not in (0, VOLNUTT_CHAR_ID) and row_char_id not in (0, VOLNUTT_CHAR_ID):
             volnutt_weapon = None
 
-    route_owner_base = int(row.get("_route_owner_base") or row.get("owner_base") or owner_base)
-    requested_owner_base = int(row.get("_requested_owner_base") or owner_base)
-
-    raw = _selector_word_for_quick_preset(route_owner_base, row, preset)
+    raw = _selector_word_for_quick_preset(owner_base, row, preset)
     if isinstance(raw, str):
         try:
             print(f"[assist quick] {slot_label} {preset.get('label', quick_index)} failed: {raw}")
@@ -5482,7 +4656,7 @@ def _apply_quick_assist_from_main_once(slot_label: str, quick_index: int, snap: 
         return False
     writes = _selector_writes_for_row_module(row, raw)
     if volnutt_weapon is not None:
-        weapon_writes = _volnutt_weapon_writes(route_owner_base, int(volnutt_weapon), row)
+        weapon_writes = _volnutt_weapon_writes(owner_base, int(volnutt_weapon), row)
         if not weapon_writes:
             try:
                 print(f"[assist quick] {slot_label} Volnutt weapon {volnutt_weapon} not found in active 426 wrapper")
@@ -5503,71 +4677,27 @@ def _apply_quick_assist_from_main_once(slot_label: str, quick_index: int, snap: 
     except Exception:
         fighter_base = 0
     label = str(preset.get("label") or preset.get("name") or preset.get("move") or "quick assist")
-    team_label = str(slot_label).split("-", 1)[0]
     profile = {
         "word": None if raw is None else (int(raw) & 0xFFFFFFFF),
         "label": label,
-        "row": {**dict(row), "_assist_epoch": int(_ASSIST_CACHE_EPOCH), "slot_label": str(slot_label), "team_label": team_label},
-        "fighter_base": fighter_base or requested_owner_base,
-        "owner_base": int(route_owner_base),
-        "requested_owner_base": int(requested_owner_base),
-        "slot_label": str(slot_label),
-        "team_label": team_label,
+        "row": {**dict(row), "_assist_epoch": int(_ASSIST_CACHE_EPOCH)},
+        "fighter_base": fighter_base or owner_base,
+        "owner_base": int(owner_base),
         "char_id": int(char_id or row.get("char_id") or 0),
         "is_default": raw is None,
     }
     if volnutt_weapon is not None:
         profile["volnutt_weapon"] = int(volnutt_weapon)
-
-    profile_char_id = int(char_id or row.get("char_id") or 0)
-    if profile_char_id:
-        try:
-            _persistent_store_selection(slot_label, profile_char_id, int(quick_index), preset)
-            print(f"[assist persist] saved {slot_label}: {label}")
-        except Exception as e:
-            try:
-                print(f"[assist persist] save failed for {slot_label}: {e!r}")
-            except Exception:
-                pass
-
-    # Store intent under the fighter that chose it, plus that fighter's logical
-    # owner slot.  In a mirror match the physical route may be borrowed from the
-    # other copy, but writing this profile under route_owner_base would overwrite
-    # the other player's fallback profile and make one player control both.
-    keys = set()
+    keys = {int(owner_base)}
     if fighter_base:
         keys.add(int(fighter_base))
-    if requested_owner_base:
-        keys.add(int(requested_owner_base))
-    if int(route_owner_base) == int(requested_owner_base) and route_owner_base:
-        keys.add(int(route_owner_base))
     for key in keys:
         _HEADLESS_ASSIST_PROFILES[key] = profile
-
-    # Critical mirror-match ownership: remember the desired assist by the
-    # HUD slot/team that chose it.  The physical graft table is shared, but
-    # the next runtime assist edge must select by caller side before any
-    # owner-base fallback can see the other player's last choice.
-    _HEADLESS_ASSIST_PROFILES_BY_SLOT[str(slot_label)] = profile
-    _HEADLESS_ASSIST_PROFILES_BY_TEAM[team_label] = profile
-
-    try:
-        _persistent_mark_applied(slot_label, int(fighter_base or 0), int(profile_char_id or 0), int(quick_index))
-    except Exception:
-        pass
 
     inst = _inst
     if inst is not None:
         try:
-            row_for_profile = dict(row)
-            row_for_profile["fighter_base"] = int(fighter_base or 0)
-            row_for_profile["slot_label"] = str(slot_label)
-            row_for_profile["team_label"] = team_label
-            row_for_profile["requested_owner_base"] = int(requested_owner_base)
-            row_for_profile["_requested_owner_base"] = int(requested_owner_base)
-            row_for_profile["route_owner_base"] = int(route_owner_base)
-            row_for_profile["_route_owner_base"] = int(route_owner_base)
-            inst._record_slot_profile(row_for_profile, None if raw is None else int(raw), label)
+            inst._record_slot_profile(row, None if raw is None else int(raw), label)
             if volnutt_weapon is not None:
                 for key in keys:
                     try:
@@ -5583,42 +4713,11 @@ def _apply_quick_assist_from_main_once(slot_label: str, quick_index: int, snap: 
             pass
     try:
         word_txt = "default" if raw is None else f"0x{int(raw):08X}"
-        route_txt = ""
-        if route_owner_base != requested_owner_base:
-            route_txt = f" via route 0x{route_owner_base:08X}"
-        print(f"[assist quick] {slot_label} -> {label} {word_txt}{route_txt} team={team_label} fighter=0x{int(fighter_base or 0):08X} requested=0x{int(requested_owner_base):08X}")
+        print(f"[assist quick] {slot_label} -> {label} {word_txt}")
     except Exception:
         pass
     return True
 
-def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict | None = None) -> bool:
-    """Apply one quick assist with stale-route retry.
-
-    First try uses the normal cache path. If that fails, clear this slot's
-    absolute route/chr_tbl/profile caches, resolve a fresh row, and try once
-    more. This makes manual clicks and persistent restores recover from stale
-    same-character rematch addresses without requiring the scanner window.
-    """
-    ok = bool(_apply_quick_assist_from_main_once(slot_label, quick_index, snap))
-    if ok:
-        _assist_set_status(slot_label, "APPLIED")
-        return True
-
-    owner_base = _slot_owner_base_from_label(slot_label)
-    fighter_base = _assist_snap_fighter_base(snap)
-    char_id = _assist_snap_char_id(snap)
-    _assist_set_status(slot_label, "RETRY FRESH ROUTE")
-    try:
-        _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
-    except Exception:
-        pass
-    try:
-        time.sleep(0.03)
-    except Exception:
-        pass
-    ok = bool(_apply_quick_assist_from_main_once(slot_label, quick_index, snap))
-    _assist_set_status(slot_label, "APPLIED" if ok else "FAILED")
-    return ok
 
 def _snap_state_id_for_runtime(snap: dict) -> int | None:
     if not snap:
@@ -5640,75 +4739,13 @@ def _snap_is_assist_attack_for_runtime(snap: dict) -> bool:
     return label == "assist attack" or "assist attack" in label
 
 
-def _snap_is_assist_call_for_runtime(snap: dict) -> bool:
-    """True while the fighter is in the assist call window.
-
-    The selector can be consumed before the visible 426 attack body, so runtime
-    switching has to see standby/prefetch states too.  The safety comes from the
-    caller latch in _headless_runtime_patch_from_main(): it writes only on a new
-    state/edge, not every frame that 430 is visible.
-    """
-    mv = _snap_state_id_for_runtime(snap)
-    if mv in ASSIST_RUNTIME_ATTACK_STATES or mv in ASSIST_RUNTIME_PREFETCH_STATES:
-        return True
-    label = str((snap or {}).get("mv_label") or "").strip().lower()
-    return (
-        label == "assist attack"
-        or "assist attack" in label
-        or "assist standby" in label
-        or "assist jump" in label
-    )
-
-
-def _headless_profile_for_runtime_slot(slot_label: str, fighter_base: int) -> dict | None:
-    """Pick the assist intent for the team that is currently calling assist.
-
-    In a mirror match the physical graft table can be shared/borrowed, so the
-    runtime decision must not fall through to the other player's route-owner
-    profile. Team intent is the caller-side source of truth; slot/fighter/owner
-    fallbacks are only for older non-mirror paths.
-    """
-    team_label = str(slot_label).split("-", 1)[0]
-
-    # Exact slot intent wins first. Team fallback is only for the normal case
-    # where the user picked the point panel but the partner slot enters assist
-    # standby/attack. Putting team first can hide a good exact slot profile.
-    profile = _HEADLESS_ASSIST_PROFILES_BY_SLOT.get(str(slot_label))
-    if profile is not None:
-        return profile
-
-    profile = _HEADLESS_ASSIST_PROFILES_BY_TEAM.get(team_label)
-    if profile is not None:
-        return profile
-
-    profile = _HEADLESS_ASSIST_PROFILES.get(int(fighter_base or 0))
-    if profile is not None:
-        return profile
-
-    owner_base = _slot_owner_base_from_label(slot_label)
-    if owner_base is not None:
-        return _HEADLESS_ASSIST_PROFILES.get(int(owner_base))
-
-    return None
-
-
 def _headless_runtime_patch_from_main(snaps: dict) -> None:
     global _HEADLESS_LAST_PATCH_KEY
-    if not isinstance(snaps, dict):
+    if not _HEADLESS_ASSIST_PROFILES or not isinstance(snaps, dict):
         return
-    if not (_HEADLESS_ASSIST_PROFILES or _HEADLESS_ASSIST_PROFILES_BY_SLOT or _HEADLESS_ASSIST_PROFILES_BY_TEAM):
-        return
-
     ordered = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
     ordered.extend(k for k in snaps.keys() if k not in ordered)
-
-    # Runtime caller detection:
-    #   430/424/etc are allowed because the selector can be read before 426.
-    #   But we only write on a fresh state edge/change.  That prevents the old
-    #   mirror bug where both copies sat in 430 and P2 won by being later in the
-    #   loop every frame.
-    candidates: list[tuple[int, int, str, dict, int, bool, int | None, int | None]] = []
-    for order_i, slot_label in enumerate(ordered):
+    for slot_label in ordered:
         snap = snaps.get(slot_label)
         if not snap:
             continue
@@ -5718,87 +4755,35 @@ def _headless_runtime_patch_from_main(snaps: dict) -> None:
             fighter_base = 0
         if not fighter_base:
             continue
-
-        state = _snap_state_id_for_runtime(snap)
-        is_call = _snap_is_assist_call_for_runtime(snap)
-        latch_key = str(slot_label)
-        was_call = bool(_HEADLESS_LAST_ASSIST_ATTACK_BY_SLOT.get(latch_key, False))
-        prev_state = _HEADLESS_LAST_ASSIST_STATE_BY_SLOT.get(latch_key)
-
-        _HEADLESS_LAST_ASSIST_ATTACK_BY_SLOT[latch_key] = bool(is_call)
-        _HEADLESS_LAST_ASSIST_STATE_BY_SLOT[latch_key] = int(state) if state is not None else None
-        # Keep the legacy base maps loosely in sync for diagnostics/old clear paths.
-        _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE[fighter_base] = bool(is_call)
-        _HEADLESS_LAST_ASSIST_STATE_BY_BASE[fighter_base] = int(state) if state is not None else None
-
-        if not is_call:
+        is_attack = _snap_is_assist_attack_for_runtime(snap)
+        was_attack = bool(_HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.get(fighter_base, False))
+        _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE[fighter_base] = bool(is_attack)
+        if not is_attack or was_attack:
             continue
-
-        state_int = int(state or -1)
-        prev_int = int(prev_state) if prev_state is not None else None
-        state_changed = (prev_int != state_int)
-        entering_call = not was_call
-        entered_attack = state_int in ASSIST_RUNTIME_ATTACK_STATES and (prev_int not in ASSIST_RUNTIME_ATTACK_STATES)
-        entered_prefetch = state_int in ASSIST_RUNTIME_PREFETCH_STATES and (prev_int not in ASSIST_RUNTIME_PREFETCH_STATES)
-
-        # Holds are ignored.  If P2's assist was the last graft and both mirror
-        # fighters are just idling/holding an assist-ish state, P2 must not keep
-        # re-winning the shared table.
-        if not (entering_call or state_changed or entered_attack or entered_prefetch):
+        profile = _HEADLESS_ASSIST_PROFILES.get(fighter_base)
+        if profile is None:
+            owner_base = _slot_owner_base_from_label(slot_label)
+            if owner_base is not None:
+                profile = _HEADLESS_ASSIST_PROFILES.get(int(owner_base))
+        if not profile:
             continue
-
-        pri = ASSIST_RUNTIME_STATE_PRIORITY.get(state_int, 0)
-        edge_bonus = 0
-        if entered_attack:
-            edge_bonus += 3000
-        if entering_call:
-            edge_bonus += 2000
-        if entered_prefetch:
-            edge_bonus += 1200
-        if state_changed:
-            edge_bonus += 500
-
-        # Stable P1-first tie break for truly simultaneous mirror false edges.
-        # Do not sort by slot label in reverse; that was the subtle P2 bias.
-        candidates.append((edge_bonus + pri, -order_i, str(slot_label), snap, fighter_base, was_call, prev_int, state_int))
-
-    if not candidates:
-        return
-
-    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    _score, _order_key, slot_label, snap, fighter_base, was_call, prev_state, state = candidates[0]
-
-    profile = _headless_profile_for_runtime_slot(str(slot_label), fighter_base)
-    if not profile:
-        return
-
-    raw_obj = profile.get("word", None)
-    raw_val = None if raw_obj is None else int(raw_obj) & 0xFFFFFFFF
-    volnutt_weapon = profile.get("volnutt_weapon")
-    weapon_key = -1 if volnutt_weapon is None else int(volnutt_weapon)
-    team_label = str(slot_label).split("-", 1)[0]
-    desired_key = (team_label, -1 if raw_val is None else raw_val, weapon_key, int(state or -1))
-
-    # Same team, same desired graft, same exact state edge: no rewrite needed.
-    # If the other team called last, the key differs and this flips the shared
-    # graft back before this team's assist body consumes it.
-    if _HEADLESS_LAST_PATCH_KEY == desired_key:
-        return
-
-    row = dict(profile.get("row", {}) or {})
-    writes = _selector_writes_for_row_module(row, raw_val)
-    if volnutt_weapon is not None:
-        owner_base_for_weapon = int(profile.get("owner_base") or row.get("owner_base") or 0)
-        writes.update(_volnutt_weapon_writes(owner_base_for_weapon, int(volnutt_weapon), row))
-    if writes and _write_many_module(writes):
-        _HEADLESS_LAST_PATCH_KEY = desired_key
-        try:
-            print(
-                f"[assist quick] runtime {slot_label} team={team_label} state={int(state or -1)} "
-                f"prev={prev_state if prev_state is not None else 'none'} -> {profile.get('label', 'assist')}"
-            )
-        except Exception:
-            pass
+        raw_obj = profile.get("word", None)
+        raw_val = None if raw_obj is None else int(raw_obj) & 0xFFFFFFFF
+        row = dict(profile.get("row", {}) or {})
+        writes = _selector_writes_for_row_module(row, raw_val)
+        volnutt_weapon = profile.get("volnutt_weapon")
+        if volnutt_weapon is not None:
+            owner_base_for_weapon = int(profile.get("owner_base") or row.get("owner_base") or 0)
+            writes.update(_volnutt_weapon_writes(owner_base_for_weapon, int(volnutt_weapon), row))
+        if writes and _write_many_module(writes):
+            weapon_key = -1 if volnutt_weapon is None else int(volnutt_weapon)
+            patch_key = (fighter_base, -1 if raw_val is None else raw_val, weapon_key)
+            if _HEADLESS_LAST_PATCH_KEY != patch_key:
+                _HEADLESS_LAST_PATCH_KEY = patch_key
+                try:
+                    print(f"[assist quick] runtime {slot_label} -> {profile.get('label', 'assist')}")
+                except Exception:
+                    pass
 
 
 class AssistScannerWindow:
@@ -5815,8 +4800,6 @@ class AssistScannerWindow:
         self._last_chun_selector_addr = None
         self._last_chun_selector_test = None
         self._slot_assist_profiles: dict[int, dict[str, object]] = {}
-        self._slot_assist_profiles_by_slot: dict[str, dict[str, object]] = {}
-        self._slot_assist_profiles_by_team: dict[str, dict[str, object]] = {}
         self._auto_reapply_enabled = True
         self._auto_reapply_after_id = None
         self._auto_btn = None
@@ -5827,12 +4810,6 @@ class AssistScannerWindow:
         # Main-HUD driven runtime switch. main.py already knows each fighter's
         # current move label/id, so this avoids guessing a fighter struct offset.
         self._main_last_assist_attack_by_base: dict[int, bool] = {}
-        self._main_last_assist_state_by_base: dict[int, int | None] = {}
-        # Mirror-safe latches: runtime edge detection must be keyed by logical
-        # HUD slot, not fighter base. In mirrors/assist standbys, base keys can
-        # alias or be touched by both sides, making P2's later loop entry win.
-        self._main_last_assist_attack_by_slot: dict[str, bool] = {}
-        self._main_last_assist_state_by_slot: dict[str, int | None] = {}
         self._main_patch_latch_by_base: dict[int, int] = {}
         self._main_last_patch_key: tuple[int, int] | None = None
         self._build()
@@ -8016,110 +6993,52 @@ class AssistScannerWindow:
     def _default_profile_label_for_row(self, h: dict) -> str:
         return "default"
 
-    def _profile_requested_owner_base_for_row(self, h: dict, owner_base: int) -> int:
-            requested_owner = int(h.get("requested_owner_base") or h.get("_requested_owner_base") or 0)
-            if requested_owner:
-                return requested_owner
-            slot_label = str(h.get("slot_label") or h.get("fighter_label") or "")
-            owner_from_label = _chr_tbl_base_for_slot_label(slot_label)
-            if owner_from_label is not None:
-                return int(owner_from_label)
-            try:
-                fighter_base = int(h.get("fighter_base") or 0)
-            except Exception:
-                fighter_base = 0
-            owner_from_fighter = _owner_base_for_fighter_base(fighter_base)
-            if owner_from_fighter is not None:
-                return int(owner_from_fighter)
-            return int(owner_base or 0)
-
-    def _profile_storage_keys_for_row(self, h: dict, fighter_base: int, owner_base: int) -> set[int]:
-            requested_owner = self._profile_requested_owner_base_for_row(h, owner_base)
-            keys: set[int] = set()
-            if fighter_base:
-                keys.add(int(fighter_base))
-            if requested_owner:
-                keys.add(int(requested_owner))
-            # Only key by the physical route owner when it is also the requesting
-            # owner.  In a mirror match, the route owner can be the other copy's
-            # shared table; using it as a profile key makes that other copy inherit
-            # this fighter's chosen assist.
-            if owner_base and int(owner_base) == int(requested_owner):
-                keys.add(int(owner_base))
-            return keys
-
     def _record_default_slot_profile(self, h: dict) -> None:
             fighter_base = int(h.get("fighter_base") or 0)
             owner_base = int(h.get("owner_base") or (_owning_chr_tbl(int(h.get("addr", h.get("block", 0)))) or 0))
-            requested_owner = self._profile_requested_owner_base_for_row(h, owner_base)
             char_id = int(h.get("char_id") or 0)
-            row = dict(h)
-            slot_label = str(row.get("slot_label") or row.get("fighter_label") or "")
-            team_label = str(row.get("team_label") or (slot_label.split("-", 1)[0] if slot_label else ""))
-            if slot_label:
-                row.setdefault("slot_label", slot_label)
-            if team_label:
-                row.setdefault("team_label", team_label)
-            row.setdefault("requested_owner_base", int(requested_owner or 0))
-            row.setdefault("_requested_owner_base", int(requested_owner or 0))
-            row.setdefault("route_owner_base", int(owner_base or 0))
-            row.setdefault("_route_owner_base", int(owner_base or 0))
             profile = {
                 "word": None,
                 "label": self._default_profile_label_for_row(h),
-                "row": row,
-                "fighter_base": fighter_base or requested_owner or owner_base,
+                "row": dict(h),
+                "fighter_base": fighter_base or owner_base,
                 "owner_base": owner_base,
-                "requested_owner_base": requested_owner,
-                "slot_label": slot_label,
-                "team_label": team_label,
                 "char_id": char_id,
                 "is_default": True,
             }
-            keys = self._profile_storage_keys_for_row(row, fighter_base, owner_base)
+            # Key by fighter_base when available (duplicate-char path), always also
+            # key by owner_base so the runtime snap lookup finds it by either key.
+            keys = set()
+            if fighter_base:
+                keys.add(fighter_base)
+            if owner_base:
+                keys.add(owner_base)
             for key in keys:
                 if key not in self._slot_assist_profiles:
                     self._slot_assist_profiles[key] = profile
-            if slot_label and slot_label not in self._slot_assist_profiles_by_slot:
-                self._slot_assist_profiles_by_slot[slot_label] = profile
-            if team_label and team_label not in self._slot_assist_profiles_by_team:
-                self._slot_assist_profiles_by_team[team_label] = profile
 
     def _record_slot_profile(self, h: dict, raw_val: int | None, label: str = "assist") -> None:
             fighter_base = int(h.get("fighter_base") or 0)
             owner_base = int(h.get("owner_base") or (_owning_chr_tbl(int(h.get("addr", h.get("block", 0)))) or 0))
-            requested_owner = self._profile_requested_owner_base_for_row(h, owner_base)
             char_id = int(h.get("char_id") or 0)
-            row = dict(h)
-            slot_label = str(row.get("slot_label") or row.get("fighter_label") or "")
-            team_label = str(row.get("team_label") or (slot_label.split("-", 1)[0] if slot_label else ""))
-            if slot_label:
-                row.setdefault("slot_label", slot_label)
-            if team_label:
-                row.setdefault("team_label", team_label)
-            row.setdefault("requested_owner_base", int(requested_owner or 0))
-            row.setdefault("_requested_owner_base", int(requested_owner or 0))
-            row.setdefault("route_owner_base", int(owner_base or 0))
-            row.setdefault("_route_owner_base", int(owner_base or 0))
             profile = {
                 "word": None if raw_val is None else (int(raw_val) & 0xFFFFFFFF),
                 "label": str(label or "assist"),
-                "row": row,
-                "fighter_base": fighter_base or requested_owner or owner_base,
+                "row": dict(h),
+                "fighter_base": fighter_base or owner_base,
                 "owner_base": owner_base,
-                "requested_owner_base": requested_owner,
-                "slot_label": slot_label,
-                "team_label": team_label,
                 "char_id": char_id,
                 "is_default": raw_val is None,
             }
-            keys = self._profile_storage_keys_for_row(row, fighter_base, owner_base)
+            # Key by fighter_base (duplicate-char) and owner_base. An explicit set
+            # always overwrites both keys so the runtime snap lookup is always fresh.
+            keys = set()
+            if fighter_base:
+                keys.add(fighter_base)
+            if owner_base:
+                keys.add(owner_base)
             for key in keys:
                 self._slot_assist_profiles[key] = profile
-            if slot_label:
-                self._slot_assist_profiles_by_slot[slot_label] = profile
-            if team_label:
-                self._slot_assist_profiles_by_team[team_label] = profile
 
     def _write_many_silent(self, writes: dict[int, bytes]) -> bool:
         if wbytes is None:
@@ -8373,7 +7292,11 @@ class AssistScannerWindow:
             return None
 
     def _snap_is_assist_attack(self, snap: dict) -> bool:
-        """Return True when main.py says this fighter is in assist attack."""
+        """Return True when main.py says this fighter is being called as assist.
+
+        Main already resolves attA/attB into mv_id_display and mv_label. Treat
+        the whole assist-attack family as a trigger, not just literal 426.
+        """
         if not snap:
             return False
         mv = self._snap_assist_state_id(snap)
@@ -8381,27 +7304,6 @@ class AssistScannerWindow:
             return True
         label = str(snap.get("mv_label") or "").strip().lower()
         return label == "assist attack" or "assist attack" in label
-
-    def _snap_is_assist_call(self, snap: dict) -> bool:
-        """Return True while this fighter is in the assist call window.
-
-        430/424/etc are included because the shared selector may be read before
-        the visible 426 attack body.  _runtime_patch_from_main gates this by
-        state edges, so standby does not spam-write or let the later mirror slot
-        win every frame.
-        """
-        if not snap:
-            return False
-        mv = self._snap_assist_state_id(snap)
-        if mv in ASSIST_RUNTIME_ATTACK_STATES or mv in ASSIST_RUNTIME_PREFETCH_STATES:
-            return True
-        label = str(snap.get("mv_label") or "").strip().lower()
-        return (
-            label == "assist attack"
-            or "assist attack" in label
-            or "assist standby" in label
-            or "assist jump" in label
-        )
 
     def _set_runtime_status_from_main(self, text: str) -> None:
         try:
@@ -8421,8 +7323,7 @@ class AssistScannerWindow:
         ordered_keys = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
         ordered_keys.extend(k for k in snaps.keys() if k not in ordered_keys)
 
-        candidates: list[tuple[int, int, str, dict, int, bool, int | None, int | None]] = []
-        for order_i, slot_label in enumerate(ordered_keys):
+        for slot_label in ordered_keys:
             snap = snaps.get(slot_label)
             if not snap:
                 continue
@@ -8434,102 +7335,64 @@ class AssistScannerWindow:
                 continue
 
             state = self._snap_assist_state_id(snap)
-            is_call = self._snap_is_assist_call(snap)
-            latch_key = str(slot_label)
-            was_call = bool(self._main_last_assist_attack_by_slot.get(latch_key, False))
-            prev_state = self._main_last_assist_state_by_slot.get(latch_key)
 
-            self._main_last_assist_attack_by_slot[latch_key] = bool(is_call)
-            self._main_last_assist_state_by_slot[latch_key] = int(state) if state is not None else None
-            # Keep legacy base maps loosely in sync for diagnostics/old clear paths.
-            self._main_last_assist_attack_by_base[fighter_base] = bool(is_call)
-            self._main_last_assist_state_by_base[fighter_base] = int(state) if state is not None else None
-
-            if not is_call:
-                continue
-
-            state_int = int(state or -1)
-            prev_int = int(prev_state) if prev_state is not None else None
-            state_changed = (prev_int != state_int)
-            entering_call = not was_call
-            entered_attack = state_int in ASSIST_RUNTIME_ATTACK_STATES and (prev_int not in ASSIST_RUNTIME_ATTACK_STATES)
-            entered_prefetch = state_int in ASSIST_RUNTIME_PREFETCH_STATES and (prev_int not in ASSIST_RUNTIME_PREFETCH_STATES)
-
-            if not (entering_call or state_changed or entered_attack or entered_prefetch):
-                continue
-
-            pri = ASSIST_RUNTIME_STATE_PRIORITY.get(state_int, 0)
-            edge_bonus = 0
-            if entered_attack:
-                edge_bonus += 3000
-            if entering_call:
-                edge_bonus += 2000
-            if entered_prefetch:
-                edge_bonus += 1200
-            if state_changed:
-                edge_bonus += 500
-
-            # Stable P1-first tie break for simultaneous mirror false edges.
-            candidates.append((edge_bonus + pri, -order_i, str(slot_label), snap, fighter_base, was_call, prev_int, state_int))
-
-        if not candidates:
-            return
-
-        candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        _score, _order_key, slot_label, snap, fighter_base, was_call, prev_state, state = candidates[0]
-        team_label = str(slot_label).split("-", 1)[0]
-
-        # Exact slot profile first, then team fallback. Team fallback is needed
-        # when the selected point calls its partner, but it must not hide a
-        # directly-selected mirror slot profile.
-        profile = self._slot_assist_profiles_by_slot.get(str(slot_label))
-        if profile is None:
-            profile = self._slot_assist_profiles_by_team.get(team_label)
-        if profile is None:
             profile = self._slot_assist_profiles.get(fighter_base)
-        if profile is None:
-            owner_for_fighter = _owner_base_for_fighter_base(fighter_base)
-            if owner_for_fighter is not None:
-                profile = self._slot_assist_profiles.get(int(owner_for_fighter))
+            if profile is None:
+                # Non-duplicate path: profile keyed on owner_base (CHR_TBL slot index).
+                fi = next((i for i, b in enumerate(_FIGHTER_BASES) if b == fighter_base), None)
+                if fi is not None and fi < len(_CHR_TBL_BASES):
+                    profile = self._slot_assist_profiles.get(_CHR_TBL_BASES[fi])
 
-        if not profile:
-            msg_key = (fighter_base, int(state or -1))
-            if self._main_last_patch_key != msg_key:
-                self._main_last_patch_key = msg_key
+            is_attack = self._snap_is_assist_attack(snap)
+            was_attack = bool(self._main_last_assist_attack_by_base.get(fighter_base, False))
+            self._main_last_assist_attack_by_base[fighter_base] = bool(is_attack)
+
+            if not profile:
+                if is_attack and not was_attack:
+                    msg_key = (fighter_base, int(state or -1))
+                    if self._main_last_patch_key != msg_key:
+                        self._main_last_patch_key = msg_key
+                        self._set_runtime_status_from_main(
+                            f"Auto Assist Trigger ON - {slot_label} assist attack edge, no profile for 0x{fighter_base:08X}."
+                        )
+                continue
+
+            row = dict(profile.get("row", {}) or {})
+            typ = str(row.get("typ", ""))
+            char_id = int(profile.get("char_id") or row.get("char_id") or 0)
+            is_vjoe_static = (char_id == VJOE_CHAR_ID or typ == "u32-vjoe-trampoline")
+
+            if is_vjoe_static and bool(getattr(self, "_vjoe_static_direct_enabled", True)):
+                # VJoe static-direct mode is intentionally not runtime-driven.
+                # The selected chr_tbl[426] value is written immediately when chosen
+                # and left at rest. The 430 standby/prearm path tested worse.
+                continue
+
+            # Normal selector/graft characters can still patch on the 426
+            # assist-attack edge because their selector is read inside 426.
+            # If VJoe Static Direct is OFF, VJoe also falls through to this older
+            # attack-edge behavior as a comparison/debug path.
+            if not is_attack or was_attack:
+                continue
+            event_text = "assist attack edge"
+
+            raw_obj = profile.get("word", None)
+            raw_val = None if raw_obj is None else (int(raw_obj) & 0xFFFFFFFF)
+
+            if self._apply_profile_silent(profile):
+                patch_key = (fighter_base, -1 if raw_val is None else raw_val, int(state or -1), 1 if is_vjoe_static else 0)
+                if self._main_last_patch_key != patch_key:
+                    self._main_last_patch_key = patch_key
+                    fighter_label = row.get("fighter_label") or slot_label
+                    prof_label = str(profile.get("label", "assist"))
+                    word_txt = "default" if raw_val is None else f"0x{raw_val:08X}"
+                    self._set_runtime_status_from_main(
+                        f"Auto Assist Trigger ON - {fighter_label} {event_text}; wrote {prof_label} {word_txt}."
+                    )
+            else:
                 self._set_runtime_status_from_main(
-                    f"Auto Assist Trigger ON - {slot_label} assist call edge, no profile for 0x{fighter_base:08X}."
+                    f"Auto Assist Trigger ON - {slot_label} {event_text}, write failed."
                 )
-            return
-
-        row = dict(profile.get("row", {}) or {})
-        typ = str(row.get("typ", ""))
-        char_id = int(profile.get("char_id") or row.get("char_id") or 0)
-        is_vjoe_static = (char_id == VJOE_CHAR_ID or typ == "u32-vjoe-trampoline")
-
-        if is_vjoe_static and bool(getattr(self, "_vjoe_static_direct_enabled", True)):
-            return
-
-        raw_obj = profile.get("word", None)
-        raw_val = None if raw_obj is None else (int(raw_obj) & 0xFFFFFFFF)
-        volnutt_weapon = profile.get("volnutt_weapon")
-        weapon_key = -1 if volnutt_weapon is None else int(volnutt_weapon)
-        desired_key = (team_label, -1 if raw_val is None else raw_val, weapon_key, int(state or -1), 1 if is_vjoe_static else 0)
-
-        if self._main_last_patch_key == desired_key:
-            return
-
-        if self._apply_profile_silent(profile):
-            self._main_last_patch_key = desired_key
-            fighter_label = row.get("fighter_label") or slot_label
-            prof_label = str(profile.get("label", "assist"))
-            word_txt = "default" if raw_val is None else f"0x{raw_val:08X}"
-            self._set_runtime_status_from_main(
-                f"Auto Assist Trigger ON - {fighter_label} assist call edge; team {team_label}; state {int(state or -1)} prev {prev_state if prev_state is not None else 'none'}; wrote {prof_label} {word_txt}."
-            )
-        else:
-            self._set_runtime_status_from_main(
-                f"Auto Assist Trigger ON - {slot_label} assist call edge, write failed."
-            )
 
     def _toggle_vjoe_static_direct(self) -> None:
         self._vjoe_static_direct_enabled = not bool(getattr(self, "_vjoe_static_direct_enabled", True))
@@ -8551,11 +7414,8 @@ class AssistScannerWindow:
             self._runtime_last_profile_key = None
             self._main_last_patch_key = None
             self._main_last_assist_attack_by_base.clear()
-            self._main_last_assist_state_by_base.clear()
-            self._main_last_assist_attack_by_slot.clear()
-            self._main_last_assist_state_by_slot.clear()
             self._main_patch_latch_by_base.clear()
-            self._status.set("Auto Assist Trigger ON - main.py only; mirror-safe attack-edge graft switching.")
+            self._status.set("Auto Assist Trigger ON - main.py only; patches VJoe on standby 430 and others on assist attack.")
         else:
             self._status.set("Auto Assist Trigger OFF")
 
@@ -8719,20 +7579,6 @@ _inst = None
 def tick_assist_profiles_from_main(snaps: dict) -> None:
     """Called once per HUD frame from main.py after snapshots are built."""
     update_assist_context_from_main(snaps)
-    try:
-        _persistent_schedule_reapply_from_snaps(snaps)
-    except Exception as e:
-        try:
-            print(f"[assist persist] schedule failed: {e!r}")
-        except Exception:
-            pass
-    try:
-        _prewarm_quick_routes_from_snaps(snaps)
-    except Exception as e:
-        try:
-            print(f"[assist quick] prewarm failed: {e!r}")
-        except Exception:
-            pass
     inst = _inst
     try:
         if inst is not None:
