@@ -262,56 +262,431 @@ class FDCellEditorsMixin:
             self.tree.set(item, "blockstun", U.fmt_stun(new_val))
             mv["blockstun"] = new_val
 
-    # ----- Knockback -----
+    # ----- Knockback / launch packet -----
 
-    def _edit_knockback(self, item, mv, _current: str):
-        cur_k0 = mv.get("kb0", 0) or 0
-        cur_k1 = mv.get("kb1", 0) or 0
-        cur_t = mv.get("kb_traj", 0) or 0
+    def _refresh_kb_cells(self, item, mv) -> None:
+        """Refresh the split hit/launch columns if this tree build has them."""
+        try:
+            cols = set(self.tree["columns"])
+        except Exception:
+            cols = set()
+        updates = {
+            "hitstun": U.fmt_stun(mv.get("hitstun")),
+            "blockstun": U.fmt_stun(mv.get("blockstun")),
+            "hitstop": U.fmt_stun(mv.get("hitstop")),
+            "kb_type": U.fmt_kb_type_ui(mv),
+            "launch_profile": U.fmt_launch_profile_ui(mv),
+            "kb_unknown": U.fmt_kb_unknown_ui(mv),
+            "kb_x": U.fmt_kb_x_ui(mv),
+            "air_kb": U.fmt_air_kb_ui(mv),
+            "kb": U.fmt_knockback_packet_ui(mv),
+        }
+        for col, val in updates.items():
+            if col in cols:
+                try:
+                    self.tree.set(item, col, val)
+                except Exception:
+                    pass
+
+    def _parse_int_for_fd(self, txt: str) -> int:
+        txt = (txt or "").strip()
+        if not txt:
+            return 0
+        return int(txt, 16) if txt.lower().startswith("0x") else int(txt, 10)
+
+    def _edit_single_kb_field(
+        self,
+        item,
+        mv,
+        *,
+        title: str,
+        label: str,
+        column: str,
+        mv_key: str,
+        writer_key: str,
+        current_text: str,
+        help_text: str,
+        suggestions: list[tuple[str, object]],
+        parser,
+        formatter,
+    ):
+        if mv.get("knockback_addr") is None:
+            messagebox.showerror(title, "KB/launch packet not found for this row.")
+            return
 
         dlg = tk.Toplevel(self.root)
-        dlg.title("Edit Knockback")
-        dlg.geometry("400x300")
+        dlg.title(title)
+        dlg.geometry("460x240")
+        dlg.transient(self.root)
+        dlg.resizable(False, False)
 
-        tk.Label(dlg, text="Knockback Editor", font=("Arial", 12, "bold")).pack(pady=5)
+        tk.Label(dlg, text=label, font=("Arial", 11, "bold")).pack(pady=(10, 3))
+        tk.Label(dlg, text=help_text, fg="gray", wraplength=430, justify="left").pack(padx=12, pady=(0, 8), anchor="w")
 
-        tk.Label(dlg, text="Knockback 0 (Vertical Distance):", justify="left").pack(anchor="w", padx=10)
-        k0v = tk.IntVar(value=cur_k0)
-        tk.Entry(dlg, textvariable=k0v, width=10).pack(anchor="w", padx=10)
+        row = tk.Frame(dlg)
+        row.pack(fill="x", padx=14, pady=4)
+        tk.Label(row, text="Value:", width=10, anchor="w").pack(side="left")
+        var = tk.StringVar(value=current_text)
+        ent = tk.Entry(row, textvariable=var, width=18)
+        ent.pack(side="left")
+        ent.focus_set()
+        ent.selection_range(0, "end")
 
-        tk.Label(dlg, text="Knockback 1 (Horizontal Distance):", justify="left").pack(anchor="w", padx=10, pady=(10, 0))
-        k1v = tk.IntVar(value=cur_k1)
-        tk.Entry(dlg, textvariable=k1v, width=10).pack(anchor="w", padx=10)
+        if suggestions:
+            sug = tk.LabelFrame(dlg, text="Suggested values")
+            sug.pack(fill="x", padx=14, pady=(8, 6))
+            for i, (txt, val) in enumerate(suggestions):
+                tk.Button(sug, text=txt, width=12, command=lambda v=val: var.set(formatter(v))).grid(
+                    row=0, column=i, padx=3, pady=5
+                )
 
-        tk.Label(dlg, text="Trajectory (Angle):", justify="left").pack(anchor="w", padx=10, pady=(10, 0))
-        tk.Label(
-            dlg,
-            text="Common: 0xBD=Up Forward, 0xBE=Down Forward, 0xBC=Up, 0xC4=Pop",
-            font=("Arial", 9),
-            fg="gray",
-            justify="left",
-        ).pack(anchor="w", padx=10)
-        tv = tk.StringVar(value=f"0x{cur_t:02X}")
-        tk.Entry(dlg, textvariable=tv, width=10).pack(anchor="w", padx=10)
+        btns = tk.Frame(dlg)
+        btns.pack(pady=10)
 
         def on_ok():
             try:
-                k0 = int(k0v.get())
-                k1 = int(k1v.get())
-                t_str = (tv.get() or "").strip()
-                t = int(t_str, 16) if t_str.lower().startswith("0x") else int(t_str, 16)
+                value = parser(var.get())
             except Exception:
-                messagebox.showerror("Error", "Invalid knockback values")
+                messagebox.showerror(title, "Invalid value.")
                 return
 
-            if U.WRITER_AVAILABLE and U.write_knockback(mv, k0, k1, t):
-                self.tree.set(item, "kb", f"K0:{k0} K1:{k1} {U.fmt_kb_traj_ui(t)}")
-                mv["kb0"] = k0
-                mv["kb1"] = k1
-                mv["kb_traj"] = t
+            kwargs = {writer_key: value}
+            if U.WRITER_AVAILABLE and U.write_knockback(mv, **kwargs):
+                mv[mv_key] = value
+                self.tree.set(item, column, formatter(value))
+                try:
+                    self._apply_row_tags(item, mv)
+                    self._set_status_for_item(item, mv)
+                except Exception:
+                    pass
+                dlg.destroy()
+            else:
+                messagebox.showerror(title, "Failed to write value.")
+
+        tk.Button(btns, text="OK", width=10, command=on_ok).pack(side="left", padx=5)
+        tk.Button(btns, text="Cancel", width=10, command=dlg.destroy).pack(side="left", padx=5)
+        dlg.bind("<Return>", lambda _e: on_ok())
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+
+    def _edit_launch_profile(self, item, mv, current: str):
+        cur = mv.get("launch_profile")
+        current_text = current if current else ("" if cur is None else str(int(cur)))
+        self._edit_single_kb_field(
+            item,
+            mv,
+            title="Edit Recovery Profile",
+            label="Recovery profile",
+            column="launch_profile",
+            mv_key="launch_profile",
+            writer_key="launch_profile",
+            current_text=current_text,
+            help_text=(
+                "This looks like the post-hit recovery/fall profile. Changing it can keep the opponent "
+                "locked in recovery longer and make them drift down more slowly after hitstun. It does not pick the hit reaction animation by itself."
+            ),
+            suggestions=[("0 normal", 0), ("22 short", 22), ("55 long", 55)],
+            parser=lambda txt: self._parse_int_for_fd(txt) & 0xFFFFFFFF,
+            formatter=lambda v: str(int(v)),
+        )
+
+    def _edit_kb_unknown(self, item, mv, current: str):
+        cur = mv.get("kb_unknown")
+        current_text = current if current else ("0x00000000" if cur is None else f"0x{int(cur) & 0xFFFFFFFF:08X}")
+        self._edit_single_kb_field(
+            item,
+            mv,
+            title="Edit KB Unknown",
+            label="KB unknown word",
+            column="kb_unknown",
+            mv_key="kb_unknown",
+            writer_key="kb_unknown",
+            current_text=current_text,
+            help_text="Unknown +0x08 word in the KB packet. Most confirmed normal packets use zero. Keep zero unless testing.",
+            suggestions=[("zero", 0)],
+            parser=lambda txt: self._parse_int_for_fd(txt) & 0xFFFFFFFF,
+            formatter=lambda v: f"0x{int(v) & 0xFFFFFFFF:08X}",
+        )
+
+    def _edit_kb_x(self, item, mv, current: str):
+        cur = mv.get("kb_x")
+        current_text = current if current else ("" if cur is None else f"{float(cur):.6g}")
+        self._edit_single_kb_field(
+            item,
+            mv,
+            title="Edit KB X",
+            label="Ground KB X",
+            column="kb_x",
+            mv_key="kb_x",
+            writer_key="kb_x",
+            current_text=current_text,
+            help_text=(
+                "Grounded or standing horizontal knockback. Larger positive values push or launch farther. "
+                "Zero removes most horizontal push. This can also affect how fast the victim falls during launch-style reactions."
+            ),
+            suggestions=[("-0.08", -0.08), ("-0.04", -0.04), ("0", 0.0), ("6", 6.0), ("10", 10.0)],
+            parser=lambda txt: float((txt or "0").strip()),
+            formatter=lambda v: U._fmt_float_trim(v),
+        )
+
+    def _edit_air_kb(self, item, mv, current: str):
+        cur = mv.get("air_kb")
+        current_text = current if current else ("" if cur is None else f"{float(cur):.6g}")
+        self._edit_single_kb_field(
+            item,
+            mv,
+            title="Edit Arc",
+            label="Arc / air KB",
+            column="air_kb",
+            mv_key="air_kb",
+            writer_key="air_kb",
+            current_text=current_text,
+            help_text=(
+                "Airborne or relaunch arc value. Higher positive values usually give a higher or longer arc. "
+                "This appears to control the lower relaunch behavior when an airborne opponent is hit."
+            ),
+            suggestions=[("0.05", 0.05), ("0.08", 0.08), ("17", 17.0), ("50", 50.0), ("-0.16", -0.16)],
+            parser=lambda txt: float((txt or "0").strip()),
+            formatter=lambda v: U._fmt_float_trim(v),
+        )
+
+    def _edit_knockback(self, item, mv, _current: str):
+        """Edit each hit physics field independently.
+
+        This intentionally does not use whole-move presets. Each suggested button only
+        fills one value, so the user can mix/piece-meal fields without copying a move.
+        """
+        cur_type = mv.get("kb_type")
+        cur_profile = mv.get("launch_profile")
+        cur_unknown = mv.get("kb_unknown")
+        cur_x = mv.get("kb_x")
+        cur_air = mv.get("air_kb")
+        cur_hs = mv.get("hitstun")
+        cur_bs = mv.get("blockstun")
+        cur_stop = mv.get("hitstop")
+
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Edit Hit Physics Fields")
+        dlg.geometry("760x610")
+        dlg.transient(self.root)
+
+        tk.Label(dlg, text="Hit Physics Fields", font=("Arial", 12, "bold")).pack(pady=5)
+
+        addr = mv.get("knockback_addr")
+        stun_addr = mv.get("stun_addr")
+        info_lines = []
+        if addr:
+            info_lines.append(
+                f"KB packet: 0x{addr:08X} | Type +1 | Launch +4 | Unknown +8 | Ground KB X +C | Air/vertical arc +10"
+            )
+        else:
+            info_lines.append("KB packet: not found for this row")
+        if stun_addr:
+            info_lines.append(
+                f"Stun packet: 0x{stun_addr:08X} | Hitstun +F | Blockstun +1F | Hitstop +26"
+            )
+        else:
+            info_lines.append("Stun packet: not found for this row")
+        tk.Label(dlg, text="\n".join(info_lines), fg="gray", font=("Arial", 9), justify="left").pack(pady=(0, 4))
+
+        body = tk.Frame(dlg)
+        body.pack(fill="both", expand=True, padx=12, pady=4)
+
+        def _parse_int(txt: str) -> int:
+            txt = (txt or "").strip()
+            if not txt:
+                return 0
+            return int(txt, 16) if txt.lower().startswith("0x") else int(txt, 10)
+
+        def _parse_float(txt: str, fallback):
+            txt = (txt or "").strip()
+            if not txt:
+                return fallback
+            return float(txt)
+
+        def _entry_row(parent, row, label, value, help_text, suggestions, parser_kind="text"):
+            tk.Label(parent, text=label, width=20, anchor="w").grid(row=row, column=0, sticky="w", pady=4)
+            var = tk.StringVar(value=value)
+            ent = tk.Entry(parent, textvariable=var, width=16)
+            ent.grid(row=row, column=1, sticky="w", pady=4)
+            tk.Label(parent, text=help_text, fg="gray", anchor="w", justify="left", wraplength=310).grid(
+                row=row, column=2, sticky="w", padx=(8, 0), pady=4
+            )
+            sug_frame = tk.Frame(parent)
+            sug_frame.grid(row=row, column=3, sticky="w", padx=(8, 0), pady=4)
+            for idx, (txt, val) in enumerate(suggestions):
+                def _fmt(v=val):
+                    if parser_kind == "hex8":
+                        return f"0x{int(v) & 0xFF:02X}"
+                    if parser_kind == "hex32":
+                        return f"0x{int(v) & 0xFFFFFFFF:08X}"
+                    if parser_kind == "int":
+                        return str(int(v))
+                    if parser_kind == "float":
+                        return f"{float(v):.6g}"
+                    return str(v)
+                tk.Button(sug_frame, text=txt, width=10, command=lambda v=_fmt: var.set(v())).grid(
+                    row=0, column=idx, padx=2
+                )
+            return var
+
+        kb_box = tk.LabelFrame(body, text="Launch / knockback packet")
+        kb_box.pack(fill="x", pady=(0, 8))
+
+        type_v = _entry_row(
+            kb_box,
+            0,
+            "KB type",
+            f"0x{int(cur_type or 0):02X}",
+            "Packet style. 0x09 is standard small-hit physics; 0x07 is launch-style physics.",
+            [("standard", 0x09), ("launch", 0x07)],
+            parser_kind="hex8",
+        )
+        prof_v = _entry_row(
+            kb_box,
+            1,
+            "Launch profile",
+            str(int(cur_profile or 0)),
+            "Trajectory/fall profile after the reaction is chosen. Does not pick the reaction animation by itself.",
+            [("normal", 0), ("low fall", 22), ("high fall", 55)],
+            parser_kind="int",
+        )
+        unk_v = _entry_row(
+            kb_box,
+            2,
+            "Unknown word",
+            f"0x{int(cur_unknown or 0) & 0xFFFFFFFF:08X}",
+            "Unknown +0x08 word. Most confirmed normals use zero. Keep zero unless testing.",
+            [("zero", 0)],
+            parser_kind="hex32",
+        )
+        x_v = _entry_row(
+            kb_box,
+            3,
+            "Ground KB X",
+            "" if cur_x is None else f"{float(cur_x):.6g}",
+            "Grounded/standing horizontal knockback. Larger positive values push/launch farther; zero removes most X push.",
+            [("-0.08", -0.08), ("-0.04", -0.04), ("0", 0.0), ("6", 6.0), ("10", 10.0)],
+            parser_kind="float",
+        )
+        air_v = _entry_row(
+            kb_box,
+            4,
+            "Air / vertical arc",
+            "" if cur_air is None else f"{float(cur_air):.6g}",
+            "Airborne/relaunch arc value. Higher positive values give a higher/longer relaunch arc; negative values drive downward arcs.",
+            [("0.05", 0.05), ("0.08", 0.08), ("17", 17.0), ("50", 50.0), ("-0.16", -0.16)],
+            parser_kind="float",
+        )
+
+        stun_box = tk.LabelFrame(body, text="Stun timing")
+        stun_box.pack(fill="x", pady=(0, 8))
+
+        hs_v = _entry_row(
+            stun_box,
+            0,
+            "Hitstun",
+            "" if cur_hs is None else str(int(cur_hs)),
+            "Frames the opponent stays in hit reaction before they can recover/act.",
+            [("10", 10), ("17", 17), ("21", 21), ("30", 30)],
+            parser_kind="int",
+        )
+        bs_v = _entry_row(
+            stun_box,
+            1,
+            "Blockstun",
+            "" if cur_bs is None else str(int(cur_bs)),
+            "Frames the opponent stays locked after blocking. Changes block advantage.",
+            [("9", 9), ("10", 10), ("15", 15), ("21", 21)],
+            parser_kind="int",
+        )
+        stop_v = _entry_row(
+            stun_box,
+            2,
+            "Hitstop",
+            "" if cur_stop is None else str(int(cur_stop)),
+            "Freeze frames on impact. Higher values make hits feel heavier without extending hitstun the same way.",
+            [("6", 6), ("8", 8), ("10", 10), ("12", 12)],
+            parser_kind="int",
+        )
+
+        tk.Label(
+            dlg,
+            text=(
+                "Each suggestion only fills that one field. Manual decimal, hex, and float values still work. "
+                "Hit Reaction is separate; this window controls the physics/timing around the reaction."
+            ),
+            fg="gray",
+            wraplength=720,
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(2, 0))
+
+        def on_ok():
+            try:
+                kt = _parse_int(type_v.get()) & 0xFF
+                prof = _parse_int(prof_v.get()) & 0xFFFFFFFF
+                unk = _parse_int(unk_v.get()) & 0xFFFFFFFF
+                kx = _parse_float(x_v.get(), cur_x or 0.0)
+                air = _parse_float(air_v.get(), cur_air or 0.0)
+                hs = _parse_int(hs_v.get()) & 0xFF if hs_v.get().strip() else cur_hs
+                bs = _parse_int(bs_v.get()) & 0xFF if bs_v.get().strip() else cur_bs
+                stop = _parse_int(stop_v.get()) & 0xFF if stop_v.get().strip() else cur_stop
+            except Exception:
+                messagebox.showerror("Error", "Invalid hit physics value")
+                return
+
+            ok = True
+            wrote_any = False
+
+            if mv.get("knockback_addr") is not None:
+                wrote_any = True
+                ok = ok and U.write_knockback(
+                    mv,
+                    launch_profile=prof,
+                    kb_x=kx,
+                    air_kb=air,
+                    kb_type=kt,
+                    kb_unknown=unk,
+                )
+                if ok:
+                    mv["kb_type"] = kt
+                    mv["launch_profile"] = prof
+                    mv["kb_unknown"] = unk
+                    mv["kb_x"] = kx
+                    mv["air_kb"] = air
+                    mv["kb0"] = prof
+                    mv["kb1"] = kt
+                    mv["kb_traj"] = None
+
+            if mv.get("stun_addr") is not None:
+                wrote_any = True
+                if hs is not None:
+                    ok = ok and U.write_hitstun(mv, hs)
+                    if ok:
+                        mv["hitstun"] = hs
+                if bs is not None:
+                    ok = ok and U.write_blockstun(mv, bs)
+                    if ok:
+                        mv["blockstun"] = bs
+                if stop is not None:
+                    ok = ok and U.write_hitstop(mv, stop)
+                    if ok:
+                        mv["hitstop"] = stop
+
+            if not wrote_any:
+                messagebox.showerror("Error", "No editable KB or stun packet was found for this row.")
+                return
+            if not ok:
+                messagebox.showerror("Error", "At least one hit physics write failed.")
+                return
+
+            self._refresh_kb_cells(item, mv)
+            self._apply_row_tags(item, mv)
             dlg.destroy()
 
-        tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
+        bottom = tk.Frame(dlg)
+        bottom.pack(fill="x", pady=10)
+        tk.Button(bottom, text="OK", width=10, command=on_ok).pack(side="left", padx=(280, 6))
+        tk.Button(bottom, text="Cancel", width=10, command=dlg.destroy).pack(side="left")
 
     # ----- Hit reaction -----
 

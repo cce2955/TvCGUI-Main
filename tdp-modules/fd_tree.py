@@ -122,8 +122,9 @@ def build_tree_widget(win) -> ttk.Frame:
         "damage",
         "meter",
         "startup", "active", "active2",
-        "hitstun", "blockstun",
-        "kb", "speed_mod", "attack_property", "hit_reaction",
+        "hitstun", "blockstun", "hitstop",
+        "launch_profile", "kb_unknown", "kb_x", "air_kb",
+        "speed_mod", "attack_property", "hit_reaction",
         "superbg",
         "abs",
     )
@@ -160,7 +161,11 @@ def build_tree_widget(win) -> ttk.Frame:
         "active2": 10,
         "hitstun": 8,
         "blockstun": 8,
-        "kb": 16,
+        "hitstop": 8,
+        "launch_profile": 10,
+        "kb_unknown": 10,
+        "kb_x": 8,
+        "air_kb": 8,
         "speed_mod": 10,
         "attack_property": 14,
         "hit_reaction": 16,
@@ -173,13 +178,17 @@ def build_tree_widget(win) -> ttk.Frame:
         "move": "Move",
         "kind": "Kind",
         "damage": "Dmg",
-        "meter": "Meter",
+        "meter": "Meter Base",
         "startup": "Start",
         "active": "Active",
         "active2": "Active2",
         "hitstun": "HS",
         "blockstun": "BS",
-        "kb": "Knockback",
+        "hitstop": "Stop",
+        "launch_profile": "Recovery",
+        "kb_unknown": "KB U",
+        "kb_x": "KB X",
+        "air_kb": "Arc",
         "speed_mod": "Speed",
         "attack_property": "Property",
         "hit_reaction": "HitReact",
@@ -279,13 +288,17 @@ def build_tree_widget(win) -> ttk.Frame:
         ("move", "Move"),
         ("kind", "Kind"),
         ("damage", "Dmg"),
-        ("meter", "Meter"),
+        ("meter", "Meter Base"),
         ("startup", "Start"),
         ("active", "Active"),
         ("active2", "Active 2"),
         ("hitstun", "HS"),
         ("blockstun", "BS"),
-        ("kb", "Knockback"),
+        ("hitstop", "Stop"),
+        ("launch_profile", "Recovery"),
+        ("kb_unknown", "KB U"),
+        ("kb_x", "KB X"),
+        ("air_kb", "Arc"),
         ("speed_mod", "Speed Mod"),
         ("attack_property", "Attack Property"),
         ("hit_reaction", "Hit Reaction"),
@@ -309,7 +322,11 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("active2", width=98, anchor="center")
     win.tree.column("hitstun", width=52, anchor="center")
     win.tree.column("blockstun", width=52, anchor="center")
-    win.tree.column("kb", width=180, anchor="w")
+    win.tree.column("hitstop", width=52, anchor="center")
+    win.tree.column("launch_profile", width=82, anchor="center")
+    win.tree.column("kb_unknown", width=86, anchor="center")
+    win.tree.column("kb_x", width=70, anchor="center")
+    win.tree.column("air_kb", width=70, anchor="center")
     win.tree.column("speed_mod", width=120, anchor="center")
     win.tree.column("attack_property", width=180, anchor="w")
     win.tree.column("hit_reaction", width=280, anchor="w")
@@ -372,14 +389,11 @@ def populate_tree(win) -> None:
         else:
             active2_txt = _fmt(a2_s or a2_e)
 
-        kb_parts = []
-        if mv.get("kb0") is not None:
-            kb_parts.append(f"K0:{mv['kb0']}")
-        if mv.get("kb1") is not None:
-            kb_parts.append(f"K1:{mv['kb1']}")
-        if mv.get("kb_traj") is not None:
-            kb_parts.append(U.fmt_kb_traj(mv["kb_traj"]))
-        kb_txt = " ".join(kb_parts)
+        launch_profile_txt = U.fmt_launch_profile_ui(mv)
+        kb_unknown_txt = U.fmt_kb_unknown_ui(mv)
+        kb_x_txt = U.fmt_kb_x_ui(mv)
+        air_kb_txt = U.fmt_air_kb_ui(mv)
+        hitstop_txt = U.fmt_stun(mv.get("hitstop"))
 
         speed_txt = ""
         if move_abs:
@@ -447,7 +461,11 @@ def populate_tree(win) -> None:
                 active2_txt,
                 U.fmt_stun(mv.get("hitstun")),
                 U.fmt_stun(mv.get("blockstun")),
-                kb_txt,
+                hitstop_txt,
+                launch_profile_txt,
+                kb_unknown_txt,
+                kb_x_txt,
+                air_kb_txt,
                 speed_txt,
                 attack_property_txt,
                 hr_txt,
@@ -476,7 +494,7 @@ def populate_tree(win) -> None:
             score += 40
         if mv.get("blockstun") is not None:
             score += 40
-        if mv.get("kb0") is not None or mv.get("kb1") is not None:
+        if mv.get("knockback_addr") is not None:
             score += 25
         if mv.get("kind") == "normal":
             score += 10

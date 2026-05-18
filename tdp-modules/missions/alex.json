@@ -6,25 +6,46 @@
       "name": "Power Reset",
       "notes": "You can get more damage off a Powerbomb for the reset.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B", "grace": 8 },
-        { "label": "j.B (second hit)", "grace": 8 },
-        { "label": "Air Powerbomb" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B",
+          "grace": 8
+        },
+        {
+          "label": "j.B (second hit)",
+          "grace": 8
+        },
+        {
+          "label": "Air Powerbomb"
+        }
       ]
     },
-{
-  "mission_id": "alex_002",
-  "name": "Air Powerbomb",
-  "notes": "j.B j.B into Air Powerbomb.",
-  "setup_debug_flags": {
-    "CpuAction": 2
-  },
-  "steps": [
-        { "label": "j.B" },
-        { "label": "j.B (second hit)", "grace": 2 },
-        { "label": "Air Powerbomb" }
+    {
+      "mission_id": "alex_002",
+      "name": "Air Powerbomb",
+      "notes": "j.B j.B into Air Powerbomb.",
+      "setup_debug_flags": {
+        "CpuAction": 2
+      },
+      "steps": [
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)",
+          "grace": 2
+        },
+        {
+          "label": "Air Powerbomb"
+        }
       ]
     },
     {
@@ -32,12 +53,24 @@
       "name": "Stomp Route",
       "notes": "Double low into elbow chain.",
       "steps": [
-        { "label": "2A" },
-        { "label": "2B" },
-        { "label": "2C" },
-        { "label": "Slash Elbow H" },
-        { "label": "Slash Elbow M" },
-        { "label": "Wild Stomp C" }
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Slash Elbow H"
+        },
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "Wild Stomp C"
+        }
       ]
     },
     {
@@ -48,7 +81,9 @@
         "CpuGuard": 2
       },
       "steps": [
-        { "label": "Machine Gun Chop" }
+        {
+          "label": "Machine Gun Chop"
+        }
       ]
     },
     {
@@ -56,11 +91,21 @@
       "name": "Low Stomp",
       "notes": "Low starter into stomp ender.",
       "steps": [
-        { "label": "2B" },
-        { "label": "2C" },
-        { "label": "6C" },
-        { "label": "Slash Elbow M" },
-        { "label": "Wild Stomp C" }
+        {
+          "label": "2B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "Wild Stomp C"
+        }
       ]
     },
     {
@@ -68,10 +113,18 @@
       "name": "Heavy Stomp",
       "notes": "Heavy starter into stomp ender.",
       "steps": [
-        { "label": "5C" },
-        { "label": "2C" },
-        { "label": "Slash Elbow M" },
-        { "label": "Wild Stomp C" }
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "Wild Stomp C"
+        }
       ]
     },
     {
@@ -79,13 +132,27 @@
       "name": "Suplex",
       "notes": "Flash Chop B into Baroque extension, then Powerbomb.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "Flash Chop B" },
-        { "label": "Baroque cancel" },
-        { "label": "Flash Chop C" },
-        { "label": "Powerbomb" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "Flash Chop C"
+        },
+        {
+          "label": "Powerbomb"
+        }
       ]
     },
     {
@@ -93,15 +160,33 @@
       "name": "Stungun Loop",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "Flash Chop B" },
-        { "label": "Stungun Near" },
-        { "label": "2B" },
-        { "label": "2C" },
-        { "label": "Slash Elbow H" },
-        { "label": "Slash Elbow M" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Stungun Near"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Slash Elbow H"
+        },
+        {
+          "label": "Slash Elbow M"
+        }
       ]
     },
     {
@@ -109,16 +194,36 @@
       "name": "Baroque BnB",
       "notes": "Baroque route into Wild Stomp C.The beginning needs some space of the elbow slash won't work, also the j.B should be used with an IAD",
       "steps": [
-        { "label": "2A" },
-        { "label": "2B" },
-        { "label": "2C" },
-        { "label": "Slash Elbow M" },
-        { "label": "Baroque cancel" },
-        { "label": "j.B" },
-        { "label": "5B" },
-        { "label": "Slash Elbow H" },
-        { "label": "Slash Elbow M" },
-        { "label": "Wild Stomp C" }
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "Slash Elbow H"
+        },
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "Wild Stomp C"
+        }
       ]
     },
     {
@@ -126,22 +231,54 @@
       "name": "Corner Damage",
       "notes": "Corner only. As you may have noticed by looking at this hint if you're too close to the corner they'll fly away from it, this engine is a rollercoaster",
       "steps": [
-        { "label": "2B" },
-        { "label": "2C" },
-        { "label": "Slash Elbow M" },
-        { "label": "Baroque cancel" },
-        { "label": "j.B" },
-        { "label": "5B" },
-        { "label": "Slash Elbow M" },
-        { "label": "2A" },
-        { "label": "2B" },
-        { "label": "2C" },
-        { "label": "Slash Elbow H" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "2C" },
-        { "label": "Slash Elbow M" },
-        { "label": "Wild Stomp C" }
+        {
+          "label": "2B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Slash Elbow H"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "Wild Stomp C"
+        }
       ]
     },
     {
@@ -149,16 +286,36 @@
       "name": "Hyper Route",
       "notes": "Get Hype",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "Flash Chop B" },
-        { "label": "Baroque cancel" },
-        { "label": "Flash Chop C" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "Flash Chop B" },
-        { "label": "Hyperbomb" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "Flash Chop C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Hyperbomb"
+        }
       ]
     },
     {
@@ -166,12 +323,25 @@
       "name": "Challenge",
       "notes": "Some moves are missing, fill in the blank",
       "steps": [
-        { "label": "Slash Elbow M" },
-        { "label": "j.C" },
-        { "label": "VAR", "pass": true },
-        { "label": "j.C" },
-        { "label": "Slash Elbow H" },
-        { "label": "Wild Stomp C" }
+        {
+          "label": "Slash Elbow M"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "VAR",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Slash Elbow H"
+        },
+        {
+          "label": "Wild Stomp C"
+        }
       ]
     },
     {
@@ -179,9 +349,15 @@
       "name": "Challenge 2",
       "notes": "A hit after stungun always produces an airborne hit, but what if there was a way to cancel it out? Some moves are missing, fill in the blanks ",
       "steps": [
-        { "label": "Stungun Near" },
-        { "label": "Flash Chop B" },
-        { "label": "Hyperbomb" }
+        {
+          "label": "Stungun Near"
+        },
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Hyperbomb"
+        }
       ]
     },
     {
@@ -213,9 +389,40 @@
       "name": "VAR Powerbomb",
       "notes": "",
       "steps": [
-        { "label": "VAR" },
-        { "label": "j.B" },
-        { "label": "Air Powerbomb" }
+        {
+          "label": "VAR"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Powerbomb"
+        }
+      ]
+    },
+    {
+      "mission_id": "alex_017",
+      "name": "Flash Chop Loop",
+      "notes": "",
+      "steps": [
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Flash Chop C"
+        },
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Flash Chop B"
+        },
+        {
+          "label": "Boomerang Raid"
+        }
       ]
     }
   ]

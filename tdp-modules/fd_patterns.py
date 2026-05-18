@@ -184,7 +184,11 @@ def _score_speed_candidate(buf: bytes, i: int, value_off: int, move_abs: int) ->
     except Exception:
         pass
     # Full packet tail is stronger than 04 17 alone.
-    if value_off + 4 <= len(buf) and buf[value_off + 1:value_off + 4] == b"\x04\x17\x60":
+    if (
+        value_off + 4 <= len(buf)
+        and buf[value_off + 1:value_off + 3] == b"\x04\x17"
+        and buf[value_off + 3] in (0x60, 0x67)
+    ):
         score += 45
     elif value_off + 2 <= len(buf) and buf[value_off + 1:value_off + 3] == b"\x04\x17":
         score += 20
@@ -206,7 +210,7 @@ def find_speed_mod_addr(
     Speed modifier locator.
 
     Strong packet shape:
-        20 3F 00 00 00 XX 04 17 60 00
+        20 3F 00 00 00 XX 04 17 60/67 00
                          ^^ speed byte
 
     Older fallback shape:

@@ -69,7 +69,7 @@ def _open_legacy_viewer(slot_label, target_slot):
         ("move", "Move"),
         ("kind", "Kind"),
         ("damage", "Dmg"),
-        ("meter", "Meter"),
+        ("meter", "Meter Base"),
         ("startup", "Start"),
         ("active", "Active"),
         ("hitstun", "HS"),

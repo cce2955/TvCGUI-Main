@@ -1,0 +1,38 @@
+--- mission_manager.py
++++ mission_manager.py
+@@ -89,6 +89,8 @@
+ MISSION_GENERIC_VAR_LABELS = {"VAR", "var"}
+ 
+ MISSION_SELF_VAR_MISSIONS = {"alex_011"}
++
++MISSION_METER_REFILL_MISSIONS = {"ryu_008", "saki_009", "alex_017"}
+ 
+ DORONJO_DAMAGE_PASS: dict[str, set] = {
+     "clutch a": {2}, "clutch b": {2}, "clutch c": {2},
+@@ -382,7 +384,7 @@
+ 
+     def write_mode_state(self) -> None:
+         if not self._active_slot:
+-            if self._runtime.get("saved_meter_flag_mission") in {"ryu_008", "saki_009"}:
++            if self._runtime.get("saved_meter_flag_mission") in MISSION_METER_REFILL_MISSIONS:
+                 saved = self._runtime.get("saved_p1meter_flag")
+                 if saved is not None:
+                     self._write_debug_flag("P1Meter", int(saved))
+@@ -1121,13 +1123,13 @@
+         frame_damage = sum(int(x) for x in damage_values)
+         baroque_pool_adjusted = bool(snap.get("baroque_cancel_raw"))
+ 
+-        # ryu_008 / saki_009 meter gate
+-        if mission_id in {"ryu_008", "saki_009"}:
++        # Meter-refill mission gate. Refill outside combo, disable refill during combo.
++        if mission_id in MISSION_METER_REFILL_MISSIONS:
+             meter_val = int(snap.get("meter", 0) or 0)
+-            if self._runtime.get("saved_meter_flag_mission") != "ryu_008":
++            if self._runtime.get("saved_meter_flag_mission") != mission_id:
+                 self._runtime["saved_p1meter_flag"] = int(self._read_debug_flag("P1Meter") or 0)
+                 self._runtime["saved_baroque_flag"] = int(self._read_debug_flag("BaroquePct") or 0)
+-                self._runtime["saved_meter_flag_mission"] = "ryu_008"
++                self._runtime["saved_meter_flag_mission"] = mission_id
+             self._write_debug_flag("BaroquePct", 1)
+             if opponent_in_hitstun:
+                 self._write_debug_flag("P1Meter", 0)

@@ -326,6 +326,103 @@ def fmt_kb_traj_ui(val: int | None) -> str:
     return f"0x{val:02X} ({desc})"
 
 
+
+
+def _fmt_float_trim(v: Any) -> str:
+    if v is None:
+        return ""
+    try:
+        f = float(v)
+    except Exception:
+        return str(v)
+    if not math.isfinite(f):
+        return str(v)
+    txt = f"{f:.3f}".rstrip("0").rstrip(".")
+    if txt == "-0":
+        txt = "0"
+    return txt
+
+
+def fmt_knockback_packet_ui(mv: dict | None) -> str:
+    if not mv:
+        return ""
+    if mv.get("knockback_addr") is None:
+        return ""
+    parts: list[str] = []
+    kt = mv.get("kb_type")
+    if kt is not None:
+        try:
+            parts.append(f"H35.{int(kt) & 0xFF:02X}")
+        except Exception:
+            parts.append(f"H35.{kt}")
+    prof = mv.get("launch_profile")
+    if prof is not None:
+        try:
+            parts.append(f"P{int(prof)}")
+        except Exception:
+            parts.append(f"P{prof}")
+    unk = mv.get("kb_unknown")
+    try:
+        if unk not in (None, 0):
+            parts.append(f"U0x{int(unk) & 0xFFFFFFFF:08X}")
+    except Exception:
+        if unk:
+            parts.append(f"U{unk}")
+    if mv.get("kb_x") is not None:
+        parts.append(f"X{_fmt_float_trim(mv.get('kb_x'))}")
+    if mv.get("air_kb") is not None:
+        parts.append(f"Air{_fmt_float_trim(mv.get('air_kb'))}")
+    return " ".join(parts)
+
+
+
+def fmt_kb_type_ui(mv: dict | None) -> str:
+    if not mv or mv.get("knockback_addr") is None:
+        return ""
+    kt = mv.get("kb_type")
+    if kt is None:
+        return ""
+    try:
+        return f"35.{int(kt) & 0xFF:02X}"
+    except Exception:
+        return str(kt)
+
+
+def fmt_launch_profile_ui(mv: dict | None) -> str:
+    if not mv or mv.get("knockback_addr") is None:
+        return ""
+    prof = mv.get("launch_profile")
+    if prof is None:
+        return ""
+    try:
+        return str(int(prof))
+    except Exception:
+        return str(prof)
+
+
+def fmt_kb_unknown_ui(mv: dict | None) -> str:
+    if not mv or mv.get("knockback_addr") is None:
+        return ""
+    unk = mv.get("kb_unknown")
+    if unk is None:
+        return ""
+    try:
+        return f"0x{int(unk) & 0xFFFFFFFF:08X}"
+    except Exception:
+        return str(unk)
+
+
+def fmt_kb_x_ui(mv: dict | None) -> str:
+    if not mv or mv.get("knockback_addr") is None:
+        return ""
+    return _fmt_float_trim(mv.get("kb_x"))
+
+
+def fmt_air_kb_ui(mv: dict | None) -> str:
+    if not mv or mv.get("knockback_addr") is None:
+        return ""
+    return _fmt_float_trim(mv.get("air_kb"))
+
 def fmt_hit_reaction_ui(val: int | None) -> str:
     if val is None:
         return ""

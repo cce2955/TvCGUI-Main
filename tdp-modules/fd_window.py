@@ -491,8 +491,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _apply_row_tags(self, item_id: str, mv: dict):
         tags = set(self.tree.item(item_id, "tags") or ())
 
-        kb_txt = self.tree.set(item_id, "kb")
-        if kb_txt.strip():
+        kb_cols = ("launch_profile", "kb_unknown", "kb_x", "air_kb")
+        if any((self.tree.set(item_id, c) or "").strip() for c in kb_cols if c in self.tree["columns"]):
             tags.add("kb_hot")
 
         speed_txt = self.tree.set(item_id, "speed_mod").strip()
@@ -1297,8 +1297,16 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._edit_hitstun(item, mv, current_val)
         elif col_name == "blockstun":
             self._edit_blockstun(item, mv, current_val)
-        elif col_name == "kb":
-            self._edit_knockback(item, mv, current_val)
+        elif col_name == "hitstop":
+            self._edit_hitstop(item, mv, current_val)
+        elif col_name == "launch_profile":
+            self._edit_launch_profile(item, mv, current_val)
+        elif col_name == "kb_unknown":
+            self._edit_kb_unknown(item, mv, current_val)
+        elif col_name == "kb_x":
+            self._edit_kb_x(item, mv, current_val)
+        elif col_name == "air_kb":
+            self._edit_air_kb(item, mv, current_val)
         elif col_name == "hit_reaction":
             self._edit_hit_reaction(item, mv, current_val)
         elif col_name == "superbg":
@@ -1326,9 +1334,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "meter": ("meter_addr", "Meter"),
             "active": ("active_addr", "Active"),
             "active2": ("active2_addr", "Active 2"),
-            "hitstun": ("stun_addr", "Stun"),
-            "blockstun": ("stun_addr", "Stun"),
-            "kb": ("knockback_addr", "Knockback"),
+            "hitstun": ("stun_addr", "Hitstun", 15),
+            "blockstun": ("stun_addr", "Blockstun", 31),
+            "hitstop": ("stun_addr", "Hitstop", 38),
+            "launch_profile": ("knockback_addr", "Recovery Profile", 4),
+            "kb_unknown": ("knockback_addr", "KB Unknown", 8),
+            "kb_x": ("knockback_addr", "KB X", 12),
+            "air_kb": ("knockback_addr", "Arc", 16),
             "speed_mod": ("speed_mod_addr", "Speed Mod"),
             "attack_property": ("attack_property_addr", "Attack Property"),
             "superbg": ("superbg_addr", "SuperBG"),
@@ -1336,8 +1348,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         }
 
         if col_name in addr_map:
-            addr_key, label = addr_map[col_name]
+            addr_info = addr_map[col_name]
+            if len(addr_info) == 3:
+                addr_key, label, addr_offset = addr_info
+            else:
+                addr_key, label = addr_info
+                addr_offset = 0
             addr = mv.get(addr_key)
+            if addr and addr_offset:
+                addr = int(addr) + int(addr_offset)
 
             if addr_key == "speed_mod_addr" and not addr:
                 self._ensure_speed_mod(mv)

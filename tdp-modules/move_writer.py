@@ -7,14 +7,17 @@
 from dolphin_io import wd8, wdf32
 
 # standard offsets we already know
-METER_VALUE_OFFSET = 24
+# meter_addr is now stored as the direct editable value byte by scan_normals_all.collect_blocks.
+METER_VALUE_OFFSET = 0
 ACTIVE_START_OFFSET = 8
 ACTIVE_END_OFFSET   = 16
 DAMAGE_VALUE_OFFSET = 5
 ATKPROP_VALUE_OFFSET = 15
-KNOCKBACK_KB0_OFFSET  = 1
-KNOCKBACK_KB1_OFFSET  = 2
-KNOCKBACK_TRAJ_OFFSET = 12
+KNOCKBACK_TYPE_OFFSET    = 1
+KNOCKBACK_PROFILE_OFFSET = 4  # recovery/fall profile after hit reaction
+KNOCKBACK_UNKNOWN_OFFSET = 8
+KNOCKBACK_X_OFFSET       = 12
+KNOCKBACK_AIR_OFFSET     = 16
 STUN_HITSTUN_OFFSET   = 15
 STUN_BLOCKSTUN_OFFSET = 31
 STUN_HITSTOP_OFFSET   = 38
@@ -26,6 +29,21 @@ FALLBACK_HB_OFFSET = 0x21C
 def _has(mv: dict, key: str) -> bool:
     return key in mv and mv[key] is not None
 
+
+
+def _wd32_be(addr: int, value: int) -> bool:
+    """Write a 32-bit big-endian integer using wd8 only.
+
+    Some unit-test stubs expose wd8/wdf32 but not wd32, so keep move_writer
+    independent of dolphin_io.wd32.
+    """
+    val = int(value) & 0xFFFFFFFF
+    return (
+        wd8(addr, (val >> 24) & 0xFF)
+        and wd8(addr + 1, (val >> 16) & 0xFF)
+        and wd8(addr + 2, (val >> 8) & 0xFF)
+        and wd8(addr + 3, val & 0xFF)
+    )
 
 def write_damage(mv: dict, new_damage: int) -> bool:
     if not _has(mv, "damage_addr"):
@@ -128,20 +146,40 @@ def write_hitstop(mv: dict, new_hitstop: int) -> bool:
         return False
 
 
-def write_knockback(mv: dict, kb0=None, kb1=None, traj=None) -> bool:
+def write_knockback(
+    mv: dict,
+    launch_profile=None,
+    kb_x=None,
+    air_kb=None,
+    kb_type=None,
+    kb_unknown=None,
+) -> bool:
+    """Write the confirmed KB/launch packet.
+
+    Packet layout:
+      +0x01 u8  = packet type (normally 0x07 or 0x09)
+      +0x04 u32 = recovery/fall profile after the hit reaction
+      +0x08 u32 = unknown/unused word
+      +0x0C f32 = KB X for grounded/standing hits
+      +0x10 f32 = arc / Air KB / relaunch behavior
+    """
     if not _has(mv, "knockback_addr"):
         return False
     base = mv["knockback_addr"]
     ok = True
     try:
-        if kb0 is not None:
-            ok = ok and wd8(base + KNOCKBACK_KB0_OFFSET, int(kb0) & 0xFF)
-        if kb1 is not None:
-            ok = ok and wd8(base + KNOCKBACK_KB1_OFFSET, int(kb1) & 0xFF)
-        if traj is not None:
-            ok = ok and wd8(base + KNOCKBACK_TRAJ_OFFSET, int(traj) & 0xFF)
+        if kb_type is not None:
+            ok = ok and wd8(base + KNOCKBACK_TYPE_OFFSET, int(kb_type) & 0xFF)
+        if launch_profile is not None:
+            ok = ok and _wd32_be(base + KNOCKBACK_PROFILE_OFFSET, int(launch_profile) & 0xFFFFFFFF)
+        if kb_unknown is not None:
+            ok = ok and _wd32_be(base + KNOCKBACK_UNKNOWN_OFFSET, int(kb_unknown) & 0xFFFFFFFF)
+        if kb_x is not None:
+            ok = ok and wdf32(base + KNOCKBACK_X_OFFSET, float(kb_x))
+        if air_kb is not None:
+            ok = ok and wdf32(base + KNOCKBACK_AIR_OFFSET, float(air_kb))
         if ok:
-            print(f"[move_writer] wrote knockback @ {base:08X}")
+            print(f"[move_writer] wrote knockback packet @ {base:08X}")
         return ok
     except Exception as e:
         print("[move_writer] write_knockback failed:", e)

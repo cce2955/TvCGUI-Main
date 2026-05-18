@@ -127,12 +127,23 @@ HITREACTION_HDR = [
 HITREACTION_TOTAL_LEN = len(HITREACTION_HDR)
 HITREACTION_CODE_OFF  = 28
 
-KNOCKBACK_HDR = [
-    0x35, None, None, 0x20,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-]
+# KB/launch packet immediately after the hit-reaction block.
+# Confirmed on Ryu:
+#   +0x00 = 35 07/09 00 20 packet header
+#   +0x04 = launch/trajectory profile (u32)
+#   +0x08 = unused/unknown u32, usually 0
+#   +0x0C = KB X (f32) for grounded/standing hits
+#   +0x10 = Air KB / relaunch arc (f32)
+#
+# Do not accept the old loose 35 ?? ?? 20 family here; 35 0D packets tested as
+# hitbox/collision-ish and did not affect knockback.
 KNOCKBACK_TOTAL_LEN = 20
+KNOCKBACK_VALID_TYPES = {0x07, 0x09}
+KNOCKBACK_TYPE_OFF = 1
+KNOCKBACK_PROFILE_OFF = 4
+KNOCKBACK_UNKNOWN_OFF = 8
+KNOCKBACK_X_OFF = 12
+KNOCKBACK_AIR_OFF = 16
 
 STUN_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x54,
@@ -494,10 +505,28 @@ def parse_hitreaction(buf: bytes, pos: int) -> Optional[int]:
     return (x << 16) | (y << 8) | z
 
 
-def parse_knockback(buf: bytes, pos: int) -> Optional[Tuple[int, int, int]]:
+def parse_knockback(buf: bytes, pos: int) -> Optional[Dict[str, Any]]:
     if pos + KNOCKBACK_TOTAL_LEN > len(buf):
         return None
-    return (buf[pos + 1], buf[pos + 2], buf[pos + 12])
+    if buf[pos] != 0x35:
+        return None
+    if buf[pos + 1] not in KNOCKBACK_VALID_TYPES:
+        return None
+    if buf[pos + 2] != 0x00 or buf[pos + 3] != 0x20:
+        return None
+
+    # The profile/unknown words can be non-zero on launcher-style packets.
+    # KB X and Air KB are big-endian floats.
+    try:
+        return {
+            "kb_type": int(buf[pos + KNOCKBACK_TYPE_OFF]),
+            "launch_profile": rd_u32_be(buf, pos + KNOCKBACK_PROFILE_OFF),
+            "kb_unknown": rd_u32_be(buf, pos + KNOCKBACK_UNKNOWN_OFF),
+            "kb_x": rd_f32_be(buf, pos + KNOCKBACK_X_OFF),
+            "air_kb": rd_f32_be(buf, pos + KNOCKBACK_AIR_OFF),
+        }
+    except Exception:
+        return None
 
 
 def parse_stun(buf: bytes, pos: int) -> Optional[Tuple[int, int, int]]:
@@ -711,16 +740,23 @@ def collect_move_anchors(buf: bytes, base_abs: int,
 # ============================================================
 
 def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
-    METER_HDR = [
+    # Meter packet confirmed from Ryu 5A in MEM2:
+    #   34 04 00 20 00 00 00 03 00 00 00 00
+    #   36 43 00 20 00 00 00 XX 00 00 00 04
+    #                         ^^ meter value byte
+    # Older code expected a second 36 43 00 20 segment and therefore missed
+    # this real packet.  Store meter_addr as the direct editable value byte.
+    METER_PREFIX = bytes([
         0x34, 0x04, 0x00, 0x20,
         0x00, 0x00, 0x00, 0x03,
         0x00, 0x00, 0x00, 0x00,
         0x36, 0x43, 0x00, 0x20,
         0x00, 0x00, 0x00,
-        0x36, 0x43, 0x00, 0x20,
-        0x00, 0x00, 0x00,
-    ]
-    METER_TOTAL_LEN = len(METER_HDR) + 5
+    ])
+    METER_VALUE_OFFSET = 0x13
+    METER_SUFFIX_OFFSET = 0x14
+    METER_SUFFIX = bytes([0x00, 0x00, 0x00, 0x04])
+    METER_TOTAL_LEN = METER_SUFFIX_OFFSET + len(METER_SUFFIX)
 
     meters: List[Tuple[int, int]] = []
     active_blocks: List[Tuple[int, Tuple[int, int]]] = []
@@ -728,14 +764,19 @@ def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
     dmg_blocks: List[Tuple[int, Tuple[int, int]]] = []
     atkprop_blocks: List[Tuple[int, int]] = []
     hitreact_blocks: List[Tuple[int, int]] = []
-    kb_blocks: List[Tuple[int, Tuple[int, int, int]]] = []
+    kb_blocks: List[Tuple[int, Dict[str, Any]]] = []
     stun_blocks: List[Tuple[int, Tuple[int, int, int]]] = []
 
     p = 0
     while p < len(buf):
-        if match_bytes(buf, p, METER_HDR) and p + METER_TOTAL_LEN <= len(buf):
-            meters.append((base_abs + p, buf[p + len(METER_HDR)]))
-            p += len(METER_HDR)
+        if (
+            p + METER_TOTAL_LEN <= len(buf)
+            and buf[p:p + len(METER_PREFIX)] == METER_PREFIX
+            and buf[p + METER_SUFFIX_OFFSET:p + METER_TOTAL_LEN] == METER_SUFFIX
+        ):
+            value_off = p + METER_VALUE_OFFSET
+            meters.append((base_abs + value_off, buf[value_off]))
+            p += METER_TOTAL_LEN
             continue
         p += 1
 
@@ -891,11 +932,23 @@ def attach_move_fields(moves: List[Dict[str, Any]],
             mv["hit_reaction"] = hrblk[1]
             mv["hit_reaction_addr"] = hrblk[0] + HITREACTION_CODE_OFF
 
-        mv["kb0"] = mv["kb1"] = mv["kb_traj"] = mv["knockback_addr"] = None
+        mv["kb0"] = mv["kb1"] = mv["kb_traj"] = None
+        mv["kb_type"] = mv["launch_profile"] = mv["kb_unknown"] = None
+        mv["kb_x"] = mv["air_kb"] = mv["knockback_addr"] = None
         kbblk, kb_idx = pick_best_block_from_idx(mv_abs, kb_blocks, kb_idx)
         if kbblk:
-            mv["kb0"], mv["kb1"], mv["kb_traj"] = kbblk[1]
+            kb = kbblk[1]
             mv["knockback_addr"] = kbblk[0]
+            mv["kb_type"] = kb.get("kb_type")
+            mv["launch_profile"] = kb.get("launch_profile")
+            mv["kb_unknown"] = kb.get("kb_unknown")
+            mv["kb_x"] = kb.get("kb_x")
+            mv["air_kb"] = kb.get("air_kb")
+
+            # Legacy keys retained so old row-quality/tag logic does not break.
+            mv["kb0"] = mv["launch_profile"]
+            mv["kb1"] = mv["kb_type"]
+            mv["kb_traj"] = None
 
         mv["hitstun"] = mv["blockstun"] = mv["hitstop"] = mv["stun_addr"] = None
         sblk, stun_idx = pick_best_block_from_idx(mv_abs, stun_blocks, stun_idx)
