@@ -39,6 +39,14 @@ class FDCellEditorsMixin:
       - self._clone_move_block_y2(new_mv, mv) if you use full replace mode
     """
 
+    def _notify_fd_cell_changed(self, item, mv, col_name: str) -> None:
+        cb = getattr(self, "_after_cell_write", None)
+        if callable(cb):
+            try:
+                cb(item, mv, col_name)
+            except Exception:
+                pass
+
     # ----- Active2 (inline) -----
 
     def _edit_active2(self, item, mv, current: str):
@@ -83,6 +91,7 @@ class FDCellEditorsMixin:
                 self.tree.set(item, "active2", f"{s}-{e}")
                 mv["active2_start"] = s
                 mv["active2_end"] = e
+                self._notify_fd_cell_changed(item, mv, "active2")
             else:
                 messagebox.showerror("Error", "Failed to write Active 2 frames")
             dlg.destroy()
@@ -140,6 +149,7 @@ class FDCellEditorsMixin:
         if write_combo_kb_mod_inline(mv, int(new_val), U.WRITER_AVAILABLE):
             mv["combo_kb_mod"] = int(new_val)
             self.tree.set(item, "combo_kb_mod", f"{new_val} (0x{new_val:02X})")
+            self._notify_fd_cell_changed(item, mv, "combo_kb_mod")
         else:
             messagebox.showerror("Combo KB Mod", "Failed to write Combo KB Mod byte.")
 
@@ -160,6 +170,7 @@ class FDCellEditorsMixin:
         if new_val is not None and U.WRITER_AVAILABLE and U.write_damage(mv, new_val):
             self.tree.set(item, "damage", str(new_val))
             mv["damage"] = new_val
+            self._notify_fd_cell_changed(item, mv, "damage")
     def _edit_proj_dmg(self, item, mv, current: str):
         # make sure we have proj_tpl/proj_dmg populated
         if mv.get("proj_tpl") is None:
@@ -203,6 +214,7 @@ class FDCellEditorsMixin:
             self.tree.set(item, "proj_dmg", str(int(new_val)))
             # keep tpl formatted (optional but nice)
             self.tree.set(item, "proj_tpl", f"0x{int(mv.get('proj_tpl')):08X}")
+            self._notify_fd_cell_changed(item, mv, "proj_dmg")
         else:
             messagebox.showerror("Projectile Damage", "Failed to write projectile damage.")
 
@@ -221,6 +233,7 @@ class FDCellEditorsMixin:
         if new_val is not None and U.WRITER_AVAILABLE and U.write_meter(mv, new_val):
             self.tree.set(item, "meter", str(new_val))
             mv["meter"] = new_val
+            self._notify_fd_cell_changed(item, mv, "meter")
 
     def _edit_hitstop(self, item, mv, current: str):
         cur = U.ensure_int(current, 0)
@@ -237,6 +250,7 @@ class FDCellEditorsMixin:
         if new_val is not None and U.WRITER_AVAILABLE and U.write_hitstop(mv, new_val):
             self.tree.set(item, "hitstop", str(new_val))
             mv["hitstop"] = new_val
+            self._notify_fd_cell_changed(item, mv, "hitstop")
 
     # ----- Active frames (startup/active) -----
 
@@ -262,6 +276,7 @@ class FDCellEditorsMixin:
             self.tree.set(item, "active", f"{new_val}-{end}")
             mv["active_start"] = new_val
             mv["active_end"] = end
+            self._notify_fd_cell_changed(item, mv, "startup")
 
     def _edit_active(self, item, mv, current: str):
         cur_s, cur_e = U.ensure_range_pair(
@@ -300,6 +315,7 @@ class FDCellEditorsMixin:
                 self.tree.set(item, "active", f"{s}-{e}")
                 mv["active_start"] = s
                 mv["active_end"] = e
+                self._notify_fd_cell_changed(item, mv, "active")
             dlg.destroy()
 
         tk.Button(dlg, text="OK", command=on_ok).pack(pady=8)
@@ -321,6 +337,7 @@ class FDCellEditorsMixin:
         if new_val is not None and U.WRITER_AVAILABLE and U.write_hitstun(mv, new_val):
             self.tree.set(item, "hitstun", U.fmt_stun(new_val))
             mv["hitstun"] = new_val
+            self._notify_fd_cell_changed(item, mv, "hitstun")
 
     def _edit_blockstun(self, item, mv, current: str):
         cur = U.unfmt_stun(current) if current else 0
@@ -337,6 +354,7 @@ class FDCellEditorsMixin:
         if new_val is not None and U.WRITER_AVAILABLE and U.write_blockstun(mv, new_val):
             self.tree.set(item, "blockstun", U.fmt_stun(new_val))
             mv["blockstun"] = new_val
+            self._notify_fd_cell_changed(item, mv, "blockstun")
 
     # ----- Knockback / launch packet -----
 
@@ -430,6 +448,7 @@ class FDCellEditorsMixin:
             if U.WRITER_AVAILABLE and U.write_knockback(mv, **kwargs):
                 mv[mv_key] = value
                 self.tree.set(item, column, formatter(value))
+                self._notify_fd_cell_changed(item, mv, column)
                 try:
                     self._apply_row_tags(item, mv)
                     self._set_status_for_item(item, mv)
@@ -531,6 +550,17 @@ class FDCellEditorsMixin:
         This intentionally does not use whole-move presets. Each suggested button only
         fills one value, so the user can mix/piece-meal fields without copying a move.
         """
+        # The legacy combined editor can touch several fields at once. Capture
+        # their pre-edit values so Reset changed can restore only the fields
+        # this dialog actually changed.
+        begin = getattr(self, "_begin_edit_snapshot", None)
+        if callable(begin):
+            for _col in ("launch_profile", "kb_unknown", "kb_x", "air_kb", "hitstun", "blockstun", "hitstop"):
+                try:
+                    begin(item, mv, _col)
+                except Exception:
+                    pass
+
         cur_type = mv.get("kb_type")
         cur_profile = mv.get("launch_profile")
         cur_unknown = mv.get("kb_unknown")
@@ -756,6 +786,13 @@ class FDCellEditorsMixin:
                 return
 
             self._refresh_kb_cells(item, mv)
+            self._notify_fd_cell_changed(item, mv, "launch_profile")
+            self._notify_fd_cell_changed(item, mv, "kb_unknown")
+            self._notify_fd_cell_changed(item, mv, "kb_x")
+            self._notify_fd_cell_changed(item, mv, "air_kb")
+            self._notify_fd_cell_changed(item, mv, "hitstun")
+            self._notify_fd_cell_changed(item, mv, "blockstun")
+            self._notify_fd_cell_changed(item, mv, "hitstop")
             self._apply_row_tags(item, mv)
             dlg.destroy()
 
@@ -837,6 +874,7 @@ class FDCellEditorsMixin:
             if write_hit_reaction_inline(mv, val, U.WRITER_AVAILABLE):
                 self.tree.set(item, "hit_reaction", U.fmt_hit_reaction(val))
                 mv["hit_reaction"] = val
+                self._notify_fd_cell_changed(item, mv, "hit_reaction")
             dlg.destroy()
 
         tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
@@ -889,6 +927,7 @@ class FDCellEditorsMixin:
 
         self.tree.set(item, "hb_main", f"{float(new_val):.1f}")
         self.tree.set(item, "hb", U.format_candidate_list(mv["hb_candidates"]))
+        self._notify_fd_cell_changed(item, mv, "hb")
 
     def _edit_hitbox(self, item, mv, _current: str):
         cands = mv.get("hb_candidates") or []
@@ -944,6 +983,7 @@ class FDCellEditorsMixin:
 
             self.tree.set(item, "hb_main", f"{sel_val:.1f}" if sel_val is not None else "")
             self.tree.set(item, "hb", U.format_candidate_list(new_cands))
+            self._notify_fd_cell_changed(item, mv, "hb")
             dlg.destroy()
 
         tk.Button(dlg, text="OK", command=on_ok).grid(row=row, column=0, columnspan=3, pady=6)
@@ -1082,6 +1122,7 @@ class FDCellEditorsMixin:
             pretty = f"{pretty} (Tier{dup_idx + 1})"
         pretty = f"{pretty} [0x{int(new_id):04X}]"
         self.tree.set(item, "move", pretty)
+        self._notify_fd_cell_changed(item, mv, "move")
 
     # ----- Anim ID write/read helpers (deduped: only one _edit_anim_manual) -----
 
@@ -1215,6 +1256,7 @@ class FDCellEditorsMixin:
             pretty = f"{pretty} (Tier{dup_idx + 1})"
         pretty = f"{pretty} [0x{new_id:04X}]"
         self.tree.set(item, "move", pretty)
+        self._notify_fd_cell_changed(item, mv, "move")
     def _show_move_edit_menu(self, event, item, mv):
         if not U.WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
@@ -1258,5 +1300,6 @@ class FDCellEditorsMixin:
 
         if write_superbg_inline(mv, new_on, U.WRITER_AVAILABLE):
             self.tree.set(item, "superbg", U.fmt_superbg(mv.get("superbg_val")))
+            self._notify_fd_cell_changed(item, mv, "superbg")
         else:
             messagebox.showerror("Error", "Failed to write SuperBG")

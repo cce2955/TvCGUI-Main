@@ -27,6 +27,8 @@ from fd_write_helpers import (
     write_active2_frames_inline,
     write_superbg_inline,
     write_speed_mod_inline,
+    write_combo_kb_mod_inline,
+    write_proj_dmg_inline,
 )
 
 from tk_host import tk_call
@@ -122,6 +124,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._inspector_subtitle_var: tk.StringVar | None = None
         self._inspector_hint_var: tk.StringVar | None = None
 
+        # Session edits. These do not change write behavior; they only let the
+        # UI reflect edits immediately and reset only the values touched in this
+        # editor session instead of walking the whole move list.
+        self._dirty_cells: dict[tuple, dict] = {}
+        self._pending_edit_snapshots: dict[tuple, dict] = {}
+        self._dirty_row_items: set[str] = set()
+        self._changed_count_var: tk.StringVar | None = None
+        self._suppress_dirty_tracking = False
+
         self._build()
     def _reset_to_original_grouping(self):
         # Clear sort state so arrows do not lie
@@ -178,6 +189,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             master=self.root,
             value=("Writable (writes to Dolphin)" if U.WRITER_AVAILABLE else "Read-only (move_writer missing)"),
         )
+        self._changed_count_var = tk.StringVar(master=self.root, value="Changed: 0")
 
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
 
@@ -589,7 +601,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if self._inspector_subtitle_var is not None:
             self._inspector_subtitle_var.set(" | ".join(parts))
         if self._inspector_hint_var is not None:
-            self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
+            changed = sum(1 for snap in self._dirty_cells.values() if snap.get("item_id") == item_id)
+            if changed:
+                self._inspector_hint_var.set(f"Changed values on this move: {changed}. Click a changed chip to edit again, or use Reset changed.")
+            else:
+                self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
 
         all_cols = set(self.tree["columns"])
         for col, var in self._inspector_value_vars.items():
@@ -613,14 +629,201 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         for col, widget in getattr(self, "_inspector_value_widgets", {}).items():
             try:
-                if col == "kind":
-                    widget.configure(cursor="", style="ValueStatic.TLabel")
-                elif col == "abs" and not abs_addr:
+                if col == "kind" or (col == "abs" and not abs_addr):
                     widget.configure(cursor="", style="ValueStatic.TLabel")
                 else:
-                    widget.configure(cursor="hand2", style="ValueChip.TLabel")
+                    self._configure_inspector_chip_style(widget, col, hover=False)
             except Exception:
                 pass
+
+    # ---------- Edit tracking / friendly reset helpers ----------
+
+    def _dirty_group_for_col(self, col_name: str | None):
+        """Return (group_key, tree columns) for a user-editable field."""
+        if not col_name:
+            return (None, ())
+        groups = {
+            "move": ("move", ("move",)),
+            "damage": ("damage", ("damage",)),
+            "meter": ("meter", ("meter",)),
+            "startup": ("active", ("startup", "active")),
+            "active": ("active", ("startup", "active")),
+            "active2": ("active2", ("active2",)),
+            "hitstun": ("hitstun", ("hitstun",)),
+            "blockstun": ("blockstun", ("blockstun",)),
+            "hitstop": ("hitstop", ("hitstop",)),
+            "launch_profile": ("launch_profile", ("launch_profile",)),
+            "kb_unknown": ("kb_unknown", ("kb_unknown",)),
+            "kb_x": ("kb_x", ("kb_x",)),
+            "air_kb": ("air_kb", ("air_kb",)),
+            "speed_mod": ("speed_mod", ("speed_mod",)),
+            "attack_property": ("attack_property", ("attack_property",)),
+            "hit_reaction": ("hit_reaction", ("hit_reaction",)),
+            "superbg": ("superbg", ("superbg",)),
+            # Older/hidden editors are still tracked if routed from legacy builds.
+            "combo_kb_mod": ("combo_kb_mod", ("combo_kb_mod",)),
+            "proj_dmg": ("proj_dmg", ("proj_dmg", "proj_tpl")),
+            "hb_main": ("hb", ("hb_main", "hb")),
+            "hb": ("hb", ("hb_main", "hb")),
+        }
+        return groups.get(col_name, (None, ()))
+
+    def _dirty_key(self, item_id: str, mv: dict, group_key: str):
+        abs_addr = mv.get("abs")
+        return (int(abs_addr) if abs_addr else id(mv), str(group_key))
+
+    def _mv_snapshot_for_group(self, mv: dict, group_key: str) -> dict:
+        keys_by_group = {
+            "move": ("id", "move_name"),
+            "damage": ("damage",),
+            "meter": ("meter",),
+            "active": ("active_start", "active_end", "active_addr"),
+            "active2": ("active2_start", "active2_end", "active2_addr"),
+            "hitstun": ("hitstun", "stun_addr"),
+            "blockstun": ("blockstun", "stun_addr"),
+            "hitstop": ("hitstop", "stun_addr"),
+            "launch_profile": ("launch_profile", "knockback_addr"),
+            "kb_unknown": ("kb_unknown", "knockback_addr"),
+            "kb_x": ("kb_x", "knockback_addr"),
+            "air_kb": ("air_kb", "knockback_addr"),
+            "speed_mod": ("speed_mod", "speed_mod_addr", "speed_mod_sig"),
+            "attack_property": ("attack_property", "attack_property_addr", "attack_property_sig"),
+            "hit_reaction": ("hit_reaction", "hit_reaction_addr"),
+            "superbg": ("superbg_val", "superbg_addr"),
+            "combo_kb_mod": ("combo_kb_mod", "combo_kb_mod_addr"),
+            "proj_dmg": ("proj_dmg", "proj_tpl"),
+            "hb": ("hb_r", "hb_off", "hb_candidates"),
+        }
+        out = {}
+        for k in keys_by_group.get(group_key, (group_key,)):
+            val = mv.get(k)
+            if isinstance(val, list):
+                val = list(val)
+            elif isinstance(val, tuple):
+                val = tuple(val)
+            elif isinstance(val, dict):
+                val = dict(val)
+            out[k] = val
+        return out
+
+    def _begin_edit_snapshot(self, item_id: str, mv: dict, col_name: str | None):
+        if self._suppress_dirty_tracking or not self.tree:
+            return
+        group_key, cols = self._dirty_group_for_col(col_name)
+        if not group_key:
+            return
+        key = self._dirty_key(item_id, mv, group_key)
+        if key in self._dirty_cells:
+            return
+        tree_cols = set(self.tree["columns"])
+        values = {}
+        for c in cols:
+            if c in tree_cols:
+                try:
+                    values[c] = self.tree.set(item_id, c)
+                except Exception:
+                    values[c] = ""
+        self._pending_edit_snapshots[key] = {
+            "key": key,
+            "item_id": item_id,
+            "mv": mv,
+            "group": group_key,
+            "cols": tuple(c for c in cols if c in tree_cols),
+            "values": values,
+            "mv_values": self._mv_snapshot_for_group(mv, group_key),
+        }
+
+    def _current_values_for_cols(self, item_id: str, cols) -> dict:
+        out = {}
+        if not self.tree:
+            return out
+        tree_cols = set(self.tree["columns"])
+        for c in cols:
+            if c not in tree_cols:
+                continue
+            try:
+                out[c] = self.tree.set(item_id, c)
+            except Exception:
+                out[c] = ""
+        return out
+
+    def _after_cell_write(self, item_id: str, mv: dict, col_name: str | None = None):
+        """Called after an editor writes and updates the row.
+
+        It refreshes the inspector immediately and tracks the original value for
+        reset-changed. Editors that close later (custom Toplevels) call this from
+        their OK handler, which fixes the stale side-panel problem.
+        """
+        if self._suppress_dirty_tracking or not self.tree:
+            return
+        group_key, _cols = self._dirty_group_for_col(col_name)
+        if group_key:
+            key = self._dirty_key(item_id, mv, group_key)
+            snap = self._dirty_cells.get(key) or self._pending_edit_snapshots.pop(key, None)
+            if snap:
+                current = self._current_values_for_cols(item_id, snap.get("cols", ()))
+                if current != snap.get("values", {}):
+                    snap["item_id"] = item_id
+                    snap["mv"] = mv
+                    self._dirty_cells[key] = snap
+                else:
+                    self._dirty_cells.pop(key, None)
+        self._update_dirty_ui(item_id, mv)
+
+    def _update_dirty_ui(self, item_id: str | None = None, mv: dict | None = None):
+        # Recompute row set from tracked cells so reset/edit/cancel states stay honest.
+        self._dirty_row_items = {snap.get("item_id") for snap in self._dirty_cells.values() if snap.get("item_id")}
+        if self._changed_count_var is not None:
+            count = len(self._dirty_cells)
+            label = "Changed: 0" if count == 0 else f"Changed: {count}"
+            self._changed_count_var.set(label)
+        if self.tree:
+            targets = set(self._dirty_row_items)
+            if item_id:
+                targets.add(item_id)
+            for row in list(targets):
+                try:
+                    mv2 = self.move_to_tree_item.get(row) or mv or {}
+                    self._apply_row_tags(row, mv2)
+                except Exception:
+                    pass
+            try:
+                sel = self.tree.selection()
+                if sel:
+                    cur_item = sel[0]
+                    self._refresh_inspector(cur_item, self.move_to_tree_item.get(cur_item))
+            except Exception:
+                pass
+        if item_id and mv:
+            try:
+                self._set_status_for_item(item_id, mv)
+            except Exception:
+                pass
+
+    def _is_col_dirty(self, item_id: str | None, col_name: str) -> bool:
+        if not item_id:
+            return False
+        mv = self.move_to_tree_item.get(item_id) if self.move_to_tree_item else None
+        if not mv:
+            return False
+        group_key, _cols = self._dirty_group_for_col(col_name)
+        if not group_key:
+            return False
+        return self._dirty_key(item_id, mv, group_key) in self._dirty_cells
+
+    def _configure_inspector_chip_style(self, widget, col_name: str, hover: bool = False):
+        try:
+            sel = self.tree.selection() if self.tree else ()
+            item_id = sel[0] if sel else None
+            changed = self._is_col_dirty(item_id, col_name)
+            if col_name == "kind":
+                widget.configure(cursor="", style="ValueStatic.TLabel")
+            elif changed:
+                widget.configure(cursor="hand2", style="ValueChangedHover.TLabel" if hover else "ValueChanged.TLabel")
+            else:
+                widget.configure(cursor="hand2", style="ValueChipHover.TLabel" if hover else "ValueChip.TLabel")
+        except Exception:
+            pass
 
     def _copy_selected_address(self):
         if not self.tree:
@@ -659,6 +862,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._copy_selected_address()
             return
 
+        self._begin_edit_snapshot(item, mv, col_name)
+
         if not U.WRITER_AVAILABLE:
             messagebox.showerror("Error", "Writer unavailable")
             return
@@ -695,7 +900,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     # ---------- Row tagging / status ----------
 
     def _apply_row_tags(self, item_id: str, mv: dict):
-        tags = set(self.tree.item(item_id, "tags") or ())
+        # Preserve structural tags, rebuild dynamic styling every time so reset
+        # and toggles immediately remove stale highlight state.
+        existing = set(self.tree.item(item_id, "tags") or ())
+        tags = {t for t in existing if t in {"row_even", "row_odd", "group_parent"}}
 
         kb_cols = ("launch_profile", "kb_unknown", "kb_x", "air_kb")
         if any((self.tree.set(item_id, c) or "").strip() for c in kb_cols if c in self.tree["columns"]):
@@ -717,7 +925,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not abs_txt:
             tags.add("missing_addr")
 
-        self.tree.item(item_id, tags=tuple(tags))
+        if item_id in getattr(self, "_dirty_row_items", set()):
+            tags.add("edited_row")
+
+        ordered = [
+            t for t in (
+                "row_even", "row_odd", "group_parent",
+                "kb_hot", "combo_hot", "property_hot", "super_on", "missing_addr",
+                "edited_row",
+            )
+            if t in tags
+        ]
+        self.tree.item(item_id, tags=tuple(ordered))
 
     def _set_status_for_item(self, item_id: str, mv: dict):
         aid = mv.get("id")
@@ -1107,6 +1326,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if write_speed_mod_inline(mv, int(new_val), U.WRITER_AVAILABLE):
             mv["speed_mod"] = int(new_val)
             self.tree.set(item, "speed_mod", U.fmt_speed_mod_ui(new_val))
+            self._after_cell_write(item, mv, "speed_mod")
         else:
             messagebox.showerror("Speed Modifier", "Failed to write speed modifier byte.")
 
@@ -1267,6 +1487,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if self._write_attack_property_inline(mv, int(new_val)):
             mv["attack_property"] = int(new_val) & 0xFF
             self.tree.set(item, "attack_property", fmt_attack_property(new_val))
+            self._after_cell_write(item, mv, "attack_property")
         else:
             messagebox.showerror("Attack Property", "Failed to write attack property byte.")
 
@@ -1425,43 +1646,216 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             messagebox.showerror("Error", "Writer unavailable")
             return
 
+        if not self._dirty_cells:
+            self._status_var.set("No changed values to reset")
+            return
+
         reset_count = 0
         failed_writes = []
+        touched_items = set()
 
-        for item_id, mv in self.move_to_tree_item.items():
+        # Only touch fields changed during this editor session. This avoids the
+        # old full-list reset pass that walked every scanned move.
+        for key, snap in list(self._dirty_cells.items()):
+            item_id = snap.get("item_id")
+            mv = snap.get("mv") or {}
+            group = snap.get("group")
+            old = snap.get("mv_values") or {}
             abs_addr = mv.get("abs")
-            if not abs_addr:
-                continue
-            orig = self.original_moves.get(abs_addr)
-            if not orig:
-                continue
+            ok = False
 
-            # Speed mod
-            if orig.get("speed_mod_addr") and orig.get("speed_mod") is not None:
-                mv["speed_mod_addr"] = orig["speed_mod_addr"]
-                if write_speed_mod_inline(mv, orig["speed_mod"], U.WRITER_AVAILABLE):
-                    mv["speed_mod"] = orig["speed_mod"]
-                    self.tree.set(item_id, "speed_mod", U.fmt_speed_mod_ui(orig["speed_mod"]))
-                    reset_count += 1
-                else:
-                    failed_writes.append(f"speed_mod @ 0x{abs_addr:08X}")
+            try:
+                self._suppress_dirty_tracking = True
 
-            # Attack property
-            if orig.get("attack_property_addr") and orig.get("attack_property") is not None:
-                mv["attack_property_addr"] = orig["attack_property_addr"]
-                if self._write_attack_property_inline(mv, orig["attack_property"]):
-                    mv["attack_property"] = orig["attack_property"]
-                    self.tree.set(item_id, "attack_property", fmt_attack_property(orig["attack_property"]))
-                    reset_count += 1
-                else:
-                    failed_writes.append(f"attack_property @ 0x{abs_addr:08X}")
+                if group == "move":
+                    old_id = old.get("id")
+                    if old_id is not None and self._write_anim_id(mv, int(old_id)):
+                        mv["id"] = int(old_id)
+                        if "move_name" in old:
+                            mv["move_name"] = old.get("move_name")
+                        cname = self.target_slot.get("char_name", "-")
+                        pretty = U.pretty_move_name(int(old_id), cname)
+                        dup_idx = mv.get("dup_index")
+                        if dup_idx is not None:
+                            pretty = f"{pretty} (Tier{dup_idx + 1})"
+                        self.tree.set(item_id, "move", f"{pretty} [0x{int(old_id):04X}]")
+                        ok = True
 
-            self._apply_row_tags(item_id, mv)
+                elif group == "damage":
+                    val = old.get("damage")
+                    if val is not None and U.write_damage(mv, int(val)):
+                        mv["damage"] = int(val)
+                        self.tree.set(item_id, "damage", str(int(val)))
+                        ok = True
 
-        msg = f"Reset complete: {reset_count} writes successful"
+                elif group == "meter":
+                    val = old.get("meter")
+                    if val is not None and U.write_meter(mv, int(val)):
+                        mv["meter"] = int(val)
+                        self.tree.set(item_id, "meter", str(int(val)))
+                        ok = True
+
+                elif group == "active":
+                    s = old.get("active_start")
+                    e = old.get("active_end")
+                    if s is not None and e is not None and U.write_active_frames(mv, int(s), int(e)):
+                        mv["active_start"] = int(s)
+                        mv["active_end"] = int(e)
+                        self.tree.set(item_id, "startup", str(int(s)))
+                        self.tree.set(item_id, "active", f"{int(s)}-{int(e)}")
+                        ok = True
+
+                elif group == "active2":
+                    s = old.get("active2_start")
+                    e = old.get("active2_end")
+                    if s is not None and e is not None:
+                        mv["active2_addr"] = old.get("active2_addr")
+                        if write_active2_frames_inline(mv, int(s), int(e), U.WRITER_AVAILABLE):
+                            mv["active2_start"] = int(s)
+                            mv["active2_end"] = int(e)
+                            self.tree.set(item_id, "active2", f"{int(s)}-{int(e)}")
+                            ok = True
+
+                elif group == "hitstun":
+                    val = old.get("hitstun")
+                    if val is not None and U.write_hitstun(mv, int(val)):
+                        mv["hitstun"] = int(val)
+                        self.tree.set(item_id, "hitstun", U.fmt_stun(int(val)))
+                        ok = True
+
+                elif group == "blockstun":
+                    val = old.get("blockstun")
+                    if val is not None and U.write_blockstun(mv, int(val)):
+                        mv["blockstun"] = int(val)
+                        self.tree.set(item_id, "blockstun", U.fmt_stun(int(val)))
+                        ok = True
+
+                elif group == "hitstop":
+                    val = old.get("hitstop")
+                    if val is not None and U.write_hitstop(mv, int(val)):
+                        mv["hitstop"] = int(val)
+                        self.tree.set(item_id, "hitstop", U.fmt_stun(int(val)))
+                        ok = True
+
+                elif group in ("launch_profile", "kb_unknown", "kb_x", "air_kb"):
+                    kwargs = {}
+                    col_for_group = {
+                        "launch_profile": "launch_profile",
+                        "kb_unknown": "kb_unknown",
+                        "kb_x": "kb_x",
+                        "air_kb": "air_kb",
+                    }[group]
+                    val = old.get(col_for_group)
+                    if val is not None:
+                        kwargs[col_for_group] = val
+                        if U.write_knockback(mv, **kwargs):
+                            mv[col_for_group] = val
+                            if group == "launch_profile":
+                                self.tree.set(item_id, "launch_profile", U.fmt_launch_profile_ui(mv))
+                            elif group == "kb_unknown":
+                                self.tree.set(item_id, "kb_unknown", U.fmt_kb_unknown_ui(mv))
+                            elif group == "kb_x":
+                                self.tree.set(item_id, "kb_x", U.fmt_kb_x_ui(mv))
+                            elif group == "air_kb":
+                                self.tree.set(item_id, "air_kb", U.fmt_air_kb_ui(mv))
+                            ok = True
+
+                elif group == "speed_mod":
+                    val = old.get("speed_mod")
+                    mv["speed_mod_addr"] = old.get("speed_mod_addr")
+                    if val is not None and write_speed_mod_inline(mv, int(val), U.WRITER_AVAILABLE):
+                        mv["speed_mod"] = int(val)
+                        self.tree.set(item_id, "speed_mod", U.fmt_speed_mod_ui(int(val)))
+                        ok = True
+
+                elif group == "attack_property":
+                    val = old.get("attack_property")
+                    mv["attack_property_addr"] = old.get("attack_property_addr")
+                    if val is not None and self._write_attack_property_inline(mv, int(val)):
+                        mv["attack_property"] = int(val) & 0xFF
+                        self.tree.set(item_id, "attack_property", fmt_attack_property(int(val)))
+                        ok = True
+
+                elif group == "hit_reaction":
+                    val = old.get("hit_reaction")
+                    if val is not None and write_hit_reaction_inline(mv, int(val), U.WRITER_AVAILABLE):
+                        mv["hit_reaction"] = int(val)
+                        self.tree.set(item_id, "hit_reaction", U.fmt_hit_reaction(int(val)))
+                        ok = True
+
+                elif group == "superbg":
+                    val = old.get("superbg_val")
+                    mv["superbg_addr"] = old.get("superbg_addr")
+                    if val is not None:
+                        if write_superbg_inline(mv, bool(val == SUPERBG_ON), U.WRITER_AVAILABLE):
+                            self.tree.set(item_id, "superbg", U.fmt_superbg(mv.get("superbg_val")))
+                            ok = True
+
+                elif group == "combo_kb_mod":
+                    val = old.get("combo_kb_mod")
+                    mv["combo_kb_mod_addr"] = old.get("combo_kb_mod_addr")
+                    if val is not None and write_combo_kb_mod_inline(mv, int(val), U.WRITER_AVAILABLE):
+                        mv["combo_kb_mod"] = int(val)
+                        if "combo_kb_mod" in self.tree["columns"]:
+                            self.tree.set(item_id, "combo_kb_mod", f"{int(val)} (0x{int(val):02X})")
+                        ok = True
+
+                elif group == "proj_dmg":
+                    val = old.get("proj_dmg")
+                    mv["proj_tpl"] = old.get("proj_tpl")
+                    if val is not None and write_proj_dmg_inline(mv, int(val), U.WRITER_AVAILABLE):
+                        mv["proj_dmg"] = int(val)
+                        if "proj_dmg" in self.tree["columns"]:
+                            self.tree.set(item_id, "proj_dmg", str(int(val)))
+                        ok = True
+
+                elif group == "hb":
+                    val = old.get("hb_r")
+                    if val is not None:
+                        mv["hb_off"] = old.get("hb_off")
+                        if U.write_hitbox_radius(mv, float(val)):
+                            mv["hb_r"] = float(val)
+                            mv["hb_candidates"] = old.get("hb_candidates")
+                            if "hb_main" in self.tree["columns"]:
+                                self.tree.set(item_id, "hb_main", f"{float(val):.1f}")
+                            if "hb" in self.tree["columns"]:
+                                self.tree.set(item_id, "hb", U.format_candidate_list(mv.get("hb_candidates") or []))
+                            ok = True
+
+            except Exception as e:
+                ok = False
+                failed_writes.append(f"{group} @ {('0x%08X' % abs_addr) if abs_addr else 'unknown'} ({e})")
+            finally:
+                self._suppress_dirty_tracking = False
+
+            if item_id:
+                touched_items.add(item_id)
+
+            if ok:
+                self._dirty_cells.pop(key, None)
+                reset_count += 1
+            elif group:
+                failed_writes.append(f"{group} @ {('0x%08X' % abs_addr) if abs_addr else 'unknown'}")
+
+        self._update_dirty_ui()
+        for row in touched_items:
+            try:
+                self._apply_row_tags(row, self.move_to_tree_item.get(row) or {})
+            except Exception:
+                pass
+        try:
+            sel = self.tree.selection()
+            if sel:
+                self._refresh_inspector(sel[0], self.move_to_tree_item.get(sel[0]))
+        except Exception:
+            pass
+
+        msg = f"Reset changed values: {reset_count} write(s) restored"
         if failed_writes:
-            msg += "\n\nFailed writes:\n" + "\n".join(failed_writes[:10])
-        messagebox.showinfo("Reset", msg)
+            msg += " | failed: " + ", ".join(failed_writes[:6])
+        self._status_var.set(msg)
+        if failed_writes:
+            messagebox.showwarning("Reset changed", msg)
 
     # ---------- Double-click routing ----------
 
@@ -1487,6 +1881,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
 
         current_val = self.tree.set(item, col_name)
+        self._begin_edit_snapshot(item, mv, col_name)
 
         if col_name == "move":
             self._show_move_edit_menu(event, item, mv)

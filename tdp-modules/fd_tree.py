@@ -111,6 +111,8 @@ def configure_styles(root: tk.Toplevel) -> None:
     style.configure("CardMuted.TLabel", background=bg_card, foreground=txt_muted, font=("Segoe UI", 9))
     style.configure("ValueChip.TLabel", background=bg_entry, foreground=txt_main, borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI", 9))
     style.configure("ValueChipHover.TLabel", background="#1E3350", foreground=txt_main, borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI", 9))
+    style.configure("ValueChanged.TLabel", background="#2B2412", foreground="#FFE3A3", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
+    style.configure("ValueChangedHover.TLabel", background="#3A2E12", foreground="#FFE9B8", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
     style.configure("ValueStatic.TLabel", background=bg_card, foreground=txt_main, padding=(7, 3), font=("Segoe UI", 9))
     style.configure("Section.TLabel", background=bg_card, foreground=txt_accent, font=("Segoe UI Semibold", 9))
     style.configure("InspectorTitle.TLabel", background=bg_panel, foreground=txt_main, font=("Segoe UI Semibold", 13))
@@ -210,7 +212,8 @@ def build_top_bar(win) -> None:
     ttk.Button(actions, text="Expand", command=win._expand_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Collapse", command=win._collapse_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Refresh", command=win._refresh_visible).pack(side="left", padx=4)
-    ttk.Button(actions, text="Reset", command=win._reset_all_moves).pack(side="left", padx=4)
+    ttk.Label(actions, textvariable=win._changed_count_var, style="Muted.Top.TLabel").pack(side="left", padx=(12, 4))
+    ttk.Button(actions, text="Reset changed", command=win._reset_all_moves).pack(side="left", padx=4)
 
 
 def _build_inspector(win, parent: ttk.Frame) -> None:
@@ -313,15 +316,15 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             chip.bind("<Button-1>", lambda _e, c=col: _value_click(c))
             chip.bind("<Return>", lambda _e, c=col: _value_click(c))
             chip.bind("<space>", lambda _e, c=col: _value_click(c))
-            chip.bind("<Enter>", lambda _e, w=chip: w.configure(style="ValueChipHover.TLabel"))
-            chip.bind("<Leave>", lambda _e, w=chip: w.configure(style="ValueChip.TLabel"))
+            chip.bind("<Enter>", lambda _e, w=chip, c=col: getattr(win, "_configure_inspector_chip_style", lambda *_a, **_k: None)(w, c, True))
+            chip.bind("<Leave>", lambda _e, w=chip, c=col: getattr(win, "_configure_inspector_chip_style", lambda *_a, **_k: None)(w, c, False))
             chip.configure(takefocus=True)
             win._inspector_editable_cols.add(col)
         return chip
 
     win._inspector_title_var = tk.StringVar(master=win.root, value="Select a move")
     win._inspector_subtitle_var = tk.StringVar(master=win.root, value="Use the inspector for normal edits without parsing the whole grid.")
-    win._inspector_hint_var = tk.StringVar(master=win.root, value="Click any value chip to edit it. Address copies to the clipboard.")
+    win._inspector_hint_var = tk.StringVar(master=win.root, value="Click any value chip to edit it. Changed values are highlighted until Reset changed restores them.")
 
     ttk.Label(inner, textvariable=win._inspector_title_var, style="InspectorTitle.TLabel", wraplength=320).pack(anchor="w")
     ttk.Label(inner, textvariable=win._inspector_subtitle_var, style="InspectorSub.TLabel", wraplength=320).pack(anchor="w", pady=(3, 10))
@@ -669,6 +672,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("super_on", foreground="#82E0B1")
     win.tree.tag_configure("missing_addr", foreground="#FF9A9A")
     win.tree.tag_configure("group_parent", foreground="#FFE3A3")
+    win.tree.tag_configure("edited_row", background="#1E2D43")
 
     _build_inspector(win, right)
 
