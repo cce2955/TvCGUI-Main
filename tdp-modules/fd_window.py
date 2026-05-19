@@ -112,12 +112,22 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.root: tk.Toplevel | None = None
         self.tree: ttk.Treeview | None = None
 
+        # Right-side selected-move inspector. fd_tree builds these widgets; the
+        # window owns refresh/edit routing so the inspector can reuse the same
+        # write-safe edit handlers as the grid.
+        self._inspector_value_vars: dict[str, tk.StringVar] = {}
+        self._inspector_value_widgets: dict[str, ttk.Label] = {}
+        self._inspector_buttons: dict[str, ttk.Button] = {}
+        self._inspector_title_var: tk.StringVar | None = None
+        self._inspector_subtitle_var: tk.StringVar | None = None
+        self._inspector_hint_var: tk.StringVar | None = None
+
         self._build()
     def _reset_to_original_grouping(self):
-        # Clear sort state so arrows don’t lie
+        # Clear sort state so arrows do not lie
         self._sort_state.clear()
 
-        # Reset headers (remove ▲▼)
+        # Reset headers (remove ASC/DESC)
         if self.tree:
             for c in self.tree["columns"]:
                 base = self.tree.heading(c, "text").split(" ")[0]
@@ -183,11 +193,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
 
 
-        ttk.Button(
-            bones_bar,
-            text="Show Bones",
-            command=self._show_bones,
-        ).pack(side="left")
         ttk.Button(
             bones_bar,
             text="Show Bones",
@@ -321,7 +326,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             for c in ("addr", "float_ok", "changes", "pat", "score", "sample"):
                 base = tree.heading(c, "text").split(" ")[0]
                 if c == col:
-                    arrow = "▲" if asc else "▼"
+                    arrow = "ASC" if asc else "DESC"
                     tree.heading(c, text=f"{base} {arrow}")
                 else:
                     tree.heading(c, text=base)
@@ -487,6 +492,206 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         tick()
 
+    # ---------- Inspector / display column helpers ----------
+
+    def _tree_display_columns(self) -> list[str]:
+        if not self.tree:
+            return []
+        all_cols = list(self.tree["columns"])
+        try:
+            display = self.tree["displaycolumns"]
+        except Exception:
+            return all_cols
+        if not display or display == "#all" or display == ("#all",):
+            return all_cols
+        if isinstance(display, str):
+            return [display]
+        return list(display)
+
+    def _resolve_tree_column_name(self, column: str) -> str | None:
+        """Resolve Tk's #N display column back to the real data column.
+
+        This matters because the workbench now defaults to a core column view
+        using Treeview.displaycolumns. identify_column() reports the visible
+        column index, not the original full-column index.
+        """
+        if not self.tree or not column or column == "#0":
+            return None
+        try:
+            idx = int(str(column).lstrip("#")) - 1
+        except Exception:
+            return None
+        display_cols = self._tree_display_columns()
+        if idx < 0 or idx >= len(display_cols):
+            return None
+        return display_cols[idx]
+
+    def _heading_text_for_col(self, col_name: str) -> str:
+        labels = {
+            "move": "Move",
+            "kind": "Kind",
+            "damage": "Dmg",
+            "meter": "Meter",
+            "startup": "Start",
+            "active": "Active",
+            "active2": "Active 2",
+            "hitstun": "HS",
+            "blockstun": "BS",
+            "hitstop": "Stop",
+            "launch_profile": "Recovery",
+            "kb_unknown": "KB U",
+            "kb_x": "KB X",
+            "air_kb": "Arc",
+            "speed_mod": "Speed",
+            "attack_property": "Attack Property",
+            "hit_reaction": "Hit Reaction",
+            "superbg": "SuperBG",
+            "abs": "Address",
+        }
+        return labels.get(col_name, col_name)
+
+    def _refresh_inspector(self, item_id: str | None = None, mv: dict | None = None):
+        if not getattr(self, "_inspector_value_vars", None):
+            return
+
+        if not item_id or not mv or not self.tree:
+            if self._inspector_title_var is not None:
+                self._inspector_title_var.set("Select a move")
+            if self._inspector_subtitle_var is not None:
+                self._inspector_subtitle_var.set("Use the inspector for normal edits without parsing the whole grid.")
+            if self._inspector_hint_var is not None:
+                self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
+            for var in self._inspector_value_vars.values():
+                try:
+                    var.set("-")
+                except Exception:
+                    pass
+            for col, btn in getattr(self, "_inspector_buttons", {}).items():
+                try:
+                    btn.configure(state=("disabled" if col != "abs" else "disabled"))
+                except Exception:
+                    pass
+            return
+
+        move_txt = self.tree.set(item_id, "move") or "Selected move"
+        kind = mv.get("kind") or self.tree.set(item_id, "kind") or "-"
+        aid = mv.get("id")
+        abs_addr = mv.get("abs")
+
+        if self._inspector_title_var is not None:
+            self._inspector_title_var.set(move_txt)
+
+        parts = [f"Kind: {kind}"]
+        if aid is not None:
+            parts.append(f"Anim: 0x{int(aid):04X}")
+        if abs_addr:
+            parts.append(f"Address: 0x{int(abs_addr):08X}")
+        if self._inspector_subtitle_var is not None:
+            self._inspector_subtitle_var.set(" | ".join(parts))
+        if self._inspector_hint_var is not None:
+            self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
+
+        all_cols = set(self.tree["columns"])
+        for col, var in self._inspector_value_vars.items():
+            try:
+                value = self.tree.set(item_id, col) if col in all_cols else ""
+            except Exception:
+                value = ""
+            if value is None or str(value).strip() == "":
+                value = "not found"
+            try:
+                var.set(str(value))
+            except Exception:
+                pass
+
+        writer_ok = bool(U.WRITER_AVAILABLE)
+        for col, btn in getattr(self, "_inspector_buttons", {}).items():
+            try:
+                btn.configure(state=("normal" if writer_ok else "disabled"))
+            except Exception:
+                pass
+
+        for col, widget in getattr(self, "_inspector_value_widgets", {}).items():
+            try:
+                if col == "kind":
+                    widget.configure(cursor="", style="ValueStatic.TLabel")
+                elif col == "abs" and not abs_addr:
+                    widget.configure(cursor="", style="ValueStatic.TLabel")
+                else:
+                    widget.configure(cursor="hand2", style="ValueChip.TLabel")
+            except Exception:
+                pass
+
+    def _copy_selected_address(self):
+        if not self.tree:
+            return
+        sel = self.tree.selection()
+        if not sel:
+            self._status_var.set("Select a move first")
+            return
+        item = sel[0]
+        mv = self.move_to_tree_item.get(item) or {}
+        addr = mv.get("abs")
+        if not addr:
+            raw = self.tree.set(item, "abs") or ""
+            try:
+                addr = int(raw, 16) if raw.lower().startswith("0x") else int(raw)
+            except Exception:
+                addr = None
+        if not addr:
+            messagebox.showerror("Address", "No address available for the selected move.")
+            return
+        self._copy_address(int(addr))
+
+    def _edit_selected_column(self, col_name: str):
+        if not self.tree:
+            return
+        sel = self.tree.selection()
+        if not sel:
+            self._status_var.set("Select a move first")
+            return
+        item = sel[0]
+        mv = self.move_to_tree_item.get(item)
+        if not mv:
+            return
+
+        if col_name == "abs":
+            self._copy_selected_address()
+            return
+
+        if not U.WRITER_AVAILABLE:
+            messagebox.showerror("Error", "Writer unavailable")
+            return
+
+        current_val = ""
+        try:
+            if col_name in self.tree["columns"]:
+                current_val = self.tree.set(item, col_name)
+        except Exception:
+            current_val = ""
+
+        if col_name == "move":
+            class _PopupEvent:
+                pass
+            event = _PopupEvent()
+            try:
+                event.x_root = self.root.winfo_pointerx()
+                event.y_root = self.root.winfo_pointery()
+            except Exception:
+                event.x_root = 0
+                event.y_root = 0
+            self._show_move_edit_menu(event, item, mv)
+        elif col_name == "speed_mod":
+            self._edit_speed_mod(item, mv, current_val)
+        elif col_name == "attack_property":
+            self._edit_attack_property(item, mv, current_val)
+        else:
+            self._route_standard_edit(col_name, item, mv, current_val)
+
+        self._apply_row_tags(item, mv)
+        self._set_status_for_item(item, mv)
+        self._refresh_inspector(item, mv)
+
     # ---------- Row tagging / status ----------
 
     def _apply_row_tags(self, item_id: str, mv: dict):
@@ -534,13 +739,16 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         sel = self.tree.selection()
         if not sel:
             self._status_var.set("Ready")
+            self._refresh_inspector(None, None)
             return
         item = sel[0]
         mv = self.move_to_tree_item.get(item)
         if not mv:
             self._status_var.set("Ready")
+            self._refresh_inspector(None, None)
             return
         self._set_status_for_item(item, mv)
+        self._refresh_inspector(item, mv)
 
     # ---------- Expand/collapse/filter ----------
 
@@ -645,13 +853,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         asc = self._sort_state.get(col_name, True)
         self._sort_state[col_name] = not asc
 
-        # Header arrows
+        # Header direction labels. Avoid icon glyphs so the UI stays ASCII-only.
         for c in tree["columns"]:
-            base = tree.heading(c, "text").split(" ")[0]
-            tree.heading(
-                c,
-                text=f"{base} {'▲' if c == col_name and asc else '▼' if c == col_name else ''}".strip()
-            )
+            base = self._heading_text_for_col(c)
+            suffix = " [ASC]" if c == col_name and asc else " [DESC]" if c == col_name else ""
+            tree.heading(c, text=f"{base}{suffix}")
 
         parents = list(tree.get_children(""))
 
@@ -673,13 +879,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         asc = self._sort_state.get(col_name, True)
         self._sort_state[col_name] = not asc
 
-        # Header arrows
+        # Header direction labels. Avoid icon glyphs so the UI stays ASCII-only.
         for c in tree["columns"]:
-            base = tree.heading(c, "text").split(" ")[0]
-            tree.heading(
-                c,
-                text=f"{base} {'▲' if c == col_name and asc else '▼' if c == col_name else ''}".strip()
-            )
+            base = self._heading_text_for_col(c)
+            suffix = " [ASC]" if c == col_name and asc else " [DESC]" if c == col_name else ""
+            tree.heading(c, text=f"{base}{suffix}")
 
         rows = []
         for item in tree.get_children(""):
@@ -1206,6 +1410,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             refreshed += 1
 
         self._status_var.set(f"Refreshed {refreshed} visible rows")
+        try:
+            sel = self.tree.selection()
+            if sel:
+                mv = self.move_to_tree_item.get(sel[0])
+                self._refresh_inspector(sel[0], mv)
+        except Exception:
+            pass
 
     # ---------- Reset to original ----------
 
@@ -1268,8 +1479,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not item or not column:
             return
 
-        col_idx = int(column[1:]) - 1
-        col_name = self.tree["columns"][col_idx]
+        col_name = self._resolve_tree_column_name(column)
+        if not col_name:
+            return
         mv = self.move_to_tree_item.get(item)
         if not mv:
             return
@@ -1291,6 +1503,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         self._apply_row_tags(item, mv)
         self._set_status_for_item(item, mv)
+        self._refresh_inspector(item, mv)
 
     def _route_standard_edit(self, col_name: str, item: str, mv: dict, current_val: str) -> None:
         if col_name == "damage":
@@ -1334,8 +1547,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not mv:
             return
 
-        col_idx = int(column[1:]) - 1
-        col_name = self.tree["columns"][col_idx]
+        col_name = self._resolve_tree_column_name(column)
+        if not col_name:
+            return
 
         menu = tk.Menu(self.root, tearoff=0)
 
