@@ -47,6 +47,198 @@ class Tooltip:
             self.tip = None
 
 
+FIELD_HELP = {
+    "move": (
+        "Move / animation ID. Double-click to replace the animation or open manual animation ID tools. "
+        "This changes which move record or animation the row points at; it is separate from damage, stun, and physics values."
+    ),
+    "kind": "Scanner classification for this row. It is display-only and helps separate normals, specials, supers, and unknown rows.",
+    "damage": "Base damage dealt by this move or hit. Higher values increase raw damage; it does not change hitstun or knockback by itself.",
+    "meter": "Meter gain/base meter value attached to the hit. This changes resource behavior, not damage or hit reaction.",
+    "startup": "First active frame. Lower values make the hitbox become active sooner; this also rewrites the start of the active range.",
+    "active": "Main active frame range, shown as start-end. Extending the end keeps the hit active longer; moving the start changes startup.",
+    "active2": "Second active window when the move has one. Use this for moves with a later/reappearing hitbox instead of changing the main active range.",
+    "hitstun": "Frames the opponent stays in hit reaction after getting hit. More hitstun usually gives more combo time.",
+    "blockstun": "Frames the opponent stays locked after blocking. More blockstun improves block advantage and pressure.",
+    "hitstop": "Freeze frames on impact. Higher hitstop makes hits feel heavier but is not the same as hitstun.",
+    "launch_profile": (
+        "Recovery/fall profile after hitstun. This appears to affect how long the opponent remains in recovery and how they drift/fall. "
+        "It does not choose the hit reaction animation by itself."
+    ),
+    "kb_unknown": "Unknown 32-bit word in the knockback packet. Most confirmed normal packets use zero. Keep this at zero unless testing.",
+    "kb_x": "Grounded or standing horizontal knockback. Larger positive values push/launch farther; zero removes most horizontal push.",
+    "air_kb": "Airborne or vertical arc value. Higher values usually give a higher/longer relaunch arc; negative values can drive downward arcs.",
+    "speed_mod": "Move speed byte. 64 is the normal baseline seen in many move tables; lower/higher values can slow down or speed up the move behavior.",
+    "attack_property": "Attack property byte. Use the known-value dropdown for confirmed properties; manual entry is for testing unknown bytes.",
+    "hit_reaction": "The reaction state/animation chosen on hit, such as standing hitstun, low hitstun, overhead hitstun, knockdown, crumple, or special reactions.",
+    "superbg": "Super background flag. Toggles whether the super-style background effect is enabled for this move when the signature is found.",
+    "abs": "Absolute move-table address for this row. This is for lookup/debugging and address tools; it is not directly edited as frame data.",
+    "combo_kb_mod": "Combo knockback modifier byte when the signature is found. Useful for testing combo scaling/knockback behavior.",
+    "proj_dmg": "Projectile damage value when a linked projectile template is found. Use this for projectile hits instead of the main damage cell.",
+    "hb_main": "Primary hitbox radius. Bigger values increase reach/coverage; smaller values shrink the detected hit area.",
+    "hb": "All detected hitbox radius candidates for the row. r0 is usually the main candidate, but some moves expose several radii.",
+}
+
+
+def get_field_help(field: str, fallback: str = "") -> str:
+    return FIELD_HELP.get(field, fallback)
+
+
+def ask_integer_with_help(
+    parent,
+    *,
+    title: str,
+    prompt: str,
+    help_text: str,
+    initialvalue: int = 0,
+    minvalue: int | None = None,
+    maxvalue: int | None = None,
+    address: int | None = None,
+) -> int | None:
+    """Small integer editor with a per-field explanation.
+
+    This replaces bare simpledialog.askinteger calls so every editable field can
+    explain what changing the value actually affects.
+    """
+    dlg = tk.Toplevel(parent)
+    dlg.title(title)
+    dlg.resizable(False, False)
+    dlg.transient(parent)
+    dlg.grab_set()
+
+    result = {"value": None}
+
+    body = ttk.Frame(dlg, padding=12)
+    body.pack(fill="both", expand=True)
+
+    ttk.Label(body, text=prompt, font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+    if help_text:
+        ttk.Label(body, text=help_text, justify="left", wraplength=390).pack(anchor="w", pady=(0, 8))
+    if address is not None:
+        ttk.Label(body, text=f"Address: 0x{int(address):08X}").pack(anchor="w", pady=(0, 8))
+
+    row = ttk.Frame(body)
+    row.pack(fill="x", pady=(0, 10))
+    ttk.Label(row, text="Value:").pack(side="left")
+    var = tk.StringVar(master=dlg, value=str(int(initialvalue)))
+    ent = ttk.Entry(row, textvariable=var, width=14)
+    ent.pack(side="left", padx=(8, 0))
+
+    bounds = []
+    if minvalue is not None:
+        bounds.append(f"min {minvalue}")
+    if maxvalue is not None:
+        bounds.append(f"max {maxvalue}")
+    if bounds:
+        ttk.Label(body, text="Allowed: " + ", ".join(bounds)).pack(anchor="w", pady=(0, 10))
+
+    buttons = ttk.Frame(body)
+    buttons.pack(fill="x")
+
+    def apply_value():
+        try:
+            raw = (var.get() or "").strip()
+            val = int(raw, 16) if raw.lower().startswith("0x") else int(raw, 10)
+        except Exception:
+            messagebox.showerror(title, "Invalid integer value.", parent=dlg)
+            return
+        if minvalue is not None and val < minvalue:
+            messagebox.showerror(title, f"Value must be at least {minvalue}.", parent=dlg)
+            return
+        if maxvalue is not None and val > maxvalue:
+            messagebox.showerror(title, f"Value must be no more than {maxvalue}.", parent=dlg)
+            return
+        result["value"] = val
+        dlg.destroy()
+
+    def cancel():
+        result["value"] = None
+        dlg.destroy()
+
+    ttk.Button(buttons, text="OK", command=apply_value).pack(side="right", padx=(6, 0))
+    ttk.Button(buttons, text="Cancel", command=cancel).pack(side="right")
+
+    ent.focus_set()
+    ent.selection_range(0, "end")
+    dlg.bind("<Return>", lambda _e: apply_value())
+    dlg.bind("<Escape>", lambda _e: cancel())
+
+    try:
+        parent.wait_window(dlg)
+    except Exception:
+        pass
+    return result["value"]
+
+
+def ask_float_with_help(
+    parent,
+    *,
+    title: str,
+    prompt: str,
+    help_text: str,
+    initialvalue: float = 0.0,
+    minvalue: float | None = None,
+    maxvalue: float | None = None,
+) -> float | None:
+    dlg = tk.Toplevel(parent)
+    dlg.title(title)
+    dlg.resizable(False, False)
+    dlg.transient(parent)
+    dlg.grab_set()
+
+    result = {"value": None}
+
+    body = ttk.Frame(dlg, padding=12)
+    body.pack(fill="both", expand=True)
+
+    ttk.Label(body, text=prompt, font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+    if help_text:
+        ttk.Label(body, text=help_text, justify="left", wraplength=390).pack(anchor="w", pady=(0, 8))
+
+    row = ttk.Frame(body)
+    row.pack(fill="x", pady=(0, 10))
+    ttk.Label(row, text="Value:").pack(side="left")
+    var = tk.StringVar(master=dlg, value=f"{float(initialvalue):.6g}")
+    ent = ttk.Entry(row, textvariable=var, width=14)
+    ent.pack(side="left", padx=(8, 0))
+
+    buttons = ttk.Frame(body)
+    buttons.pack(fill="x")
+
+    def apply_value():
+        try:
+            val = float((var.get() or "").strip())
+        except Exception:
+            messagebox.showerror(title, "Invalid number value.", parent=dlg)
+            return
+        if minvalue is not None and val < minvalue:
+            messagebox.showerror(title, f"Value must be at least {minvalue}.", parent=dlg)
+            return
+        if maxvalue is not None and val > maxvalue:
+            messagebox.showerror(title, f"Value must be no more than {maxvalue}.", parent=dlg)
+            return
+        result["value"] = val
+        dlg.destroy()
+
+    def cancel():
+        result["value"] = None
+        dlg.destroy()
+
+    ttk.Button(buttons, text="OK", command=apply_value).pack(side="right", padx=(6, 0))
+    ttk.Button(buttons, text="Cancel", command=cancel).pack(side="right")
+
+    ent.focus_set()
+    ent.selection_range(0, "end")
+    dlg.bind("<Return>", lambda _e: apply_value())
+    dlg.bind("<Escape>", lambda _e: cancel())
+
+    try:
+        parent.wait_window(dlg)
+    except Exception:
+        pass
+    return result["value"]
+
+
 class ManualAnimIDDialog(simpledialog.Dialog):
     def __init__(self, parent, cur_hi=None, cur_lo=None):
         self.cur_hi = cur_hi

@@ -16,7 +16,7 @@ from fd_patterns import (
     find_attack_property_addr,
     fmt_attack_property,
 )
-from fd_widgets import Tooltip
+from fd_widgets import Tooltip, get_field_help
 
 
 def configure_styles(root: tk.Toplevel) -> None:
@@ -249,7 +249,12 @@ def build_tree_widget(win) -> ttk.Frame:
         ent = ttk.Entry(filter_row, textvariable=var, width=w)
         ent.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
 
-        Tooltip(ent, f"Filter: {label_txt}. Case-insensitive substring. Leave blank to ignore.")
+        field_help = get_field_help(c, "")
+        tip_text = f"Filter: {label_txt}. Case-insensitive substring. Leave blank to ignore."
+        if field_help:
+            tip_text += f"\n\n{field_help}"
+        Tooltip(lbl, tip_text)
+        Tooltip(ent, tip_text)
         ent.bind("<Return>", lambda _e: _schedule_apply_filters())
 
         def _make_trace(_var=var):
@@ -265,7 +270,7 @@ def build_tree_widget(win) -> ttk.Frame:
    
 
 
-    Tooltip(labels_row, "Type in any box to filter. Multiple boxes are AND'ed together.")
+    Tooltip(labels_row, "Type in any box to filter. Multiple boxes are AND'ed together. Hover a column label or a grid cell to see what that field changes.")
 
     # --- Tree ---
     win.tree = ttk.Treeview(frame, columns=cols, show="tree headings", height=30)
@@ -332,6 +337,25 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("hit_reaction", width=280, anchor="w")
     win.tree.column("superbg", width=80, anchor="center")
     win.tree.column("abs", width=120, anchor="w")
+
+    def _update_hover_help(event):
+        try:
+            region = win.tree.identify_region(event.x, event.y)
+            if region not in ("cell", "heading"):
+                return
+            column = win.tree.identify_column(event.x)
+            if not column or column == "#0":
+                return
+            col_idx = int(column[1:]) - 1
+            col_name = win.tree["columns"][col_idx]
+            label = _filter_labels.get(col_name, col_name)
+            help_text = get_field_help(col_name, "")
+            if help_text and getattr(win, "_status_var", None) is not None:
+                win._status_var.set(f"{label}: {help_text}")
+        except Exception:
+            pass
+
+    win.tree.bind("<Motion>", _update_hover_help, add=True)
 
     win.tree.tag_configure("row_even", background="#F7F9FC")
     win.tree.tag_configure("row_odd", background="#EEF2F7")

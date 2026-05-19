@@ -2,7 +2,7 @@ from __future__ import annotations
 import struct
 
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 
 import fd_utils as U
 import fd_tree
@@ -10,6 +10,7 @@ from bonescan import BoneScanner
 from config import INTERVAL
 
 from fd_editors import FDCellEditorsMixin
+from fd_widgets import get_field_help, ask_integer_with_help
 
 from fd_patterns import (
     find_superbg_addr,
@@ -886,12 +887,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             except Exception:
                 cur_val = 0
 
-        new_val = simpledialog.askinteger(
-            "Edit Speed Modifier",
-            f"New speed modifier byte (0-255)\nAddr: 0x{addr:08X}",
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Speed Modifier",
+            prompt="New speed modifier byte (0-255)",
+            help_text=get_field_help("speed_mod"),
             initialvalue=int(cur_val),
             minvalue=0,
             maxvalue=255,
+            address=int(addr),
         )
         if new_val is None:
             return
@@ -957,6 +961,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         ttk.Label(
             body,
             text=f"Attack Property @ 0x{addr:08X}",
+        ).pack(anchor="w", pady=(0, 4))
+        ttk.Label(
+            body,
+            text=get_field_help("attack_property"),
+            justify="left",
+            wraplength=390,
         ).pack(anchor="w", pady=(0, 8))
 
         known_options = [

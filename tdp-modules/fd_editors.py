@@ -26,7 +26,7 @@ from fd_write_helpers import (
 )
 
 import fd_utils as U
-from fd_widgets import ManualAnimIDDialog
+from fd_widgets import ManualAnimIDDialog, get_field_help, ask_integer_with_help, ask_float_with_help
 
 
 class FDCellEditorsMixin:
@@ -50,7 +50,15 @@ class FDCellEditorsMixin:
 
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Active 2 Frames")
-        dlg.geometry("320x180")
+        dlg.geometry("420x245")
+
+        tk.Label(
+            dlg,
+            text=get_field_help("active2"),
+            fg="gray",
+            wraplength=390,
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(10, 6))
 
         tk.Label(dlg, text="Active 2 Start Frame:", font=("Arial", 10)).pack(pady=3)
         sv = tk.IntVar(value=cur_s)
@@ -116,12 +124,15 @@ class FDCellEditorsMixin:
             except Exception:
                 cur_val = 0
 
-        new_val = simpledialog.askinteger(
-            "Edit Combo KB Mod",
-            f"New combo KB mod byte (0-255)\nAddr: 0x{addr:08X}",
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Combo KB Mod",
+            prompt="New combo KB mod byte (0-255)",
+            help_text=get_field_help("combo_kb_mod"),
             initialvalue=int(cur_val),
             minvalue=0,
             maxvalue=255,
+            address=int(addr),
         )
         if new_val is None:
             return
@@ -136,7 +147,16 @@ class FDCellEditorsMixin:
 
     def _edit_damage(self, item, mv, current: str):
         cur = U.ensure_int(current, 0)
-        new_val = simpledialog.askinteger("Edit Damage", "New damage:", initialvalue=cur, minvalue=0, maxvalue=999999)
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Damage",
+            prompt="New damage:",
+            help_text=get_field_help("damage"),
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=999999,
+            address=mv.get("damage_addr"),
+        )
         if new_val is not None and U.WRITER_AVAILABLE and U.write_damage(mv, new_val):
             self.tree.set(item, "damage", str(new_val))
             mv["damage"] = new_val
@@ -165,12 +185,15 @@ class FDCellEditorsMixin:
             except Exception:
                 cur_val = 0
 
-        new_val = simpledialog.askinteger(
-            "Edit Projectile Damage",
-            f"New projectile damage (0-65535)\nAddr: 0x{int(addr):08X}",
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Projectile Damage",
+            prompt="New projectile damage (0-65535)",
+            help_text=get_field_help("proj_dmg"),
             initialvalue=int(cur_val),
             minvalue=0,
             maxvalue=65535,
+            address=int(addr),
         )
         if new_val is None:
             return
@@ -185,14 +208,32 @@ class FDCellEditorsMixin:
 
     def _edit_meter(self, item, mv, current: str):
         cur = U.ensure_int(current, 0)
-        new_val = simpledialog.askinteger("Edit Meter", "New meter:", initialvalue=cur, minvalue=0, maxvalue=255)
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Meter",
+            prompt="New meter:",
+            help_text=get_field_help("meter"),
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+            address=mv.get("meter_addr"),
+        )
         if new_val is not None and U.WRITER_AVAILABLE and U.write_meter(mv, new_val):
             self.tree.set(item, "meter", str(new_val))
             mv["meter"] = new_val
 
     def _edit_hitstop(self, item, mv, current: str):
         cur = U.ensure_int(current, 0)
-        new_val = simpledialog.askinteger("Edit Hitstop", "New hitstop:", initialvalue=cur, minvalue=0, maxvalue=255)
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Hitstop",
+            prompt="New hitstop:",
+            help_text=get_field_help("hitstop"),
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+            address=(int(mv.get("stun_addr")) + 38) if mv.get("stun_addr") else None,
+        )
         if new_val is not None and U.WRITER_AVAILABLE and U.write_hitstop(mv, new_val):
             self.tree.set(item, "hitstop", str(new_val))
             mv["hitstop"] = new_val
@@ -201,7 +242,16 @@ class FDCellEditorsMixin:
 
     def _edit_startup(self, item, mv, current: str):
         cur = U.ensure_int(current, 1) or 1
-        new_val = simpledialog.askinteger("Edit Startup", "New startup frame:", initialvalue=cur, minvalue=1, maxvalue=255)
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Startup",
+            prompt="New startup frame:",
+            help_text=get_field_help("startup"),
+            initialvalue=cur,
+            minvalue=1,
+            maxvalue=255,
+            address=mv.get("active_addr"),
+        )
         if new_val is None:
             return
         end = mv.get("active_end", new_val)
@@ -222,7 +272,15 @@ class FDCellEditorsMixin:
 
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Active Frames")
-        dlg.geometry("260x150")
+        dlg.geometry("420x225")
+
+        tk.Label(
+            dlg,
+            text=get_field_help("active"),
+            fg="gray",
+            wraplength=390,
+            justify="left",
+        ).pack(anchor="w", padx=12, pady=(10, 6))
 
         tk.Label(dlg, text="Active Start:").pack(pady=3)
         sv = tk.IntVar(value=cur_s)
@@ -250,14 +308,32 @@ class FDCellEditorsMixin:
 
     def _edit_hitstun(self, item, mv, current: str):
         cur = U.unfmt_stun(current) if current else 0
-        new_val = simpledialog.askinteger("Edit Hitstun", "New hitstun:", initialvalue=cur, minvalue=0, maxvalue=255)
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Hitstun",
+            prompt="New hitstun:",
+            help_text=get_field_help("hitstun"),
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+            address=(int(mv.get("stun_addr")) + 15) if mv.get("stun_addr") else None,
+        )
         if new_val is not None and U.WRITER_AVAILABLE and U.write_hitstun(mv, new_val):
             self.tree.set(item, "hitstun", U.fmt_stun(new_val))
             mv["hitstun"] = new_val
 
     def _edit_blockstun(self, item, mv, current: str):
         cur = U.unfmt_stun(current) if current else 0
-        new_val = simpledialog.askinteger("Edit Blockstun", "New blockstun:", initialvalue=cur, minvalue=0, maxvalue=255)
+        new_val = ask_integer_with_help(
+            self.root,
+            title="Edit Blockstun",
+            prompt="New blockstun:",
+            help_text=get_field_help("blockstun"),
+            initialvalue=cur,
+            minvalue=0,
+            maxvalue=255,
+            address=(int(mv.get("stun_addr")) + 31) if mv.get("stun_addr") else None,
+        )
         if new_val is not None and U.WRITER_AVAILABLE and U.write_blockstun(mv, new_val):
             self.tree.set(item, "blockstun", U.fmt_stun(new_val))
             mv["blockstun"] = new_val
@@ -698,6 +774,13 @@ class FDCellEditorsMixin:
         dlg.geometry("520x420")
 
         tk.Label(dlg, text="Hit Reaction Type", font=("Arial", 12, "bold")).pack(pady=5)
+        tk.Label(
+            dlg,
+            text=get_field_help("hit_reaction"),
+            fg="gray",
+            wraplength=490,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(0, 5))
 
         if cur_hr is not None:
             tk.Label(dlg, text=f"Current: {U.fmt_hit_reaction_ui(cur_hr)}", fg="blue", font=("Arial", 10)).pack(pady=3)
@@ -770,7 +853,14 @@ class FDCellEditorsMixin:
         if cur_r is None:
             cur_r = 0.0
 
-        new_val = simpledialog.askfloat("Edit Hitbox", "New radius:", initialvalue=float(cur_r), minvalue=0.0)
+        new_val = ask_float_with_help(
+            self.root,
+            title="Edit Hitbox",
+            prompt="New radius:",
+            help_text=get_field_help("hb_main"),
+            initialvalue=float(cur_r),
+            minvalue=0.0,
+        )
         if new_val is None:
             return
 
@@ -815,9 +905,12 @@ class FDCellEditorsMixin:
         dlg.transient(self.root)
         dlg.grab_set()
 
-        tk.Label(dlg, text="Edit each radius below. r0 is usually the main one.").grid(
-            row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w"
-        )
+        tk.Label(
+            dlg,
+            text="Edit each radius below. r0 is usually the main one. " + get_field_help("hb"),
+            wraplength=360,
+            justify="left",
+        ).grid(row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w")
 
         entries = []
         row = 1
@@ -873,9 +966,13 @@ class FDCellEditorsMixin:
         canvas.pack(side="left", fill="both", expand=True)
         vsb.pack(side="right", fill="y")
 
-        tk.Label(inner, text="Edit each radius below. r0 is usually the main one.", anchor="w", justify="left").grid(
-            row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w"
-        )
+        tk.Label(
+            inner,
+            text="Edit each radius below. r0 is usually the main one. " + get_field_help("hb"),
+            anchor="w",
+            justify="left",
+            wraplength=360,
+        ).grid(row=0, column=0, columnspan=3, padx=6, pady=4, sticky="w")
 
         entries = []
         row = 1
