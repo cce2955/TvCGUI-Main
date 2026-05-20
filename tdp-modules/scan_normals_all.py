@@ -530,10 +530,22 @@ def parse_knockback(buf: bytes, pos: int) -> Optional[Dict[str, Any]]:
 
 
 def parse_stun(buf: bytes, pos: int) -> Optional[Tuple[int, int, int]]:
-    if pos + STUN_TOTAL_LEN > len(buf):
+    """Parse the hitstun/blockstun/hitstop packet.
+
+    The old parser required a trailing ``04 15 60`` after the hitstop byte.
+    Ryu 6B's second hit in the supplied MEM2 dump has a valid stun packet but
+    flows directly into the next command packet instead of that trailer.  The
+    editable values are still at the same confirmed offsets, so validate the
+    strong packet body and treat the trailer as optional.
+    """
+    min_len = 39  # last editable byte is pos + 38
+    if pos + min_len > len(buf):
         return None
-    if not match_bytes(buf, pos, STUN_HDR):
+
+    loose_hdr = STUN_HDR[:39]
+    if not match_bytes(buf, pos, loose_hdr):
         return None
+
     return (buf[pos + 15], buf[pos + 31], buf[pos + 38])
 
 
@@ -585,6 +597,285 @@ def pick_best_block_from_idx(mv_abs: int,
                 best_dist = d
 
     return best, idx
+
+
+def next_any_anchor_boundary(moves: List[Dict[str, Any]],
+                             mv_abs: int,
+                             *,
+                             min_gap: int = 0x80,
+                             fallback_len: int = PAIR_RANGE) -> int:
+    """Return the next scanner anchor after this row.
+
+    This is intentionally tighter than _next_real_boundary_for_move.  It is used
+    only for scalar field pairing, where borrowing a previous/neighbor packet is
+    worse than showing a blank cell.  Ryu Tatsu exposed this: Spin and End rows
+    were inheriting Start/previous-hit stun because the old nearest-neighbor
+    matcher allowed backwards matches.
+    """
+    best: Optional[int] = None
+    for row in moves:
+        try:
+            addr = int(row.get("abs") or 0)
+        except Exception:
+            continue
+        if addr <= mv_abs + min_gap:
+            continue
+        if best is None or addr < best:
+            best = addr
+    return best if best is not None else mv_abs + fallback_len
+
+
+def first_block_forward(blocks: List[Tuple[int, Any]],
+                        start_addr: int,
+                        end_addr: int,
+                        *,
+                        max_gap: int = PAIR_RANGE) -> Optional[Tuple[int, Any]]:
+    if not blocks:
+        return None
+    limit = min(end_addr, start_addr + max_gap)
+    for addr, data in blocks:
+        if start_addr <= addr < limit:
+            return (addr, data)
+    return None
+
+
+def pair_forward_hit_fields_for_move(mv: Dict[str, Any],
+                                     moves: List[Dict[str, Any]],
+                                     blocks: Dict[str, Any]) -> None:
+    """Tighter scalar packet pairing for rows that are not full real anchors.
+
+    The legacy matcher picked the nearest block by absolute distance.  That made
+    nearby phased scripts look populated, but it also caused wrong writes: a
+    Tatsu Spin row could point at Tatsu Start stun, and a Tatsu End row could
+    point back at Spin damage.
+
+    This pass pairs packets in the real script order:
+        move anchor -> active -> damage -> attack/reaction -> KB -> stun
+    and stops at the next scanner anchor.  If a section has no forward hit
+    packet, it stays blank instead of borrowing the previous section's address.
+    """
+    try:
+        mv_abs = int(mv.get("abs") or 0)
+    except Exception:
+        mv_abs = 0
+    if not mv_abs:
+        return
+
+    boundary = next_any_anchor_boundary(moves, mv_abs, fallback_len=PAIR_RANGE)
+
+    active_blocks = sorted(blocks.get("active_blocks") or [], key=lambda x: x[0])
+    dmg_blocks = sorted(blocks.get("dmg_blocks") or [], key=lambda x: x[0])
+    atkprop_blocks = sorted(blocks.get("atkprop_blocks") or [], key=lambda x: x[0])
+    hitreact_blocks = sorted(blocks.get("hitreact_blocks") or [], key=lambda x: x[0])
+    kb_blocks = sorted(blocks.get("kb_blocks") or [], key=lambda x: x[0])
+    stun_blocks = sorted(blocks.get("stun_blocks") or [], key=lambda x: x[0])
+
+    ablk = first_block_forward(active_blocks, mv_abs, boundary, max_gap=PAIR_RANGE)
+    if ablk:
+        mv["active_start"], mv["active_end"] = ablk[1]
+        mv["active_addr"] = ablk[0]
+    else:
+        mv["active_start"] = mv["active_end"] = mv["active_addr"] = None
+
+    data_start = ablk[0] if ablk else mv_abs
+    dblk = first_block_forward(dmg_blocks, data_start, boundary, max_gap=HIT_SEGMENT_MAX_GAP)
+    if dblk:
+        mv["damage"], mv["damage_flag"] = dblk[1]
+        mv["damage_addr"] = dblk[0]
+    else:
+        mv["damage"] = mv["damage_flag"] = mv["damage_addr"] = None
+        # No concrete hit bundle for this row.  Clear dependent hit fields so
+        # the UI does not offer writes to a neighbor's packet.
+        mv["attack_property"] = mv["atkprop_addr"] = mv["attack_property_addr"] = None
+        mv["hit_reaction"] = mv["hit_reaction_addr"] = None
+        mv["kb0"] = mv["kb1"] = mv["kb_traj"] = None
+        mv["kb_type"] = mv["launch_profile"] = mv["kb_unknown"] = None
+        mv["kb_x"] = mv["air_kb"] = mv["knockback_addr"] = None
+        mv["hitstun"] = mv["blockstun"] = mv["hitstop"] = mv["stun_addr"] = None
+        return
+
+    apblk = first_block_forward(atkprop_blocks, dblk[0], boundary, max_gap=HIT_SEGMENT_MAX_GAP)
+    if apblk:
+        mv["attack_property"] = apblk[1]
+        mv["atkprop_addr"] = apblk[0]
+        mv["attack_property_addr"] = apblk[0] + len(ATKPROP_HDR)
+    else:
+        mv["attack_property"] = mv["atkprop_addr"] = mv["attack_property_addr"] = None
+
+    hrblk = first_block_forward(hitreact_blocks, dblk[0], boundary, max_gap=HIT_SEGMENT_MAX_GAP)
+    if hrblk:
+        mv["hit_reaction"] = hrblk[1]
+        mv["hit_reaction_addr"] = hrblk[0] + HITREACTION_CODE_OFF
+    else:
+        mv["hit_reaction"] = mv["hit_reaction_addr"] = None
+
+    kb_start = hrblk[0] if hrblk else dblk[0]
+    kbblk = first_block_forward(kb_blocks, kb_start, boundary, max_gap=HIT_SEGMENT_MAX_GAP)
+    if kbblk:
+        kb = kbblk[1]
+        mv["knockback_addr"] = kbblk[0]
+        mv["kb_type"] = kb.get("kb_type")
+        mv["launch_profile"] = kb.get("launch_profile")
+        mv["kb_unknown"] = kb.get("kb_unknown")
+        mv["kb_x"] = kb.get("kb_x")
+        mv["air_kb"] = kb.get("air_kb")
+        mv["kb0"] = mv["launch_profile"]
+        mv["kb1"] = mv["kb_type"]
+        mv["kb_traj"] = None
+    else:
+        mv["kb0"] = mv["kb1"] = mv["kb_traj"] = None
+        mv["kb_type"] = mv["launch_profile"] = mv["kb_unknown"] = None
+        mv["kb_x"] = mv["air_kb"] = mv["knockback_addr"] = None
+
+    stun_start = kbblk[0] if kbblk else kb_start
+    sblk = first_block_forward(stun_blocks, stun_start, boundary, max_gap=HIT_SEGMENT_MAX_GAP)
+    if sblk:
+        mv["hitstun"], mv["blockstun"], mv["hitstop"] = sblk[1]
+        mv["stun_addr"] = sblk[0]
+    else:
+        mv["hitstun"] = mv["blockstun"] = mv["hitstop"] = mv["stun_addr"] = None
+
+
+
+# ============================================================
+# Multi-hit segment helpers
+# ============================================================
+
+HIT_SEGMENT_SCAN_MAX = 0x2400
+HIT_SEGMENT_MAX_GAP = 0x900
+
+
+def _first_block_after(blocks: List[Tuple[int, Any]],
+                       start_addr: int,
+                       end_addr: int,
+                       *,
+                       max_gap: int = HIT_SEGMENT_MAX_GAP) -> Optional[Tuple[int, Any]]:
+    limit = min(end_addr, start_addr + max_gap)
+    for addr, data in blocks:
+        if start_addr <= addr < limit:
+            return (addr, data)
+    return None
+
+
+def _next_real_boundary_for_move(moves: List[Dict[str, Any]], mv_abs: int) -> int:
+    """Return the next real move boundary, ignoring interior table/legacy probes.
+
+    6B exposed why this matters: the chr table can point at subcommands inside
+    one move, and legacy 01 xx 01 3C patterns can appear inside the same script.
+    Those should not cut the move before the second hit bundle is collected.
+    """
+    real_sources = {"anim_hdr", "air_hdr", "cmd_hdr", "super_end"}
+    candidates: list[int] = []
+    for row in moves:
+        addr = row.get("abs") or 0
+        if addr <= mv_abs + 0x80:
+            continue
+        if row.get("source") in real_sources:
+            candidates.append(int(addr))
+    if candidates:
+        return min(candidates)
+    return mv_abs + HIT_SEGMENT_SCAN_MAX
+
+
+def collect_hit_segments_for_move(mv_abs: int,
+                                  next_boundary_abs: int,
+                                  blocks: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Collect per-hit bundles after a move anchor.
+
+    Each hit is anchored by an active-frame packet and then paired forward to
+    damage, property, reaction, KB, and stun packets before the next active
+    packet or next real move boundary.  This keeps multi-hit normals such as
+    Ryu 6B from being flattened into a single nearest-neighbor row.
+    """
+    scan_end = min(int(next_boundary_abs), int(mv_abs) + HIT_SEGMENT_SCAN_MAX)
+    if scan_end <= mv_abs:
+        return []
+
+    active_blocks = sorted(blocks.get("active_blocks") or [], key=lambda x: x[0])
+    dmg_blocks = sorted(blocks.get("dmg_blocks") or [], key=lambda x: x[0])
+    atkprop_blocks = sorted(blocks.get("atkprop_blocks") or [], key=lambda x: x[0])
+    hitreact_blocks = sorted(blocks.get("hitreact_blocks") or [], key=lambda x: x[0])
+    kb_blocks = sorted(blocks.get("kb_blocks") or [], key=lambda x: x[0])
+    stun_blocks = sorted(blocks.get("stun_blocks") or [], key=lambda x: x[0])
+
+    actives = [(addr, data) for addr, data in active_blocks if mv_abs <= addr < scan_end]
+    if not actives:
+        return []
+
+    segments: list[dict[str, Any]] = []
+    for idx, (active_addr, active_data) in enumerate(actives):
+        seg_end = scan_end
+        if idx + 1 < len(actives):
+            seg_end = min(seg_end, actives[idx + 1][0])
+
+        dblk = _first_block_after(dmg_blocks, active_addr, seg_end)
+        if not dblk:
+            # Active packets without a nearby damage bundle are usually helper
+            # script/collision timing, not a concrete editable hit.
+            continue
+
+        damage_addr, damage_data = dblk
+        apblk = _first_block_after(atkprop_blocks, damage_addr, seg_end)
+        hrblk = _first_block_after(hitreact_blocks, damage_addr, seg_end)
+        kb_start = (hrblk[0] if hrblk else damage_addr)
+        kbblk = _first_block_after(kb_blocks, kb_start, seg_end)
+        stun_start = (kbblk[0] if kbblk else kb_start)
+        sblk = _first_block_after(stun_blocks, stun_start, seg_end)
+
+        seg: dict[str, Any] = {
+            "hit_index": len(segments) + 1,
+            "kind": "hit",
+            "abs": active_addr,
+            "active_addr": active_addr,
+            "active_start": active_data[0],
+            "active_end": active_data[1],
+            "damage_addr": damage_addr,
+            "damage": damage_data[0],
+            "damage_flag": damage_data[1],
+        }
+
+        if apblk:
+            seg["atkprop_addr"] = apblk[0]
+            seg["attack_property_addr"] = apblk[0] + len(ATKPROP_HDR)
+            seg["attack_property"] = apblk[1]
+        if hrblk:
+            seg["hit_reaction_addr"] = hrblk[0] + HITREACTION_CODE_OFF
+            seg["hit_reaction"] = hrblk[1]
+        if kbblk:
+            kb = kbblk[1]
+            seg["knockback_addr"] = kbblk[0]
+            seg["kb_type"] = kb.get("kb_type")
+            seg["launch_profile"] = kb.get("launch_profile")
+            seg["kb_unknown"] = kb.get("kb_unknown")
+            seg["kb_x"] = kb.get("kb_x")
+            seg["air_kb"] = kb.get("air_kb")
+            seg["kb0"] = seg.get("launch_profile")
+            seg["kb1"] = seg.get("kb_type")
+            seg["kb_traj"] = None
+        if sblk:
+            seg["stun_addr"] = sblk[0]
+            seg["hitstun"] = sblk[1][0]
+            seg["blockstun"] = sblk[1][1]
+            seg["hitstop"] = sblk[1][2]
+
+        segments.append(seg)
+
+    return segments
+
+
+def apply_hit_segment_to_move(mv: Dict[str, Any], seg: Dict[str, Any]) -> None:
+    """Overlay a segment onto the legacy scalar fields for compatibility."""
+    for key in (
+        "damage", "damage_flag", "damage_addr",
+        "active_start", "active_end", "active_addr",
+        "attack_property", "atkprop_addr", "attack_property_addr",
+        "hit_reaction", "hit_reaction_addr",
+        "kb0", "kb1", "kb_traj", "kb_type", "launch_profile", "kb_unknown",
+        "kb_x", "air_kb", "knockback_addr",
+        "hitstun", "blockstun", "hitstop", "stun_addr",
+    ):
+        if key in seg:
+            mv[key] = seg.get(key)
 # ============================================================
 # Move anchor collection
 # ============================================================
@@ -920,11 +1211,12 @@ def attach_move_fields(moves: List[Dict[str, Any]],
             mv["damage"], mv["damage_flag"] = dblk[1]
             mv["damage_addr"] = dblk[0]
 
-        mv["attack_property"] = mv["atkprop_addr"] = None
+        mv["attack_property"] = mv["atkprop_addr"] = mv["attack_property_addr"] = None
         apblk, atkprop_idx = pick_best_block_from_idx(mv_abs, atkprop_blocks, atkprop_idx)
         if apblk:
             mv["attack_property"] = apblk[1]
             mv["atkprop_addr"] = apblk[0]
+            mv["attack_property_addr"] = apblk[0] + len(ATKPROP_HDR)
 
         mv["hit_reaction"] = mv["hit_reaction_addr"] = None
         hrblk, hitreact_idx = pick_best_block_from_idx(mv_abs, hitreact_blocks, hitreact_idx)
@@ -956,6 +1248,12 @@ def attach_move_fields(moves: List[Dict[str, Any]],
             mv["hitstun"], mv["blockstun"], mv["hitstop"] = sblk[1]
             mv["stun_addr"] = sblk[0]
 
+        # Tighten scalar packet pairing for loose/strict script rows.  These
+        # rows often sit inside phased specials; nearest-neighbor matching made
+        # them inherit neighboring hit packets and caused misleading writes.
+        if mv.get("source") == "legacy_special" or (mv.get("source") == "strict" and mv.get("kind") != "normal"):
+            pair_forward_hit_fields_for_move(mv, moves, blocks)
+
         mv["hb_x"] = mv["hb_y"] = None
         off_x = rel + HITBOX_OFF_X
         off_y = rel + HITBOX_OFF_Y
@@ -969,6 +1267,19 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                 mv["hb_y"] = rd_f32_be(buf, off_y)
             except Exception:
                 pass
+
+        mv["hit_segments"] = []
+        mv["multi_hit_count"] = 0
+        if mv.get("source") in {"anim_hdr", "air_hdr", "cmd_hdr", "super_end"}:
+            next_boundary = _next_real_boundary_for_move(moves, mv_abs)
+            hit_segments = collect_hit_segments_for_move(mv_abs, next_boundary, blocks)
+            if hit_segments:
+                for seg in hit_segments:
+                    seg["parent_abs"] = mv_abs
+                    seg["parent_id"] = aid
+                mv["hit_segments"] = hit_segments
+                mv["multi_hit_count"] = len(hit_segments)
+                apply_hit_segment_to_move(mv, hit_segments[0])
 
         total_frames = mv.get("speed") or 0x3C
         a_end = mv.get("active_end")

@@ -156,11 +156,34 @@ def resolve_projectile_fields_for_move(
 
 def _try_lookup_move_name(char_name: str | None, anim_id: int) -> str | None:
     """
-    
     This helper tries the safe variants without ever throwing.
+
+    Prefer the character-specific table before the generic/global table.  The
+    CSV intentionally reuses IDs across characters, and also reuses low IDs such
+    as 0x010C for both global air-normal helpers and character specials.  If we
+    fall back to generic first, Ryu's internal Hado row becomes j.B (Second),
+    Chun rows can become unrelated global normals, and family sorting gets
+    pulled out of order.
     """
-    # Preferred: (char_name, anim_id)
     if char_name:
+        char_id = None
+        try:
+            char_id = CHAR_ID_CORRECTION.get(char_name)  # type: ignore[arg-type]
+        except Exception:
+            char_id = None
+        if char_id is not None:
+            try:
+                s = lookup_move_name(anim_id, char_id)
+                if s:
+                    return s
+            except TypeError:
+                pass
+            except Exception:
+                pass
+
+        # Compatibility for any older local lookup helper that accepted
+        # (char_name, anim_id).  Current move_id_map.py wants (anim_id, char_id),
+        # so this stays after the known-good path.
         try:
             s = lookup_move_name(char_name, anim_id)
             if s:
@@ -170,7 +193,7 @@ def _try_lookup_move_name(char_name: str | None, anim_id: int) -> str | None:
         except Exception:
             pass
 
-    # Fallback: (anim_id) or (anim_id, char_id)
+    # Fallback: global/generic lookup.
     try:
         s = lookup_move_name(anim_id)
         if s:
@@ -179,22 +202,6 @@ def _try_lookup_move_name(char_name: str | None, anim_id: int) -> str | None:
         pass
     except Exception:
         pass
-
-    if char_name:
-        # If someone passed char_name but lookup expects an int char_id, try deriving.
-        char_id = None
-        try:
-            # CHAR_ID_CORRECTION is not guaranteed to map names; guard it
-            char_id = CHAR_ID_CORRECTION.get(char_name)  # type: ignore[arg-type]
-        except Exception:
-            char_id = None
-        if char_id is not None:
-            try:
-                s = lookup_move_name(anim_id, char_id)
-                if s:
-                    return s
-            except Exception:
-                pass
 
     return None
 

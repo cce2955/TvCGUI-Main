@@ -53,6 +53,8 @@ FIELD_HELP = {
         "This changes which move record or animation the row points at; it is separate from damage, stun, and physics values."
     ),
     "kind": "Scanner classification for this row. It is display-only and helps separate normals, specials, supers, and unknown rows.",
+    "hits": "Detected per-hit bundles for this move. Expand a multi-hit row to view and edit each hit separately.",
+    "link": "Display-only family link. Shows when separate table sections appear to be pieces of one player-facing move, such as Tatsu Start / Spin / End.",
     "damage": "Base damage dealt by this move or hit. Higher values increase raw damage; it does not change hitstun or knockback by itself.",
     "meter": "Meter gain/base meter value attached to the hit. This changes resource behavior, not damage or hit reaction.",
     "startup": "First active frame. Lower values make the hitbox become active sooner; this also rewrites the start of the active range.",

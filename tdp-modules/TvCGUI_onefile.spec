@@ -18,8 +18,9 @@ a = Analysis(
     pathex=['.'],
     binaries=[],
 datas=[
-    ('assets',  'assets'),      # portraits, icons — bundled inside EXE
+    ('assets',  'assets'),      # portraits, icons bundled inside EXE
     ('*.csv',   '.'),           # move-mapping CSVs
+    ('fd_region_hits.txt', '.'),
     ('quick_assists.json', '.'),
     ('master_overlay_control.json', '.'),
     ('missions', 'missions'),
@@ -63,12 +64,23 @@ datas=[
         'global_redscan',
         'events',
         'frame_data_window',
+        'fd_window',
+        'fd_tree',
+        'fd_move_families',
+        'fd_editors',
+        'fd_widgets',
+        'fd_utils',
+        'fd_patterns',
+        'fd_format',
+        'fd_dialogs',
+        'fd_write_helpers',
+        'fd_patch_runtime',
         'proj_scanner_window',
         'mission_mode',
         'subprocess_compat',
         'assist_scanner_window',
-'assist_scanner_backend',
-'tk_host',
+        'assist_scanner_backend',
+        'tk_host',
 
         # stdlib
         'csv',

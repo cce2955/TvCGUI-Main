@@ -19,10 +19,11 @@ from fd_patterns import (
     fmt_attack_property,
 )
 from fd_widgets import Tooltip, get_field_help
+from fd_move_families import annotate_move_families
 
 
 FD_COLUMNS = (
-    "move", "kind",
+    "move", "kind", "hits", "link",
     "damage",
     "meter",
     "startup", "active", "active2",
@@ -34,7 +35,7 @@ FD_COLUMNS = (
 )
 
 FD_CORE_COLUMNS = (
-    "move",
+    "move", "hits", "link",
     "damage", "meter",
     "startup", "active",
     "hitstun", "blockstun", "hitstop",
@@ -46,6 +47,8 @@ FD_CORE_COLUMNS = (
 FD_LABELS = {
     "move": "Move",
     "kind": "Kind",
+    "hits": "Hits",
+    "link": "Link",
     "damage": "Damage",
     "meter": "Meter",
     "startup": "Startup",
@@ -212,6 +215,8 @@ def build_top_bar(win) -> None:
     ttk.Button(actions, text="Expand", command=win._expand_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Collapse", command=win._collapse_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Refresh", command=win._refresh_visible).pack(side="left", padx=4)
+    ttk.Button(actions, text="Save patch", command=lambda: getattr(win, "_save_fd_patch_config", lambda: None)()).pack(side="left", padx=(10, 4))
+    ttk.Button(actions, text="Load patch", command=lambda: getattr(win, "_load_fd_patch_config", lambda: None)()).pack(side="left", padx=4)
     ttk.Label(actions, textvariable=win._changed_count_var, style="Muted.Top.TLabel").pack(side="left", padx=(12, 4))
     ttk.Button(actions, text="Reset changed", command=win._reset_all_moves).pack(side="left", padx=4)
 
@@ -287,9 +292,21 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     canvas.bind("<Leave>", _unbind_wheel)
 
     def _value_click(col: str):
+        if col == "link":
+            try:
+                win._status_var.set("Link is display-only. It groups move-table sections that appear to belong to one human move.")
+            except Exception:
+                pass
+            return
         if col == "kind":
             try:
                 win._status_var.set("Kind is informational. It marks the row bucket, not a writable frame-data value.")
+            except Exception:
+                pass
+            return
+        if col == "hits":
+            try:
+                win._status_var.set("Hits shows detected per-hit bundles. Expand a multi-hit move to edit each hit separately.")
             except Exception:
                 pass
             return
@@ -305,7 +322,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         win._edit_selected_column(col)
 
     def _make_chip(parent_widget, col: str, var: tk.StringVar):
-        editable = col not in {"kind"}
+        editable = col not in {"kind", "hits", "link"}
         style = "ValueChip.TLabel" if editable else "ValueStatic.TLabel"
         chip = ttk.Label(parent_widget, textvariable=var, style=style, anchor="w")
         chip.pack(side="left", fill="x", expand=True, padx=(4, 0))
@@ -340,7 +357,8 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     ttk.Label(move_card, textvariable=win._inspector_hint_var, style="CardMuted.TLabel", wraplength=320).pack(anchor="w", pady=(8, 0))
 
     sections = [
-        ("Impact", ["damage", "meter", "hitstop"]),
+        ("Move link", ["link"]),
+        ("Impact", ["hits", "damage", "meter", "hitstop"]),
         ("Timing", ["startup", "active", "active2", "speed_mod"]),
         ("Stun and pressure", ["hitstun", "blockstun", "attack_property", "hit_reaction"]),
         ("Launch and physics", ["launch_profile", "kb_x", "air_kb", "kb_unknown"]),
@@ -351,6 +369,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         "abs": "Click to copy this address.",
         "superbg": "Click to toggle or edit this flag.",
         "kind": "Informational only.",
+        "link": "Display-only family/section link.",
     }
 
     for section_title, fields in sections:
@@ -434,6 +453,8 @@ def build_tree_widget(win) -> ttk.Frame:
     filter_widths = {
         "move": 34,
         "kind": 10,
+        "hits": 8,
+        "link": 18,
         "damage": 8,
         "meter": 8,
         "startup": 8,
@@ -456,6 +477,9 @@ def build_tree_widget(win) -> ttk.Frame:
     filter_labels = {
         "move": "Move",
         "kind": "Kind",
+        "hits": "Hits",
+        "link": "Link",
+    "link": "Link",
         "damage": "Dmg",
         "meter": "Meter",
         "startup": "Start",
@@ -579,6 +603,8 @@ def build_tree_widget(win) -> ttk.Frame:
     headers = [
         ("move", "Move"),
         ("kind", "Kind"),
+        ("hits", "Hits"),
+        ("link", "Link"),
         ("damage", "Dmg"),
         ("meter", "Meter"),
         ("startup", "Start"),
@@ -602,6 +628,8 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win.tree.column("move", width=280, anchor="w")
     win.tree.column("kind", width=80, anchor="w")
+    win.tree.column("hits", width=62, anchor="center")
+    win.tree.column("link", width=210, anchor="w")
     win.tree.column("damage", width=76, anchor="center")
     win.tree.column("meter", width=70, anchor="center")
     win.tree.column("startup", width=70, anchor="center")
@@ -672,6 +700,8 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("super_on", foreground="#82E0B1")
     win.tree.tag_configure("missing_addr", foreground="#FF9A9A")
     win.tree.tag_configure("group_parent", foreground="#FFE3A3")
+    win.tree.tag_configure("family_header", background="#182840", foreground="#A9D2FF")
+    win.tree.tag_configure("family_linked", foreground="#C9E2FF")
     win.tree.tag_configure("edited_row", background="#1E2D43")
 
     _build_inspector(win, right)
@@ -680,6 +710,10 @@ def build_tree_widget(win) -> ttk.Frame:
 
 def populate_tree(win) -> None:
     cname = win.target_slot.get("char_name", "-")
+    try:
+        annotate_move_families(win.moves, cname)
+    except Exception:
+        pass
 
     win.tree.delete(*win.tree.get_children())
     win._row_counter = 0
@@ -690,6 +724,59 @@ def populate_tree(win) -> None:
     def _fmt(v):
         return "" if v is None else str(v)
 
+    def _hit_count_text(mv):
+        if mv.get("_hit_segment_index") is not None:
+            try:
+                return f"Hit {int(mv.get('_hit_segment_index'))}"
+            except Exception:
+                return "Hit"
+        count = mv.get("multi_hit_count") or len(mv.get("hit_segments") or [])
+        try:
+            count = int(count or 0)
+        except Exception:
+            count = 0
+        return f"{count} hits" if count > 1 else ("1" if count == 1 else "")
+
+    def _segment_to_row(parent_mv, seg):
+        child = dict(parent_mv)
+        child.update(seg or {})
+        idx = int((seg or {}).get("hit_index") or 1)
+        child["kind"] = "hit"
+        child["_hit_segment_index"] = idx
+        child["_hit_parent_abs"] = parent_mv.get("abs")
+        child["_hit_parent_label"] = parent_mv.get("pretty_name") or parent_mv.get("move_name")
+        child["_dirty_key_addr"] = child.get("active_addr") or child.get("damage_addr") or child.get("abs")
+        if child.get("family_link_label"):
+            child["family_link_label"] = f"{child.get('family_link_label')} / Hit {idx}"
+        child["id"] = parent_mv.get("id")
+        child["move_name"] = parent_mv.get("move_name")
+        child["pretty_name"] = parent_mv.get("pretty_name")
+        child["hit_segments"] = []
+        child["multi_hit_count"] = 0
+        # Hit rows are for per-hit data only. Keep whole-move-only fields off
+        # the child so users do not accidentally edit meter/speed/super flags
+        # from a segment row.
+        for key in (
+            "meter", "meter_addr", "active2_start", "active2_end", "active2_addr",
+            "speed_mod", "speed_mod_addr", "speed_mod_sig",
+            "superbg_val", "superbg_addr",
+        ):
+            child[key] = None
+        return child
+
+    def _insert_hit_children(parent_item, mv):
+        segments = mv.get("hit_segments") or []
+        if not isinstance(segments, list) or len(segments) <= 1:
+            return
+        for seg in segments:
+            insert_move_row(_segment_to_row(mv, seg), parent=parent_item)
+        try:
+            win.tree.item(parent_item, open=True)
+            tags = set(win.tree.item(parent_item, "tags") or ())
+            tags.add("group_parent")
+            win.tree.item(parent_item, tags=tuple(tags))
+        except Exception:
+            pass
 
     def insert_move_row(mv, parent=""):
         aid = mv.get("id")
@@ -698,7 +785,14 @@ def populate_tree(win) -> None:
         pretty = U.pretty_move_name(aid, cname)
         mv["pretty_name"] = pretty
 
-        if aid is not None:
+        if mv.get("_hit_segment_index") is not None:
+            try:
+                idx = int(mv.get("_hit_segment_index"))
+            except Exception:
+                idx = 1
+            parent_label = mv.get("_hit_parent_label") or pretty
+            pretty = f"{parent_label} Hit {idx}"
+        elif aid is not None:
             dup = mv.get("dup_index")
             if dup is not None:
                 pretty = f"{pretty} (Tier{dup + 1})"
@@ -789,6 +883,8 @@ def populate_tree(win) -> None:
             values=(
                 pretty,
                 mv.get("kind", ""),
+                _hit_count_text(mv),
+                _fmt(mv.get("family_link_label") or mv.get("link_label")),
                 _fmt(mv.get("damage")),
                 _fmt(mv.get("meter")),
                 startup_txt,
@@ -812,6 +908,13 @@ def populate_tree(win) -> None:
         win.move_to_tree_item[item_id] = mv
         win._all_item_ids.append(item_id)
         win._apply_row_tags(item_id, mv)
+        if mv.get("family_linkable"):
+            try:
+                tags = set(win.tree.item(item_id, "tags") or ())
+                tags.add("family_linked")
+                win.tree.item(item_id, tags=tuple(tags))
+            except Exception:
+                pass
 
         return item_id
 
@@ -835,38 +938,152 @@ def populate_tree(win) -> None:
             score += 10
         return score
 
-    groups = {}
-    order = []
+    def _insert_family_header(label, mv_list):
+        vals = {c: "" for c in FD_COLUMNS}
+        vals["move"] = label
+        vals["kind"] = "linked"
+        vals["hits"] = ""
+        vals["link"] = f"{len(mv_list)} related sections"
+        addrs = []
+        for _mv in mv_list:
+            try:
+                if _mv.get("abs"):
+                    addrs.append(int(_mv.get("abs")))
+            except Exception:
+                pass
+        vals["abs"] = f"0x{min(addrs):08X}" if addrs else ""
+        item_id = win.tree.insert(
+            "",
+            "end",
+            text="",
+            tags=("family_header",),
+            values=tuple(vals.get(c, "") for c in FD_COLUMNS),
+        )
+        win._all_item_ids.append(item_id)
+        return item_id
 
-    for mv in win.moves:
-        aid = mv.get("id")
-        if aid not in groups:
-            groups[aid] = []
-            order.append(aid)
-        groups[aid].append(mv)
+    def _insert_id_groups(moves_for_group, parent=""):
+        groups = {}
+        order = []
 
-    for aid in order:
-        mv_list = groups[aid]
+        for mv in moves_for_group:
+            aid = mv.get("id")
+            if aid not in groups:
+                groups[aid] = []
+                order.append(aid)
+            groups[aid].append(mv)
 
-        if len(mv_list) == 1:
-            insert_move_row(mv_list[0])
-            continue
+        for aid in order:
+            mv_list = groups[aid]
 
-        mv_list = sorted(
-            mv_list,
-            key=lambda mv: (
-                -_move_quality(mv),
-                0 if mv.get("kind") == "normal" else 1,
-                mv.get("abs") or 0xFFFFFFFF,
-            ),
+            if len(mv_list) == 1:
+                parent_item = insert_move_row(mv_list[0], parent=parent)
+                _insert_hit_children(parent_item, mv_list[0])
+                continue
+
+            mv_list = sorted(
+                mv_list,
+                key=lambda mv: (
+                    -_move_quality(mv),
+                    0 if mv.get("kind") == "normal" else 1,
+                    mv.get("abs") or 0xFFFFFFFF,
+                ),
+            )
+
+            parent_item = insert_move_row(mv_list[0], parent=parent)
+            _insert_hit_children(parent_item, mv_list[0])
+            win.tree.item(parent_item, open=bool((mv_list[0].get("hit_segments") or [])[1:]))
+            win.tree.item(parent_item, tags=("group_parent",))
+
+            for mv in mv_list[1:]:
+                child_item = insert_move_row(mv, parent=parent_item)
+                _insert_hit_children(child_item, mv)
+
+    def _display_rank_for_mv(mv):
+        try:
+            ranker = getattr(win, "_explicit_notation", None)
+            if callable(ranker):
+                return ranker(mv)
+        except Exception:
+            pass
+        try:
+            return (1, int(mv.get("abs") or 0xFFFFFFFF))
+        except Exception:
+            return (1, 0xFFFFFFFF)
+
+    def _phase_rank(mv):
+        phase = str(mv.get("family_phase") or "").lower()
+        return {"start": 0, "spin": 1, "end": 2, "entry": 3, "air entry": 3}.get(phase, 9)
+
+    def _family_member_rank(mv):
+        return (
+            int(mv.get("family_chain_index") or 9999),
+            _phase_rank(mv),
+            mv.get("abs") or 0xFFFFFFFF,
         )
 
-        parent = insert_move_row(mv_list[0])
-        win.tree.item(parent, open=False)
-        win.tree.item(parent, tags=("group_parent",))
+    # Family links are display-only.  They keep records such as Ryu's Tatsu
+    # Start/Spin/End near each other without changing any write handlers.
+    family_groups = {}
+    family_order = []
+    normal_moves = []
 
-        for mv in mv_list[1:]:
-            insert_move_row(mv, parent=parent)
+    for mv in win.moves:
+        key = (mv.get("family_group_key") or mv.get("family_key")) if mv.get("family_linkable") else None
+        if key:
+            if key not in family_groups:
+                family_groups[key] = []
+                family_order.append(key)
+            family_groups[key].append(mv)
+        else:
+            normal_moves.append(mv)
+
+    def _family_sort_key(key):
+        members = family_groups.get(key) or []
+        try:
+            group_ranker = getattr(win, "_family_group_sort_key", None)
+            if callable(group_ranker):
+                return group_ranker(members)
+        except Exception:
+            pass
+        ranks = [_display_rank_for_mv(mv) for mv in members]
+        return min(ranks) if ranks else (9, 0xFFFFFFFF)
+
+    normal_groups = {}
+    normal_order = []
+    for mv in normal_moves:
+        aid = mv.get("id")
+        if aid not in normal_groups:
+            normal_groups[aid] = []
+            normal_order.append(aid)
+        normal_groups[aid].append(mv)
+
+    units = []
+    for key in family_order:
+        members = family_groups.get(key) or []
+        if members:
+            units.append(("family", key, _family_sort_key(key)))
+    for aid in normal_order:
+        members = normal_groups.get(aid) or []
+        ranks = [_display_rank_for_mv(mv) for mv in members]
+        units.append(("normal", aid, min(ranks) if ranks else (9, 0xFFFFFFFF)))
+
+    for kind, key, _addr in sorted(units, key=lambda u: u[2]):
+        if kind == "family":
+            members = sorted(family_groups.get(key) or [], key=_family_member_rank)
+            if not members:
+                continue
+            label = members[0].get("family_group_label") or members[0].get("family_label") or key
+            suffix = "linked sections" if "linked" not in str(label).lower() else ""
+            header_label = f"{label} {suffix}".strip()
+            header = _insert_family_header(header_label, members)
+            _insert_id_groups(members, parent=header)
+            try:
+                win.tree.item(header, open=True)
+            except Exception:
+                pass
+        else:
+            _insert_id_groups(normal_groups.get(key) or [], parent="")
 
     # Populate the inspector immediately so the window opens with a useful
     # selected-row view instead of an empty side panel.

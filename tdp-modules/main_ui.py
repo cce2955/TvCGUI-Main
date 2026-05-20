@@ -927,7 +927,7 @@ def draw_scan_normals_polished(
     surf.blit(panel, rect.topleft)
 
     title = smallfont.render("Scan: Normals Preview", True, GUI_TEXT)
-    legend = smallfont.render("S startup | A active | H hitstun | B blockstun", True, GUI_TEXT_DIM)
+    legend = smallfont.render("S startup | A active | H hitstun | B blockstun | blue = patched", True, GUI_TEXT_DIM)
     surf.blit(title, (rect.x + 10, rect.y + 8))
     surf.blit(legend, (rect.right - legend.get_width() - 10, rect.y + 8))
     pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 28), (rect.right - 8, rect.y + 28))
@@ -1112,10 +1112,25 @@ def draw_scan_normals_polished(
             elif a1 is not None:
                 active_txt = str(a1)
             values = ["-" if startup is None else str(startup), active_txt, "-" if hit is None else str(hit), "-" if block is None else str(block)]
+            patch_fields = mv.get("_fd_patch_fields") or set()
+            try:
+                patch_fields = set(patch_fields)
+            except Exception:
+                patch_fields = set()
+            metric_groups = ("active", "active", "hitstun", "blockstun")
             value_col = GUI_TEXT if is_current else (205, 211, 224)
+            patched_col = _brighten(accent, 52) if is_current else (145, 194, 255)
             for i, value in enumerate(values):
                 col_left = grid_x + move_col_w + i * metric_col_w
-                val_s = _render_outlined_text(smallfont, value, value_col, (0, 0, 0), metric_col_w - 6, outline_px=1)
+                is_patched_metric = metric_groups[i] in patch_fields
+                if is_patched_metric:
+                    chip_rect = pygame.Rect(col_left + 2, row.y + 2, metric_col_w - 4, max(1, row.height - 4))
+                    chip = pygame.Surface((chip_rect.width, chip_rect.height), pygame.SRCALPHA)
+                    pygame.draw.rect(chip, (*patched_col, 28), chip.get_rect(), border_radius=3)
+                    pygame.draw.rect(chip, (*patched_col, 92), chip.get_rect(), 1, border_radius=3)
+                    surf.blit(chip, chip_rect.topleft)
+                draw_col = patched_col if is_patched_metric else value_col
+                val_s = _render_outlined_text(smallfont, value, draw_col, (0, 0, 0), metric_col_w - 6, outline_px=1)
                 surf.blit(val_s, (col_left + (metric_col_w - val_s.get_width()) // 2, row.y + (row.height - val_s.get_height()) // 2))
             y += row_h
 

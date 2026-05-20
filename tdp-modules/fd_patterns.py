@@ -240,7 +240,11 @@ def find_speed_mod_addr(
             break
         value_off = i + len(anchor)
         if value_off < len(buf):
-            has_strong_tail = value_off + 4 <= len(buf) and buf[value_off + 1:value_off + 4] == b"\x04\x17\x60"
+            has_strong_tail = (
+                value_off + 4 <= len(buf)
+                and buf[value_off + 1:value_off + 3] == b"\x04\x17"
+                and buf[value_off + 3] in (0x60, 0x67)
+            )
             has_loose_tail = value_off + 2 <= len(buf) and buf[value_off + 1:value_off + 3] == b"\x04\x17"
             if has_strong_tail or has_loose_tail:
                 score = _score_speed_candidate(buf, i, value_off, move_abs)

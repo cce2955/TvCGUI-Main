@@ -87,6 +87,11 @@ except Exception:
 from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
 try:
+    import fd_patch_runtime
+except Exception as e:
+    fd_patch_runtime = None
+    print(f"WARNING: fd patch runtime not available ({e!r})")
+try:
     from assist_scanner_window import (
         open_assist_scanner_window,
         tick_assist_profiles_from_main,
@@ -1072,7 +1077,7 @@ def draw_scan_normals_polished(
     surf.blit(panel, rect.topleft)
 
     title = smallfont.render("Scan: Normals Preview", True, GUI_TEXT)
-    legend = smallfont.render("S startup | A active | H hitstun | B blockstun", True, GUI_TEXT_DIM)
+    legend = smallfont.render("S startup | A active | H hitstun | B blockstun | blue = patched", True, GUI_TEXT_DIM)
     surf.blit(title, (rect.x + 10, rect.y + 8))
     surf.blit(legend, (rect.right - legend.get_width() - 10, rect.y + 8))
     pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 28), (rect.right - 8, rect.y + 28))
@@ -1252,15 +1257,58 @@ def draw_scan_normals_polished(
             hit = _normal_int(mv, "hitstun", "hit", "h")
             block = _normal_int(mv, "blockstun", "block", "b")
             active_txt = "-"
-            if a1 is not None and a2 is not None:
+            hit_segments = mv.get("hit_segments") or []
+            if isinstance(hit_segments, list) and hit_segments:
+                first_seg = hit_segments[0] if isinstance(hit_segments[0], dict) else {}
+                startup = _normal_int(first_seg, "startup", "start", "active_start") or startup
+                hit = _normal_int(first_seg, "hitstun", "hit", "h") if _normal_int(first_seg, "hitstun", "hit", "h") is not None else hit
+                block = _normal_int(first_seg, "blockstun", "block", "b") if _normal_int(first_seg, "blockstun", "block", "b") is not None else block
+            if isinstance(hit_segments, list) and len(hit_segments) > 1:
+                parts = []
+                for seg in hit_segments[:3]:
+                    if not isinstance(seg, dict):
+                        continue
+                    s1 = _normal_int(seg, "active_start", "a_start")
+                    s2 = _normal_int(seg, "active_end", "a_end")
+                    if s1 is not None and s2 is not None:
+                        parts.append(f"{s1}-{s2}")
+                    elif s1 is not None:
+                        parts.append(str(s1))
+                if len(hit_segments) > 3:
+                    parts.append(f"+{len(hit_segments) - 3}")
+                active_txt = "/".join(parts) if parts else "-"
+            elif a1 is not None and a2 is not None:
                 active_txt = f"{a1}-{a2}"
             elif a1 is not None:
                 active_txt = str(a1)
             values = ["-" if startup is None else str(startup), active_txt, "-" if hit is None else str(hit), "-" if block is None else str(block)]
+            patch_fields = mv.get("_fd_patch_fields") or set()
+            try:
+                patch_fields = set(patch_fields)
+            except Exception:
+                patch_fields = set()
+            if isinstance(hit_segments, list):
+                for seg in hit_segments:
+                    if not isinstance(seg, dict):
+                        continue
+                    try:
+                        patch_fields.update(set(seg.get("_fd_patch_fields") or []))
+                    except Exception:
+                        pass
+            metric_groups = ("active", "active", "hitstun", "blockstun")
             value_col = GUI_TEXT if is_current else (205, 211, 224)
+            patched_col = _brighten(accent, 52) if is_current else (145, 194, 255)
             for i, value in enumerate(values):
                 col_left = grid_x + move_col_w + i * metric_col_w
-                val_s = _render_outlined_text(smallfont, value, value_col, (0, 0, 0), metric_col_w - 6, outline_px=1)
+                is_patched_metric = metric_groups[i] in patch_fields
+                if is_patched_metric:
+                    chip_rect = pygame.Rect(col_left + 2, row.y + 2, metric_col_w - 4, max(1, row.height - 4))
+                    chip = pygame.Surface((chip_rect.width, chip_rect.height), pygame.SRCALPHA)
+                    pygame.draw.rect(chip, (*patched_col, 28), chip.get_rect(), border_radius=3)
+                    pygame.draw.rect(chip, (*patched_col, 92), chip.get_rect(), 1, border_radius=3)
+                    surf.blit(chip, chip_rect.topleft)
+                draw_col = patched_col if is_patched_metric else value_col
+                val_s = _render_outlined_text(smallfont, value, draw_col, (0, 0, 0), metric_col_w - 6, outline_px=1)
                 surf.blit(val_s, (col_left + (metric_col_w - val_s.get_width()) // 2, row.y + (row.height - val_s.get_height()) // 2))
             y += row_h
 
@@ -2066,6 +2114,18 @@ def legacy_main():
     else:
         scan_worker = None
 
+    # Saved frame-data patches can be shared as JSON configs. Detect them at
+    # launch and let the user choose one of three friendly modes: skip, ask per
+    # character, or auto-load every matching character section. The actual write
+    # path still uses the same low-level handlers as the frame-data workbench.
+    fd_patch_controller = None
+    if fd_patch_runtime is not None:
+        try:
+            fd_patch_controller = fd_patch_runtime.create_patch_autoload_controller()
+        except Exception as e:
+            print(f"[fd patch] controller init failed: {e!r}")
+            fd_patch_controller = None
+
     # ------------------------------------------------------------------
     # Managers
     # ------------------------------------------------------------------
@@ -2273,6 +2333,14 @@ def legacy_main():
             res, ts = scan_worker.get_latest()
             if res is not None and ts > last_scan_time:
                 last_scan_normals = res
+                if fd_patch_runtime is not None:
+                    try:
+                        if fd_patch_controller is not None:
+                            fd_patch_controller.apply_to_scan_data(last_scan_normals)
+                        else:
+                            fd_patch_runtime.overlay_scan_data(last_scan_normals)
+                    except Exception as e:
+                        print(f"[fd patch] scan overlay/apply failed: {e!r}")
                 last_scan_time    = ts
                 scan_anim = {"start": now, "dur": SCAN_SLIDE_DURATION}
 
@@ -2896,6 +2964,11 @@ def legacy_main():
             scan_display = []
             base_scan_map = {}
             try:
+                if fd_patch_runtime is not None:
+                    fd_patch_runtime.overlay_scan_data(last_scan_normals)
+            except Exception:
+                pass
+            try:
                 for _row in list(last_scan_normals or []):
                     if isinstance(_row, dict):
                         _lbl = str(_row.get("slot_label") or _row.get("slot") or "")
@@ -3345,6 +3418,14 @@ def legacy_main():
             else:
                 try:
                     last_scan_normals = scan_normals_all.scan_once()
+                    if fd_patch_runtime is not None:
+                        try:
+                            if fd_patch_controller is not None:
+                                fd_patch_controller.apply_to_scan_data(last_scan_normals)
+                            else:
+                                fd_patch_runtime.overlay_scan_data(last_scan_normals)
+                        except Exception as e:
+                            print(f"[fd patch] manual scan overlay/apply failed: {e!r}")
                     last_scan_time    = time.time()
                 except Exception as e:
                     print("manual scan failed:", e)

@@ -1,8 +1,12 @@
 from __future__ import annotations
+import json
+import os
+import sys
 import struct
+from datetime import datetime
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog, simpledialog
 
 import fd_utils as U
 import fd_tree
@@ -133,6 +137,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._changed_count_var: tk.StringVar | None = None
         self._suppress_dirty_tracking = False
 
+        # Shareable frame-data patch config support. A saved patch stores only
+        # changed values for this character and can be merged into the same JSON
+        # file as other characters. Loading applies only the section matching
+        # the currently open character window.
+        self._last_patch_config_path: str | None = None
+
         self._build()
     def _reset_to_original_grouping(self):
         # Clear sort state so arrows do not lie
@@ -147,31 +157,324 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # Rebuild in original notation order
         self.sort_by_notation_order()
 
-    def _explicit_notation(self, mv):
-        """
-        Return a strict ordering index.
-        Lower = earlier.
-        """
-        # animation ID is the ONLY stable identifier
+    def _move_order_text(self, mv):
+        parts = []
+        for key in ("pretty_name", "move_name", "name", "family_link_label", "family_label"):
+            val = mv.get(key)
+            if val:
+                parts.append(str(val))
         aid = mv.get("id")
+        if aid is not None:
+            try:
+                parts.append(str(U.pretty_move_name(aid, self.target_slot.get("char_name"))))
+            except Exception:
+                pass
+        return " ".join(parts).lower()
+
+    def _row_name_candidates(self, mv):
+        """Names worth using for user-facing ordering.
+
+        The scanner can see the same numeric animation ID through different
+        lookup tables.  For ordering, prefer the label carried by the scanned row
+        before family/link text, otherwise a reused special ID can drag j.B/j.C
+        rows down into a special family.
+        """
+        out = []
+        for key in ("move_name", "pretty_name", "name", "label", "_hit_parent_label"):
+            val = mv.get(key)
+            if val:
+                out.append(str(val))
+        try:
+            aid = mv.get("id")
+            if aid is not None:
+                out.append(str(U.pretty_move_name(aid, self.target_slot.get("char_name"))))
+        except Exception:
+            pass
+        return out
+
+    @staticmethod
+    def _compact_notation_text(text):
+        return (
+            str(text).lower()
+            .replace(" ", "")
+            .replace("_", "")
+            .replace("-", "")
+            .replace(".", "")
+            .replace("[", " ")
+            .replace("]", " ")
+        )
+
+    def _normal_order_index(self, mv):
+        checks = [
+            ("5a", 0),
+            ("2a", 1),
+            ("5b", 2),
+            ("2b", 3),
+            ("6b", 4),
+            ("5c", 5),
+            ("2c", 6),
+            ("6c", 7),
+            ("4c", 8),
+            ("3c", 9),
+            ("ja", 10),
+            ("jb", 11),
+            ("jc", 12),
+        ]
+
+        # First pass: only the row's own names.  This prevents family/link labels
+        # from making a special helper look like a normal, or vice versa.
+        for text in self._row_name_candidates(mv):
+            low = str(text).lower()
+            if any(word in low for word in ("hado", "tatsu", "shoryu", "donkey", "super", "assist")):
+                continue
+            tokens = set()
+            for raw in low.replace("[", " ").replace("]", " ").replace("(", " ").replace(")", " ").split():
+                tokens.add(raw.strip().lower().replace(".", ""))
+            compact = self._compact_notation_text(text)
+            for token, idx in checks:
+                if token in tokens or compact.startswith(token):
+                    return idx
+
+        # Fallback: full order text.  This catches rows that only carry one
+        # display label, but still keeps specials out of the normal bucket.
+        text = self._move_order_text(mv)
+        if not any(word in text for word in ("hado", "tatsu", "shoryu", "donkey", "super", "assist")):
+            tokens = set()
+            for raw in text.replace("[", " ").replace("]", " ").replace("(", " ").replace(")", " ").split():
+                tokens.add(raw.strip().lower().replace(".", ""))
+            compact = self._compact_notation_text(text)
+            for token, idx in checks:
+                if token in tokens or compact.startswith(token):
+                    return idx
+        return None
+
+    def _is_super_order_row(self, mv):
+        aid = mv.get("id")
+        text = self._move_order_text(mv)
+        if "throw" in text or "thrown" in text or "taunt" in text:
+            return False
+        if mv.get("kind") == "super":
+            return True
+        if any(word in text for word in ("super", "hyper", "shinku", "shin shoryu", "shin sho")):
+            return True
+        try:
+            # Raw high animation IDs include throws/reactions on some characters,
+            # so only use this as a weak fallback when the scanner already calls
+            # the row super-like.
+            if aid is not None and int(aid) >= 0x160 and str(mv.get("kind") or "").lower() in {"super", "hyper"}:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _is_taunt_order_row(self, mv):
+        return "taunt" in self._move_order_text(mv)
+
+    def _is_special_order_row(self, mv):
+        if self._is_super_order_row(mv) or self._is_taunt_order_row(mv):
+            return False
+        text = self._move_order_text(mv)
+        if mv.get("family_label") in {"Tatsu", "Hado", "Shoryu", "Donkey"}:
+            return True
+        if any(word in text for word in ("tatsu", "hado", "shoryu", "donkey")):
+            return True
+        aid = mv.get("id")
+        try:
+            if aid is not None and 0x130 <= int(aid) < 0x160:
+                # Throws live near this range for some chars; keep them in the
+                # catch-all bucket unless the name/family says special.
+                if "throw" not in text and "thrown" not in text:
+                    return True
+        except Exception:
+            pass
+        return mv.get("kind") == "special" and "throw" not in text and "thrown" not in text
+
+    def _is_named_order_row(self, mv):
+        text = self._move_order_text(mv)
+        if "anim_" in text or "filler" in text:
+            return False
+        src = str(mv.get("move_name_source") or "").lower()
+        if src == "lookup":
+            return True
+        # A linked helper row should travel with its named family rather than
+        # falling below every named special. The family header sort uses the best
+        # member rank, so this mainly helps when the helper is selected/sorted by
+        # explicit order directly.
+        if mv.get("family_linkable") and mv.get("family_group_label"):
+            return True
+        return False
+
+    def _family_name_for_order(self, mv):
+        text = " ".join(
+            str(v) for v in (
+                mv.get("family_group_label"),
+                mv.get("family_label"),
+                mv.get("family_link_label"),
+                mv.get("move_name"),
+                mv.get("pretty_name"),
+                mv.get("name"),
+            ) if v
+        ).lower()
+        return text
+
+    def _strength_order_index(self, mv):
+        text = self._family_name_for_order(mv)
+        for idx, token in enumerate((" l", " a", " m", " b", " h", " c")):
+            if text.endswith(token) or f"{token} " in text:
+                return idx // 2
+        st = str(mv.get("family_strength") or mv.get("family_strength_guess") or "").upper()
+        if st in {"L", "A"}:
+            return 0
+        if st in {"M", "B"}:
+            return 1
+        if st in {"H", "C"}:
+            return 2
+        return 9
+
+    def _context_order_index(self, mv):
+        text = self._family_name_for_order(mv)
+        context = str(mv.get("family_context") or "").lower()
+        if context == "assist" or "assist" in text:
+            return 2
+        if context == "air" or text.startswith("air ") or " air " in text:
+            return 1
+        return 0
+
+    def _family_word_order(self, mv):
+        """Readable special-family order before falling back to raw IDs.
+
+        This keeps Ryu-style output as Hado, Tatsu, Shoryu, Donkey, then other
+        named families, instead of alphabetizing Donkey before Hado.  Other
+        characters mostly sort by their command IDs, but this word order makes
+        linked helper sections stable when their command wrapper is missing.
+        """
+        text = self._family_name_for_order(mv)
+        order = [
+            ("hado", 0),
+            ("hadou", 0),
+            ("kikoken", 0),
+            ("soul fist", 0),
+            ("tatsu", 1),
+            ("sbk", 1),
+            ("spinning bird", 1),
+            ("legs", 1),
+            ("lightning", 1),
+            ("shoryu", 2),
+            ("tensho", 2),
+            ("rising", 2),
+            ("donkey", 3),
+            ("bird run", 3),
+            ("bird shoot", 4),
+            ("eagle rush", 5),
+        ]
+        for word, rank in order:
+            if word in text:
+                return rank
+        return 50
+
+    def _order_anim_id(self, mv, *, prefer_command: bool = False):
+        try:
+            aid = int(mv.get("id")) if mv.get("id") is not None else None
+        except Exception:
+            aid = None
         if aid is None:
-            return 9999
+            return 0xFFFF
+        if prefer_command:
+            if 0x130 <= aid < 0x180:
+                return aid
+            # Internal/helper sections sort after their human command wrappers.
+            return 0xF000 + aid
+        return aid
 
-        ORDER = {
-            0x0100: 0,   # 5A
-            0x0101: 1,   # 5B
-            0x0102: 2,   # 5C
-            0x0103: 3,   # 6C
-            0x0104: 4,   # 3C
-            0x0105: 5,   # 2A
-            0x0106: 6,   # 2B
-            0x0107: 7,   # 2C
-            0x0108: 8,   # j.A
-            0x0109: 9,   # j.B
-            0x010A: 10,  # j.C
-        }
+    def _special_order_index(self, mv):
+        return (
+            self._family_word_order(mv),
+            self._context_order_index(mv),
+            self._strength_order_index(mv),
+            self._order_anim_id(mv, prefer_command=True),
+        )
 
-        return ORDER.get(aid, 1000 + aid)
+    def _super_order_index(self, mv):
+        text = self._family_name_for_order(mv)
+        if any(word in text for word in ("shinkuu", "shinku", "air shinkuu", "air shinku")):
+            base = 0
+        elif "tatsu super" in text or ("tatsu" in text and "super" in text):
+            base = 1
+        elif "shin sho" in text or "shinsho" in text or "shin shoryu" in text:
+            base = 2
+        else:
+            base = 20
+        return (
+            base,
+            self._context_order_index(mv),
+            self._strength_order_index(mv),
+            self._order_anim_id(mv, prefer_command=True),
+        )
+
+    def _family_group_sort_key(self, members):
+        """Sort a linked family as a family, not by its lowest stray child.
+
+        A linked special can contain reused/nearby rows whose names look like
+        j.B or j.C.  Those child labels should stay inside the family if the
+        linker says so, but they must not pull Hado/Tatsu above j.C in the main
+        workbench order.
+        """
+        members = list(members or [])
+        if not members:
+            return (9, 0xFFFFFFFF)
+
+        special_members = [m for m in members if self._is_special_order_row(m)]
+        super_members = [m for m in members if self._is_super_order_row(m)]
+        taunt_members = [m for m in members if self._is_taunt_order_row(m)]
+
+        if super_members and not special_members:
+            candidates = [m for m in super_members if self._normal_order_index(m) is None] or super_members
+            return min((2, 0 if self._is_named_order_row(m) else 1, *self._super_order_index(m), int(m.get("_scan_index") or 0), int(m.get("abs") or 0xFFFFFFFF)) for m in candidates)
+
+        if special_members:
+            candidates = [m for m in special_members if self._normal_order_index(m) is None] or special_members
+            command_named = [
+                m for m in candidates
+                if self._is_named_order_row(m)
+                and 0x130 <= self._order_anim_id(m) < 0x180
+            ]
+            if command_named:
+                candidates = command_named
+            return min((1, 0 if self._is_named_order_row(m) else 1, *self._special_order_index(m), int(m.get("_scan_index") or 0), int(m.get("abs") or 0xFFFFFFFF)) for m in candidates)
+
+        if taunt_members:
+            return min((3, 0 if self._is_named_order_row(m) else 1, self._order_anim_id(m), int(m.get("_scan_index") or 0), int(m.get("abs") or 0xFFFFFFFF)) for m in taunt_members)
+
+        ranks = [self._explicit_notation(m) for m in members]
+        return min(ranks) if ranks else (9, 0xFFFFFFFF)
+
+    def _explicit_notation(self, mv):
+        """Initial workbench order.
+
+        User-facing order is not raw address order.  Keep core normals first in
+        the requested fighting-game notation order, then specials, supers,
+        taunt, and finally scouting/unknown rows.
+        """
+        normal_idx = self._normal_order_index(mv)
+        aid = mv.get("id")
+        try:
+            aid_i = int(aid) if aid is not None else 0xFFFF
+        except Exception:
+            aid_i = 0xFFFF
+        scan_i = int(mv.get("_scan_index") or 0)
+        abs_i = int(mv.get("abs") or 0xFFFFFFFF)
+
+        named_rank = 0 if self._is_named_order_row(mv) else 1
+
+        if normal_idx is not None:
+            return (0, normal_idx, aid_i, abs_i)
+        if self._is_special_order_row(mv):
+            return (1, named_rank, *self._special_order_index(mv), scan_i, abs_i)
+        if self._is_super_order_row(mv):
+            return (2, named_rank, *self._super_order_index(mv), scan_i, abs_i)
+        if self._is_taunt_order_row(mv):
+            return (3, named_rank, aid_i, scan_i, abs_i)
+        return (4, named_rank, aid_i, scan_i, abs_i)
 
     # ---------- UI build ----------
 
@@ -221,29 +524,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         status.pack(side="bottom", fill="x")
         ttk.Label(status, textvariable=self._status_var, style="Status.TLabel").pack(side="left", padx=8, pady=4)
     def _notation_rank(self, mv):
-        name = (mv.get("pretty_name") or "").lower()
+        return self._explicit_notation(mv)
 
-        # ABSOLUTE priority list , no exceptions
-        priority = [
-            "5a",
-            "5b",
-            "5c",
-            "6c",
-            "3c",
-            "2a",
-            "2b",
-            "2c",
-            "j.a",
-            "j.b",
-            "j.c",
-        ]
-
-        for idx, token in enumerate(priority):
-            if token in name:
-                return (0, idx)
-
-        # Everything else goes AFTER, stable order
-        return (1, mv.get("_scan_index", 0))
 
 
 
@@ -542,6 +824,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         labels = {
             "move": "Move",
             "kind": "Kind",
+            "hits": "Hits",
             "damage": "Dmg",
             "meter": "Meter",
             "startup": "Start",
@@ -623,13 +906,16 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         writer_ok = bool(U.WRITER_AVAILABLE)
         for col, btn in getattr(self, "_inspector_buttons", {}).items():
             try:
-                btn.configure(state=("normal" if writer_ok else "disabled"))
+                state_ok = writer_ok
+                if col == "move" and mv.get("_hit_segment_index") is not None:
+                    state_ok = False
+                btn.configure(state=("normal" if state_ok else "disabled"))
             except Exception:
                 pass
 
         for col, widget in getattr(self, "_inspector_value_widgets", {}).items():
             try:
-                if col == "kind" or (col == "abs" and not abs_addr):
+                if col in {"kind", "hits", "link"} or (col == "abs" and not abs_addr):
                     widget.configure(cursor="", style="ValueStatic.TLabel")
                 else:
                     self._configure_inspector_chip_style(widget, col, hover=False)
@@ -669,7 +955,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         return groups.get(col_name, (None, ()))
 
     def _dirty_key(self, item_id: str, mv: dict, group_key: str):
-        abs_addr = mv.get("abs")
+        abs_addr = mv.get("_dirty_key_addr") or mv.get("abs")
         return (int(abs_addr) if abs_addr else id(mv), str(group_key))
 
     def _mv_snapshot_for_group(self, mv: dict, group_key: str) -> dict:
@@ -777,6 +1063,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             count = len(self._dirty_cells)
             label = "Changed: 0" if count == 0 else f"Changed: {count}"
             self._changed_count_var.set(label)
+
+        # Keep the main Normals Preview in sync with this workbench. This does
+        # not write anything; it only publishes the current dirty entries so
+        # main.py can overlay them onto last_scan_normals immediately.
+        try:
+            import fd_patch_runtime
+            payload = self._build_patch_character_payload() if self._dirty_cells else None
+            entries = (payload or {}).get("changes") if isinstance(payload, dict) else []
+            fd_patch_runtime.set_live_entries_for_character(self._patch_char_key(), entries or [])
+        except Exception:
+            pass
+
         if self.tree:
             targets = set(self._dirty_row_items)
             if item_id:
@@ -816,7 +1114,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             sel = self.tree.selection() if self.tree else ()
             item_id = sel[0] if sel else None
             changed = self._is_col_dirty(item_id, col_name)
-            if col_name == "kind":
+            if col_name in {"kind", "hits", "link"}:
                 widget.configure(cursor="", style="ValueStatic.TLabel")
             elif changed:
                 widget.configure(cursor="hand2", style="ValueChangedHover.TLabel" if hover else "ValueChanged.TLabel")
@@ -860,6 +1158,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         if col_name == "abs":
             self._copy_selected_address()
+            return
+        if col_name in {"hits", "link"}:
+            if col_name == "hits":
+                self._status_var.set("Expand a multi-hit move to view and edit each detected hit bundle separately.")
+            else:
+                self._status_var.set("Link is display-only. It groups related move-table sections.")
+            return
+        if col_name == "move" and mv.get("_hit_segment_index") is not None:
+            self._status_var.set("Hit rows edit hit data only. Use the parent move row to replace the animation.")
             return
 
         self._begin_edit_snapshot(item, mv, col_name)
@@ -1639,6 +1946,717 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             pass
 
+    # ---------- Shareable patch config ----------
+
+    def _patch_default_dir(self) -> str:
+        if getattr(sys, "frozen", False):
+            base_dir = os.path.dirname(os.path.abspath(sys.executable))
+        else:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(base_dir, "fd_patches")
+        try:
+            os.makedirs(path, exist_ok=True)
+        except Exception:
+            path = base_dir
+        return path
+
+    def _patch_char_key(self) -> str:
+        return str(self.target_slot.get("char_name") or self.slot_label or "Unknown")
+
+    def _patch_json_value(self, value):
+        if isinstance(value, (str, int, float, bool)) or value is None:
+            return value
+        if isinstance(value, (list, tuple)):
+            return [self._patch_json_value(v) for v in value]
+        if isinstance(value, dict):
+            return {str(k): self._patch_json_value(v) for k, v in value.items()}
+        try:
+            return int(value)
+        except Exception:
+            try:
+                return float(value)
+            except Exception:
+                return str(value)
+
+    def _patch_hex(self, value) -> str | None:
+        if value in (None, ""):
+            return None
+        try:
+            return f"0x{int(value):08X}"
+        except Exception:
+            return None
+
+    def _patch_value_from_values(self, values: dict, group: str):
+        try:
+            if group == "move":
+                return int(values.get("id")) if values.get("id") is not None else None
+            if group == "damage":
+                return int(values.get("damage")) if values.get("damage") is not None else None
+            if group == "meter":
+                return int(values.get("meter")) if values.get("meter") is not None else None
+            if group == "active":
+                s = values.get("active_start")
+                e = values.get("active_end")
+                if s is None or e is None:
+                    return None
+                return {"start": int(s), "end": int(e)}
+            if group == "active2":
+                s = values.get("active2_start")
+                e = values.get("active2_end")
+                if s is None or e is None:
+                    return None
+                return {"start": int(s), "end": int(e)}
+            if group in ("hitstun", "blockstun", "hitstop", "launch_profile", "kb_unknown", "speed_mod", "attack_property", "hit_reaction", "combo_kb_mod", "proj_dmg"):
+                v = values.get(group)
+                return int(v) if v is not None else None
+            if group in ("kb_x", "air_kb"):
+                v = values.get(group)
+                return float(v) if v is not None else None
+            if group == "superbg":
+                v = values.get("superbg_val")
+                if v is None:
+                    return None
+                raw = int(v) & 0xFF
+                return {"enabled": bool(raw == SUPERBG_ON), "raw": raw}
+            if group == "hb":
+                v = values.get("hb_r")
+                return float(v) if v is not None else None
+        except Exception:
+            return None
+        return None
+
+    def _patch_value_for_group(self, mv: dict, group: str):
+        return self._patch_value_from_values(mv or {}, group)
+
+    def _patch_display_values(self, item_id: str, group: str) -> dict:
+        out = {}
+        if not self.tree or not item_id:
+            return out
+        _g, cols = self._dirty_group_for_col(group)
+        tree_cols = set(self.tree["columns"])
+        for c in cols:
+            if c in tree_cols:
+                try:
+                    out[c] = self.tree.set(item_id, c)
+                except Exception:
+                    pass
+        return out
+
+    def _patch_address_map(self, mv: dict) -> dict:
+        keys = (
+            "abs", "damage_addr", "meter_addr", "active_addr", "active2_addr",
+            "stun_addr", "knockback_addr", "speed_mod_addr", "attack_property_addr",
+            "hit_reaction_addr", "superbg_addr", "combo_kb_mod_addr", "proj_tpl", "hb_off",
+        )
+        out = {}
+        base = mv.get("abs")
+        for key in keys:
+            val = mv.get(key)
+            if val in (None, ""):
+                continue
+            if key == "hb_off":
+                try:
+                    out[key] = int(val)
+                except Exception:
+                    out[key] = self._patch_json_value(val)
+                continue
+            hx = self._patch_hex(val)
+            if hx:
+                out[key] = hx
+                if base and key != "abs":
+                    try:
+                        out[f"{key}_rel"] = int(val) - int(base)
+                    except Exception:
+                        pass
+            else:
+                out[key] = self._patch_json_value(val)
+        return out
+
+    def _patch_entry_from_dirty_snapshot(self, snap: dict) -> dict | None:
+        item_id = snap.get("item_id")
+        mv = snap.get("mv") or {}
+        group = str(snap.get("group") or "")
+        if not item_id or not group:
+            return None
+
+        value = self._patch_value_for_group(mv, group)
+        if value is None:
+            return None
+
+        old_values = snap.get("mv_values") or {}
+        original = self._patch_value_from_values(old_values, group)
+
+        # If this row also had its animation changed, every other entry for the
+        # same row must still target the original row when the patch is applied
+        # to a clean session. Exact abs usually wins, but this keeps the config
+        # usable even when addresses are not the preferred match path.
+        row_original_move_id = None
+        for _other in self._dirty_cells.values():
+            if _other.get("item_id") == item_id and _other.get("group") == "move":
+                try:
+                    row_original_move_id = int((_other.get("mv_values") or {}).get("id"))
+                except Exception:
+                    row_original_move_id = None
+                break
+
+        selector_move_id = row_original_move_id if row_original_move_id is not None else (old_values.get("id") if group == "move" else mv.get("id"))
+        try:
+            selector_move_id = int(selector_move_id) if selector_move_id is not None else None
+        except Exception:
+            selector_move_id = None
+
+        try:
+            move_label = self.tree.set(item_id, "move") if self.tree else ""
+        except Exception:
+            move_label = ""
+
+        entry = {
+            "group": group,
+            "value": self._patch_json_value(value),
+            "original": self._patch_json_value(original),
+            "display": self._patch_display_values(item_id, group),
+            "selector": {
+                "character": self._patch_char_key(),
+                "move_label": move_label,
+                "move_id": selector_move_id,
+                "current_move_id": int(mv.get("id")) if mv.get("id") is not None else None,
+                "kind": mv.get("kind"),
+                "segment_index": mv.get("_hit_segment_index"),
+                "parent_abs": self._patch_hex(mv.get("_hit_parent_abs")),
+                "tier": mv.get("dup_index"),
+                "scan_index": mv.get("_scan_index"),
+                "abs": self._patch_hex(mv.get("abs")),
+            },
+            "addresses": self._patch_address_map(mv),
+        }
+        return entry
+
+    def _build_patch_character_payload(self) -> dict | None:
+        if not self._dirty_cells:
+            return None
+
+        changes = []
+        for _key, snap in sorted(
+            self._dirty_cells.items(),
+            key=lambda kv: (
+                int((kv[1].get("mv") or {}).get("abs") or 0),
+                str(kv[1].get("group") or ""),
+            ),
+        ):
+            entry = self._patch_entry_from_dirty_snapshot(snap)
+            if entry:
+                changes.append(entry)
+
+        if not changes:
+            return None
+
+        return {
+            "character": self._patch_char_key(),
+            "slot_label": self.slot_label,
+            "change_count": len(changes),
+            "changes": changes,
+        }
+
+    def _new_patch_document(self, title: str) -> dict:
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        return {
+            "schema": "tvc_continuo.frame_data_patch.v1",
+            "title": title or "Untitled TvC frame-data patch",
+            "created_by": "TvC Continuo Frame Data Workbench",
+            "created_at": now,
+            "updated_at": now,
+            "characters": {},
+        }
+
+    def _read_patch_document(self, path: str) -> dict | None:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            return None
+        except Exception as e:
+            messagebox.showerror("Load patch", f"Could not read patch file:\n{e}")
+            return None
+
+        if not isinstance(data, dict):
+            messagebox.showerror("Load patch", "Patch file is not a JSON object.")
+            return None
+        if data.get("schema") != "tvc_continuo.frame_data_patch.v1":
+            messagebox.showerror(
+                "Load patch",
+                "This does not look like a TvC frame-data patch config.\nExpected schema: tvc_continuo.frame_data_patch.v1",
+            )
+            return None
+        if not isinstance(data.get("characters"), dict):
+            data["characters"] = {}
+        return data
+
+    def _save_fd_patch_config(self):
+        if not self._dirty_cells:
+            self._status_var.set("No changed values to save as a patch")
+            return
+
+        payload = self._build_patch_character_payload()
+        if not payload:
+            self._status_var.set("No exportable changed values found")
+            return
+
+        initial_name = f"{self._patch_char_key().replace(' ', '_').lower()}_frame_patch.json"
+        path = filedialog.asksaveasfilename(
+            parent=self.root,
+            title="Save or merge frame-data patch",
+            initialdir=self._patch_default_dir(),
+            initialfile=initial_name,
+            defaultextension=".json",
+            filetypes=(("TvC frame-data patch", "*.json"), ("All files", "*.*")),
+        )
+        if not path:
+            return
+
+        doc = None
+        if os.path.exists(path):
+            doc = self._read_patch_document(path)
+            if doc is None:
+                return
+        else:
+            default_title = os.path.splitext(os.path.basename(path))[0].replace("_", " ").strip() or "TvC frame-data patch"
+            title = simpledialog.askstring(
+                "Patch title",
+                "Patch name:",
+                initialvalue=default_title,
+                parent=self.root,
+            )
+            doc = self._new_patch_document(title or default_title)
+
+        now = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+        doc["updated_at"] = now
+        doc.setdefault("characters", {})[self._patch_char_key()] = payload
+        doc["total_change_count"] = sum(
+            int((char_data or {}).get("change_count") or len((char_data or {}).get("changes") or []))
+            for char_data in (doc.get("characters") or {}).values()
+            if isinstance(char_data, dict)
+        )
+
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(doc, f, indent=2, sort_keys=True)
+        except Exception as e:
+            messagebox.showerror("Save patch", f"Could not save patch file:\n{e}")
+            return
+
+        self._last_patch_config_path = path
+        char_count = len(doc.get("characters") or {})
+        msg = f"Saved patch: {payload['change_count']} change(s) for {self._patch_char_key()} | characters in file: {char_count}"
+        self._status_var.set(msg)
+        messagebox.showinfo("Save patch", msg)
+
+    def _patch_character_section(self, doc: dict) -> tuple[str | None, dict | None]:
+        chars = doc.get("characters") or {}
+        key = self._patch_char_key()
+        if key in chars and isinstance(chars[key], dict):
+            return key, chars[key]
+        key_l = key.strip().lower()
+        for k, v in chars.items():
+            if str(k).strip().lower() == key_l and isinstance(v, dict):
+                return str(k), v
+        return None, None
+
+    def _parse_patch_abs(self, value) -> int | None:
+        if value in (None, ""):
+            return None
+        try:
+            if isinstance(value, str):
+                txt = value.strip()
+                return int(txt, 16) if txt.lower().startswith("0x") else int(txt, 10)
+            return int(value)
+        except Exception:
+            return None
+
+    def _find_patch_target(self, entry: dict) -> tuple[str | None, dict | None, str]:
+        selector = entry.get("selector") or {}
+        wanted_abs = self._parse_patch_abs(selector.get("abs") or (entry.get("addresses") or {}).get("abs"))
+        wanted_id = selector.get("move_id")
+        wanted_kind = selector.get("kind")
+        wanted_tier = selector.get("tier")
+        wanted_scan = selector.get("scan_index")
+
+        try:
+            wanted_id = int(wanted_id) if wanted_id is not None else None
+        except Exception:
+            wanted_id = None
+        try:
+            wanted_tier = int(wanted_tier) if wanted_tier is not None else None
+        except Exception:
+            wanted_tier = None
+        try:
+            wanted_scan = int(wanted_scan) if wanted_scan is not None else None
+        except Exception:
+            wanted_scan = None
+
+        # Exact absolute move-table address is the safest match for shareable mods
+        # on the same build, so prefer it when available.
+        if wanted_abs is not None:
+            for item_id, mv in (self.move_to_tree_item or {}).items():
+                try:
+                    if int(mv.get("abs") or -1) == wanted_abs:
+                        return item_id, mv, "abs"
+                except Exception:
+                    pass
+
+        candidates = []
+        for item_id, mv in (self.move_to_tree_item or {}).items():
+            if wanted_id is not None:
+                try:
+                    if int(mv.get("id")) != wanted_id:
+                        continue
+                except Exception:
+                    continue
+            if wanted_kind and mv.get("kind") != wanted_kind:
+                continue
+            candidates.append((item_id, mv))
+
+        if wanted_tier is not None:
+            for item_id, mv in candidates:
+                try:
+                    if int(mv.get("dup_index")) == wanted_tier:
+                        return item_id, mv, "move_id+tier"
+                except Exception:
+                    pass
+
+        if wanted_scan is not None:
+            for item_id, mv in candidates:
+                try:
+                    if int(mv.get("_scan_index")) == wanted_scan:
+                        return item_id, mv, "move_id+scan_index"
+                except Exception:
+                    pass
+
+        if candidates:
+            return candidates[0][0], candidates[0][1], "move_id"
+
+        return None, None, "not found"
+
+    def _ensure_superbg_for_patch(self, mv: dict) -> bool:
+        if mv.get("superbg_addr") is not None:
+            return True
+        move_abs = mv.get("abs")
+        if not move_abs:
+            return False
+        try:
+            from dolphin_io import rbytes, rd8
+            saddr, sval = find_superbg_addr(move_abs, rbytes, rd8)
+        except Exception:
+            saddr, sval = (None, None)
+        if saddr:
+            mv["superbg_addr"] = saddr
+            mv["superbg_val"] = sval
+            return True
+        return False
+
+    def _patch_bool_enabled(self, value) -> bool:
+        if isinstance(value, dict):
+            if "enabled" in value:
+                return bool(value.get("enabled"))
+            if "raw" in value:
+                try:
+                    return int(value.get("raw")) == SUPERBG_ON
+                except Exception:
+                    return False
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "on", "yes", "enabled"}
+        try:
+            return int(value) == SUPERBG_ON
+        except Exception:
+            return bool(value)
+
+    def _apply_patch_tree_update(self, item_id: str, mv: dict, group: str):
+        if not self.tree:
+            return
+        if group == "move":
+            aid = mv.get("id")
+            if aid is not None:
+                cname = self.target_slot.get("char_name", "-")
+                pretty = U.pretty_move_name(int(aid), cname)
+                dup_idx = mv.get("dup_index")
+                if dup_idx is not None:
+                    pretty = f"{pretty} (Tier{dup_idx + 1})"
+                self.tree.set(item_id, "move", f"{pretty} [0x{int(aid):04X}]")
+        elif group == "damage":
+            self.tree.set(item_id, "damage", str(int(mv.get("damage") or 0)))
+        elif group == "meter":
+            self.tree.set(item_id, "meter", str(int(mv.get("meter") or 0)))
+        elif group == "active":
+            s = int(mv.get("active_start") or 1)
+            e = int(mv.get("active_end") or s)
+            self.tree.set(item_id, "startup", str(s))
+            self.tree.set(item_id, "active", f"{s}-{e}")
+        elif group == "active2":
+            s = int(mv.get("active2_start") or 1)
+            e = int(mv.get("active2_end") or s)
+            self.tree.set(item_id, "active2", f"{s}-{e}")
+        elif group == "hitstun":
+            self.tree.set(item_id, "hitstun", U.fmt_stun(mv.get("hitstun")))
+        elif group == "blockstun":
+            self.tree.set(item_id, "blockstun", U.fmt_stun(mv.get("blockstun")))
+        elif group == "hitstop":
+            self.tree.set(item_id, "hitstop", U.fmt_stun(mv.get("hitstop")))
+        elif group == "launch_profile":
+            self.tree.set(item_id, "launch_profile", U.fmt_launch_profile_ui(mv))
+        elif group == "kb_unknown":
+            self.tree.set(item_id, "kb_unknown", U.fmt_kb_unknown_ui(mv))
+        elif group == "kb_x":
+            self.tree.set(item_id, "kb_x", U.fmt_kb_x_ui(mv))
+        elif group == "air_kb":
+            self.tree.set(item_id, "air_kb", U.fmt_air_kb_ui(mv))
+        elif group == "speed_mod":
+            self.tree.set(item_id, "speed_mod", U.fmt_speed_mod_ui(mv.get("speed_mod")))
+        elif group == "attack_property":
+            self.tree.set(item_id, "attack_property", fmt_attack_property(mv.get("attack_property")))
+        elif group == "hit_reaction":
+            self.tree.set(item_id, "hit_reaction", U.fmt_hit_reaction(mv.get("hit_reaction")))
+        elif group == "superbg":
+            self.tree.set(item_id, "superbg", U.fmt_superbg(mv.get("superbg_val")))
+        elif group == "combo_kb_mod" and "combo_kb_mod" in self.tree["columns"]:
+            val = int(mv.get("combo_kb_mod") or 0) & 0xFF
+            self.tree.set(item_id, "combo_kb_mod", f"{val} (0x{val:02X})")
+        elif group == "proj_dmg" and "proj_dmg" in self.tree["columns"]:
+            self.tree.set(item_id, "proj_dmg", str(int(mv.get("proj_dmg") or 0)))
+        elif group == "hb":
+            if "hb_main" in self.tree["columns"]:
+                self.tree.set(item_id, "hb_main", f"{float(mv.get('hb_r') or 0.0):.1f}")
+            if "hb" in self.tree["columns"]:
+                self.tree.set(item_id, "hb", U.format_candidate_list(mv.get("hb_candidates") or []))
+
+    def _apply_patch_change(self, item_id: str, mv: dict, entry: dict) -> tuple[bool, str]:
+        group = str(entry.get("group") or "")
+        value = entry.get("value")
+        if not group:
+            return False, "missing group"
+
+        try:
+            if group == "move":
+                new_id = int(value)
+                if not self._write_anim_id(mv, new_id):
+                    return False, "write failed"
+                mv["id"] = new_id
+
+            elif group == "damage":
+                new_val = int(value)
+                if not U.write_damage(mv, new_val):
+                    return False, "write failed"
+                mv["damage"] = new_val
+
+            elif group == "meter":
+                new_val = int(value)
+                if not U.write_meter(mv, new_val):
+                    return False, "write failed"
+                mv["meter"] = new_val
+
+            elif group == "active":
+                s = int((value or {}).get("start"))
+                e = int((value or {}).get("end"))
+                if e < s:
+                    e = s
+                if not U.write_active_frames(mv, s, e):
+                    return False, "write failed"
+                mv["active_start"] = s
+                mv["active_end"] = e
+
+            elif group == "active2":
+                s = int((value or {}).get("start"))
+                e = int((value or {}).get("end"))
+                if e < s:
+                    e = s
+                if not write_active2_frames_inline(mv, s, e, U.WRITER_AVAILABLE):
+                    return False, "write failed"
+                mv["active2_start"] = s
+                mv["active2_end"] = e
+
+            elif group == "hitstun":
+                new_val = int(value)
+                if not U.write_hitstun(mv, new_val):
+                    return False, "write failed"
+                mv["hitstun"] = new_val
+
+            elif group == "blockstun":
+                new_val = int(value)
+                if not U.write_blockstun(mv, new_val):
+                    return False, "write failed"
+                mv["blockstun"] = new_val
+
+            elif group == "hitstop":
+                new_val = int(value)
+                if not U.write_hitstop(mv, new_val):
+                    return False, "write failed"
+                mv["hitstop"] = new_val
+
+            elif group == "launch_profile":
+                new_val = int(value) & 0xFFFFFFFF
+                if not U.write_knockback(mv, launch_profile=new_val):
+                    return False, "write failed"
+                mv["launch_profile"] = new_val
+
+            elif group == "kb_unknown":
+                new_val = int(value) & 0xFFFFFFFF
+                if not U.write_knockback(mv, kb_unknown=new_val):
+                    return False, "write failed"
+                mv["kb_unknown"] = new_val
+
+            elif group == "kb_x":
+                new_val = float(value)
+                if not U.write_knockback(mv, kb_x=new_val):
+                    return False, "write failed"
+                mv["kb_x"] = new_val
+
+            elif group == "air_kb":
+                new_val = float(value)
+                if not U.write_knockback(mv, air_kb=new_val):
+                    return False, "write failed"
+                mv["air_kb"] = new_val
+
+            elif group == "speed_mod":
+                self._ensure_speed_mod(mv)
+                new_val = int(value) & 0xFF
+                if not write_speed_mod_inline(mv, new_val, U.WRITER_AVAILABLE):
+                    return False, "write failed"
+                mv["speed_mod"] = new_val
+
+            elif group == "attack_property":
+                self._ensure_attack_property(mv)
+                new_val = int(value) & 0xFF
+                if not self._write_attack_property_inline(mv, new_val):
+                    return False, "write failed"
+                mv["attack_property"] = new_val
+
+            elif group == "hit_reaction":
+                new_val = int(value) & 0xFFFFFFFF
+                if not write_hit_reaction_inline(mv, new_val, U.WRITER_AVAILABLE):
+                    return False, "write failed"
+                mv["hit_reaction"] = new_val
+
+            elif group == "superbg":
+                self._ensure_superbg_for_patch(mv)
+                enabled = self._patch_bool_enabled(value)
+                if not write_superbg_inline(mv, enabled, U.WRITER_AVAILABLE):
+                    return False, "write failed"
+
+            elif group == "combo_kb_mod":
+                new_val = int(value) & 0xFF
+                if not write_combo_kb_mod_inline(mv, new_val, U.WRITER_AVAILABLE):
+                    return False, "write failed"
+                mv["combo_kb_mod"] = new_val
+
+            elif group == "proj_dmg":
+                new_val = int(value) & 0xFFFF
+                if not write_proj_dmg_inline(mv, new_val, U.WRITER_AVAILABLE):
+                    return False, "write failed"
+                mv["proj_dmg"] = new_val
+
+            elif group == "hb":
+                new_val = float(value)
+                if not U.write_hitbox_radius(mv, new_val):
+                    return False, "write failed"
+                mv["hb_r"] = new_val
+
+            else:
+                return False, f"unsupported group {group}"
+
+            self._apply_patch_tree_update(item_id, mv, group)
+            return True, "ok"
+        except Exception as e:
+            return False, str(e)
+
+    def _load_fd_patch_config(self):
+        if not U.WRITER_AVAILABLE:
+            messagebox.showerror("Load patch", "Writer unavailable")
+            return
+
+        path = filedialog.askopenfilename(
+            parent=self.root,
+            title="Load frame-data patch",
+            initialdir=self._patch_default_dir(),
+            filetypes=(("TvC frame-data patch", "*.json"), ("All files", "*.*")),
+        )
+        if not path:
+            return
+
+        doc = self._read_patch_document(path)
+        if doc is None:
+            return
+
+        char_key, char_data = self._patch_character_section(doc)
+        if not char_data:
+            available = ", ".join(sorted(str(k) for k in (doc.get("characters") or {}).keys())) or "none"
+            messagebox.showerror(
+                "Load patch",
+                f"This patch has no section for {self._patch_char_key()}.\nAvailable characters: {available}",
+            )
+            return
+
+        changes = char_data.get("changes") or []
+        if not isinstance(changes, list) or not changes:
+            self._status_var.set(f"Patch section for {char_key} has no changes")
+            return
+
+        applied = 0
+        skipped = 0
+        failures = []
+        touched = set()
+
+        # Apply animation swaps last. That preserves ID-based matching for
+        # other entries in the same row when a patch is applied without relying
+        # on exact absolute addresses.
+        ordered_changes = sorted(
+            changes,
+            key=lambda e: 1 if isinstance(e, dict) and str(e.get("group") or "") == "move" else 0,
+        )
+
+        for entry in ordered_changes:
+            if not isinstance(entry, dict):
+                skipped += 1
+                continue
+            item_id, mv, match_kind = self._find_patch_target(entry)
+            if not item_id or not mv:
+                skipped += 1
+                selector = entry.get("selector") or {}
+                label = selector.get("move_label") or selector.get("abs") or entry.get("group") or "unknown"
+                failures.append(f"not found: {label}")
+                continue
+
+            group = str(entry.get("group") or "")
+            self._begin_edit_snapshot(item_id, mv, group)
+            ok, reason = self._apply_patch_change(item_id, mv, entry)
+            if ok:
+                applied += 1
+                touched.add(item_id)
+                self._after_cell_write(item_id, mv, group)
+            else:
+                skipped += 1
+                selector = entry.get("selector") or {}
+                label = selector.get("move_label") or selector.get("abs") or group or "unknown"
+                failures.append(f"{label}: {reason}")
+
+        for item_id in touched:
+            try:
+                self._apply_row_tags(item_id, self.move_to_tree_item.get(item_id) or {})
+            except Exception:
+                pass
+
+        try:
+            sel = self.tree.selection()
+            if sel:
+                self._refresh_inspector(sel[0], self.move_to_tree_item.get(sel[0]))
+        except Exception:
+            pass
+
+        self._last_patch_config_path = path
+        msg = f"Loaded patch for {char_key}: applied {applied}, skipped {skipped}"
+        self._status_var.set(msg)
+        if failures:
+            messagebox.showwarning("Load patch", msg + "\n\n" + "\n".join(failures[:10]))
+        else:
+            messagebox.showinfo("Load patch", msg)
+
     # ---------- Reset to original ----------
 
     def _reset_all_moves(self):
@@ -1881,6 +2899,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
 
         current_val = self.tree.set(item, col_name)
+        if col_name in {"hits", "link"}:
+            if col_name == "hits":
+                self._status_var.set("Expand a multi-hit move to view and edit each detected hit bundle separately.")
+            else:
+                self._status_var.set("Link is display-only. It groups related move-table sections.")
+            return
+        if col_name == "move" and mv.get("_hit_segment_index") is not None:
+            self._status_var.set("Hit rows edit hit data only. Use the parent move row to replace the animation.")
+            return
         self._begin_edit_snapshot(item, mv, col_name)
 
         if col_name == "move":
