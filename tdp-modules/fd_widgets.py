@@ -63,14 +63,26 @@ FIELD_HELP = {
     "hitstun": "Frames the opponent stays in hit reaction after getting hit. More hitstun usually gives more combo time.",
     "blockstun": "Frames the opponent stays locked after blocking. More blockstun improves block advantage and pressure.",
     "hitstop": "Freeze frames on impact. Higher hitstop makes hits feel heavier but is not the same as hitstun.",
-    "launch_profile": (
-        "Recovery/fall profile after hitstun. This appears to affect how long the opponent remains in recovery and how they drift/fall. "
-        "It does not choose the hit reaction animation by itself."
+    "hit_spark": "Hit spark/effect number. User-tested on Ryu 5A: changing this can change the spark type and sometimes the spark location.",
+    "stretch_part": "Which body/limb slot the reach stretch packet targets. Change this to test what part gets stretched.",
+    "stretch_len": "Reach length scale. Higher values can create longer Dhalsim-style limb reach when the stretch packet is active.",
+    "stretch_width": "Reach width/side scale for the stretch packet. Use this to test the second stretch axis.",
+    "stretch_height": "Reach height/depth scale for the stretch packet. Use this to test the third stretch axis.",
+    "stretch_time": "Stretch timing/slot value. This may change when or how the stretch packet applies.",
+    "post_link": "Dangerous post-animation script link. Changing it can freeze the character after the animation; use small tests and restore if needed.",
+    "kb_type": (
+        "Knockback style number. 9 means normal knockback. Other values are experimental and may route to different knockback behavior."
     ),
-    "kb_unknown": "Unknown 32-bit word in the knockback packet. Most confirmed normal packets use zero. Keep this at zero unless testing.",
+    "launch_profile": (
+        "Extra Launch. 0 means normal knockback. Any value above 0 turns on extra launch behavior and makes Launch Adjust matter."
+    ),
+    "kb_unknown": (
+        "Launch Adjust. Mostly ignored when Extra Launch is 0. When Extra Launch is above 0, this can change launch speed, direction, curve, or how KB X / Arc are interpreted."
+    ),
     "kb_x": "Grounded or standing horizontal knockback. Larger positive values push/launch farther; zero removes most horizontal push.",
     "air_kb": "Airborne or vertical arc value. Higher values usually give a higher/longer relaunch arc; negative values can drive downward arcs.",
-    "speed_mod": "Move speed byte. 64 is the normal baseline seen in many move tables; lower/higher values can slow down or speed up the move behavior.",
+    "speed_mod": "Move speed byte. 100 / 0x64 is the normal baseline; lower/higher values can slow down or speed up the move behavior.",
+    "invuln": "Display-only startup-protection probe. This flags 0x70-family packets seen on Shoryuken-style startup and Jun 6B; it is not editable yet.",
     "attack_property": "Attack property byte. Use the known-value dropdown for confirmed properties; manual entry is for testing unknown bytes.",
     "hit_reaction": "The reaction state/animation chosen on hit, such as standing hitstun, low hitstun, overhead hitstun, knockdown, crumple, or special reactions.",
     "superbg": "Super background flag. Toggles whether the super-style background effect is enabled for this move when the signature is found.",

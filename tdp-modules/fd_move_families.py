@@ -240,6 +240,231 @@ def _can_absorb_unnamed_row(mv: Dict[str, Any]) -> bool:
     return low.startswith("anim_") or "filler" in low or _text(mv.get("move_name_source")).lower() in {"anim", "anim_map", "none"}
 
 
+def _normal_command_name(name: str) -> bool:
+    low = _clean_label(name).lower().replace(" ", "")
+    return low in {"5a", "2a", "5b", "2b", "6b", "5c", "2c", "6c", "4c", "3c", "j.a", "ja", "j.b", "jb", "j.c", "jc", "j.2c", "j2c"}
+
+
+def _has_meaningful_hit_segments(mv: Dict[str, Any]) -> bool:
+    segs = mv.get("hit_segments") or []
+    if not isinstance(segs, list) or len(segs) <= 1:
+        return False
+    for seg in segs:
+        try:
+            if int(seg.get("damage") or 0) != 0:
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _is_multihit_helper_row(mv: Dict[str, Any]) -> bool:
+    if mv.get("family_linkable"):
+        return False
+    if not _has_meaningful_hit_segments(mv):
+        return False
+    name = _clean_label(_move_name(mv)).lower()
+    src = _text(mv.get("move_name_source")).lower()
+    if name.startswith("anim_") or name == "anim_--":
+        return True
+    return src in {"anim", "anim_map", "none"}
+
+
+def _is_multihit_owner_candidate(mv: Dict[str, Any]) -> bool:
+    if _is_multihit_helper_row(mv):
+        return False
+    # Rows that already own their own per-hit bundles do not need an unnamed
+    # duplicate helper grafted onto them.  The helper is usually the same script
+    # seen through another anchor.
+    if _has_meaningful_hit_segments(mv):
+        return False
+    name = _clean_label(_move_name(mv))
+    low = name.lower()
+    if not name or low.startswith("anim_"):
+        return False
+    if any(word in low for word in ("ko", "knockdown", "landing", "jump", "cancel", "assist", "forcefield", "throw", "thrown", "taunt", "second", "???")):
+        return False
+    if "()" in low:
+        return False
+    try:
+        aid_i = int(mv.get("id")) if mv.get("id") is not None else None
+    except Exception:
+        aid_i = None
+    if aid_i is not None and aid_i < 0x100:
+        return False
+    if mv.get("family_linkable"):
+        return True
+    if _normal_command_name(name):
+        return True
+    return _is_named_lookup_row(mv)
+
+
+
+def _same_segment_damage_addrs(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    def addrs(mv: Dict[str, Any]) -> List[int]:
+        out: List[int] = []
+        for seg in mv.get("hit_segments") or []:
+            try:
+                addr = int(seg.get("damage_addr") or 0)
+            except Exception:
+                addr = 0
+            if addr:
+                out.append(addr)
+        return out
+    aa = addrs(a)
+    bb = addrs(b)
+    return bool(aa and bb and aa == bb)
+
+
+def _helper_duplicates_existing_multihit(helper: Dict[str, Any], moves: List[Dict[str, Any]]) -> bool:
+    for mv in moves:
+        if mv is helper:
+            continue
+        if _is_multihit_helper_row(mv):
+            continue
+        if not _has_meaningful_hit_segments(mv):
+            continue
+        if _same_segment_damage_addrs(helper, mv):
+            return True
+    return False
+
+def _segment_addrs(mv: Dict[str, Any]) -> List[int]:
+    out: List[int] = []
+    for seg in mv.get("hit_segments") or []:
+        for key in ("active_addr", "damage_addr", "atkprop_addr", "knockback_addr", "stun_addr"):
+            try:
+                a = int(seg.get(key) or 0)
+            except Exception:
+                a = 0
+            if a:
+                out.append(a)
+    return out
+
+
+def _attach_multihit_helper_rows_to_nearby_named_rows(moves: List[Dict[str, Any]], char_name: Optional[str]) -> None:
+    """Display-only ownership for unnamed multi-hit helper scripts.
+
+    Many TvC commands are wrappers: the named row has startup/control state,
+    while actual active/damage packets live in a nearby unnamed helper script.
+    This pass keeps those helpers near the command a player recognizes, without
+    changing any write address.
+    """
+    helpers = [mv for mv in moves if _is_multihit_helper_row(mv) and not _helper_duplicates_existing_multihit(mv, moves)]
+    owners = [mv for mv in moves if _is_multihit_owner_candidate(mv) and _family_addr(mv)]
+    if not helpers or not owners:
+        return
+
+    ckey = _safe_key(char_name or "char")
+
+    for helper in helpers:
+        haddr = _family_addr(helper)
+        if not haddr:
+            continue
+        hpoints = [haddr] + _segment_addrs(helper)
+        best: Optional[Tuple[int, Dict[str, Any]]] = None
+
+        for owner in owners:
+            oaddr = _family_addr(owner)
+            if not oaddr:
+                continue
+            # Score against both the helper script anchor and the real hit
+            # packet addresses.  Some wrappers sit just before the helper
+            # root, while others sit beside one of the internal hit packets.
+            gaps = [abs(oaddr - hp) for hp in hpoints if hp]
+            if not gaps:
+                continue
+            gap = min(gaps)
+
+            # Normal/wrapper rows are allowed to reach a little farther because
+            # the helper root can sit after a protected startup script.
+            max_gap = 0x1C00 if _normal_command_name(_move_name(owner)) else 0x1400
+            if owner.get("family_linkable"):
+                max_gap = max(max_gap, 0x1800)
+            if gap > max_gap:
+                continue
+
+            # Prefer a wrapper before the helper, then named/family rows, then
+            # the shortest physical gap.
+            score = gap
+            if oaddr > haddr:
+                score += 0x280
+            if owner.get("family_linkable"):
+                score -= 0x120
+            if _is_named_lookup_row(owner):
+                score -= 0x80
+            if owner.get("damage") is None and owner.get("active_start") is None:
+                score -= 0x60
+            if best is None or score < best[0]:
+                best = (score, owner)
+
+        if not best:
+            continue
+
+        owner = best[1]
+        owner_name = _clean_label(_move_name(owner)) or "Linked move"
+        base_label = _clean_label(owner.get("family_label") or owner_name)
+        if not base_label or base_label.lower().startswith("anim_"):
+            base_label = owner_name
+
+        if owner.get("family_linkable"):
+            gkey = str(owner.get("family_group_key") or owner.get("family_key") or f"{ckey}:{_safe_key(base_label)}")
+            glabel = _clean_label(owner.get("family_group_label") or owner.get("family_label") or base_label)
+            fkey = str(owner.get("family_key") or gkey)
+            chain_idx = owner.get("family_chain_index")
+            chain_label = _clean_label(owner.get("family_chain_label") or "")
+            strength = _clean_label(owner.get("family_strength") or owner.get("family_strength_guess") or "")
+            context = _clean_label(owner.get("family_context") or "")
+        else:
+            gkey = f"{ckey}:{_safe_key(owner_name)}:linked_hits"
+            glabel = f"{owner_name} linked sections"
+            fkey = gkey
+            chain_idx = None
+            chain_label = ""
+            strength = ""
+            context = _context_from_name(owner_name)
+            owner["family_key"] = fkey
+            owner["family_label"] = owner_name
+            owner["family_role"] = "entry"
+            owner["family_phase"] = "Entry"
+            owner["family_context"] = context
+            owner["family_strength"] = ""
+            owner["family_link_label"] = f"{owner_name} / Entry"
+            owner["family_group_key"] = gkey
+            owner["family_group_label"] = glabel
+            owner["family_confidence"] = "nearby-multihit-owner"
+            owner["family_linkable"] = True
+
+        helper["family_key"] = fkey
+        helper["family_label"] = base_label
+        helper["family_role"] = "section"
+        helper["family_phase"] = "Linked hits"
+        helper["family_context"] = context
+        helper["family_strength"] = strength
+        helper["family_linkable"] = True
+        helper["family_group_key"] = gkey
+        helper["family_group_label"] = glabel
+        if chain_idx:
+            helper["family_chain_index"] = chain_idx
+        if chain_label:
+            helper["family_chain_label"] = chain_label
+        bits = [base_label]
+        if chain_label:
+            bits.append(chain_label)
+        else:
+            if context and context != "Section":
+                bits.append(context)
+            if strength:
+                bits.append(strength)
+        bits.append("Linked hits")
+        helper["family_link_label"] = " / ".join([b for b in bits if b])
+        helper["family_confidence"] = "nearby-multihit-helper"
+        try:
+            helper["linked_owner_abs"] = int(owner.get("abs") or 0)
+            owner.setdefault("linked_helper_abs", int(helper.get("abs") or 0))
+        except Exception:
+            pass
+
+
 def _is_ryu(char_name: Optional[str]) -> bool:
     return _text(char_name).strip().lower() == "ryu"
 
@@ -954,6 +1179,7 @@ def annotate_move_families(moves: Iterable[Dict[str, Any]], char_name: Optional[
 
     _annotate_generic_phase_chains(out, char_name)
     _attach_unlabeled_rows_to_nearby_families(out)
+    _attach_multihit_helper_rows_to_nearby_named_rows(out, char_name)
     _prune_singleton_generic_families(out)
 
     return out

@@ -359,22 +359,23 @@ def fmt_knockback_packet_ui(mv: dict | None) -> str:
     kt = mv.get("kb_type")
     if kt is not None:
         try:
-            parts.append(f"H35.{int(kt) & 0xFF:02X}")
+            parts.append(f"Type {int(kt) & 0xFF}")
         except Exception:
-            parts.append(f"H35.{kt}")
+            parts.append(f"Type {kt}")
     prof = mv.get("launch_profile")
     if prof is not None:
         try:
-            parts.append(f"P{int(prof)}")
+            if int(prof) != 0:
+                parts.append(f"Extra Launch {int(prof) & 0xFFFFFFFF}")
         except Exception:
-            parts.append(f"P{prof}")
+            parts.append(f"Extra Launch {prof}")
     unk = mv.get("kb_unknown")
     try:
         if unk not in (None, 0):
-            parts.append(f"U0x{int(unk) & 0xFFFFFFFF:08X}")
+            parts.append(f"Mod {int(unk) & 0xFFFFFFFF}")
     except Exception:
         if unk:
-            parts.append(f"U{unk}")
+            parts.append(f"Mod {unk}")
     if mv.get("kb_x") is not None:
         parts.append(f"X{_fmt_float_trim(mv.get('kb_x'))}")
     if mv.get("air_kb") is not None:
@@ -390,7 +391,7 @@ def fmt_kb_type_ui(mv: dict | None) -> str:
     if kt is None:
         return ""
     try:
-        return f"35.{int(kt) & 0xFF:02X}"
+        return str(int(kt) & 0xFF)
     except Exception:
         return str(kt)
 
@@ -402,7 +403,7 @@ def fmt_launch_profile_ui(mv: dict | None) -> str:
     if prof is None:
         return ""
     try:
-        return str(int(prof))
+        return str(int(prof) & 0xFFFFFFFF)
     except Exception:
         return str(prof)
 
@@ -414,7 +415,7 @@ def fmt_kb_unknown_ui(mv: dict | None) -> str:
     if unk is None:
         return ""
     try:
-        return f"0x{int(unk) & 0xFFFFFFFF:08X}"
+        return str(int(unk) & 0xFFFFFFFF)
     except Exception:
         return str(unk)
 
@@ -429,6 +430,59 @@ def fmt_air_kb_ui(mv: dict | None) -> str:
     if not mv or mv.get("knockback_addr") is None:
         return ""
     return _fmt_float_trim(mv.get("air_kb"))
+
+
+
+
+def fmt_u32_decimal_ui(v: Any) -> str:
+    if v is None:
+        return ""
+    try:
+        return str(int(v) & 0xFFFFFFFF)
+    except Exception:
+        return str(v)
+
+
+def fmt_hit_spark_ui(mv: dict | None) -> str:
+    if not mv or mv.get("hit_spark_addr") is None:
+        return ""
+    return fmt_u32_decimal_ui(mv.get("hit_spark"))
+
+
+def fmt_stretch_part_ui(mv: dict | None) -> str:
+    if not mv or mv.get("stretch_packet_addr") is None:
+        return ""
+    return fmt_u32_decimal_ui(mv.get("stretch_part"))
+
+
+def fmt_stretch_len_ui(mv: dict | None) -> str:
+    if not mv or mv.get("stretch_packet_addr") is None:
+        return ""
+    return _fmt_float_trim(mv.get("stretch_len"))
+
+
+def fmt_stretch_width_ui(mv: dict | None) -> str:
+    if not mv or mv.get("stretch_packet_addr") is None:
+        return ""
+    return _fmt_float_trim(mv.get("stretch_width"))
+
+
+def fmt_stretch_height_ui(mv: dict | None) -> str:
+    if not mv or mv.get("stretch_packet_addr") is None:
+        return ""
+    return _fmt_float_trim(mv.get("stretch_height"))
+
+
+def fmt_stretch_time_ui(mv: dict | None) -> str:
+    if not mv or mv.get("stretch_packet_addr") is None:
+        return ""
+    return fmt_u32_decimal_ui(mv.get("stretch_time"))
+
+
+def fmt_post_link_ui(mv: dict | None) -> str:
+    if not mv or mv.get("post_link_addr") is None:
+        return ""
+    return fmt_u32_decimal_ui(mv.get("post_link"))
 
 def fmt_hit_reaction_ui(val: int | None) -> str:
     if val is None:

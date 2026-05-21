@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import struct
+import threading
 from datetime import datetime
 
 import tkinter as tk
@@ -10,6 +11,7 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 
 import fd_utils as U
 import fd_tree
+import fd_projectile_integration as FPI
 from bonescan import BoneScanner
 from config import INTERVAL
 
@@ -20,6 +22,9 @@ from fd_patterns import (
     find_superbg_addr,
     find_speed_mod_addr,
     find_attack_property_addr,
+    find_hit_spark_addr,
+    find_limb_stretch_packet,
+    find_post_animation_link_addr,
     fmt_attack_property,
     parse_attack_property,
     ATTACK_PROPERTY_VALUES,
@@ -33,6 +38,8 @@ from fd_write_helpers import (
     write_speed_mod_inline,
     write_combo_kb_mod_inline,
     write_proj_dmg_inline,
+    write_u32_field_inline,
+    write_f32_field_inline,
 )
 
 from tk_host import tk_call
@@ -136,6 +143,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._dirty_row_items: set[str] = set()
         self._changed_count_var: tk.StringVar | None = None
         self._suppress_dirty_tracking = False
+
+        # Combined projectile-table support.  Projectile records are scanned in
+        # the background and appended into the same Treeview as frame-data rows.
+        self._projectile_hits: list[dict] = []
+        self._projectile_scanning = False
+        self._projectile_status_var: tk.StringVar | None = None
 
         # Shareable frame-data patch config support. A saved patch stores only
         # changed values for this character and can be merged into the same JSON
@@ -493,6 +506,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             value=("Writable (writes to Dolphin)" if U.WRITER_AVAILABLE else "Read-only (move_writer missing)"),
         )
         self._changed_count_var = tk.StringVar(master=self.root, value="Changed: 0")
+        self._projectile_status_var = tk.StringVar(master=self.root, value="Projectiles: queued")
 
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
 
@@ -523,10 +537,76 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         status = ttk.Frame(self.root, style="Status.TFrame")
         status.pack(side="bottom", fill="x")
         ttk.Label(status, textvariable=self._status_var, style="Status.TLabel").pack(side="left", padx=8, pady=4)
+
+        # Projectile scan is automatic so Frame Data is the only entry point.
+        self._start_projectile_scan(auto=True)
     def _notation_rank(self, mv):
         return self._explicit_notation(mv)
 
 
+
+    # ---------- Combined projectile table ----------
+
+    def _start_projectile_scan(self, auto: bool = False):
+        if self._projectile_scanning:
+            if self._projectile_status_var is not None:
+                self._projectile_status_var.set("Projectiles: scanning...")
+            return
+
+        cname = self.target_slot.get("char_name", "-")
+        if not FPI.projectile_key_for_char(cname):
+            if self._projectile_status_var is not None:
+                self._projectile_status_var.set("Projectiles: no map for this character")
+            return
+
+        self._projectile_scanning = True
+        if self._projectile_status_var is not None:
+            self._projectile_status_var.set("Projectiles: scanning MEM2...")
+        if self._status_var is not None:
+            self._status_var.set("Scanning projectile definitions for this character...")
+
+        def _progress(pct: float):
+            try:
+                if self.root and self._projectile_status_var is not None:
+                    self.root.after(0, lambda p=pct: self._projectile_status_var.set(f"Projectiles: scanning {p:0.0f}%"))
+            except Exception:
+                pass
+
+        def _worker():
+            try:
+                hits = FPI.scan_projectiles_for_char(cname, progress_cb=_progress, show_unknowns=False)
+                err = None
+            except Exception as e:
+                hits = []
+                err = e
+
+            def _done():
+                self._projectile_scanning = False
+                if err is not None:
+                    if self._projectile_status_var is not None:
+                        self._projectile_status_var.set("Projectiles: scan failed")
+                    if self._status_var is not None:
+                        self._status_var.set(f"Projectile scan failed: {err}")
+                    return
+
+                self._projectile_hits = list(hits or [])
+                try:
+                    fd_tree.populate_projectile_rows(self, replace=True)
+                except Exception as e2:
+                    if self._status_var is not None:
+                        self._status_var.set(f"Projectile rows failed to populate: {e2}")
+                count = len(self._projectile_hits)
+                if self._projectile_status_var is not None:
+                    self._projectile_status_var.set(f"Projectiles: {count} loaded" if count else "Projectiles: none found")
+                if self._status_var is not None:
+                    self._status_var.set(f"Loaded {count} projectile record(s) into the frame-data table")
+
+            try:
+                self.root.after(0, _done)
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
 
 
     def _show_bones(self):
@@ -833,17 +913,197 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "hitstun": "HS",
             "blockstun": "BS",
             "hitstop": "Stop",
-            "launch_profile": "Recovery",
-            "kb_unknown": "KB U",
+            "hit_spark": "Hit Spark",
+            "stretch_part": "Stretch Part",
+            "stretch_len": "Reach Length",
+            "stretch_width": "Reach Width",
+            "stretch_height": "Reach Height",
+            "stretch_time": "Stretch Timing",
+            "post_link": "Post Link",
+            "kb_type": "KB Style",
+            "launch_profile": "Extra Launch",
+            "kb_unknown": "Launch Adjust",
             "kb_x": "KB X",
             "air_kb": "Arc",
             "speed_mod": "Speed",
+            "invuln": "Invuln",
             "attack_property": "Attack Property",
             "hit_reaction": "Hit Reaction",
             "superbg": "SuperBG",
+            **FPI.PROJECTILE_LABELS,
             "abs": "Address",
         }
         return labels.get(col_name, col_name)
+
+    def _refresh_quick_panel(self, item_id: str | None = None, mv: dict | None = None):
+        """Update the compact selection strip above the table.
+
+        This replaces the always-visible Details column. The grid stays
+        readable, while projectile/super-specific values are visible without
+        horizontal scrolling or digging through the inspector.
+        """
+        frame = getattr(self, "_quick_chips_frame", None)
+        if frame is None:
+            return
+        try:
+            for child in list(frame.winfo_children()):
+                child.destroy()
+        except Exception:
+            pass
+
+        title_var = getattr(self, "_quick_title_var", None)
+        sub_var = getattr(self, "_quick_subtitle_var", None)
+
+        if not item_id or not mv or not getattr(self, "tree", None):
+            try:
+                if title_var is not None:
+                    title_var.set("Selection details")
+                if sub_var is not None:
+                    sub_var.set("Select a move, projectile, or super row to see the values that matter here.")
+            except Exception:
+                pass
+            return
+
+        def _tree_val(col: str) -> str:
+            try:
+                val = self.tree.set(item_id, col)
+            except Exception:
+                val = ""
+            return str(val or "").strip()
+
+        def _clean_move_text(text: str) -> str:
+            return str(text or "").strip()
+
+        def _present(value) -> bool:
+            s = str(value or "").strip().lower()
+            return bool(s and s not in {"-", "not found", "none", "0x00000000"})
+
+        move_txt = _clean_move_text(_tree_val("move") or mv.get("pretty_name") or mv.get("move_name") or "Selected row")
+        kind = str(mv.get("kind") or _tree_val("kind") or "").strip()
+        try:
+            if title_var is not None:
+                title_var.set(move_txt)
+        except Exception:
+            pass
+
+        chips: list[tuple[str, str, str, str | None]] = []
+
+        def add(label: str, value, *, important: bool = False, col: str | None = None):
+            text = str(value or "").strip()
+            if _present(text):
+                chips.append((label, text, "important" if important else "normal", col))
+
+        if FPI.is_projectile_row(mv):
+            hit = mv.get("_proj_hit") or {}
+            role = str(hit.get("proj_role") or "").strip()
+            tier = str(hit.get("tier") or "").strip()
+            total = str(hit.get("tier_total") or "").strip()
+            tier_txt = f"{tier}/{total}" if tier and total else tier
+            try:
+                if sub_var is not None:
+                    sub = "Projectile record"
+                    fmt = FPI.format_projectile_value(mv, "proj_fmt")
+                    if fmt:
+                        sub += f" | {fmt}"
+                    if role:
+                        sub += f" | {role}"
+                    sub_var.set(sub)
+            except Exception:
+                pass
+            add("Damage", FPI.format_projectile_value(mv, "damage"), important=True)
+            add("ID", FPI.format_projectile_value(mv, "proj_id"))
+            add("Type", FPI.format_projectile_value(mv, "proj_type"))
+            add("Tier", tier_txt)
+            add("Life", FPI.format_projectile_value(mv, "proj_life"))
+            add("Speed", FPI.format_projectile_value(mv, "proj_speed"), important=True)
+            add("Accel", FPI.format_projectile_value(mv, "proj_accel"))
+            add("Radius", FPI.format_projectile_value(mv, "proj_radius"))
+            add("Hitbox", FPI.format_projectile_value(mv, "proj_hitbox"))
+            kx = FPI.format_projectile_value(mv, "kb_x")
+            ky = FPI.format_projectile_value(mv, "proj_kb_y") or FPI.format_projectile_value(mv, "air_kb")
+            if _present(kx) or _present(ky):
+                add("KB", f"{kx or '-'} / {ky or '-'}", important=True)
+            add("Arc", FPI.format_projectile_value(mv, "proj_arc"))
+            add("Arc 2", FPI.format_projectile_value(mv, "proj_arc2"))
+            add("Super react", FPI.format_projectile_value(mv, "proj_super_hit_react"), important=True)
+            add("Super life", FPI.format_projectile_value(mv, "proj_super_life"))
+            add("Super speed", FPI.format_projectile_value(mv, "proj_super_speed"), important=True)
+            add("Super accel", FPI.format_projectile_value(mv, "proj_super_accel"))
+            add("Super radius", FPI.format_projectile_value(mv, "proj_super_radius"))
+            add("Hit cap", FPI.format_projectile_value(mv, "proj_multihit_cap"))
+        else:
+            try:
+                if sub_var is not None:
+                    parts = []
+                    if kind:
+                        parts.append(f"{kind}")
+                    aid = mv.get("id")
+                    if aid is not None:
+                        parts.append(f"Anim 0x{int(aid):04X}")
+                    abs_addr = mv.get("abs")
+                    if abs_addr:
+                        parts.append(f"0x{int(abs_addr):08X}")
+                    sub_var.set(" | ".join(parts) if parts else "Frame-data row")
+            except Exception:
+                pass
+            for label, col, important in [
+                ("Damage", "damage", True),
+                ("Meter", "meter", False),
+                ("Start", "startup", False),
+                ("Active", "active", True),
+                ("HS", "hitstun", False),
+                ("BS", "blockstun", False),
+                ("Stop", "hitstop", False),
+                ("Spark", "hit_spark", False),
+                ("Reach", "stretch_len", True),
+                ("Post Link", "post_link", False),
+                ("KB Style", "kb_type", False),
+                ("Extra Launch", "launch_profile", False),
+                ("Launch Adj", "kb_unknown", False),
+                ("KB X", "kb_x", True),
+                ("Arc", "air_kb", True),
+                ("Speed", "speed_mod", False),
+                ("Property", "attack_property", False),
+                ("React", "hit_reaction", False),
+                ("Invuln", "invuln", True),
+                ("SuperBG", "superbg", False),
+            ]:
+                add(label, _tree_val(col), important=important, col=col)
+
+        if not chips:
+            try:
+                ttk.Label(frame, text="No parsed values for this row yet.", style="CardMuted.TLabel").pack(anchor="w")
+            except Exception:
+                pass
+            return
+
+        try:
+            # A small chip grid reads better than one long packed text string.
+            # Keep labels muted and values boxed so projectiles/supers feel like
+            # a compact stat card instead of another spreadsheet row.
+            max_cols = 6
+            for idx, (label, value, flavor, col) in enumerate(chips[:18]):
+                cell = ttk.Frame(frame, style="Card.TFrame")
+                cell.grid(row=idx // max_cols, column=idx % max_cols, sticky="ew", padx=(0, 8), pady=(0, 5))
+                lab = ttk.Label(cell, text=label, style="CardMuted.TLabel")
+                lab.pack(anchor="w")
+                value_style = "QuickImportant.TLabel" if flavor == "important" else "QuickValue.TLabel"
+                val = ttk.Label(cell, text=value, style=value_style, anchor="center")
+                val.pack(fill="x")
+                if col and hasattr(self, "_edit_selected_column") and col not in {"kind", "hits", "link", "invuln", "abs"}:
+                    try:
+                        cell.configure(cursor="hand2")
+                        lab.configure(cursor="hand2")
+                        val.configure(cursor="hand2")
+                        cell.bind("<Button-1>", lambda _e, c=col: self._edit_selected_column(c))
+                        lab.bind("<Button-1>", lambda _e, c=col: self._edit_selected_column(c))
+                        val.bind("<Button-1>", lambda _e, c=col: self._edit_selected_column(c))
+                    except Exception:
+                        pass
+            for col_i in range(max_cols):
+                frame.grid_columnconfigure(col_i, weight=1)
+        except Exception:
+            pass
 
     def _refresh_inspector(self, item_id: str | None = None, mv: dict | None = None):
         if not getattr(self, "_inspector_value_vars", None):
@@ -866,6 +1126,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     btn.configure(state=("disabled" if col != "abs" else "disabled"))
                 except Exception:
                     pass
+            self._refresh_quick_panel(None, None)
             return
 
         move_txt = self.tree.set(item_id, "move") or "Selected move"
@@ -887,6 +1148,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             changed = sum(1 for snap in self._dirty_cells.values() if snap.get("item_id") == item_id)
             if changed:
                 self._inspector_hint_var.set(f"Changed values on this move: {changed}. Click a changed chip to edit again, or use Reset changed.")
+            elif FPI.is_projectile_row(mv):
+                self._inspector_hint_var.set("Projectile values are promoted to the top here. Damage, KB, life, speed, radius, and super probes still use the same write handlers.")
             else:
                 self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
 
@@ -915,12 +1178,87 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         for col, widget in getattr(self, "_inspector_value_widgets", {}).items():
             try:
-                if col in {"kind", "hits", "link"} or (col == "abs" and not abs_addr):
+                if col in {"kind", "hits", "link", "invuln"} or col in FPI.PROJECTILE_STATIC_COLUMNS or (col.startswith("proj_") and not FPI.is_projectile_row(mv)) or (col == "abs" and not abs_addr):
                     widget.configure(cursor="", style="ValueStatic.TLabel")
                 else:
                     self._configure_inspector_chip_style(widget, col, hover=False)
             except Exception:
                 pass
+
+        self._refresh_quick_panel(item_id, mv)
+        self._apply_inspector_context_layout(mv)
+
+    def _apply_inspector_context_layout(self, mv: dict | None):
+        """Reorder/hide inspector cards so selected-row-specific data is not buried.
+
+        Projectile and projectile-super rows used to require scrolling down to
+        the bottom of the sidebar. This keeps their useful cards at the top and
+        hides empty normal-frame cards for projectile rows.
+        """
+        sections = list(getattr(self, "_inspector_sections", []) or [])
+        if not sections:
+            return
+
+        by_title = {title: (card, tuple(fields or ())) for title, card, fields in sections}
+        default_order = [
+            "Move link", "Impact", "Timing", "Stun and pressure",
+            "Launch and knockback controls", "Hit FX and reach",
+            "Dangerous script links", "Flags and lookup",
+            "Projectile data", "Projectile super probes",
+        ]
+
+        def _field_has_value(col: str) -> bool:
+            var = getattr(self, "_inspector_value_vars", {}).get(col)
+            try:
+                val = str(var.get() if var is not None else "").strip().lower()
+            except Exception:
+                val = ""
+            return bool(val and val not in {"-", "not found", "none"})
+
+        if FPI.is_projectile_row(mv):
+            projectile_has = any(_field_has_value(c) for c in by_title.get("Projectile data", (None, ()))[1])
+            super_has = any(_field_has_value(c) for c in by_title.get("Projectile super probes", (None, ()))[1])
+            order = ["Move link"]
+            if projectile_has:
+                order.append("Projectile data")
+            if super_has:
+                order.append("Projectile super probes")
+            # Keep editable legacy fields that also matter for projectiles near
+            # the top, but do not show empty Timing/Stun cards full of not found.
+            order.extend(["Impact", "Launch and knockback controls", "Hit FX and reach", "Dangerous script links", "Flags and lookup"])
+        else:
+            order = list(default_order)
+            # Non-projectile rows should not waste vertical space on empty
+            # projectile cards unless scanner data actually exists on the row.
+            if not any(_field_has_value(c) for c in by_title.get("Projectile data", (None, ()))[1]):
+                order.remove("Projectile data")
+            if not any(_field_has_value(c) for c in by_title.get("Projectile super probes", (None, ()))[1]):
+                order.remove("Projectile super probes")
+
+        seen = set(order)
+        for title, card, _fields in sections:
+            if title not in seen:
+                try:
+                    card.pack_forget()
+                except Exception:
+                    pass
+
+        for title in order:
+            pair = by_title.get(title)
+            if not pair:
+                continue
+            card, _fields = pair
+            try:
+                card.pack_forget()
+                card.pack(fill="x", pady=(0, 10))
+            except Exception:
+                pass
+
+        try:
+            if getattr(self, "_inspector_canvas", None) is not None:
+                self._inspector_canvas.yview_moveto(0.0)
+        except Exception:
+            pass
 
     # ---------- Edit tracking / friendly reset helpers ----------
 
@@ -938,6 +1276,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "hitstun": ("hitstun", ("hitstun",)),
             "blockstun": ("blockstun", ("blockstun",)),
             "hitstop": ("hitstop", ("hitstop",)),
+            "hit_spark": ("hit_spark", ("hit_spark",)),
+            "stretch_part": ("stretch_part", ("stretch_part",)),
+            "stretch_len": ("stretch_len", ("stretch_len",)),
+            "stretch_width": ("stretch_width", ("stretch_width",)),
+            "stretch_height": ("stretch_height", ("stretch_height",)),
+            "stretch_time": ("stretch_time", ("stretch_time",)),
+            "post_link": ("post_link", ("post_link",)),
+            "kb_type": ("kb_type", ("kb_type",)),
             "launch_profile": ("launch_profile", ("launch_profile",)),
             "kb_unknown": ("kb_unknown", ("kb_unknown",)),
             "kb_x": ("kb_x", ("kb_x",)),
@@ -952,7 +1298,20 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "hb_main": ("hb", ("hb_main", "hb")),
             "hb": ("hb", ("hb_main", "hb")),
         }
-        return groups.get(col_name, (None, ()))
+        if groups.get(col_name):
+            return groups.get(col_name, (None, ()))
+        return FPI.projectile_group_for_col(col_name)
+
+    def _dirty_group_for_cell(self, mv: dict | None, col_name: str | None):
+        """Return dirty tracking group for a specific row/column pair.
+
+        Projectile rows reuse core columns such as Damage, KB X, and Arc. For
+        those rows, reset/save/load must treat the value as a projectile field,
+        not as a normal move-table scalar.
+        """
+        if FPI.is_projectile_row(mv) and FPI.projectile_editable(col_name):
+            return FPI.projectile_group_for_col(col_name)
+        return self._dirty_group_for_col(col_name)
 
     def _dirty_key(self, item_id: str, mv: dict, group_key: str):
         abs_addr = mv.get("_dirty_key_addr") or mv.get("abs")
@@ -968,6 +1327,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "hitstun": ("hitstun", "stun_addr"),
             "blockstun": ("blockstun", "stun_addr"),
             "hitstop": ("hitstop", "stun_addr"),
+            "hit_spark": ("hit_spark", "hit_spark_addr"),
+            "stretch_part": ("stretch_part", "stretch_part_addr"),
+            "stretch_len": ("stretch_len", "stretch_len_addr"),
+            "stretch_width": ("stretch_width", "stretch_width_addr"),
+            "stretch_height": ("stretch_height", "stretch_height_addr"),
+            "stretch_time": ("stretch_time", "stretch_time_addr"),
+            "post_link": ("post_link", "post_link_addr"),
             "launch_profile": ("launch_profile", "knockback_addr"),
             "kb_unknown": ("kb_unknown", "knockback_addr"),
             "kb_x": ("kb_x", "knockback_addr"),
@@ -980,6 +1346,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "proj_dmg": ("proj_dmg", "proj_tpl"),
             "hb": ("hb_r", "hb_off", "hb_candidates"),
         }
+        if str(group_key).startswith("projectile:"):
+            return FPI.projectile_snapshot(mv, group_key)
+
         out = {}
         for k in keys_by_group.get(group_key, (group_key,)):
             val = mv.get(k)
@@ -995,7 +1364,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _begin_edit_snapshot(self, item_id: str, mv: dict, col_name: str | None):
         if self._suppress_dirty_tracking or not self.tree:
             return
-        group_key, cols = self._dirty_group_for_col(col_name)
+        group_key, cols = self._dirty_group_for_cell(mv, col_name)
         if not group_key:
             return
         key = self._dirty_key(item_id, mv, group_key)
@@ -1042,7 +1411,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         """
         if self._suppress_dirty_tracking or not self.tree:
             return
-        group_key, _cols = self._dirty_group_for_col(col_name)
+        group_key, _cols = self._dirty_group_for_cell(mv, col_name)
         if group_key:
             key = self._dirty_key(item_id, mv, group_key)
             snap = self._dirty_cells.get(key) or self._pending_edit_snapshots.pop(key, None)
@@ -1071,6 +1440,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             import fd_patch_runtime
             payload = self._build_patch_character_payload() if self._dirty_cells else None
             entries = (payload or {}).get("changes") if isinstance(payload, dict) else []
+            # Normals Preview displays move-table data, not projectile rows.
+            # Keep projectile edits in save/load/reset, but do not overlay them
+            # onto normal move scan dictionaries.
+            entries = [e for e in (entries or []) if not str(e.get("group") or "").startswith("projectile:")]
             fd_patch_runtime.set_live_entries_for_character(self._patch_char_key(), entries or [])
         except Exception:
             pass
@@ -1104,7 +1477,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         mv = self.move_to_tree_item.get(item_id) if self.move_to_tree_item else None
         if not mv:
             return False
-        group_key, _cols = self._dirty_group_for_col(col_name)
+        group_key, _cols = self._dirty_group_for_cell(mv, col_name)
         if not group_key:
             return False
         return self._dirty_key(item_id, mv, group_key) in self._dirty_cells
@@ -1114,7 +1487,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             sel = self.tree.selection() if self.tree else ()
             item_id = sel[0] if sel else None
             changed = self._is_col_dirty(item_id, col_name)
-            if col_name in {"kind", "hits", "link"}:
+            mv = None
+            try:
+                sel = self.tree.selection() if self.tree else ()
+                mv = self.move_to_tree_item.get(sel[0]) if sel else None
+            except Exception:
+                mv = None
+            if col_name in {"kind", "hits", "link"} or col_name in FPI.PROJECTILE_STATIC_COLUMNS or (col_name.startswith("proj_") and not FPI.is_projectile_row(mv)):
                 widget.configure(cursor="", style="ValueStatic.TLabel")
             elif changed:
                 widget.configure(cursor="hand2", style="ValueChangedHover.TLabel" if hover else "ValueChanged.TLabel")
@@ -1159,6 +1538,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if col_name == "abs":
             self._copy_selected_address()
             return
+        if col_name.startswith("proj_") and not FPI.is_projectile_row(mv):
+            self._status_var.set("Projectile fields are only editable on projectile rows.")
+            return
+        if FPI.is_projectile_row(mv) and not FPI.projectile_editable(col_name):
+            self._status_var.set("That projectile field is display-only.")
+            return
         if col_name in {"hits", "link"}:
             if col_name == "hits":
                 self._status_var.set("Expand a multi-hit move to view and edit each detected hit bundle separately.")
@@ -1171,7 +1556,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         self._begin_edit_snapshot(item, mv, col_name)
 
-        if not U.WRITER_AVAILABLE:
+        if not U.WRITER_AVAILABLE and not FPI.is_projectile_row(mv):
             messagebox.showerror("Error", "Writer unavailable")
             return
 
@@ -1210,7 +1595,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # Preserve structural tags, rebuild dynamic styling every time so reset
         # and toggles immediately remove stale highlight state.
         existing = set(self.tree.item(item_id, "tags") or ())
-        tags = {t for t in existing if t in {"row_even", "row_odd", "group_parent"}}
+        structural_tags = {
+            "row_even", "row_odd",
+            "group_parent", "child_row", "grandchild_row",
+            "special_row", "super_row",
+            "projectile_row", "projectile_header",
+            "family_header", "family_header_normal", "family_header_special", "family_header_super", "family_header_other",
+            "family_linked",
+        }
+        tags = {t for t in existing if t in structural_tags}
 
         kb_cols = ("launch_profile", "kb_unknown", "kb_x", "air_kb")
         if any((self.tree.set(item_id, c) or "").strip() for c in kb_cols if c in self.tree["columns"]):
@@ -1232,12 +1625,20 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not abs_txt:
             tags.add("missing_addr")
 
+        if FPI.is_projectile_row(mv):
+            tags.add("projectile_row")
+
         if item_id in getattr(self, "_dirty_row_items", set()):
             tags.add("edited_row")
 
         ordered = [
             t for t in (
-                "row_even", "row_odd", "group_parent",
+                "row_even", "row_odd",
+                "child_row", "grandchild_row",
+                "special_row", "super_row",
+                "group_parent",
+                "family_header", "family_header_normal", "family_header_special", "family_header_super", "family_header_other",
+                "projectile_header", "family_linked", "projectile_row",
                 "kb_hot", "combo_hot", "property_hot", "super_on", "missing_addr",
                 "edited_row",
             )
@@ -1259,15 +1660,30 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             s.append(f"Anim=0x{aid:04X}")
         if abs_addr:
             s.append(f"Abs=0x{abs_addr:08X}")
+        try:
+            current_view = str(getattr(self, "_fd_view_mode", "frame") or "frame")
+            if FPI.is_projectile_row(mv) and current_view == "frame":
+                s.append("Tip: Projectiles view moves projectile fields next to the move name")
+            elif current_view == "frame" and (kind in {"super", "hyper"} or str(move_txt or "").lower().find("super") >= 0):
+                s.append("Tip: Supers view moves super/probe fields next to the move name")
+        except Exception:
+            pass
         self._status_var.set(" | ".join(s) if s else "Ready")
 
     def _on_select(self, _evt=None):
         sel = self.tree.selection()
         if not sel:
+            self._last_selected_item_id = None
             self._status_var.set("Ready")
             self._refresh_inspector(None, None)
             return
         item = sel[0]
+        # Tk can fire duplicate selection events while focus/scrolling changes.
+        # Rebuilding the quick strip and sidebar for the same row again makes
+        # the menu feel sluggish, so skip duplicate event-driven refreshes.
+        if _evt is not None and getattr(self, "_last_selected_item_id", None) == item:
+            return
+        self._last_selected_item_id = item
         mv = self.move_to_tree_item.get(item)
         if not mv:
             self._status_var.set("Ready")
@@ -1988,6 +2404,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     def _patch_value_from_values(self, values: dict, group: str):
         try:
+            if str(group).startswith("projectile:"):
+                return values.get("value")
             if group == "move":
                 return int(values.get("id")) if values.get("id") is not None else None
             if group == "damage":
@@ -2006,10 +2424,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 if s is None or e is None:
                     return None
                 return {"start": int(s), "end": int(e)}
-            if group in ("hitstun", "blockstun", "hitstop", "launch_profile", "kb_unknown", "speed_mod", "attack_property", "hit_reaction", "combo_kb_mod", "proj_dmg"):
+            if group in ("hitstun", "blockstun", "hitstop", "hit_spark", "stretch_part", "stretch_time", "post_link", "launch_profile", "kb_unknown", "speed_mod", "attack_property", "hit_reaction", "combo_kb_mod", "proj_dmg"):
                 v = values.get(group)
                 return int(v) if v is not None else None
-            if group in ("kb_x", "air_kb"):
+            if group in ("kb_x", "air_kb", "stretch_len", "stretch_width", "stretch_height"):
                 v = values.get(group)
                 return float(v) if v is not None else None
             if group == "superbg":
@@ -2026,13 +2444,20 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         return None
 
     def _patch_value_for_group(self, mv: dict, group: str):
+        if str(group).startswith("projectile:"):
+            hit_key = str(group).split(":", 1)[1]
+            return (mv.get("_proj_hit") or {}).get(hit_key)
         return self._patch_value_from_values(mv or {}, group)
 
     def _patch_display_values(self, item_id: str, group: str) -> dict:
         out = {}
         if not self.tree or not item_id:
             return out
-        _g, cols = self._dirty_group_for_col(group)
+        if str(group).startswith("projectile:"):
+            _col = FPI.column_for_projectile_group(group)
+            _g, cols = self._dirty_group_for_col(_col)
+        else:
+            _g, cols = self._dirty_group_for_col(group)
         tree_cols = set(self.tree["columns"])
         for c in cols:
             if c in tree_cols:
@@ -2046,7 +2471,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         keys = (
             "abs", "damage_addr", "meter_addr", "active_addr", "active2_addr",
             "stun_addr", "knockback_addr", "speed_mod_addr", "attack_property_addr",
-            "hit_reaction_addr", "superbg_addr", "combo_kb_mod_addr", "proj_tpl", "hb_off",
+            "hit_reaction_addr", "superbg_addr", "combo_kb_mod_addr", "hit_spark_addr", "stretch_part_addr", "stretch_len_addr", "stretch_width_addr", "stretch_height_addr", "stretch_time_addr", "post_link_addr", "proj_tpl", "hb_off",
         )
         out = {}
         base = mv.get("abs")
@@ -2070,6 +2495,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         pass
             else:
                 out[key] = self._patch_json_value(val)
+        if FPI.is_projectile_row(mv):
+            try:
+                out["projectile_row"] = True
+                out["proj_fmt"] = str((mv.get("_proj_hit") or {}).get("fmt") or "")
+                out["proj_move"] = str((mv.get("_proj_hit") or {}).get("move") or mv.get("move_name") or "")
+                out["proj_key"] = str((mv.get("_proj_hit") or {}).get("key") or "")
+            except Exception:
+                pass
         return out
 
     def _patch_entry_from_dirty_snapshot(self, snap: dict) -> dict | None:
@@ -2126,6 +2559,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 "tier": mv.get("dup_index"),
                 "scan_index": mv.get("_scan_index"),
                 "abs": self._patch_hex(mv.get("abs")),
+                "projectile": bool(FPI.is_projectile_row(mv)),
+                "projectile_move": str((mv.get("_proj_hit") or {}).get("move") or mv.get("move_name") or "") if FPI.is_projectile_row(mv) else None,
+                "projectile_fmt": str((mv.get("_proj_hit") or {}).get("fmt") or "") if FPI.is_projectile_row(mv) else None,
             },
             "addresses": self._patch_address_map(mv),
         }
@@ -2279,6 +2715,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         wanted_kind = selector.get("kind")
         wanted_tier = selector.get("tier")
         wanted_scan = selector.get("scan_index")
+        wanted_projectile = bool(selector.get("projectile"))
+        wanted_projectile_move = str(selector.get("projectile_move") or "")
+        wanted_projectile_fmt = str(selector.get("projectile_fmt") or "")
 
         try:
             wanted_id = int(wanted_id) if wanted_id is not None else None
@@ -2298,13 +2737,23 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if wanted_abs is not None:
             for item_id, mv in (self.move_to_tree_item or {}).items():
                 try:
+                    if wanted_projectile and not FPI.is_projectile_row(mv):
+                        continue
                     if int(mv.get("abs") or -1) == wanted_abs:
+                        if wanted_projectile:
+                            hit = mv.get("_proj_hit") or {}
+                            if wanted_projectile_move and str(hit.get("move") or mv.get("move_name") or "") != wanted_projectile_move:
+                                continue
+                            if wanted_projectile_fmt and str(hit.get("fmt") or "") != wanted_projectile_fmt:
+                                continue
                         return item_id, mv, "abs"
                 except Exception:
                     pass
 
         candidates = []
         for item_id, mv in (self.move_to_tree_item or {}).items():
+            if wanted_projectile and not FPI.is_projectile_row(mv):
+                continue
             if wanted_id is not None:
                 try:
                     if int(mv.get("id")) != wanted_id:
@@ -2372,6 +2821,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _apply_patch_tree_update(self, item_id: str, mv: dict, group: str):
         if not self.tree:
             return
+        if str(group).startswith("projectile:"):
+            col = FPI.column_for_projectile_group(group)
+            if col:
+                FPI.apply_projectile_tree_value(self.tree, item_id, mv, col)
+            return
         if group == "move":
             aid = mv.get("id")
             if aid is not None:
@@ -2400,6 +2854,20 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self.tree.set(item_id, "blockstun", U.fmt_stun(mv.get("blockstun")))
         elif group == "hitstop":
             self.tree.set(item_id, "hitstop", U.fmt_stun(mv.get("hitstop")))
+        elif group == "hit_spark":
+            self.tree.set(item_id, "hit_spark", U.fmt_hit_spark_ui(mv))
+        elif group == "stretch_part":
+            self.tree.set(item_id, "stretch_part", U.fmt_stretch_part_ui(mv))
+        elif group == "stretch_len":
+            self.tree.set(item_id, "stretch_len", U.fmt_stretch_len_ui(mv))
+        elif group == "stretch_width":
+            self.tree.set(item_id, "stretch_width", U.fmt_stretch_width_ui(mv))
+        elif group == "stretch_height":
+            self.tree.set(item_id, "stretch_height", U.fmt_stretch_height_ui(mv))
+        elif group == "stretch_time":
+            self.tree.set(item_id, "stretch_time", U.fmt_stretch_time_ui(mv))
+        elif group == "post_link":
+            self.tree.set(item_id, "post_link", U.fmt_post_link_ui(mv))
         elif group == "launch_profile":
             self.tree.set(item_id, "launch_profile", U.fmt_launch_profile_ui(mv))
         elif group == "kb_unknown":
@@ -2434,7 +2902,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return False, "missing group"
 
         try:
-            if group == "move":
+            if str(group).startswith("projectile:"):
+                col = FPI.column_for_projectile_group(group)
+                if not col:
+                    return False, f"unsupported projectile group {group}"
+                if not FPI.write_projectile_value(mv, col, value):
+                    return False, "write failed"
+
+            elif group == "move":
                 new_id = int(value)
                 if not self._write_anim_id(mv, new_id):
                     return False, "write failed"
@@ -2489,6 +2964,27 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 if not U.write_hitstop(mv, new_val):
                     return False, "write failed"
                 mv["hitstop"] = new_val
+
+            elif group in ("hit_spark", "stretch_part", "stretch_time", "post_link"):
+                mapping = {
+                    "hit_spark": ("hit_spark_addr", "hit_spark"),
+                    "stretch_part": ("stretch_part_addr", "stretch_part"),
+                    "stretch_time": ("stretch_time_addr", "stretch_time"),
+                    "post_link": ("post_link_addr", "post_link"),
+                }
+                addr_key, val_key = mapping[group]
+                if not write_u32_field_inline(mv, addr_key, val_key, int(value)):
+                    return False, "write failed"
+
+            elif group in ("stretch_len", "stretch_width", "stretch_height"):
+                mapping = {
+                    "stretch_len": ("stretch_len_addr", "stretch_len"),
+                    "stretch_width": ("stretch_width_addr", "stretch_width"),
+                    "stretch_height": ("stretch_height_addr", "stretch_height"),
+                }
+                addr_key, val_key = mapping[group]
+                if not write_f32_field_inline(mv, addr_key, val_key, float(value)):
+                    return False, "write failed"
 
             elif group == "launch_profile":
                 new_val = int(value) & 0xFFFFFFFF
@@ -2685,7 +3181,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             try:
                 self._suppress_dirty_tracking = True
 
-                if group == "move":
+                if str(group).startswith("projectile:"):
+                    col = FPI.column_for_projectile_group(group)
+                    val = old.get("value")
+                    if col and val is not None and FPI.write_projectile_value(mv, col, val):
+                        FPI.apply_projectile_tree_value(self.tree, item_id, mv, col)
+                        ok = True
+
+                elif group == "move":
                     old_id = old.get("id")
                     if old_id is not None and self._write_anim_id(mv, int(old_id)):
                         mv["id"] = int(old_id)
@@ -2753,6 +3256,33 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     if val is not None and U.write_hitstop(mv, int(val)):
                         mv["hitstop"] = int(val)
                         self.tree.set(item_id, "hitstop", U.fmt_stun(int(val)))
+                        ok = True
+
+                elif group in ("hit_spark", "stretch_part", "stretch_time", "post_link"):
+                    mapping = {
+                        "hit_spark": ("hit_spark_addr", "hit_spark", U.fmt_hit_spark_ui),
+                        "stretch_part": ("stretch_part_addr", "stretch_part", U.fmt_stretch_part_ui),
+                        "stretch_time": ("stretch_time_addr", "stretch_time", U.fmt_stretch_time_ui),
+                        "post_link": ("post_link_addr", "post_link", U.fmt_post_link_ui),
+                    }
+                    addr_key, val_key, fmt_func = mapping[group]
+                    val = old.get(val_key)
+                    mv[addr_key] = old.get(addr_key)
+                    if val is not None and write_u32_field_inline(mv, addr_key, val_key, int(val)):
+                        self.tree.set(item_id, group, fmt_func(mv))
+                        ok = True
+
+                elif group in ("stretch_len", "stretch_width", "stretch_height"):
+                    mapping = {
+                        "stretch_len": ("stretch_len_addr", "stretch_len", U.fmt_stretch_len_ui),
+                        "stretch_width": ("stretch_width_addr", "stretch_width", U.fmt_stretch_width_ui),
+                        "stretch_height": ("stretch_height_addr", "stretch_height", U.fmt_stretch_height_ui),
+                    }
+                    addr_key, val_key, fmt_func = mapping[group]
+                    val = old.get(val_key)
+                    mv[addr_key] = old.get(addr_key)
+                    if val is not None and write_f32_field_inline(mv, addr_key, val_key, float(val)):
+                        self.tree.set(item_id, group, fmt_func(mv))
                         ok = True
 
                 elif group in ("launch_profile", "kb_unknown", "kb_x", "air_kb"):
@@ -2878,10 +3408,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     # ---------- Double-click routing ----------
 
     def _on_double_click(self, event):
-        if not U.WRITER_AVAILABLE:
-            messagebox.showerror("Error", "Writer unavailable")
-            return
-
         region = self.tree.identify_region(event.x, event.y)
         if region != "cell":
             return
@@ -2898,7 +3424,17 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not mv:
             return
 
+        if not U.WRITER_AVAILABLE and not FPI.is_projectile_row(mv):
+            messagebox.showerror("Error", "Writer unavailable")
+            return
+
         current_val = self.tree.set(item, col_name)
+        if col_name.startswith("proj_") and not FPI.is_projectile_row(mv):
+            self._status_var.set("Projectile fields are only editable on projectile rows.")
+            return
+        if FPI.is_projectile_row(mv) and not FPI.projectile_editable(col_name):
+            self._status_var.set("That projectile field is display-only.")
+            return
         if col_name in {"hits", "link"}:
             if col_name == "hits":
                 self._status_var.set("Expand a multi-hit move to view and edit each detected hit bundle separately.")
@@ -2927,7 +3463,81 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._set_status_for_item(item, mv)
         self._refresh_inspector(item, mv)
 
+
+    def _edit_projectile_cell(self, col_name: str, item: str, mv: dict, current_val: str) -> None:
+        info = FPI.PROJECTILE_FIELD_INFO.get(col_name)
+        if not info:
+            self._status_var.set("That projectile field is display-only.")
+            return
+        _hit_key, label, typ = info
+        addr = FPI.projectile_field_addr(mv, col_name)
+        addr_txt = f"0x{int(addr):08X}" if addr else "not found"
+        prompt = (
+            f"Move: {mv.get('move_name') or 'Projectile'}\n"
+            f"Field: {label}\n"
+            f"Address: {addr_txt}\n"
+            f"Current: {current_val or FPI.format_projectile_value(mv, col_name)}\n\n"
+            "New value:"
+        )
+        new_val = simpledialog.askstring(
+            f"Edit {label}",
+            prompt,
+            parent=self.root,
+            initialvalue=str(current_val or FPI.format_projectile_value(mv, col_name) or "0"),
+        )
+        if new_val is None:
+            return
+        try:
+            parsed = FPI.parse_projectile_input(col_name, new_val)
+        except Exception as e:
+            messagebox.showerror("Invalid", f"Invalid {label}: {e}", parent=self.root)
+            return
+        try:
+            ok = FPI.write_projectile_value(mv, col_name, parsed)
+        except Exception as e:
+            messagebox.showerror("Write failed", str(e), parent=self.root)
+            return
+        if not ok:
+            messagebox.showerror("Write failed", "Could not write projectile value to Dolphin.", parent=self.root)
+            return
+        FPI.apply_projectile_tree_value(self.tree, item, mv, col_name)
+
+        # If this projectile has copy/alt records behind the same visible move,
+        # keep their rows visually in sync. The actual memory write already
+        # updated the peer addresses; this just prevents stale duplicate rows.
+        if col_name == "damage":
+            try:
+                peer_addrs = FPI.projectile_damage_peer_base_addrs(mv)
+            except Exception:
+                peer_addrs = set()
+            if peer_addrs:
+                for other_item, other_mv in list((self.move_to_tree_item or {}).items()):
+                    if other_item == item or not FPI.is_projectile_row(other_mv):
+                        continue
+                    other_hit = other_mv.get("_proj_hit") or {}
+                    try:
+                        other_addr = int(other_hit.get("addr") or other_mv.get("abs") or 0)
+                    except Exception:
+                        other_addr = 0
+                    if other_addr not in peer_addrs:
+                        continue
+                    other_hit["dmg"] = int(parsed)
+                    other_mv["_proj_hit"] = other_hit
+                    other_mv["damage"] = int(parsed)
+                    try:
+                        FPI.apply_projectile_tree_value(self.tree, other_item, other_mv, col_name)
+                        self._apply_row_tags(other_item, other_mv)
+                    except Exception:
+                        pass
+
+        self._notify_fd_cell_changed(item, mv, col_name)
+        if self._status_var is not None:
+            self._status_var.set(f"Wrote {label} to {addr_txt}")
+
     def _route_standard_edit(self, col_name: str, item: str, mv: dict, current_val: str) -> None:
+        if FPI.is_projectile_row(mv):
+            self._edit_projectile_cell(col_name, item, mv, current_val)
+            return
         if col_name == "damage":
             self._edit_damage(item, mv, current_val)
         elif col_name == "meter":
@@ -2944,6 +3554,22 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._edit_blockstun(item, mv, current_val)
         elif col_name == "hitstop":
             self._edit_hitstop(item, mv, current_val)
+        elif col_name == "hit_spark":
+            self._edit_hit_spark(item, mv, current_val)
+        elif col_name == "stretch_part":
+            self._edit_stretch_part(item, mv, current_val)
+        elif col_name == "stretch_len":
+            self._edit_stretch_len(item, mv, current_val)
+        elif col_name == "stretch_width":
+            self._edit_stretch_width(item, mv, current_val)
+        elif col_name == "stretch_height":
+            self._edit_stretch_height(item, mv, current_val)
+        elif col_name == "stretch_time":
+            self._edit_stretch_time(item, mv, current_val)
+        elif col_name == "post_link":
+            self._edit_post_link(item, mv, current_val)
+        elif col_name == "kb_type":
+            self._edit_kb_type(item, mv, current_val)
         elif col_name == "launch_profile":
             self._edit_launch_profile(item, mv, current_val)
         elif col_name == "kb_unknown":
@@ -2983,8 +3609,16 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "hitstun": ("stun_addr", "Hitstun", 15),
             "blockstun": ("stun_addr", "Blockstun", 31),
             "hitstop": ("stun_addr", "Hitstop", 38),
-            "launch_profile": ("knockback_addr", "Recovery Profile", 4),
-            "kb_unknown": ("knockback_addr", "KB Unknown", 8),
+            "hit_spark": ("hit_spark_addr", "Hit Spark"),
+            "stretch_part": ("stretch_part_addr", "Stretch Part"),
+            "stretch_len": ("stretch_len_addr", "Reach Length"),
+            "stretch_width": ("stretch_width_addr", "Reach Width"),
+            "stretch_height": ("stretch_height_addr", "Reach Height"),
+            "stretch_time": ("stretch_time_addr", "Stretch Timing"),
+            "post_link": ("post_link_addr", "Post-Animation Link"),
+            "kb_type": ("knockback_addr", "KB Style", 1),
+            "launch_profile": ("knockback_addr", "Extra Launch", 4),
+            "kb_unknown": ("knockback_addr", "Launch Adjust", 8),
             "kb_x": ("knockback_addr", "KB X", 12),
             "air_kb": ("knockback_addr", "Arc", 16),
             "speed_mod": ("speed_mod_addr", "Speed Mod"),

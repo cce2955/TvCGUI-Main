@@ -535,7 +535,7 @@ def draw_top_command_dock(
     pygame.draw.line(screen, (58, 64, 82), (0, dock_rect.bottom - 1), (w, dock_rect.bottom - 1))
 
     # Quiet status text plus a tiny heartbeat indicator.
-    status_text = "Left click to interact | Right click panels/debug rows to copy"
+    status_text = "Frame Data includes projectiles | Left click to interact | Right click panels/debug rows to copy"
     status_surf = _fit_text(smallfont, status_text, GUI_TEXT_DIM, max(80, w - 640))
     status_x = w - status_surf.get_width() - 10
     pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 4.0)
@@ -565,20 +565,12 @@ def draw_top_command_dock(
         align="center",
     )
 
-    x = hb_btn_rect.right + gap
-    ps_btn_rect = pygame.Rect(x, y, 150, btn_h)
-    draw_glass_button(
-        screen,
-        ps_btn_rect,
-        "Proj Scanner",
-        smallfont,
-        active=False,
-        hover=ps_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        align="center",
-    )
+    # Projectile editing now lives inside each slot's Frame Data Workbench, so
+    # keep a dummy rect for the old return shape but do not draw a separate
+    # projectile button in the main command dock.
+    ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
 
-    x = ps_btn_rect.right + gap
+    x = hb_btn_rect.right + gap
     as_btn_rect = pygame.Rect(x, y, 132, btn_h)
     draw_glass_button(
         screen,

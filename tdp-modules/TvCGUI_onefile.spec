@@ -22,6 +22,8 @@ datas=[
     ('*.csv',   '.'),           # move-mapping CSVs
     ('fd_region_hits.txt', '.'),
     ('quick_assists.json', '.'),
+    ('projectilemap.json', '.'),
+    ('projectile_ids.json', '.'),
     ('master_overlay_control.json', '.'),
     ('missions', 'missions'),
 ],
@@ -75,6 +77,7 @@ datas=[
         'fd_dialogs',
         'fd_write_helpers',
         'fd_patch_runtime',
+        'fd_projectile_integration',
         'proj_scanner_window',
         'mission_mode',
         'subprocess_compat',

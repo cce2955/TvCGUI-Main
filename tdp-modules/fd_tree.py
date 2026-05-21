@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import re
 import tkinter as tk
 from tkinter import ttk
 
@@ -16,21 +17,29 @@ from fd_patterns import (
     find_superbg_addr,
     find_speed_mod_addr,
     find_attack_property_addr,
+    find_hit_spark_addr,
+    find_limb_stretch_packet,
+    find_post_animation_link_addr,
     fmt_attack_property,
 )
 from fd_widgets import Tooltip, get_field_help
 from fd_move_families import annotate_move_families
+import fd_projectile_integration as FPI
 
 
 FD_COLUMNS = (
-    "move", "kind", "hits", "link",
+    "move", "kind", "hits", "link", "context",
     "damage",
     "meter",
     "startup", "active", "active2",
     "hitstun", "blockstun", "hitstop",
-    "launch_profile", "kb_unknown", "kb_x", "air_kb",
-    "speed_mod", "attack_property", "hit_reaction",
+    "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
+    "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
+    "speed_mod", "invuln", "attack_property", "hit_reaction",
     "superbg",
+    # Projectile columns are hidden from the simplest frame-data view but live
+    # in the same Treeview so users no longer need a separate projectile table.
+    *FPI.PROJECTILE_COLUMNS,
     "abs",
 )
 
@@ -39,8 +48,38 @@ FD_CORE_COLUMNS = (
     "damage", "meter",
     "startup", "active",
     "hitstun", "blockstun", "hitstop",
-    "kb_x", "air_kb",
-    "speed_mod", "attack_property", "hit_reaction",
+    "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
+    "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
+    "speed_mod", "invuln", "attack_property", "hit_reaction",
+    # Keep only the compact projectile basics in the frame view. Dedicated
+    # projectile/super views move the heavy projectile columns up front so the
+    # user does not have to horizontal-scroll across the raw scout table.
+    "proj_speed", "proj_radius", "proj_life", "proj_fmt",
+    "abs",
+)
+
+FD_PROJECTILE_COLUMNS_FOCUSED = (
+    "move", "link",
+    "damage", "kb_x", "air_kb",
+    "proj_fmt", "proj_id", "proj_type",
+    "proj_radius", "proj_life", "proj_speed", "proj_accel",
+    "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2",
+    "proj_super_hit_react", "proj_super_life", "proj_super_speed",
+    "proj_super_radius", "proj_multihit_cap",
+    "abs",
+)
+
+FD_SUPER_COLUMNS_FOCUSED = (
+    "move", "kind", "hits", "link",
+    "damage", "meter", "startup", "active",
+    "hitstun", "blockstun", "hitstop",
+    "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
+    "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
+    "speed_mod", "attack_property", "hit_reaction", "superbg",
+    "proj_super_hit_react", "proj_super_life", "proj_super_air_kb_y",
+    "proj_super_speed", "proj_super_accel", "proj_super_speed_2",
+    "proj_super_accel_b", "proj_super_accel_c",
+    "proj_multihit_cap", "proj_super_radius",
     "abs",
 )
 
@@ -49,6 +88,7 @@ FD_LABELS = {
     "kind": "Kind",
     "hits": "Hits",
     "link": "Link",
+    "context": "Details",
     "damage": "Damage",
     "meter": "Meter",
     "startup": "Startup",
@@ -57,14 +97,24 @@ FD_LABELS = {
     "hitstun": "Hitstun",
     "blockstun": "Blockstun",
     "hitstop": "Hitstop",
-    "launch_profile": "Recovery",
-    "kb_unknown": "KB U",
+    "hit_spark": "Hit Spark",
+    "stretch_part": "Stretch Part",
+    "stretch_len": "Reach Length",
+    "stretch_width": "Reach Width",
+    "stretch_height": "Reach Height",
+    "stretch_time": "Stretch Timing",
+    "post_link": "Post Link",
+    "kb_type": "KB Style",
+    "launch_profile": "Extra Launch",
+    "kb_unknown": "Launch Adjust",
     "kb_x": "KB X",
     "air_kb": "Arc",
     "speed_mod": "Speed Mod",
+    "invuln": "Invuln",
     "attack_property": "Attack Property",
     "hit_reaction": "Hit Reaction",
     "superbg": "SuperBG",
+    **FPI.PROJECTILE_LABELS,
     "abs": "Address",
 }
 
@@ -77,6 +127,60 @@ def _display_columns(tree: ttk.Treeview) -> list[str]:
     if isinstance(display, str):
         return [display]
     return list(display)
+
+
+def _tree_depth(tree: ttk.Treeview, item_id: str) -> int:
+    """Return the visible tree depth for indentation in the Move column."""
+    depth = 0
+    try:
+        cur = item_id
+        while cur:
+            cur = tree.parent(cur)
+            if cur:
+                depth += 1
+    except Exception:
+        return 0
+    return depth
+
+
+def _indent_move_text(tree: ttk.Treeview, parent: str, text: str) -> str:
+    """Indent child rows in the actual Move column, not just the tiny tree gutter."""
+    if not parent:
+        return text
+    depth = max(1, _tree_depth(tree, parent) + 1)
+    return ("    " * depth) + text
+
+
+def _rank_bucket(win, mv: dict):
+    """Best-effort bucket helper: 0 normals, 1 specials, 2 supers, 3 taunt, 4 other."""
+    try:
+        ranker = getattr(win, "_explicit_notation", None)
+        if callable(ranker):
+            return int(tuple(ranker(mv))[0])
+    except Exception:
+        pass
+    kind = str((mv or {}).get("kind") or "").lower()
+    if kind == "special":
+        return 1
+    if kind in {"super", "hyper"}:
+        return 2
+    if "taunt" in str((mv or {}).get("move_name") or "").lower():
+        return 3
+    return 4
+
+
+def _header_tags_for_members(win, members: list[dict]) -> tuple[str, ...]:
+    """Structural tags for linked-family header rows."""
+    buckets = [_rank_bucket(win, mv) for mv in (members or [])]
+    buckets = [b for b in buckets if b is not None]
+    bucket = min(buckets) if buckets else 4
+    if bucket == 1:
+        return ("family_header", "family_header_special")
+    if bucket == 2:
+        return ("family_header", "family_header_super")
+    if bucket == 0:
+        return ("family_header", "family_header_normal")
+    return ("family_header", "family_header_other")
 
 
 def configure_styles(root: tk.Toplevel) -> None:
@@ -117,6 +221,8 @@ def configure_styles(root: tk.Toplevel) -> None:
     style.configure("ValueChanged.TLabel", background="#2B2412", foreground="#FFE3A3", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
     style.configure("ValueChangedHover.TLabel", background="#3A2E12", foreground="#FFE9B8", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
     style.configure("ValueStatic.TLabel", background=bg_card, foreground=txt_main, padding=(7, 3), font=("Segoe UI", 9))
+    style.configure("QuickValue.TLabel", background=bg_entry, foreground=txt_main, borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI", 9))
+    style.configure("QuickImportant.TLabel", background="#173A5D", foreground="#ECF7FF", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
     style.configure("Section.TLabel", background=bg_card, foreground=txt_accent, font=("Segoe UI Semibold", 9))
     style.configure("InspectorTitle.TLabel", background=bg_panel, foreground=txt_main, font=("Segoe UI Semibold", 13))
     style.configure("InspectorSub.TLabel", background=bg_panel, foreground=txt_muted, font=("Segoe UI", 9))
@@ -190,6 +296,12 @@ def build_top_bar(win) -> None:
         textvariable=win._writer_var,
         style="HeroSub.TLabel",
     ).pack(anchor="w", pady=(2, 0))
+    if getattr(win, "_projectile_status_var", None) is not None:
+        ttk.Label(
+            hero,
+            textvariable=win._projectile_status_var,
+            style="HeroSub.TLabel",
+        ).pack(anchor="w", pady=(2, 0))
 
     controls = ttk.Frame(top, style="Top.TFrame")
     controls.pack(side="right", padx=(10, 0))
@@ -207,14 +319,19 @@ def build_top_bar(win) -> None:
     actions = ttk.Frame(controls, style="Top.TFrame")
     actions.pack(side="top", fill="x", pady=(6, 0))
 
-    win._columns_btn_var = tk.StringVar(master=win.root, value="Show all columns")
+    win._fd_view_var = tk.StringVar(master=win.root, value="View: Frame")
     win._filter_panel_btn_var = tk.StringVar(master=win.root, value="Advanced filters")
 
-    ttk.Button(actions, textvariable=win._columns_btn_var, command=lambda: getattr(win, "_toggle_core_columns", lambda: None)()).pack(side="left", padx=(0, 4))
+    ttk.Label(actions, textvariable=win._fd_view_var, style="Muted.Top.TLabel").pack(side="left", padx=(0, 4))
+    ttk.Button(actions, text="Frame", command=lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("frame")).pack(side="left", padx=(0, 2))
+    ttk.Button(actions, text="Projectiles", command=lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("projectile")).pack(side="left", padx=2)
+    ttk.Button(actions, text="Supers", command=lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("super")).pack(side="left", padx=2)
+    ttk.Button(actions, text="All", command=lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("all")).pack(side="left", padx=(2, 8))
     ttk.Button(actions, textvariable=win._filter_panel_btn_var, command=lambda: getattr(win, "_toggle_advanced_filters", lambda: None)()).pack(side="left", padx=4)
     ttk.Button(actions, text="Expand", command=win._expand_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Collapse", command=win._collapse_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Refresh", command=win._refresh_visible).pack(side="left", padx=4)
+    ttk.Button(actions, text="Rescan projectiles", command=lambda: getattr(win, "_start_projectile_scan", lambda **_k: None)(auto=False)).pack(side="left", padx=4)
     ttk.Button(actions, text="Save patch", command=lambda: getattr(win, "_save_fd_patch_config", lambda: None)()).pack(side="left", padx=(10, 4))
     ttk.Button(actions, text="Load patch", command=lambda: getattr(win, "_load_fd_patch_config", lambda: None)()).pack(side="left", padx=4)
     ttk.Label(actions, textvariable=win._changed_count_var, style="Muted.Top.TLabel").pack(side="left", padx=(12, 4))
@@ -226,6 +343,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     win._inspector_buttons = {}
     win._inspector_value_widgets = {}
     win._inspector_editable_cols = set()
+    win._inspector_sections = []
 
     # The inspector can be taller than the available window height. Use a real
     # scrolling canvas and reserve the scrollbar column first so it remains
@@ -310,6 +428,18 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             except Exception:
                 pass
             return
+        if col == "invuln":
+            try:
+                win._status_var.set("Invuln is a display-only startup-protection probe. It is not editable yet.")
+            except Exception:
+                pass
+            return
+        if col == "context":
+            try:
+                win._status_var.set("Details is raw scout summary text. The cleaner quick strip above the table is the normal way to read projectile/super values.")
+            except Exception:
+                pass
+            return
         if col == "abs":
             win._copy_selected_address()
             return
@@ -322,7 +452,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         win._edit_selected_column(col)
 
     def _make_chip(parent_widget, col: str, var: tk.StringVar):
-        editable = col not in {"kind", "hits", "link"}
+        editable = col not in {"kind", "hits", "link", "invuln"}
         style = "ValueChip.TLabel" if editable else "ValueStatic.TLabel"
         chip = ttk.Label(parent_widget, textvariable=var, style=style, anchor="w")
         chip.pack(side="left", fill="x", expand=True, padx=(4, 0))
@@ -343,8 +473,8 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     win._inspector_subtitle_var = tk.StringVar(master=win.root, value="Use the inspector for normal edits without parsing the whole grid.")
     win._inspector_hint_var = tk.StringVar(master=win.root, value="Click any value chip to edit it. Changed values are highlighted until Reset changed restores them.")
 
-    ttk.Label(inner, textvariable=win._inspector_title_var, style="InspectorTitle.TLabel", wraplength=320).pack(anchor="w")
-    ttk.Label(inner, textvariable=win._inspector_subtitle_var, style="InspectorSub.TLabel", wraplength=320).pack(anchor="w", pady=(3, 10))
+    ttk.Label(inner, textvariable=win._inspector_title_var, style="InspectorTitle.TLabel", wraplength=380).pack(anchor="w")
+    ttk.Label(inner, textvariable=win._inspector_subtitle_var, style="InspectorSub.TLabel", wraplength=380).pack(anchor="w", pady=(3, 10))
 
     move_card = ttk.Frame(inner, style="Card.TFrame", padding=(10, 8))
     move_card.pack(fill="x", pady=(0, 10))
@@ -354,15 +484,19 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     btn = ttk.Button(mv_row, text="Replace animation", style="Small.TButton", command=lambda: win._edit_selected_column("move"))
     btn.pack(side="left")
     win._inspector_buttons["move"] = btn
-    ttk.Label(move_card, textvariable=win._inspector_hint_var, style="CardMuted.TLabel", wraplength=320).pack(anchor="w", pady=(8, 0))
+    ttk.Label(move_card, textvariable=win._inspector_hint_var, style="CardMuted.TLabel", wraplength=380).pack(anchor="w", pady=(8, 0))
 
     sections = [
         ("Move link", ["link"]),
         ("Impact", ["hits", "damage", "meter", "hitstop"]),
         ("Timing", ["startup", "active", "active2", "speed_mod"]),
         ("Stun and pressure", ["hitstun", "blockstun", "attack_property", "hit_reaction"]),
-        ("Launch and physics", ["launch_profile", "kb_x", "air_kb", "kb_unknown"]),
-        ("Flags and lookup", ["superbg", "kind", "abs"]),
+        ("Launch and knockback controls", ["kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb"]),
+        ("Hit FX and reach", ["hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time"]),
+        ("Dangerous script links", ["post_link"]),
+        ("Flags and lookup", ["invuln", "superbg", "kind", "abs"]),
+        ("Projectile data", ["proj_fmt", "proj_id", "proj_type", "proj_radius", "proj_life", "proj_speed", "proj_accel", "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2"]),
+        ("Projectile super probes", ["proj_super_hit_react", "proj_super_life", "proj_super_air_kb_y", "proj_super_speed", "proj_super_accel", "proj_super_speed_2", "proj_super_accel_b", "proj_super_accel_c", "proj_multihit_cap", "proj_super_radius"]),
     ]
 
     click_help = {
@@ -370,11 +504,18 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         "superbg": "Click to toggle or edit this flag.",
         "kind": "Informational only.",
         "link": "Display-only family/section link.",
+        "context": "Display-only compact details summary.",
+        "proj_fmt": "Display-only projectile record format.",
+        "invuln": "Display-only startup-protection probe.",
     }
 
     for section_title, fields in sections:
         card = ttk.Frame(inner, style="Card.TFrame", padding=(10, 8))
         card.pack(fill="x", pady=(0, 10))
+        try:
+            win._inspector_sections.append((section_title, card, tuple(fields)))
+        except Exception:
+            pass
         ttk.Label(card, text=section_title, style="Section.TLabel").pack(anchor="w", pady=(0, 4))
         for col in fields:
             row = ttk.Frame(card, style="Card.TFrame")
@@ -411,17 +552,51 @@ def build_tree_widget(win) -> ttk.Frame:
 
     left = ttk.Frame(body, style="FD.TFrame")
     right = ttk.Frame(body, style="Inspector.TFrame")
-    body.add(left, weight=5)
-    body.add(right, weight=2)
+    body.add(left, weight=1)
+    body.add(right, weight=0)
+
+    # Give the inspector a real starting width. ttk's default sash math can
+    # collapse the right pane on first open, which makes the value chips look
+    # broken until the user drags it by hand.
+    try:
+        body.paneconfigure(right, minsize=420)
+    except Exception:
+        pass
+
+    def _set_initial_sash():
+        try:
+            total_w = body.winfo_width()
+            if total_w <= 1:
+                body.after(40, _set_initial_sash)
+                return
+            inspector_w = 440
+            left_w = max(780, total_w - inspector_w)
+            body.sashpos(0, left_w)
+        except Exception:
+            pass
+
+    body.after_idle(_set_initial_sash)
 
     guide = ttk.Frame(left, style="Card.TFrame", padding=(10, 7))
     guide.pack(fill="x", pady=(0, 8))
     ttk.Label(
         guide,
-        text="Core view keeps the table readable. Select a row for the inspector, or switch to all columns when you need raw scouting data.",
+        text="Frame view stays clean for normals. Select any row and the quick strip below shows the useful projectile, super, or frame values without horizontal scrolling or digging through the inspector.",
         style="CardMuted.TLabel",
         wraplength=950,
     ).pack(anchor="w")
+
+    quick = ttk.Frame(left, style="Card.TFrame", padding=(10, 8))
+    quick.pack(fill="x", pady=(0, 8))
+    win._quick_panel = quick
+    win._quick_title_var = tk.StringVar(master=win.root, value="Selection details")
+    win._quick_subtitle_var = tk.StringVar(master=win.root, value="Select a move, projectile, or super row to see the values that matter here.")
+    top_line = ttk.Frame(quick, style="Card.TFrame")
+    top_line.pack(fill="x")
+    ttk.Label(top_line, textvariable=win._quick_title_var, style="Section.TLabel").pack(side="left", anchor="w")
+    ttk.Label(quick, textvariable=win._quick_subtitle_var, style="CardMuted.TLabel", wraplength=950).pack(anchor="w", pady=(3, 6))
+    win._quick_chips_frame = ttk.Frame(quick, style="Card.TFrame")
+    win._quick_chips_frame.pack(fill="x")
 
     frame = ttk.Frame(left, style="FD.TFrame")
     frame.pack(fill="both", expand=True)
@@ -455,6 +630,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "kind": 10,
         "hits": 8,
         "link": 18,
+        "context": 34,
         "damage": 8,
         "meter": 8,
         "startup": 8,
@@ -463,14 +639,44 @@ def build_tree_widget(win) -> ttk.Frame:
         "hitstun": 8,
         "blockstun": 8,
         "hitstop": 8,
-        "launch_profile": 10,
-        "kb_unknown": 10,
+        "hit_spark": 10,
+        "stretch_part": 10,
+        "stretch_len": 10,
+        "stretch_width": 10,
+        "stretch_height": 10,
+        "stretch_time": 10,
+        "post_link": 12,
+        "kb_type": 8,
+        "launch_profile": 12,
+        "kb_unknown": 12,
         "kb_x": 8,
         "air_kb": 8,
         "speed_mod": 10,
         "attack_property": 14,
         "hit_reaction": 16,
         "superbg": 10,
+        "proj_cluster": 16,
+        "proj_fmt": 12,
+        "proj_id": 10,
+        "proj_type": 10,
+        "proj_radius": 10,
+        "proj_life": 10,
+        "proj_speed": 10,
+        "proj_accel": 10,
+        "proj_kb_y": 10,
+        "proj_hitbox": 10,
+        "proj_arc": 10,
+        "proj_arc2": 10,
+        "proj_super_hit_react": 12,
+        "proj_super_life": 10,
+        "proj_super_air_kb_y": 12,
+        "proj_super_speed": 12,
+        "proj_super_accel": 12,
+        "proj_super_speed_2": 12,
+        "proj_super_accel_b": 12,
+        "proj_super_accel_c": 12,
+        "proj_multihit_cap": 12,
+        "proj_super_radius": 12,
         "abs": 12,
     }
 
@@ -479,7 +685,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "kind": "Kind",
         "hits": "Hits",
         "link": "Link",
-    "link": "Link",
+        "context": "Details",
         "damage": "Dmg",
         "meter": "Meter",
         "startup": "Start",
@@ -488,14 +694,44 @@ def build_tree_widget(win) -> ttk.Frame:
         "hitstun": "HS",
         "blockstun": "BS",
         "hitstop": "Stop",
-        "launch_profile": "Recovery",
-        "kb_unknown": "KB U",
+        "hit_spark": "Spark",
+        "stretch_part": "Part",
+        "stretch_len": "ReachLen",
+        "stretch_width": "ReachW",
+        "stretch_height": "ReachH",
+        "stretch_time": "Timing",
+        "post_link": "PostLink",
+        "kb_type": "Type",
+        "launch_profile": "Extra",
+        "kb_unknown": "Adjust",
         "kb_x": "KB X",
         "air_kb": "Arc",
         "speed_mod": "Speed",
         "attack_property": "Property",
         "hit_reaction": "HitReact",
         "superbg": "SuperBG",
+        "proj_cluster": "ProjGroup",
+        "proj_fmt": "ProjFmt",
+        "proj_id": "ProjID",
+        "proj_type": "ProjType",
+        "proj_radius": "PRadius",
+        "proj_life": "PLife",
+        "proj_speed": "PSpeed",
+        "proj_accel": "PAccel",
+        "proj_kb_y": "PKBY",
+        "proj_hitbox": "PHitbox",
+        "proj_arc": "PArc",
+        "proj_arc2": "PArc2",
+        "proj_super_hit_react": "PReact",
+        "proj_super_life": "SLife",
+        "proj_super_air_kb_y": "SAirY",
+        "proj_super_speed": "SSpeed",
+        "proj_super_accel": "SAccel",
+        "proj_super_speed_2": "SSpeed2",
+        "proj_super_accel_b": "SAccelB",
+        "proj_super_accel_c": "SAccelC",
+        "proj_multihit_cap": "HitCap",
+        "proj_super_radius": "SRadius",
         "abs": "Abs",
     }
 
@@ -509,74 +745,92 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win._clear_col_filters = _clear_col_filters
 
-    filter_panel = ttk.Frame(frame, style="Card.TFrame", padding=(8, 8))
-    win._filter_panel = filter_panel
+    win._filter_panel = None
     win._filter_panel_visible = False
+    win._filter_panel_built = False
 
-    ttk.Label(
-        filter_panel,
-        text="Advanced column filters. Multiple boxes combine together.",
-        style="CardMuted.TLabel",
-    ).grid(row=0, column=0, columnspan=len(cols) + 1, sticky="w", pady=(0, 6))
+    def _ensure_filter_panel_built():
+        # Build the large advanced-filter widget set only when the user opens it.
+        # The normal frame view no longer pays the startup cost for 50+ entries
+        # and tooltips that may never be used.
+        if getattr(win, "_filter_panel_built", False) and getattr(win, "_filter_panel", None) is not None:
+            return win._filter_panel
 
-    labels_row = ttk.Frame(filter_panel, style="Card.TFrame")
-    labels_row.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=(0, 1))
+        filter_panel = ttk.Frame(frame, style="Card.TFrame", padding=(8, 8))
+        win._filter_panel = filter_panel
 
-    filter_row = ttk.Frame(filter_panel, style="Card.TFrame")
-    filter_row.grid(row=2, column=0, sticky="ew", padx=(0, 2), pady=(0, 2))
+        ttk.Label(
+            filter_panel,
+            text="Advanced column filters. Multiple boxes combine together.",
+            style="CardMuted.TLabel",
+        ).grid(row=0, column=0, columnspan=len(cols) + 1, sticky="w", pady=(0, 6))
 
-    for i, c in enumerate(cols):
-        w = filter_widths.get(c, 10)
-        labels_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
-        filter_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
+        labels_row = ttk.Frame(filter_panel, style="Card.TFrame")
+        labels_row.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=(0, 1))
 
-    labels_row.grid_columnconfigure(len(cols), weight=1)
-    filter_row.grid_columnconfigure(len(cols), weight=1)
+        filter_row = ttk.Frame(filter_panel, style="Card.TFrame")
+        filter_row.grid(row=2, column=0, sticky="ew", padx=(0, 2), pady=(0, 2))
 
-    for col_i, c in enumerate(cols):
-        w = filter_widths.get(c, 10)
-        label_txt = filter_labels.get(c, c)
+        for i, c in enumerate(cols):
+            w = filter_widths.get(c, 10)
+            labels_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
+            filter_row.grid_columnconfigure(i, weight=0, minsize=w * 8)
 
-        lbl = ttk.Label(labels_row, text=label_txt, width=w, anchor="w", style="FilterLabel.TLabel")
-        lbl.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
+        labels_row.grid_columnconfigure(len(cols), weight=1)
+        filter_row.grid_columnconfigure(len(cols), weight=1)
 
-        var = tk.StringVar(master=win.root)
-        win._col_filter_vars[c] = var
+        for col_i, c in enumerate(cols):
+            w = filter_widths.get(c, 10)
+            label_txt = filter_labels.get(c, c)
 
-        ent = ttk.Entry(filter_row, textvariable=var, width=w)
-        ent.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
+            lbl = ttk.Label(labels_row, text=label_txt, width=w, anchor="w", style="FilterLabel.TLabel")
+            lbl.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
 
-        field_help = get_field_help(c, "")
-        tip_text = f"Filter: {label_txt}. Case-insensitive substring. Leave blank to ignore."
-        if field_help:
-            tip_text += f"\n\n{field_help}"
-        Tooltip(lbl, tip_text)
-        Tooltip(ent, tip_text)
-        ent.bind("<Return>", lambda _e: _schedule_apply_filters())
+            var = tk.StringVar(master=win.root)
+            win._col_filter_vars[c] = var
 
-        def _make_trace(_var=var):
-            def _trace_cb(*_args):
-                _schedule_apply_filters()
-            return _trace_cb
+            ent = ttk.Entry(filter_row, textvariable=var, width=w)
+            ent.grid(row=0, column=col_i, sticky="w", padx=1, pady=0)
 
-        var.trace_add("write", _make_trace())
+            field_help = get_field_help(c, "")
+            tip_text = f"Filter: {label_txt}. Case-insensitive substring. Leave blank to ignore."
+            if field_help:
+                tip_text += f"\n\n{field_help}"
+            Tooltip(lbl, tip_text)
+            Tooltip(ent, tip_text)
+            ent.bind("<Return>", lambda _e: _schedule_apply_filters())
 
-    clear_btn = ttk.Button(labels_row, text="Clear column filters", command=win._clear_col_filters)
-    clear_btn.grid(row=0, column=len(cols), sticky="e", padx=(8, 0))
-    Tooltip(clear_btn, "Clear all per-column filters.")
+            def _make_trace(_var=var):
+                def _trace_cb(*_args):
+                    _schedule_apply_filters()
+                return _trace_cb
+
+            var.trace_add("write", _make_trace())
+
+        clear_btn = ttk.Button(labels_row, text="Clear column filters", command=win._clear_col_filters)
+        clear_btn.grid(row=0, column=len(cols), sticky="e", padx=(8, 0))
+        Tooltip(clear_btn, "Clear all per-column filters.")
+
+        win._filter_panel_built = True
+        return filter_panel
+
+    win._ensure_filter_panel_built = _ensure_filter_panel_built
 
     tree_wrap = ttk.Frame(frame, style="Card.TFrame", padding=(1, 1))
     tree_wrap.pack(fill="both", expand=True)
 
     def _toggle_advanced_filters():
         visible = bool(getattr(win, "_filter_panel_visible", False))
+        panel = getattr(win, "_filter_panel", None)
         if visible:
-            filter_panel.pack_forget()
+            if panel is not None:
+                panel.pack_forget()
             win._filter_panel_visible = False
             if getattr(win, "_filter_panel_btn_var", None) is not None:
                 win._filter_panel_btn_var.set("Advanced filters")
         else:
-            filter_panel.pack(fill="x", padx=0, pady=(0, 8), before=tree_wrap)
+            panel = _ensure_filter_panel_built()
+            panel.pack(fill="x", padx=0, pady=(0, 8), before=tree_wrap)
             win._filter_panel_visible = True
             if getattr(win, "_filter_panel_btn_var", None) is not None:
                 win._filter_panel_btn_var.set("Hide filters")
@@ -605,6 +859,7 @@ def build_tree_widget(win) -> ttk.Frame:
         ("kind", "Kind"),
         ("hits", "Hits"),
         ("link", "Link"),
+        ("context", "Details"),
         ("damage", "Dmg"),
         ("meter", "Meter"),
         ("startup", "Start"),
@@ -613,14 +868,44 @@ def build_tree_widget(win) -> ttk.Frame:
         ("hitstun", "HS"),
         ("blockstun", "BS"),
         ("hitstop", "Stop"),
-        ("launch_profile", "Recovery"),
-        ("kb_unknown", "KB U"),
+        ("hit_spark", "Hit Spark"),
+        ("stretch_part", "Stretch Part"),
+        ("stretch_len", "Reach Length"),
+        ("stretch_width", "Reach Width"),
+        ("stretch_height", "Reach Height"),
+        ("stretch_time", "Stretch Timing"),
+        ("post_link", "Post Link"),
+        ("kb_type", "KB Style"),
+        ("launch_profile", "Extra Launch"),
+        ("kb_unknown", "Launch Adjust"),
         ("kb_x", "KB X"),
         ("air_kb", "Arc"),
         ("speed_mod", "Speed"),
         ("attack_property", "Attack Property"),
         ("hit_reaction", "Hit Reaction"),
         ("superbg", "SuperBG"),
+        ("proj_cluster", "Proj Group"),
+        ("proj_fmt", "Proj Fmt"),
+        ("proj_id", "Proj ID"),
+        ("proj_type", "Proj Type"),
+        ("proj_radius", "Proj Radius"),
+        ("proj_life", "Proj Life"),
+        ("proj_speed", "Proj Speed"),
+        ("proj_accel", "Proj Accel"),
+        ("proj_kb_y", "Proj KB Y"),
+        ("proj_hitbox", "Proj Hitbox"),
+        ("proj_arc", "Proj Arc"),
+        ("proj_arc2", "Proj Arc 2"),
+        ("proj_super_hit_react", "Proj HitReact"),
+        ("proj_super_life", "Super Life"),
+        ("proj_super_air_kb_y", "Super Air KB Y"),
+        ("proj_super_speed", "Super Speed"),
+        ("proj_super_accel", "Super Accel"),
+        ("proj_super_speed_2", "Super Speed 2"),
+        ("proj_super_accel_b", "Super Accel B"),
+        ("proj_super_accel_c", "Super Accel C"),
+        ("proj_multihit_cap", "MultiHit Cap"),
+        ("proj_super_radius", "Super Radius"),
         ("abs", "Address"),
     ]
     for c, txt in headers:
@@ -630,6 +915,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("kind", width=80, anchor="w")
     win.tree.column("hits", width=62, anchor="center")
     win.tree.column("link", width=210, anchor="w")
+    win.tree.column("context", width=320, anchor="w")
     win.tree.column("damage", width=76, anchor="center")
     win.tree.column("meter", width=70, anchor="center")
     win.tree.column("startup", width=70, anchor="center")
@@ -638,46 +924,116 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("hitstun", width=58, anchor="center")
     win.tree.column("blockstun", width=58, anchor="center")
     win.tree.column("hitstop", width=58, anchor="center")
-    win.tree.column("launch_profile", width=92, anchor="center")
-    win.tree.column("kb_unknown", width=86, anchor="center")
+    win.tree.column("hit_spark", width=86, anchor="center")
+    win.tree.column("stretch_part", width=92, anchor="center")
+    win.tree.column("stretch_len", width=96, anchor="center")
+    win.tree.column("stretch_width", width=96, anchor="center")
+    win.tree.column("stretch_height", width=96, anchor="center")
+    win.tree.column("stretch_time", width=100, anchor="center")
+    win.tree.column("post_link", width=100, anchor="center")
+    win.tree.column("kb_type", width=72, anchor="center")
+    win.tree.column("launch_profile", width=82, anchor="center")
+    win.tree.column("kb_unknown", width=92, anchor="center")
     win.tree.column("kb_x", width=72, anchor="center")
     win.tree.column("air_kb", width=72, anchor="center")
     win.tree.column("speed_mod", width=116, anchor="center")
     win.tree.column("attack_property", width=178, anchor="w")
     win.tree.column("hit_reaction", width=260, anchor="w")
     win.tree.column("superbg", width=78, anchor="center")
+    win.tree.column("proj_cluster", width=170, anchor="w")
+    win.tree.column("proj_fmt", width=110, anchor="w")
+    win.tree.column("proj_id", width=78, anchor="center")
+    win.tree.column("proj_type", width=78, anchor="center")
+    win.tree.column("proj_radius", width=96, anchor="center")
+    win.tree.column("proj_life", width=82, anchor="center")
+    win.tree.column("proj_speed", width=92, anchor="center")
+    win.tree.column("proj_accel", width=92, anchor="center")
+    win.tree.column("proj_kb_y", width=92, anchor="center")
+    win.tree.column("proj_hitbox", width=92, anchor="center")
+    win.tree.column("proj_arc", width=82, anchor="center")
+    win.tree.column("proj_arc2", width=82, anchor="center")
+    win.tree.column("proj_super_hit_react", width=110, anchor="center")
+    win.tree.column("proj_super_life", width=92, anchor="center")
+    win.tree.column("proj_super_air_kb_y", width=114, anchor="center")
+    win.tree.column("proj_super_speed", width=106, anchor="center")
+    win.tree.column("proj_super_accel", width=106, anchor="center")
+    win.tree.column("proj_super_speed_2", width=112, anchor="center")
+    win.tree.column("proj_super_accel_b", width=112, anchor="center")
+    win.tree.column("proj_super_accel_c", width=112, anchor="center")
+    win.tree.column("proj_multihit_cap", width=106, anchor="center")
+    win.tree.column("proj_super_radius", width=106, anchor="center")
     win.tree.column("abs", width=124, anchor="w")
 
     win._fd_all_columns = tuple(cols)
     win._fd_core_columns = tuple(FD_CORE_COLUMNS)
-    win._fd_showing_all_columns = False
-    win.tree.configure(displaycolumns=win._fd_core_columns)
+    win._fd_projectile_columns = tuple(c for c in FD_PROJECTILE_COLUMNS_FOCUSED if c in cols)
+    win._fd_super_columns = tuple(c for c in FD_SUPER_COLUMNS_FOCUSED if c in cols)
+    win._fd_view_presets = {
+        "frame": win._fd_core_columns,
+        "projectile": win._fd_projectile_columns,
+        "super": win._fd_super_columns,
+        "all": win._fd_all_columns,
+    }
+    win._fd_view_mode = "frame"
+
+    def _set_fd_view_mode(mode="frame"):
+        mode = str(mode or "frame").lower()
+        if mode not in getattr(win, "_fd_view_presets", {}):
+            mode = "frame"
+        columns = tuple(c for c in win._fd_view_presets.get(mode, win._fd_core_columns) if c in cols)
+        if not columns:
+            columns = win._fd_core_columns
+            mode = "frame"
+        win.tree.configure(displaycolumns=columns)
+        win._fd_view_mode = mode
+        label_map = {
+            "frame": "View: Frame",
+            "projectile": "View: Projectiles",
+            "super": "View: Supers",
+            "all": "View: All",
+        }
+        if getattr(win, "_fd_view_var", None) is not None:
+            win._fd_view_var.set(label_map.get(mode, "View: Frame"))
+        messages = {
+            "frame": "Frame view: normal frame-data columns are prioritized.",
+            "projectile": "Projectile view: projectile damage, ID/type, speed, life, hitbox, and probe fields are moved next to the move name.",
+            "super": "Super view: super flags and projectile-super probe fields are moved into the readable left side.",
+            "all": "All columns visible for raw scouting data.",
+        }
+        try:
+            win.tree.xview_moveto(0.0)
+        except Exception:
+            pass
+        try:
+            win._status_var.set(messages.get(mode, messages["frame"]))
+        except Exception:
+            pass
 
     def _toggle_core_columns():
-        showing_all = bool(getattr(win, "_fd_showing_all_columns", False))
-        if showing_all:
-            win.tree.configure(displaycolumns=win._fd_core_columns)
-            win._fd_showing_all_columns = False
-            if getattr(win, "_columns_btn_var", None) is not None:
-                win._columns_btn_var.set("Show all columns")
-            win._status_var.set("Core columns visible")
+        # Legacy shortcut kept for old callers: Frame <-> All.
+        if getattr(win, "_fd_view_mode", "frame") == "all":
+            _set_fd_view_mode("frame")
         else:
-            win.tree.configure(displaycolumns=win._fd_all_columns)
-            win._fd_showing_all_columns = True
-            if getattr(win, "_columns_btn_var", None) is not None:
-                win._columns_btn_var.set("Core columns")
-            win._status_var.set("All columns visible")
+            _set_fd_view_mode("all")
 
+    win._set_fd_view_mode = _set_fd_view_mode
     win._toggle_core_columns = _toggle_core_columns
+    _set_fd_view_mode("frame")
 
     def _update_hover_help(event):
         try:
             region = win.tree.identify_region(event.x, event.y)
             if region not in ("cell", "heading"):
+                win._hover_help_key = None
                 return
             column = win.tree.identify_column(event.x)
             if not column or column == "#0":
+                win._hover_help_key = None
                 return
+            hover_key = (region, column)
+            if getattr(win, "_hover_help_key", None) == hover_key:
+                return
+            win._hover_help_key = hover_key
             col_idx = int(column[1:]) - 1
             display_cols = _display_columns(win.tree)
             if col_idx < 0 or col_idx >= len(display_cols):
@@ -694,19 +1050,65 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win.tree.tag_configure("row_even", background="#142033")
     win.tree.tag_configure("row_odd", background="#101A29")
+
+    # Section/header colors are deliberately brighter than normal rows. Tk's
+    # Treeview does not support a true per-row gradient, so these use a
+    # gradient-style stepped palette by bucket: normal -> special -> super.
+    win.tree.tag_configure("family_header", background="#203554", foreground="#EAF4FF", font=("Segoe UI Semibold", 9))
+    win.tree.tag_configure("family_header_normal", background="#243E61", foreground="#ECF7FF")
+    win.tree.tag_configure("family_header_special", background="#28517B", foreground="#F1FAFF")
+    win.tree.tag_configure("family_header_super", background="#315F91", foreground="#FFFFFF")
+    win.tree.tag_configure("family_header_other", background="#203554", foreground="#DCEBFF")
+    win.tree.tag_configure("projectile_header", background="#2B5C88", foreground="#F1FCFF", font=("Segoe UI Semibold", 9))
+
+    # Child rows should read as belonging to their parent, while still keeping
+    # enough contrast to edit individual records.
+    win.tree.tag_configure("child_row", foreground="#D8EAFF")
+    win.tree.tag_configure("grandchild_row", foreground="#BFD8F5")
+    win.tree.tag_configure("special_row", foreground="#D4ECFF")
+    win.tree.tag_configure("super_row", background="#183154", foreground="#EFF7FF")
+    win.tree.tag_configure("projectile_row", background="#17344F", foreground="#D9F6FF")
+
     win.tree.tag_configure("kb_hot", foreground="#9FCCFF")
     win.tree.tag_configure("combo_hot", foreground="#B7D6FF")
     win.tree.tag_configure("property_hot", foreground="#D6C8FF")
     win.tree.tag_configure("super_on", foreground="#82E0B1")
     win.tree.tag_configure("missing_addr", foreground="#FF9A9A")
     win.tree.tag_configure("group_parent", foreground="#FFE3A3")
-    win.tree.tag_configure("family_header", background="#182840", foreground="#A9D2FF")
     win.tree.tag_configure("family_linked", foreground="#C9E2FF")
-    win.tree.tag_configure("edited_row", background="#1E2D43")
+    win.tree.tag_configure("edited_row", background="#263955")
 
     _build_inspector(win, right)
 
     return body
+
+
+def _compact_row_context(mv: dict | None, attack_property_txt: str = "", hr_txt: str = "", invuln_txt: str = "") -> str:
+    """Small left-side summary for rows whose useful fields would otherwise
+    be far off-screen. This is display-only; edits still target the real columns.
+    """
+    if not isinstance(mv, dict):
+        return ""
+    try:
+        if FPI.is_projectile_row(mv):
+            return FPI.projectile_quick_summary(mv)
+    except Exception:
+        return ""
+
+    bits = []
+    kind = str(mv.get("kind") or "").lower()
+    if kind in {"super", "hyper"}:
+        if mv.get("superbg_val") is not None:
+            bits.append(f"SuperBG {U.fmt_superbg(mv.get('superbg_val'))}")
+        if invuln_txt:
+            bits.append(f"Invuln {invuln_txt}")
+        if attack_property_txt:
+            bits.append(attack_property_txt)
+        if hr_txt:
+            bits.append(hr_txt)
+    elif invuln_txt:
+        bits.append(f"Invuln {invuln_txt}")
+    return " | ".join([b for b in bits if b])
 
 def populate_tree(win) -> None:
     cname = win.target_slot.get("char_name", "-")
@@ -723,6 +1125,33 @@ def populate_tree(win) -> None:
 
     def _fmt(v):
         return "" if v is None else str(v)
+
+    # Opening the workbench used to issue several separate Dolphin reads per
+    # row while resolving optional fields such as speed, SuperBG, hit spark,
+    # stretch, and post-link.  Cache reads for the duration of this population
+    # pass so each move block is normally read once at the largest requested
+    # size, then sliced for the smaller scanners.  Refresh/rebuild still gets
+    # fresh memory because this cache is intentionally local to populate_tree().
+    _fd_read_cache: dict[int, bytes] = {}
+    _fd_rbytes_func = None
+
+    def _fd_cached_rbytes(addr: int, size: int) -> bytes:
+        nonlocal _fd_rbytes_func
+        if _fd_rbytes_func is None:
+            from dolphin_io import rbytes as _real_rbytes
+            _fd_rbytes_func = _real_rbytes
+        try:
+            addr_i = int(addr or 0)
+            size_i = max(0, int(size or 0))
+        except Exception:
+            return b""
+        cached = _fd_read_cache.get(addr_i)
+        if cached is not None and len(cached) >= size_i:
+            return cached[:size_i]
+        data = _fd_rbytes_func(addr_i, size_i) or b""
+        if cached is None or len(data) >= len(cached):
+            _fd_read_cache[addr_i] = data
+        return data
 
     def _hit_count_text(mv):
         if mv.get("_hit_segment_index") is not None:
@@ -818,17 +1247,61 @@ def populate_tree(win) -> None:
         else:
             active2_txt = _fmt(a2_s or a2_e)
 
+        kb_type_txt = U.fmt_kb_type_ui(mv)
         launch_profile_txt = U.fmt_launch_profile_ui(mv)
         kb_unknown_txt = U.fmt_kb_unknown_ui(mv)
         kb_x_txt = U.fmt_kb_x_ui(mv)
         air_kb_txt = U.fmt_air_kb_ui(mv)
         hitstop_txt = U.fmt_stun(mv.get("hitstop"))
 
+        if move_abs:
+            try:
+                rbytes = _fd_cached_rbytes
+                if mv.get("hit_spark_addr") is None:
+                    _sp_pkt, _sp_addr, _sp_val, _sp_ctx = find_hit_spark_addr(move_abs, rbytes)
+                    if _sp_addr:
+                        mv["hit_spark_packet_addr"] = _sp_pkt
+                        mv["hit_spark_addr"] = _sp_addr
+                        mv["hit_spark"] = _sp_val
+                        mv["hit_spark_sig"] = _sp_ctx
+                if mv.get("stretch_packet_addr") is None:
+                    _stretch = find_limb_stretch_packet(move_abs, rbytes)
+                    if _stretch:
+                        mv["stretch_packet_addr"] = _stretch.get("packet_addr")
+                        mv["stretch_part_addr"] = _stretch.get("part_addr")
+                        mv["stretch_len_addr"] = _stretch.get("scale1_addr")
+                        mv["stretch_width_addr"] = _stretch.get("scale2_addr")
+                        mv["stretch_height_addr"] = _stretch.get("scale3_addr")
+                        mv["stretch_time_addr"] = _stretch.get("timing_addr")
+                        mv["stretch_part"] = _stretch.get("part")
+                        mv["stretch_len"] = _stretch.get("scale1")
+                        mv["stretch_width"] = _stretch.get("scale2")
+                        mv["stretch_height"] = _stretch.get("scale3")
+                        mv["stretch_time"] = _stretch.get("timing")
+                        mv["stretch_sig"] = _stretch.get("context")
+                if mv.get("post_link_addr") is None:
+                    _pl_pkt, _pl_addr, _pl_val, _pl_ctx = find_post_animation_link_addr(move_abs, rbytes)
+                    if _pl_addr:
+                        mv["post_link_packet_addr"] = _pl_pkt
+                        mv["post_link_addr"] = _pl_addr
+                        mv["post_link"] = _pl_val
+                        mv["post_link_sig"] = _pl_ctx
+            except Exception:
+                pass
+
+        hit_spark_txt = U.fmt_hit_spark_ui(mv)
+        stretch_part_txt = U.fmt_stretch_part_ui(mv)
+        stretch_len_txt = U.fmt_stretch_len_ui(mv)
+        stretch_width_txt = U.fmt_stretch_width_ui(mv)
+        stretch_height_txt = U.fmt_stretch_height_ui(mv)
+        stretch_time_txt = U.fmt_stretch_time_ui(mv)
+        post_link_txt = U.fmt_post_link_ui(mv)
+
         speed_txt = ""
         if move_abs:
             if mv.get("speed_mod_addr") is None:
                 try:
-                    from dolphin_io import rbytes
+                    rbytes = _fd_cached_rbytes
                     saddr, sval, _ = find_speed_mod_addr(move_abs, rbytes)
                     if saddr:
                         mv["speed_mod_addr"] = saddr
@@ -838,11 +1311,13 @@ def populate_tree(win) -> None:
         if mv.get("speed_mod_addr"):
             speed_txt = U.fmt_speed_mod_ui(mv.get("speed_mod"))
 
+        invuln_txt = str(mv.get("invuln") or "")
+
         attack_property_txt = ""
         if move_abs:
             if mv.get("attack_property_addr") is None:
                 try:
-                    from dolphin_io import rbytes
+                    rbytes = _fd_cached_rbytes
                     ap_addr, ap_val, _ = find_attack_property_addr(move_abs, rbytes)
                     if ap_addr:
                         mv["attack_property_addr"] = ap_addr
@@ -856,7 +1331,8 @@ def populate_tree(win) -> None:
         if move_abs:
             if mv.get("superbg_addr") is None:
                 try:
-                    from dolphin_io import rbytes, rd8
+                    from dolphin_io import rd8
+                    rbytes = _fd_cached_rbytes
                     saddr, sval = find_superbg_addr(move_abs, rbytes, rd8)
                     if saddr:
                         mv["superbg_addr"] = saddr
@@ -875,16 +1351,32 @@ def populate_tree(win) -> None:
         row_tag = "row_even" if (win._row_counter % 2 == 0) else "row_odd"
         win._row_counter += 1
 
+        display_pretty = _indent_move_text(win.tree, parent, pretty)
+        row_tags = [row_tag]
+        if parent:
+            row_tags.append("child_row")
+            try:
+                if _tree_depth(win.tree, parent) >= 1:
+                    row_tags.append("grandchild_row")
+            except Exception:
+                pass
+        bucket = _rank_bucket(win, mv)
+        if bucket == 1:
+            row_tags.append("special_row")
+        elif bucket == 2:
+            row_tags.append("super_row")
+
         item_id = win.tree.insert(
             parent,
             "end",
             text="",
-            tags=(row_tag,),
+            tags=tuple(row_tags),
             values=(
-                pretty,
+                display_pretty,
                 mv.get("kind", ""),
                 _hit_count_text(mv),
                 _fmt(mv.get("family_link_label") or mv.get("link_label")),
+                _fmt(_compact_row_context(mv, attack_property_txt=attack_property_txt, hr_txt=hr_txt, invuln_txt=invuln_txt)),
                 _fmt(mv.get("damage")),
                 _fmt(mv.get("meter")),
                 startup_txt,
@@ -893,14 +1385,24 @@ def populate_tree(win) -> None:
                 U.fmt_stun(mv.get("hitstun")),
                 U.fmt_stun(mv.get("blockstun")),
                 hitstop_txt,
+                hit_spark_txt,
+                stretch_part_txt,
+                stretch_len_txt,
+                stretch_width_txt,
+                stretch_height_txt,
+                stretch_time_txt,
+                post_link_txt,
+                kb_type_txt,
                 launch_profile_txt,
                 kb_unknown_txt,
                 kb_x_txt,
                 air_kb_txt,
                 speed_txt,
+                invuln_txt,
                 attack_property_txt,
                 hr_txt,
                 superbg_txt,
+                *("" for _ in FPI.PROJECTILE_COLUMNS),
                 f"0x{move_abs:08X}" if move_abs else "",
             ),
         )
@@ -956,7 +1458,7 @@ def populate_tree(win) -> None:
             "",
             "end",
             text="",
-            tags=("family_header",),
+            tags=_header_tags_for_members(win, mv_list),
             values=tuple(vals.get(c, "") for c in FD_COLUMNS),
         )
         win._all_item_ids.append(item_id)
@@ -993,7 +1495,12 @@ def populate_tree(win) -> None:
             parent_item = insert_move_row(mv_list[0], parent=parent)
             _insert_hit_children(parent_item, mv_list[0])
             win.tree.item(parent_item, open=bool((mv_list[0].get("hit_segments") or [])[1:]))
-            win.tree.item(parent_item, tags=("group_parent",))
+            try:
+                tags = set(win.tree.item(parent_item, "tags") or ())
+                tags.add("group_parent")
+                win.tree.item(parent_item, tags=tuple(tags))
+            except Exception:
+                win.tree.item(parent_item, tags=("group_parent",))
 
             for mv in mv_list[1:]:
                 child_item = insert_move_row(mv, parent=parent_item)
@@ -1085,6 +1592,16 @@ def populate_tree(win) -> None:
         else:
             _insert_id_groups(normal_groups.get(key) or [], parent="")
 
+    # Insert projectile records, when the asynchronous projectile scan has
+    # already finished.  They belong after the core normal chain and before
+    # specials/supers, so populate_projectile_rows() computes the correct root
+    # insertion index instead of blindly appending. The workbench can also call
+    # it later after the background projectile scan completes.
+    try:
+        populate_projectile_rows(win, replace=True)
+    except Exception:
+        pass
+
     # Populate the inspector immediately so the window opens with a useful
     # selected-row view instead of an empty side panel.
     try:
@@ -1096,5 +1613,228 @@ def populate_tree(win) -> None:
             win._on_select()
         else:
             win._refresh_inspector(None, None)
+    except Exception:
+        pass
+
+
+def _tree_rank_bucket(win, item_id: str):
+    """Return the high-level notation bucket for a root Treeview item.
+
+    Bucket layout is owned by EditableFrameDataWindow._explicit_notation:
+    0 normals, 1 specials, 2 supers, 3 taunt, 4 everything else. Projectile
+    rows are inserted between bucket 0 and bucket 1. Family headers do not map
+    directly to a move dict, so rank them through their child move rows using
+    the same family sort key used during the main population pass.
+    """
+    tree = getattr(win, "tree", None)
+    if not tree:
+        return None
+    try:
+        tags = set(tree.item(item_id, "tags") or ())
+    except Exception:
+        tags = set()
+    if "projectile_header" in tags:
+        return None
+
+    ranker = getattr(win, "_explicit_notation", None)
+    group_ranker = getattr(win, "_family_group_sort_key", None)
+
+    def _bucket_from_rank(rank):
+        try:
+            return int(tuple(rank)[0])
+        except Exception:
+            return None
+
+    mv = getattr(win, "move_to_tree_item", {}).get(item_id)
+    if mv and callable(ranker):
+        bucket = _bucket_from_rank(ranker(mv))
+        if bucket is not None:
+            return bucket
+
+    child_mvs = []
+    try:
+        for child in tree.get_children(item_id):
+            cmv = getattr(win, "move_to_tree_item", {}).get(child)
+            if cmv:
+                child_mvs.append(cmv)
+    except Exception:
+        child_mvs = []
+
+    if child_mvs:
+        if callable(group_ranker):
+            bucket = _bucket_from_rank(group_ranker(child_mvs))
+            if bucket is not None:
+                return bucket
+        if callable(ranker):
+            buckets = [_bucket_from_rank(ranker(m)) for m in child_mvs]
+            buckets = [b for b in buckets if b is not None]
+            if buckets:
+                return min(buckets)
+
+    # Last fallback for unmapped headers: build a tiny fake row from visible
+    # Treeview values and run it through the normal ranker.
+    if callable(ranker):
+        try:
+            cols = list(tree["columns"] or [])
+            vals = list(tree.item(item_id, "values") or [])
+            row = {cols[i]: vals[i] for i in range(min(len(cols), len(vals)))}
+            fake = {
+                "move_name": row.get("move") or "",
+                "pretty_name": row.get("move") or "",
+                "kind": row.get("kind") or "",
+            }
+            bucket = _bucket_from_rank(ranker(fake))
+            if bucket is not None:
+                return bucket
+        except Exception:
+            pass
+    return 4
+
+
+def _projectile_root_insert_index(win):
+    """Place projectile definitions after j.C/core normals, before specials."""
+    tree = getattr(win, "tree", None)
+    if not tree:
+        return "end"
+    try:
+        children = list(tree.get_children(""))
+    except Exception:
+        return "end"
+
+    for idx, item_id in enumerate(children):
+        bucket = _tree_rank_bucket(win, item_id)
+        if bucket is None:
+            continue
+        if bucket > 0:
+            return idx
+    return "end"
+
+
+def populate_projectile_rows(win, replace: bool = True) -> None:
+    """Insert current-character projectile records into the same FD Treeview."""
+    if not getattr(win, "tree", None):
+        return
+
+    if replace:
+        for iid in list(win.tree.get_children("")):
+            try:
+                tags = set(win.tree.item(iid, "tags") or ())
+                if "projectile_header" in tags:
+                    win.tree.delete(iid)
+                    if iid in getattr(win, "_all_item_ids", []):
+                        win._all_item_ids.remove(iid)
+            except Exception:
+                pass
+        # Drop old projectile row map entries. They are child rows of the deleted
+        # header, but clearing the stale dict entries keeps selection/right-click
+        # routing honest after a rescan.
+        try:
+            win.move_to_tree_item = {
+                iid: mv for iid, mv in (win.move_to_tree_item or {}).items()
+                if not FPI.is_projectile_row(mv)
+            }
+        except Exception:
+            pass
+
+    hits = list(getattr(win, "_projectile_hits", []) or [])
+    if not hits:
+        return
+
+    vals = {c: "" for c in FD_COLUMNS}
+    vals["move"] = "Projectile definitions"
+    vals["kind"] = "projectile"
+    vals["link"] = f"{len(hits)} scanned record(s)"
+    addrs = []
+    for h in hits:
+        try:
+            addrs.append(int(h.get("addr") or 0))
+        except Exception:
+            pass
+    vals["abs"] = f"0x{min(a for a in addrs if a):08X}" if any(addrs) else ""
+    header = win.tree.insert(
+        "",
+        _projectile_root_insert_index(win),
+        text="",
+        tags=("projectile_header", "family_header"),
+        values=tuple(vals.get(c, "") for c in FD_COLUMNS),
+    )
+    try:
+        win._all_item_ids.append(header)
+    except Exception:
+        pass
+
+    def _proj_sort_key(h):
+        move = str(h.get("move") or "")
+        low = move.lower().strip()
+        fmt = str(h.get("fmt") or "")
+        try:
+            addr = int(h.get("addr") or 0xFFFFFFFF)
+        except Exception:
+            addr = 0xFFFFFFFF
+
+        unknown = 1 if (h.get("key") == "?" or low in {"unknown", "signature match", "super struct candidate"}) else 0
+        fmt_rank = 0 if fmt in ("template", "template2") else (1 if fmt.startswith("super") else 2)
+
+        # Keep strength families readable: L/M/H or A/B/C should stay in that
+        # order instead of alphabetically putting H before L/M. Prefer scanner
+        # tier when available, then fall back to the move label.
+        tier = str(h.get("tier") or "").strip()
+        try:
+            strength_rank = max(1, int(tier))
+        except Exception:
+            strength_rank = 9
+            if re.search(r"(^|[ /_-])(l|light)([ /_-]|$)", low):
+                strength_rank = 1
+            elif re.search(r"(^|[ /_-])(m|medium)([ /_-]|$)", low):
+                strength_rank = 2
+            elif re.search(r"(^|[ /_-])(h|heavy)([ /_-]|$)", low):
+                strength_rank = 3
+            elif re.search(r"(^|[ /_-])(a)([ /_-]|$)", low):
+                strength_rank = 1
+            elif re.search(r"(^|[ /_-])(b)([ /_-]|$)", low):
+                strength_rank = 2
+            elif re.search(r"(^|[ /_-])(c)([ /_-]|$)", low):
+                strength_rank = 3
+
+        family = re.sub(r"\s*/\s*assist.*$", "", low)
+        family = re.sub(r"(^|[ /_-])(l|m|h|a|b|c|light|medium|heavy)([ /_-]|$)", " ", family)
+        family = re.sub(r"\s+", " ", family).strip() or low
+        role_rank = 1 if str(h.get("proj_role") or "") == "copy/alt" else 0
+        return (unknown, fmt_rank, family, strength_rank, role_rank, addr)
+
+    for row_i, h in enumerate(sorted(hits, key=_proj_sort_key)):
+        mv = FPI.projectile_row_from_hit(h, row_i)
+        row = {c: "" for c in FD_COLUMNS}
+        row["move"] = _indent_move_text(win.tree, header, f"{mv.get('move_name') or 'Projectile'}")
+        row["kind"] = "projectile"
+        row["hits"] = "proj"
+        row["link"] = FPI.format_projectile_value(mv, "proj_cluster") or FPI.format_projectile_value(mv, "proj_fmt")
+        row["context"] = FPI.projectile_quick_summary(mv)
+        row["damage"] = FPI.format_projectile_value(mv, "damage")
+        row["kb_x"] = FPI.format_projectile_value(mv, "kb_x")
+        row["air_kb"] = FPI.format_projectile_value(mv, "air_kb")
+        for c in FPI.PROJECTILE_COLUMNS:
+            row[c] = FPI.format_projectile_value(mv, c)
+        addr = mv.get("abs")
+        row["abs"] = f"0x{int(addr):08X}" if addr else ""
+        iid = win.tree.insert(
+            header,
+            "end",
+            text="",
+            tags=("row_even" if (row_i % 2 == 0) else "row_odd", "child_row", "projectile_row"),
+            values=tuple(row.get(c, "") for c in FD_COLUMNS),
+        )
+        win.move_to_tree_item[iid] = mv
+        try:
+            win._all_item_ids.append(iid)
+        except Exception:
+            pass
+        try:
+            win._apply_row_tags(iid, mv)
+        except Exception:
+            pass
+
+    try:
+        win.tree.item(header, open=True)
     except Exception:
         pass

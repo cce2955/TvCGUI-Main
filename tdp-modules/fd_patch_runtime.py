@@ -497,6 +497,8 @@ def apply_patch_change_to_move(mv: dict, entry: dict, *, write_to_dolphin: bool 
             write_proj_dmg_inline,
             write_speed_mod_inline,
             write_superbg_inline,
+            write_u32_field_inline,
+            write_f32_field_inline,
         )
     except Exception as e:
         return False, f"writer imports failed: {e}"
@@ -561,6 +563,27 @@ def apply_patch_change_to_move(mv: dict, entry: dict, *, write_to_dolphin: bool 
             if not U.write_hitstop(mv, new_val):
                 return False, "write failed"
             mv["hitstop"] = new_val
+
+        elif group in {"hit_spark", "stretch_part", "stretch_time", "post_link"}:
+            mapping = {
+                "hit_spark": ("hit_spark_addr", "hit_spark"),
+                "stretch_part": ("stretch_part_addr", "stretch_part"),
+                "stretch_time": ("stretch_time_addr", "stretch_time"),
+                "post_link": ("post_link_addr", "post_link"),
+            }
+            addr_key, val_key = mapping[group]
+            if not write_u32_field_inline(mv, addr_key, val_key, int(value)):
+                return False, "write failed"
+
+        elif group in {"stretch_len", "stretch_width", "stretch_height"}:
+            mapping = {
+                "stretch_len": ("stretch_len_addr", "stretch_len"),
+                "stretch_width": ("stretch_width_addr", "stretch_width"),
+                "stretch_height": ("stretch_height_addr", "stretch_height"),
+            }
+            addr_key, val_key = mapping[group]
+            if not write_f32_field_inline(mv, addr_key, val_key, float(value)):
+                return False, "write failed"
 
         elif group == "launch_profile":
             new_val = int(value) & 0xFFFFFFFF
@@ -682,9 +705,9 @@ def apply_patch_value_to_move(mv: dict, entry: dict) -> None:
                 e = s
             mv["active2_start"] = s
             mv["active2_end"] = e
-        elif group in {"hitstun", "blockstun", "hitstop", "launch_profile", "kb_unknown", "speed_mod", "attack_property", "hit_reaction", "combo_kb_mod", "proj_dmg"}:
+        elif group in {"hitstun", "blockstun", "hitstop", "hit_spark", "stretch_part", "stretch_time", "post_link", "launch_profile", "kb_unknown", "speed_mod", "attack_property", "hit_reaction", "combo_kb_mod", "proj_dmg"}:
             mv[group] = int(value)
-        elif group in {"kb_x", "air_kb", "hb"}:
+        elif group in {"kb_x", "air_kb", "stretch_len", "stretch_width", "stretch_height", "hb"}:
             if group == "hb":
                 mv["hb_r"] = float(value)
             else:

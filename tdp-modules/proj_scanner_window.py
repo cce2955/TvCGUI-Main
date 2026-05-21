@@ -1,5 +1,5 @@
 from __future__ import annotations
-import json, struct, threading, tkinter as tk
+import json, os, sys, struct, threading, tkinter as tk
 from tkinter import ttk, simpledialog, messagebox
 from tk_host import tk_call
 
@@ -216,6 +216,78 @@ _CHR_TBL_TO_SLOT = {
     0x9099D9C0: 3,
 }
 
+_DYNAMIC_CHR_TBL_CACHE: list[int] | None = None
+
+def _discover_chr_tbl_bases() -> list[int]:
+    """Discover live chr_tbl bases from MEM2 instead of trusting old slot ranges.
+
+    The projectile scanner originally used hard-coded chr_tbl bases from one
+    session. That made same-damage projectile records from other slots show up
+    under the currently selected character.  The frame-data scanner already
+    proves the table by the literal chr_tbl/chr_act labels, so mirror that here.
+    """
+    global _DYNAMIC_CHR_TBL_CACHE
+    if _DYNAMIC_CHR_TBL_CACHE:
+        return list(_DYNAMIC_CHR_TBL_CACHE)
+    if rbytes is None:
+        return list(_CHR_TBL_BASES)
+
+    found: list[int] = []
+    label = b"chr_tbl\n"
+    addr = SCAN_START
+    while addr < SCAN_END:
+        size = min(SCAN_BLOCK, SCAN_END - addr)
+        try:
+            data = rbytes(addr, size) or b""
+        except Exception:
+            data = b""
+        pos = 0
+        while data:
+            idx = data.find(label, pos)
+            if idx < 0:
+                break
+            base = addr + idx + 0x18
+            try:
+                chk = rbytes(base - 0x18, 0x2000) or b""
+            except Exception:
+                chk = b""
+            if b"chr_act\n" in chk and base not in found:
+                found.append(base)
+            pos = idx + 1
+        addr += size
+
+    found.sort()
+    if len(found) >= 4:
+        _DYNAMIC_CHR_TBL_CACHE = found[:4]
+    else:
+        _DYNAMIC_CHR_TBL_CACHE = list(_CHR_TBL_BASES)
+    return list(_DYNAMIC_CHR_TBL_CACHE)
+
+def _current_chr_tbl_bases() -> list[int]:
+    try:
+        bases = _discover_chr_tbl_bases()
+        return bases if bases else list(_CHR_TBL_BASES)
+    except Exception:
+        return list(_CHR_TBL_BASES)
+
+def _projectile_key_from_char_id(cid: int | None) -> str | None:
+    if cid is None:
+        return None
+    name_or_key = CHAR_ID_TO_KEY.get(cid)
+    if not name_or_key:
+        return None
+    return _NAME_TO_KEY.get(str(name_or_key), str(name_or_key))
+
+def _active_keys_from_lookup(lookup: dict) -> set[str]:
+    keys: set[str] = set()
+    try:
+        for matches in lookup.values():
+            for key, _mv in matches:
+                keys.add(str(key))
+    except Exception:
+        pass
+    return keys
+
 
 def _read_slot_char_ids() -> dict[int, int]:
     """
@@ -226,14 +298,16 @@ def _read_slot_char_ids() -> dict[int, int]:
     result: dict[int, int] = {}
     if rbytes is None:
         return result
-    for slot_idx, (chr_tbl_base, _, _) in enumerate(_CHR_TBL_RANGES):  # noqa
-        fighter_base = _FIGHTER_BASES[slot_idx]
+    bases = _current_chr_tbl_bases()
+    for slot_idx, fighter_base in enumerate(_FIGHTER_BASES):
+        chr_tbl_base = bases[slot_idx] if slot_idx < len(bases) else (_CHR_TBL_BASES[slot_idx] if slot_idx < len(_CHR_TBL_BASES) else None)
+        if chr_tbl_base is None:
+            continue
         try:
             b = rbytes(fighter_base + _CHAR_ID_OFF, 4)
             if b and len(b) == 4:
                 cid = struct.unpack(">I", b)[0]
-                print(f"[slot-char] slot={slot_idx} chr_tbl=0x{chr_tbl_base:08X} fighter=0x{fighter_base:08X} cid={cid}")
-                result[chr_tbl_base] = cid
+                result[int(chr_tbl_base)] = cid
         except Exception:
             pass
     return result
@@ -415,9 +489,37 @@ def _keys_for_block(c_word: bytes, pre_word: bytes) -> list[str]:
     return list(keys)
 
 
+def _resource_path(name: str) -> str:
+    """Find JSON resources in source runs and PyInstaller one-file builds."""
+    roots = []
+    try:
+        roots.append(os.path.dirname(os.path.abspath(__file__)))
+    except Exception:
+        pass
+    try:
+        roots.append(os.getcwd())
+    except Exception:
+        pass
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        roots.append(str(meipass))
+    try:
+        roots.append(os.path.dirname(os.path.abspath(sys.executable)))
+    except Exception:
+        pass
+    seen = set()
+    for root in roots:
+        if not root or root in seen:
+            continue
+        seen.add(root)
+        path = os.path.join(root, name)
+        if os.path.exists(path):
+            return path
+    return name
+
 def _load_map():
     try:
-        with open(PROJ_MAP_FILE, encoding="utf-8") as f:
+        with open(_resource_path(PROJ_MAP_FILE), encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         print(f"[proj_scanner] {e}")
@@ -425,7 +527,7 @@ def _load_map():
 
 def _load_ids():
     try:
-        with open(PROJ_IDS_FILE, encoding="utf-8") as f:
+        with open(_resource_path(PROJ_IDS_FILE), encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         print(f"[proj_scanner] {e}")
@@ -646,6 +748,11 @@ def _scan_opcode_blocks(data: bytes, base_addr: int, hits: list, lookup: dict,
                             continue
                         hits.append({**base_hit, "key": key, "move": mv})
                     continue
+                # If ownership is known and it is not the selected character, do
+                # not fall back to damage-only lookup. This is what caused Chun/Jun
+                # projectiles with Ryu-like damage to appear as Hadouken rows.
+                if slot_key not in _active_keys_from_lookup(lookup):
+                    continue
 
             if dmg in lookup:
                 matches = lookup[dmg]
@@ -861,6 +968,10 @@ def _scan_suffix_blocks(data: bytes, base_addr: int, hits: list,
                         **fields
                     })
                 continue
+            active_keys = _active_keys_from_lookup(lookup)
+            if active_keys and slot_key not in active_keys:
+                continue
+
         is_slot_owned = _owning_chr_tbl(a) is not None
         ok = _validate_template(data, base_off, relaxed=is_slot_owned)
         if dmg in lookup:
@@ -996,7 +1107,7 @@ def _owning_chr_tbl(addr: int) -> int | None:
     best_base = None
     best_dist = None
 
-    for base in _CHR_TBL_BASES:
+    for base in _current_chr_tbl_bases():
         if addr < base:
             continue
         dist = addr - base
@@ -1017,7 +1128,7 @@ def _key_for_hit_addr(addr: int, slot_char_ids: dict[int, int] | None) -> str | 
     cid = slot_char_ids.get(base)
     if cid is None:
         return None
-    return CHAR_ID_TO_KEY.get(cid)
+    return _projectile_key_from_char_id(cid)
 def _is_frank_zombie_move_label(move: str) -> bool:
     s = str(move or "").lower()
     return "zombie" in s
@@ -1194,21 +1305,23 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
         hit_base["hitbox"] = ex03c
 
     # Prefer slot-owned character resolution first.
-    # Prefer slot-owned character resolution first.
     if isinstance(dmg, int):
-        owner_base = _owning_chr_tbl(addr)
-        cid = slot_char_ids.get(owner_base) if (slot_char_ids and owner_base is not None) else None
         slot_key = _key_for_hit_addr(addr, slot_char_ids)
-        print(f"[super-attr] addr=0x{addr:08X} base={hex(owner_base) if owner_base else None} cid={cid} dmg={dmg} slot_key={slot_key}")
+        active_keys = _active_keys_from_lookup(lookup)
         if slot_key is not None:
             moves = char_damage_map.get(slot_key, {}).get(dmg, [])
-            if moves:
+            if moves and (not active_keys or slot_key in active_keys):
                 for mv in moves:
                     hits.append({**hit_base, "key": slot_key, "move": mv})
                 return
+            if active_keys and slot_key not in active_keys:
+                return
+            # Same selected character, but damage is not in the name map. Keep it
+            # as a candidate instead of misnaming it from another character.
+            hits.append({**hit_base, "key": "?", "move": "Super Struct Candidate"})
+            return
 
-
-        # Fallback to the old global lookup if slot mapping is missing.
+        # Fallback to the old global lookup only when ownership is unknown.
         if dmg in lookup:
             for key, mv in lookup[dmg]:
                 hits.append({**hit_base, "key": key, "move": mv})

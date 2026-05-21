@@ -194,3 +194,51 @@ def write_proj_dmg_inline(mv: dict, new_val: int, writer_available: bool) -> boo
         return True
     except Exception:
         return False
+
+
+
+def _write_bytes_be(addr: int, data: bytes) -> bool:
+    """Write raw bytes to Dolphin memory using byte writes."""
+    try:
+        from dolphin_io import wd8
+    except Exception:
+        return False
+    try:
+        a = int(addr)
+        for i, b in enumerate(data):
+            if not wd8(a + i, int(b) & 0xFF):
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def write_u32_field_inline(mv: dict, addr_key: str, value_key: str, new_val: int) -> bool:
+    """Write a big-endian u32 field by address key and update mv[value_key]."""
+    addr = mv.get(addr_key)
+    if addr is None:
+        return False
+    try:
+        v = int(new_val) & 0xFFFFFFFF
+        ok = _write_bytes_be(int(addr), v.to_bytes(4, "big", signed=False))
+        if ok:
+            mv[value_key] = v
+        return ok
+    except Exception:
+        return False
+
+
+def write_f32_field_inline(mv: dict, addr_key: str, value_key: str, new_val: float) -> bool:
+    """Write a big-endian f32 field by address key and update mv[value_key]."""
+    addr = mv.get(addr_key)
+    if addr is None:
+        return False
+    try:
+        import struct
+        v = float(new_val)
+        ok = _write_bytes_be(int(addr), struct.pack(">f", v))
+        if ok:
+            mv[value_key] = v
+        return ok
+    except Exception:
+        return False

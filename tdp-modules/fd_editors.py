@@ -22,6 +22,8 @@ from fd_write_helpers import (
     write_combo_kb_mod_inline,
     write_superbg_inline,
     write_proj_dmg_inline,
+    write_u32_field_inline,
+    write_f32_field_inline,
 
 )
 
@@ -388,6 +390,27 @@ class FDCellEditorsMixin:
             return 0
         return int(txt, 16) if txt.lower().startswith("0x") else int(txt, 10)
 
+    def _edit_kb_type(self, item, mv, current: str):
+        cur = mv.get("kb_type")
+        current_text = current if current else ("9" if cur is None else str(int(cur) & 0xFF))
+        self._edit_single_kb_field(
+            item,
+            mv,
+            title="Edit KB Style",
+            label="KB Style",
+            column="kb_type",
+            mv_key="kb_type",
+            writer_key="kb_type",
+            current_text=current_text,
+            help_text=(
+                "Plain decimal 35/xx packet type byte at packet +1. Normal stock hit-physics uses 9, meaning 35/09. "
+                "Changing this is raw/full-control behavior and may route the packet through a different 35 handler."
+            ),
+            suggestions=[("9 normal", 9), ("7 alt", 7)],
+            parser=lambda txt: self._parse_int_for_fd(txt) & 0xFF,
+            formatter=lambda v: str(int(v) & 0xFF),
+        )
+
     def _edit_single_kb_field(
         self,
         item,
@@ -465,41 +488,44 @@ class FDCellEditorsMixin:
 
     def _edit_launch_profile(self, item, mv, current: str):
         cur = mv.get("launch_profile")
-        current_text = current if current else ("" if cur is None else str(int(cur)))
+        current_text = current if current else ("0" if cur is None else str(int(cur) & 0xFFFFFFFF))
         self._edit_single_kb_field(
             item,
             mv,
-            title="Edit Recovery Profile",
-            label="Recovery profile",
+            title="Edit Extra Launch",
+            label="Extra Launch",
             column="launch_profile",
             mv_key="launch_profile",
             writer_key="launch_profile",
             current_text=current_text,
             help_text=(
-                "This looks like the post-hit recovery/fall profile. Changing it can keep the opponent "
-                "locked in recovery longer and make them drift down more slowly after hitstun. It does not pick the hit reaction animation by itself."
+                "0 means normal knockback. Any value above 0 turns on extra launch behavior "
+                "and makes Launch Adjust matter."
             ),
-            suggestions=[("0 normal", 0), ("22 short", 22), ("55 long", 55)],
+            suggestions=[("0", 0), ("1", 1), ("2", 2), ("3", 3)],
             parser=lambda txt: self._parse_int_for_fd(txt) & 0xFFFFFFFF,
-            formatter=lambda v: str(int(v)),
+            formatter=lambda v: str(int(v) & 0xFFFFFFFF),
         )
 
     def _edit_kb_unknown(self, item, mv, current: str):
         cur = mv.get("kb_unknown")
-        current_text = current if current else ("0x00000000" if cur is None else f"0x{int(cur) & 0xFFFFFFFF:08X}")
+        current_text = current if current else ("0" if cur is None else str(int(cur) & 0xFFFFFFFF))
         self._edit_single_kb_field(
             item,
             mv,
-            title="Edit KB Unknown",
-            label="KB unknown word",
+            title="Edit Launch Adjust",
+            label="Launch Adjust",
             column="kb_unknown",
             mv_key="kb_unknown",
             writer_key="kb_unknown",
             current_text=current_text,
-            help_text="Unknown +0x08 word in the KB packet. Most confirmed normal packets use zero. Keep zero unless testing.",
-            suggestions=[("zero", 0)],
+            help_text=(
+                "Mostly ignored when Extra Launch is 0. When Extra Launch is above 0, "
+                "this changes launch speed, direction, curve, or how KB X / Arc are interpreted."
+            ),
+            suggestions=[("0", 0), ("1", 1), ("2", 2), ("3", 3), ("10", 10)],
             parser=lambda txt: self._parse_int_for_fd(txt) & 0xFFFFFFFF,
-            formatter=lambda v: f"0x{int(v) & 0xFFFFFFFF:08X}",
+            formatter=lambda v: str(int(v) & 0xFFFFFFFF),
         )
 
     def _edit_kb_x(self, item, mv, current: str):
@@ -544,6 +570,153 @@ class FDCellEditorsMixin:
             formatter=lambda v: U._fmt_float_trim(v),
         )
 
+
+    # ----- Hit FX / reach / script-link editors -----
+
+    def _edit_u32_memory_field(self, item, mv, *, title: str, col: str, addr_key: str, value_key: str, help_key: str, default: int = 0, maxvalue: int = 0xFFFFFFFF):
+        addr = mv.get(addr_key)
+        if addr is None:
+            messagebox.showerror(title, "Address not found for this row. Try Refresh visible first.")
+            return
+        cur = mv.get(value_key)
+        try:
+            cur_i = int(cur) & 0xFFFFFFFF if cur is not None else int(default)
+        except Exception:
+            cur_i = int(default)
+        new_val = ask_integer_with_help(
+            self.root,
+            title=title,
+            prompt="New value:",
+            help_text=get_field_help(help_key),
+            initialvalue=cur_i,
+            minvalue=0,
+            maxvalue=maxvalue,
+            address=int(addr),
+        )
+        if new_val is None:
+            return
+        if write_u32_field_inline(mv, addr_key, value_key, int(new_val)):
+            self.tree.set(item, col, str(int(new_val) & 0xFFFFFFFF))
+            self._notify_fd_cell_changed(item, mv, col)
+            try:
+                self._apply_row_tags(item, mv)
+                self._set_status_for_item(item, mv)
+            except Exception:
+                pass
+        else:
+            messagebox.showerror(title, "Failed to write value.")
+
+    def _edit_f32_memory_field(self, item, mv, *, title: str, col: str, addr_key: str, value_key: str, help_key: str, default: float = 1.0):
+        addr = mv.get(addr_key)
+        if addr is None:
+            messagebox.showerror(title, "Address not found for this row. Try Refresh visible first.")
+            return
+        cur = mv.get(value_key)
+        try:
+            cur_f = float(cur) if cur is not None else float(default)
+        except Exception:
+            cur_f = float(default)
+        new_val = ask_float_with_help(
+            self.root,
+            title=title,
+            prompt="New value:",
+            help_text=get_field_help(help_key),
+            initialvalue=cur_f,
+        )
+        if new_val is None:
+            return
+        if write_f32_field_inline(mv, addr_key, value_key, float(new_val)):
+            self.tree.set(item, col, U._fmt_float_trim(float(new_val)))
+            self._notify_fd_cell_changed(item, mv, col)
+            try:
+                self._apply_row_tags(item, mv)
+                self._set_status_for_item(item, mv)
+            except Exception:
+                pass
+        else:
+            messagebox.showerror(title, "Failed to write value.")
+
+    def _edit_hit_spark(self, item, mv, current: str):
+        self._edit_u32_memory_field(
+            item, mv,
+            title="Edit Hit Spark",
+            col="hit_spark",
+            addr_key="hit_spark_addr",
+            value_key="hit_spark",
+            help_key="hit_spark",
+            default=0,
+            maxvalue=0xFFFFFFFF,
+        )
+
+    def _edit_stretch_part(self, item, mv, current: str):
+        self._edit_u32_memory_field(
+            item, mv,
+            title="Edit Stretch Part",
+            col="stretch_part",
+            addr_key="stretch_part_addr",
+            value_key="stretch_part",
+            help_key="stretch_part",
+            default=0,
+            maxvalue=0xFFFFFFFF,
+        )
+
+    def _edit_stretch_len(self, item, mv, current: str):
+        self._edit_f32_memory_field(
+            item, mv,
+            title="Edit Reach Length",
+            col="stretch_len",
+            addr_key="stretch_len_addr",
+            value_key="stretch_len",
+            help_key="stretch_len",
+            default=1.0,
+        )
+
+    def _edit_stretch_width(self, item, mv, current: str):
+        self._edit_f32_memory_field(
+            item, mv,
+            title="Edit Reach Width",
+            col="stretch_width",
+            addr_key="stretch_width_addr",
+            value_key="stretch_width",
+            help_key="stretch_width",
+            default=1.0,
+        )
+
+    def _edit_stretch_height(self, item, mv, current: str):
+        self._edit_f32_memory_field(
+            item, mv,
+            title="Edit Reach Height",
+            col="stretch_height",
+            addr_key="stretch_height_addr",
+            value_key="stretch_height",
+            help_key="stretch_height",
+            default=1.0,
+        )
+
+    def _edit_stretch_time(self, item, mv, current: str):
+        self._edit_u32_memory_field(
+            item, mv,
+            title="Edit Stretch Timing",
+            col="stretch_time",
+            addr_key="stretch_time_addr",
+            value_key="stretch_time",
+            help_key="stretch_time",
+            default=0,
+            maxvalue=0xFFFFFFFF,
+        )
+
+    def _edit_post_link(self, item, mv, current: str):
+        self._edit_u32_memory_field(
+            item, mv,
+            title="Edit Post-Animation Link",
+            col="post_link",
+            addr_key="post_link_addr",
+            value_key="post_link",
+            help_key="post_link",
+            default=0,
+            maxvalue=0xFFFFFFFF,
+        )
+
     def _edit_knockback(self, item, mv, _current: str):
         """Edit each hit physics field independently.
 
@@ -555,7 +728,7 @@ class FDCellEditorsMixin:
         # this dialog actually changed.
         begin = getattr(self, "_begin_edit_snapshot", None)
         if callable(begin):
-            for _col in ("launch_profile", "kb_unknown", "kb_x", "air_kb", "hitstun", "blockstun", "hitstop"):
+            for _col in ("kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb", "hitstun", "blockstun", "hitstop", "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link"):
                 try:
                     begin(item, mv, _col)
                 except Exception:
@@ -569,29 +742,45 @@ class FDCellEditorsMixin:
         cur_hs = mv.get("hitstun")
         cur_bs = mv.get("blockstun")
         cur_stop = mv.get("hitstop")
+        cur_spark = mv.get("hit_spark")
+        cur_stretch_part = mv.get("stretch_part")
+        cur_stretch_len = mv.get("stretch_len")
+        cur_stretch_width = mv.get("stretch_width")
+        cur_stretch_height = mv.get("stretch_height")
+        cur_stretch_time = mv.get("stretch_time")
+        cur_post_link = mv.get("post_link")
 
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Hit Physics Fields")
-        dlg.geometry("760x610")
+        dlg.geometry("820x860")
         dlg.transient(self.root)
 
         tk.Label(dlg, text="Hit Physics Fields", font=("Arial", 12, "bold")).pack(pady=5)
 
         addr = mv.get("knockback_addr")
         stun_addr = mv.get("stun_addr")
+        spark_addr = mv.get("hit_spark_addr")
+        stretch_addr = mv.get("stretch_packet_addr")
+        post_link_addr = mv.get("post_link_addr")
         info_lines = []
         if addr:
             info_lines.append(
-                f"KB packet: 0x{addr:08X} | Type +1 | Launch +4 | Unknown +8 | Ground KB X +C | Air/vertical arc +10"
+                f"KB data: 0x{addr:08X} | Style +1 | Extra Launch +4 | Launch Adjust +8 | KB X +C | Arc +10"
             )
         else:
-            info_lines.append("KB packet: not found for this row")
+            info_lines.append("KB data: not found for this row")
         if stun_addr:
             info_lines.append(
                 f"Stun packet: 0x{stun_addr:08X} | Hitstun +F | Blockstun +1F | Hitstop +26"
             )
         else:
             info_lines.append("Stun packet: not found for this row")
+        if spark_addr:
+            info_lines.append(f"Hit Spark: 0x{spark_addr:08X} | 35/05 second word")
+        if stretch_addr:
+            info_lines.append(f"Limb Stretch: 0x{stretch_addr:08X} | Part +4 | Reach Length +8 | Width +C | Height +10 | Timing +14")
+        if post_link_addr:
+            info_lines.append(f"Post Link: 0x{post_link_addr:08X} | dangerous script continuation")
         tk.Label(dlg, text="\n".join(info_lines), fg="gray", font=("Arial", 9), justify="left").pack(pady=(0, 4))
 
         body = tk.Frame(dlg)
@@ -621,11 +810,7 @@ class FDCellEditorsMixin:
             sug_frame.grid(row=row, column=3, sticky="w", padx=(8, 0), pady=4)
             for idx, (txt, val) in enumerate(suggestions):
                 def _fmt(v=val):
-                    if parser_kind == "hex8":
-                        return f"0x{int(v) & 0xFF:02X}"
-                    if parser_kind == "hex32":
-                        return f"0x{int(v) & 0xFFFFFFFF:08X}"
-                    if parser_kind == "int":
+                    if parser_kind in ("hex8", "hex32", "int"):
                         return str(int(v))
                     if parser_kind == "float":
                         return f"{float(v):.6g}"
@@ -635,35 +820,35 @@ class FDCellEditorsMixin:
                 )
             return var
 
-        kb_box = tk.LabelFrame(body, text="Launch / knockback packet")
+        kb_box = tk.LabelFrame(body, text="Launch and knockback")
         kb_box.pack(fill="x", pady=(0, 8))
 
         type_v = _entry_row(
             kb_box,
             0,
-            "KB type",
-            f"0x{int(cur_type or 0):02X}",
-            "Packet style. 0x09 is standard small-hit physics; 0x07 is launch-style physics.",
-            [("standard", 0x09), ("launch", 0x07)],
-            parser_kind="hex8",
+            "KB Style",
+            str(int(cur_type if cur_type is not None else 9) & 0xFF),
+            "Decimal style byte. 9 means normal knockback.",
+            [("9", 9), ("7", 7)],
+            parser_kind="int",
         )
         prof_v = _entry_row(
             kb_box,
             1,
-            "Launch profile",
-            str(int(cur_profile or 0)),
-            "Trajectory/fall profile after the reaction is chosen. Does not pick the reaction animation by itself.",
-            [("normal", 0), ("low fall", 22), ("high fall", 55)],
+            "Extra Launch",
+            str(int(cur_profile or 0) & 0xFFFFFFFF),
+            "0 = normal knockback. Any value above 0 turns on extra launch behavior and makes Launch Adjust matter.",
+            [("0", 0), ("1", 1), ("2", 2), ("3", 3)],
             parser_kind="int",
         )
         unk_v = _entry_row(
             kb_box,
             2,
-            "Unknown word",
-            f"0x{int(cur_unknown or 0) & 0xFFFFFFFF:08X}",
-            "Unknown +0x08 word. Most confirmed normals use zero. Keep zero unless testing.",
-            [("zero", 0)],
-            parser_kind="hex32",
+            "Launch Adjust",
+            str(int(cur_unknown or 0) & 0xFFFFFFFF),
+            "Mostly ignored when Extra Launch is 0. When Extra Launch is above 0, this changes speed/direction/curve.",
+            [("0", 0), ("1", 1), ("2", 2), ("3", 3), ("10", 10)],
+            parser_kind="int",
         )
         x_v = _entry_row(
             kb_box,
@@ -677,7 +862,7 @@ class FDCellEditorsMixin:
         air_v = _entry_row(
             kb_box,
             4,
-            "Air / vertical arc",
+            "Arc",
             "" if cur_air is None else f"{float(cur_air):.6g}",
             "Airborne/relaunch arc value. Higher positive values give a higher/longer relaunch arc; negative values drive downward arcs.",
             [("0.05", 0.05), ("0.08", 0.08), ("17", 17.0), ("50", 50.0), ("-0.16", -0.16)],
@@ -715,11 +900,78 @@ class FDCellEditorsMixin:
             parser_kind="int",
         )
 
+        fx_box = tk.LabelFrame(body, text="Hit FX and reach")
+        fx_box.pack(fill="x", pady=(0, 8))
+
+        spark_v = _entry_row(
+            fx_box,
+            0,
+            "Hit Spark",
+            "" if cur_spark is None else str(int(cur_spark) & 0xFFFFFFFF),
+            "Changes the impact spark/effect. User-tested: can also move the spark location.",
+            [("0", 0), ("1", 1), ("2", 2), ("3", 3), ("10", 10)],
+            parser_kind="int",
+        )
+        part_v = _entry_row(
+            fx_box,
+            1,
+            "Stretch Part",
+            "" if cur_stretch_part is None else str(int(cur_stretch_part) & 0xFFFFFFFF),
+            "Which limb/body slot gets the reach stretch. Ryu 5A default observed as 8.",
+            [("0", 0), ("1", 1), ("5", 5), ("8", 8), ("10", 10)],
+            parser_kind="int",
+        )
+        reach_v = _entry_row(
+            fx_box,
+            2,
+            "Reach Length",
+            "" if cur_stretch_len is None else f"{float(cur_stretch_len):.6g}",
+            "Main limb stretch/reach length. Higher values can create Dhalsim-style extended limbs.",
+            [("1.0", 1.0), ("1.5", 1.5), ("2.0", 2.0), ("3.0", 3.0)],
+            parser_kind="float",
+        )
+        width_v = _entry_row(
+            fx_box,
+            3,
+            "Reach Width",
+            "" if cur_stretch_width is None else f"{float(cur_stretch_width):.6g}",
+            "Second stretch axis/component.",
+            [("1.0", 1.0), ("1.5", 1.5), ("2.0", 2.0), ("3.0", 3.0)],
+            parser_kind="float",
+        )
+        height_v = _entry_row(
+            fx_box,
+            4,
+            "Reach Height",
+            "" if cur_stretch_height is None else f"{float(cur_stretch_height):.6g}",
+            "Third stretch axis/component.",
+            [("1.0", 1.0), ("1.5", 1.5), ("2.0", 2.0), ("3.0", 3.0)],
+            parser_kind="float",
+        )
+        timing_v = _entry_row(
+            fx_box,
+            5,
+            "Stretch Timing",
+            "" if cur_stretch_time is None else str(int(cur_stretch_time) & 0xFFFFFFFF),
+            "Timing/slot value for the reach stretch. Ryu 5A default observed as 5.",
+            [("0", 0), ("1", 1), ("4", 4), ("5", 5), ("8", 8)],
+            parser_kind="int",
+        )
+        post_v = _entry_row(
+            fx_box,
+            6,
+            "Post Link",
+            "" if cur_post_link is None else str(int(cur_post_link) & 0xFFFFFFFF),
+            "Dangerous script continuation. Wrong values can freeze the character after animation.",
+            [("keep", int(cur_post_link or 0))],
+            parser_kind="int",
+        )
+
         tk.Label(
             dlg,
             text=(
                 "Each suggestion only fills that one field. Manual decimal, hex, and float values still work. "
-                "Hit Reaction is separate; this window controls the physics/timing around the reaction."
+                "Hit Reaction is separate. Normal knockback is usually Extra Launch 0 plus KB X and Arc. Use Extra Launch and Launch Adjust for experimental speed/direction behavior."
             ),
             fg="gray",
             wraplength=720,
@@ -736,6 +988,13 @@ class FDCellEditorsMixin:
                 hs = _parse_int(hs_v.get()) & 0xFF if hs_v.get().strip() else cur_hs
                 bs = _parse_int(bs_v.get()) & 0xFF if bs_v.get().strip() else cur_bs
                 stop = _parse_int(stop_v.get()) & 0xFF if stop_v.get().strip() else cur_stop
+                spark = _parse_int(spark_v.get()) & 0xFFFFFFFF if spark_v.get().strip() else cur_spark
+                stretch_part = _parse_int(part_v.get()) & 0xFFFFFFFF if part_v.get().strip() else cur_stretch_part
+                stretch_len = _parse_float(reach_v.get(), cur_stretch_len if cur_stretch_len is not None else 1.0)
+                stretch_width = _parse_float(width_v.get(), cur_stretch_width if cur_stretch_width is not None else 1.0)
+                stretch_height = _parse_float(height_v.get(), cur_stretch_height if cur_stretch_height is not None else 1.0)
+                stretch_time = _parse_int(timing_v.get()) & 0xFFFFFFFF if timing_v.get().strip() else cur_stretch_time
+                post_link = _parse_int(post_v.get()) & 0xFFFFFFFF if post_v.get().strip() else cur_post_link
             except Exception:
                 messagebox.showerror("Error", "Invalid hit physics value")
                 return
@@ -747,10 +1006,10 @@ class FDCellEditorsMixin:
                 wrote_any = True
                 ok = ok and U.write_knockback(
                     mv,
+                    kb_type=kt,
                     launch_profile=prof,
                     kb_x=kx,
                     air_kb=air,
-                    kb_type=kt,
                     kb_unknown=unk,
                 )
                 if ok:
@@ -760,7 +1019,6 @@ class FDCellEditorsMixin:
                     mv["kb_x"] = kx
                     mv["air_kb"] = air
                     mv["kb0"] = prof
-                    mv["kb1"] = kt
                     mv["kb_traj"] = None
 
             if mv.get("stun_addr") is not None:
@@ -778,14 +1036,33 @@ class FDCellEditorsMixin:
                     if ok:
                         mv["hitstop"] = stop
 
+            if mv.get("hit_spark_addr") is not None and spark is not None:
+                wrote_any = True
+                ok = ok and write_u32_field_inline(mv, "hit_spark_addr", "hit_spark", spark)
+
+            if mv.get("stretch_packet_addr") is not None:
+                wrote_any = True
+                if stretch_part is not None:
+                    ok = ok and write_u32_field_inline(mv, "stretch_part_addr", "stretch_part", stretch_part)
+                ok = ok and write_f32_field_inline(mv, "stretch_len_addr", "stretch_len", stretch_len)
+                ok = ok and write_f32_field_inline(mv, "stretch_width_addr", "stretch_width", stretch_width)
+                ok = ok and write_f32_field_inline(mv, "stretch_height_addr", "stretch_height", stretch_height)
+                if stretch_time is not None:
+                    ok = ok and write_u32_field_inline(mv, "stretch_time_addr", "stretch_time", stretch_time)
+
+            if mv.get("post_link_addr") is not None and post_link is not None:
+                wrote_any = True
+                ok = ok and write_u32_field_inline(mv, "post_link_addr", "post_link", post_link)
+
             if not wrote_any:
-                messagebox.showerror("Error", "No editable KB or stun packet was found for this row.")
+                messagebox.showerror("Error", "No editable KB, stun, FX, reach, or link packet was found for this row.")
                 return
             if not ok:
                 messagebox.showerror("Error", "At least one hit physics write failed.")
                 return
 
             self._refresh_kb_cells(item, mv)
+            self._notify_fd_cell_changed(item, mv, "kb_type")
             self._notify_fd_cell_changed(item, mv, "launch_profile")
             self._notify_fd_cell_changed(item, mv, "kb_unknown")
             self._notify_fd_cell_changed(item, mv, "kb_x")
@@ -793,6 +1070,26 @@ class FDCellEditorsMixin:
             self._notify_fd_cell_changed(item, mv, "hitstun")
             self._notify_fd_cell_changed(item, mv, "blockstun")
             self._notify_fd_cell_changed(item, mv, "hitstop")
+            for _col in ("hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link"):
+                if _col in self.tree["columns"]:
+                    try:
+                        if _col == "hit_spark":
+                            self.tree.set(item, _col, U.fmt_hit_spark_ui(mv))
+                        elif _col == "stretch_part":
+                            self.tree.set(item, _col, U.fmt_stretch_part_ui(mv))
+                        elif _col == "stretch_len":
+                            self.tree.set(item, _col, U.fmt_stretch_len_ui(mv))
+                        elif _col == "stretch_width":
+                            self.tree.set(item, _col, U.fmt_stretch_width_ui(mv))
+                        elif _col == "stretch_height":
+                            self.tree.set(item, _col, U.fmt_stretch_height_ui(mv))
+                        elif _col == "stretch_time":
+                            self.tree.set(item, _col, U.fmt_stretch_time_ui(mv))
+                        elif _col == "post_link":
+                            self.tree.set(item, _col, U.fmt_post_link_ui(mv))
+                    except Exception:
+                        pass
+                self._notify_fd_cell_changed(item, mv, _col)
             self._apply_row_tags(item, mv)
             dlg.destroy()
 

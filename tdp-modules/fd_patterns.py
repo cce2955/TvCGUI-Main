@@ -603,3 +603,207 @@ def find_superbg_addr(move_abs: int, rbytes_func, rd8_func) -> tuple[int | None,
             return addr, cur
 
     return None, None
+
+# ---- User-verified hit FX / limb stretch / post-animation link patterns ----
+# These are Dolphin-memory command stream patterns, not DOL/static addresses.
+# Ryu 5A examples:
+#   35/05 packet at 0x908AF0AC; second payload word at +0x08 controls hit spark/anchor.
+#   34/40 packet at 0x908AF0C8 controls limb stretch/reach scaling.
+#   01/33 packet at 0x908AF018 links to the post-animation continuation script.
+
+import struct as _struct
+import math as _math
+
+HIT_SPARK_SCAN_MAX = 0x800
+HIT_SPARK_SIG = b"\x35\x05\x00\x20"
+HIT_SPARK_VALUE_OFFSET = 0x08  # second payload word; low byte was user-verified at +0x0B
+
+LIMB_STRETCH_SCAN_MAX = 0x900
+LIMB_STRETCH_SIG = b"\x34\x40\x00\x20"
+
+POST_ANIM_LINK_SCAN_MAX = 0x900
+POST_ANIM_LINK_SIG = b"\x01\x33\x00\x00"
+
+
+def _u32be(buf: bytes, off: int) -> int | None:
+    try:
+        if off < 0 or off + 4 > len(buf):
+            return None
+        return int.from_bytes(buf[off:off + 4], "big", signed=False)
+    except Exception:
+        return None
+
+
+def _f32be(buf: bytes, off: int) -> float | None:
+    try:
+        if off < 0 or off + 4 > len(buf):
+            return None
+        f = _struct.unpack(">f", buf[off:off + 4])[0]
+        if not _math.isfinite(f):
+            return None
+        return float(f)
+    except Exception:
+        return None
+
+
+def find_hit_spark_addr(
+    move_abs: int,
+    rbytes: Callable[[int, int], bytes],
+    *,
+    scan_len: int = HIT_SPARK_SCAN_MAX,
+) -> tuple[int | None, int | None, int | None, bytes | None]:
+    """
+    Find the user-verified 35/05 hit-spark/effect packet.
+
+    Packet shape:
+        35 05 00 20  [word0] [word1] [word2]
+
+    User poke result:
+        low byte of word1 changed hit spark and sometimes spark location.
+
+    Returns:
+        (packet_addr, value_addr_for_word1, word1_value, context_bytes)
+    """
+    if not move_abs:
+        return None, None, None, None
+    try:
+        buf = rbytes(move_abs, scan_len)
+    except Exception:
+        return None, None, None, None
+    if not buf or len(buf) < 0x14:
+        return None, None, None, None
+
+    hits: list[int] = []
+    pos = 0
+    while True:
+        i = buf.find(HIT_SPARK_SIG, pos)
+        if i < 0:
+            break
+        if i + 0x10 <= len(buf):
+            hits.append(i)
+        pos = i + 1
+
+    if not hits:
+        return None, None, None, None
+
+    # Prefer the first 35/05 in the move definition.
+    # Ryu 5A: first 35/05 at 0x908AF0AC; the low byte at +0x0B was user-verified as hit spark/location.
+    i = hits[0]
+    val_off = i + HIT_SPARK_VALUE_OFFSET
+    val = _u32be(buf, val_off)
+    ctx = buf[max(0, i - 8):min(len(buf), i + 0x18)]
+    return move_abs + i, move_abs + val_off, val, ctx
+
+
+def find_limb_stretch_packet(
+    move_abs: int,
+    rbytes: Callable[[int, int], bytes],
+    *,
+    scan_len: int = LIMB_STRETCH_SCAN_MAX,
+) -> dict | None:
+    """
+    Find the user-verified 34/40 limb stretch / reach-scaling packet.
+
+    Packet shape:
+        34 40 00 20 [part] [scale1] [scale2] [scale3] [timing]
+
+    Ryu 5A late packet at 0x908AF0C8 gives stretch/Dhalsim-limb behavior.
+    If more than one 34/40 exists, prefer the one after a 35/05 packet; otherwise
+    use the last sane candidate in the move block.
+    """
+    if not move_abs:
+        return None
+    try:
+        buf = rbytes(move_abs, scan_len)
+    except Exception:
+        return None
+    if not buf or len(buf) < 0x20:
+        return None
+
+    cands: list[int] = []
+    pos = 0
+    while True:
+        i = buf.find(LIMB_STRETCH_SIG, pos)
+        if i < 0:
+            break
+        if i + 0x18 <= len(buf):
+            # Require three finite floats; this rejects many accidental matches.
+            f1 = _f32be(buf, i + 0x08)
+            f2 = _f32be(buf, i + 0x0C)
+            f3 = _f32be(buf, i + 0x10)
+            if f1 is not None and f2 is not None and f3 is not None:
+                cands.append(i)
+        pos = i + 1
+
+    if not cands:
+        return None
+
+    spark_i = buf.find(HIT_SPARK_SIG)
+    after_spark = [i for i in cands if spark_i >= 0 and i > spark_i]
+    # Prefer the first 34/40 immediately after the 35/05 hit-FX packet.
+    # Ryu 5A: 35/05 at 0x908AF0AC, limb stretch at 0x908AF0C8.
+    i = after_spark[0] if after_spark else cands[-1]
+
+    part = _u32be(buf, i + 0x04)
+    s1 = _f32be(buf, i + 0x08)
+    s2 = _f32be(buf, i + 0x0C)
+    s3 = _f32be(buf, i + 0x10)
+    timing = _u32be(buf, i + 0x14)
+
+    return {
+        "packet_addr": move_abs + i,
+        "part_addr": move_abs + i + 0x04,
+        "scale1_addr": move_abs + i + 0x08,
+        "scale2_addr": move_abs + i + 0x0C,
+        "scale3_addr": move_abs + i + 0x10,
+        "timing_addr": move_abs + i + 0x14,
+        "part": part,
+        "scale1": s1,
+        "scale2": s2,
+        "scale3": s3,
+        "timing": timing,
+        "context": buf[max(0, i - 8):min(len(buf), i + 0x20)],
+    }
+
+
+def find_post_animation_link_addr(
+    move_abs: int,
+    rbytes: Callable[[int, int], bytes],
+    *,
+    scan_len: int = POST_ANIM_LINK_SCAN_MAX,
+) -> tuple[int | None, int | None, int | None, bytes | None]:
+    """
+    Find the 01/33 post-animation continuation/link packet.
+
+    User poke result: changing the value freezes Ryu after the animation.
+    Treat as dangerous, but expose it for full control.
+
+    Returns:
+        (packet_addr, value_addr, u32_value, context_bytes)
+    """
+    if not move_abs:
+        return None, None, None, None
+    try:
+        buf = rbytes(move_abs, scan_len)
+    except Exception:
+        return None, None, None, None
+    if not buf or len(buf) < 8:
+        return None, None, None, None
+
+    hits: list[int] = []
+    pos = 0
+    while True:
+        i = buf.find(POST_ANIM_LINK_SIG, pos)
+        if i < 0:
+            break
+        if i + 8 <= len(buf):
+            hits.append(i)
+        pos = i + 1
+    if not hits:
+        return None, None, None, None
+
+    # Ryu 5A has one. If multiple exist, the first 01/33 is the direct post-animation link.
+    i = hits[0]
+    val = _u32be(buf, i + 0x04)
+    ctx = buf[max(0, i - 8):min(len(buf), i + 0x10)]
+    return move_abs + i, move_abs + i + 0x04, val, ctx

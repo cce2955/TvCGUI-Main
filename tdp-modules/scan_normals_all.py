@@ -157,6 +157,16 @@ STUN_TOTAL_LEN = 43
 
 PAIR_RANGE = 0x600
 
+# Display-only invincibility/intangibility probe. Confirmed useful on Ryu
+# Shoryu and Jun 6B: startup scripts write several 0x70-family fields while
+# ordinary normals do not. These are not edited yet; they only expose where
+# likely invuln/hurtbox-suppression packets exist.
+INVULN_PROBE_HDR = bytes([0x04, 0x01, 0x70, 0x00])
+INVULN_PROBE_FIELDS = {0x130, 0x134, 0x13C, 0x140, 0x144, 0x148}
+INVULN_PROBE_MARKER = 0x3F000000
+INVULN_FIRST_HIT_RANGE = 0x380
+INVULN_SCAN_RANGE = 0x900
+
 HITBOX_OFF_X = 0x40
 HITBOX_OFF_Y = 0x48
 
@@ -547,6 +557,87 @@ def parse_stun(buf: bytes, pos: int) -> Optional[Tuple[int, int, int]]:
         return None
 
     return (buf[pos + 15], buf[pos + 31], buf[pos + 38])
+
+
+def collect_invuln_probes(buf: bytes, base_abs: int, mv_abs: int, *, first_range: int = INVULN_FIRST_HIT_RANGE, scan_range: int = INVULN_SCAN_RANGE) -> List[Dict[str, Any]]:
+    """Return display-only 0x70-family startup protection probes near a move.
+
+    This does not claim a perfect invulnerability model. It catches the startup
+    protection pattern that appears on Ryu Shoryu and Jun 6B while avoiding
+    ordinary normals by requiring the first probe to appear close to the move
+    anchor.
+    """
+    rel = mv_abs - base_abs
+    if rel < 0 or rel >= len(buf):
+        return []
+
+    first_end = min(len(buf), rel + int(first_range or INVULN_FIRST_HIT_RANGE))
+    first = buf.find(INVULN_PROBE_HDR, rel, first_end)
+    if first < 0:
+        return []
+
+    scan_end = min(len(buf), rel + int(scan_range or INVULN_SCAN_RANGE))
+    probes: List[Dict[str, Any]] = []
+    pos = rel
+    while True:
+        idx = buf.find(INVULN_PROBE_HDR, pos, scan_end)
+        if idx < 0:
+            break
+        pos = idx + 1
+        if idx + 16 > len(buf):
+            continue
+        field = rd_u32_be(buf, idx + 4)
+        marker = rd_u32_be(buf, idx + 8)
+        value = rd_u32_be(buf, idx + 12)
+        if marker != INVULN_PROBE_MARKER:
+            continue
+        if field not in INVULN_PROBE_FIELDS:
+            continue
+        probes.append({
+            "addr": base_abs + idx,
+            "field": field,
+            "value": value,
+        })
+    return probes
+
+
+def summarize_invuln_probes(probes: List[Dict[str, Any]]) -> str:
+    if not probes:
+        return ""
+    fields: List[int] = []
+    for probe in probes:
+        try:
+            field = int(probe.get("field"))
+        except Exception:
+            continue
+        if field not in fields:
+            fields.append(field)
+    fields.sort()
+    field_txt = "/".join(f"0x{field:03X}" for field in fields[:6])
+    more = "+" if len(fields) > 6 else ""
+    return f"{len(probes)} probe(s): {field_txt}{more}"
+
+
+def should_probe_invuln(mv: Dict[str, Any], char_id: Optional[int] = None) -> bool:
+    """Gate the noisy 0x70 probe to rows where it has been observed useful."""
+    name = str(mv.get("move_name") or "").strip().lower()
+    aid = mv.get("id")
+    try:
+        aid_low = int(aid) & 0xFF if aid is not None else None
+    except Exception:
+        aid_low = None
+
+    # Jun 6B is a wrapper with no direct hit packet, but its startup-protection
+    # writes are right after the wrapper. Show that instead of a totally blank row.
+    if int(char_id or 0) == 8 and (name == "6b" or aid_low == 0x0E):
+        return True
+
+    # Ryu/Shoto DP-style rows expose the same protection family and are useful
+    # comparison points for Jun 6B.
+    if "shoryu" in name or "uppercut" in name:
+        return True
+
+    return False
 
 
 def pick_best_block(mv_abs: int, blocks: List[Tuple[int, Any]],
@@ -1268,9 +1359,24 @@ def attach_move_fields(moves: List[Dict[str, Any]],
             except Exception:
                 pass
 
+        mv["invuln_probes"] = []
+        mv["invuln_probe_count"] = 0
+        mv["invuln"] = ""
+        mv["invuln_addr"] = None
+
         mv["hit_segments"] = []
         mv["multi_hit_count"] = 0
-        if mv.get("source") in {"anim_hdr", "air_hdr", "cmd_hdr", "super_end"}:
+        # Multi-hit bundles are meaningful for player move rows and unlabeled
+        # hit-script helper rows.  Do not attach them to generic system states
+        # such as landing/KO/knockdown just because those scripts happen to use
+        # the same active/damage packet format.
+        collect_segments_for_row = mv.get("source") in {"anim_hdr", "air_hdr", "cmd_hdr", "super_end"}
+        if aid is not None:
+            try:
+                collect_segments_for_row = collect_segments_for_row and int(aid) >= 0x100
+            except Exception:
+                collect_segments_for_row = collect_segments_for_row and False
+        if collect_segments_for_row:
             next_boundary = _next_real_boundary_for_move(moves, mv_abs)
             hit_segments = collect_hit_segments_for_move(mv_abs, next_boundary, blocks)
             if hit_segments:
@@ -1329,6 +1435,16 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                     and str(mv.get("move_name") or "").strip().lower().replace(" ", "") == "6b"
                 )
 
+        if should_probe_invuln(mv, char_id):
+            invuln_probes = collect_invuln_probes(buf, base_abs, mv_abs)
+            mv["invuln_probes"] = invuln_probes
+            mv["invuln_probe_count"] = len(invuln_probes)
+            mv["invuln"] = summarize_invuln_probes(invuln_probes)
+            if invuln_probes:
+                try:
+                    mv["invuln_addr"] = int(invuln_probes[0].get("addr") or 0)
+                except Exception:
+                    mv["invuln_addr"] = None
 
 
 def move_quality_score(mv: Dict[str, Any]) -> Tuple[int, int, int, int, int, int]:
