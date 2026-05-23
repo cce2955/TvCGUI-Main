@@ -1,0 +1,66 @@
+TvC Character Dump
+==================
+Character: Ryu
+Slot: P2-C1
+Created: 2026-05-22T17:05:41
+Moves: 1405
+Projectile rows already loaded: 5
+Super beam candidates: 1
+Projectile template candidates: 0
+
+Scan region
+-----------
+start: 0x908EA000
+end:   0x90C33000
+size:  3444736
+
+Command histogram
+-----------------
+04/01 25559  direct field write
+01/3C 17566  phase/anim record link
+33/35 12414  speed modifier
+01/33 10963  post-animation/script link
+04/17  9522  flag add/or op
+04/03  5620  field op
+33/38  5443  paired action parameter
+01/34  4678  script/link reference
+34/3D  4275  effect/control packet
+34/41  4268  effect/control marker
+04/15  3986  flag clear/mask op
+33/03  2992  phase/action marker
+11/16  1993  control marker
+34/04  1836  effect/control packet
+07/01  1652  field write/control op
+11/1E  1049  control packet
+35/0D   583  hitbox geometry packet
+33/32   500  hitstop
+35/10   474  damage/power
+35/01   470  active/window
+35/0A   344  hitdata phase/reset marker
+34/40   291  reach/stretch/effect scale packet
+35/05   198  hit spark / hitdata behavior packet
+32/56   195  action/control marker
+35/09   142  knockback packet
+36/43   107  meter/resource packet
+11/22    73  control packet
+
+Super beam candidates
+---------------------
+0x90932430 dmg=720 hits=20 interval=5 lifetime=114 fx=1001 bone=15 speed=6.0 radius=48.0
+
+Projectile template candidates
+-----------------------------
+None found in the selected scan region.
+
+Loaded projectile/super rows
+----------------------------
+0x90932180 template           Hadouken L dmg=2400
+0x90932230 template           Hadouken M dmg=2800
+0x909322E0 template           Hadouken H / Assist dmg=3200
+0x90932390 template           Hadouken H / Assist dmg=3200
+0x90932430 super_beam_card    Shinkuu Hadouken dmg=720
+
+Raw files
+---------
+move_head_chunks: raw\move_heads.bin
+candidate_chunks: raw\candidate_chunks.bin

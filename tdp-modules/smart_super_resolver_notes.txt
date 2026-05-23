@@ -1,0 +1,66 @@
+Smart Super Resolver Patch
+==========================
+
+Goal
+----
+Make the super finder behave like the rest of the workbench: dynamic, relocatable,
+and graph-aware. It should not require hard-coded absolute addresses, and it should
+not promote unrelated projectile payloads just because they look "super-like".
+
+Key changes
+-----------
+1. Relocatable child-link resolution
+   Old:
+     child_target = 0x90893000 + child_link
+   New:
+     child_target = script_base + child_link
+     script_base = current slot chr_tbl/script bank page-aligned to 0x1000
+
+   This makes Ryu P2, Ippatsuman P1-C2, Karas P1-C1, etc. resolve their own
+   00/23 child links instead of all pointing through the first slot's base.
+
+2. Super identity comes from move IDs/names
+   The 00/23 dispatch row only says selector 0x60, 0x61, 0x70, etc.
+   The move scanner already knows:
+     id 0x160 -> selector 0x60 -> Shinkuu / Grand Slam / etc.
+     id 0x161 -> selector 0x61 -> Tatsu Super / Shiranui / Final Reversal
+     id 0x170 -> selector 0x70 -> Shin Sho / Hiei / Robot Summon
+
+   The patch maps selector = move_id & 0xFF for meaningful super move IDs.
+
+3. Payload attachment is proof-based, not size-based
+   Priority:
+     a) payload name/family matches the selector's named super
+     b) script-hit payload is near/same-post as the named super entry
+     c) only if no selector/name proof exists, use near super-ish payload fallback
+
+   This prevents Ippatsuman's Mound Blast from being mislabeled as Grand Slam.
+
+Examples from the provided combined dump
+----------------------------------------
+Ryu:
+  selector 0x60 -> Shinkuu
+  dispatch row 0x909329A2 resolves via slot script base to 0x90932950
+  payload attaches to Shinkuu Hadouken super_beam_card at 0x90932430
+
+Ippatsuman:
+  selector 0x60 -> Grand Slam Attack
+  dispatch row 0x90981CE6 resolves via slot script base to 0x90981C04
+  Grand Slam script-hit candidates attach around the named entry, including
+  the 1360 damage rows near 0x90970EEA.
+  Mound Blast remains a projectile payload and is not promoted as the super.
+
+Karas:
+  selector 0x61 -> Shiranui
+  selector 0x70 -> Hiei Zangetsu
+  rows are labeled by selector instead of generic Super candidate rows.
+
+Touched files
+-------------
+fd_super_integration.py
+fd_window.py
+
+Compile check
+-------------
+python -m py_compile fd_super_integration.py fd_window.py fd_tree.py proj_scanner_window.py
+passed.

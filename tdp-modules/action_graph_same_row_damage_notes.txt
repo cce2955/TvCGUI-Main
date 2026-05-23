@@ -1,0 +1,22 @@
+Action graph same-row damage display patch
+
+Fixes the UI behavior the user requested:
+
+parent 00/23 row
+  -> child offset / child target
+    -> scan forward using projectilemap.json damage values
+      -> first matching damage becomes an owned field on the SAME PARENT ROW
+
+Important behavior:
+- Matching projectilemap damage is written into the parent dispatch row's normal Damage column.
+- The Link/summary cell also includes: dmg <value> @0x<addr> <projectilemap move name>, so the user can see it even if the Damage column is off-screen.
+- The row name uses the projectilemap move name when there is no better move/super name.
+- Nested child/payload rows may still exist for provenance, but they are no longer required to see the damage.
+
+This is for all specials/actions, not just supers.
+
+Modified:
+- fd_super_integration.py
+
+Compile check:
+python3 -m py_compile fd_super_integration.py fd_tree.py fd_window.py

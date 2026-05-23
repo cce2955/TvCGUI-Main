@@ -12,6 +12,11 @@ from tkinter import ttk, messagebox, filedialog, simpledialog
 import fd_utils as U
 import fd_tree
 import fd_projectile_integration as FPI
+import fd_super_integration as FSI
+try:
+    import char_dumper
+except Exception as _char_dumper_import_error:
+    char_dumper = None
 from bonescan import BoneScanner
 from config import INTERVAL
 
@@ -149,6 +154,19 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._projectile_hits: list[dict] = []
         self._projectile_scanning = False
         self._projectile_status_var: tk.StringVar | None = None
+        self._super_hits: list[dict] = []
+        self._super_scanning = False
+        self._super_status_var: tk.StringVar | None = None
+        self._char_dumping = False
+
+        # Performance mode.  Opening the frame-data editor should create the
+        # window first, then load rows/scans after Tk has painted.  Heavy
+        # optional probes are lazy by default and can still be populated by the
+        # Refresh button.
+        self._initial_tree_loaded = False
+        self._initial_load_running = False
+        self._fd_eager_deep_probe = False
+        self._auto_scans_enabled = False
 
         # Shareable frame-data patch config support. A saved patch stores only
         # changed values for this character and can be merged into the same JSON
@@ -507,28 +525,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         )
         self._changed_count_var = tk.StringVar(master=self.root, value="Changed: 0")
         self._projectile_status_var = tk.StringVar(master=self.root, value="Projectiles: queued")
+        self._super_status_var = tk.StringVar(master=self.root, value="Supers: queued")
 
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
 
         fd_tree.configure_styles(self.root)
         fd_tree.build_top_bar(self)
-        bones_bar = ttk.Frame(self.root)
-        bones_bar.pack(side="top", fill="x", padx=6, pady=(2, 4))
-        ttk.Button(
-            bones_bar,
-            text="Reset Order",
-            command=self._reset_to_original_grouping,
-        ).pack(side="left", padx=6)
-
-
-
-        ttk.Button(
-            bones_bar,
-            text="Show Bones",
-            command=self._show_bones,
-        ).pack(side="left")
+        # Reset Order / Show Bones now live in the two-row top action bar so
+        # they remain visible instead of being pushed onto a clipped gray strip.
         fd_tree.build_tree_widget(self)
-        fd_tree.populate_tree(self)
 
         self.tree.bind("<Double-Button-1>", self._on_double_click)
         self.tree.bind("<Button-3>", self._on_right_click)
@@ -538,8 +543,40 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         status.pack(side="bottom", fill="x")
         ttk.Label(status, textvariable=self._status_var, style="Status.TLabel").pack(side="left", padx=8, pady=4)
 
-        # Projectile scan is automatic so Frame Data is the only entry point.
-        self._start_projectile_scan(auto=True)
+        # Paint the window before any heavy tree population or memory scanning.
+        # Tk does not draw the Toplevel until control returns to the event loop,
+        # so doing populate_tree() synchronously here made the Frame Data button
+        # feel frozen for 20-30 seconds.
+        try:
+            self._status_var.set("Opening frame-data window... loading rows after paint")
+            if self._projectile_status_var is not None:
+                self._projectile_status_var.set("Projectiles: lazy; open Projectiles view or Rescan projectiles")
+            if self._super_status_var is not None:
+                self._super_status_var.set("Specials: lazy; open Supers view or Rescan specials")
+            self.root.after(25, self._initial_populate_tree)
+        except Exception:
+            self._initial_populate_tree()
+    def _initial_populate_tree(self):
+        if self._initial_load_running or self._initial_tree_loaded:
+            return
+        self._initial_load_running = True
+        try:
+            if self._status_var is not None:
+                self._status_var.set("Loading frame rows fast path... optional probes are lazy")
+            fd_tree.populate_tree(self)
+            self._initial_tree_loaded = True
+            if self._status_var is not None:
+                self._status_var.set("Frame rows loaded. Projectiles/specials scan only when their view or rescan button is used.")
+        except Exception as e:
+            if self._status_var is not None:
+                self._status_var.set(f"Frame rows failed to populate: {e}")
+        finally:
+            self._initial_load_running = False
+
+    def _ensure_initial_tree_loaded(self):
+        if not self._initial_tree_loaded:
+            self._initial_populate_tree()
+
     def _notation_rank(self, mv):
         return self._explicit_notation(mv)
 
@@ -548,6 +585,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     # ---------- Combined projectile table ----------
 
     def _start_projectile_scan(self, auto: bool = False):
+        try:
+            self._ensure_initial_tree_loaded()
+        except Exception:
+            pass
+        if auto and not self._auto_scans_enabled:
+            if self._projectile_status_var is not None:
+                self._projectile_status_var.set("Projectiles: lazy; click Projectiles or Rescan projectiles")
+            return
+        if auto and getattr(self, "_projectile_hits", None):
+            if self._projectile_status_var is not None:
+                self._projectile_status_var.set(f"Projectiles: {len(self._projectile_hits)} cached")
+            return
         if self._projectile_scanning:
             if self._projectile_status_var is not None:
                 self._projectile_status_var.set("Projectiles: scanning...")
@@ -603,6 +652,162 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
             try:
                 self.root.after(0, _done)
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _start_super_scan(self, auto: bool = False):
+        try:
+            self._ensure_initial_tree_loaded()
+        except Exception:
+            pass
+        if auto and not self._auto_scans_enabled:
+            if self._super_status_var is not None:
+                self._super_status_var.set("Specials: lazy; click Supers or Rescan specials")
+            return
+        if auto and getattr(self, "_super_hits", None):
+            if self._super_status_var is not None:
+                self._super_status_var.set(f"Specials: {len(self._super_hits)} cached")
+            return
+        if self._super_scanning:
+            if self._super_status_var is not None:
+                self._super_status_var.set("Specials: scanning...")
+            return
+
+        cname = self.target_slot.get("char_name", "-")
+        if not FSI.super_key_for_char(cname):
+            if self._super_status_var is not None:
+                self._super_status_var.set("Specials: no key for this character")
+            return
+
+        self._super_scanning = True
+        if self._super_status_var is not None:
+            self._super_status_var.set("Specials: scanning 00/23 callers...")
+        if self._status_var is not None:
+            self._status_var.set("Scanning action graph: dispatch rows, child links, and projectilemap matches...")
+
+        def _progress(pct: float):
+            try:
+                if self.root and self._super_status_var is not None:
+                    self.root.after(0, lambda p=pct: self._super_status_var.set(f"Supers: scanning {p:0.0f}%"))
+            except Exception:
+                pass
+
+        # Reuse already-scanned projectile/payload rows when available so the
+        # Super Finder can attach known beam/projectile payload fields without
+        # forcing a duplicate projectile scan. If this snapshot is empty, the
+        # super scanner falls back to its own payload pass.
+        payload_snapshot = [dict(h) for h in list(getattr(self, "_projectile_hits", []) or [])]
+        # Important perf rule: do not let the action/special scanner trigger a
+        # full projectile scan as a fallback.  If projectiles have not been
+        # scanned yet, pass an empty list and rely on the child-forward
+        # projectilemap damage sniff.  Users can run Rescan projectiles when
+        # they want template/payload fields attached too.
+
+        def _worker():
+            try:
+                hits = FSI.scan_supers_for_char(
+                    cname,
+                    progress_cb=_progress,
+                    payload_hits=payload_snapshot,
+                    move_hits=list(getattr(self, "_moves_scanned", []) or getattr(self, "moves", []) or []),
+                    attach_payloads=True,
+                )
+                err = None
+            except Exception as e:
+                hits = []
+                err = e
+
+            def _done():
+                self._super_scanning = False
+                if err is not None:
+                    if self._super_status_var is not None:
+                        self._super_status_var.set("Specials: scan failed")
+                    if self._status_var is not None:
+                        self._status_var.set(f"Super scan failed: {err}")
+                    return
+
+                self._super_hits = list(hits or [])
+                try:
+                    fd_tree.populate_super_rows(self, replace=True)
+                except Exception as e2:
+                    if self._status_var is not None:
+                        self._status_var.set(f"Super rows failed to populate: {e2}")
+                count = len(self._super_hits)
+                payload_count = 0
+                try:
+                    payload_count = sum(int((h or {}).get("payload_count") or 0) for h in self._super_hits)
+                except Exception:
+                    payload_count = 0
+                if self._super_status_var is not None:
+                    self._super_status_var.set(f"Supers: {count} dispatch row(s), {payload_count} payload link(s)" if count else "Supers: none found")
+                if self._status_var is not None:
+                    self._status_var.set(f"Loaded {count} super dispatch row(s) with {payload_count} attached payload candidate(s)")
+
+            try:
+                self.root.after(0, _done)
+            except Exception:
+                pass
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+
+    def _dump_character_data(self):
+        """Read-only one-button character dump for move/projectile/super farming."""
+        if self._char_dumping:
+            if self._status_var is not None:
+                self._status_var.set("Character dump already running...")
+            return
+        if char_dumper is None:
+            messagebox.showerror(
+                "Dump character",
+                "char_dumper.py could not be imported. Make sure it is next to fd_window.py."
+            )
+            return
+
+        self._char_dumping = True
+        cname = self.target_slot.get("char_name", "-")
+        if self._status_var is not None:
+            self._status_var.set(f"Dumping {cname}: moves, command hits, projectiles, super candidates...")
+
+        # Snapshot the Python objects before the worker starts. The dump helper
+        # still reads live Dolphin memory, but it does not touch Tk widgets.
+        target_snapshot = dict(self.target_slot or {})
+        moves_snapshot = [dict(mv) for mv in list(self.moves or [])]
+        target_snapshot["moves"] = moves_snapshot
+        projectile_snapshot = [dict(h) for h in list(getattr(self, "_projectile_hits", []) or [])]
+
+        def _worker():
+            try:
+                outdir = char_dumper.dump_character(
+                    target_snapshot,
+                    moves_snapshot,
+                    projectile_snapshot,
+                )
+                err = None
+            except Exception as e:
+                outdir = ""
+                err = e
+
+            def _done():
+                self._char_dumping = False
+                if err is not None:
+                    if self._status_var is not None:
+                        self._status_var.set(f"Character dump failed: {err}")
+                    messagebox.showerror("Dump character", f"Character dump failed:\n{err}")
+                    return
+                if self._status_var is not None:
+                    self._status_var.set(f"Character dump written: {outdir}")
+                messagebox.showinfo(
+                    "Dump character",
+                    "Character dump written:\n" + str(outdir) +
+                    "\n\nFiles include character_dump.txt, character_dump.json, and raw chunk bins."
+                )
+
+            try:
+                if self.root:
+                    self.root.after(0, _done)
             except Exception:
                 pass
 
@@ -993,16 +1198,57 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             if _present(text):
                 chips.append((label, text, "important" if important else "normal", col))
 
-        if FPI.is_projectile_row(mv):
+        if FSI.is_super_row(mv):
+            hit = mv.get("_super_hit") or {}
+            try:
+                if sub_var is not None:
+                    sub_var.set("Super dispatch row | 00/23 caller | advanced")
+            except Exception:
+                pass
+            add("Selector", FSI.format_super_value(mv, "dispatch_selector"), important=True, col="dispatch_selector")
+            add("Variant", FSI.format_super_value(mv, "dispatch_variant"), col="dispatch_variant")
+            add("Phase", FSI.format_super_value(mv, "dispatch_phase"), important=True, col="dispatch_phase")
+            add("Child Link", FSI.format_super_value(mv, "dispatch_child_link"), col="dispatch_child_link")
+            add("Target", FSI.format_super_value(mv, "dispatch_child_target"))
+            add("Group", FSI.format_super_value(mv, "dispatch_group"))
+            add("Confidence", FSI.format_super_value(mv, "dispatch_confidence"), important=True)
+            add("Super Proof", FSI.format_super_value(mv, "dispatch_super_proof"), important=True)
+            add("Owner Proof", FSI.format_super_value(mv, "dispatch_owner_proof"), important=bool(hit.get("dispatch_owner_proof")))
+            for _label, _col in (
+                ("Damage", "damage"),
+                ("KB X", "kb_x"),
+                ("KB Y", "air_kb"),
+                ("Hitstun", "hitstun"),
+                ("Blockstun", "blockstun"),
+                ("Hitstop", "hitstop"),
+                ("Attack Property", "attack_property"),
+                ("Hit Reaction", "hit_reaction"),
+                ("Extra Launch", "launch_profile"),
+                ("Launch Adjust", "kb_unknown"),
+            ):
+                add(_label, FSI.format_super_value(mv, _col), important=_col in {"damage", "kb_x", "air_kb"}, col=_col)
+            add("Owned Payloads", str(hit.get("payload_count") or ""), important=bool(hit.get("payload_count")))
+            add("Owned Payload Summary", str(hit.get("payload_summary") or ""))
+            add("Owned Script Fields", str(hit.get("owned_script_field_summary") or ""))
+            add("Payload Fields", str(hit.get("payload_field_summary") or ""))
+            add("Payload-Only Scout", str(hit.get("payload_only_summary") or ""))
+            try:
+                scout = FSI._scout_summary(hit)
+            except Exception:
+                scout = ""
+            add("Child Scout", scout)
+        elif FPI.is_projectile_row(mv):
             hit = mv.get("_proj_hit") or {}
             role = str(hit.get("proj_role") or "").strip()
             tier = str(hit.get("tier") or "").strip()
             total = str(hit.get("tier_total") or "").strip()
             tier_txt = f"{tier}/{total}" if tier and total else tier
+            fmt = FPI.format_projectile_value(mv, "proj_fmt")
+            is_emitter = bool(getattr(FPI, "is_projectile_emitter_row", lambda _mv: False)(mv))
+            is_ps = bool(getattr(FPI, "is_projectile_super_card", lambda _mv: False)(mv))
             try:
                 if sub_var is not None:
-                    sub = "Projectile record"
-                    fmt = FPI.format_projectile_value(mv, "proj_fmt")
+                    sub = "Projectile emitter" if is_emitter else ("Projectile-super card" if is_ps else "Projectile record")
                     if fmt:
                         sub += f" | {fmt}"
                     if role:
@@ -1010,27 +1256,67 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     sub_var.set(sub)
             except Exception:
                 pass
-            add("Damage", FPI.format_projectile_value(mv, "damage"), important=True)
-            add("ID", FPI.format_projectile_value(mv, "proj_id"))
-            add("Type", FPI.format_projectile_value(mv, "proj_type"))
-            add("Tier", tier_txt)
-            add("Life", FPI.format_projectile_value(mv, "proj_life"))
-            add("Speed", FPI.format_projectile_value(mv, "proj_speed"), important=True)
-            add("Accel", FPI.format_projectile_value(mv, "proj_accel"))
-            add("Radius", FPI.format_projectile_value(mv, "proj_radius"))
-            add("Hitbox", FPI.format_projectile_value(mv, "proj_hitbox"))
-            kx = FPI.format_projectile_value(mv, "kb_x")
-            ky = FPI.format_projectile_value(mv, "proj_kb_y") or FPI.format_projectile_value(mv, "air_kb")
-            if _present(kx) or _present(ky):
-                add("KB", f"{kx or '-'} / {ky or '-'}", important=True)
-            add("Arc", FPI.format_projectile_value(mv, "proj_arc"))
-            add("Arc 2", FPI.format_projectile_value(mv, "proj_arc2"))
-            add("Super react", FPI.format_projectile_value(mv, "proj_super_hit_react"), important=True)
-            add("Super life", FPI.format_projectile_value(mv, "proj_super_life"))
-            add("Super speed", FPI.format_projectile_value(mv, "proj_super_speed"), important=True)
-            add("Super accel", FPI.format_projectile_value(mv, "proj_super_accel"))
-            add("Super radius", FPI.format_projectile_value(mv, "proj_super_radius"))
-            add("Hit cap", FPI.format_projectile_value(mv, "proj_multihit_cap"))
+            add("Damage", FPI.format_projectile_value(mv, "damage"), important=True, col="damage")
+
+            if is_emitter:
+                add("Cards", FPI.format_projectile_value(mv, "proj_emit_count"), important=True, col="proj_emit_count")
+                add("KB X", FPI.format_projectile_value(mv, "kb_x"), important=True, col="kb_x")
+                add("KB Y", FPI.format_projectile_value(mv, "air_kb") or FPI.format_projectile_value(mv, "proj_kb_y"), important=True, col="air_kb")
+                add("Life", FPI.format_projectile_value(mv, "proj_ps_lifetime") or FPI.format_projectile_value(mv, "proj_life"), important=True, col="proj_ps_lifetime")
+                add("Origin", FPI.format_projectile_value(mv, "proj_spawn_origin"), important=True, col="proj_spawn_origin")
+                add("Hits", FPI.format_projectile_value(mv, "proj_ps_hit_count"), col="proj_ps_hit_count")
+                add("Interval", FPI.format_projectile_value(mv, "proj_ps_interval"), col="proj_ps_interval")
+                add("Speed", FPI.format_projectile_value(mv, "proj_speed"), important=True, col="proj_speed")
+                add("Accel", FPI.format_projectile_value(mv, "proj_accel"), col="proj_accel")
+                add("Scale", FPI.format_projectile_value(mv, "proj_ps_scale"), important=True, col="proj_ps_scale")
+                add("FX", FPI.format_projectile_value(mv, "proj_ps_particle_fx"), col="proj_ps_particle_fx")
+                add("Proj ID", FPI.format_projectile_value(mv, "proj_ps_projectile_id"), col="proj_ps_projectile_id")
+                add("Bone", FPI.format_projectile_value(mv, "proj_ps_spawn_bone"), col="proj_ps_spawn_bone")
+            elif is_ps:
+                add("Card", FPI.format_projectile_value(mv, "proj_ps_card_type"), col="proj_ps_card_type")
+                add("Life", FPI.format_projectile_value(mv, "proj_ps_lifetime"), important=True, col="proj_ps_lifetime")
+                add("Hits", FPI.format_projectile_value(mv, "proj_ps_hit_count"), important=True, col="proj_ps_hit_count")
+                add("Emit", FPI.format_projectile_value(mv, "proj_ps_emit_count"), col="proj_ps_emit_count")
+                add("Interval", FPI.format_projectile_value(mv, "proj_ps_interval"), col="proj_ps_interval")
+                add("Mode", FPI.format_projectile_value(mv, "proj_ps_mode"), col="proj_ps_mode")
+                add("Spawn X", FPI.format_projectile_value(mv, "proj_ps_offset_x"), col="proj_ps_offset_x")
+                add("Spawn Y", FPI.format_projectile_value(mv, "proj_ps_offset_y"), col="proj_ps_offset_y")
+                add("Scale", FPI.format_projectile_value(mv, "proj_ps_scale"), important=True, col="proj_ps_scale")
+                add("FX", FPI.format_projectile_value(mv, "proj_ps_particle_fx"), col="proj_ps_particle_fx")
+                add("Proj ID", FPI.format_projectile_value(mv, "proj_ps_projectile_id"), col="proj_ps_projectile_id")
+                add("Bone", FPI.format_projectile_value(mv, "proj_ps_spawn_bone"), col="proj_ps_spawn_bone")
+            else:
+                add("ID", FPI.format_projectile_value(mv, "proj_id"))
+                add("Type", FPI.format_projectile_value(mv, "proj_type"))
+                add("Tier", tier_txt)
+                add("Life", FPI.format_projectile_value(mv, "proj_life"))
+                add("Origin", FPI.format_projectile_value(mv, "proj_spawn_origin"), important=True, col="proj_spawn_origin")
+                add("Speed", FPI.format_projectile_value(mv, "proj_speed"), important=True, col="proj_speed")
+                add("Accel", FPI.format_projectile_value(mv, "proj_accel"), col="proj_accel")
+                add("Radius", FPI.format_projectile_value(mv, "proj_radius"), important=True, col="proj_radius")
+                add("FX", FPI.format_projectile_value(mv, "proj_fx"), important=True, col="proj_fx")
+                add("Hitbox", FPI.format_projectile_value(mv, "proj_hitbox"), col="proj_hitbox")
+                kx = FPI.format_projectile_value(mv, "kb_x")
+                ky = FPI.format_projectile_value(mv, "proj_kb_y") or FPI.format_projectile_value(mv, "air_kb")
+                add("KB X", kx, important=True, col="kb_x")
+                add("KB Y", ky, important=True, col="air_kb")
+                add("Arc", FPI.format_projectile_value(mv, "proj_arc"), col="proj_arc")
+                add("Arc 2", FPI.format_projectile_value(mv, "proj_arc2"))
+
+            # Shinkuu/Kikosho/Disco Ball-style super-beam cards keep their
+            # separate controls. Compact 00/23 cards do not use these fields.
+            add("Lifetime", FPI.format_projectile_value(mv, "proj_super_lifetime"), important=True, col="proj_super_lifetime")
+            add("Hit Count", FPI.format_projectile_value(mv, "proj_super_hit_count"), important=True, col="proj_super_hit_count")
+            add("Interval", FPI.format_projectile_value(mv, "proj_super_hit_interval"), col="proj_super_hit_interval")
+            add("FX", FPI.format_projectile_value(mv, "proj_super_particle_fx"), col="proj_super_particle_fx")
+            add("Spawn Bone", FPI.format_projectile_value(mv, "proj_super_spawn_bone"), col="proj_super_spawn_bone")
+            add("Hit Source", FPI.format_projectile_value(mv, "proj_super_hit_source"), col="proj_super_hit_source")
+            add("Beam Speed", FPI.format_projectile_value(mv, "proj_super_beam_speed"), important=True, col="proj_super_beam_speed")
+            add("Beam Force", FPI.format_projectile_value(mv, "proj_super_beam_force"), col="proj_super_beam_force")
+            add("Hit Radius", FPI.format_projectile_value(mv, "proj_super_hit_radius"), important=True, col="proj_super_hit_radius")
+            add("Visual", FPI.format_projectile_value(mv, "proj_super_beam_visual"), col="proj_super_beam_visual")
+            add("Final Dmg", FPI.format_projectile_value(mv, "proj_final_damage"), important=True, col="proj_final_damage")
+            add("Final FX", FPI.format_projectile_value(mv, "proj_final_particle_fx"), col="proj_final_particle_fx")
         else:
             try:
                 if sub_var is not None:
@@ -1082,7 +1368,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             # Keep labels muted and values boxed so projectiles/supers feel like
             # a compact stat card instead of another spreadsheet row.
             max_cols = 6
-            for idx, (label, value, flavor, col) in enumerate(chips[:18]):
+            for idx, (label, value, flavor, col) in enumerate(chips[:30]):
                 cell = ttk.Frame(frame, style="Card.TFrame")
                 cell.grid(row=idx // max_cols, column=idx % max_cols, sticky="ew", padx=(0, 8), pady=(0, 5))
                 lab = ttk.Label(cell, text=label, style="CardMuted.TLabel")
@@ -1148,8 +1434,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             changed = sum(1 for snap in self._dirty_cells.values() if snap.get("item_id") == item_id)
             if changed:
                 self._inspector_hint_var.set(f"Changed values on this move: {changed}. Click a changed chip to edit again, or use Reset changed.")
+            elif FSI.is_super_row(mv):
+                self._inspector_hint_var.set("Super dispatch rows are the caller layer. Selector/link are dangerous; phase length is the safest timing poke.")
+            elif FPI.is_projectile_emitter_row(mv):
+                self._inspector_hint_var.set("Emitter rows bulk-edit the projectile cards spawned by this barrage. Count is display-only; damage/life/speed/scale/FX edits apply to the grouped cards.")
             elif FPI.is_projectile_row(mv):
-                self._inspector_hint_var.set("Projectile values are promoted to the top here. Damage, KB, life, speed, radius, and super probes still use the same write handlers.")
+                self._inspector_hint_var.set("Projectile/super values are promoted to the top here. Compact projectile-super cards use Life, Hits, Emit, Interval, FX, Proj ID, Bone, Spawn X/Y, and Scale.")
             else:
                 self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
 
@@ -1178,7 +1468,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         for col, widget in getattr(self, "_inspector_value_widgets", {}).items():
             try:
-                if col in {"kind", "hits", "link", "invuln"} or col in FPI.PROJECTILE_STATIC_COLUMNS or (col.startswith("proj_") and not FPI.is_projectile_row(mv)) or (col == "abs" and not abs_addr):
+                if col in {"kind", "hits", "link", "invuln"} or col in FPI.PROJECTILE_STATIC_COLUMNS or (col.startswith("proj_") and FPI.is_projectile_row(mv) and not FPI.projectile_editable(col)) or (col.startswith("proj_") and not FPI.is_projectile_row(mv)) or (col == "abs" and not abs_addr):
                     widget.configure(cursor="", style="ValueStatic.TLabel")
                 else:
                     self._configure_inspector_chip_style(widget, col, hover=False)
@@ -1204,7 +1494,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "Move link", "Impact", "Timing", "Stun and pressure",
             "Launch and knockback controls", "Hit FX and reach",
             "Dangerous script links", "Flags and lookup",
-            "Projectile data", "Projectile super probes",
+            "Super dispatch", "Projectile emitter", "Projectile super", "Projectile data", "Super beam", "Final hit", "Projectile super probes",
         ]
 
         def _field_has_value(col: str) -> bool:
@@ -1215,25 +1505,46 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 val = ""
             return bool(val and val not in {"-", "not found", "none"})
 
-        if FPI.is_projectile_row(mv):
-            projectile_has = any(_field_has_value(c) for c in by_title.get("Projectile data", (None, ()))[1])
-            super_has = any(_field_has_value(c) for c in by_title.get("Projectile super probes", (None, ()))[1])
+        def _section_has(title: str, *, skip: set[str] | None = None) -> bool:
+            fields = by_title.get(title, (None, ()))[1]
+            skip = skip or set()
+            return any(_field_has_value(c) for c in fields if c not in skip)
+
+        if FSI.is_super_row(mv):
+            order = ["Move link", "Super dispatch", "Dangerous script links", "Flags and lookup"]
+        elif FPI.is_projectile_row(mv):
+            emitter_has = _section_has("Projectile emitter")
+            ps_has = _section_has("Projectile super")
+            # Do not let proj_fmt alone pull the generic projectile card to the
+            # top for compact 00/23 super cards. That was the confusing
+            # not-found wall in the sidebar.
+            projectile_has = _section_has("Projectile data", skip={"proj_fmt"})
+            beam_has = _section_has("Super beam")
+            final_has = _section_has("Final hit")
+            probe_has = _section_has("Projectile super probes")
             order = ["Move link"]
+            if emitter_has and FPI.is_projectile_emitter_row(mv):
+                order.append("Projectile emitter")
+            if ps_has and not FPI.is_projectile_emitter_row(mv):
+                order.append("Projectile super")
+            if beam_has:
+                order.append("Super beam")
+            if final_has:
+                order.append("Final hit")
             if projectile_has:
                 order.append("Projectile data")
-            if super_has:
+            if probe_has:
                 order.append("Projectile super probes")
-            # Keep editable legacy fields that also matter for projectiles near
-            # the top, but do not show empty Timing/Stun cards full of not found.
+            # Keep normal editing fallbacks available but below the actual
+            # projectile/super card controls.
             order.extend(["Impact", "Launch and knockback controls", "Hit FX and reach", "Dangerous script links", "Flags and lookup"])
         else:
             order = list(default_order)
             # Non-projectile rows should not waste vertical space on empty
             # projectile cards unless scanner data actually exists on the row.
-            if not any(_field_has_value(c) for c in by_title.get("Projectile data", (None, ()))[1]):
-                order.remove("Projectile data")
-            if not any(_field_has_value(c) for c in by_title.get("Projectile super probes", (None, ()))[1]):
-                order.remove("Projectile super probes")
+            for title in ["Super dispatch", "Projectile emitter", "Projectile super", "Projectile data", "Super beam", "Final hit", "Projectile super probes"]:
+                if title in order and not _section_has(title):
+                    order.remove(title)
 
         seen = set(order)
         for title, card, _fields in sections:
@@ -1309,13 +1620,25 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         those rows, reset/save/load must treat the value as a projectile field,
         not as a normal move-table scalar.
         """
+        if FSI.is_super_row(mv) and FSI.super_editable(col_name):
+            return FSI.super_group_for_col(col_name)
         if FPI.is_projectile_row(mv) and FPI.projectile_editable(col_name):
             return FPI.projectile_group_for_col(col_name)
         return self._dirty_group_for_col(col_name)
 
     def _dirty_key(self, item_id: str, mv: dict, group_key: str):
         abs_addr = mv.get("_dirty_key_addr") or mv.get("abs")
-        return (int(abs_addr) if abs_addr else id(mv), str(group_key))
+        if abs_addr:
+            try:
+                key_addr = int(abs_addr)
+            except Exception:
+                # Synthetic projectile-emitter rows use stable string keys like
+                # "emitter:Finishing Shower Emitter".  Keep those valid for
+                # dirty tracking instead of crashing int(abs_addr).
+                key_addr = str(abs_addr)
+        else:
+            key_addr = id(mv)
+        return (key_addr, str(group_key))
 
     def _mv_snapshot_for_group(self, mv: dict, group_key: str) -> dict:
         keys_by_group = {
@@ -1346,6 +1669,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "proj_dmg": ("proj_dmg", "proj_tpl"),
             "hb": ("hb_r", "hb_off", "hb_candidates"),
         }
+        if str(group_key).startswith("super_dispatch:"):
+            return FSI.super_snapshot(mv, group_key)
         if str(group_key).startswith("projectile:"):
             return FPI.projectile_snapshot(mv, group_key)
 
@@ -1493,7 +1818,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 mv = self.move_to_tree_item.get(sel[0]) if sel else None
             except Exception:
                 mv = None
-            if col_name in {"kind", "hits", "link"} or col_name in FPI.PROJECTILE_STATIC_COLUMNS or (col_name.startswith("proj_") and not FPI.is_projectile_row(mv)):
+            if col_name in {"kind", "hits", "link"} or col_name in FPI.PROJECTILE_STATIC_COLUMNS or (col_name.startswith("proj_") and not FPI.is_projectile_row(mv)) or (col_name.startswith("dispatch_") and not FSI.super_editable(col_name)) or (col_name.startswith("dispatch_") and not FSI.is_super_row(mv)) :
                 widget.configure(cursor="", style="ValueStatic.TLabel")
             elif changed:
                 widget.configure(cursor="hand2", style="ValueChangedHover.TLabel" if hover else "ValueChanged.TLabel")
@@ -1538,6 +1863,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if col_name == "abs":
             self._copy_selected_address()
             return
+        if col_name.startswith("dispatch_") and not FSI.is_super_row(mv):
+            self._status_var.set("Dispatch fields are only editable on super dispatch rows.")
+            return
+        if FSI.is_super_row(mv) and not FSI.super_editable(col_name):
+            self._status_var.set("That super dispatch field is display-only.")
+            return
         if col_name.startswith("proj_") and not FPI.is_projectile_row(mv):
             self._status_var.set("Projectile fields are only editable on projectile rows.")
             return
@@ -1556,7 +1887,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         self._begin_edit_snapshot(item, mv, col_name)
 
-        if not U.WRITER_AVAILABLE and not FPI.is_projectile_row(mv):
+        if not U.WRITER_AVAILABLE and not FPI.is_projectile_row(mv) and not FSI.is_super_row(mv):
             messagebox.showerror("Error", "Writer unavailable")
             return
 
@@ -1625,6 +1956,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not abs_txt:
             tags.add("missing_addr")
 
+        if FSI.is_super_row(mv):
+            tags.add("super_row")
         if FPI.is_projectile_row(mv):
             tags.add("projectile_row")
 
@@ -1662,6 +1995,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             s.append(f"Abs=0x{abs_addr:08X}")
         try:
             current_view = str(getattr(self, "_fd_view_mode", "frame") or "frame")
+            if FSI.is_super_row(mv) and current_view == "frame":
+                s.append("Tip: Supers view moves dispatch fields next to the move name")
             if FPI.is_projectile_row(mv) and current_view == "frame":
                 s.append("Tip: Projectiles view moves projectile fields next to the move name")
             elif current_view == "frame" and (kind in {"super", "hyper"} or str(move_txt or "").lower().find("super") >= 0):
@@ -2217,6 +2552,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     # ---------- Refresh visible ----------
 
     def _refresh_visible(self):
+        # Manual refresh is the one place we intentionally run heavier optional
+        # probes.  Normal open/edit paths stay fast and update cells in place.
+        self._fd_eager_deep_probe = True
         refreshed = 0
         for item_id in self._all_item_ids:
             if item_id in self._detached:
@@ -2353,6 +2691,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._apply_row_tags(item_id, mv)
             refreshed += 1
 
+        self._fd_eager_deep_probe = False
         self._status_var.set(f"Refreshed {refreshed} visible rows")
         try:
             sel = self.tree.selection()
@@ -2444,6 +2783,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         return None
 
     def _patch_value_for_group(self, mv: dict, group: str):
+        if str(group).startswith("super_dispatch:"):
+            hit_key = str(group).split(":", 1)[1]
+            return (mv.get("_super_hit") or {}).get(hit_key)
         if str(group).startswith("projectile:"):
             hit_key = str(group).split(":", 1)[1]
             return (mv.get("_proj_hit") or {}).get(hit_key)
@@ -2453,7 +2795,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         out = {}
         if not self.tree or not item_id:
             return out
-        if str(group).startswith("projectile:"):
+        if str(group).startswith("super_dispatch:"):
+            _col = FSI.column_for_super_group(group)
+            _g, cols = self._dirty_group_for_col(_col)
+        elif str(group).startswith("projectile:"):
             _col = FPI.column_for_projectile_group(group)
             _g, cols = self._dirty_group_for_col(_col)
         else:
@@ -2495,6 +2840,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         pass
             else:
                 out[key] = self._patch_json_value(val)
+        if FSI.is_super_row(mv):
+            try:
+                out["super_dispatch_row"] = True
+                out["dispatch_fmt"] = str((mv.get("_super_hit") or {}).get("fmt") or "")
+                out["dispatch_key"] = str((mv.get("_super_hit") or {}).get("key") or "")
+            except Exception:
+                pass
         if FPI.is_projectile_row(mv):
             try:
                 out["projectile_row"] = True
@@ -2821,6 +3173,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _apply_patch_tree_update(self, item_id: str, mv: dict, group: str):
         if not self.tree:
             return
+        if str(group).startswith("super_dispatch:"):
+            col = FSI.column_for_super_group(group)
+            if col:
+                FSI.apply_super_tree_value(self.tree, item_id, mv, col)
+            return
         if str(group).startswith("projectile:"):
             col = FPI.column_for_projectile_group(group)
             if col:
@@ -2902,7 +3259,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return False, "missing group"
 
         try:
-            if str(group).startswith("projectile:"):
+            if str(group).startswith("super_dispatch:"):
+                col = FSI.column_for_super_group(group)
+                if not col:
+                    return False, f"unsupported super dispatch group {group}"
+                if not FSI.write_super_value(mv, col, value):
+                    return False, "write failed"
+
+            elif str(group).startswith("projectile:"):
                 col = FPI.column_for_projectile_group(group)
                 if not col:
                     return False, f"unsupported projectile group {group}"
@@ -3181,7 +3545,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             try:
                 self._suppress_dirty_tracking = True
 
-                if str(group).startswith("projectile:"):
+                if str(group).startswith("super_dispatch:"):
+                    col = FSI.column_for_super_group(group)
+                    val = old.get("value")
+                    if col and val is not None and FSI.write_super_value(mv, col, val):
+                        FSI.apply_super_tree_value(self.tree, item_id, mv, col)
+                        ok = True
+
+                elif str(group).startswith("projectile:"):
                     col = FPI.column_for_projectile_group(group)
                     val = old.get("value")
                     if col and val is not None and FPI.write_projectile_value(mv, col, val):
@@ -3424,11 +3795,17 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not mv:
             return
 
-        if not U.WRITER_AVAILABLE and not FPI.is_projectile_row(mv):
+        if not U.WRITER_AVAILABLE and not FPI.is_projectile_row(mv) and not FSI.is_super_row(mv):
             messagebox.showerror("Error", "Writer unavailable")
             return
 
         current_val = self.tree.set(item, col_name)
+        if col_name.startswith("dispatch_") and not FSI.is_super_row(mv):
+            self._status_var.set("Dispatch fields are only editable on super dispatch rows.")
+            return
+        if FSI.is_super_row(mv) and not FSI.super_editable(col_name):
+            self._status_var.set("That super dispatch field is display-only.")
+            return
         if col_name.startswith("proj_") and not FPI.is_projectile_row(mv):
             self._status_var.set("Projectile fields are only editable on projectile rows.")
             return
@@ -3464,6 +3841,58 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._refresh_inspector(item, mv)
 
 
+    def _edit_super_dispatch_cell(self, col_name: str, item: str, mv: dict, current_val: str) -> None:
+        info = getattr(FSI, "super_field_edit_info", lambda c: FSI.SUPER_DISPATCH_FIELD_INFO.get(c))(col_name)
+        if not info:
+            self._status_var.set("That super field is display-only.")
+            return
+        _hit_key, label, typ = info
+        addr = FSI.super_field_addr(mv, col_name)
+        addr_txt = f"0x{int(addr):08X}" if addr else "not found"
+        display_val = current_val or FSI.format_super_value(mv, col_name)
+        initial_val = FSI.super_edit_initial_value(mv, col_name)
+        if col_name.startswith("dispatch_"):
+            note = "Dispatch rows are the super caller layer. Phase length is the safest poke; selector/link are dangerous."
+            title = f"Edit {label}"
+        else:
+            note = "This is a super-owned field sniffed by parent -> child graph ownership. It writes the child script/payload field, not the 00/23 parent row."
+            title = f"Edit {label}"
+        prompt = (
+            f"Row: {mv.get('move_name') or 'Super Dispatch'}\n"
+            f"Field: {label}\n"
+            f"Address: {addr_txt}\n"
+            f"Type: {typ}\n"
+            f"Current: {display_val}\n\n"
+            f"{note}\n\n"
+            "New value:"
+        )
+        new_val = simpledialog.askstring(
+            title,
+            prompt,
+            parent=self.root,
+            initialvalue=str(initial_val or "0"),
+        )
+        if new_val is None:
+            return
+        try:
+            parsed = FSI.parse_super_input(col_name, new_val)
+        except Exception as e:
+            messagebox.showerror("Invalid", f"Invalid {label}: {e}", parent=self.root)
+            return
+        try:
+            ok = FSI.write_super_value(mv, col_name, parsed)
+        except Exception as e:
+            messagebox.showerror("Write failed", str(e), parent=self.root)
+            return
+        if not ok:
+            messagebox.showerror("Write failed", "Could not write super value to Dolphin.", parent=self.root)
+            return
+        FSI.apply_super_tree_value(self.tree, item, mv, col_name)
+        self._notify_fd_cell_changed(item, mv, col_name)
+        if self._status_var is not None:
+            self._status_var.set(f"Wrote {label} to {addr_txt}")
+
+
     def _edit_projectile_cell(self, col_name: str, item: str, mv: dict, current_val: str) -> None:
         info = FPI.PROJECTILE_FIELD_INFO.get(col_name)
         if not info:
@@ -3471,19 +3900,25 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
         _hit_key, label, typ = info
         addr = FPI.projectile_field_addr(mv, col_name)
-        addr_txt = f"0x{int(addr):08X}" if addr else "not found"
+        if FPI.is_projectile_emitter_row(mv):
+            peer_count = int(((mv.get("_proj_hit") or {}).get("emitter_count") or 0))
+            addr_txt = f"bulk group: {peer_count} card(s)"
+        else:
+            addr_txt = f"0x{int(addr):08X}" if addr else "not found"
+        display_val = current_val or FPI.format_projectile_value(mv, col_name)
+        initial_val = FPI.projectile_edit_initial_value(mv, col_name)
         prompt = (
             f"Move: {mv.get('move_name') or 'Projectile'}\n"
             f"Field: {label}\n"
             f"Address: {addr_txt}\n"
-            f"Current: {current_val or FPI.format_projectile_value(mv, col_name)}\n\n"
+            f"Current: {display_val}\n\n"
             "New value:"
         )
         new_val = simpledialog.askstring(
             f"Edit {label}",
             prompt,
             parent=self.root,
-            initialvalue=str(current_val or FPI.format_projectile_value(mv, col_name) or "0"),
+            initialvalue=str(initial_val or "0"),
         )
         if new_val is None:
             return
@@ -3502,10 +3937,56 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
         FPI.apply_projectile_tree_value(self.tree, item, mv, col_name)
 
+        # Emitter rows bulk-write child projectile cards. Keep the physical rows
+        # visually in sync so the user does not see stale bullet/card values
+        # underneath the emitter after a successful edit.
+        if FPI.is_projectile_emitter_row(mv):
+            try:
+                peer_addrs = FPI.projectile_damage_peer_base_addrs(mv)
+            except Exception:
+                peer_addrs = set()
+            emitter_col_alias = {
+                "proj_speed": "proj_ps_offset_x",
+                "proj_accel": "proj_ps_offset_y",
+                "proj_hitbox": "proj_ps_scale",
+                "proj_radius": "proj_ps_scale",
+                "proj_life": "proj_ps_lifetime",
+            }
+            if peer_addrs:
+                for other_item, other_mv in list((self.move_to_tree_item or {}).items()):
+                    if other_item == item or not FPI.is_projectile_row(other_mv) or FPI.is_projectile_emitter_row(other_mv):
+                        continue
+                    other_hit = other_mv.get("_proj_hit") or {}
+                    try:
+                        other_addr = int(other_hit.get("addr") or other_mv.get("abs") or 0)
+                    except Exception:
+                        other_addr = 0
+                    if other_addr not in peer_addrs:
+                        continue
+                    actual_col = col_name
+                    try:
+                        if str(other_hit.get("fmt") or "") in getattr(FPI.P, "PROJECTILE_SUPER_FMTS", set()):
+                            actual_col = emitter_col_alias.get(col_name, col_name)
+                    except Exception:
+                        actual_col = emitter_col_alias.get(col_name, col_name)
+                    info2 = FPI.PROJECTILE_FIELD_INFO.get(actual_col)
+                    if info2:
+                        hit_key2 = info2[0]
+                        other_hit[hit_key2] = parsed
+                        if hit_key2 == "dmg":
+                            other_hit["dmg"] = int(parsed)
+                            other_mv["damage"] = int(parsed)
+                        other_mv["_proj_hit"] = other_hit
+                    try:
+                        FPI.apply_projectile_tree_value(self.tree, other_item, other_mv, actual_col)
+                        self._apply_row_tags(other_item, other_mv)
+                    except Exception:
+                        pass
+
         # If this projectile has copy/alt records behind the same visible move,
         # keep their rows visually in sync. The actual memory write already
         # updated the peer addresses; this just prevents stale duplicate rows.
-        if col_name == "damage":
+        if col_name == "damage" and not FPI.is_projectile_emitter_row(mv):
             try:
                 peer_addrs = FPI.projectile_damage_peer_base_addrs(mv)
             except Exception:
@@ -3535,6 +4016,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._status_var.set(f"Wrote {label} to {addr_txt}")
 
     def _route_standard_edit(self, col_name: str, item: str, mv: dict, current_val: str) -> None:
+        if FSI.is_super_row(mv):
+            self._edit_super_dispatch_cell(col_name, item, mv, current_val)
+            return
         if FPI.is_projectile_row(mv):
             self._edit_projectile_cell(col_name, item, mv, current_val)
             return

@@ -1,0 +1,61 @@
+Dynamic Super Graph Patch
+
+Goal
+- Super Finder should not stop at 00/23 dispatch rows.
+- For a random character, it should build a graph-style view:
+  dispatch/caller row -> resolved child target -> attached payload candidates -> known editable payload fields.
+
+Important architecture
+- Projectile scanner still owns payload/card/template field layouts.
+- Super finder owns the call graph and only attaches payload candidates by known layouts.
+- This means generic discovery is confidence-tiered:
+  1. dispatch rows are dynamic from 00/23 graph shape
+  2. child targets are dynamic from link math
+  3. child scouts are read-only heuristics
+  4. payload fields are editable only when the payload scanner can prove the layout
+
+Files
+- fd_super_integration.py
+- fd_window.py
+- fd_tree.py
+
+Changes
+- fd_super_integration.scan_supers_for_char now accepts:
+  payload_hits=None
+  attach_payloads=True
+- It reuses already-scanned projectile hits from fd_window when available.
+- If no projectile snapshot exists, it falls back to a projectile payload scan.
+- It filters super-ish payloads by known formats:
+  super_beam_card, super_struct*, compact projectile-super formats, emitter rows, known super-ish move/cluster labels.
+- It attaches top payload candidates to each dispatch group by distance/rank.
+- Each dispatch row now carries:
+  payload_count
+  payload_summary
+  payload_field_summary
+  child_scout
+- Child scout is read-only. It lists suspicious child-script links, small u32 values, and common float constants near the resolved child target.
+
+UI behavior
+- Supers header now says: dispatch row count + payload candidate count.
+- Super row context shows:
+  target address
+  attached payload summary
+  child scout summary
+- Inspector chips show:
+  Payloads
+  Payload Summary
+  Payload Fields
+  Child Scout
+
+What this does not claim
+- It does not magically name unknown supers with 100% certainty.
+- It does not edit child-scout fields until a pattern is confirmed.
+- It does not assume every super uses a projectile.
+
+Expected examples
+- Ryu/Shinkuu:
+  dispatch rows around 0x908D74DA resolve child targets around 0x908D4BE0.
+  Payload candidate should attach the Shinkuu super_beam_card around 0x908D0BD0 when projectile scan sees it.
+- Morrigan/Finishing Shower:
+  dispatch row around 0x908E2DDA resolves child target around 0x908E046C.
+  Payload candidate should attach the Finishing Shower Missile template around 0x908E2900 when projectile scan sees it.

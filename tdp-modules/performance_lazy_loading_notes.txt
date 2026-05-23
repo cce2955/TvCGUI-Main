@@ -1,0 +1,40 @@
+Performance patch notes
+
+Goal:
+- Frame Data button should create the window immediately.
+- Heavy projectile/action graph scans should not run automatically on open.
+- Editing one value should update that row/cell in place and must not rescan/rebuild the whole workbench.
+- All top buttons should remain visible.
+
+Changes:
+1. Deferred initial tree population
+   fd_window._build no longer calls fd_tree.populate_tree synchronously before Tk paints the Toplevel.
+   It schedules _initial_populate_tree with root.after(25), so the window appears first.
+
+2. Lazy heavy scans
+   Projectile scan and special/action graph scan are no longer automatic on open.
+   They run when:
+   - user opens Projectiles view
+   - user opens Supers view
+   - user clicks Rescan projectiles / Rescan specials
+
+3. Fast frame row population
+   fd_tree.populate_tree skips expensive optional per-move probes by default:
+   - hit spark finder
+   - limb stretch finder
+   - post-link finder
+   - speed modifier finder
+   - attack-property finder
+   - SuperBG finder
+   These still resolve through Refresh visible or direct edit paths.
+
+4. Action/special graph scan no longer triggers a projectile scan fallback
+   If projectile rows are not already loaded, _start_super_scan passes an empty payload snapshot.
+   The action graph still uses parent -> child -> projectilemap damage sniffing.
+   Users can run Rescan projectiles separately when they want full template payload attachment.
+
+5. Three top action rows
+   Buttons are split across Search, View/actions, Scan/dump, and Patch/reset rows so Reset changed, Reset Order, and Show Bones stay visible.
+
+6. Manual Refresh visible remains the deep probe path
+   Refresh visible intentionally runs the expensive lazy probes on visible rows, then turns eager probing back off so future rebuilds stay fast.

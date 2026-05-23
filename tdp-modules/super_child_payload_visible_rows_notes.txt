@@ -1,0 +1,22 @@
+Super child payload visible rows patch
+
+Fixes the specific UI gap where the Super graph finder showed dispatch rows and child script rows, but did not surface the child-owned damage/field values underneath.
+
+Changes:
+- Graph-owned payload candidates are now merged back into owned_field_map when they carry a writeable damage address, so the parent dispatch row and field rows can show Damage even when the damage came from the move/payload scanner instead of a literal forward 35/10 child packet scan.
+- Normalizes dmg_write_addr -> damage_addr for projectile/payload candidates.
+- Child rows now include owned field summary and payload summary in their Details/context cell.
+- Owned field rows now nest under the child script row instead of being sibling rows beside the child.
+- Adds explicit owned payload rows under the child script row, showing payload address, damage, damage address, and owner proof.
+- Opens both the dispatch row and child row so the nested payload/field rows are immediately visible.
+
+Expected tree shape:
+
+Super graph finder
+  Grand Slam Attack Dispatch ...
+    -> child script 0x........
+      Owned Damage               Damage column populated, Link @ field address
+      owned payload 1: Grand Slam Attack   Damage column populated, Details damage @ address
+
+Compile check:
+python -m py_compile *.py

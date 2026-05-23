@@ -1,0 +1,47 @@
+Generic Super Finder patch
+
+Purpose:
+- Desync supers from the projectile scanner.
+- Stop treating compact 00/23 rows as projectile payload rows.
+- Add a dedicated super dispatch/caller graph scanner.
+
+New file:
+- fd_super_integration.py
+
+New UI behavior:
+- Automatic background scan for super dispatch rows after the FD window opens.
+- New root group: "Super dispatch graph".
+- Existing Supers view now promotes dispatch columns to the readable left side.
+- New button: "Rescan supers".
+
+Generic 00/23 dispatch row layout:
+- row + 0x00 = opcode 0x0023
+- row + 0x02 = action selector u32
+- row + 0x06 = variant / branch u32
+- row + 0x0A = phase length u32
+- row + 0x16 = child script link u32
+- child target resolves as 0x90893000 + child_link for the current known MEM2 layout
+
+Confirmed examples:
+Ryu/Shinkuu:
+- 0x908D74DA selector 0x60, phase 30, link 0x00041BE0, target 0x908D4BE0
+- 0x908D74F6 selector 0x61, phase 30, link 0x00041CC0, target 0x908D4CC0
+- 0x908D7512 selector 0x60, phase 30, link 0x00041C64, target 0x908D4C64
+- 0x908D752E selector 0x61, phase 30, link 0x00041D44, target 0x908D4D44
+
+Morrigan/Finishing Shower:
+- 0x908E2DDA-style rows are now treated as super dispatch/action caller rows, not projectile damage rows.
+- The confirmed missile payload remains in the projectile scanner/UI at 0x908E2900.
+
+Editable dispatch fields:
+- Action Selector
+- Variant / Branch
+- Phase Length
+- Child Script Link
+
+Safety note:
+- Phase Length is the safest advanced poke.
+- Selector and Child Script Link are intentionally exposed as advanced dispatch fields, but they are dangerous: mismatching selector/link can fall into Soul Fist or prevent the super from starting.
+
+Compile:
+- python -m py_compile *.py passed inside the patched source folder.

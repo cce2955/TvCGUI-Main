@@ -1,0 +1,25 @@
+Super parent-owned field sniffer patch
+
+Goal:
+A payload is not called a super because of its byte shape. A payload/field is promoted only when the super parent dispatch graph owns it:
+
+  00/23 parent dispatch row
+    -> child offset / resolved child target
+      -> owned child script window
+        -> known command packet / payload field
+
+New dynamic sniffed fields bundled onto the parent super row:
+- Damage from 35/10 child hit packet, u32 at packet + 0x04
+- Launch profile / launch adjust / X knockback / Y knockback from 35/07 or 35/09 KB packet
+- Hitstun / blockstun / hitstop from the 04/01 0x254 + 0x258 + 33/32 stun packet
+- Attack property from 04/01 0x240 packet
+- Hit reaction from 04/17 + 04/15 reaction packet
+
+These fields show on the Super graph finder parent row in normal columns like Damage, KB X, KB Y, Hitstun, Blockstun, Hitstop, Attack Property, and Hit Reaction.
+
+Editable behavior:
+- Dispatch fields still write the 00/23 parent row.
+- Owned fields write the resolved child script/payload address, not the 00/23 parent row.
+- Dirty/reset uses the same super row tracking path.
+
+This should make examples like Ippatsuman Grand Slam/Homerun show damage 1360 through the parent -> child ownership route instead of promoting unrelated projectile payloads like Mound Blast.

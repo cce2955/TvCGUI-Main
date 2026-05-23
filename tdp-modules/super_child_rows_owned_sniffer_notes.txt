@@ -1,0 +1,33 @@
+Patch: super child rows + owned backward/forward field sniff
+
+Why this exists:
+- The previous parent-owned sniffer bundled values onto the parent row, but most of that lived in far-right/hidden columns or only the right-side inspector.
+- It also scanned only forward from child_target. Ippatsuman Grand Slam shows a valid case where the parent dispatch child target sits after the owned hit packet, so the 1360 damage field can be behind the child entry.
+
+Changes:
+- Super dispatch rows now insert nested detail rows:
+  - child script row showing resolved child target and child link
+  - one owned field row per sniffed field, with the field address in Link and packet/source in Context
+- Dispatch rows are opened automatically so child rows are visible immediately.
+- The parent row Link summary now includes child target and owned field summary when available.
+- The owned sniffer now scans a bounded window around the child target:
+  child_target - 0x900 through child_target + 0x1200
+  instead of only child_target forward.
+- Child sniffing now runs for named selector rows as well as hard-super-proof rows, so the UI can show what the graph owns even before every super proof marker is confirmed.
+
+Field sniffers currently supported:
+- 35/10 Damage
+- 35/07 or 35/09 knockback packet
+- 04/01 hitstun/blockstun + 33/32 hitstop combo
+- 04/01 attack property
+- 04/17 + 04/15 hit reaction
+
+Expected UI:
+Super graph finder
+  Grand Slam Attack Dispatch ...
+    -> child script 0x........
+       Owned Damage @0x........
+       Owned X Knockback @0x........
+       ...
+
+The field rows map back to the parent move object, so editing the value cell still writes the child-owned field address, not the 00/23 dispatch row.

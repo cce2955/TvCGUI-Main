@@ -1,0 +1,62 @@
+TvC Character Dump
+==================
+Character: Karas
+Slot: P1-C1
+Created: 2026-05-22T17:05:34
+Moves: 1500
+Projectile rows already loaded: 0
+Super beam candidates: 1
+Projectile template candidates: 0
+
+Scan region
+-----------
+start: 0x90893000
+end:   0x90BD5000
+size:  3416064
+
+Command histogram
+-----------------
+04/01 29129  direct field write
+01/3C 19557  phase/anim record link
+33/35 13250  speed modifier
+01/33 11047  post-animation/script link
+04/17 10692  flag add/or op
+04/03  5675  field op
+01/34  5105  script/link reference
+34/3D  4764  effect/control packet
+34/41  4742  effect/control marker
+04/15  4176  flag clear/mask op
+33/03  3352  phase/action marker
+33/38  2984  paired action parameter
+11/16  2536  control marker
+34/04  2130  effect/control packet
+07/01  1613  field write/control op
+11/1E  1477  control packet
+35/0D   810  hitbox geometry packet
+35/10   468  damage/power
+33/32   465  hitstop
+35/01   450  active/window
+35/0A   328  hitdata phase/reset marker
+35/05   188  hit spark / hitdata behavior packet
+36/43   168  meter/resource packet
+32/56   163  action/control marker
+35/09   114  knockback packet
+34/40    58  reach/stretch/effect scale packet
+11/22    39  control packet
+
+Super beam candidates
+---------------------
+0x90932430 dmg=720 hits=20 interval=5 lifetime=114 fx=1001 bone=15 speed=6.0 radius=48.0
+
+Projectile template candidates
+-----------------------------
+None found in the selected scan region.
+
+Loaded projectile/super rows
+----------------------------
+No projectile rows were loaded in the workbench yet.
+
+Raw files
+---------
+move_head_chunks: raw\move_heads.bin
+candidate_chunks: raw\candidate_chunks.bin

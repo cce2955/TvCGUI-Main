@@ -36,10 +36,50 @@ _SUPER_FIELD_OFFSETS = {
     "super_speed_2":      (0x09C, "f32"),  # user-tested: additional speed value
     "super_accel_b":      (0x0B0, "f32"),  # Ryu has 32 here; secondary motion/offset candidate
     "super_accel_c":      (0x0D4, "f32"),  # Ryu has 60 here; secondary motion/decel candidate
-    "super_multihit_cap": (0x0D8, "u32"),  # semi-confirmed: high values instant-max multihits
-    "super_radius":       (0x0E4, "f32"),  # CONFIRMED: super radius
+    # Legacy experimental fields from the first probe pass. Keep these for old rows,
+    # but the user-facing workbench now uses the friendlier super_beam_* names below.
+    "super_multihit_cap": (0x0D8, "u32"),  # old probe slot, not the Shinkuu hit-count field
+    "super_radius":       (0x0E4, "f32"),  # CONFIRMED: super radius / hit radius
+
+    # Shinkuu/Kikosho-style super beam card fields. Offsets are relative to the
+    # real super-card base, e.g. Ryu Shinkuu at 0x908D0BD0.
+    "super_hit_count":    (0x024, "u32"),  # 0x908D0BF4: number of hit emissions allowed
+    "super_hit_interval": (0x028, "u32"),  # 0x908D0BF8: time spacing for each emitted hit
+    "super_particle_fx":  (0x040, "u32"),  # 0x908D0C10: on-screen particle/effect id
+    "super_beam_width":   (0x03C, "f32"),  # 0x908D0C0C: collision/beam width scale
+    "super_hit_source":   (0x060, "u32"),  # 0x908D0C30: linked hit source/anchor, dangerous
+    "super_spawn_bone":   (0x068, "u32"),  # 0x908D0C38: spawn bone/origin selector
+    "super_lifetime":     (0x084, "u32"),  # 0x908D0C54: beam lifetime in frames/units
+    "super_beam_visual":  (0x0E8, "u32"),  # 0x908D0CB8: render extent / visual shape
+
+    # Final-hit card embedded after the main beam card. These are exposed on the
+    # main super row for quick editing; they are not separate projectile rows.
+    "super_final_damage":      (0x110, "u32"),
+    "super_final_lifetime":    (0x114, "u32"),
+    "super_final_particle_fx": (0x134, "u32"),
+    "super_final_spawn_bone":  (0x154, "u32"),
 }
 
+
+
+# Compact 00/23 and 01/23 projectile-super cards.
+# These are not Shinkuu/Kikosho beam cards; they are smaller hit/projectile
+# records used by Volnutt Machine Gun Sweep, Casshan Brutal Ax, Tekkaman
+# Voltekka chunks, and Morrigan Finishing Shower bullet tables.
+PROJECTILE_SUPER_FMTS = {"projectile_super_card", "projectile_super_card_0123"}
+_PROJECTILE_SUPER_FIELD_OFFSETS = {
+    "ps_lifetime":      (0x008, "u16"),  # active/life window for this card
+    "ps_hit_count":     (0x00C, "u16"),  # hit/emission count for this card
+    "ps_mode":          (0x010, "u16"),  # card mode/style; still being farmed
+    "ps_emit_count":    (0x018, "u16"),  # secondary emit/count field
+    "ps_interval":      (0x01C, "u16"),  # interval/spacing when present
+    "ps_offset_x":      (0x026, "f32"),  # spawn/velocity X-ish value
+    "ps_offset_y":      (0x02A, "f32"),  # spawn/velocity Y-ish value
+    "ps_scale":         (0x02E, "f32"),  # scale/radius-ish constant, often 1.0
+    "ps_particle_fx":   (0x034, "u16"),  # particle/effect id
+    "ps_projectile_id": (0x052, "u16"),  # projectile/object id/type slot
+    "ps_spawn_bone":    (0x05C, "u16"),  # spawn bone/source selector when present
+}
 
 # ---------------------------------------------------------------------------
 # Scan parameters
@@ -128,6 +168,20 @@ _NAME_TO_KEY = {
     "Gold Lightan": "LIGHTAN", "PTX-40A": "PTX",
 }
 
+# Fallback names for canonical Shinkuu/Kikosho-style beam cards when the
+# owning slot is known but the per-hit damage value does not match that
+# character's projectile map.  This is needed for supers like Morrigan's
+# Finishing Shower, where the visible super is a multi-hit beam/barrage card
+# with a small per-hit damage value that can collide with unrelated moves.
+_SUPER_BEAM_DEFAULT_MOVE_BY_KEY = {
+    "RYU": "Shinkuu Hadouken",
+    "CHUN": "Kikosho",
+    "MORRIGAN": "Finishing Shower",
+    "VOLNUTT": "Machine Gun Sweep",
+    "TEKKAMAN": "Voltekka",
+    "CASSHAN": "Super Destruction Beam",
+}
+
 CHAR_SIGS = {
     "KEN": [b"\x00\x00\x00\x09"],
     "RYU": [b"\x00\x04\x01\x02"],
@@ -159,6 +213,8 @@ SCRIPT_OPCODES: dict[bytes, dict] = {
 }
 
 def _dmg_write_offset(fmt: str) -> int:
+    if str(fmt or "") in PROJECTILE_SUPER_FMTS:
+        return 4
     for info in SCRIPT_OPCODES.values():
         if info["fmt_name"] == fmt:
             return info["dmg_offset"]
@@ -616,6 +672,21 @@ def _read_u32(addr: int) -> str:
         return str(struct.unpack(">I", b)[0]) if b and len(b) == 4 else "?"
     except Exception:
         return "?"
+
+def _read_u32_int(addr: int):
+    """Internal u32 reader for scanner validation.
+
+    The UI reader above returns text.  Validation needs an int; using the text
+    reader made the canonical super-beam pass reject valid cards and fall back
+    to shifted shadow rows.
+    """
+    if rbytes is None:
+        return None
+    try:
+        b = rbytes(addr, 4)
+        return struct.unpack(">I", b)[0] if b and len(b) == 4 else None
+    except Exception:
+        return None
 
 def _read_u16_hex(addr: int) -> str:
     if rbytes is None: return "?"
@@ -1266,6 +1337,138 @@ def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
     Raw zombie spree variants stay suppressed.
     """
     return
+def _looks_like_super_dispatch_0023(data: bytes, idx: int) -> bool:
+    """Return True when a 00/23 match is a super/action dispatch row.
+
+    Compact projectile-super cards and super dispatch rows both begin with
+    00 23 00 00.  Dispatch rows are not projectile payloads: at +0x02 they
+    hold the action selector u32, at +0x06 variant, at +0x0A phase length, and
+    at +0x16 a child script link.  If we let the projectile scanner own these,
+    rows like Morrigan selector 0x60 become fake "damage 96" bullets.
+    """
+    try:
+        if idx < 0 or idx + 0x1A > len(data):
+            return False
+        if data[idx:idx + 2] != b"\x00\x23":
+            return False
+        selector = struct.unpack_from(">I", data, idx + 0x02)[0]
+        variant = struct.unpack_from(">I", data, idx + 0x06)[0]
+        phase = struct.unpack_from(">I", data, idx + 0x0A)[0]
+        param_a = struct.unpack_from(">I", data, idx + 0x0E)[0]
+        param_b = struct.unpack_from(">I", data, idx + 0x12)[0]
+        child_link = struct.unpack_from(">I", data, idx + 0x16)[0]
+    except Exception:
+        return False
+
+    # Confirmed Ryu/Shinkuu and Morrigan rows use small selectors and sane
+    # phase values, then jump through a 00/04xxxx-style script link.
+    if not (0 <= selector <= 0x200):
+        return False
+    if not (0 <= variant <= 0x200):
+        return False
+    if not (0 <= phase <= 0x400):
+        return False
+    if not (0 <= param_a <= 0x400 and 0 <= param_b <= 0x400):
+        return False
+    if not (0x00010000 <= child_link <= 0x00090000):
+        return False
+    return True
+
+
+def _read_projectile_super_field(addr: int, name: str):
+    off, typ = _PROJECTILE_SUPER_FIELD_OFFSETS.get(name, (None, None))
+    if off is None:
+        return "?"
+    a = int(addr) + int(off)
+    if typ == "f32":
+        return _read_f32(a)
+    if typ == "u16":
+        return _read_u16(a)
+    if typ == "u32":
+        return _read_u32(a)
+    if typ == "u8":
+        return _read_u8(a)
+    return "?"
+
+def _projectile_super_case_label(slot_key: str | None, owner_base: int | None, addr: int, dmg: int, card_type: int) -> str | None:
+    """Best-effort case names for compact projectile-super cards farmed from dumps."""
+    rel = int(addr) - int(owner_base or 0) if owner_base else None
+    if slot_key == "MORRIGAN":
+        # Finishing Shower is a dense table of small 00/23 bullet cards.
+        if 0x4B000 <= int(rel or 0) <= 0x4E800 and 20 <= int(dmg) <= 140:
+            return "Finishing Shower Bullet"
+        return "Morrigan Projectile Super Card"
+    if slot_key == "VOLNUTT":
+        if int(dmg) == 480:
+            return "Machine Gun Sweep"
+        if int(dmg) == 2000:
+            return "Machine Gun Sweep Super Card"
+        return None
+    if slot_key == "TEKKAMAN":
+        if int(dmg) == 1280:
+            return "Voltekka (Ground)"
+        if int(dmg) == 720:
+            return "Voltekka Projectile Card"
+        if int(dmg) == 1760:
+            return "Disco Ball Card"
+        if int(dmg) == 1920:
+            return "Voltekka Projectile Card"
+        return None
+    if slot_key == "CASSHAN":
+        if int(dmg) == 1440:
+            return "Brutal Ax"
+        if int(dmg) in (960, 1040):
+            return "Casshan Projectile Super Card"
+        return None
+    return None
+
+def _append_projectile_super_card(hits: list, lookup: dict, char_damage_map: dict,
+                                  slot_char_ids: dict[int, int] | None,
+                                  addr: int, dmg: int, fmt: str, card_type: int) -> None:
+    owner_base = _owning_chr_tbl(addr)
+    if owner_base is None:
+        return
+    slot_key = _key_for_hit_addr(addr, slot_char_ids)
+    active_keys = _active_keys_from_lookup(lookup)
+    if active_keys and slot_key not in active_keys:
+        return
+
+    move = _projectile_super_case_label(slot_key, owner_base, addr, int(dmg), int(card_type))
+    if move is None and slot_key is not None:
+        mapped = char_damage_map.get(slot_key, {}).get(int(dmg), [])
+        if mapped:
+            move = mapped[0]
+        elif int(dmg) < 500:
+            return
+        else:
+            move = "Projectile Super Card"
+    if move is None:
+        if int(dmg) < 500:
+            # Low-damage cards are usually tables; without ownership/context they
+            # are too noisy to show.
+            return
+        move = "Projectile Super Card"
+
+    hit = {
+        "addr": int(addr),
+        "dmg": int(dmg),
+        "fmt": fmt,
+        "dmg_write_addr": int(addr) + 0x04,
+        **_OPCODE_HIT_FIELDS,
+        "cluster": f"projectile super {card_type:04X} @ 0x{int(addr):08X}",
+        "key": slot_key or "?",
+        "move": move,
+        "ps_card_type": int(card_type),
+    }
+    for name in _PROJECTILE_SUPER_FIELD_OFFSETS:
+        hit[name] = _read_projectile_super_field(int(addr), name)
+    # Make common template columns useful for these rows too.
+    hit["lifetime"] = hit.get("ps_lifetime")
+    hit["hitbox"] = hit.get("ps_scale")
+    hit["speed"] = hit.get("ps_offset_x")
+    hit["accel"] = hit.get("ps_offset_y")
+    hits.append(hit)
+
 def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
                       slot_char_ids: dict[int, int] | None,
                       addr: int, dmg, fmt: str, dmg_write_addr: int,
@@ -1280,20 +1483,28 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
     }
     if extra:
         hit_base.update(extra)
-    if fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
+    if fmt in ("super_struct", "super_struct_card", "super_struct_card2", "super_beam_card"):
         ex_base = _super_ex_base(addr, fmt)
         ex03c = _read_f32(ex_base + _SUPER_EX_OFFSETS["ex03c"])
+        def _read_named_super_field(name: str):
+            off, typ = _SUPER_FIELD_OFFSETS.get(name, (None, None))
+            if off is None:
+                return "?"
+            a = ex_base + int(off)
+            if typ == "f32":
+                return _read_f32(a)
+            if typ == "u16":
+                return _read_u16(a)
+            if typ == "u32":
+                return _read_u32(a)
+            if typ == "u8":
+                return _read_u8(a)
+            return "?"
+
+        for _name in _SUPER_FIELD_OFFSETS.keys():
+            hit_base[_name] = _read_named_super_field(_name)
+
         hit_base.update({
-            "super_hit_react":    _read_u16(ex_base + _SUPER_FIELD_OFFSETS["super_hit_react"][0]),
-            "super_life":         _read_u16(ex_base + _SUPER_FIELD_OFFSETS["super_life"][0]),
-            "super_air_kb_y":        _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_air_kb_y"][0]),
-            "super_speed": _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_speed"][0]),
-            "super_accel": _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_accel"][0]),
-            "super_speed_2":      _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_speed_2"][0]),
-            "super_accel_b":      _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_accel_b"][0]),
-            "super_accel_c":      _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_accel_c"][0]),
-            "super_multihit_cap":    _read_u32(ex_base + _SUPER_FIELD_OFFSETS["super_multihit_cap"][0]),
-            "super_radius":       _read_f32(ex_base + _SUPER_FIELD_OFFSETS["super_radius"][0]),
             "ex03c": ex03c,
             "ex060": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex060"]),
             "ex090": _read_f32(ex_base + _SUPER_EX_OFFSETS["ex090"]),
@@ -1308,6 +1519,25 @@ def _append_super_hit(hits: list, lookup: dict, char_damage_map: dict,
     if isinstance(dmg, int):
         slot_key = _key_for_hit_addr(addr, slot_char_ids)
         active_keys = _active_keys_from_lookup(lookup)
+
+        # Canonical super-beam rows need an owning-slot fallback before global
+        # damage lookup.  If the slot is known and selected, use the character's
+        # known beam-super name when its per-hit damage is not in the map.
+        # Do not use selected-character fallback without slot ownership; that
+        # would mislabel another slot's beam card when scanning all MEM2.
+        if (
+            fmt == "super_beam_card"
+            and slot_key in _SUPER_BEAM_DEFAULT_MOVE_BY_KEY
+            and (not active_keys or slot_key in active_keys)
+        ):
+            slot_moves = char_damage_map.get(slot_key, {}).get(dmg, [])
+            if not slot_moves:
+                hits.append({
+                    **hit_base,
+                    "key": slot_key,
+                    "move": _SUPER_BEAM_DEFAULT_MOVE_BY_KEY[slot_key],
+                })
+                return
         if slot_key is not None:
             moves = char_damage_map.get(slot_key, {}).get(dmg, [])
             if moves and (not active_keys or slot_key in active_keys):
@@ -1337,6 +1567,8 @@ def _super_ex_base(addr: int, fmt: str) -> int:
         return addr - 0x0E
     if fmt == "super_struct_card2":
         return addr - 0x0C
+    if fmt == "super_beam_card":
+        return addr
     return addr
 
 
@@ -1395,6 +1627,70 @@ def _super_probe_string(ex_base: int, max_items: int = 28) -> str:
 def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
                               lookup: dict, char_damage_map: dict,
                               slot_char_ids: dict[int, int] | None) -> None:
+    beam_ranges: list[tuple[int, int]] = []
+
+    def _inside_beam_range(addr: int) -> bool:
+        try:
+            a = int(addr)
+        except Exception:
+            return False
+        for lo, hi in beam_ranges:
+            if lo <= a < hi:
+                return True
+        return False
+
+    # ── Pass 0: real super beam card ──────────────────────────────────────
+    # Shape seen on Ryu Shinkuu / Chun Kikosho:
+    #   base+0x08 = 0000000C
+    #   base+0x0C = 00000023
+    #   base+0x10 = damage u32
+    # This keeps the row anchored to the real card base, not the shifted 0x23
+    # signature used by the older exploratory scanner.
+    pos = 0
+    beam_sig = b"\x00\x00\x00\x0C\x00\x00\x00\x23"
+    while True:
+        sig_i = data.find(beam_sig, pos)
+        if sig_i < 0:
+            break
+        pos = sig_i + 1
+        idx = sig_i - 8
+        if idx < 0:
+            continue
+        if idx + 0x158 > len(data):
+            continue
+
+        block_addr = base_addr + idx
+        if _owning_chr_tbl(block_addr) is None:
+            continue
+
+        dmg = _read_u32_int(block_addr + 0x10)
+        if not isinstance(dmg, int) or not (2 <= dmg <= 30000):
+            continue
+
+        # Soft validation: lifetime/count/particle fields should be sane, but
+        # do not overfit because other supers may use different ids/counts.
+        # Some valid cards use 0xFFFFFFFF / 0xFFFFFFFE as sentinel values.
+        lifetime = _read_u32_int(block_addr + 0x84)
+        hit_count = _read_u32_int(block_addr + 0x24)
+        if isinstance(lifetime, int) and lifetime not in (0xFFFFFFFF, 0xFFFFFFFE) and lifetime > 0x10000:
+            continue
+        if isinstance(hit_count, int) and hit_count > 0x10000:
+            continue
+
+        beam_ranges.append((block_addr, block_addr + 0x160))
+
+        _append_super_hit(
+            hits, lookup, char_damage_map, slot_char_ids,
+            block_addr, dmg, "super_beam_card", block_addr + 0x10,
+            f"super beam @ 0x{block_addr:08X}",
+            {
+                "opcode": _read_u16_hex(block_addr),
+                "param1": _read_u16_hex(block_addr + 2),
+                "param2": _read_u16_hex(block_addr + 4),
+                "param3": _read_u16_hex(block_addr + 6),
+            }
+        )
+
     # ── Pass 1: original sig  00 00 0C 00 00 00 23 00 ─────────────────────
     pos = 0
     while True:
@@ -1405,6 +1701,8 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
 
         block_addr = base_addr + idx
         if _owning_chr_tbl(block_addr) is None:
+            continue
+        if _inside_beam_range(block_addr):
             continue
 
         window_end = min(idx + SUPER_VERIFY_LOOK, len(data))
@@ -1439,6 +1737,8 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
         block_addr = base_addr + idx
         if _owning_chr_tbl(block_addr) is None:
             continue
+        if _inside_beam_range(block_addr):
+            continue
 
         dmg_off = idx + 4
         if dmg_off + 6 > len(data):
@@ -1460,7 +1760,7 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
         )
 
 
-    # ── Pass 3: alt card  01 23 00 00 [dmg hi] [dmg lo]
+    # ── Pass 3: compact projectile-super card  01 23 00 00 [dmg hi] [dmg lo]
     pos = 0
     while True:
         idx = data.find(b"\x01\x23\x00\x00", pos)
@@ -1471,26 +1771,22 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
         block_addr = base_addr + idx
         if _owning_chr_tbl(block_addr) is None:
             continue
-        if idx + 8 > len(data):
+        if _inside_beam_range(block_addr):
+            continue
+        if idx + 0x60 > len(data):
             continue
 
         dmg = (data[idx + 4] << 8) | data[idx + 5]
-        if not (500 <= dmg <= 20000):
+        life = (data[idx + 8] << 8) | data[idx + 9]
+        if not (2 <= dmg <= 30000 and 0 <= life <= 0x400):
             continue
 
-        _append_super_hit(
+        _append_projectile_super_card(
             hits, lookup, char_damage_map, slot_char_ids,
-            block_addr, dmg, "super_struct_card", base_addr + idx + 4,
-            f"super card @ 0x{block_addr:08X}",
-            {
-                "opcode": _read_u16_hex(block_addr),
-                "param1": _read_u16_hex(block_addr + 2),
-                "param2": _read_u16_hex(block_addr + 4),
-                "param3": _read_u16_hex(block_addr + 6),
-            }
+            block_addr, dmg, "projectile_super_card_0123", 0x0123
         )
 
-    # ── Pass 4: shifted alt card  00 23 00 00 [dmg hi] [dmg lo] ...
+    # ── Pass 4: compact projectile-super card  00 23 00 00 [dmg hi] [dmg lo] ...
     pos = 0
     while True:
         idx = data.find(b"\x00\x23\x00\x00", pos)
@@ -1498,27 +1794,127 @@ def _scan_super_struct_blocks(data: bytes, base_addr: int, hits: list,
             break
         pos = idx + 1
 
+        if _looks_like_super_dispatch_0023(data, idx):
+            # Super/action caller rows are handled by fd_super_integration.
+            # They are not projectile payload cards.
+            continue
+
         block_addr = base_addr + idx
         if _owning_chr_tbl(block_addr) is None:
             continue
-        if idx + 8 > len(data):
+        if _inside_beam_range(block_addr):
             continue
-        dmg = (data[idx + 4] << 8) | data[idx + 5]
-        if not (500 <= dmg <= 20000):
+        if idx + 0x60 > len(data):
             continue
 
-        _append_super_hit(
+        dmg = (data[idx + 4] << 8) | data[idx + 5]
+        life = (data[idx + 8] << 8) | data[idx + 9]
+        count = (data[idx + 0x0C] << 8) | data[idx + 0x0D]
+        # Low damage is important for Morrigan-style projectile-super tables,
+        # but require sane card values so ordinary data does not flood the UI.
+        if not (2 <= dmg <= 30000 and 0 <= life <= 0x400 and 0 <= count <= 0x400):
+            continue
+
+        _append_projectile_super_card(
             hits, lookup, char_damage_map, slot_char_ids,
-            block_addr, dmg, "super_struct_card2", base_addr + idx + 4,
-            f"super card2 @ 0x{block_addr:08X}",
-            {
-                "opcode": _read_u16_hex(block_addr),
-                "param1": _read_u16_hex(block_addr + 2),
-                "param2": _read_u16_hex(block_addr + 4),
-                "param3": _read_u16_hex(block_addr + 6),
-            }
+            block_addr, dmg, "projectile_super_card", 0x0023
         )
  
+
+
+def _scan_morrigan_finishing_shower_missile(data: bytes,
+                                            base_addr: int,
+                                            hits: list,
+                                            active_keys,
+                                            slot_char_ids: dict[int, int] | None,
+                                            seen_fs_missiles: set[int]) -> None:
+    """Find Morrigan Finishing Shower's live missile template.
+
+    This block is not the normal 00 00 dmg / 00 00 00 0C projectile-template
+    layout, and it is not the later 00/23 card-list table.  User pokes
+    confirmed this live record shape:
+
+      base + 0x06 = u16 damage, 0x0320 / 800
+      base + 0x30 = f32 radius
+      base + 0x34 = u32 FX / hit effect ID
+      base + 0x5F = u8 spawn origin / bone-ish selector
+      base + 0x90 = f32 travel speed
+      base + 0xD8 = f32 secondary radius / hitbox radius
+
+    Canonical example: base 0x908E2900, damage 0x908E2906, speed 0x908E2990, secondary radius 0x908E29D8.
+    """
+    try:
+        if "MORRIGAN" not in {str(k).upper() for k in (active_keys or [])}:
+            return
+    except Exception:
+        return
+    if not data:
+        return
+
+    # Damage lives inside this record, so do not include 0x0320 in the
+    # signature.  Otherwise the row disappears after the user edits damage.
+    sig = b"\x00\x00\x01\x03"
+    start = 0
+    while True:
+        off = data.find(sig, start)
+        if off < 0:
+            break
+        if off + 0x94 > len(data):
+            start = off + 1
+            continue
+        # Confirm the local invariant bytes from the known 0x908E2900 block.
+        if data[off + 0x08:off + 0x10] != b"\x00\x00\x00\x10\x00\x00\x00\x01":
+            start = off + 1
+            continue
+        a = base_addr + off
+        start = off + 1
+        if a in seen_fs_missiles:
+            continue
+        if slot_char_ids:
+            try:
+                if _key_for_hit_addr(a, slot_char_ids) != "MORRIGAN":
+                    continue
+            except Exception:
+                continue
+        # Soft validators from the current confirmed memory page.  Keep them
+        # permissive so altered values do not make the row disappear mid-edit.
+        try:
+            dmg = _read_u16(a + 0x06)
+            kb_x = _read_f32(a + 0x28)
+            kb_y = _read_f32(a + 0x2C)
+            radius = _read_f32(a + 0x30)
+            fx = _read_u32(a + 0x34)
+            spawn_origin = _read_u8(a + 0x5F)
+            speed = _read_f32(a + 0x90)
+            hitbox = _read_f32(a + 0xD8)
+            pid = _read_u16(a + 0x52)
+            ptype = _read_u8(a + 0x51)
+        except Exception:
+            dmg = speed = radius = fx = spawn_origin = pid = ptype = kb_x = kb_y = hitbox = "?"
+        hits.append({
+            "addr": a,
+            "key": "MORRIGAN",
+            "move": "Finishing Shower Missile",
+            "dmg": dmg,
+            "dmg_write_addr": a + 0x06,
+            "fmt": "morrigan_fs_missile",
+            "cluster": "confirmed live missile template",
+            "proj_role": "confirmed",
+            "type": ptype,
+            "id": pid,
+            "radius": radius,
+            "fx": fx,
+            "spawn_origin": spawn_origin,
+            "speed": speed,
+            "accel": "?",
+            "kb_x": kb_x,
+            "kb_y": kb_y,
+            "hitbox": hitbox,
+            "arc": "?",
+            "arc2": "?",
+        })
+        seen_fs_missiles.add(a)
+
 def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
     if rbytes is None:
         done_cb([]); return
@@ -1535,6 +1931,7 @@ def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
     hits  = []
     addr  = SCAN_START
     seen_zombie_variants: set = set()
+    seen_fs_missiles: set[int] = set()
 
     while addr < SCAN_END:
         sz = min(SCAN_BLOCK, SCAN_END - addr)
@@ -1547,6 +1944,7 @@ def _run_scan(active_keys, progress_cb, done_cb, show_unknowns: bool = True):
             _scan_opcode_blocks(data, addr, hits, lookup, slot_char_ids)
             _scan_suffix_blocks(data, addr, hits, lookup, id_map, slot_char_ids)
             _scan_zombie_blocks(data, addr, hits, lookup, seen_zombie_variants, slot_char_ids)
+            _scan_morrigan_finishing_shower_missile(data, addr, hits, active_keys, slot_char_ids, seen_fs_missiles)
             _scan_super_struct_blocks(data, addr, hits, lookup, char_damage_map, slot_char_ids)
         progress_cb((addr - SCAN_START + sz) / total * 100.0)
         addr += sz
@@ -1572,7 +1970,7 @@ def _dump_hits(hits: list, context: int = 0x100):
         return
     super_hits = [
         h for h in hits
-        if h.get("fmt") in ("super_struct", "super_struct_card", "super_struct_card2")
+        if h.get("fmt") in ("super_struct", "super_struct_card", "super_struct_card2", "super_beam_card")
     ]
     if not super_hits:
         return
@@ -1604,17 +2002,30 @@ _COLS = [
     ("dmg",      "Damage",    "dmg",      False),
     ("cluster",  "Cluster",   None,       False),
 
-    # Named super fields. These are editable for super_struct / super_struct_card rows.
+    # Named super fields. These are editable for super rows.
+    ("super_lifetime",     "Lifetime",     "super_lifetime", False),
+    ("super_hit_count",    "Hit Count",    "super_hit_count", False),
+    ("super_hit_interval", "Hit Interval", "super_hit_interval", False),
+    ("super_particle_fx",  "Particle FX",  "super_particle_fx", False),
+    ("super_spawn_bone",   "Spawn Bone",   "super_spawn_bone", False),
+    ("super_hit_source",   "Hit Source",   "super_hit_source", False),
+    ("super_air_kb_y",     "Beam Scale",   "super_air_kb_y", True),
+    ("super_beam_width",   "Beam Width",   "super_beam_width", True),
+    ("super_speed",        "Beam Speed",   "super_speed", True),
+    ("super_accel",        "Beam Force",   "super_accel", True),
+    ("super_radius",       "Hit Radius",   "super_radius", True),
+    ("super_beam_visual",  "Beam Visual",  "super_beam_visual", False),
+    ("super_final_damage",      "Final Damage",   "super_final_damage", False),
+    ("super_final_lifetime",    "Final Life",     "super_final_lifetime", False),
+    ("super_final_particle_fx", "Final FX",       "super_final_particle_fx", False),
+    ("super_final_spawn_bone",  "Final Bone",     "super_final_spawn_bone", False),
+    # Older exploratory slots kept for farming other supers.
     ("super_hit_react",    "HitReact",     "super_hit_react", False),
-    ("super_life",         "SuperLife?",   "super_life", False),
-    ("super_air_kb_y",        "AirKBY?",  "super_air_kb_y", True),
-    ("super_speed", "SuperSpeed", "super_speed", True),
-    ("super_accel", "SuperAccel?", "super_accel", True),
-    ("super_speed_2",      "SuperSpeed2?",      "super_speed_2", True),
+    ("super_life",         "OldLife?",     "super_life", False),
+    ("super_speed_2",      "SuperSpeed2?", "super_speed_2", True),
     ("super_accel_b",      "AccelB?",      "super_accel_b", True),
     ("super_accel_c",      "AccelC?",      "super_accel_c", True),
-    ("super_multihit_cap",    "MultiHitCap?",    "super_multihit_cap", False),
-    ("super_radius",       "SuperRadius",  "super_radius", True),
+    ("super_multihit_cap", "UnknownD8",    "super_multihit_cap", False),
 
     # Standard projectile/template fields.
     ("radius",   "Radius",    "radius",   True),
@@ -1861,15 +2272,15 @@ class ProjScannerWindow:
             elif move_name == "Zombie Attack" and fkey == "spawn_x":
                 field_addr = addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X
                 field_label = header
-            elif fkey in _SUPER_FIELD_OFFSETS and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2"):
+            elif fkey in _SUPER_FIELD_OFFSETS and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2", "super_beam_card"):
                 ex_base = _super_ex_base(addr, self._fmt_for_iid(iid))
                 field_addr = ex_base + _SUPER_FIELD_OFFSETS[fkey][0]
                 field_label = header
-            elif fkey == "hitbox" and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2"):
+            elif fkey == "hitbox" and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2", "super_beam_card"):
                 ex_base = _super_ex_base(addr, self._fmt_for_iid(iid))
                 field_addr = ex_base + _SUPER_EX_OFFSETS["ex03c"]
                 field_label = header
-            elif fkey in _SUPER_EX_OFFSETS and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2"):
+            elif fkey in _SUPER_EX_OFFSETS and self._fmt_for_iid(iid) in ("super_struct", "super_struct_card", "super_struct_card2", "super_beam_card"):
                 ex_base = _super_ex_base(addr, self._fmt_for_iid(iid))
                 field_addr = ex_base + _SUPER_EX_OFFSETS[fkey]
             elif move_name.startswith("Zombie Spree "):
@@ -1989,10 +2400,10 @@ class ProjScannerWindow:
             write_addr = addr + _FRANK_ZOMBIE_FALL_SPAWN_Y_OFF
         elif move_name == "Zombie Attack" and fkey == "speed":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPEED_A
-        elif fkey == "hitbox" and fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
+        elif fkey == "hitbox" and fmt in ("super_struct", "super_struct_card", "super_struct_card2", "super_beam_card"):
             ex_base = _super_ex_base(addr, fmt)
             write_addr = ex_base + _SUPER_EX_OFFSETS["ex03c"]
-        elif fkey in _SUPER_EX_OFFSETS and fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
+        elif fkey in _SUPER_EX_OFFSETS and fmt in ("super_struct", "super_struct_card", "super_struct_card2", "super_beam_card"):
             ex_base = _super_ex_base(addr, fmt)
             write_addr = ex_base + _SUPER_EX_OFFSETS[fkey]
         elif move_name == "Zombie Attack" and fkey == "accel":
@@ -2000,7 +2411,7 @@ class ProjScannerWindow:
 
         elif move_name == "Zombie Attack" and fkey == "spawn_x":
             write_addr = addr + _FRANK_ZOMBIE_ATTACK_SPAWN_X
-        elif fkey in _SUPER_FIELD_OFFSETS and fmt in ("super_struct", "super_struct_card", "super_struct_card2"):
+        elif fkey in _SUPER_FIELD_OFFSETS and fmt in ("super_struct", "super_struct_card", "super_struct_card2", "super_beam_card"):
             ex_base = _super_ex_base(addr, fmt)
             write_addr = ex_base + _SUPER_FIELD_OFFSETS[fkey][0]
         elif move_name.startswith("Zombie Spree "):
@@ -2099,7 +2510,9 @@ class ProjScannerWindow:
                 resolved = self._dmg_write_by_iid.get(iid)
                 fallback = addr + _dmg_write_offset(fmt)
 
-                if fmt in ("super_struct", "super_struct_card", "super_struct_card2") and resolved is not None:
+                if fmt == "super_beam_card" and resolved is not None:
+                    ok = _write_u32(resolved, ival)
+                elif fmt in ("super_struct", "super_struct_card", "super_struct_card2") and resolved is not None:
                     if not (0 <= ival <= 0xFFFF):
                         messagebox.showerror("Out of range", "Damage must be 0–65535.",
                                             parent=self.root)

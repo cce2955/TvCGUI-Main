@@ -1,0 +1,24 @@
+Patch: super simple child-forward sniffer
+
+Purpose:
+The Super graph view should do exactly the verified workflow:
+  1. Start from a 00/23 parent dispatch row.
+  2. Follow its child offset/link to the resolved child target.
+  3. Search forward from that child target for owned field packets like 35/10 damage.
+
+Important changes:
+- Removed the selector >= 0x60 filter before field sniffing. Some useful super-owned hit/emitter parents use lower selectors, such as Ippatsuman Grand Slam's 0x37-style rows.
+- Removed broad backward scanning around the child target. That was dragging unrelated earlier hit packets into the parent and produced bogus values like 65360.
+- The owned-field sniffer now starts exactly at child_target and scans forward.
+- Payload/name proximity promotion is disabled for the visible owned rows. A payload does not become super-owned just because its name or damage is near a super root.
+- After sniffing, the UI keeps only useful rows: named top-level super callers, or dispatch rows that actually own sniffed fields/payloads.
+
+Expected result:
+The Super graph expands as:
+  parent dispatch
+    -> child script target
+      Owned Damage @ real damage address
+      other owned fields when sniffed
+
+Compile check:
+  python -m py_compile fd_super_integration.py fd_tree.py fd_window.py

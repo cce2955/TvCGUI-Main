@@ -25,6 +25,7 @@ from fd_patterns import (
 from fd_widgets import Tooltip, get_field_help
 from fd_move_families import annotate_move_families
 import fd_projectile_integration as FPI
+import fd_super_integration as FSI
 
 
 FD_COLUMNS = (
@@ -40,6 +41,7 @@ FD_COLUMNS = (
     # Projectile columns are hidden from the simplest frame-data view but live
     # in the same Treeview so users no longer need a separate projectile table.
     *FPI.PROJECTILE_COLUMNS,
+    *FSI.SUPER_DISPATCH_COLUMNS,
     "abs",
 )
 
@@ -55,31 +57,43 @@ FD_CORE_COLUMNS = (
     # projectile/super views move the heavy projectile columns up front so the
     # user does not have to horizontal-scroll across the raw scout table.
     "proj_speed", "proj_radius", "proj_life", "proj_fmt",
+    "dispatch_selector", "dispatch_phase", "dispatch_child_link",
     "abs",
 )
 
 FD_PROJECTILE_COLUMNS_FOCUSED = (
-    "move", "link",
+    "move", "link", "proj_emit_count",
     "damage", "kb_x", "air_kb",
     "proj_fmt", "proj_id", "proj_type",
-    "proj_radius", "proj_life", "proj_speed", "proj_accel",
+    "proj_radius", "proj_fx", "proj_life", "proj_spawn_origin", "proj_speed", "proj_accel",
     "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2",
-    "proj_super_hit_react", "proj_super_life", "proj_super_speed",
-    "proj_super_radius", "proj_multihit_cap",
+    "proj_ps_lifetime", "proj_ps_hit_count", "proj_ps_emit_count",
+    "proj_ps_interval", "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone",
+    "proj_super_lifetime", "proj_super_hit_count", "proj_super_hit_interval",
+    "proj_super_particle_fx", "proj_super_spawn_bone",
+    "proj_super_beam_speed", "proj_super_hit_radius",
     "abs",
 )
 
 FD_SUPER_COLUMNS_FOCUSED = (
     "move", "kind", "hits", "link",
-    "damage", "meter", "startup", "active",
-    "hitstun", "blockstun", "hitstop",
+    "dispatch_group", "dispatch_confidence", "dispatch_super_proof", "dispatch_owner_proof",
+    "dispatch_selector", "dispatch_variant", "dispatch_phase", "dispatch_child_link", "dispatch_child_target",
+    "proj_emit_count",
+    "damage",
+    "proj_ps_card_type", "proj_ps_lifetime", "proj_ps_hit_count",
+    "proj_ps_mode", "proj_ps_emit_count", "proj_ps_interval",
+    "proj_ps_offset_x", "proj_ps_offset_y", "proj_ps_scale",
+    "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone",
+    "proj_super_lifetime", "proj_super_hit_count", "proj_super_hit_interval",
+    "proj_super_particle_fx", "proj_super_spawn_bone", "proj_super_hit_source",
+    "proj_super_beam_scale", "proj_super_beam_width", "proj_super_beam_speed",
+    "proj_super_beam_force", "proj_super_hit_radius", "proj_super_beam_visual",
+    "proj_final_damage", "proj_final_lifetime", "proj_final_particle_fx", "proj_final_spawn_bone",
+    "startup", "active", "hitstun", "blockstun", "hitstop",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
     "speed_mod", "attack_property", "hit_reaction", "superbg",
-    "proj_super_hit_react", "proj_super_life", "proj_super_air_kb_y",
-    "proj_super_speed", "proj_super_accel", "proj_super_speed_2",
-    "proj_super_accel_b", "proj_super_accel_c",
-    "proj_multihit_cap", "proj_super_radius",
     "abs",
 )
 
@@ -116,6 +130,7 @@ FD_LABELS = {
     "superbg": "SuperBG",
     **FPI.PROJECTILE_LABELS,
     "abs": "Address",
+    **FSI.SUPER_DISPATCH_LABELS,
 }
 
 
@@ -287,7 +302,10 @@ def build_top_bar(win) -> None:
     top = ttk.Frame(win.root, style="Top.TFrame")
     top.pack(side="top", fill="x", padx=10, pady=(10, 6))
 
-    hero = ttk.Frame(top, style="Hero.TFrame", padding=(12, 8))
+    header = ttk.Frame(top, style="Top.TFrame")
+    header.pack(side="top", fill="x")
+
+    hero = ttk.Frame(header, style="Hero.TFrame", padding=(12, 8))
     hero.pack(side="left", fill="x", expand=True)
 
     ttk.Label(hero, text=f"Frame Data Workbench: {win.slot_label} ({cname})", style="HeroTitle.TLabel").pack(anchor="w")
@@ -302,9 +320,18 @@ def build_top_bar(win) -> None:
             textvariable=win._projectile_status_var,
             style="HeroSub.TLabel",
         ).pack(anchor="w", pady=(2, 0))
+    if getattr(win, "_super_status_var", None) is not None:
+        ttk.Label(
+            hero,
+            textvariable=win._super_status_var,
+            style="HeroSub.TLabel",
+        ).pack(anchor="w", pady=(2, 0))
 
+    # Keep controls on full-width rows instead of one long right-packed line.
+    # The workbench now has enough actions that a single bar gets clipped on
+    # 1280-1700px windows.  Split into rows so every button remains visible.
     controls = ttk.Frame(top, style="Top.TFrame")
-    controls.pack(side="right", padx=(10, 0))
+    controls.pack(side="top", fill="x", pady=(8, 0))
 
     search = ttk.Frame(controls, style="Top.TFrame")
     search.pack(side="top", fill="x")
@@ -314,10 +341,15 @@ def build_top_bar(win) -> None:
     Tooltip(ent, "Search visible move names, kinds, and addresses. Press Enter to apply.")
     ent.bind("<Return>", lambda _e: win._apply_filter())
     ttk.Button(search, text="Apply", command=win._apply_filter).pack(side="left", padx=(6, 0))
-    ttk.Button(search, text="Clear", command=win._clear_filter).pack(side="left", padx=(6, 0))
+    ttk.Button(search, text="Clear", command=win._clear_filter).pack(side="left", padx=(6, 12))
+    ttk.Label(search, textvariable=win._changed_count_var, style="Muted.Top.TLabel").pack(side="right", padx=(8, 4))
 
     actions = ttk.Frame(controls, style="Top.TFrame")
     actions.pack(side="top", fill="x", pady=(6, 0))
+    actions2 = ttk.Frame(controls, style="Top.TFrame")
+    actions2.pack(side="top", fill="x", pady=(4, 0))
+    actions3 = ttk.Frame(controls, style="Top.TFrame")
+    actions3.pack(side="top", fill="x", pady=(4, 0))
 
     win._fd_view_var = tk.StringVar(master=win.root, value="View: Frame")
     win._filter_panel_btn_var = tk.StringVar(master=win.root, value="Advanced filters")
@@ -331,11 +363,16 @@ def build_top_bar(win) -> None:
     ttk.Button(actions, text="Expand", command=win._expand_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Collapse", command=win._collapse_all).pack(side="left", padx=4)
     ttk.Button(actions, text="Refresh", command=win._refresh_visible).pack(side="left", padx=4)
-    ttk.Button(actions, text="Rescan projectiles", command=lambda: getattr(win, "_start_projectile_scan", lambda **_k: None)(auto=False)).pack(side="left", padx=4)
-    ttk.Button(actions, text="Save patch", command=lambda: getattr(win, "_save_fd_patch_config", lambda: None)()).pack(side="left", padx=(10, 4))
-    ttk.Button(actions, text="Load patch", command=lambda: getattr(win, "_load_fd_patch_config", lambda: None)()).pack(side="left", padx=4)
-    ttk.Label(actions, textvariable=win._changed_count_var, style="Muted.Top.TLabel").pack(side="left", padx=(12, 4))
-    ttk.Button(actions, text="Reset changed", command=win._reset_all_moves).pack(side="left", padx=4)
+
+    ttk.Button(actions2, text="Rescan projectiles", command=lambda: getattr(win, "_start_projectile_scan", lambda **_k: None)(auto=False)).pack(side="left", padx=(0, 4))
+    ttk.Button(actions2, text="Rescan specials", command=lambda: getattr(win, "_start_super_scan", lambda **_k: None)(auto=False)).pack(side="left", padx=4)
+    ttk.Button(actions2, text="Dump char", command=lambda: getattr(win, "_dump_character_data", lambda: None)()).pack(side="left", padx=4)
+
+    ttk.Button(actions3, text="Save patch", command=lambda: getattr(win, "_save_fd_patch_config", lambda: None)()).pack(side="left", padx=(0, 4))
+    ttk.Button(actions3, text="Load patch", command=lambda: getattr(win, "_load_fd_patch_config", lambda: None)()).pack(side="left", padx=4)
+    ttk.Button(actions3, text="Reset changed", command=win._reset_all_moves).pack(side="left", padx=(10, 4))
+    ttk.Button(actions3, text="Reset Order", command=lambda: getattr(win, "_reset_to_original_grouping", lambda: None)()).pack(side="left", padx=4)
+    ttk.Button(actions3, text="Show Bones", command=lambda: getattr(win, "_show_bones", lambda: None)()).pack(side="left", padx=4)
 
 
 def _build_inspector(win, parent: ttk.Frame) -> None:
@@ -495,8 +532,13 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         ("Hit FX and reach", ["hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time"]),
         ("Dangerous script links", ["post_link"]),
         ("Flags and lookup", ["invuln", "superbg", "kind", "abs"]),
-        ("Projectile data", ["proj_fmt", "proj_id", "proj_type", "proj_radius", "proj_life", "proj_speed", "proj_accel", "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2"]),
-        ("Projectile super probes", ["proj_super_hit_react", "proj_super_life", "proj_super_air_kb_y", "proj_super_speed", "proj_super_accel", "proj_super_speed_2", "proj_super_accel_b", "proj_super_accel_c", "proj_multihit_cap", "proj_super_radius"]),
+        ("Super dispatch", ["dispatch_group", "dispatch_selector", "dispatch_variant", "dispatch_phase", "dispatch_child_link", "dispatch_child_target"]),
+        ("Projectile emitter", ["proj_emit_count", "damage", "kb_x", "air_kb", "proj_ps_lifetime", "proj_ps_hit_count", "proj_ps_emit_count", "proj_ps_interval", "proj_radius", "proj_speed", "proj_accel", "proj_spawn_origin", "proj_ps_scale", "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone"]),
+        ("Projectile data", ["proj_fmt", "proj_id", "proj_type", "proj_radius", "proj_fx", "proj_life", "proj_spawn_origin", "proj_speed", "proj_accel", "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2"]),
+        ("Projectile super", ["proj_ps_card_type", "proj_ps_lifetime", "proj_ps_hit_count", "proj_ps_mode", "proj_ps_emit_count", "proj_ps_interval", "proj_ps_offset_x", "proj_ps_offset_y", "proj_ps_scale", "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone"]),
+        ("Super beam", ["proj_super_lifetime", "proj_super_hit_count", "proj_super_hit_interval", "proj_super_particle_fx", "proj_super_spawn_bone", "proj_super_hit_source", "proj_super_beam_scale", "proj_super_beam_width", "proj_super_beam_speed", "proj_super_beam_force", "proj_super_hit_radius", "proj_super_beam_visual"]),
+        ("Final hit", ["proj_final_damage", "proj_final_lifetime", "proj_final_particle_fx", "proj_final_spawn_bone"]),
+        ("Projectile super probes", ["proj_super_hit_react", "proj_super_life", "proj_super_speed_2", "proj_super_accel_b", "proj_super_accel_c", "proj_multihit_cap"]),
     ]
 
     click_help = {
@@ -506,6 +548,9 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         "link": "Display-only family/section link.",
         "context": "Display-only compact details summary.",
         "proj_fmt": "Display-only projectile record format.",
+        "proj_emit_count": "Display-only number of physical projectile cards in this emitter group.",
+        "dispatch_group": "Display-only group of adjacent 00/23 dispatch rows.",
+        "dispatch_child_target": "Display-only resolved child script target.",
         "invuln": "Display-only startup-protection probe.",
     }
 
@@ -660,7 +705,9 @@ def build_tree_widget(win) -> ttk.Frame:
         "proj_id": 10,
         "proj_type": 10,
         "proj_radius": 10,
+        "proj_fx": 10,
         "proj_life": 10,
+        "proj_spawn_origin": 12,
         "proj_speed": 10,
         "proj_accel": 10,
         "proj_kb_y": 10,
@@ -677,6 +724,18 @@ def build_tree_widget(win) -> ttk.Frame:
         "proj_super_accel_c": 12,
         "proj_multihit_cap": 12,
         "proj_super_radius": 12,
+        "proj_ps_card_type": 10,
+        "proj_ps_lifetime": 10,
+        "proj_ps_hit_count": 10,
+        "proj_ps_mode": 10,
+        "proj_ps_emit_count": 10,
+        "proj_ps_interval": 10,
+        "proj_ps_offset_x": 10,
+        "proj_ps_offset_y": 10,
+        "proj_ps_scale": 10,
+        "proj_ps_particle_fx": 10,
+        "proj_ps_projectile_id": 10,
+        "proj_ps_spawn_bone": 10,
         "abs": 12,
     }
 
@@ -715,7 +774,9 @@ def build_tree_widget(win) -> ttk.Frame:
         "proj_id": "ProjID",
         "proj_type": "ProjType",
         "proj_radius": "PRadius",
+        "proj_fx": "PFX",
         "proj_life": "PLife",
+        "proj_spawn_origin": "Origin",
         "proj_speed": "PSpeed",
         "proj_accel": "PAccel",
         "proj_kb_y": "PKBY",
@@ -732,6 +793,18 @@ def build_tree_widget(win) -> ttk.Frame:
         "proj_super_accel_c": "SAccelC",
         "proj_multihit_cap": "HitCap",
         "proj_super_radius": "SRadius",
+        "proj_ps_card_type": "PSCard",
+        "proj_ps_lifetime": "PSLife",
+        "proj_ps_hit_count": "PSHits",
+        "proj_ps_mode": "PSMode",
+        "proj_ps_emit_count": "PSEmit",
+        "proj_ps_interval": "PSInt",
+        "proj_ps_offset_x": "PSX",
+        "proj_ps_offset_y": "PSY",
+        "proj_ps_scale": "PSScale",
+        "proj_ps_particle_fx": "PSFX",
+        "proj_ps_projectile_id": "PSID",
+        "proj_ps_spawn_bone": "PSBone",
         "abs": "Abs",
     }
 
@@ -889,6 +962,7 @@ def build_tree_widget(win) -> ttk.Frame:
         ("proj_id", "Proj ID"),
         ("proj_type", "Proj Type"),
         ("proj_radius", "Proj Radius"),
+        ("proj_fx", "Projectile FX"),
         ("proj_life", "Proj Life"),
         ("proj_speed", "Proj Speed"),
         ("proj_accel", "Proj Accel"),
@@ -904,8 +978,42 @@ def build_tree_widget(win) -> ttk.Frame:
         ("proj_super_speed_2", "Super Speed 2"),
         ("proj_super_accel_b", "Super Accel B"),
         ("proj_super_accel_c", "Super Accel C"),
-        ("proj_multihit_cap", "MultiHit Cap"),
-        ("proj_super_radius", "Super Radius"),
+        ("proj_multihit_cap", "Unknown D8"),
+        ("proj_super_radius", "Hit Radius"),
+        ("proj_ps_card_type", "Card Type"),
+        ("proj_ps_lifetime", "Active Time"),
+        ("proj_ps_hit_count", "Hits"),
+        ("proj_ps_mode", "Mode"),
+        ("proj_ps_emit_count", "Emit Limit"),
+        ("proj_ps_interval", "Interval"),
+        ("proj_ps_offset_x", "Spawn X"),
+        ("proj_ps_offset_y", "Spawn Y"),
+        ("proj_ps_scale", "Scale"),
+        ("proj_ps_particle_fx", "FX"),
+        ("proj_ps_projectile_id", "Proj ID"),
+        ("proj_ps_spawn_bone", "Bone"),
+        ("proj_super_lifetime", "Lifetime"),
+        ("proj_super_hit_count", "Hit Count"),
+        ("proj_super_hit_interval", "Hit Interval"),
+        ("proj_super_particle_fx", "Particle FX"),
+        ("proj_super_spawn_bone", "Spawn Bone"),
+        ("proj_super_hit_source", "Hit Source"),
+        ("proj_super_beam_scale", "Beam Scale"),
+        ("proj_super_beam_width", "Beam Width"),
+        ("proj_super_beam_speed", "Beam Speed"),
+        ("proj_super_beam_force", "Beam Force"),
+        ("proj_super_hit_radius", "Hit Radius"),
+        ("proj_super_beam_visual", "Beam Visual"),
+        ("proj_final_damage", "Final Damage"),
+        ("proj_final_lifetime", "Final Lifetime"),
+        ("proj_final_particle_fx", "Final FX"),
+        ("proj_final_spawn_bone", "Final Bone"),
+        ("dispatch_group", "Dispatch Group"),
+        ("dispatch_selector", "Action Sel"),
+        ("dispatch_variant", "Variant"),
+        ("dispatch_phase", "Phase Len"),
+        ("dispatch_child_link", "Child Link"),
+        ("dispatch_child_target", "Child Target"),
         ("abs", "Address"),
     ]
     for c, txt in headers:
@@ -945,7 +1053,9 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("proj_id", width=78, anchor="center")
     win.tree.column("proj_type", width=78, anchor="center")
     win.tree.column("proj_radius", width=96, anchor="center")
+    win.tree.column("proj_fx", width=82, anchor="center")
     win.tree.column("proj_life", width=82, anchor="center")
+    win.tree.column("proj_spawn_origin", width=92, anchor="center")
     win.tree.column("proj_speed", width=92, anchor="center")
     win.tree.column("proj_accel", width=92, anchor="center")
     win.tree.column("proj_kb_y", width=92, anchor="center")
@@ -962,6 +1072,40 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("proj_super_accel_c", width=112, anchor="center")
     win.tree.column("proj_multihit_cap", width=106, anchor="center")
     win.tree.column("proj_super_radius", width=106, anchor="center")
+    win.tree.column("proj_ps_card_type", width=86, anchor="center")
+    win.tree.column("proj_ps_lifetime", width=88, anchor="center")
+    win.tree.column("proj_ps_hit_count", width=88, anchor="center")
+    win.tree.column("proj_ps_mode", width=88, anchor="center")
+    win.tree.column("proj_ps_emit_count", width=88, anchor="center")
+    win.tree.column("proj_ps_interval", width=88, anchor="center")
+    win.tree.column("proj_ps_offset_x", width=88, anchor="center")
+    win.tree.column("proj_ps_offset_y", width=88, anchor="center")
+    win.tree.column("proj_ps_scale", width=88, anchor="center")
+    win.tree.column("proj_ps_particle_fx", width=88, anchor="center")
+    win.tree.column("proj_ps_projectile_id", width=88, anchor="center")
+    win.tree.column("proj_ps_spawn_bone", width=88, anchor="center")
+    win.tree.column("proj_super_lifetime", width=92, anchor="center")
+    win.tree.column("proj_super_hit_count", width=92, anchor="center")
+    win.tree.column("proj_super_hit_interval", width=96, anchor="center")
+    win.tree.column("proj_super_particle_fx", width=96, anchor="center")
+    win.tree.column("proj_super_spawn_bone", width=96, anchor="center")
+    win.tree.column("proj_super_hit_source", width=104, anchor="center")
+    win.tree.column("proj_super_beam_scale", width=96, anchor="center")
+    win.tree.column("proj_super_beam_width", width=96, anchor="center")
+    win.tree.column("proj_super_beam_speed", width=96, anchor="center")
+    win.tree.column("proj_super_beam_force", width=96, anchor="center")
+    win.tree.column("proj_super_hit_radius", width=96, anchor="center")
+    win.tree.column("proj_super_beam_visual", width=98, anchor="center")
+    win.tree.column("proj_final_damage", width=98, anchor="center")
+    win.tree.column("proj_final_lifetime", width=98, anchor="center")
+    win.tree.column("proj_final_particle_fx", width=92, anchor="center")
+    win.tree.column("proj_final_spawn_bone", width=92, anchor="center")
+    win.tree.column("dispatch_group", width=130, anchor="center")
+    win.tree.column("dispatch_selector", width=90, anchor="center")
+    win.tree.column("dispatch_variant", width=82, anchor="center")
+    win.tree.column("dispatch_phase", width=86, anchor="center")
+    win.tree.column("dispatch_child_link", width=112, anchor="center")
+    win.tree.column("dispatch_child_target", width=120, anchor="center")
     win.tree.column("abs", width=124, anchor="w")
 
     win._fd_all_columns = tuple(cols)
@@ -997,7 +1141,7 @@ def build_tree_widget(win) -> ttk.Frame:
         messages = {
             "frame": "Frame view: normal frame-data columns are prioritized.",
             "projectile": "Projectile view: projectile damage, ID/type, speed, life, hitbox, and probe fields are moved next to the move name.",
-            "super": "Super view: super flags and projectile-super probe fields are moved into the readable left side.",
+            "super": "Super view: 00/23 dispatch rows, child links, beam cards, and projectile-super payloads are moved into the readable left side.",
             "all": "All columns visible for raw scouting data.",
         }
         try:
@@ -1006,6 +1150,19 @@ def build_tree_widget(win) -> ttk.Frame:
             pass
         try:
             win._status_var.set(messages.get(mode, messages["frame"]))
+        except Exception:
+            pass
+
+        # Lazy-load heavy sections only when the user asks for those views.
+        # This keeps the Frame Data button responsive and prevents projectile/
+        # action graph scans from running during basic frame-data edits.
+        try:
+            if mode == "projectile" and not getattr(win, "_projectile_hits", None) and not getattr(win, "_projectile_scanning", False):
+                win._auto_scans_enabled = True
+                win._start_projectile_scan(auto=True)
+            elif mode == "super" and not getattr(win, "_super_hits", None) and not getattr(win, "_super_scanning", False):
+                win._auto_scans_enabled = True
+                win._start_super_scan(auto=True)
         except Exception:
             pass
 
@@ -1060,6 +1217,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("family_header_super", background="#315F91", foreground="#FFFFFF")
     win.tree.tag_configure("family_header_other", background="#203554", foreground="#DCEBFF")
     win.tree.tag_configure("projectile_header", background="#2B5C88", foreground="#F1FCFF", font=("Segoe UI Semibold", 9))
+    win.tree.tag_configure("super_header", background="#3B4D8A", foreground="#F5F7FF", font=("Segoe UI Semibold", 9))
 
     # Child rows should read as belonging to their parent, while still keeping
     # enough contrast to edit individual records.
@@ -1068,6 +1226,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("special_row", foreground="#D4ECFF")
     win.tree.tag_configure("super_row", background="#183154", foreground="#EFF7FF")
     win.tree.tag_configure("projectile_row", background="#17344F", foreground="#D9F6FF")
+    win.tree.tag_configure("super_row", background="#1F2D55", foreground="#E7ECFF")
 
     win.tree.tag_configure("kb_hot", foreground="#9FCCFF")
     win.tree.tag_configure("combo_hot", foreground="#B7D6FF")
@@ -1090,6 +1249,8 @@ def _compact_row_context(mv: dict | None, attack_property_txt: str = "", hr_txt:
     if not isinstance(mv, dict):
         return ""
     try:
+        if FSI.is_super_row(mv):
+            return FSI.super_context_summary(mv)
         if FPI.is_projectile_row(mv):
             return FPI.projectile_quick_summary(mv)
     except Exception:
@@ -1152,6 +1313,12 @@ def populate_tree(win) -> None:
         if cached is None or len(data) >= len(cached):
             _fd_read_cache[addr_i] = data
         return data
+
+    # Fast open path: the normal scanner already provides damage/startup/active/
+    # stun/KB.  These extra probe finders are expensive because they read and
+    # pattern-scan around every move.  Leave them off during initial populate;
+    # Refresh visible or a direct edit can resolve them lazily.
+    deep_probe = bool(getattr(win, "_fd_eager_deep_probe", False))
 
     def _hit_count_text(mv):
         if mv.get("_hit_segment_index") is not None:
@@ -1254,7 +1421,7 @@ def populate_tree(win) -> None:
         air_kb_txt = U.fmt_air_kb_ui(mv)
         hitstop_txt = U.fmt_stun(mv.get("hitstop"))
 
-        if move_abs:
+        if move_abs and deep_probe:
             try:
                 rbytes = _fd_cached_rbytes
                 if mv.get("hit_spark_addr") is None:
@@ -1298,7 +1465,7 @@ def populate_tree(win) -> None:
         post_link_txt = U.fmt_post_link_ui(mv)
 
         speed_txt = ""
-        if move_abs:
+        if move_abs and deep_probe:
             if mv.get("speed_mod_addr") is None:
                 try:
                     rbytes = _fd_cached_rbytes
@@ -1314,7 +1481,7 @@ def populate_tree(win) -> None:
         invuln_txt = str(mv.get("invuln") or "")
 
         attack_property_txt = ""
-        if move_abs:
+        if move_abs and deep_probe:
             if mv.get("attack_property_addr") is None:
                 try:
                     rbytes = _fd_cached_rbytes
@@ -1328,7 +1495,7 @@ def populate_tree(win) -> None:
             attack_property_txt = fmt_attack_property(mv.get("attack_property"))
 
         superbg_txt = ""
-        if move_abs:
+        if move_abs and deep_probe:
             if mv.get("superbg_addr") is None:
                 try:
                     from dolphin_io import rd8
@@ -1599,6 +1766,7 @@ def populate_tree(win) -> None:
     # it later after the background projectile scan completes.
     try:
         populate_projectile_rows(win, replace=True)
+        populate_super_rows(win, replace=True)
     except Exception:
         pass
 
@@ -1739,6 +1907,10 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
     hits = list(getattr(win, "_projectile_hits", []) or [])
     if not hits:
         return
+    try:
+        hits = FPI.with_projectile_emitters(hits)
+    except Exception:
+        pass
 
     vals = {c: "" for c in FD_COLUMNS}
     vals["move"] = "Projectile definitions"
@@ -1773,7 +1945,11 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
             addr = 0xFFFFFFFF
 
         unknown = 1 if (h.get("key") == "?" or low in {"unknown", "signature match", "super struct candidate"}) else 0
-        fmt_rank = 0 if fmt in ("template", "template2") else (1 if fmt.startswith("super") else 2)
+        if fmt == "projectile_emitter":
+            fmt_rank = -1
+            unknown = 0
+        else:
+            fmt_rank = 0 if fmt in ("template", "template2") else (1 if fmt.startswith("super") else 2)
 
         # Keep strength families readable: L/M/H or A/B/C should stay in that
         # order instead of alphabetically putting H before L/M. Prefer scanner
@@ -1806,8 +1982,8 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
         mv = FPI.projectile_row_from_hit(h, row_i)
         row = {c: "" for c in FD_COLUMNS}
         row["move"] = _indent_move_text(win.tree, header, f"{mv.get('move_name') or 'Projectile'}")
-        row["kind"] = "projectile"
-        row["hits"] = "proj"
+        row["kind"] = mv.get("kind") or "projectile"
+        row["hits"] = "emit" if FPI.is_projectile_emitter_row(mv) else "proj"
         row["link"] = FPI.format_projectile_value(mv, "proj_cluster") or FPI.format_projectile_value(mv, "proj_fmt")
         row["context"] = FPI.projectile_quick_summary(mv)
         row["damage"] = FPI.format_projectile_value(mv, "damage")
@@ -1834,7 +2010,267 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
         except Exception:
             pass
 
+def populate_super_rows(win, replace: bool = True) -> None:
+    """Insert generic 00/23 super dispatch rows into the same FD Treeview."""
+    if not getattr(win, "tree", None):
+        return
+
+    if replace:
+        for iid in list(win.tree.get_children("")):
+            try:
+                tags = set(win.tree.item(iid, "tags") or ())
+                if "super_header" in tags:
+                    win.tree.delete(iid)
+                    if iid in getattr(win, "_all_item_ids", []):
+                        win._all_item_ids.remove(iid)
+            except Exception:
+                pass
+        try:
+            win.move_to_tree_item = {
+                iid: mv for iid, mv in (win.move_to_tree_item or {}).items()
+                if not FSI.is_super_row(mv)
+            }
+        except Exception:
+            pass
+
+    hits = list(getattr(win, "_super_hits", []) or [])
+    if not hits:
+        return
+
+    vals = {c: "" for c in FD_COLUMNS}
+    vals["move"] = "Special/action graph finder"
+    vals["kind"] = "action graph"
+    vals["hits"] = "00/23"
+    payload_total = 0
     try:
-        win.tree.item(header, open=True)
+        payload_total = sum(int((h or {}).get("payload_count") or 0) for h in hits)
+    except Exception:
+        payload_total = 0
+    vals["link"] = f"{len(hits)} dispatch row(s), {payload_total} payload candidate(s)"
+    vals["context"] = "Dynamic graph: caller rows -> child targets -> projectilemap/packet-owned fields. This covers specials and supers; projectile rows remain payload-only."
+    addrs = []
+    for h in hits:
+        try:
+            addrs.append(int(h.get("addr") or 0))
+        except Exception:
+            pass
+    vals["abs"] = f"0x{min(a for a in addrs if a):08X}" if any(addrs) else ""
+    header = win.tree.insert(
+        "",
+        _projectile_root_insert_index(win),
+        text="",
+        tags=("super_header", "family_header"),
+        values=tuple(vals.get(c, "") for c in FD_COLUMNS),
+    )
+    try:
+        win._all_item_ids.append(header)
     except Exception:
         pass
+
+    def _sort_key(h):
+        return (str(h.get("dispatch_group") or ""), int(h.get("addr") or 0xFFFFFFFF))
+
+    for row_i, h in enumerate(sorted(hits, key=_sort_key)):
+        mv = FSI.super_row_from_hit(h, row_i)
+        row = {c: "" for c in FD_COLUMNS}
+        row["move"] = _indent_move_text(win.tree, header, f"{mv.get('move_name') or 'Super Dispatch'}")
+        row["kind"] = mv.get("kind") or "super dispatch"
+        row["hits"] = "call"
+        row["link"] = FSI.super_quick_summary(mv)
+        row["context"] = FSI.super_context_summary(mv)
+        for c in FSI.SUPER_DISPATCH_COLUMNS:
+            row[c] = FSI.format_super_value(mv, c)
+        for c in getattr(FSI, "SUPER_OWNED_COLUMNS", ()):
+            row[c] = FSI.format_super_value(mv, c)
+        addr = mv.get("abs")
+        row["abs"] = f"0x{int(addr):08X}" if addr else ""
+        iid = win.tree.insert(
+            header,
+            "end",
+            text="",
+            tags=("row_even" if (row_i % 2 == 0) else "row_odd", "child_row", "super_row"),
+            values=tuple(row.get(c, "") for c in FD_COLUMNS),
+        )
+        win.move_to_tree_item[iid] = mv
+        try:
+            win._all_item_ids.append(iid)
+        except Exception:
+            pass
+        try:
+            win._apply_row_tags(iid, mv)
+        except Exception:
+            pass
+
+        # Make the graph visible without forcing the user to scroll into hidden
+        # columns/sidebar: show the resolved child target and every sniffed
+        # super-owned field as nested rows under the parent dispatch row.
+        try:
+            hit = mv.get("_super_hit") or {}
+            child_target = int(hit.get("child_target") or 0)
+            child_link = int(hit.get("child_link") or 0)
+            child_parent = iid
+            if child_target:
+                drow = {c: "" for c in FD_COLUMNS}
+                drow["move"] = _indent_move_text(win.tree, iid, f"-> child script 0x{child_target:08X}")
+                drow["kind"] = "super child"
+                drow["hits"] = "child"
+                drow["link"] = f"link 0x{child_link:08X}"
+                scout = str(hit.get("child_scout") or "")
+                scan_start = hit.get("owned_scan_start")
+                scan_end = hit.get("owned_scan_end")
+                scan_txt = ""
+                try:
+                    if scan_start and scan_end:
+                        scan_txt = f"owned scan 0x{int(scan_start):08X}-0x{int(scan_end):08X}"
+                except Exception:
+                    scan_txt = ""
+                owned_fields_txt = str(hit.get("owned_script_field_summary") or "")
+                payload_txt = str(hit.get("payload_summary") or "")
+                drow["context"] = " | ".join(x for x in (scan_txt, owned_fields_txt, payload_txt, scout) if x)
+                drow["abs"] = f"0x{child_target:08X}"
+                ciid = win.tree.insert(
+                    iid,
+                    "end",
+                    text="",
+                    tags=("child_row", "super_child_row"),
+                    values=tuple(drow.get(c, "") for c in FD_COLUMNS),
+                )
+                child_parent = ciid
+                try:
+                    win._all_item_ids.append(ciid)
+                except Exception:
+                    pass
+
+            fmap = hit.get("owned_field_map") or {}
+            order = ("damage", "kb_x", "air_kb", "hitstun", "blockstun", "hitstop", "attack_property", "hit_reaction", "launch_profile", "kb_unknown")
+            labels = getattr(FSI, "SUPER_OWNED_FIELD_INFO", {})
+            for field_col in order:
+                field = fmap.get(field_col) if isinstance(fmap, dict) else None
+                if not isinstance(field, dict):
+                    continue
+                frow = {c: "" for c in FD_COLUMNS}
+                label = labels.get(field_col, (None, field_col, None))[1] if isinstance(labels, dict) else field_col
+                try:
+                    faddr = int(field.get("addr") or 0)
+                except Exception:
+                    faddr = 0
+                frow["move"] = _indent_move_text(win.tree, child_parent, f"{label}")
+                frow["kind"] = "owned field"
+                frow["hits"] = "field"
+                if field_col in FD_COLUMNS:
+                    frow[field_col] = FSI.format_super_value(mv, field_col)
+                frow["link"] = f"@0x{faddr:08X}" if faddr else ""
+                src = str(field.get("source") or "")
+                try:
+                    pkt = int(field.get("packet_addr") or 0)
+                except Exception:
+                    pkt = 0
+                frow["context"] = (src + (f" packet 0x{pkt:08X}" if pkt else "")).strip()
+                frow["abs"] = f"0x{faddr:08X}" if faddr else ""
+                fiid = win.tree.insert(
+                    child_parent,
+                    "end",
+                    text="",
+                    tags=("child_row", "super_owned_field_row"),
+                    values=tuple(frow.get(c, "") for c in FD_COLUMNS),
+                )
+                # Map the row back to the parent mv so editing the value cell
+                # still writes the owned child-script address.
+                win.move_to_tree_item[fiid] = mv
+                try:
+                    win._all_item_ids.append(fiid)
+                except Exception:
+                    pass
+
+            # Also show the owned payload candidates themselves.  These are the
+            # rows that answer "where is the damage/field payload under this
+            # child?" even when the address came from the move/payload scanner
+            # rather than a literal 35/10 packet in the forward child bytes.
+            for pi, payload in enumerate(list(hit.get("payload_candidates") or []), start=1):
+                if not isinstance(payload, dict):
+                    continue
+                prow = {c: "" for c in FD_COLUMNS}
+                try:
+                    paddr = int(payload.get("addr") or 0)
+                except Exception:
+                    paddr = 0
+                pname = str(payload.get("move") or payload.get("fmt") or "owned payload")
+                pfmt = str(payload.get("fmt") or "payload")
+                prow["move"] = _indent_move_text(win.tree, child_parent, f"owned payload {pi}: {pname}")
+                prow["kind"] = pfmt
+                prow["hits"] = "payload"
+                prow["link"] = f"@0x{paddr:08X}" if paddr else ""
+                if payload.get("dmg") not in (None, "", "?"):
+                    prow["damage"] = str(payload.get("dmg"))
+                if payload.get("kb_x") not in (None, "", "?"):
+                    prow["kb_x"] = str(payload.get("kb_x"))
+                if payload.get("kb_y") not in (None, "", "?"):
+                    prow["air_kb"] = str(payload.get("kb_y"))
+                # Reuse the normal projectile columns for graph-owned payloads
+                # so attached templates show their actual editable-looking field
+                # surface instead of just a name + damage.
+                payload_to_tree = {
+                    "radius": "proj_radius",
+                    "fx": "proj_fx",
+                    "spawn_origin": "proj_spawn_origin",
+                    "speed": "proj_speed",
+                    "accel": "proj_accel",
+                    "hitbox": "proj_hitbox",
+                    "lifetime": "proj_life",
+                    "fmt": "proj_fmt",
+                    "ps_lifetime": "proj_ps_lifetime",
+                    "ps_hit_count": "proj_ps_hit_count",
+                    "ps_emit_count": "proj_ps_emit_count",
+                    "ps_interval": "proj_ps_interval",
+                    "ps_scale": "proj_ps_scale",
+                    "ps_particle_fx": "proj_ps_particle_fx",
+                    "ps_projectile_id": "proj_ps_projectile_id",
+                    "ps_spawn_bone": "proj_ps_spawn_bone",
+                    "super_lifetime": "proj_super_lifetime",
+                    "super_hit_count": "proj_super_hit_count",
+                    "super_hit_interval": "proj_super_hit_interval",
+                    "super_particle_fx": "proj_super_particle_fx",
+                    "super_spawn_bone": "proj_super_spawn_bone",
+                    "super_hit_source": "proj_super_hit_source",
+                    "super_speed": "proj_super_beam_speed",
+                    "super_accel": "proj_super_beam_force",
+                    "super_radius": "proj_super_hit_radius",
+                    "super_beam_width": "proj_super_beam_width",
+                    "super_beam_visual": "proj_super_beam_visual",
+                    "super_final_damage": "proj_final_damage",
+                    "super_final_lifetime": "proj_final_lifetime",
+                    "super_final_particle_fx": "proj_final_particle_fx",
+                    "super_final_spawn_bone": "proj_final_spawn_bone",
+                }
+                for pk, col in payload_to_tree.items():
+                    if col in FD_COLUMNS and payload.get(pk) not in (None, "", "?"):
+                        prow[col] = str(payload.get(pk))
+                if payload.get("damage_addr") not in (None, "", "?"):
+                    try:
+                        prow["context"] = f"damage @0x{int(payload.get('damage_addr')):08X}"
+                    except Exception:
+                        prow["context"] = f"damage @{payload.get('damage_addr')}"
+                owner = str(payload.get("owner_proof") or payload.get("owner_relation") or "")
+                if owner:
+                    prow["context"] = (prow.get("context") + " | " if prow.get("context") else "") + owner
+                prow["abs"] = f"0x{paddr:08X}" if paddr else ""
+                piid = win.tree.insert(
+                    child_parent,
+                    "end",
+                    text="",
+                    tags=("child_row", "super_owned_payload_row"),
+                    values=tuple(prow.get(c, "") for c in FD_COLUMNS),
+                )
+                win.move_to_tree_item[piid] = mv
+                try:
+                    win._all_item_ids.append(piid)
+                except Exception:
+                    pass
+            try:
+                win.tree.item(iid, open=True)
+                if child_parent != iid:
+                    win.tree.item(child_parent, open=True)
+            except Exception:
+                pass
+        except Exception:
+            pass
