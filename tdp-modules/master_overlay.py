@@ -1381,7 +1381,7 @@ class MasterOverlay:
             step_surfs = []
             for idx, step in visible_steps:
                 if isinstance(step, dict):
-                    step_text = " / ".join(step.get("labels", []))
+                    step_text = str(step.get("display") or "").strip() or " / ".join(step.get("labels", []))
                 elif isinstance(step, list):
                     step_text = " / ".join(step)
                 else:
@@ -1683,7 +1683,7 @@ class MasterOverlay:
                 # Text — dim completed steps based on animation
                 step = steps[idx]
                 if isinstance(step, dict):
-                    step_text = " / ".join(step.get("labels", []))
+                    step_text = str(step.get("display") or "").strip() or " / ".join(step.get("labels", []))
                 elif isinstance(step, list):
                     step_text = " / ".join(step)
                 else:

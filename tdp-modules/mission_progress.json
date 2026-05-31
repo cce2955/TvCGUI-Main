@@ -16,5 +16,17 @@
       "ryu_005": true
     },
     "selected_mission_id": null
+  },
+  "soki": {
+    "completed": {
+      "soki_010": true
+    },
+    "selected_mission_id": "soki_010"
+  },
+  "casshan": {
+    "completed": {
+      "casshan_008": true
+    },
+    "selected_mission_id": "casshan_008"
   }
 }

@@ -45,11 +45,19 @@ MISSION_CELEBRATE_ACK_FILE = "mission_celebrate_ack.json"
 MISSION_REACTION_STATES = {
     48, 49, 50, 52, 53, 60, 61, 62, 64, 65, 66, 73, 74, 75, 76, 79, 80,
     81, 82, 83, 88, 89, 90, 91, 92, 94, 95, 96, 97, 98, 101, 102, 105,
-    106, 142,
+    106, 142, 449,
     4608, 4609, 4610, 4611, 4613, 4614, 4615, 4616, 4617, 4618, 4619,
     4620, 4621, 4622, 4623, 4625,
     4562, 4565, 4568, 4571, 4573, 4631,
 }
+MISSION_MEGACRASH_STATES = {448}
+
+# Mission-only combo keep-alive. Do not add Megacrash to the normal
+# trainer/victim reaction states, because that can make both point chars
+# eligible to burst. For missions, Megacrash only means the scripted route
+# should not reset while the forced burst/counter interaction is happening.
+MISSION_COMBO_KEEPALIVE_STATES = set(MISSION_REACTION_STATES) | set(MISSION_MEGACRASH_STATES)
+
 MISSION_BLOCKSTUN_STATES = {48, 49, 50, 51, 52, 53}
 MISSION_IGNORE_LABELS = {"", "idle", "crouched", "crouching"}
 MISSION_ASSIST_OFF_STATES = {430, 432, 433}
@@ -81,6 +89,7 @@ MISSION_WHIFF_CONFIRM_LABELS = {
         "Rock A", "Rock B", "Rock C",
         "Comfy", "LOAD SUPER ARMOR PIERCING SHELL",
         "Pummel A", "Pummel B", "Pummel C",
+        "Cactus Bunker A", "Cactus Bunker B", "Cactus Bunker C",
         "Air Rock A", "Air Rock B", "Air Rock C",
         "Quick Upper B", "yatter step", "Omochama",
     }
@@ -212,6 +221,11 @@ class MissionManager:
         # Frame index — updated each call to update()
         self._frame_idx: int = 0
 
+        # Last overlay payload built by write_overlay_data().  main.py uses this
+        # to sync mission-scoped helpers such as Megacrash Trainer without
+        # rereading the JSON file we just wrote.
+        self._last_overlay_payload: dict = self._build_empty_overlay_payload()
+
     # ------------------------------------------------------------------
     # Public properties
     # ------------------------------------------------------------------
@@ -227,6 +241,10 @@ class MissionManager:
     @property
     def selector_open(self) -> bool:
         return self._selector["open"]
+
+    @property
+    def last_overlay_payload(self) -> dict:
+        return dict(self._last_overlay_payload or {})
 
     # ------------------------------------------------------------------
     # Public update entry point
@@ -373,6 +391,7 @@ class MissionManager:
                 payload["scanlines"] = True
 
         self._sync_debug_overrides(payload)
+        self._last_overlay_payload = dict(payload or {})
 
         try:
             tmp = f"{MISSION_OVERLAY_FILE}.tmp"
@@ -790,18 +809,28 @@ class MissionManager:
     def _opponent_in_state(self, slot_label: str, snaps_dict: dict, state_ids: set) -> bool:
         if not slot_label:
             return False
+
         my_team = "P1" if slot_label.startswith("P1") else "P2"
+
         for other_snap in snaps_dict.values():
             if not isinstance(other_snap, dict):
                 continue
             if other_snap.get("teamtag") == my_team:
                 continue
-            if (other_snap.get("attA") or other_snap.get("attB")) in state_ids:
+
+            att_a = other_snap.get("attA")
+            att_b = other_snap.get("attB")
+
+            if att_a in state_ids or att_b in state_ids:
                 return True
+
         return False
 
     def _opponent_in_hitstun(self, slot_label: str, snaps_dict: dict) -> bool:
         return self._opponent_in_state(slot_label, snaps_dict, MISSION_REACTION_STATES)
+
+    def _opponent_in_megacrash(self, slot_label: str, snaps_dict: dict) -> bool:
+        return self._opponent_in_state(slot_label, snaps_dict, MISSION_MEGACRASH_STATES)
 
     def _opponent_damage_this_frame(self, slot_label: str, snaps_dict: dict) -> list[int]:
         if not slot_label:
@@ -875,12 +904,20 @@ class MissionManager:
                 return True
         return False
 
-    def _step_allows_whiff_confirm(self, expected_labels: list[str]) -> bool:
+    def _step_allows_whiff_confirm(self, expected_labels: list[str], step: Any = None) -> bool:
         labels_norm = {str(x).strip().lower() for x in (expected_labels or []) if str(x).strip()}
         matched = labels_norm & MISSION_WHIFF_CONFIRM_LABELS
-        if matched:
-            print(f"[mission whiff confirm] labels={sorted(matched)!r}")
-        return bool(matched)
+        explicit = isinstance(step, dict) and bool(
+            step.get("whiff", False)
+            or step.get("whiff_confirm", False)
+            or step.get("allow_whiff", False)
+        )
+        if matched or explicit:
+            print(
+                f"[mission whiff confirm] labels={sorted(matched)!r} "
+                f"explicit={explicit}"
+            )
+        return explicit or bool(matched)
 
     def _step_allows_zero_damage_confirm(
         self, character_name: str, expected_labels: list[str], current_label: str
@@ -1118,6 +1155,7 @@ class MissionManager:
         current_anim = snap.get("mv_id_display")
         current_inputs = snap.get("inputs") or {}
         opponent_in_hitstun = self._opponent_in_hitstun(slot, snaps_dict)
+        opponent_in_megacrash = self._opponent_in_megacrash(slot, snaps_dict)
         damage_values = self._opponent_damage_this_frame(slot, snaps_dict)
         opponent_took_damage = bool(damage_values)
         frame_damage = sum(int(x) for x in damage_values)
@@ -1153,6 +1191,7 @@ class MissionManager:
 
         opponent_real_combo_state = (
             opponent_in_hitstun
+            or opponent_in_megacrash
             or int(self._runtime.get("shell_release_grace", 0)) > 0
         )
 
@@ -1319,7 +1358,7 @@ class MissionManager:
 
         current_matches_expected = current_label in expected_labels
         non_damage_confirm = self._step_has_non_damage_confirm(expected_labels, snap, current_label)
-        step_allows_whiff = self._step_allows_whiff_confirm(expected_labels)
+        step_allows_whiff = self._step_allows_whiff_confirm(expected_labels, expected_step)
         pass_confirm = self._step_is_pass(expected_step)
         zero_damage_confirm = (
             self._step_allows_zero_damage_confirm(character_name, expected_labels, current_label)
@@ -1448,6 +1487,7 @@ class MissionManager:
                         f"matched={expected_labels!r} zero={zero_damage_confirm}"
                     )
 
+                    completed_grace = self._step_grace(expected_step)
                     progress_index += 1
 
                     self._runtime.update({
@@ -1455,8 +1495,10 @@ class MissionManager:
                         "pending_step_index": None,
                         "pending_labels": [],
                         "pending_anim": None,
-                        "reset_grace_frames": 0,
+                        "reset_grace_frames": completed_grace,
                         "reset_grace_labels": [],
+                        "reset_grace_step_index": progress_index if completed_grace > 0 else None,
+                        "reset_grace_keeps_alive_only": self._step_grace_keeps_alive_only(expected_step),
                         "shell_install_hold": 0,
                         "post_install_hold_frames": 12 if zero_damage_confirm else 0,
                         "shell_installed": zero_damage_confirm,

@@ -328,20 +328,125 @@ def _load_megacrash_trainer_config() -> dict:
 
 def _save_megacrash_trainer_config(state: dict) -> None:
     try:
+        save_src = state
+        if isinstance(state, dict) and state.get("mission_override_active"):
+            saved = state.get("mission_saved_settings")
+            if isinstance(saved, dict) and saved:
+                save_src = saved
         payload = {
             # Do not persist an enabled state. Megacrash must default OFF on
             # every launch, while the rest of the trainer settings persist.
+            # Mission-scoped overrides are also not persisted; save the user's
+            # pre-mission settings if the trainer window is opened mid-trial.
             "enabled": False,
+            "mode": _normalize_megacrash_mode(save_src.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
+            "chance": _clamp_megacrash_chance(save_src.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
+            "delay_frames": _clamp_megacrash_delay_frames(save_src.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
+            "cooldown_sec": _clamp_megacrash_cooldown_sec(save_src.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)),
+            "target_label": _clean_megacrash_target_label(save_src.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)),
+        }
+        with open(MEGACRASH_TRAINER_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+    except Exception as e:
+        print(f"[megacrash trainer] config save failed: {e!r}")
+
+
+def _extract_mission_megacrash_setup(payload: dict) -> dict:
+    if not isinstance(payload, dict) or not payload.get("active"):
+        return {}
+
+    raw = (
+        payload.get("active_mission_setup_megacrash_trainer")
+        or payload.get("active_mission_megacrash_trainer")
+        or payload.get("setup_megacrash_trainer")
+        or {}
+    )
+
+    if not isinstance(raw, dict):
+        return {}
+
+    out = dict(raw)
+    out["enabled"] = bool(out.get("enabled", True))
+    out["mode"] = _normalize_megacrash_mode(out.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    out["chance"] = _clamp_megacrash_chance(out.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
+    out["delay_frames"] = _clamp_megacrash_delay_frames(out.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
+    out["cooldown_sec"] = _clamp_megacrash_cooldown_sec(out.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+    out["target_label"] = _clean_megacrash_target_label(out.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
+    return out
+
+
+def _clear_megacrash_runtime_state(state: dict) -> None:
+    try:
+        state.setdefault("last_combo_keys", {}).clear()
+        state.setdefault("pulses", {}).clear()
+        state.setdefault("scheduled_triggers", {}).clear()
+        state["cooldown_until"] = 0.0
+    except Exception:
+        pass
+
+
+def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
+    """Apply mission-scoped Megacrash Trainer setup, then restore user settings.
+
+    Mission JSON can provide setup_megacrash_trainer.  This lets trials that
+    need a controlled burst turn the trainer on only while that mission is the
+    active mission.  It never persists enabled=True and it restores the user's
+    normal Megacrash settings when the mission changes or mission mode is off.
+    """
+    if not isinstance(state, dict):
+        state = _load_megacrash_trainer_config()
+
+    setup = _extract_mission_megacrash_setup(payload)
+    mission_key = None
+    if setup:
+        mission_key = (
+            payload.get("slot"),
+            payload.get("character"),
+            payload.get("active_mission_id"),
+        )
+
+    current_key = state.get("mission_override_key")
+
+    if not setup:
+        if current_key is not None:
+            saved = state.pop("mission_saved_settings", {}) or {}
+            for key, value in saved.items():
+                state[key] = value
+            state.pop("mission_override_key", None)
+            state.pop("mission_override_name", None)
+            state["mission_override_active"] = False
+            _clear_megacrash_runtime_state(state)
+            print("[megacrash trainer] mission override restored user settings")
+        return state
+
+    if current_key != mission_key:
+        saved = {
+            "enabled": bool(state.get("enabled", False)),
             "mode": _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
             "chance": _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
             "delay_frames": _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
             "cooldown_sec": _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)),
             "target_label": _clean_megacrash_target_label(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)),
         }
-        with open(MEGACRASH_TRAINER_CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2)
-    except Exception as e:
-        print(f"[megacrash trainer] config save failed: {e!r}")
+        state["mission_saved_settings"] = saved
+        state["mission_override_key"] = mission_key
+        state["mission_override_name"] = str(payload.get("active_mission_name") or payload.get("active_mission_id") or "mission")
+        _clear_megacrash_runtime_state(state)
+        print(
+            "[megacrash trainer] mission override "
+            f"{payload.get('active_mission_id')}: "
+            f"{setup.get('mode')} label={setup.get('target_label') or 'any'} "
+            f"+{setup.get('delay_frames')}f cd={setup.get('cooldown_sec')}s"
+        )
+
+    state["mission_override_active"] = True
+    state["enabled"] = bool(setup.get("enabled", True))
+    state["mode"] = _normalize_megacrash_mode(setup.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    state["chance"] = _clamp_megacrash_chance(setup.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
+    state["delay_frames"] = _clamp_megacrash_delay_frames(setup.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
+    state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(setup.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+    state["target_label"] = _clean_megacrash_target_label(setup.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
+    return state
 
 
 def _cycle_megacrash_chance(current: int) -> int:
@@ -3172,6 +3277,14 @@ def legacy_main():
 
         # Mission manager tick
         mission_mgr.update(snaps, render_snap_by_slot, frame_idx, now)
+
+        # Mission-scoped Megacrash setup.  Joe Condor's counter trials can now
+        # temporarily arm a targeted burst on 5C without making Megacrash stay
+        # enabled globally or on the next launch.
+        megacrash_trainer_state = _sync_mission_megacrash_trainer(
+            megacrash_trainer_state,
+            mission_mgr.last_overlay_payload,
+        )
 
         # Megacrash Trainer tick: point-only, hitstun-only, per-new-combo-label dice roll.
         megacrash_trainer_state = _tick_megacrash_trainer(megacrash_trainer_state, snaps, now, frame_idx)

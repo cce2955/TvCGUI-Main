@@ -30,6 +30,7 @@ class MissionStep:
     grace: int = 0
     pass_step: bool = False
     grace_keeps_alive_only: bool = False
+    display: str = ""
 
 
 @dataclass
@@ -40,6 +41,7 @@ class MissionDef:
     steps: List[MissionStep] = field(default_factory=list)
     notes: str = ""
     setup_debug_flags: Dict[str, int] = field(default_factory=dict)
+    setup_megacrash_trainer: Dict[str, Any] = field(default_factory=dict)
     goal: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -101,6 +103,18 @@ def load_mission_pack(character_name: str) -> MissionPack:
                 except Exception:
                     pass
 
+        setup_megacrash_trainer: Dict[str, Any] = {}
+        raw_setup_mega = (
+            entry.get("setup_megacrash_trainer")
+            or entry.get("setup_megacrash")
+            or entry.get("megacrash_trainer")
+            or {}
+        )
+        if isinstance(raw_setup_mega, dict):
+            # Keep values raw-ish here; main.py owns validation/clamping so
+            # the mission JSON can use strings like "targeted" or "5C".
+            setup_megacrash_trainer = dict(raw_setup_mega)
+
         goal: Dict[str, Any] = {}
         raw_goal = entry.get("goal", {})
         if isinstance(raw_goal, dict):
@@ -135,6 +149,12 @@ def load_mission_pack(character_name: str) -> MissionPack:
                 grace = 0
 
             pass_step = bool(step.get("pass", False))
+            display = str(
+                step.get("display")
+                or step.get("display_label")
+                or step.get("text")
+                or ""
+            ).strip()
 
             steps.append(
                 MissionStep(
@@ -144,6 +164,7 @@ def load_mission_pack(character_name: str) -> MissionPack:
                     grace_keeps_alive_only=bool(
                         step.get("grace_keeps_alive_only", False)
                     ),
+                    display=display,
                 )
             )
         if not mission_id or (not steps and not goal):
@@ -157,6 +178,7 @@ def load_mission_pack(character_name: str) -> MissionPack:
                 steps=steps,
                 notes=notes,
                 setup_debug_flags=setup_debug_flags,
+                setup_megacrash_trainer=setup_megacrash_trainer,
                 goal=goal,
             )
         )
@@ -321,6 +343,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
             [
 {
     "labels": step.labels,
+    "display": step.display,
     "grace": step.grace,
     "pass": step.pass_step,
     "grace_keeps_alive_only": step.grace_keeps_alive_only,
@@ -333,6 +356,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         ),
         "active_mission_goal": dict(active.goal) if active else {},
         "active_mission_setup_debug_flags": dict(active.setup_debug_flags) if active else {},
+        "active_mission_setup_megacrash_trainer": dict(active.setup_megacrash_trainer) if active else {},
         "selected_mission_id": selected_id,
         "missions": [
             {
@@ -344,6 +368,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
                 "steps": [
 {
     "labels": step.labels,
+    "display": step.display,
     "grace": step.grace,
     "pass": step.pass_step,
     "grace_keeps_alive_only": step.grace_keeps_alive_only,
@@ -353,6 +378,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
 ] if mission.steps else _goal_to_step_labels(mission.goal),
                 "goal": dict(mission.goal),
                 "setup_debug_flags": dict(mission.setup_debug_flags),
+                "setup_megacrash_trainer": dict(mission.setup_megacrash_trainer),
             }
             for mission in pack.missions
         ],

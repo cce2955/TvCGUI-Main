@@ -6,13 +6,27 @@
       "name": "Sky Chain",
       "notes": "Basic launcher route.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -20,8 +34,12 @@
       "name": "Backthrow Finisher",
       "notes": "Ends with Soki's back throw.",
       "steps": [
-        { "label": "Back Throw" },
-        { "label": "Finisher" }
+        {
+          "label": "Back Throw"
+        },
+        {
+          "label": "Finisher"
+        }
       ]
     },
     {
@@ -29,11 +47,21 @@
       "name": "Issen Ender",
       "notes": "Ground route into Issen.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Issen" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Issen"
+        }
       ]
     },
     {
@@ -41,12 +69,24 @@
       "name": "Slam Ender",
       "notes": "Ground route into Slam B.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Slam B" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Slam B"
+        }
       ]
     },
     {
@@ -54,19 +94,45 @@
       "name": "Baroque Relaunch",
       "notes": "Issen into Baroque, then relaunch.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Issen" },
-        { "label": "Baroque cancel" },
-        { "label": "j.B" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Issen"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -74,19 +140,45 @@
       "name": "Double Issen",
       "notes": "Try a reverse IAD for that j.B",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Issen" },
-        { "label": "Baroque cancel" },
-        { "label": "j.B" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "2C" },
-        { "label": "6C" },
-        { "label": "Issen" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Issen"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Issen"
+        }
       ]
     },
     {
@@ -94,21 +186,51 @@
       "name": "Slam Route",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Slam B" },
-        { "label": "Baroque cancel" },
-        { "label": "j.B" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "2C" },
-        { "label": "6C" },
-        { "label": "Issen" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Slam B"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Issen"
+        }
       ]
     },
     {
@@ -119,8 +241,15 @@
         "CpuAction": 2
       },
       "steps": [
-        { "labels": ["Air Forward Throw", "Air Back Throw"] },
-        { "label": "Finisher" }
+        {
+          "labels": [
+            "Air Forward Throw",
+            "Air Back Throw"
+          ]
+        },
+        {
+          "label": "Finisher"
+        }
       ]
     },
     {
@@ -131,24 +260,70 @@
         "CpuAction": 2
       },
       "steps": [
-        { "label": "Air Back Throw" },
-        { "label": "Overhead Splitter A" }
+        {
+          "label": "Air Back Throw"
+        },
+        {
+          "label": "Overhead Splitter A"
+        }
       ]
     },
     {
       "mission_id": "soki_010",
-      "name": "Challenge",
-      "notes": "",
+      "name": "Megacrash Counter Issen",
+      "notes": "Mission-scoped Megacrash route: 5A > 5B > 5C, forced Megacrash, Counter Issen.",
       "steps": [
-        { "label": "Oni Tactics" },
-        { "label": "Issen" },
-        { "label": "Oni Tactics" },
-        { "label": "Issen" },
-        { "label": "Purification" }
-      ]
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Counter A",
+          "whiff": true
+        },{
+          "label": "Counter",
+          "pass": true
+        },{
+          "label": "Issen"
+        }
+      ],
+      "setup_megacrash_trainer": {
+        "enabled": true,
+        "mode": "targeted",
+        "target_label": "5C",
+        "delay_frames": 5,
+        "cooldown_sec": 2.0
+      }
     },
     {
       "mission_id": "soki_011",
+      "name": "Challenge",
+      "notes": "",
+      "steps": [
+        {
+          "label": "Oni Tactics"
+        },
+        {
+          "label": "Issen"
+        },
+        {
+          "label": "Oni Tactics"
+        },
+        {
+          "label": "Issen"
+        },
+        {
+          "label": "Purification"
+        }
+      ]
+    },
+    {
+      "mission_id": "soki_012",
       "name": "Special Challenge",
       "notes": "Keep the opponent in blockstun for 100 frames.",
       "setup_debug_flags": {

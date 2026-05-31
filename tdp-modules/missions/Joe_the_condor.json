@@ -6,16 +6,36 @@
       "name": "Combo Trial 001",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-     { "label": "j.A" },
-        { "label": "j.A (second hit)" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.A (second hit)"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -23,17 +43,39 @@
       "name": "Combo Trial 002",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-     { "label": "j.A" },
-        { "label": "j.A (second hit)" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "j.C" },
-        { "label": "Wild Lasso A" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.A (second hit)"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Wild Lasso A"
+        }
       ]
     },
     {
@@ -41,116 +83,276 @@
       "name": "Combo Trial 003",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Air Shuriken A" },
-        { "label": "Air Savage Shot B" },
-        { "label": "Air Condor Magnum" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "Air Savage Shot B"
+        },
+        {
+          "label": "Air Condor Magnum"
+        }
       ]
     },
     {
       "mission_id": "joe_the_condor_004",
       "name": "Combo Trial 004",
-      "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
-      "setup_debug_flags": {
-        "CpuAction": 4
-      },
+      "notes": "Megacrash Trainer arms this trial automatically: hit 5C, then counter the forced burst with Cactus Bunker and finish with Wild Lasso. Cactus Bunker is treated as a whiff-confirm step because the counter causes a reset.",
       "steps": [
-        { "labels": ["Cactus Bunker A", "Cactus Bunker B", "Cactus Bunker C"] },
-        
-        
-        
-        { "label": "Wild Lasso A" }
-      ]
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "labels": [
+            "Cactus Bunker A",
+            "Cactus Bunker B",
+            "Cactus Bunker C"
+          ],
+          "whiff": true,
+          "grace": 45
+        },
+        {
+          "labels": [
+            "Wild Lasso A",
+            "Wild Lasso B",
+            "Wild Lasso C"
+          ]
+        }
+      ],
+      "setup_megacrash_trainer": {
+        "enabled": true,
+        "mode": "targeted",
+        "target_label": "5C",
+        "delay_frames": 5,
+        "cooldown_sec": 2.0
+      }
     },
     {
       "mission_id": "joe_the_condor_005",
       "name": "Combo Trial 005",
-      "notes": "Look I know the CPU is a little irritating on this one, bump the difficulty up if it's taking too long",
+      "notes": "Megacrash Trainer arms this trial automatically on 5C so Cactus Bunker has a reliable burst/counter target. Cactus Bunker is treated as a whiff-confirm step because the counter causes a reset.",
       "setup_debug_flags": {
-        "CpuAction": 4 ,              
         "BaroquePct": 1
-      
       },
       "steps": [
-        { "labels": ["Cactus Bunker A", "Cactus Bunker B", "Cactus Bunker C"] },
-        { "label": "Baroque cancel" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Air Shuriken A" },
-                { "label": "Air Dash Forward" , "pass": true },
-
-        { "label": "j.B" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        
-        { "label": "Air Shuriken A" },
-        { "label": "Air Savage Shot A" },
-        { "label": "Air Condor Magnum" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "labels": [
+            "Cactus Bunker A",
+            "Cactus Bunker B",
+            "Cactus Bunker C"
+          ],
+          "whiff": true,
+          "grace": 45
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "Air Dash Forward",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "Air Savage Shot A"
+        },
+        {
+          "label": "Air Condor Magnum"
+        }
+      ],
+      "setup_megacrash_trainer": {
+        "enabled": true,
+        "mode": "targeted",
+        "target_label": "5C",
+        "delay_frames": 5,
+        "cooldown_sec": 2.0
+      }
+    },
+    {
+      "mission_id": "joe_the_condor_006",
+      "name": "Neat Stuff",
+      "notes": "",
+      "steps": [
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "Air Dash Forward",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "Air Savage Shot A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "Air Savage Shot A"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "Air Dash Forward",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "Air Science Ninpo"
+        },
+        {
+          "label": "Wild Lasso A"
+        }
       ]
-    },{
-  "mission_id": "joe_the_condor_006",
-  "name": "Neat Stuff",
-  "notes": "",
-  "steps": [
-    { "label": "5A" },
-    { "label": "5B" },
-    { "label": "2B" },
-    { "label": "5C" },
-    { "label": "3C" },
-    { "label": "j.B" },
-    
-    { "label": "Air Shuriken A" },
-    { "label": "Air Dash Forward" , "pass": true },
-    { "label": "j.B" },
-    { "label": "Jump Cancel", "pass": true },
-    { "label": "j.B" },
-    { "label": "Air Shuriken A" },
-    { "label": "Air Savage Shot A" },
-    { "label": "j.B" },
-    { "label": "Air Shuriken A" },
-    { "label": "Air Savage Shot A" },
-    { "label": "Baroque cancel" },
-    { "label": "Air Dash Forward" , "pass": true },
-    { "label": "j.B" },
-    { "label": "Jump Cancel", "pass": true },
-    { "label": "j.B" },
-    { "label": "Air Shuriken A" },
-   
-    { "label": "Air Science Ninpo" },
-    { "label": "Wild Lasso A" }
-    
-  ]
-},{
-  "mission_id": "joe_the_condor_007",
-  "name": "Challenge",
-  "notes": "",
-  "steps": [
-    { "label": "That one combo from the JP Nico nico video I have to transcribe it again, if you see this I forgot to put it in" }
-       
-  ]
-},{
-  "mission_id": "joe_the_condor_008",
-  "name": "VAR Science Ninpo",
-  "notes": "",
-  "steps": [
-    { "label": "VAR" },
-    { "label": "j.A" },
-    { "label": "j.B" },
-    { "label": "j.B" },
-    
-    { "label": "Air Shuriken A" },
-    { "label": "j.B" },
-    { "label": "Air Shuriken A" },
-    { "label": "Air Science Ninpo" },
-    { "label": "Wild Lasso A" }
-  ]
-}
+    },
+    {
+      "mission_id": "joe_the_condor_007",
+      "name": "Challenge",
+      "notes": "",
+      "steps": [
+        {
+          "label": "That one combo from the JP Nico nico video I have to transcribe it again, if you see this I forgot to put it in"
+        }
+      ]
+    },
+    {
+      "mission_id": "joe_the_condor_008",
+      "name": "VAR Science Ninpo",
+      "notes": "",
+      "steps": [
+        {
+          "label": "VAR"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Shuriken A"
+        },
+        {
+          "label": "Air Science Ninpo"
+        },
+        {
+          "label": "Wild Lasso A"
+        }
+      ]
+    }
   ]
 }
