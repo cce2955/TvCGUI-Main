@@ -622,15 +622,6 @@ def build_tree_widget(win) -> ttk.Frame:
 
     body.after_idle(_set_initial_sash)
 
-    guide = ttk.Frame(left, style="Card.TFrame", padding=(10, 7))
-    guide.pack(fill="x", pady=(0, 8))
-    ttk.Label(
-        guide,
-        text="Frame view stays clean for normals. Select any row and the quick strip below shows the useful projectile, super, or frame values without horizontal scrolling or digging through the inspector.",
-        style="CardMuted.TLabel",
-        wraplength=950,
-    ).pack(anchor="w")
-
     quick = ttk.Frame(left, style="Card.TFrame", padding=(10, 8))
     quick.pack(fill="x", pady=(0, 8))
     win._quick_panel = quick

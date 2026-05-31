@@ -55,6 +55,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.master = master
         self.slot_label = slot_label
         self.target_slot = target_slot
+        self._profile_fast_path = bool((target_slot or {}).get("profile_fast_path"))
+        self._profile_key = (target_slot or {}).get("profile_key")
         self._sort_state = {}  # col_name -> ascending bool
         self._assist_tables = None
         self._assist_table_count = ""
@@ -562,11 +564,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._initial_load_running = True
         try:
             if self._status_var is not None:
-                self._status_var.set("Loading frame rows fast path... optional probes are lazy")
+                src = "profile cache" if self._profile_fast_path else "scanner snapshot"
+                self._status_var.set(f"Loading frame rows from {src}... optional probes are lazy")
             fd_tree.populate_tree(self)
             self._initial_tree_loaded = True
             if self._status_var is not None:
-                self._status_var.set("Frame rows loaded. Projectiles/specials scan only when their view or rescan button is used.")
+                src = "profile cache" if self._profile_fast_path else "scanner snapshot"
+                self._status_var.set(f"Frame rows loaded from {src}. Projectiles/specials scan only when their view or rescan button is used.")
         except Exception as e:
             if self._status_var is not None:
                 self._status_var.set(f"Frame rows failed to populate: {e}")

@@ -1,4 +1,10 @@
+import copy
+import hashlib
+import json
+import os
 import struct
+import threading
+import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from dolphin_io import hook, rbytes, rd32
@@ -174,6 +180,38 @@ FIGHTER_READ_SIZE = 0x400
 CHR_TBL_READ_PAD_BEFORE = 0x18
 CHR_TBL_READ_SIZE = CHR_TBL_READ_PAD_BEFORE + CHR_TBL_SCAN_MAX_BYTES + 0x20
 SLOT_REGION_PAD = 0x2000
+
+# ============================================================
+# Frame-data profile cache
+# ============================================================
+
+# The dynamic scanner is still the source of truth.  This profile cache records
+# the resolved per-character relative offsets after a successful dynamic scan,
+# then future scans rebase those offsets against the live chr_tbl address and
+# read only the exact packets/fields the editor needs.  Delete
+# frame_data_profiles.json or set TVC_FD_PROFILE_CACHE=0 to force the legacy
+# dynamic path.
+PROFILE_CACHE_VERSION = 1
+PROFILE_SCANNER_BUILD = "fd-profile-v1"
+PROFILE_CACHE_FILENAME = "frame_data_profiles.json"
+PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PROFILE_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
+PROFILE_CACHE_FILE = os.environ.get(
+    "TVC_FD_PROFILE_CACHE_FILE",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), PROFILE_CACHE_FILENAME),
+)
+PROFILE_CACHE_LOCK_FILE = os.environ.get(
+    "TVC_FD_PROFILE_CACHE_LOCK_FILE",
+    PROFILE_CACHE_FILE + ".lock",
+)
+PROFILE_CACHE_SAVE_TIMEOUT_SEC = float(os.environ.get("TVC_FD_PROFILE_SAVE_TIMEOUT", "2.0") or "2.0")
+PROFILE_CACHE_STALE_LOCK_SEC = float(os.environ.get("TVC_FD_PROFILE_STALE_LOCK_SEC", "30.0") or "30.0")
+
+_PROFILE_CACHE_LOCK = threading.RLock()
+_PROFILE_CACHE_DOC: Optional[Dict[str, Any]] = None
+_PROFILE_SAVE_WARNED: set[str] = set()
+
+_PROFILE_ADDRESS_KEYS = {"abs", "parent_abs", "addr"}
+_PROFILE_ADDRESS_SUFFIXES = ("_addr",)
 
 
 # ============================================================
@@ -1582,11 +1620,652 @@ def slot_scan_region_from_tbl(tbl_buf: bytes,
 
     return (region_start, region_end)
 
+
+# ============================================================
+# Frame-data profile helpers
+# ============================================================
+
+def _profile_safe_name(value: Any) -> str:
+    text = str(value or "unknown").strip().lower()
+    out = []
+    for ch in text:
+        if ch.isalnum():
+            out.append(ch)
+        elif ch in {" ", "-", "_", "."}:
+            out.append("_")
+    return "".join(out).strip("_") or "unknown"
+
+
+def _profile_key(char_id: Optional[int], char_name: str) -> str:
+    if char_id is not None:
+        try:
+            return f"id_{int(char_id):02d}_{_profile_safe_name(char_name)}"
+        except Exception:
+            pass
+    return f"name_{_profile_safe_name(char_name)}"
+
+
+def _empty_profile_doc() -> Dict[str, Any]:
+    return {
+        "version": PROFILE_CACHE_VERSION,
+        "scanner_build": PROFILE_SCANNER_BUILD,
+        "updated_at": None,
+        "profiles": {},
+    }
+
+
+def _normalize_profile_doc(doc: Any) -> Dict[str, Any]:
+    if not isinstance(doc, dict):
+        doc = _empty_profile_doc()
+    if int(doc.get("version") or PROFILE_CACHE_VERSION) != PROFILE_CACHE_VERSION:
+        doc = _empty_profile_doc()
+    if not isinstance(doc.get("profiles"), dict):
+        doc["profiles"] = {}
+    doc.setdefault("version", PROFILE_CACHE_VERSION)
+    doc.setdefault("scanner_build", PROFILE_SCANNER_BUILD)
+    doc.setdefault("updated_at", None)
+    return doc
+
+
+def _read_profile_doc_uncached() -> Dict[str, Any]:
+    try:
+        with open(PROFILE_CACHE_FILE, "r", encoding="utf-8") as f:
+            return _normalize_profile_doc(json.load(f))
+    except Exception:
+        return _empty_profile_doc()
+
+
+def _load_profile_doc() -> Dict[str, Any]:
+    global _PROFILE_CACHE_DOC
+    with _PROFILE_CACHE_LOCK:
+        if _PROFILE_CACHE_DOC is not None:
+            return _PROFILE_CACHE_DOC
+        _PROFILE_CACHE_DOC = _read_profile_doc_uncached()
+        return _PROFILE_CACHE_DOC
+
+
+def _profile_warn_once(key: str, message: str) -> None:
+    with _PROFILE_CACHE_LOCK:
+        if key in _PROFILE_SAVE_WARNED:
+            return
+        _PROFILE_SAVE_WARNED.add(key)
+    print(message)
+
+
+def _acquire_profile_file_lock(timeout_sec: float = PROFILE_CACHE_SAVE_TIMEOUT_SEC) -> Optional[int]:
+    # Windows can throw PermissionError when two app windows/processes try to
+    # replace the same JSON cache at nearly the same time.  This lock file keeps
+    # all patched processes serialized without adding any dependency.
+    deadline = time.time() + max(0.05, float(timeout_sec or 0.05))
+    lock_path = PROFILE_CACHE_LOCK_FILE
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
+    except Exception:
+        pass
+
+    while True:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                payload = f"pid={os.getpid()} thread={threading.get_ident()} time={time.time():.6f}\n"
+                os.write(fd, payload.encode("ascii", "replace"))
+            except Exception:
+                pass
+            return fd
+        except FileExistsError:
+            try:
+                age = time.time() - os.path.getmtime(lock_path)
+                if age > PROFILE_CACHE_STALE_LOCK_SEC:
+                    os.unlink(lock_path)
+                    continue
+            except Exception:
+                pass
+            if time.time() >= deadline:
+                return None
+            time.sleep(0.025)
+        except Exception:
+            return None
+
+
+def _release_profile_file_lock(fd: Optional[int]) -> None:
+    if fd is None:
+        return
+    try:
+        os.close(fd)
+    except Exception:
+        pass
+    try:
+        os.unlink(PROFILE_CACHE_LOCK_FILE)
+    except Exception:
+        pass
+
+
+def _write_profile_doc_safely(doc: Dict[str, Any]) -> bool:
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(PROFILE_CACHE_FILE)), exist_ok=True)
+    except Exception:
+        pass
+
+    data = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    tmp = f"{PROFILE_CACHE_FILE}.{os.getpid()}.{threading.get_ident()}.tmp"
+
+    # Preferred path: write a complete temp file, then replace in one operation.
+    # On Windows, os.replace can briefly fail if another reader has the file
+    # open.  Retry instead of treating that as a scanner/editor failure.
+    for attempt in range(10):
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(data)
+            os.replace(tmp, PROFILE_CACHE_FILE)
+            return True
+        except PermissionError:
+            time.sleep(0.035 * (attempt + 1))
+        except OSError:
+            time.sleep(0.025 * (attempt + 1))
+
+    # Fallback: if replace is blocked but direct write is allowed, use it while
+    # the cross-process cache lock is held.  If that also fails, the profile will
+    # remain available in memory and the old scanner can rebuild later.
+    for attempt in range(5):
+        try:
+            with open(PROFILE_CACHE_FILE, "w", encoding="utf-8") as f:
+                f.write(data)
+            try:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+            except Exception:
+                pass
+            return True
+        except PermissionError:
+            time.sleep(0.05 * (attempt + 1))
+        except OSError:
+            time.sleep(0.035 * (attempt + 1))
+
+    try:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    except Exception:
+        pass
+    return False
+
+
+def _save_profile_doc(doc: Dict[str, Any]) -> bool:
+    global _PROFILE_CACHE_DOC
+    with _PROFILE_CACHE_LOCK:
+        doc = _normalize_profile_doc(doc)
+        doc["version"] = PROFILE_CACHE_VERSION
+        doc["scanner_build"] = PROFILE_SCANNER_BUILD
+        doc["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+
+        fd = _acquire_profile_file_lock()
+        if fd is None:
+            # Do not stall the editor because the cache file is busy.  Keep the
+            # profile in RAM and let the next scan try to persist it again.
+            _PROFILE_CACHE_DOC = doc
+            return False
+
+        try:
+            disk_doc = _read_profile_doc_uncached()
+            merged = _normalize_profile_doc(disk_doc)
+            disk_profiles = merged.setdefault("profiles", {})
+            for k, v in (doc.get("profiles") or {}).items():
+                disk_profiles[str(k)] = v
+            merged["version"] = PROFILE_CACHE_VERSION
+            merged["scanner_build"] = PROFILE_SCANNER_BUILD
+            merged["updated_at"] = doc["updated_at"]
+            ok = _write_profile_doc_safely(merged)
+            if ok:
+                _PROFILE_CACHE_DOC = merged
+            else:
+                _PROFILE_CACHE_DOC = doc
+            return ok
+        finally:
+            _release_profile_file_lock(fd)
+
+
+def _profile_cache_allowed(force_dynamic: bool = False) -> bool:
+    return bool(PROFILE_CACHE_ENABLED) and not bool(force_dynamic)
+
+
+def _profile_table_rels(tbl_move_addrs: List[int], chr_tbl_abs: int) -> List[int]:
+    rels: List[int] = []
+    for addr in tbl_move_addrs or []:
+        try:
+            rels.append(int(addr) - int(chr_tbl_abs))
+        except Exception:
+            continue
+    return rels
+
+
+def _profile_table_signature(tbl_move_addrs: List[int], chr_tbl_abs: int) -> str:
+    rels = _profile_table_rels(tbl_move_addrs, chr_tbl_abs)
+    payload = ",".join(f"{r:X}" for r in rels).encode("ascii", "ignore")
+    return hashlib.sha1(payload).hexdigest()[:16]
+
+
+def _is_profile_address_key(key: Any) -> bool:
+    if not isinstance(key, str):
+        return False
+    if key in _PROFILE_ADDRESS_KEYS:
+        return True
+    return any(key.endswith(suf) for suf in _PROFILE_ADDRESS_SUFFIXES)
+
+
+def _jsonable_scalar(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _relativize_profile_obj(obj: Any, chr_tbl_abs: int, parent_key: str | None = None) -> Any:
+    if isinstance(obj, dict):
+        return {str(k): _relativize_profile_obj(v, chr_tbl_abs, str(k)) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_relativize_profile_obj(v, chr_tbl_abs, parent_key) for v in obj]
+    if _is_profile_address_key(parent_key) and isinstance(obj, int):
+        try:
+            if is_mem2_addr(int(obj)):
+                return int(obj) - int(chr_tbl_abs)
+        except Exception:
+            pass
+    return _jsonable_scalar(obj)
+
+
+def _rebase_profile_obj(obj: Any, chr_tbl_abs: int, parent_key: str | None = None) -> Any:
+    if isinstance(obj, dict):
+        return {str(k): _rebase_profile_obj(v, chr_tbl_abs, str(k)) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_rebase_profile_obj(v, chr_tbl_abs, parent_key) for v in obj]
+    if _is_profile_address_key(parent_key) and isinstance(obj, int):
+        # Profile rows store all address-bearing fields relative to chr_tbl_abs.
+        # Keep 0/None-ish addresses blank, but rebase plausible relative offsets.
+        try:
+            rel = int(obj)
+            if rel == 0 and parent_key != "abs":
+                return None
+            if -0x100000 <= rel <= CHR_TBL_MAX_MOVE_OFFSET + SLOT_REGION_PAD + 0x10000:
+                return int(chr_tbl_abs) + rel
+        except Exception:
+            pass
+    return obj
+
+
+def _collect_profile_addresses(obj: Any, parent_key: str | None = None, out: Optional[List[int]] = None) -> List[int]:
+    if out is None:
+        out = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            _collect_profile_addresses(v, str(k), out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _collect_profile_addresses(v, parent_key, out)
+    elif _is_profile_address_key(parent_key) and isinstance(obj, int):
+        try:
+            if is_mem2_addr(int(obj)):
+                out.append(int(obj))
+        except Exception:
+            pass
+    return out
+
+
+def _read_profile_window(chr_tbl_abs: int, moves: List[Dict[str, Any]]) -> Tuple[bytes, int]:
+    max_addr = int(chr_tbl_abs)
+    for mv in moves or []:
+        try:
+            a = int(mv.get("abs") or 0)
+            if a:
+                max_addr = max(max_addr, a + max(HITBOX_OFF_X, HITBOX_OFF_Y) + 4)
+        except Exception:
+            pass
+        for addr in _collect_profile_addresses(mv):
+            max_addr = max(max_addr, int(addr) + 0x80)
+    size = max(0x4000, max_addr - int(chr_tbl_abs) + 0x100)
+    size = min(size, CHR_TBL_MAX_MOVE_OFFSET + SLOT_REGION_PAD + 0x4000)
+    return safe_rbytes(int(chr_tbl_abs), size), int(chr_tbl_abs)
+
+
+def _profile_off(buf: bytes, base_abs: int, addr: Any, size: int = 1) -> Optional[int]:
+    try:
+        off = int(addr) - int(base_abs)
+    except Exception:
+        return None
+    if off < 0 or off + size > len(buf):
+        return None
+    return off
+
+
+def _profile_read_u8(buf: bytes, base_abs: int, addr: Any) -> Optional[int]:
+    off = _profile_off(buf, base_abs, addr, 1)
+    if off is None:
+        return None
+    return int(buf[off])
+
+
+def _profile_read_f32(buf: bytes, base_abs: int, addr: Any) -> Optional[float]:
+    off = _profile_off(buf, base_abs, addr, 4)
+    if off is None:
+        return None
+    try:
+        return rd_f32_be(buf, off)
+    except Exception:
+        return None
+
+
+def _profile_refresh_hit_segment(seg: Dict[str, Any], buf: bytes, base_abs: int) -> None:
+    addr = seg.get("active_addr")
+    off = _profile_off(buf, base_abs, addr, ACTIVE_TOTAL_LEN) if addr else None
+    if off is not None:
+        af = parse_active_frames(buf, off)
+        if af:
+            seg["active_start"], seg["active_end"] = af
+
+    addr = seg.get("active2_addr")
+    off = _profile_off(buf, base_abs, addr, INLINE_ACTIVE_LEN) if addr else None
+    if off is not None:
+        af = parse_inline_active(buf, off)
+        if af:
+            seg["active2_start"], seg["active2_end"] = af
+
+    addr = seg.get("damage_addr")
+    off = _profile_off(buf, base_abs, addr, DAMAGE_TOTAL_LEN) if addr else None
+    if off is not None:
+        dmg = parse_damage(buf, off)
+        if dmg:
+            seg["damage"], seg["damage_flag"] = dmg
+
+    ap = None
+    packet_addr = seg.get("atkprop_addr")
+    off = _profile_off(buf, base_abs, packet_addr, ATKPROP_TOTAL_LEN) if packet_addr else None
+    if off is not None:
+        ap = parse_atkprop(buf, off)
+        if ap is not None:
+            seg["attack_property"] = ap
+            seg["atkprop_addr"] = int(packet_addr)
+            seg["attack_property_addr"] = int(packet_addr) + len(ATKPROP_HDR)
+    if ap is None and seg.get("attack_property_addr"):
+        ap = _profile_read_u8(buf, base_abs, seg.get("attack_property_addr"))
+        if ap is not None:
+            seg["attack_property"] = ap
+
+    addr = seg.get("hit_reaction_addr")
+    hr = _profile_read_u8(buf, base_abs, addr) if addr else None
+    if hr is not None:
+        seg["hit_reaction"] = hr
+
+    addr = seg.get("knockback_addr")
+    off = _profile_off(buf, base_abs, addr, KNOCKBACK_TOTAL_LEN) if addr else None
+    if off is not None:
+        kb = parse_knockback(buf, off)
+        if kb:
+            seg["kb_type"] = kb.get("kb_type")
+            seg["launch_profile"] = kb.get("launch_profile")
+            seg["kb_unknown"] = kb.get("kb_unknown")
+            seg["kb_x"] = kb.get("kb_x")
+            seg["air_kb"] = kb.get("air_kb")
+            seg["kb0"] = seg["launch_profile"]
+            seg["kb1"] = seg["kb_type"]
+            seg["kb_traj"] = None
+
+    addr = seg.get("stun_addr")
+    off = _profile_off(buf, base_abs, addr, 39) if addr else None
+    if off is not None:
+        stun = parse_stun(buf, off)
+        if stun:
+            seg["hitstun"], seg["blockstun"], seg["hitstop"] = stun
+
+
+def _profile_refresh_move(mv: Dict[str, Any], buf: bytes, base_abs: int, char_id: Optional[int]) -> None:
+    aid = mv.get("id")
+    try:
+        aid_low = (int(aid) & 0xFF) if aid is not None else None
+    except Exception:
+        aid_low = None
+
+    if mv.get("kind") == "normal":
+        mv["meter"] = DEFAULT_METER.get(aid_low, mv.get("meter"))
+    elif mv.get("meter") is None:
+        mv["meter"] = SPECIAL_DEFAULT_METER
+
+    b = _profile_read_u8(buf, base_abs, mv.get("meter_addr")) if mv.get("meter_addr") else None
+    if b is not None:
+        mv["meter"] = b
+
+    addr = mv.get("active_addr")
+    off = _profile_off(buf, base_abs, addr, ACTIVE_TOTAL_LEN) if addr else None
+    if off is not None:
+        af = parse_active_frames(buf, off)
+        if af:
+            mv["active_start"], mv["active_end"] = af
+
+    addr = mv.get("active2_addr")
+    off = _profile_off(buf, base_abs, addr, INLINE_ACTIVE_LEN) if addr else None
+    if off is not None:
+        af = parse_inline_active(buf, off)
+        if af:
+            mv["active2_start"], mv["active2_end"] = af
+
+    addr = mv.get("damage_addr")
+    off = _profile_off(buf, base_abs, addr, DAMAGE_TOTAL_LEN) if addr else None
+    if off is not None:
+        dmg = parse_damage(buf, off)
+        if dmg:
+            mv["damage"], mv["damage_flag"] = dmg
+
+    ap = None
+    packet_addr = mv.get("atkprop_addr")
+    off = _profile_off(buf, base_abs, packet_addr, ATKPROP_TOTAL_LEN) if packet_addr else None
+    if off is not None:
+        ap = parse_atkprop(buf, off)
+        if ap is not None:
+            mv["attack_property"] = ap
+            mv["atkprop_addr"] = int(packet_addr)
+            mv["attack_property_addr"] = int(packet_addr) + len(ATKPROP_HDR)
+    if ap is None and mv.get("attack_property_addr"):
+        ap = _profile_read_u8(buf, base_abs, mv.get("attack_property_addr"))
+        if ap is not None:
+            mv["attack_property"] = ap
+
+    hr = _profile_read_u8(buf, base_abs, mv.get("hit_reaction_addr")) if mv.get("hit_reaction_addr") else None
+    if hr is not None:
+        mv["hit_reaction"] = hr
+
+    addr = mv.get("knockback_addr")
+    off = _profile_off(buf, base_abs, addr, KNOCKBACK_TOTAL_LEN) if addr else None
+    if off is not None:
+        kb = parse_knockback(buf, off)
+        if kb:
+            mv["kb_type"] = kb.get("kb_type")
+            mv["launch_profile"] = kb.get("launch_profile")
+            mv["kb_unknown"] = kb.get("kb_unknown")
+            mv["kb_x"] = kb.get("kb_x")
+            mv["air_kb"] = kb.get("air_kb")
+            mv["kb0"] = mv["launch_profile"]
+            mv["kb1"] = mv["kb_type"]
+            mv["kb_traj"] = None
+
+    addr = mv.get("stun_addr")
+    off = _profile_off(buf, base_abs, addr, 39) if addr else None
+    if off is not None:
+        stun = parse_stun(buf, off)
+        if stun:
+            mv["hitstun"], mv["blockstun"], mv["hitstop"] = stun
+
+    try:
+        mv_abs = int(mv.get("abs") or 0)
+    except Exception:
+        mv_abs = 0
+    if mv_abs:
+        hx = _profile_read_f32(buf, base_abs, mv_abs + HITBOX_OFF_X)
+        hy = _profile_read_f32(buf, base_abs, mv_abs + HITBOX_OFF_Y)
+        if hx is not None:
+            mv["hb_x"] = hx
+        if hy is not None:
+            mv["hb_y"] = hy
+
+    segs = mv.get("hit_segments")
+    if isinstance(segs, list):
+        for seg in segs:
+            if isinstance(seg, dict):
+                _profile_refresh_hit_segment(seg, buf, base_abs)
+        mv["multi_hit_count"] = len([s for s in segs if isinstance(s, dict)])
+        if segs and isinstance(segs[0], dict):
+            try:
+                apply_hit_segment_to_move(mv, segs[0])
+            except Exception:
+                pass
+
+    probes = mv.get("invuln_probes")
+    if isinstance(probes, list):
+        for probe in probes:
+            if not isinstance(probe, dict):
+                continue
+            addr = probe.get("addr")
+            val = _profile_read_u8(buf, base_abs, int(addr) + 15) if addr else None
+            if val is not None:
+                probe["value"] = val
+        mv["invuln_probe_count"] = len([p for p in probes if isinstance(p, dict)])
+        try:
+            mv["invuln"] = summarize_invuln_probes([p for p in probes if isinstance(p, dict)])
+        except Exception:
+            pass
+
+    total_frames = mv.get("speed") or 0x3C
+    a_end = mv.get("active_end")
+    recovery = max(0, total_frames - a_end) if a_end else 12
+    hs = mv.get("hitstun") or 0
+    bs = mv.get("blockstun") or 0
+    mv["adv_hit"] = hs - recovery
+    mv["adv_block"] = bs - recovery
+
+    # Refresh names/optional-normal confirmation in case move_id_map was updated
+    # after the profile was created.
+    if aid is not None:
+        name = None
+        try:
+            name = lookup_move_name(aid, char_id) if char_id is not None else lookup_move_name(aid)
+        except TypeError:
+            try:
+                name = lookup_move_name(aid)
+            except Exception:
+                name = None
+        except Exception:
+            name = None
+        if name:
+            mv["move_name"] = name
+            mv["move_name_source"] = "lookup"
+        elif not mv.get("move_name"):
+            fallback = None if aid_low in OPTIONAL_NORMAL_IDS else ANIM_MAP.get(aid_low)
+            mv["move_name"] = fallback if fallback else f"anim_{int(aid):04X}"
+            mv["move_name_source"] = "anim_map" if fallback else "anim"
+        if aid_low in CORE_NORMAL_IDS:
+            mv["normal_confirmed"] = True
+        elif aid_low in OPTIONAL_NORMAL_IDS:
+            mv["normal_confirmed"] = (
+                str(mv.get("move_name_source") or "") == "lookup"
+                and str(mv.get("move_name") or "").strip().lower().replace(" ", "") == "6b"
+            )
+
+
+def _load_profile_moves(
+    char_id: Optional[int],
+    char_name: str,
+    chr_tbl_abs: int,
+    tbl_move_addrs: List[int],
+) -> Optional[List[Dict[str, Any]]]:
+    if not PROFILE_CACHE_ENABLED:
+        return None
+    key = _profile_key(char_id, char_name)
+    sig = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
+    doc = _load_profile_doc()
+    prof = (doc.get("profiles") or {}).get(key)
+    if not isinstance(prof, dict):
+        return None
+    if int(prof.get("version") or 0) != PROFILE_CACHE_VERSION:
+        return None
+    if str(prof.get("table_signature") or "") != sig:
+        return None
+    rows = prof.get("moves")
+    if not isinstance(rows, list) or not rows:
+        return None
+
+    moves: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        rebased = _rebase_profile_obj(copy.deepcopy(row), chr_tbl_abs)
+        if isinstance(rebased, dict):
+            rebased["_profile_fast_path"] = True
+            moves.append(rebased)
+    if not moves:
+        return None
+
+    try:
+        buf, base_abs = _read_profile_window(chr_tbl_abs, moves)
+        if not buf:
+            return None
+        for mv in moves:
+            _profile_refresh_move(mv, buf, base_abs, char_id)
+    except Exception as e:
+        print(f"[fd profile] fast path failed for {char_name}: {e!r}")
+        return None
+
+    _profile_warn_once(
+        f"fast:{key}",
+        f"[fd profile] fast path for {char_name} ({key})",
+    )
+    return moves
+
+
+def _save_profile_moves(
+    char_id: Optional[int],
+    char_name: str,
+    chr_tbl_abs: int,
+    tbl_move_addrs: List[int],
+    moves: List[Dict[str, Any]],
+) -> None:
+    if not PROFILE_CACHE_ENABLED or not moves:
+        return
+    key = _profile_key(char_id, char_name)
+    sig = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
+    try:
+        rows = [_relativize_profile_obj(copy.deepcopy(mv), chr_tbl_abs) for mv in moves]
+        profile = {
+            "version": PROFILE_CACHE_VERSION,
+            "scanner_build": PROFILE_SCANNER_BUILD,
+            "char_id": char_id,
+            "char_name": char_name,
+            "key": key,
+            "table_signature": sig,
+            "table_move_count": len(tbl_move_addrs or []),
+            "created_from": "dynamic_scan_once",
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
+            "moves": rows,
+        }
+        doc = _load_profile_doc()
+        profiles = doc.setdefault("profiles", {})
+        profiles[key] = profile
+        if not _save_profile_doc(doc):
+            _profile_warn_once(
+                f"deferred:{key}",
+                f"[fd profile] save deferred for {char_name}: cache file is busy; using in-memory profile for this run",
+            )
+        else:
+            _profile_warn_once(
+                f"saved:{key}",
+                f"[fd profile] saved profile for {char_name} ({key})",
+            )
+    except Exception as e:
+        _profile_warn_once(
+            f"failed:{key}",
+            f"[fd profile] save skipped for {char_name}: {e!r}",
+        )
+
+
 # ============================================================
 # MAIN SCAN
 # ============================================================
 
-def scan_once():
+def scan_once(force_dynamic: bool = False):
     hook()
 
     slots_info = read_slots_from_constants()
@@ -1626,6 +2305,21 @@ def scan_once():
             continue
 
         tbl_move_addrs = parse_chr_tbl(tbl_buf, tbl_start, chr_tbl_abs)
+
+        if _profile_cache_allowed(force_dynamic):
+            profiled_moves = _load_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs)
+            if profiled_moves is not None:
+                result[slot_idx] = {
+                    "slot_label": slot_label,
+                    "char_name": cname,
+                    "moves": sorted(profiled_moves, key=sort_key),
+                    "chr_tbl_abs": chr_tbl_abs,
+                    "tbl_move_count": len(tbl_move_addrs),
+                    "profile_fast_path": True,
+                    "profile_key": _profile_key(cid, cname),
+                }
+                continue
+
         region_start, region_end = slot_scan_region_from_tbl(tbl_buf, tbl_start, chr_tbl_abs)
 
         region_buf = safe_rbytes(region_start, region_end - region_start)
@@ -1638,13 +2332,17 @@ def scan_once():
         blocks = collect_blocks(region_buf, region_start)
         attach_move_fields(moves, region_buf, region_start, blocks, char_id=cid)
         moves = collapse_duplicate_normals_by_quality(moves)
+        sorted_moves = sorted(moves, key=sort_key)
+        _save_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs, sorted_moves)
 
         result[slot_idx] = {
             "slot_label": slot_label,
             "char_name": cname,
-            "moves": sorted(moves, key=sort_key),
+            "moves": sorted_moves,
             "chr_tbl_abs": chr_tbl_abs,
             "tbl_move_count": len(tbl_move_addrs),
+            "profile_fast_path": False,
+            "profile_key": _profile_key(cid, cname),
         }
 
     return result
