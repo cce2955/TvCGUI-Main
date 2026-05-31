@@ -2,31 +2,56 @@
 # -----------------------------------------------------------------------
 # PyInstaller spec that produces ONE TvCGUI.exe.
 #
-# The EXE re-launches itself with --mode <n> for subprocesses.
-# No sibling EXEs needed. You ship just TvCGUI.exe.
-#
-# Usage:
-#   pyinstaller TvCGUI_onefile.spec
-#
-# Output: dist\TvCGUI.exe
+# Data files are optional on purpose: local dev copies sometimes do not
+# have generated/debug files such as fd_region_hits.txt yet.  Missing
+# optional files should not break the EXE build.
 # -----------------------------------------------------------------------
+
+from pathlib import Path
+from glob import glob
 
 block_cipher = None
 
+
+def _data_file(src, dst='.'):
+    if Path(src).exists():
+        return [(src, dst)]
+    print(f'[spec] optional data missing, skipping: {src}')
+    return []
+
+
+def _data_glob(pattern, dst='.'):
+    matches = sorted(glob(pattern))
+    if not matches:
+        print(f'[spec] optional data glob empty, skipping: {pattern}')
+    return [(m, dst) for m in matches]
+
+
+def _data_dir(src, dst):
+    if Path(src).is_dir():
+        return [(src, dst)]
+    print(f'[spec] optional data dir missing, skipping: {src}')
+    return []
+
+
+datas = []
+datas += _data_dir('assets', 'assets')
+datas += _data_glob('*.csv', '.')
+datas += _data_file('fd_region_hits.txt', '.')
+datas += _data_file('frame_data_profiles.json', '.')
+datas += _data_file('quick_assists.json', '.')
+datas += _data_file('projectilemap.json', '.')
+datas += _data_file('projectile_ids.json', '.')
+datas += _data_file('master_overlay_control.json', '.')
+# megacrash_trainer.json is intentionally not bundled.
+# Megacrash must default OFF for every exported build; runtime saves stay local.
+datas += _data_dir('missions', 'missions')
+
 a = Analysis(
-    ['launcher.py'],        # <-- single entry point, routes to main/overlays
+    ['launcher.py'],
     pathex=['.'],
     binaries=[],
-datas=[
-    ('assets',  'assets'),      # portraits, icons bundled inside EXE
-    ('*.csv',   '.'),           # move-mapping CSVs
-    ('fd_region_hits.txt', '.'),
-    ('quick_assists.json', '.'),
-    ('projectilemap.json', '.'),
-    ('projectile_ids.json', '.'),
-    ('master_overlay_control.json', '.'),
-    ('missions', 'missions'),
-],
+    datas=datas,
     hiddenimports=[
         # All three scripts get pulled in as imports by launcher.py,
         # but list their deps explicitly so PyInstaller doesn't miss anything.

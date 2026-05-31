@@ -368,9 +368,11 @@ def draw_top_command_dock(
     *,
     hitbox_slots: dict,
     overlay_enabled: bool,
+    megacrash_active: bool = False,
+    megacrash_remaining: float = 0.0,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
-) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
+) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
     mx, my = mouse_pos
     w, _h = screen.get_size()
 
@@ -454,6 +456,21 @@ def draw_top_command_dock(
         align="center",
     )
 
+    x = hud_btn_rect.right + gap
+    megacrash_btn_rect = pygame.Rect(x, y, 124, btn_h)
+    mega_label = f"Megacrash {max(0.0, megacrash_remaining):.1f}s" if megacrash_active else "Megacrash"
+    draw_glass_button(
+        screen,
+        megacrash_btn_rect,
+        mega_label,
+        smallfont,
+        active=megacrash_active,
+        hover=megacrash_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(72, 42, 48) if megacrash_active else (31, 33, 42),
+        align="center",
+    )
+
     chip_y = y + btn_h + 6
     label_surf = smallfont.render("Hitbox Slots:", True, GUI_TEXT_MUTED)
     screen.blit(label_surf, (8, chip_y + 3))
@@ -481,7 +498,7 @@ def draw_top_command_dock(
         hb_filter_rects[slot_name] = chip_rect.inflate(4, 4)
         chip_x += chip_w + chip_gap
 
-    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, hb_filter_rects
+    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, hb_filter_rects
 
 
 def draw_status_rail(

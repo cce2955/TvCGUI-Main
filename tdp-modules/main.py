@@ -3,6 +3,7 @@ import csv
 import time
 import json
 import math
+import random
 import subprocess
 import sys
 import pygame
@@ -20,6 +21,8 @@ from constants import (
     SLOTS,
     CHAR_NAMES,
     OFF_CHAR_ID,
+    ATT_ID_OFF_PRIMARY,
+    ATT_ID_OFF_SECOND,
 )
 
 import pygame
@@ -34,7 +37,7 @@ from scan_worker import ScanNormalsWorker
 from training_flags import read_training_flags
 from debug_panel import read_debug_flags, draw_debug_overlay
 
-from dolphin_io import hook, rd8, rd32, wd8, addr_in_ram, rbytes
+from dolphin_io import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes
 
 from config import (
     MIN_HIT_DAMAGE,
@@ -87,6 +90,11 @@ except Exception:
 from frame_data_window import open_frame_data_window
 from proj_scanner_window import open_proj_scanner_window
 try:
+    from megacrash_trainer_window import open_megacrash_trainer_window
+except Exception as e:
+    open_megacrash_trainer_window = None
+    print(f"WARNING: megacrash trainer window not available ({e!r})")
+try:
     import fd_patch_runtime
 except Exception as e:
     fd_patch_runtime = None
@@ -134,6 +142,24 @@ REACTION_STATES = {48, 64, 65, 66, 73, 79, 80, 81, 82, 90, 92, 95, 96, 97}
 
 GIANT_IDS = {11, 22}
 
+# Megacrash training mode. The old one-click global poke proved that writing
+# the live action/move-id field to 448 can force Megacrash. The trainer keeps
+# that same write primitive, but only pulses it on point characters during
+# hitstun when the opponent advances to a new combo label.
+MEGACRASH_MOVE_ID = 448
+MEGACRASH_TRAINER_CONFIG_FILE = "megacrash_trainer.json"
+MEGACRASH_TRAINER_DEFAULT_CHANCE = 25
+MEGACRASH_TRAINER_DEFAULT_MODE = "percent"
+MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES = 0
+MEGACRASH_TRAINER_MAX_DELAY_FRAMES = 300
+MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC = 2.0
+MEGACRASH_TRAINER_MAX_COOLDOWN_SEC = 60.0
+MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL = ""
+MEGACRASH_TRAINER_PULSE_SEC = 0.08
+MEGACRASH_TRAINER_WRITE_OFFSETS = (ATT_ID_OFF_PRIMARY,)
+MEGACRASH_TRAINER_CHANCE_PRESETS = (0, 5, 10, 15, 20, 25, 33, 50, 75, 100)
+MEGACRASH_SUPPORT_STATE_IDS = {420, 424, 425, 426, 427, 428, 430, 431, 432, 433, 0x01A1, 0x01A8, 0x01AE}
+
 HB_BTN_X, HB_BTN_Y = 8, 8
 HB_BTN_W, HB_BTN_H = 130, 22
 TOP_UI_RESERVED = 60
@@ -165,6 +191,585 @@ def _copy_to_clipboard(text: str) -> None:
         except Exception as e:
             print(f"[copy] failed ({e!r}) -> {text}")
     print(f"[copy] (no pyperclip) -> {text}")
+
+
+def _u32be_bytes(value: int) -> bytes:
+    value = int(value) & 0xFFFFFFFF
+    return bytes([
+        (value >> 24) & 0xFF,
+        (value >> 16) & 0xFF,
+        (value >> 8) & 0xFF,
+        value & 0xFF,
+    ])
+
+
+def _clamp_megacrash_chance(value) -> int:
+    try:
+        value = int(round(float(value)))
+    except Exception:
+        value = MEGACRASH_TRAINER_DEFAULT_CHANCE
+    return max(0, min(100, value))
+
+
+def _clamp_megacrash_delay_frames(value) -> int:
+    try:
+        value = int(round(float(value)))
+    except Exception:
+        value = MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES
+    return max(0, min(MEGACRASH_TRAINER_MAX_DELAY_FRAMES, value))
+
+
+def _clamp_megacrash_cooldown_sec(value) -> float:
+    try:
+        value = float(value)
+    except Exception:
+        value = MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC
+    value = max(0.0, min(MEGACRASH_TRAINER_MAX_COOLDOWN_SEC, value))
+    return round(value, 2)
+
+
+def _clean_megacrash_target_label(value) -> str:
+    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+    while "  " in text:
+        text = text.replace("  ", " ")
+    return text[:96]
+
+
+def _megacrash_target_tokens(value) -> list[str]:
+    text = _clean_megacrash_target_label(value)
+    if not text or text.strip().lower() in {"*", "any", "all"}:
+        return []
+    raw = text.replace(";", ",").replace("|", ",").split(",")
+    return [part.strip().lower() for part in raw if part.strip()]
+
+
+def _megacrash_label_matches(target_label, atk_label, atk_id) -> bool:
+    tokens = _megacrash_target_tokens(target_label)
+    if not tokens:
+        return True
+
+    label = str(atk_label or "").strip()
+    candidates = {label.lower()} if label else set()
+    try:
+        mid = int(atk_id) if atk_id is not None else None
+    except Exception:
+        mid = None
+    if mid is not None:
+        candidates.update({
+            str(mid).lower(),
+            f"0x{mid:04x}",
+            f"0x{mid:x}",
+            f"{mid:04x}",
+            f"{mid:x}",
+        })
+
+    for token in tokens:
+        if token in candidates:
+            return True
+    return False
+
+
+def _megacrash_target_summary(value) -> str:
+    text = _clean_megacrash_target_label(value)
+    if not text or text.lower() in {"*", "any", "all"}:
+        return "Any label"
+    if len(text) > 28:
+        return f"Label {text[:25]}..."
+    return f"Label {text}"
+
+
+def _normalize_megacrash_mode(value) -> str:
+    value = str(value or "").strip().lower()
+    if value in {"target", "targeted", "delay", "delayed"}:
+        return "targeted"
+    return "percent"
+
+
+def _megacrash_mode_summary(state: dict) -> str:
+    mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    cd = _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+    target_txt = _megacrash_target_summary(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
+    cd_txt = f" cd {cd:g}s"
+    if mode == "targeted":
+        return f"{target_txt} +{_clamp_megacrash_delay_frames(state.get('delay_frames', 0))}f{cd_txt}"
+    return f"{target_txt} roll {_clamp_megacrash_chance(state.get('chance', MEGACRASH_TRAINER_DEFAULT_CHANCE))}%{cd_txt}"
+
+
+def _load_megacrash_trainer_config() -> dict:
+    cfg = {
+        # Safety rule: Megacrash never auto-enables on app startup.
+        # Persist the user's trainer settings, but require an explicit ON click
+        # every run so an exported build or stale JSON cannot force bursts by
+        # surprise.
+        "enabled": False,
+        "mode": MEGACRASH_TRAINER_DEFAULT_MODE,
+        "chance": MEGACRASH_TRAINER_DEFAULT_CHANCE,
+        "delay_frames": MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES,
+        "cooldown_sec": MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC,
+        "target_label": MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL,
+    }
+    try:
+        with open(MEGACRASH_TRAINER_CONFIG_FILE, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            # Intentionally ignore raw["enabled"].  The trainer is always OFF
+            # at startup, even if the previous session exited while ON.
+            cfg["mode"] = _normalize_megacrash_mode(raw.get("mode", cfg["mode"]))
+            cfg["chance"] = _clamp_megacrash_chance(raw.get("chance", cfg["chance"]))
+            cfg["delay_frames"] = _clamp_megacrash_delay_frames(raw.get("delay_frames", cfg["delay_frames"]))
+            cfg["cooldown_sec"] = _clamp_megacrash_cooldown_sec(raw.get("cooldown_sec", cfg["cooldown_sec"]))
+            cfg["target_label"] = _clean_megacrash_target_label(raw.get("target_label", cfg["target_label"]))
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"[megacrash trainer] config load failed: {e!r}")
+    return cfg
+
+
+def _save_megacrash_trainer_config(state: dict) -> None:
+    try:
+        payload = {
+            # Do not persist an enabled state. Megacrash must default OFF on
+            # every launch, while the rest of the trainer settings persist.
+            "enabled": False,
+            "mode": _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
+            "chance": _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
+            "delay_frames": _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
+            "cooldown_sec": _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)),
+            "target_label": _clean_megacrash_target_label(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)),
+        }
+        with open(MEGACRASH_TRAINER_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+    except Exception as e:
+        print(f"[megacrash trainer] config save failed: {e!r}")
+
+
+def _cycle_megacrash_chance(current: int) -> int:
+    cur = _clamp_megacrash_chance(current)
+    presets = list(MEGACRASH_TRAINER_CHANCE_PRESETS)
+    for value in presets:
+        if value > cur:
+            return value
+    return presets[0]
+
+
+def _snap_action_id(snap: dict) -> int | None:
+    if not isinstance(snap, dict):
+        return None
+    for key in ("mv_id_display", "attA", "attB", "move_id", "cur_anim", "current_anim"):
+        try:
+            value = snap.get(key)
+            if value is not None:
+                return int(value)
+        except Exception:
+            pass
+    return None
+
+
+def _snap_primary_action_id(snap: dict) -> int | None:
+    """Return the live primary move/action word only.
+
+    The trainer writes Megacrash through ATT_ID_OFF_PRIMARY (base+0x1E8).
+    Using the display id here is unsafe because display id falls back from
+    attA to attB; attB can mirror/stale a reaction value and make the
+    attacking point look like a victim.
+    """
+    if not isinstance(snap, dict):
+        return None
+    try:
+        value = snap.get("attA")
+        return int(value) if value is not None else None
+    except Exception:
+        return None
+
+
+def _snap_is_hitstun_primary(snap: dict) -> bool:
+    mid = _snap_primary_action_id(snap)
+    return bool(mid in REACTION_STATES if mid is not None else False)
+
+
+def _opponent_teamtag(teamtag: str) -> str:
+    return "P2" if str(teamtag) == "P1" else "P1"
+
+
+def _snap_move_label(snap: dict) -> str:
+    if not isinstance(snap, dict):
+        return ""
+    label = str(snap.get("mv_label") or "").strip()
+    if label:
+        return label
+    mid = _snap_action_id(snap)
+    return f"0x{mid:04X}" if mid is not None else ""
+
+
+def _is_support_or_assist_snap(snap: dict) -> bool:
+    if not isinstance(snap, dict):
+        return True
+    label = str(snap.get("mv_label") or "").strip().lower()
+    mid = _snap_action_id(snap)
+    ko_state = bool(("ko" in label) or ((snap.get("cur") or 0) <= 0))
+    return bool(
+        ko_state
+        or (mid in MEGACRASH_SUPPORT_STATE_IDS if mid is not None else False)
+        or ("assist" in label)
+        or ("tag out" in label)
+        or ("tag in taunt" in label)
+    )
+
+
+def _team_point_slot_for_megacrash(teamtag: str, snaps: dict) -> str | None:
+    """Return the team's point slot for trainer purposes.
+
+    Normal matches are C1 point / C2 assist. If C1 is visibly in a support/tag/KO
+    state while C2 is not, treat C2 as the point so swapped teams still work.
+    This intentionally keeps assists from being selected when they get clipped.
+    """
+    c1_key = f"{teamtag}-C1"
+    c2_key = f"{teamtag}-C2"
+    c1 = snaps.get(c1_key)
+    c2 = snaps.get(c2_key)
+    if c1 and not _is_support_or_assist_snap(c1):
+        return c1_key
+    if c2 and not _is_support_or_assist_snap(c2):
+        return c2_key
+    if c1:
+        return c1_key
+    if c2:
+        return c2_key
+    return None
+
+
+def _nearest_opponent_snap(vic_snap: dict, snaps: dict) -> dict | None:
+    if not isinstance(vic_snap, dict):
+        return None
+    vic_team = vic_snap.get("teamtag")
+    candidates = [s for s in snaps.values() if isinstance(s, dict) and s.get("teamtag") != vic_team]
+    if not candidates:
+        return None
+
+    best_snap = None
+    best_d2 = None
+    for cand in candidates:
+        try:
+            d2v = dist2(vic_snap, cand)
+        except Exception:
+            d2v = None
+        if d2v is None:
+            continue
+        if best_d2 is None or d2v < best_d2:
+            best_d2 = d2v
+            best_snap = cand
+    return best_snap or candidates[0]
+
+
+def _megacrash_cooldown_remaining(state: dict, now: float) -> float:
+    try:
+        cooldown_until = float(state.get("cooldown_until", 0.0) or 0.0)
+    except Exception:
+        cooldown_until = 0.0
+    return max(0.0, cooldown_until - float(now))
+
+
+def _megacrash_combo_key_for_attacker(atk_slot: str, atk_snap: dict) -> tuple | None:
+    atk_label = _snap_move_label(atk_snap)
+    atk_id = _snap_action_id(atk_snap)
+    if not atk_label and atk_id is None:
+        return None
+    return (
+        str(atk_snap.get("base") or atk_slot),
+        int(atk_id) if atk_id is not None else -1,
+        str(atk_label).strip().lower(),
+    )
+
+
+def _megacrash_mark_visible_combo_keys(snaps: dict, last_keys: dict) -> None:
+    """Consume current labels during cooldown without rolling on stale labels later."""
+    for teamtag in ("P1", "P2"):
+        vic_slot = _team_point_slot_for_megacrash(teamtag, snaps)
+        if not vic_slot:
+            continue
+        vic_snap = snaps.get(vic_slot)
+        if not isinstance(vic_snap, dict):
+            continue
+        try:
+            base = int(vic_snap.get("base") or 0)
+        except Exception:
+            base = 0
+        if not base:
+            continue
+        if not _snap_is_hitstun_primary(vic_snap):
+            last_keys.pop(base, None)
+            continue
+
+        atk_slot = _team_point_slot_for_megacrash(_opponent_teamtag(teamtag), snaps)
+        if not atk_slot:
+            continue
+        atk_snap = snaps.get(atk_slot)
+        if not isinstance(atk_snap, dict) or _is_support_or_assist_snap(atk_snap):
+            continue
+        atk_primary = _snap_primary_action_id(atk_snap)
+        if atk_primary in REACTION_STATES or atk_primary == MEGACRASH_MOVE_ID:
+            continue
+        combo_key = _megacrash_combo_key_for_attacker(atk_slot, atk_snap)
+        if combo_key is not None:
+            last_keys[base] = combo_key
+
+
+def _start_megacrash_trainer_pulse(state: dict, vic_snap: dict, now: float, reason: str = "") -> bool:
+    base = 0
+    try:
+        base = int(vic_snap.get("base") or 0)
+    except Exception:
+        base = 0
+    if not base:
+        return False
+
+    pulses = state.setdefault("pulses", {})
+    wrote_any = False
+    pulse_entries = []
+    for off in MEGACRASH_TRAINER_WRITE_OFFSETS:
+        addr = base + int(off)
+        if not addr_in_ram(addr):
+            continue
+        if wd32(addr, MEGACRASH_MOVE_ID):
+            wrote_any = True
+            pulse_entries.append(addr)
+
+    if wrote_any:
+        slot = str(vic_snap.get("slotname") or vic_snap.get("slot_label") or "?")
+        cooldown_sec = _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+        state["cooldown_until"] = now + cooldown_sec if cooldown_sec > 0.0 else 0.0
+        try:
+            state.setdefault("scheduled_triggers", {}).clear()
+        except Exception:
+            pass
+        pulses[base] = {
+            "slot": slot,
+            "addrs": pulse_entries,
+            "end": now + MEGACRASH_TRAINER_PULSE_SEC,
+            "reason": reason,
+        }
+        state["last_trigger"] = {
+            "slot": slot,
+            "time": now,
+            "reason": reason,
+        }
+        state["trigger_count"] = int(state.get("trigger_count", 0) or 0) + 1
+        print(f"[megacrash trainer] trigger {slot}: {reason}")
+    return wrote_any
+
+
+def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int | None = None) -> dict:
+    if not isinstance(state, dict):
+        state = {}
+
+    state.setdefault("enabled", False)
+    state["mode"] = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    state["chance"] = _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
+    state["delay_frames"] = _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
+    state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+    state["target_label"] = _clean_megacrash_target_label(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
+    pulses = state.setdefault("pulses", {})
+    last_keys = state.setdefault("last_combo_keys", {})
+    scheduled = state.setdefault("scheduled_triggers", {})
+    if frame_idx is None:
+        try:
+            frame_idx = int(round(now * TARGET_FPS))
+        except Exception:
+            frame_idx = 0
+
+    snaps = snaps or {}
+    snaps_by_base = {}
+    for _slot, _snap in list(snaps.items()):
+        if not isinstance(_snap, dict):
+            continue
+        try:
+            _base = int(_snap.get("base") or 0)
+        except Exception:
+            _base = 0
+        if _base:
+            snaps_by_base[_base] = _snap
+
+    # Keep the Megacrash poke pinned only until the game visibly accepts 448,
+    # then release immediately.  This prevents the trainer from manufacturing
+    # a permanent-looking Megacrash hitbox before the real burst animation owns
+    # the state.
+    for base, pulse in list(pulses.items()):
+        try:
+            base_i = int(base)
+        except Exception:
+            base_i = 0
+        try:
+            end_ts = float(pulse.get("end", 0.0) or 0.0)
+        except Exception:
+            end_ts = 0.0
+
+        live_snap = snaps_by_base.get(base_i)
+        live_primary = _snap_primary_action_id(live_snap) if live_snap else None
+        if now >= end_ts or live_primary == MEGACRASH_MOVE_ID:
+            pulses.pop(base, None)
+            continue
+
+        for addr in list(pulse.get("addrs") or []):
+            try:
+                addr = int(addr)
+            except Exception:
+                addr = 0
+            if addr and addr_in_ram(addr):
+                wd32(addr, MEGACRASH_MOVE_ID)
+
+    if not state.get("enabled", False):
+        last_keys.clear()
+        scheduled.clear()
+        state["cooldown_until"] = 0.0
+        return state
+
+    cooldown_remaining = _megacrash_cooldown_remaining(state, now)
+    if cooldown_remaining > 0.0:
+        # While cooling down, do not roll or fire scheduled bursts.  Consume the
+        # currently visible combo labels so the trainer waits for a truly new
+        # attacker label after the cooldown expires.
+        scheduled.clear()
+        _megacrash_mark_visible_combo_keys(snaps, last_keys)
+        return state
+
+    # Process targeted delayed-burst schedules. A schedule is tied to the victim
+    # point base and only fires if that same point is still in primary hitstun.
+    for base, pending in list(scheduled.items()):
+        try:
+            base_i = int(base)
+        except Exception:
+            base_i = 0
+        if not base_i:
+            scheduled.pop(base, None)
+            continue
+        live_snap = snaps_by_base.get(base_i)
+        if not isinstance(live_snap, dict):
+            scheduled.pop(base, None)
+            continue
+        if _snap_primary_action_id(live_snap) == MEGACRASH_MOVE_ID:
+            scheduled.pop(base, None)
+            continue
+        if not _snap_is_hitstun_primary(live_snap):
+            scheduled.pop(base, None)
+            continue
+
+        try:
+            fire_frame = int(pending.get("fire_frame", 0) or 0)
+        except Exception:
+            fire_frame = 0
+        try:
+            fire_time = float(pending.get("fire_time", 0.0) or 0.0)
+        except Exception:
+            fire_time = 0.0
+
+        due = bool(frame_idx >= fire_frame if fire_frame else now >= fire_time)
+        if not due:
+            continue
+
+        reason = str(pending.get("reason") or "targeted delayed label")
+        _start_megacrash_trainer_pulse(state, live_snap, now, reason=reason)
+        scheduled.pop(base, None)
+
+    mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    chance = state["chance"]
+    if mode == "percent" and chance <= 0:
+        return state
+
+    # Trainer logic is team-point vs team-point.  Assists/projectiles are not
+    # allowed to become the attacker key or the victim target.  A roll happens
+    # once for the current attacker label while the point victim stays in
+    # hitstun; the same label cannot roll again until the attacker label changes
+    # or the victim leaves hitstun and starts a new hitstun sequence.
+    for teamtag in ("P1", "P2"):
+        vic_slot = _team_point_slot_for_megacrash(teamtag, snaps)
+        if not vic_slot:
+            continue
+        vic_snap = snaps.get(vic_slot)
+        if not isinstance(vic_snap, dict):
+            continue
+        if _is_support_or_assist_snap(vic_snap):
+            continue
+
+        try:
+            base = int(vic_snap.get("base") or 0)
+        except Exception:
+            base = 0
+        if not base:
+            continue
+
+        if base in pulses or str(base) in pulses:
+            continue
+
+        if _snap_primary_action_id(vic_snap) == MEGACRASH_MOVE_ID:
+            last_keys.pop(base, None)
+            continue
+
+        if not _snap_is_hitstun_primary(vic_snap):
+            last_keys.pop(base, None)
+            continue
+
+        atk_team = _opponent_teamtag(teamtag)
+        atk_slot = _team_point_slot_for_megacrash(atk_team, snaps)
+        if not atk_slot:
+            continue
+        atk_snap = snaps.get(atk_slot)
+        if not isinstance(atk_snap, dict):
+            continue
+        if _is_support_or_assist_snap(atk_snap):
+            continue
+
+        atk_primary = _snap_primary_action_id(atk_snap)
+        if atk_primary in REACTION_STATES or atk_primary == MEGACRASH_MOVE_ID:
+            # Do not let a simultaneously hitstunned point roll against the
+            # other victim. This was the path that could make both point chars
+            # burst from one clean hit.
+            continue
+
+        atk_label = _snap_move_label(atk_snap)
+        atk_id = _snap_action_id(atk_snap)
+        if not atk_label and atk_id is None:
+            continue
+        if str(atk_label).strip().lower() == "megacrash":
+            continue
+
+        combo_key = _megacrash_combo_key_for_attacker(atk_slot, atk_snap)
+        if combo_key is None:
+            continue
+        if last_keys.get(base) == combo_key:
+            continue
+        last_keys[base] = combo_key
+
+        if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
+            continue
+
+        if mode == "targeted":
+            delay_frames = _clamp_megacrash_delay_frames(state.get("delay_frames", 0))
+            fire_frame = int(frame_idx or 0) + delay_frames
+            scheduled[base] = {
+                "slot": str(vic_snap.get("slotname") or vic_slot),
+                "attacker": str(atk_slot),
+                "label": str(atk_label or atk_id),
+                "fire_frame": fire_frame,
+                "fire_time": now + (delay_frames / float(TARGET_FPS)),
+                "reason": f"{atk_slot} {atk_label or atk_id} targeted +{delay_frames}f",
+            }
+            state["roll_count"] = int(state.get("roll_count", 0) or 0) + 1
+            if int(state.get("roll_count", 0) or 0) % 20 == 1:
+                print(f"[megacrash trainer] schedule {vic_slot}: {atk_slot} {atk_label or atk_id} +{delay_frames}f")
+            continue
+
+        roll = random.uniform(0.0, 100.0)
+        state["roll_count"] = int(state.get("roll_count", 0) or 0) + 1
+        if roll <= float(chance):
+            reason = f"{atk_slot} {atk_label or atk_id} roll {roll:.1f}<={chance}%"
+            _start_megacrash_trainer_pulse(state, vic_snap, now, reason=reason)
+        else:
+            if frame_idx_mod := int(state.get("roll_count", 0) or 0):
+                if frame_idx_mod % 20 == 0:
+                    print(f"[megacrash trainer] roll skip {atk_slot} {atk_label or atk_id}: {roll:.1f}>{chance}%")
+
+    return state
 
 
 # GUI polish helpers
@@ -518,9 +1123,15 @@ def draw_top_command_dock(
     *,
     hitbox_slots: dict,
     overlay_enabled: bool,
+    megacrash_trainer_enabled: bool = False,
+    megacrash_trainer_chance: int = MEGACRASH_TRAINER_DEFAULT_CHANCE,
+    megacrash_trainer_mode: str = MEGACRASH_TRAINER_DEFAULT_MODE,
+    megacrash_trainer_delay_frames: int = MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES,
+    megacrash_trainer_cooldown_sec: float = MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC,
+    megacrash_trainer_cooldown_remaining: float = 0.0,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
-) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
+) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
     mx, my = mouse_pos
     w, _h = screen.get_size()
 
@@ -535,7 +1146,7 @@ def draw_top_command_dock(
     pygame.draw.line(screen, (58, 64, 82), (0, dock_rect.bottom - 1), (w, dock_rect.bottom - 1))
 
     # Quiet status text plus a tiny heartbeat indicator.
-    status_text = "Frame Data includes projectiles | Left click to interact | Right click panels/debug rows to copy"
+    status_text = "Frame Data includes projectiles | Megacrash opens trainer settings | Right click panels/debug rows to copy"
     status_surf = _fit_text(smallfont, status_text, GUI_TEXT_DIM, max(80, w - 640))
     status_x = w - status_surf.get_width() - 10
     pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 4.0)
@@ -596,6 +1207,21 @@ def draw_top_command_dock(
         align="center",
     )
 
+    x = hud_btn_rect.right + gap
+    megacrash_btn_rect = pygame.Rect(x, y, 144, btn_h)
+    mega_label = f"Megacrash: {'ON' if megacrash_trainer_enabled else 'OFF'}"
+    draw_glass_button(
+        screen,
+        megacrash_btn_rect,
+        mega_label,
+        smallfont,
+        active=bool(megacrash_trainer_enabled),
+        hover=megacrash_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(44, 56, 82) if megacrash_trainer_enabled else (31, 33, 42),
+        align="center",
+    )
+
     chip_y = y + btn_h + 6
     label_surf = smallfont.render("Hitbox Slots:", True, GUI_TEXT_MUTED)
     screen.blit(label_surf, (8, chip_y + 3))
@@ -623,7 +1249,7 @@ def draw_top_command_dock(
         hb_filter_rects[slot_name] = chip_rect.inflate(4, 4)
         chip_x += chip_w + chip_gap
 
-    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, hb_filter_rects
+    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, hb_filter_rects
 
 
 def draw_status_rail(
@@ -2286,6 +2912,15 @@ def legacy_main():
     special_restore_ts   = 0.0
     special_restore_orig = 0
 
+    megacrash_trainer_state = _load_megacrash_trainer_config()
+    megacrash_trainer_state.setdefault("pulses", {})
+    megacrash_trainer_state.setdefault("last_combo_keys", {})
+    megacrash_trainer_state.setdefault("scheduled_triggers", {})
+    megacrash_trainer_state.setdefault("cooldown_until", 0.0)
+    megacrash_trainer_state.setdefault("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)
+    megacrash_trainer_state.setdefault("roll_count", 0)
+    megacrash_trainer_state.setdefault("trigger_count", 0)
+
     running = True
 
     # ------------------------------------------------------------------
@@ -2538,6 +3173,9 @@ def legacy_main():
         # Mission manager tick
         mission_mgr.update(snaps, render_snap_by_slot, frame_idx, now)
 
+        # Megacrash Trainer tick: point-only, hitstun-only, per-new-combo-label dice roll.
+        megacrash_trainer_state = _tick_megacrash_trainer(megacrash_trainer_state, snaps, now, frame_idx)
+
         # Damage / hit logging
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
             for vic_slot, vic_snap in snaps.items():
@@ -2731,11 +3369,15 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, hb_filter_rects = draw_top_command_dock(
+        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, hb_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
             overlay_enabled=overlay_enabled,
+            megacrash_trainer_enabled=bool(megacrash_trainer_state.get("enabled", False)),
+            megacrash_trainer_chance=int(megacrash_trainer_state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
+            megacrash_trainer_mode=str(megacrash_trainer_state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
+            megacrash_trainer_delay_frames=int(megacrash_trainer_state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
         )
@@ -3046,6 +3688,19 @@ def legacy_main():
             status_parts.append("Hitboxes OFF")
         if mission_mgr.active_slot:
             status_parts.append(f"Mission {mission_mgr.active_slot}")
+        if bool(megacrash_trainer_state.get("enabled", False)):
+            status_parts.append(f"Mega Trainer {_megacrash_mode_summary(megacrash_trainer_state)}")
+            cd_left = _megacrash_cooldown_remaining(megacrash_trainer_state, now)
+            if cd_left > 0.0:
+                status_parts.append(f"Mega cooldown {cd_left:.1f}s")
+            last_trig = megacrash_trainer_state.get("last_trigger")
+            if isinstance(last_trig, dict):
+                try:
+                    age = now - float(last_trig.get("time", 0.0) or 0.0)
+                except Exception:
+                    age = 999.0
+                if age < 2.0:
+                    status_parts.append(f"Mega hit {last_trig.get('slot', '?')}")
 
         draw_status_rail(
             screen,
@@ -3089,6 +3744,14 @@ def legacy_main():
                 overlay_enabled = not overlay_enabled
                 _write_master_control()
                 _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif megacrash_btn_rect.collidepoint(mx, my):
+                if open_megacrash_trainer_window is not None:
+                    open_megacrash_trainer_window(megacrash_trainer_state, _save_megacrash_trainer_config)
+                else:
+                    print("[megacrash trainer] settings window unavailable")
                 mouse_clicked_pos = None
                 continue
 
@@ -3203,6 +3866,14 @@ def legacy_main():
         # Right-click copy handling
         if mouse_right_clicked_pos is not None:
             mx, my = mouse_right_clicked_pos
+
+            if megacrash_btn_rect.collidepoint(mx, my):
+                if open_megacrash_trainer_window is not None:
+                    open_megacrash_trainer_window(megacrash_trainer_state, _save_megacrash_trainer_config)
+                else:
+                    print("[megacrash trainer] settings window unavailable")
+                mouse_right_clicked_pos = None
+                continue
 
             copied = False
             if active_bottom_tab == "debug":

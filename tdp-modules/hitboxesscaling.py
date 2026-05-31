@@ -142,6 +142,10 @@ PASSIVE_STATE_IDS = {
     48, 49, 50, 52, 53,
 }
 
+# Megacrash has large dormant volumes in memory before/after the actual burst.
+# Keep those hidden unless frame-data gating says the burst is currently active.
+MEGACRASH_STATE_IDS = {448}
+
 def read_state_raw(slot_base: int) -> int:
     raw = rd32(slot_base + OFF_STATE_ID)
     return 0 if raw is None else raw
@@ -1352,6 +1356,8 @@ class HitboxRenderer:
 
                 base_color = palette[i % len(palette)]
                 is_active, action_frame, fd = self._frame_gate_for_slot(name, base, state_id, flag)
+                if state_id in MEGACRASH_STATE_IDS and not is_active:
+                    continue
                 draw_color = base_color if is_active else _dim_hitbox_color(base_color)
                 label = f"{name}[{i}]"
                 if debug_labels and fd is not None and action_frame is not None:

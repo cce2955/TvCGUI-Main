@@ -1,0 +1,27 @@
+Patch: action graph payload attach pass
+
+Goal:
+Do not treat the action/super graph as only 0x160+ supers. The graph finder now works for all specials/projectiles:
+
+  00/23 parent row
+    -> child offset / child target
+      -> forward child window
+        -> projectilemap.json expected damage match
+        -> attach exact projectile payload/template rows when they land in that window
+
+Main changes:
+- fd_super_integration.py
+  - Added _all_payload_candidates() so ordinary projectile templates are eligible for ownership, not only super-ish payloads.
+  - Added _attach_projectilemap_payloads_from_child() to attach existing projectile scanner rows to a child-owned forward window.
+  - Owned payloads now use owner="action_graph" and owner proof from parent -> child -> payload.
+  - Payload-backed damage can now populate the visible Owned Damage field even when there is no 35/10 packet at the child entry.
+  - Confidence is "mapped" when the child-owned payload/field matches projectilemap.json.
+
+- fd_tree.py
+  - Owned payload rows under the child now show projectile fields in the existing projectile columns: radius, speed, FX, lifetime, hitbox, super/beam fields, compact-card fields, etc.
+
+Why:
+The user-verified workflow is simple and applies to all specials:
+  parent -> child offset -> search forward -> known move damage / payload.
+
+This patch keeps that route but uses projectilemap.json as the label/damage whitelist and the existing projectile scanner as the exact field provider.

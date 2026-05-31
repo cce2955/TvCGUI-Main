@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import struct
+import sys
 import threading
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -195,10 +196,47 @@ PROFILE_CACHE_VERSION = 1
 PROFILE_SCANNER_BUILD = "fd-profile-v1"
 PROFILE_CACHE_FILENAME = "frame_data_profiles.json"
 PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PROFILE_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
-PROFILE_CACHE_FILE = os.environ.get(
-    "TVC_FD_PROFILE_CACHE_FILE",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), PROFILE_CACHE_FILENAME),
-)
+
+
+def _profile_module_dir() -> str:
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _profile_is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
+def _profile_exe_dir() -> str:
+    if _profile_is_frozen():
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return _profile_module_dir()
+
+
+def _profile_bundle_dir() -> Optional[str]:
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return os.path.abspath(str(base))
+    return None
+
+
+def _profile_default_cache_file() -> str:
+    # Source/dev runs keep the cache next to scan_normals_all.py so the build
+    # script can bundle the profiles you already generated.  PyInstaller onefile
+    # runs use a writable cache next to TvCGUI.exe, while still reading the
+    # bundled read-only seed profile from sys._MEIPASS.
+    return os.path.join(_profile_exe_dir(), PROFILE_CACHE_FILENAME)
+
+
+def _profile_default_bundled_file() -> Optional[str]:
+    bundle_dir = _profile_bundle_dir()
+    if bundle_dir:
+        return os.path.join(bundle_dir, PROFILE_CACHE_FILENAME)
+    source_file = os.path.join(_profile_module_dir(), PROFILE_CACHE_FILENAME)
+    return source_file if os.path.exists(source_file) else None
+
+
+PROFILE_CACHE_FILE = os.environ.get("TVC_FD_PROFILE_CACHE_FILE", _profile_default_cache_file())
+PROFILE_BUNDLED_CACHE_FILE = os.environ.get("TVC_FD_PROFILE_BUNDLED_FILE", _profile_default_bundled_file() or "")
 PROFILE_CACHE_LOCK_FILE = os.environ.get(
     "TVC_FD_PROFILE_CACHE_LOCK_FILE",
     PROFILE_CACHE_FILE + ".lock",
@@ -1667,12 +1705,54 @@ def _normalize_profile_doc(doc: Any) -> Dict[str, Any]:
     return doc
 
 
-def _read_profile_doc_uncached() -> Dict[str, Any]:
+def _merge_profile_docs(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    merged = _normalize_profile_doc(copy.deepcopy(base))
+    overlay = _normalize_profile_doc(overlay)
+    profiles = merged.setdefault("profiles", {})
+    for k, v in (overlay.get("profiles") or {}).items():
+        profiles[str(k)] = v
+    merged["version"] = PROFILE_CACHE_VERSION
+    merged["scanner_build"] = overlay.get("scanner_build") or merged.get("scanner_build") or PROFILE_SCANNER_BUILD
+    merged["updated_at"] = overlay.get("updated_at") or merged.get("updated_at")
+    return merged
+
+
+def _read_profile_doc_file(path: str) -> Optional[Dict[str, Any]]:
+    if not path:
+        return None
     try:
-        with open(PROFILE_CACHE_FILE, "r", encoding="utf-8") as f:
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
             return _normalize_profile_doc(json.load(f))
     except Exception:
-        return _empty_profile_doc()
+        return None
+
+
+def _profile_read_paths() -> List[str]:
+    paths: List[str] = []
+    for path in (PROFILE_BUNDLED_CACHE_FILE, PROFILE_CACHE_FILE):
+        if not path:
+            continue
+        ap = os.path.abspath(path)
+        if ap not in paths:
+            paths.append(ap)
+    return paths
+
+
+def _read_profile_doc_uncached() -> Dict[str, Any]:
+    # Merge the bundled seed profile first, then overlay the writable runtime
+    # profile.  This makes exported onefile builds start fast immediately, while
+    # still allowing newly discovered/changed profiles to persist next to the exe.
+    doc = _empty_profile_doc()
+    found_any = False
+    for path in _profile_read_paths():
+        part = _read_profile_doc_file(path)
+        if part is None:
+            continue
+        doc = _merge_profile_docs(doc, part)
+        found_any = True
+    return _normalize_profile_doc(doc if found_any else _empty_profile_doc())
 
 
 def _load_profile_doc() -> Dict[str, Any]:
