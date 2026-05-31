@@ -240,7 +240,73 @@ def _megacrash_target_tokens(value) -> list[str]:
     if not text or text.strip().lower() in {"*", "any", "all"}:
         return []
     raw = text.replace(";", ",").replace("|", ",").split(",")
-    return [part.strip().lower() for part in raw if part.strip()]
+    return [part.strip() for part in raw if part.strip()]
+
+
+def _megacrash_norm_label(value) -> str:
+    text = str(value or "").replace("\u00a0", " ").replace("_", " ").replace("-", " ").strip().casefold()
+    while "  " in text:
+        text = text.replace("  ", " ")
+    return text
+
+
+def _megacrash_tight_label(value) -> str:
+    text = _megacrash_norm_label(value)
+    return "".join(ch for ch in text if ch.isalnum())
+
+
+_MEGACRASH_LABEL_ID_CACHE: dict[str, set[int]] | None = None
+
+
+def _megacrash_label_id_cache() -> dict[str, set[int]]:
+    """Map normalized move labels/aliases from the CSV to their move IDs.
+
+    This lets the trainer target labels with spaces like "Knee A" even if the
+    live HUD snapshot is carrying the move as an ID/fallback label for a frame.
+    "5A" and other compact labels still work the same way.
+    """
+    global _MEGACRASH_LABEL_ID_CACHE
+    if _MEGACRASH_LABEL_ID_CACHE is not None:
+        return _MEGACRASH_LABEL_ID_CACHE
+
+    out: dict[str, set[int]] = {}
+
+    def add(label, mid) -> None:
+        try:
+            mid_i = int(mid)
+        except Exception:
+            return
+        norm = _megacrash_norm_label(label)
+        tight = _megacrash_tight_label(label)
+        for key in (norm, tight):
+            if key:
+                out.setdefault(key, set()).add(mid_i)
+
+    csv_path = resource_path("move_id_map_charagnostic.csv")
+    try:
+        with open(csv_path, newline="", encoding="utf-8-sig") as f:
+            reader = csv.reader(f)
+            for row in reader:
+                if not row:
+                    continue
+                first = str(row[0] or "").strip()
+                if not first or first.startswith("#"):
+                    continue
+                try:
+                    mid = int(float(first))
+                except Exception:
+                    continue
+                # Primary label plus legacy/example label columns.  This is
+                # intentionally broad because several specials have display
+                # aliases that differ from the canonical column.
+                for idx in (2, 3, 4, 5):
+                    if idx < len(row):
+                        add(row[idx], mid)
+    except Exception as e:
+        print(f"[megacrash trainer] label alias cache unavailable: {e!r}")
+
+    _MEGACRASH_LABEL_ID_CACHE = out
+    return out
 
 
 def _megacrash_label_matches(target_label, atk_label, atk_id) -> bool:
@@ -249,23 +315,41 @@ def _megacrash_label_matches(target_label, atk_label, atk_id) -> bool:
         return True
 
     label = str(atk_label or "").strip()
-    candidates = {label.lower()} if label else set()
+    candidates = set()
+    if label:
+        candidates.update({
+            label.casefold(),
+            _megacrash_norm_label(label),
+            _megacrash_tight_label(label),
+        })
+
     try:
         mid = int(atk_id) if atk_id is not None else None
     except Exception:
         mid = None
     if mid is not None:
         candidates.update({
-            str(mid).lower(),
+            str(mid).casefold(),
             f"0x{mid:04x}",
             f"0x{mid:x}",
             f"{mid:04x}",
             f"{mid:x}",
         })
 
+    alias_cache = _megacrash_label_id_cache()
     for token in tokens:
-        if token in candidates:
+        token_norm = _megacrash_norm_label(token)
+        token_tight = _megacrash_tight_label(token)
+        if token.casefold() in candidates or token_norm in candidates or token_tight in candidates:
             return True
+        if mid is not None:
+            alias_ids = set()
+            if token_norm:
+                alias_ids.update(alias_cache.get(token_norm, set()))
+            if token_tight:
+                alias_ids.update(alias_cache.get(token_tight, set()))
+            if mid in alias_ids:
+                return True
     return False
 
 

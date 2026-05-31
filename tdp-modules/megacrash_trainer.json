@@ -1,8 +1,0 @@
-{
-  "enabled": true,
-  "mode": "targeted",
-  "chance": 10,
-  "delay_frames": 0,
-  "cooldown_sec": 2.0,
-  "target_label": ""
-}

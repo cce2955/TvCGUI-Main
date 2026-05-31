@@ -1,0 +1,13 @@
+
+# Python cache/build junk
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Runtime overlay/training state
+tdp-modules/*.tmp
+tdp-modules/hud_overlay_data.json
+tdp-modules/mission_overlay_data.json
+tdp-modules/mission_mode_state.json
+tdp-modules/mission_progress.json
+tdp-modules/megacrash_trainer.json

@@ -196,6 +196,7 @@ def open_megacrash_trainer_window(
         delay_var = tk.StringVar(value=str(_clamp_int(state.get("delay_frames", 0), 0, 0, 300)))
         cooldown_var = tk.StringVar(value=_format_seconds(state.get("cooldown_sec", 2.0)))
         label_var = tk.StringVar(value=_clean_label(state.get("target_label", "")))
+        target_status_var = tk.StringVar(value=f"Current trigger: {_label_summary(label_var.get())}")
         status_var = tk.StringVar(value=_state_label(state))
 
         root_frame = tk.Frame(win, bg=_BG, padx=16, pady=14)
@@ -230,11 +231,19 @@ def open_megacrash_trainer_window(
         target_card.pack(fill="x", pady=(0, 10))
         target = target_card.inner  # type: ignore[attr-defined]
         _label(target, "Trigger label", bold=True, size=10).grid(row=0, column=0, sticky="w", columnspan=4)
-        _label(target, "Blank means any new opponent label. You can type an exact label, decimal ID, hex ID, or comma-separated list.", muted=True).grid(row=1, column=0, sticky="w", columnspan=4, pady=(2, 8))
+        _label(
+            target,
+            "Type the attacker label to watch, then press Enter or Apply label. Blank means any new opponent label.",
+            muted=True,
+        ).grid(row=1, column=0, sticky="w", columnspan=4, pady=(2, 8))
         label_entry = _field(target, label_var, width=34)
         label_entry.grid(row=2, column=0, sticky="ew", columnspan=2, pady=(0, 2))
-        _button(target, "Any", lambda: (label_var.set(""), _apply()), width=6).grid(row=2, column=2, padx=(8, 0), sticky="w")
-        _label(target, "example: 5B, Shinkuu Hadouken, 448, 0x01C0", muted=True).grid(row=3, column=0, sticky="w", columnspan=4, pady=(4, 0))
+        _button(target, "Apply label", lambda: _apply(), width=10).grid(row=2, column=2, padx=(8, 0), sticky="w")
+        _button(target, "Clear to Any", lambda: (label_var.set(""), _apply()), width=10).grid(row=2, column=3, padx=(6, 0), sticky="w")
+        current_lbl = _label(target, "", muted=True)
+        current_lbl.configure(textvariable=target_status_var)
+        current_lbl.grid(row=3, column=0, sticky="w", columnspan=4, pady=(5, 0))
+        _label(target, "Examples: 5B, Knee A, Shinkuu Hadouken, 448, 0x01C0", muted=True).grid(row=4, column=0, sticky="w", columnspan=4, pady=(4, 0))
         target.grid_columnconfigure(0, weight=1)
 
         mode_wrap = tk.Frame(root_frame, bg=_BG)
@@ -315,6 +324,7 @@ def open_megacrash_trainer_window(
 
             if save_func is not None:
                 save_func(state)
+            target_status_var.set(f"Current trigger: {_label_summary(state.get('target_label', ''))}")
             status_var.set(_state_label(state))
 
         # Now that _apply exists, wire command-only widgets that were created above.
