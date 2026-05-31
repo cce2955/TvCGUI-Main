@@ -1212,6 +1212,29 @@ class HitboxRenderer:
         self.overlay.font_small = pygame.font.SysFont("consolas", 11)
         self.overlay.font_hud = pygame.font.SysFont("consolas", 13, bold=True)
 
+    @staticmethod
+    def _hitboxes_enabled(control=None) -> bool:
+        """Return the master/UI hitbox toggle state.
+
+        The master overlay process can stay alive for the HUD even when hitboxes
+        are disabled.  Keep the real hitbox renderer quiet in that state; this
+        includes projectile synthetic hitboxes, which do not belong to any one
+        slot and were previously bypassing the slot filter.
+        """
+        return bool(getattr(control, "show_hitboxes", True))
+
+    def _clear_runtime_hitbox_state(self) -> None:
+        self.cached_projectiles.clear()
+        self.last_counts = {}
+        self.motion_filter._states.clear()
+        for node in getattr(self.node_tracker, "_nodes", {}).values():
+            node.active = False
+            node.inactive_frames = PROJECTILE_DESPAWN_FRAMES
+            node.dim_0 = 0.0
+            node.dim_1 = 0.0
+            node.dim_2 = 0.0
+            node.actor_ptr = 0
+
     def on_resize(self, w: int, h: int) -> None:
         if w <= 0 or h <= 0:
             return
@@ -1238,6 +1261,10 @@ class HitboxRenderer:
         return (hitbox_flag == 0x53), action_frame, fd
 
     def update(self, dt: float, control=None) -> None:
+        if not self._hitboxes_enabled(control):
+            self._clear_runtime_hitbox_state()
+            return
+
         char_changed = False
         for name, base in SLOT_BASES.items():
             cid = rd32(base + OFF_CHAR_ID) or 0
@@ -1292,6 +1319,9 @@ class HitboxRenderer:
         self.last_counts = counts
 
     def draw(self, screen: pygame.Surface, control=None) -> None:
+        if not self._hitboxes_enabled(control):
+            return
+
         camx, camy, camz, camw = read_camera_pos(CAMERA)
 
         ov = self.overlay
@@ -1570,16 +1600,17 @@ def main():
                     running = False
                     break
                 
-            projectiles = read_projectile_positions()
-            for x, y, z in projectiles:
-                overlay.draw_projectile_hitbox(
-                    x,
-                    y + PROJECTILE_Y_OFFSET,
-                    z,
-                    0.35,
-                    COL_PROJ,
-                    "PRJ",
-                )
+            if any(slot_filter.values()):
+                projectiles = read_projectile_positions()
+                for x, y, z in projectiles:
+                    overlay.draw_projectile_hitbox(
+                        x,
+                        y + PROJECTILE_Y_OFFSET,
+                        z,
+                        0.35,
+                        COL_PROJ,
+                        "PRJ",
+                    )
 
             if pygame.time.get_ticks() % 300 == 0:
                 motion_filter.cleanup()
