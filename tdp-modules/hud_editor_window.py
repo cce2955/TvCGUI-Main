@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from typing import Any, Callable
 
@@ -132,6 +133,22 @@ RAW_WIN_COUNTERS: dict[str, tuple[int, ...]] = {
     "P2": (0x803EBA00, 0x803EBA04),
 }
 
+# Runtime state for HUD overrides that must survive closing the editor window.
+# The window is only the control panel; main.py calls tick_hud_editor_state()
+# so active holds/freezes keep writing while the window is closed.
+_HUD_EDITOR_RUNTIME_STATE: dict[str, Any] = {
+    "force_zero_as_win": False,
+    "use_hud": True,
+    "use_svm": False,
+    "last_tick_time": 0.0,
+    "last_force_time": 0.0,
+    "status": "",
+    "holds": {
+        "P1": {"enabled": False, "auto": True, "value": 0, "last_raw": None},
+        "P2": {"enabled": False, "auto": True, "value": 0, "last_raw": None},
+    },
+}
+
 WIN_PANE_ENABLES: dict[str, dict[str, tuple[int, int, int]]] = {
     "P1": {
         "VS": (0x80BEBA7B, 0x80BEBC9B, 0x80BEBEBB),
@@ -226,8 +243,19 @@ def _selected_banks(use_vs: bool, use_hud: bool, use_svm: bool) -> tuple[str, ..
 def _write_u8(addr: int, value: int) -> bool:
     if wd8 is None:
         return False
+    addr_i = int(addr)
+    value_i = int(value) & 0xFF
+    # Dirty write: most persistent HUD holds repeatedly request the same byte.
+    # Skip the write when the live value already matches.
+    if rd8 is not None:
+        try:
+            cur = rd8(addr_i)
+            if cur is not None and int(cur) == value_i:
+                return True
+        except Exception:
+            pass
     try:
-        return bool(wd8(int(addr), int(value) & 0xFF))
+        return bool(wd8(addr_i, value_i))
     except Exception:
         return False
 
@@ -284,10 +312,20 @@ def _set_vs_win_mode(player: str, *, show_win: bool, show_plural_s: bool = False
 def _write_pair(addr_a: int, addr_b: int, digit: int, table: dict[int, tuple[int, int]] = SCORE_DIGIT_TEXTURES) -> bool:
     if wd32 is None:
         return False
+    addr_a_i = int(addr_a)
+    addr_b_i = int(addr_b)
     a, b = table[int(digit)]
     try:
-        ok_a = bool(wd32(int(addr_a), int(a)))
-        ok_b = bool(wd32(int(addr_b), int(b)))
+        if rd32 is not None:
+            cur_a = rd32(addr_a_i)
+            cur_b = rd32(addr_b_i)
+            if cur_a is not None and cur_b is not None and int(cur_a) == int(a) and int(cur_b) == int(b):
+                return True
+    except Exception:
+        pass
+    try:
+        ok_a = bool(wd32(addr_a_i, int(a)))
+        ok_b = bool(wd32(addr_b_i, int(b)))
         return bool(ok_a and ok_b)
     except Exception:
         return False
@@ -380,6 +418,178 @@ def read_visible_vs_win_count(player: str) -> int | None:
     if value is not None:
         return value
     return read_raw_win_count(player)
+
+
+def _runtime_hold(player: str) -> dict[str, Any]:
+    player = str(player or "P1").upper()
+    if player not in ("P1", "P2"):
+        player = "P1"
+    return _HUD_EDITOR_RUNTIME_STATE.setdefault("holds", {}).setdefault(
+        player,
+        {"enabled": False, "auto": True, "value": 0, "last_raw": None},
+    )
+
+
+def get_hud_editor_runtime_state() -> dict[str, Any]:
+    return _HUD_EDITOR_RUNTIME_STATE
+
+
+def sync_hud_editor_runtime_options(*, force_zero_as_win: bool | None = None, use_hud: bool | None = None, use_svm: bool | None = None) -> None:
+    if force_zero_as_win is not None:
+        _HUD_EDITOR_RUNTIME_STATE["force_zero_as_win"] = bool(force_zero_as_win)
+    if use_hud is not None:
+        _HUD_EDITOR_RUNTIME_STATE["use_hud"] = bool(use_hud)
+    if use_svm is not None:
+        _HUD_EDITOR_RUNTIME_STATE["use_svm"] = bool(use_svm)
+
+
+def sync_hud_editor_hold_from_controls(
+    player: str,
+    value: Any,
+    *,
+    enabled: bool,
+    auto: bool,
+    force_zero_as_win: bool | None = None,
+    use_hud: bool | None = None,
+    use_svm: bool | None = None,
+) -> None:
+    player = str(player or "P1").upper()
+    if player not in ("P1", "P2"):
+        player = "P1"
+    sync_hud_editor_runtime_options(
+        force_zero_as_win=force_zero_as_win,
+        use_hud=use_hud,
+        use_svm=use_svm,
+    )
+    hold = _runtime_hold(player)
+    was_enabled = bool(hold.get("enabled", False))
+    now_enabled = bool(enabled)
+    hold["enabled"] = now_enabled
+    hold["auto"] = bool(auto)
+    hold["value"] = _clamp_int(value, 0, 999)
+    if now_enabled and not was_enabled:
+        hold["last_raw"] = read_raw_win_count(player)
+
+
+def set_hud_editor_hold(
+    player: str,
+    value: Any,
+    *,
+    enabled: bool = True,
+    auto: bool = True,
+    force_zero_as_win: bool | None = None,
+    use_hud: bool | None = None,
+    use_svm: bool | None = None,
+    apply_now: bool = True,
+) -> int:
+    player = str(player or "P1").upper()
+    if player not in ("P1", "P2"):
+        player = "P1"
+    value_i = _clamp_int(value, 0, 999)
+    sync_hud_editor_hold_from_controls(
+        player,
+        value_i,
+        enabled=enabled,
+        auto=auto,
+        force_zero_as_win=force_zero_as_win,
+        use_hud=use_hud,
+        use_svm=use_svm,
+    )
+    if apply_now and enabled:
+        apply_win_count(
+            player,
+            value_i,
+            use_vs=True,
+            use_hud=bool(_HUD_EDITOR_RUNTIME_STATE.get("use_hud", True)),
+            use_svm=bool(_HUD_EDITOR_RUNTIME_STATE.get("use_svm", False)),
+            force_zero_as_win=bool(_HUD_EDITOR_RUNTIME_STATE.get("force_zero_as_win", False)),
+        )
+    return value_i
+
+
+def release_hud_editor_hold(player: str) -> None:
+    player = str(player or "P1").upper()
+    if player not in ("P1", "P2"):
+        player = "P1"
+    hold = _runtime_hold(player)
+    hold["enabled"] = False
+    hold["last_raw"] = read_raw_win_count(player)
+
+
+def clear_hud_editor_hold(player: str, *, apply_zero: bool = True) -> None:
+    player = str(player or "P1").upper()
+    if player not in ("P1", "P2"):
+        player = "P1"
+    hold = _runtime_hold(player)
+    hold["enabled"] = False
+    hold["value"] = 0
+    hold["last_raw"] = read_raw_win_count(player)
+    if apply_zero:
+        apply_win_count(
+            player,
+            0,
+            use_vs=True,
+            use_hud=bool(_HUD_EDITOR_RUNTIME_STATE.get("use_hud", True)),
+            use_svm=bool(_HUD_EDITOR_RUNTIME_STATE.get("use_svm", False)),
+            force_zero_as_win=bool(_HUD_EDITOR_RUNTIME_STATE.get("force_zero_as_win", False)),
+        )
+
+
+def tick_hud_editor_state(*, now: float | None = None, force: bool = False) -> None:
+    """Keep active HUD Editor holds alive even when the window is closed.
+
+    main.py calls this from the regular HUD loop.  It owns only persistent
+    states, mainly Hold Visible Wins.  The open Tk window mirrors this state,
+    but the state is not destroyed with the window.
+    """
+    try:
+        now_f = float(time.monotonic() if now is None else now)
+    except Exception:
+        now_f = time.monotonic()
+    if not force:
+        last_tick = float(_HUD_EDITOR_RUNTIME_STATE.get("last_tick_time", 0.0) or 0.0)
+        # 15Hz is plenty for visual HUD ownership.  Dirty writes below still
+        # update immediately when the game has actually changed a pane.
+        if now_f - last_tick < 0.066:
+            return
+    _HUD_EDITOR_RUNTIME_STATE["last_tick_time"] = now_f
+
+    use_hud = bool(_HUD_EDITOR_RUNTIME_STATE.get("use_hud", True))
+    use_svm = bool(_HUD_EDITOR_RUNTIME_STATE.get("use_svm", False))
+    force_zero = bool(_HUD_EDITOR_RUNTIME_STATE.get("force_zero_as_win", False))
+
+    for player in ("P1", "P2"):
+        hold = _runtime_hold(player)
+        if not bool(hold.get("enabled", False)):
+            continue
+
+        stored = _clamp_int(hold.get("value", 0), 0, 999)
+        current_raw = read_raw_win_count(player)
+        previous_raw = hold.get("last_raw")
+
+        if bool(hold.get("auto", True)) and current_raw is not None and previous_raw is not None:
+            try:
+                previous_i = int(previous_raw)
+            except Exception:
+                previous_i = current_raw
+            if current_raw > previous_i:
+                stored = max(0, min(999, stored + (current_raw - previous_i)))
+                hold["value"] = stored
+                _HUD_EDITOR_RUNTIME_STATE["status"] = f"{player} held wins auto-added raw {previous_i}->{current_raw}; now {stored}."
+            # Resets/new-hero transitions are accepted as the new baseline but
+            # do not decrement the held display value.
+            hold["last_raw"] = current_raw
+        elif current_raw is not None:
+            hold["last_raw"] = current_raw
+
+        apply_win_count(
+            player,
+            stored,
+            use_vs=True,
+            use_hud=use_hud,
+            use_svm=use_svm,
+            force_zero_as_win=force_zero,
+        )
 
 
 def apply_score_display(player: str, score_text: Any) -> bool:
@@ -597,20 +807,20 @@ def open_hud_editor_window() -> None:
         p2_score_var = tk.StringVar(value="0")
         stage_var = tk.StringVar(value="1")
         timer_var = tk.StringVar(value="99")
-        p1_streak_var = tk.StringVar(value="0")
-        p2_streak_var = tk.StringVar(value="0")
+        p1_streak_var = tk.StringVar(value=str(_runtime_hold("P1").get("value", 0)))
+        p2_streak_var = tk.StringVar(value=str(_runtime_hold("P2").get("value", 0)))
 
         vs_var = tk.BooleanVar(value=True)
-        hud_var = tk.BooleanVar(value=True)
-        svm_var = tk.BooleanVar(value=False)
+        hud_var = tk.BooleanVar(value=bool(_HUD_EDITOR_RUNTIME_STATE.get("use_hud", True)))
+        svm_var = tk.BooleanVar(value=bool(_HUD_EDITOR_RUNTIME_STATE.get("use_svm", False)))
         freeze_var = tk.BooleanVar(value=False)
         score_raw_var = tk.BooleanVar(value=False)
         timer_raw_var = tk.BooleanVar(value=False)
-        p1_streak_enabled_var = tk.BooleanVar(value=False)
-        p2_streak_enabled_var = tk.BooleanVar(value=False)
-        p1_streak_auto_var = tk.BooleanVar(value=True)
-        p2_streak_auto_var = tk.BooleanVar(value=True)
-        zero_wins_as_text_var = tk.BooleanVar(value=False)
+        p1_streak_enabled_var = tk.BooleanVar(value=bool(_runtime_hold("P1").get("enabled", False)))
+        p2_streak_enabled_var = tk.BooleanVar(value=bool(_runtime_hold("P2").get("enabled", False)))
+        p1_streak_auto_var = tk.BooleanVar(value=bool(_runtime_hold("P1").get("auto", True)))
+        p2_streak_auto_var = tk.BooleanVar(value=bool(_runtime_hold("P2").get("auto", True)))
+        zero_wins_as_text_var = tk.BooleanVar(value=bool(_HUD_EDITOR_RUNTIME_STATE.get("force_zero_as_win", False)))
         status_var = tk.StringVar(value="Ready. Zero wins defaults to NEW HERO; enable 0 WINS only when you want the zero displayed as text.")
         readout_var = tk.StringVar(value="Current: --")
 
@@ -690,8 +900,18 @@ def open_hud_editor_window() -> None:
 
             p1_win_var.set(str(sampled["P1"]))
             p2_win_var.set(str(sampled["P2"]))
-            p1_streak_var.set(str(sampled["P1"]))
-            p2_streak_var.set(str(sampled["P2"]))
+            if not bool(_runtime_hold("P1").get("enabled", False)):
+                p1_streak_var.set(str(sampled["P1"]))
+            else:
+                p1_streak_var.set(str(_runtime_hold("P1").get("value", sampled["P1"])))
+            if not bool(_runtime_hold("P2").get("enabled", False)):
+                p2_streak_var.set(str(sampled["P2"]))
+            else:
+                p2_streak_var.set(str(_runtime_hold("P2").get("value", sampled["P2"])))
+            p1_streak_enabled_var.set(bool(_runtime_hold("P1").get("enabled", False)))
+            p2_streak_enabled_var.set(bool(_runtime_hold("P2").get("enabled", False)))
+            p1_streak_auto_var.set(bool(_runtime_hold("P1").get("auto", True)))
+            p2_streak_auto_var.set(bool(_runtime_hold("P2").get("auto", True)))
             last_applied["P1_WIN"] = sampled["P1"]
             last_applied["P2_WIN"] = sampled["P2"]
 
@@ -763,6 +983,26 @@ def open_hud_editor_window() -> None:
                 return p2_streak_var, p2_streak_enabled_var, p2_streak_auto_var
             return p1_streak_var, p1_streak_enabled_var, p1_streak_auto_var
 
+        def _sync_runtime_options_from_ui() -> None:
+            sync_hud_editor_runtime_options(
+                force_zero_as_win=bool(zero_wins_as_text_var.get()),
+                use_hud=bool(hud_var.get()),
+                use_svm=bool(svm_var.get()),
+            )
+
+        def _sync_hold_control_to_runtime(player: str) -> None:
+            player = str(player or "P1").upper()
+            var, enabled_var, auto_var = _streak_controls_for(player)
+            sync_hud_editor_hold_from_controls(
+                player,
+                var.get(),
+                enabled=bool(enabled_var.get()),
+                auto=bool(auto_var.get()),
+                force_zero_as_win=bool(zero_wins_as_text_var.get()),
+                use_hud=bool(hud_var.get()),
+                use_svm=bool(svm_var.get()),
+            )
+
         def capture_streak_from_vs(player: str) -> None:
             player = str(player or "P1").upper()
             var, _enabled_var, _auto_var = _streak_controls_for(player)
@@ -779,26 +1019,45 @@ def open_hud_editor_window() -> None:
 
         def enable_streak(player: str) -> None:
             player = str(player or "P1").upper()
-            var, enabled_var, _auto_var = _streak_controls_for(player)
+            var, enabled_var, auto_var = _streak_controls_for(player)
             value_i = _clamp_int(var.get(), 0, 999)
             var.set(str(value_i))
             last_applied[f"{player}_WIN"] = value_i
             freeze_kinds.add(f"{player}_WIN")
             enabled_var.set(True)
             streak_last_raw[player] = read_raw_win_count(player)
-            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
-            status_var.set(f"{player} visible wins held at {value_i}. It will ignore NEW HERO resets and add future raw {player} increments.")
+            set_hud_editor_hold(
+                player,
+                value_i,
+                enabled=True,
+                auto=bool(auto_var.get()),
+                force_zero_as_win=bool(zero_wins_as_text_var.get()),
+                use_hud=bool(hud_var.get()),
+                use_svm=bool(svm_var.get()),
+            )
+            status_var.set(f"{player} visible wins held at {value_i}. This keeps running even if the HUD Editor window is closed.")
             update_readout()
 
         def bump_streak(player: str, delta: int) -> None:
             player = str(player or "P1").upper()
-            var, _enabled_var, _auto_var = _streak_controls_for(player)
+            var, enabled_var, auto_var = _streak_controls_for(player)
             value_i = _clamp_int(var.get(), 0, 999)
             value_i = max(0, min(999, value_i + int(delta)))
             var.set(str(value_i))
             last_applied[f"{player}_WIN"] = value_i
             freeze_kinds.add(f"{player}_WIN")
-            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
+            if bool(enabled_var.get()):
+                set_hud_editor_hold(
+                    player,
+                    value_i,
+                    enabled=True,
+                    auto=bool(auto_var.get()),
+                    force_zero_as_win=bool(zero_wins_as_text_var.get()),
+                    use_hud=bool(hud_var.get()),
+                    use_svm=bool(svm_var.get()),
+                )
+            else:
+                apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
             status_var.set(f"{player} held wins adjusted to {value_i}.")
             update_readout()
 
@@ -806,6 +1065,7 @@ def open_hud_editor_window() -> None:
             player = str(player or "P1").upper()
             _var, enabled_var, _auto_var = _streak_controls_for(player)
             enabled_var.set(False)
+            release_hud_editor_hold(player)
             status_var.set(f"{player} visible win hold released. The game can show NEW HERO normally again after the next HUD refresh.")
             update_readout()
 
@@ -820,7 +1080,12 @@ def open_hud_editor_window() -> None:
                 p2_win_var.set("0")
             last_applied[f"{player}_WIN"] = 0
             freeze_kinds.discard(f"{player}_WIN")
-            apply_win_count(player, 0, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
+            sync_hud_editor_runtime_options(
+                force_zero_as_win=bool(zero_wins_as_text_var.get()),
+                use_hud=bool(hud_var.get()),
+                use_svm=bool(svm_var.get()),
+            )
+            clear_hud_editor_hold(player, apply_zero=True)
             if bool(zero_wins_as_text_var.get()):
                 status_var.set(f"{player} cleared to visible 0 WINS.")
             else:
@@ -829,40 +1094,41 @@ def open_hud_editor_window() -> None:
 
         def apply_stored_streak(player: str) -> None:
             player = str(player or "P1").upper()
-            var, _enabled_var, _auto_var = _streak_controls_for(player)
+            var, enabled_var, auto_var = _streak_controls_for(player)
             value_i = _clamp_int(var.get(), 0, 999)
             var.set(str(value_i))
             last_applied[f"{player}_WIN"] = value_i
             freeze_kinds.add(f"{player}_WIN")
-            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
+            if bool(enabled_var.get()):
+                set_hud_editor_hold(
+                    player,
+                    value_i,
+                    enabled=True,
+                    auto=bool(auto_var.get()),
+                    force_zero_as_win=bool(zero_wins_as_text_var.get()),
+                    use_hud=bool(hud_var.get()),
+                    use_svm=bool(svm_var.get()),
+                )
+            else:
+                apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
             status_var.set(f"Held {player} wins {value_i} written.")
             update_readout()
 
         def streak_tick_once() -> None:
-            for player in ("P1", "P2"):
-                var, enabled_var, auto_var = _streak_controls_for(player)
-                if not bool(enabled_var.get()):
-                    continue
-
-                current_raw = read_raw_win_count(player)
-                previous_raw = streak_last_raw.get(player)
-                stored = _clamp_int(var.get(), 0, 999)
-
-                if bool(auto_var.get()) and current_raw is not None and previous_raw is not None:
-                    # Positive raw deltas mean this player won another match.
-                    # Negative deltas are game resets/new-hero transitions and
-                    # should not reduce the preserved visual streak.
-                    if current_raw > previous_raw:
-                        stored = max(0, min(999, stored + (current_raw - previous_raw)))
-                        var.set(str(stored))
-                        status_var.set(f"{player} held wins auto-incremented to {stored} from raw {previous_raw}->{current_raw}.")
-                    streak_last_raw[player] = current_raw
-                elif current_raw is not None:
-                    streak_last_raw[player] = current_raw
-
-                last_applied[f"{player}_WIN"] = stored
-                freeze_kinds.add(f"{player}_WIN")
-                apply_win_count(player, stored, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
+            try:
+                _sync_hold_control_to_runtime("P1")
+                _sync_hold_control_to_runtime("P2")
+                tick_hud_editor_state(force=True)
+                for player, var in (("P1", p1_streak_var), ("P2", p2_streak_var)):
+                    hold = _runtime_hold(player)
+                    if bool(hold.get("enabled", False)):
+                        var.set(str(_clamp_int(hold.get("value", 0), 0, 999)))
+                        last_applied[f"{player}_WIN"] = _clamp_int(hold.get("value", 0), 0, 999)
+                msg = str(_HUD_EDITOR_RUNTIME_STATE.get("status") or "")
+                if msg:
+                    status_var.set(msg)
+            except Exception as e:
+                status_var.set(f"Hold Visible Wins tick failed: {e!r}")
 
         def make_win_card(parent: tk.Misc, player: str, var: tk.StringVar) -> tk.Frame:
             card = _card(parent)
@@ -1029,13 +1295,22 @@ def open_hud_editor_window() -> None:
                 status_var.set(f"Freeze write failed: {e!r}")
             try:
                 if bool(win.winfo_exists()):
-                    win.after(100, freeze_tick)
+                    win.after(150, freeze_tick)
             except Exception:
                 pass
 
         def on_close() -> None:
             global _OPEN_WINDOW
-            freeze_var.set(False)
+            # Do not disable active Hold Visible Wins here.  The hold state now
+            # lives at module scope and main.py keeps ticking it after this
+            # control window closes.  Closing the window should not drop a
+            # preserved streak mid-run.
+            try:
+                _sync_hold_control_to_runtime("P1")
+                _sync_hold_control_to_runtime("P2")
+                tick_hud_editor_state(force=True)
+            except Exception:
+                pass
             _OPEN_WINDOW = None
             win.destroy()
 

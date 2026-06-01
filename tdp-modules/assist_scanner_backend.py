@@ -23,70 +23,6 @@ except Exception:
     def _lookup_move_name(aid: int) -> str | None:
         return None
 
-
-# Shared dark UI palette. Keep this scanner visually aligned with the main HUD
-# tools instead of leaving it on the default light Tk theme.
-UI_BG = "#0d1018"
-UI_PANEL = "#171b27"
-UI_PANEL_2 = "#202638"
-UI_BORDER = "#31384d"
-UI_TEXT = "#e9edf7"
-UI_MUTED = "#aeb8cc"
-UI_ACCENT = "#89a7ff"
-UI_ACTIVE = "#2a3553"
-UI_FIELD = "#0f1320"
-UI_TREE_SEL = "#2a3553"
-
-
-def _apply_dark_assist_theme(widget: tk.Misc) -> ttk.Style:
-    """Apply the same dark visual language used by HUD Editor."""
-    try:
-        widget.configure(bg=UI_BG)
-    except Exception:
-        pass
-
-    style = ttk.Style(widget)
-    try:
-        style.theme_use("clam")
-    except Exception:
-        pass
-
-    style.configure(".", background=UI_BG, foreground=UI_TEXT, fieldbackground=UI_FIELD, font=("Segoe UI", 9))
-    style.configure("TFrame", background=UI_BG)
-    style.configure("TLabel", background=UI_BG, foreground=UI_TEXT)
-    style.configure("Muted.TLabel", background=UI_BG, foreground=UI_MUTED)
-    style.configure("TButton", background=UI_PANEL_2, foreground=UI_TEXT, bordercolor=UI_BORDER, focusthickness=1, focuscolor=UI_ACCENT, padding=(8, 3))
-    style.map("TButton", background=[("active", UI_ACTIVE), ("pressed", UI_ACTIVE)], foreground=[("disabled", UI_MUTED)])
-    style.configure("TCheckbutton", background=UI_BG, foreground=UI_TEXT, focuscolor=UI_ACCENT)
-    style.map("TCheckbutton", background=[("active", UI_BG)], foreground=[("disabled", UI_MUTED)])
-    style.configure("TEntry", fieldbackground=UI_FIELD, foreground=UI_TEXT, bordercolor=UI_BORDER, insertcolor=UI_TEXT)
-    style.configure("TCombobox", fieldbackground=UI_FIELD, background=UI_PANEL_2, foreground=UI_TEXT, arrowcolor=UI_TEXT, bordercolor=UI_BORDER)
-    style.map("TCombobox", fieldbackground=[("readonly", UI_FIELD)], background=[("readonly", UI_PANEL_2)], foreground=[("readonly", UI_TEXT)])
-    style.configure("Horizontal.TProgressbar", troughcolor=UI_FIELD, background=UI_ACCENT, bordercolor=UI_BORDER, lightcolor=UI_ACCENT, darkcolor=UI_ACCENT)
-    style.configure(
-        "Treeview",
-        background=UI_FIELD,
-        fieldbackground=UI_FIELD,
-        foreground=UI_TEXT,
-        rowheight=24,
-        bordercolor=UI_BORDER,
-        lightcolor=UI_BORDER,
-        darkcolor=UI_BORDER,
-    )
-    style.configure("Treeview.Heading", background=UI_PANEL_2, foreground=UI_TEXT, bordercolor=UI_BORDER, font=("Segoe UI", 9, "bold"))
-    style.map("Treeview", background=[("selected", UI_TREE_SEL)], foreground=[("selected", UI_TEXT)])
-    style.map("Treeview.Heading", background=[("active", UI_ACTIVE)])
-    return style
-
-
-def _dark_toplevel(parent: tk.Misc, title: str, geometry: str | None = None) -> tk.Toplevel:
-    dlg = tk.Toplevel(parent)
-    dlg.title(title)
-    if geometry:
-        dlg.geometry(geometry)
-    _apply_dark_assist_theme(dlg)
-    return dlg
-
 SCAN_START = 0x90000000
 SCAN_END = 0x94000000
 SCAN_BLOCK = 0x40000
@@ -200,8 +136,28 @@ DEFAULT_QUICK_ASSISTS = {
 # the Tk scanner window is not open. If the window is open, it mirrors the same
 # profiles in its existing per-fighter table.
 _HEADLESS_ASSIST_PROFILES: dict[int, dict[str, object]] = {}
+# Slot-specific quick-assist profiles. This is the important mirror-match layer:
+# when the same character is loaded on both sides, their selector/graft can be
+# shared at rest, so the desired assist must be remembered per visible HUD slot
+# and applied only when that slot actually calls assist.
+_HEADLESS_SLOT_ASSIST_PROFILES: dict[str, dict[str, object]] = {}
 _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE: dict[int, bool] = {}
 _HEADLESS_LAST_PATCH_KEY: tuple[int, int] | None = None
+_HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT: dict[str, tuple[tuple, float]] = {}
+_ASSIST_RUNTIME_WRITE_THROTTLE_SECONDS = 0.045
+_ASSIST_LOG_LAST_TS: dict[str, float] = {}
+
+
+def _assist_log_once(key: str, message: str, *, interval: float = 1.0) -> None:
+    try:
+        now = time.monotonic()
+        last = float(_ASSIST_LOG_LAST_TS.get(str(key), 0.0) or 0.0)
+        if now - last < float(interval):
+            return
+        _ASSIST_LOG_LAST_TS[str(key)] = now
+        print(message)
+    except Exception:
+        pass
 
 # Quick route cache. Quick assist buttons should not rescan/re-resolve the
 # active graft route on every click. main.py feeds live snaps each frame; this
@@ -3949,6 +3905,15 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
             _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
             _ASSIST_LAST_SLOT_SIGNATURES[slot_label] = cur
             changed = True
+            # If this slot already has a selected quick assist, prewarm the new
+            # route in the background.  Do not re-apply from the HUD loop; just
+            # make the cached route ready for the next assist entry.
+            try:
+                prof = _HEADLESS_SLOT_ASSIST_PROFILES.get(str(slot_label))
+                if isinstance(prof, dict) and _profile_matches_char(prof, int(char_id)) and owner_base is not None:
+                    _schedule_quick_route_prewarm(int(owner_base), int(char_id))
+            except Exception:
+                pass
 
     if changed:
         _ASSIST_CACHE_EPOCH += 1
@@ -4035,10 +4000,11 @@ def _schedule_quick_route_prewarm(owner_base: int | None, char_id: int | None = 
             row = _resolve_quick_route_row_uncached(key[0], key[1] if key[1] else None)
         except Exception as e:
             failed = True
-            try:
-                print(f"[assist quick] route prewarm failed for 0x{key[0]:08X}/cid {key[1]}: {e!r}")
-            except Exception:
-                pass
+            _assist_log_once(
+                f"prewarm-failed:{key[0]}:{key[1]}",
+                f"[assist quick] route prewarm failed for 0x{key[0]:08X}/cid {key[1]}: {e!r}",
+                interval=2.0,
+            )
         with _QUICK_ROUTE_LOCK:
             if row:
                 cached = dict(row)
@@ -4653,7 +4619,7 @@ def _selector_word_for_quick_preset(owner_base: int, row: dict, preset: dict) ->
     return (int(entry) + int(delta)) & 0xFFFFFFFF
 
 
-def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict | None = None) -> bool:
+def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict | None = None, quiet: bool = False) -> bool:
     global _HEADLESS_LAST_PATCH_KEY
     """Apply one JSON quick-assist entry for a HUD slot.
 
@@ -4691,10 +4657,11 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
 
     row = _resolve_quick_route_row(owner_base, char_id if char_id else None)
     if not row:
-        try:
-            print(f"[assist quick] no assist route for {slot_label} base 0x{owner_base:08X}")
-        except Exception:
-            pass
+        if not quiet:
+            try:
+                print(f"[assist quick] no assist route for {slot_label} base 0x{owner_base:08X}")
+            except Exception:
+                pass
         return False
 
     if char_id == 0:
@@ -4713,10 +4680,11 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
 
     raw = _selector_word_for_quick_preset(owner_base, row, preset)
     if isinstance(raw, str):
-        try:
-            print(f"[assist quick] {slot_label} {preset.get('label', quick_index)} failed: {raw}")
-        except Exception:
-            pass
+        if not quiet:
+            try:
+                print(f"[assist quick] {slot_label} {preset.get('label', quick_index)} failed: {raw}")
+            except Exception:
+                pass
         return False
     writes = _selector_writes_for_row_module(row, raw)
     if volnutt_weapon is not None:
@@ -4729,10 +4697,11 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
             return False
         writes.update(weapon_writes)
     if not writes or not _write_many_module(writes):
-        try:
-            print(f"[assist quick] write failed for {slot_label} {preset.get('label', quick_index)}")
-        except Exception:
-            pass
+        if not quiet:
+            try:
+                print(f"[assist quick] write failed for {slot_label} {preset.get('label', quick_index)}")
+            except Exception:
+                pass
         return False
 
     fighter_base = 0
@@ -4747,6 +4716,9 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
         "row": {**dict(row), "_assist_epoch": int(_ASSIST_CACHE_EPOCH)},
         "fighter_base": fighter_base or owner_base,
         "owner_base": int(owner_base),
+        "slot_label": str(slot_label),
+        "quick_index": int(quick_index),
+        "preset": dict(preset),
         "char_id": int(char_id or row.get("char_id") or 0),
         "is_default": raw is None,
     }
@@ -4757,6 +4729,7 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
         keys.add(int(fighter_base))
     for key in keys:
         _HEADLESS_ASSIST_PROFILES[key] = profile
+    _HEADLESS_SLOT_ASSIST_PROFILES[str(slot_label)] = dict(profile)
 
     inst = _inst
     if inst is not None:
@@ -4771,15 +4744,17 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
                         pass
         except Exception:
             pass
+        if not quiet:
+            try:
+                inst._status.set(f"Quick assist {slot_label}: {label}")
+            except Exception:
+                pass
+    if not quiet:
         try:
-            inst._status.set(f"Quick assist {slot_label}: {label}")
+            word_txt = "default" if raw is None else f"0x{int(raw):08X}"
+            print(f"[assist quick] {slot_label} -> {label} {word_txt}")
         except Exception:
             pass
-    try:
-        word_txt = "default" if raw is None else f"0x{int(raw):08X}"
-        print(f"[assist quick] {slot_label} -> {label} {word_txt}")
-    except Exception:
-        pass
     return True
 
 
@@ -4803,15 +4778,189 @@ def _snap_is_assist_attack_for_runtime(snap: dict) -> bool:
     return label == "assist attack" or "assist attack" in label
 
 
+def _snap_is_assist_runtime_window(snap: dict) -> bool:
+    """True during the frames where a shared assist graft may be consumed.
+
+    Mirror/duplicate characters cannot keep a custom graft installed at idle,
+    because the other same-character slot would inherit it.  Instead, patch the
+    shared graft while the specific slot is in assist standby/jump-in/attack.
+    """
+    mv = _snap_state_id_for_runtime(snap)
+    if mv in ASSIST_RUNTIME_ATTACK_STATES or mv in ASSIST_RUNTIME_PREFETCH_STATES:
+        return True
+    label = str((snap or {}).get("mv_label") or "").strip().lower()
+    if not label:
+        return False
+    return (
+        "assist" in label
+        or "tag in taunt" in label
+        or "tag out" in label
+    )
+
+
+def _runtime_snap_char_id(snap: dict | None) -> int:
+    if not isinstance(snap, dict):
+        return 0
+    for field in ("id", "csv_char_id", "char_id"):
+        try:
+            cid = int(snap.get(field) or 0)
+        except Exception:
+            cid = 0
+        if cid:
+            return cid
+    return 0
+
+
+def _runtime_char_counts(snaps: dict) -> dict[int, int]:
+    out: dict[int, int] = {}
+    if not isinstance(snaps, dict):
+        return out
+    for snap in snaps.values():
+        cid = _runtime_snap_char_id(snap if isinstance(snap, dict) else None)
+        if cid:
+            out[cid] = int(out.get(cid, 0)) + 1
+    return out
+
+
+def _profile_matches_char(profile: dict | None, char_id: int) -> bool:
+    if not isinstance(profile, dict):
+        return False
+    if not char_id:
+        return True
+    try:
+        prof_cid = int(profile.get("char_id") or 0)
+    except Exception:
+        prof_cid = 0
+    return bool((not prof_cid) or prof_cid == int(char_id))
+
+
+def _refresh_runtime_profile_route(profile: dict, slot_label: str, char_id: int, force_default: bool = False) -> dict:
+    """Refresh stale route rows after round reloads without losing selection.
+
+    Runtime assist ticks must never do a synchronous MEM2 route scan.  If the
+    cached row is stale, use a fresh cached row only when it is already warm;
+    otherwise schedule a background prewarm and keep the old row for this frame.
+    This prevents mirror-assist persistence from stuttering the game loop.
+    """
+    if not isinstance(profile, dict):
+        return {}
+
+    row = dict(profile.get("row", {}) or {})
+    try:
+        row_epoch = int(row.get("_assist_epoch", -1))
+    except Exception:
+        row_epoch = -1
+    if row and row_epoch == int(_ASSIST_CACHE_EPOCH):
+        return profile
+
+    owner_base = _slot_owner_base_from_label(slot_label)
+    if owner_base is None:
+        try:
+            owner_base = int(profile.get("owner_base") or row.get("owner_base") or 0)
+        except Exception:
+            owner_base = 0
+    if not owner_base:
+        return profile
+
+    route_char_id = int(char_id or profile.get("char_id") or 0) or None
+    new_row = _quick_route_cache_get(int(owner_base), route_char_id)
+    if not new_row:
+        _schedule_quick_route_prewarm(int(owner_base), route_char_id)
+        return profile
+
+    profile = dict(profile)
+    profile["row"] = {**dict(new_row), "_assist_epoch": int(_ASSIST_CACHE_EPOCH)}
+    profile["owner_base"] = int(owner_base)
+    if char_id:
+        profile["char_id"] = int(char_id)
+
+    if force_default or bool(profile.get("is_default", False)):
+        profile["word"] = None
+        profile["is_default"] = True
+        profile["label"] = "Default"
+        return profile
+
+    preset = profile.get("preset")
+    if isinstance(preset, dict):
+        raw = _selector_word_for_quick_preset(int(owner_base), dict(new_row), preset)
+        if not isinstance(raw, str):
+            profile["word"] = None if raw is None else (int(raw) & 0xFFFFFFFF)
+    return profile
+
+
+def _slot_runtime_profile(slot_label: str, snap: dict, duplicate_char: bool) -> dict | None:
+    """Choose the profile that belongs to this visible slot.
+
+    Non-duplicate characters keep the old fighter/owner fallback behavior.
+    Duplicate characters are stricter: use this slot's profile if it has one;
+    otherwise, if another same-character slot has a profile, actively write the
+    default restore for this slot so Player B does not inherit Player A's graft.
+    """
+    char_id = _runtime_snap_char_id(snap)
+
+    slot_profile = _HEADLESS_SLOT_ASSIST_PROFILES.get(str(slot_label))
+    if slot_profile and _profile_matches_char(slot_profile, char_id):
+        return _refresh_runtime_profile_route(dict(slot_profile), slot_label, char_id, force_default=False)
+
+    if duplicate_char and char_id:
+        # Same character is present elsewhere. If this slot has no explicit
+        # choice, but a sibling does, restore default when this slot calls assist.
+        for other_slot, prof in list(_HEADLESS_SLOT_ASSIST_PROFILES.items()):
+            if other_slot == str(slot_label):
+                continue
+            if not _profile_matches_char(prof, char_id):
+                continue
+            default_prof = dict(prof)
+            default_prof["slot_label"] = str(slot_label)
+            default_prof["word"] = None
+            default_prof["label"] = "Default"
+            default_prof["is_default"] = True
+            return _refresh_runtime_profile_route(default_prof, slot_label, char_id, force_default=True)
+        return None
+
+    try:
+        fighter_base = int(snap.get("base") or 0)
+    except Exception:
+        fighter_base = 0
+
+    profile = _HEADLESS_ASSIST_PROFILES.get(fighter_base)
+    if profile is None:
+        owner_base = _slot_owner_base_from_label(slot_label)
+        if owner_base is not None:
+            profile = _HEADLESS_ASSIST_PROFILES.get(int(owner_base))
+    if profile and _profile_matches_char(profile, char_id):
+        return _refresh_runtime_profile_route(dict(profile), slot_label, char_id, force_default=False)
+    return None
+
+
+def _write_runtime_profile_for_slot(slot_label: str, snap: dict, profile: dict) -> bool:
+    if not isinstance(profile, dict):
+        return False
+    raw_obj = profile.get("word", None)
+    raw_val = None if raw_obj is None else int(raw_obj) & 0xFFFFFFFF
+    row = dict(profile.get("row", {}) or {})
+    writes = _selector_writes_for_row_module(row, raw_val)
+    volnutt_weapon = profile.get("volnutt_weapon")
+    if volnutt_weapon is not None:
+        owner_base_for_weapon = int(profile.get("owner_base") or row.get("owner_base") or 0)
+        writes.update(_volnutt_weapon_writes(owner_base_for_weapon, int(volnutt_weapon), row))
+    return bool(writes and _write_many_module(writes))
+
+
 def _headless_runtime_patch_from_main(snaps: dict) -> None:
     global _HEADLESS_LAST_PATCH_KEY
-    if not _HEADLESS_ASSIST_PROFILES or not isinstance(snaps, dict):
+    if not isinstance(snaps, dict):
         return
+    if not _HEADLESS_ASSIST_PROFILES and not _HEADLESS_SLOT_ASSIST_PROFILES:
+        return
+
+    char_counts = _runtime_char_counts(snaps)
     ordered = ["P1-C1", "P1-C2", "P2-C1", "P2-C2"]
     ordered.extend(k for k in snaps.keys() if k not in ordered)
+
     for slot_label in ordered:
         snap = snaps.get(slot_label)
-        if not snap:
+        if not isinstance(snap, dict):
             continue
         try:
             fighter_base = int(snap.get("base") or 0)
@@ -4819,35 +4968,55 @@ def _headless_runtime_patch_from_main(snaps: dict) -> None:
             fighter_base = 0
         if not fighter_base:
             continue
-        is_attack = _snap_is_assist_attack_for_runtime(snap)
-        was_attack = bool(_HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.get(fighter_base, False))
-        _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE[fighter_base] = bool(is_attack)
-        if not is_attack or was_attack:
+
+        char_id = _runtime_snap_char_id(snap)
+        duplicate_char = bool(char_id and char_counts.get(char_id, 0) > 1)
+        # Patch on the earlier assist-ish window for every selected slot, not
+        # only mirrors.  This lets main.py stop doing idle re-apply writes while
+        # still catching round-rebuilt/defaulted grafts before the assist body
+        # consumes them.
+        in_runtime_window = _snap_is_assist_runtime_window(snap)
+        was_window = bool(_HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.get(fighter_base, False))
+        _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE[fighter_base] = bool(in_runtime_window)
+
+        if not in_runtime_window:
             continue
-        profile = _HEADLESS_ASSIST_PROFILES.get(fighter_base)
-        if profile is None:
-            owner_base = _slot_owner_base_from_label(slot_label)
-            if owner_base is not None:
-                profile = _HEADLESS_ASSIST_PROFILES.get(int(owner_base))
+        # Non-duplicate path writes once on assist-window entry. Duplicate/mirror
+        # path may rewrite during the window because another same-character slot
+        # can replace the shared graft between prefetch and attack.
+        if not duplicate_char and was_window:
+            continue
+
+        profile = _slot_runtime_profile(str(slot_label), snap, duplicate_char)
         if not profile:
             continue
+
         raw_obj = profile.get("word", None)
         raw_val = None if raw_obj is None else int(raw_obj) & 0xFFFFFFFF
-        row = dict(profile.get("row", {}) or {})
-        writes = _selector_writes_for_row_module(row, raw_val)
-        volnutt_weapon = profile.get("volnutt_weapon")
-        if volnutt_weapon is not None:
-            owner_base_for_weapon = int(profile.get("owner_base") or row.get("owner_base") or 0)
-            writes.update(_volnutt_weapon_writes(owner_base_for_weapon, int(volnutt_weapon), row))
-        if writes and _write_many_module(writes):
-            weapon_key = -1 if volnutt_weapon is None else int(volnutt_weapon)
-            patch_key = (fighter_base, -1 if raw_val is None else raw_val, weapon_key)
+        weapon = profile.get("volnutt_weapon")
+        weapon_key = -1 if weapon is None else int(weapon)
+        state_key = int(_snap_state_id_for_runtime(snap) or -1)
+        patch_key = (fighter_base, -1 if raw_val is None else raw_val, weapon_key, state_key)
+
+        # Duplicate-character mirrors may remain in the assist window for many
+        # frames.  Patch early and often enough to beat the game's graft read,
+        # but not every single frame.
+        now_mono = time.monotonic()
+        slot_last = _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT.get(str(slot_label))
+        if slot_last is not None:
+            last_key, last_ts = slot_last
+            if last_key == patch_key and (now_mono - float(last_ts)) < _ASSIST_RUNTIME_WRITE_THROTTLE_SECONDS:
+                continue
+
+        if _write_runtime_profile_for_slot(str(slot_label), snap, profile):
+            _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT[str(slot_label)] = (patch_key, now_mono)
             if _HEADLESS_LAST_PATCH_KEY != patch_key:
                 _HEADLESS_LAST_PATCH_KEY = patch_key
-                try:
-                    print(f"[assist quick] runtime {slot_label} -> {profile.get('label', 'assist')}")
-                except Exception:
-                    pass
+                _assist_log_once(
+                    f"runtime:{slot_label}:{patch_key}",
+                    f"[assist quick] runtime {slot_label} -> {profile.get('label', 'assist')}",
+                    interval=0.75,
+                )
 
 
 class AssistScannerWindow:
@@ -4855,9 +5024,7 @@ class AssistScannerWindow:
         self.root = tk.Toplevel(master)
         self.root.title("Assist Scanner - Shared Character Assist Picker")
         self.root.geometry("1420x700")
-        self.root.minsize(1100, 650)
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
-        self._style = _apply_dark_assist_theme(self.root)
         self._scanning = False
         self._hit_by_iid: dict[str, dict] = {}
         self._sort_col = None
@@ -4895,17 +5062,14 @@ class AssistScannerWindow:
 
     def _build(self):
         top = ttk.Frame(self.root)
-        top.pack(side="top", fill="x", padx=10, pady=8)
+        top.pack(side="top", fill="x", padx=8, pady=6)
         ttk.Label(
             top,
             text=(
                 "Shows one profile row per loaded fighter using each shared character selector table. "
                 "Double-click a row to choose that fighter's assist. Use Auto Assist Trigger for duplicate characters."
             ),
-            style="Muted.TLabel",
-            wraplength=760,
-            justify="left",
-        ).pack(side="left", fill="x", expand=True)
+        ).pack(side="left")
         self._scan_btn = ttk.Button(top, text="Rescan Loaded", command=self._start)
         self._scan_btn.pack(side="right")
 
@@ -4922,16 +5086,11 @@ class AssistScannerWindow:
         self._prog = tk.DoubleVar()
         ttk.Progressbar(self.root, variable=self._prog, maximum=100).pack(fill="x", padx=8, pady=(0, 4))
         self._status = tk.StringVar(value="Ready")
-        ttk.Label(self.root, textvariable=self._status, anchor="w", style="Muted.TLabel").pack(fill="x", padx=10)
+        ttk.Label(self.root, textvariable=self._status, anchor="w").pack(fill="x", padx=8)
 
         frame = ttk.Frame(self.root)
-        frame.pack(fill="both", expand=True, padx=10, pady=8)
+        frame.pack(fill="both", expand=True, padx=8, pady=6)
         self._tree = ttk.Treeview(frame, columns=COL_IDS, show="headings", height=28)
-        try:
-            self._tree.tag_configure("even", background=UI_FIELD, foreground=UI_TEXT)
-            self._tree.tag_configure("odd", background="#121827", foreground=UI_TEXT)
-        except Exception:
-            pass
         widths = {
             "owner": 230, "slot": 60, "entry": 300,
             "address": 130, "raw": 240, "target": 130, "guess": 420,
@@ -4990,7 +5149,7 @@ class AssistScannerWindow:
                 if col_id == "address":
                     return f"0x{h['addr']:08X}"
                 return str(h.get(col_id, ""))
-            iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS), tags=("odd" if len(self._hit_by_iid) % 2 else "even",))
+            iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS))
             self._hit_by_iid[iid] = h
             if h.get("typ") in (
                 "u32-chun-selector",
@@ -5112,7 +5271,7 @@ class AssistScannerWindow:
                     if col_id == "address":
                         return f"0x{h['addr']:08X}"
                     return str(h.get(col_id, ""))
-                iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS), tags=("odd" if len(self._hit_by_iid) % 2 else "even",))
+                iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS))
                 self._hit_by_iid[iid] = h
                 if h.get("typ") in (
                     "u32-chun-selector",
@@ -5170,7 +5329,9 @@ class AssistScannerWindow:
 
     def _choose_ryu_preset_or_manual(self, addr: int, current: str) -> int | None:
         result: dict[str, int | None] = {"value": None}
-        dlg = _dark_toplevel(self.root, "Choose Ryu Selector", "380x260")
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose Ryu Selector")
+        dlg.geometry("380x260")
         dlg.transient(self.root)
         dlg.grab_set()
         ttk.Label(
@@ -5759,7 +5920,8 @@ class AssistScannerWindow:
             return None
 
         result: dict[str, object] = {"value": None, "label": ""}
-        dlg = _dark_toplevel(parent, "Choose loaded move preset")
+        dlg = tk.Toplevel(parent)
+        dlg.title("Choose loaded move preset")
         dlg.geometry("760x520")
         dlg.transient(parent)
         dlg.grab_set()
@@ -5897,7 +6059,9 @@ class AssistScannerWindow:
 
     def _choose_chun_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": True}
-        dlg = _dark_toplevel(self.root, "Choose Chun selector word", "430x260")
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose Chun selector word")
+        dlg.geometry("430x260")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -6158,7 +6322,9 @@ class AssistScannerWindow:
 
     def _choose_ryu_graft_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": True}
-        dlg = _dark_toplevel(self.root, "Choose Ryu selector word", "430x260")
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose Ryu selector word")
+        dlg.geometry("430x260")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -6333,7 +6499,9 @@ class AssistScannerWindow:
 
     def _choose_generic_selector_value(self, addr: int, current: str, source: str, owner_base_override: int | None = None, chr_tbl_base_override: int | None = None) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": True}
-        dlg = _dark_toplevel(self.root, "Choose generic selector word", "450x280")
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose generic selector word")
+        dlg.geometry("450x280")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -6856,7 +7024,9 @@ class AssistScannerWindow:
         current = f"0x{base_word:08X}"
 
         result: dict[str, object] = {"value": None, "apply_all": True, "label": ""}
-        dlg = _dark_toplevel(self.root, "Choose assist move entry", "500x430")
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Choose assist move entry")
+        dlg.geometry("500x430")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -7619,8 +7789,10 @@ class AssistScannerWindow:
         except Exception as e:
             messagebox.showerror("Address", f"Read failed: {e}", parent=self.root)
             return
-        dlg = _dark_toplevel(self.root, f"Assist bytes @ 0x{addr:08X}", "840x460")
-        txt = tk.Text(dlg, wrap="none", font=("Consolas", 10), bg=UI_FIELD, fg=UI_TEXT, insertbackground=UI_TEXT, relief="flat", bd=1)
+        dlg = tk.Toplevel(self.root)
+        dlg.title(f"Assist bytes @ 0x{addr:08X}")
+        dlg.geometry("840x460")
+        txt = tk.Text(dlg, wrap="none", font=("Consolas", 10), bg="#101214", fg="#E8E8E8")
         txt.pack(fill="both", expand=True, padx=8, pady=8)
         current_line = (line_base - start) // line_size
         for i in range(17):
@@ -7642,13 +7814,15 @@ def tick_assist_profiles_from_main(snaps: dict) -> None:
     update_assist_context_from_main(snaps)
     inst = _inst
     try:
+        # HUD quick-assist profiles must keep working even when the Tk scanner is
+        # open.  The headless path owns slot-specific mirror-match profiles;
+        # the Tk path still handles profiles chosen inside the scanner window.
+        _headless_runtime_patch_from_main(snaps)
         if inst is not None:
             inst._runtime_patch_from_main(snaps)
-        else:
-            _headless_runtime_patch_from_main(snaps)
     except Exception as e:
         try:
-            print(f"[assist scanner] runtime patch failed: {e!r}")
+            _assist_log_once("runtime-patch-failed", f"[assist scanner] runtime patch failed: {e!r}", interval=2.0)
         except Exception:
             pass
 

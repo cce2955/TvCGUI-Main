@@ -23,6 +23,8 @@ class ScanNormalsWorker(threading.Thread):
         self._lock = threading.Lock()
         self._last = None
         self._last_ts = 0.0
+        self._busy = False
+        self._request_count = 0
 
     def run(self):
         while True:
@@ -34,6 +36,8 @@ class ScanNormalsWorker(threading.Thread):
                 continue
 
             try:
+                with self._lock:
+                    self._busy = True
                 res = self._scan_func()
                 now = time.time()
                 with self._lock:
@@ -41,10 +45,25 @@ class ScanNormalsWorker(threading.Thread):
                     self._last_ts = now
             except Exception as e:
                 print("scan worker failed:", e)
+            finally:
+                with self._lock:
+                    self._busy = False
 
     def request(self):
         """Signal the worker to perform a scan."""
+        with self._lock:
+            self._request_count += 1
         self._want.set()
+
+    def is_busy(self):
+        """Return True while the scan function is currently running."""
+        with self._lock:
+            return bool(self._busy)
+
+    def request_count(self):
+        """Return how many scan requests have been queued since start."""
+        with self._lock:
+            return int(self._request_count)
 
     def get_latest(self):
         """

@@ -138,9 +138,10 @@ except Exception as e:
     open_megacrash_trainer_window = None
     print(f"WARNING: megacrash trainer window not available ({e!r})")
 try:
-    from hud_editor_window import open_hud_editor_window
+    from hud_editor_window import open_hud_editor_window, tick_hud_editor_state
 except Exception as e:
     open_hud_editor_window = None
+    tick_hud_editor_state = None
     print(f"WARNING: HUD editor window not available ({e!r})")
 try:
     import fd_patch_runtime
@@ -165,7 +166,7 @@ except Exception:
             {"label": "306", "table": 306},
             {"label": "Default", "default": True},
         ]
-    def apply_quick_assist_from_main(_slot_label, _quick_index, _snap=None):
+    def apply_quick_assist_from_main(_slot_label, _quick_index, _snap=None, quiet=False):
         return False
 
 from mission_manager import MissionManager
@@ -196,7 +197,7 @@ GIANT_IDS = {11, 22}
 # hitstun when the opponent advances to a new combo label.
 MEGACRASH_MOVE_ID = 448
 MEGACRASH_TRAINER_CONFIG_FILE = "megacrash_trainer.json"
-MEGACRASH_TRAINER_DEFAULT_CHANCE = 25
+MEGACRASH_TRAINER_DEFAULT_CHANCE = 0
 MEGACRASH_TRAINER_DEFAULT_MODE = "percent"
 MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES = 0
 MEGACRASH_TRAINER_MAX_DELAY_FRAMES = 300
@@ -211,6 +212,7 @@ MEGACRASH_SUPPORT_STATE_IDS = {420, 424, 425, 426, 427, 428, 430, 431, 432, 433,
 HB_BTN_X, HB_BTN_Y = 8, 8
 HB_BTN_W, HB_BTN_H = 130, 22
 TOP_UI_RESERVED = 60
+QUICK_ASSIST_PERSIST_EVERY_FRAMES = 60
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +241,44 @@ def _copy_to_clipboard(text: str) -> None:
         except Exception as e:
             print(f"[copy] failed ({e!r}) -> {text}")
     print(f"[copy] (no pyperclip) -> {text}")
+
+
+# Lightweight performance tracing. This intentionally rate-limits itself so
+# a slow frame does not create console spam and make the stutter worse. Set
+# TVC_PERF_LOG=0 to silence it.
+PERF_LOG_ENABLED = os.environ.get("TVC_PERF_LOG", "1").strip().lower() not in {"0", "false", "off", "no"}
+PERF_FRAME_WARN_MS = float(os.environ.get("TVC_PERF_FRAME_WARN_MS", "45"))
+PERF_SECTION_WARN_MS = float(os.environ.get("TVC_PERF_SECTION_WARN_MS", "12"))
+_PERF_LAST_LOG_TS: dict[str, float] = {}
+
+# Automatic frame-data refreshes now use a cache-only worker and are debounced.
+# Manual scans / opening the frame-data window can still run the full dynamic
+# scanner when needed, but the main HUD loop must not keep launching dynamic
+# scans during character changes or round reloads.
+FD_AUTOSCAN_ENABLED = os.environ.get("TVC_FD_AUTOSCAN", "1").strip().lower() not in {"0", "false", "off", "no"}
+FD_AUTOSCAN_DEBOUNCE_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_DEBOUNCE_SEC", "1.0") or "1.0")
+FD_AUTOSCAN_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_MIN_INTERVAL_SEC", "3.0") or "3.0")
+
+
+def _perf_warn(label: str, start_perf: float, *, threshold_ms: float | None = None, min_interval: float = 1.0) -> None:
+    if not PERF_LOG_ENABLED:
+        return
+    try:
+        elapsed_ms = (time.perf_counter() - float(start_perf)) * 1000.0
+    except Exception:
+        return
+    limit = PERF_SECTION_WARN_MS if threshold_ms is None else float(threshold_ms)
+    if elapsed_ms < limit:
+        return
+    now_perf = time.perf_counter()
+    last = float(_PERF_LAST_LOG_TS.get(label, 0.0) or 0.0)
+    if now_perf - last < float(min_interval):
+        return
+    _PERF_LAST_LOG_TS[label] = now_perf
+    try:
+        print(f"[perf] {label} {elapsed_ms:.1f}ms")
+    except Exception:
+        pass
 
 
 def _runtime_output_dir(*parts: str) -> str:
@@ -567,7 +607,9 @@ def _load_megacrash_trainer_config() -> dict:
             # Intentionally ignore raw["enabled"].  The trainer is always OFF
             # at startup, even if the previous session exited while ON.
             cfg["mode"] = _normalize_megacrash_mode(raw.get("mode", cfg["mode"]))
-            cfg["chance"] = _clamp_megacrash_chance(raw.get("chance", cfg["chance"]))
+            # Startup safety: Megacrash always launches OFF with a 0% random roll,
+            # even if an old config was saved at 25/50/100%.
+            cfg["chance"] = MEGACRASH_TRAINER_DEFAULT_CHANCE
             cfg["delay_frames"] = _clamp_megacrash_delay_frames(raw.get("delay_frames", cfg["delay_frames"]))
             cfg["cooldown_sec"] = _clamp_megacrash_cooldown_sec(raw.get("cooldown_sec", cfg["cooldown_sec"]))
             cfg["target_label"] = _clean_megacrash_target_label(raw.get("target_label", cfg["target_label"]))
@@ -873,6 +915,29 @@ def _megacrash_mark_visible_combo_keys(snaps: dict, last_keys: dict) -> None:
 
 
 def _start_megacrash_trainer_pulse(state: dict, vic_snap: dict, now: float, reason: str = "") -> bool:
+    # Absolute safety gate.  No caller, stale schedule, or old pulse is allowed
+    # to write Megacrash unless the trainer is currently enabled.  In random
+    # mode, 0% is also a hard no-op.
+    if not isinstance(state, dict) or not bool(state.get("enabled", False)):
+        try:
+            state.setdefault("pulses", {}).clear()
+            state.setdefault("scheduled_triggers", {}).clear()
+            state["cooldown_until"] = 0.0
+        except Exception:
+            pass
+        return False
+
+    mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    chance = _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
+    if mode == "percent" and chance <= 0:
+        try:
+            state.setdefault("pulses", {}).clear()
+            state.setdefault("scheduled_triggers", {}).clear()
+            state["cooldown_until"] = 0.0
+        except Exception:
+            pass
+        return False
+
     base = 0
     try:
         base = int(vic_snap.get("base") or 0)
@@ -935,6 +1000,30 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         except Exception:
             frame_idx = 0
 
+    # Absolute OFF gate comes before pulse replay.  The old order replayed an
+    # already-started pulse for a few frames even after the trainer was turned
+    # off.  OFF now means no writes this frame, period.
+    if not bool(state.get("enabled", False)):
+        try:
+            pulses.clear()
+            scheduled.clear()
+            last_keys.clear()
+            state["cooldown_until"] = 0.0
+        except Exception:
+            pass
+        return state
+
+    mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    chance = state["chance"]
+    if mode == "percent" and chance <= 0:
+        try:
+            pulses.clear()
+            scheduled.clear()
+            state["cooldown_until"] = 0.0
+        except Exception:
+            pass
+        return state
+
     snaps = snaps or {}
     snaps_by_base = {}
     for _slot, _snap in list(snaps.items()):
@@ -974,12 +1063,6 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
                 addr = 0
             if addr and addr_in_ram(addr):
                 wd32(addr, MEGACRASH_MOVE_ID)
-
-    if not state.get("enabled", False):
-        last_keys.clear()
-        scheduled.clear()
-        state["cooldown_until"] = 0.0
-        return state
 
     cooldown_remaining = _megacrash_cooldown_remaining(state, now)
     if cooldown_remaining > 0.0:
@@ -1027,11 +1110,6 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         reason = str(pending.get("reason") or "targeted delayed label")
         _start_megacrash_trainer_pulse(state, live_snap, now, reason=reason)
         scheduled.pop(base, None)
-
-    mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
-    chance = state["chance"]
-    if mode == "percent" and chance <= 0:
-        return state
 
     # Trainer logic is team-point vs team-point.  Assists/projectiles are not
     # allowed to become the attacker key or the victim target.  A roll happens
@@ -1116,15 +1194,17 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
                 print(f"[megacrash trainer] schedule {vic_slot}: {atk_slot} {atk_label or atk_id} +{delay_frames}f")
             continue
 
-        roll = random.uniform(0.0, 100.0)
+        # Use random.random()*100 and a strict < comparison so 0% can never
+        # pass, while 100% still always passes.
+        roll = random.random() * 100.0
         state["roll_count"] = int(state.get("roll_count", 0) or 0) + 1
-        if roll <= float(chance):
-            reason = f"{atk_slot} {atk_label or atk_id} roll {roll:.1f}<={chance}%"
+        if chance > 0 and roll < float(chance):
+            reason = f"{atk_slot} {atk_label or atk_id} roll {roll:.1f}<{chance}%"
             _start_megacrash_trainer_pulse(state, vic_snap, now, reason=reason)
         else:
             if frame_idx_mod := int(state.get("roll_count", 0) or 0):
                 if frame_idx_mod % 20 == 0:
-                    print(f"[megacrash trainer] roll skip {atk_slot} {atk_label or atk_id}: {roll:.1f}>{chance}%")
+                    print(f"[megacrash trainer] roll skip {atk_slot} {atk_label or atk_id}: {roll:.1f}>={chance}%")
 
     return state
 
@@ -3314,7 +3394,11 @@ def legacy_main():
     print(f"HUD: loaded {len(portraits)} portraits.")
 
     if HAVE_SCAN_NORMALS and scan_normals_all is not None:
-        scan_worker = ScanNormalsWorker(scan_normals_all.scan_once)
+        # Auto refresh must stay lightweight.  Cache-only avoids the full dynamic
+        # MEM2 scanner from running in the background during gameplay.  Manual
+        # scans still call scan_normals_all.scan_once() directly and can create
+        # new profiles when needed.
+        scan_worker = ScanNormalsWorker(lambda: scan_normals_all.scan_once(cache_only=True))
         scan_worker.start()
     else:
         scan_worker = None
@@ -3385,8 +3469,75 @@ def legacy_main():
     panel_btn_flash       = {s: 0 for (s, _, _) in SLOTS}
     quick_btn_flash       = {}
     active_quick_assist_by_slot = {}
+    quick_assist_reapply_state = {}
     quick_assist_slide_by_slot = {}
     panel_fx_state = {}
+
+    def _quick_assist_snap_char_id(_snap) -> int:
+        if not isinstance(_snap, dict):
+            return 0
+        for _field in ("id", "csv_char_id", "char_id"):
+            try:
+                _cid = int(_snap.get(_field) or 0)
+            except Exception:
+                _cid = 0
+            if _cid:
+                return _cid
+        return 0
+
+    def _tick_persistent_quick_assists(_snaps: dict, _frame_idx: int) -> None:
+        """Cheap quick-assist state maintenance.
+
+        The selected assist is already stored in assist_scanner_backend when the
+        user clicks a quick-assist button.  The backend now patches that stored
+        slot profile on assist standby/jump-in/attack, so this main-loop helper
+        must not re-apply the full assist route at idle.  Re-applying here was
+        the remaining 25-35 ms assist_persist spike.
+        """
+        if not active_quick_assist_by_slot or not isinstance(_snaps, dict):
+            return
+
+        # Validate/clean selection state only a few times per second.  The actual
+        # assist write path runs in tick_assist_profiles_from_main(), which sees
+        # every frame and patches only when an assist-ish state is active.
+        if (_frame_idx % 15) != 0:
+            return
+
+        for _slot_label, _row in list(active_quick_assist_by_slot.items()):
+            if not isinstance(_row, dict):
+                active_quick_assist_by_slot.pop(_slot_label, None)
+                quick_assist_reapply_state.pop(_slot_label, None)
+                continue
+            try:
+                _quick_index = int(_row.get("quick_index"))
+            except Exception:
+                active_quick_assist_by_slot.pop(_slot_label, None)
+                quick_assist_reapply_state.pop(_slot_label, None)
+                continue
+
+            _snap = _snaps.get(_slot_label) or render_snap_by_slot.get(_slot_label)
+            if not isinstance(_snap, dict):
+                continue
+            _snap_char_id = _quick_assist_snap_char_id(_snap)
+            try:
+                _stored_char_id = int(_row.get("char_id") or 0)
+            except Exception:
+                _stored_char_id = 0
+            if _stored_char_id and _snap_char_id and _stored_char_id != _snap_char_id:
+                active_quick_assist_by_slot.pop(_slot_label, None)
+                quick_assist_reapply_state.pop(_slot_label, None)
+                continue
+
+            try:
+                _fighter_base = int(_snap.get("base") or 0)
+            except Exception:
+                _fighter_base = 0
+            _key = (_quick_index, _stored_char_id or _snap_char_id, _fighter_base)
+            _prev = quick_assist_reapply_state.get(_slot_label) or {}
+            if _prev.get("key") != _key:
+                quick_assist_reapply_state[_slot_label] = {"key": _key, "last_frame": int(_frame_idx)}
+
+
     prev_hp_frac_by_slot = {}
     prev_meter_by_slot = {}
     prev_move_by_slot = {}
@@ -3396,6 +3547,33 @@ def legacy_main():
 
     manual_scan_requested = False
     need_rescan_normals   = False
+    pending_rescan_normals_since = 0.0
+    pending_rescan_signature = None
+    last_rescan_request_time = 0.0
+    last_rescan_request_signature = None
+
+    def _fd_scan_signature(_snaps: dict) -> tuple:
+        parts = []
+        if isinstance(_snaps, dict):
+            for _slot_label in ("P1-C1", "P2-C1", "P1-C2", "P2-C2"):
+                _snap = _snaps.get(_slot_label) or {}
+                if not isinstance(_snap, dict):
+                    _snap = {}
+                try:
+                    _base = int(_snap.get("base") or 0)
+                except Exception:
+                    _base = 0
+                _cid = 0
+                for _field in ("id", "csv_char_id", "char_id"):
+                    try:
+                        _cid = int(_snap.get(_field) or 0)
+                    except Exception:
+                        _cid = 0
+                    if _cid:
+                        break
+                _name = str(_snap.get("name") or _snap.get("char_name") or "")
+                parts.append((_slot_label, _base, _cid, _name))
+        return tuple(parts)
 
     last_adv_display = ""
     pending_hits     = []
@@ -3523,6 +3701,7 @@ def legacy_main():
     # Main loop
     # ------------------------------------------------------------------
     while running:
+        _frame_perf_start = time.perf_counter()
         now  = time.time()
         t_ms = pygame.time.get_ticks()
         mouse_clicked_pos = None
@@ -3764,14 +3943,26 @@ def legacy_main():
         # desired assists; main.py owns the reliable current move label/id, so
         # when a fighter enters assist attack (426), patch that fighter profile
         # into the shared character selector table immediately.
+        _perf_section_start = time.perf_counter()
         try:
             tick_assist_profiles_from_main(snaps)
         except Exception as e:
             if frame_idx % 60 == 0:
                 print(f"[assist scanner] main trigger failed: {e!r}")
+        _perf_warn("assist_tick", _perf_section_start)
+
+        _perf_section_start = time.perf_counter()
+        try:
+            _tick_persistent_quick_assists(snaps, frame_idx)
+        except Exception as e:
+            if frame_idx % 60 == 0:
+                print(f"[assist quick] persistent state failed: {e!r}")
+        _perf_warn("assist_persist", _perf_section_start)
 
         # Mission manager tick
+        _perf_section_start = time.perf_counter()
         mission_mgr.update(snaps, render_snap_by_slot, frame_idx, now)
+        _perf_warn("mission_tick", _perf_section_start)
 
         # Mission-scoped Megacrash setup.  Joe Condor's counter trials can now
         # temporarily arm a targeted burst on 5C without making Megacrash stay
@@ -3782,7 +3973,21 @@ def legacy_main():
         )
 
         # Megacrash Trainer tick: point-only, hitstun-only, per-new-combo-label dice roll.
+        _perf_section_start = time.perf_counter()
         megacrash_trainer_state = _tick_megacrash_trainer(megacrash_trainer_state, snaps, now, frame_idx)
+        _perf_warn("megacrash_tick", _perf_section_start)
+
+        # HUD Editor persistent state tick.  Hold Visible Wins must keep writing
+        # even when the editor window is closed, so the main loop owns the
+        # runtime tick and the Tk window is only a control panel.
+        if tick_hud_editor_state is not None:
+            _perf_section_start = time.perf_counter()
+            try:
+                tick_hud_editor_state(now=now)
+            except Exception as e:
+                if frame_idx % 60 == 0:
+                    print(f"[hud editor] persistent tick failed: {e!r}")
+            _perf_warn("hud_editor_tick", _perf_section_start)
 
         # Damage / hit logging
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
@@ -4725,9 +4930,32 @@ def legacy_main():
                 except Exception:
                     _fxs.pop(_name, None)
 
-        # Normals rescan triggers
-        if HAVE_SCAN_NORMALS and need_rescan_normals and scan_worker:
-            scan_worker.request()
+        # Normals rescan triggers.  Auto scans are cache-only, debounced, and
+        # coalesced so character-select churn / round reloads do not keep the
+        # Python scanner fighting the HUD loop for the GIL.  Full dynamic scans
+        # still happen through the manual scan path below.
+        if HAVE_SCAN_NORMALS and need_rescan_normals and scan_worker and FD_AUTOSCAN_ENABLED:
+            _sig = _fd_scan_signature(snaps)
+            if pending_rescan_signature != _sig:
+                pending_rescan_signature = _sig
+                pending_rescan_normals_since = now
+            _worker_busy = False
+            try:
+                _worker_busy = bool(scan_worker.is_busy())
+            except Exception:
+                _worker_busy = False
+            if (
+                _sig
+                and not _worker_busy
+                and (now - pending_rescan_normals_since) >= FD_AUTOSCAN_DEBOUNCE_SEC
+                and (now - last_rescan_request_time) >= FD_AUTOSCAN_MIN_INTERVAL_SEC
+                and _sig != last_rescan_request_signature
+            ):
+                scan_worker.request()
+                last_rescan_request_time = now
+                last_rescan_request_signature = _sig
+                need_rescan_normals = False
+        elif HAVE_SCAN_NORMALS and need_rescan_normals and not FD_AUTOSCAN_ENABLED:
             need_rescan_normals = False
 
         if HAVE_SCAN_NORMALS and manual_scan_requested:
@@ -4768,6 +4996,7 @@ def legacy_main():
                     ])
             pending_hits.clear()
 
+        _perf_warn("frame_work", _frame_perf_start, threshold_ms=PERF_FRAME_WARN_MS)
         clock.tick(TARGET_FPS)
         frame_idx += 1
 

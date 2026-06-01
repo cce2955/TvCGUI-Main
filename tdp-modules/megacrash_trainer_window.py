@@ -72,7 +72,7 @@ def _label_summary(value: Any) -> str:
 def _state_label(state: dict) -> str:
     enabled = bool(state.get("enabled", False))
     mode = _clean_mode(state.get("mode", _MODE_PERCENT))
-    chance = _clamp_int(state.get("chance", 25), 25, 0, 100)
+    chance = _clamp_int(state.get("chance", 0), 0, 0, 100)
     delay = _clamp_int(state.get("delay_frames", 0), 0, 0, 300)
     cooldown = _format_seconds(state.get("cooldown_sec", 2.0))
     label = _label_summary(state.get("target_label", ""))
@@ -194,7 +194,7 @@ def open_megacrash_trainer_window(
 
         enabled_var = tk.BooleanVar(value=bool(state.get("enabled", False)))
         mode_var = tk.StringVar(value=_clean_mode(state.get("mode", _MODE_PERCENT)))
-        chance_var = tk.StringVar(value=str(_clamp_int(state.get("chance", 25), 25, 0, 100)))
+        chance_var = tk.StringVar(value=str(_clamp_int(state.get("chance", 0), 0, 0, 100)))
         delay_var = tk.StringVar(value=str(_clamp_int(state.get("delay_frames", 0), 0, 0, 300)))
         cooldown_var = tk.StringVar(value=_format_seconds(state.get("cooldown_sec", 2.0)))
         label_var = tk.StringVar(value=_clean_label(state.get("target_label", "")))
@@ -306,7 +306,7 @@ def open_megacrash_trainer_window(
 
             state["enabled"] = new_enabled
             state["mode"] = new_mode
-            state["chance"] = _clamp_int(chance_var.get(), 25, 0, 100)
+            state["chance"] = _clamp_int(chance_var.get(), 0, 0, 100)
             state["delay_frames"] = _clamp_int(delay_var.get(), 0, 0, 300)
             state["cooldown_sec"] = _clamp_float(cooldown_var.get(), 2.0, 0.0, 60.0)
             state["target_label"] = new_label

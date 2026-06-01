@@ -2350,7 +2350,7 @@ def _save_profile_moves(
 # MAIN SCAN
 # ============================================================
 
-def scan_once(force_dynamic: bool = False):
+def scan_once(force_dynamic: bool = False, cache_only: bool = False):
     hook()
 
     slots_info = read_slots_from_constants()
@@ -2404,6 +2404,25 @@ def scan_once(force_dynamic: bool = False):
                     "profile_key": _profile_key(cid, cname),
                 }
                 continue
+
+        # Auto/background HUD refreshes should never fall through into the full
+        # dynamic scanner when a profile is missing.  The dynamic path can take
+        # hundreds of milliseconds to seconds and the Python/GIL work is visible
+        # as gameplay stutter even from a worker thread.  Manual frame-data scans
+        # still call scan_once() with cache_only=False and remain the source of
+        # truth for creating/updating profiles.
+        if cache_only:
+            result[slot_idx] = {
+                "slot_label": slot_label,
+                "char_name": cname,
+                "moves": [],
+                "chr_tbl_abs": chr_tbl_abs,
+                "tbl_move_count": len(tbl_move_addrs),
+                "profile_fast_path": False,
+                "profile_cache_miss": True,
+                "profile_key": _profile_key(cid, cname),
+            }
+            continue
 
         region_start, region_end = slot_scan_region_from_tbl(tbl_buf, tbl_start, chr_tbl_abs)
 
