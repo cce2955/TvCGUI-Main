@@ -106,6 +106,23 @@ WIN_DIGIT_BANKS: dict[str, dict[str, tuple[tuple[int, int], tuple[int, int], tup
 # Pane enable byte directly before each pane name. The active VS HUD disables
 # the tens/hundreds pane when the real count is below 10/100, so texture-only
 # writes made values like 21 appear as only 1. These flags fix that.
+
+# VS HUD mode parent toggles. When a side is at 0/new hero, the game disables
+# the win group and enables NewHero_* instead. Texture writes still land, but
+# they are hidden until the parent mode is switched back to win_vs*.
+VS_WIN_MODE_ENABLES: dict[str, dict[str, int]] = {
+    "P1": {"WIN": 0x80BEB85B, "NEWHERO": 0x80BEB63B},
+    "P2": {"WIN": 0x80BEC61B, "NEWHERO": 0x80BEC3FB},
+}
+
+# Upstream arcade/versus win counters. These are not the HUD, but they are
+# useful for auto-incrementing a persistent visual streak after the game resets
+# one side to NEW HERO. Use max mirror value for stability.
+RAW_WIN_COUNTERS: dict[str, tuple[int, ...]] = {
+    "P1": (0x803EB9FC, 0x803EBA08),
+    "P2": (0x803EBA00, 0x803EBA04),
+}
+
 WIN_PANE_ENABLES: dict[str, dict[str, tuple[int, int, int]]] = {
     "P1": {
         "VS": (0x80BEBA7B, 0x80BEBC9B, 0x80BEBEBB),
@@ -206,6 +223,40 @@ def _write_u8(addr: int, value: int) -> bool:
         return False
 
 
+
+
+def _read_u32(addr: int) -> int | None:
+    if rd32 is None:
+        return None
+    try:
+        return int(rd32(int(addr)))
+    except Exception:
+        return None
+
+
+def read_raw_win_count(player: str) -> int | None:
+    player = str(player or "P1").upper()
+    vals: list[int] = []
+    for addr in RAW_WIN_COUNTERS.get(player, ()):
+        value = _read_u32(addr)
+        if value is None:
+            continue
+        if 0 <= value <= 999:
+            vals.append(int(value))
+    if not vals:
+        return None
+    return max(vals)
+
+
+def _set_vs_win_mode(player: str, *, show_win: bool) -> None:
+    player = str(player or "P1").upper()
+    addrs = VS_WIN_MODE_ENABLES.get(player)
+    if not addrs:
+        return
+    # Only the parent mode decides whether win digits or NEW HERO are visible.
+    # The child digit panes can be enabled and still remain hidden under NewHero.
+    _write_u8(addrs["WIN"], 1 if show_win else 0)
+    _write_u8(addrs["NEWHERO"], 0 if show_win else 1)
 def _write_pair(addr_a: int, addr_b: int, digit: int, table: dict[int, tuple[int, int]] = SCORE_DIGIT_TEXTURES) -> bool:
     if wd32 is None:
         return False
@@ -229,6 +280,10 @@ def _read_digit_pair(addr_a: int, addr_b: int, texture_to_digit: dict[tuple[int,
 
 
 def _set_win_pane_enables(player: str, bank_name: str, value: int) -> None:
+    if str(bank_name or "").upper() == "VS":
+        # Force the side out of NEW HERO mode and into the win display group.
+        _set_vs_win_mode(player, show_win=True)
+
     flags = WIN_PANE_ENABLES.get(player, {}).get(bank_name)
     if not flags:
         return
@@ -344,7 +399,15 @@ def write_arcade_score_raw_from_display(score_text: Any) -> bool:
         return False
 
 
-def _label(parent: tk.Misc, text: str, *, muted: bool = False, bold: bool = False, size: int = 9) -> tk.Label:
+def _label(
+    parent: tk.Misc,
+    text: str,
+    *,
+    muted: bool = False,
+    bold: bool = False,
+    size: int = 9,
+    wraplength: int | None = None,
+) -> tk.Label:
     return tk.Label(
         parent,
         text=text,
@@ -353,6 +416,7 @@ def _label(parent: tk.Misc, text: str, *, muted: bool = False, bold: bool = Fals
         font=("Segoe UI", size, "bold" if bold else "normal"),
         anchor="w",
         justify="left",
+        wraplength=wraplength or 0,
     )
 
 
@@ -456,8 +520,8 @@ def open_hud_editor_window() -> None:
         win = tk.Toplevel(root)
         _OPEN_WINDOW = win
         win.title("HUD Editor")
-        win.geometry("860x640")
-        win.minsize(820, 560)
+        win.geometry("1080x820")
+        win.minsize(1040, 720)
         win.configure(bg=_BG)
 
         try:
@@ -472,6 +536,8 @@ def open_hud_editor_window() -> None:
         p2_score_var = tk.StringVar(value="0")
         stage_var = tk.StringVar(value="1")
         timer_var = tk.StringVar(value="99")
+        p1_streak_var = tk.StringVar(value="0")
+        p2_streak_var = tk.StringVar(value="0")
 
         vs_var = tk.BooleanVar(value=True)
         hud_var = tk.BooleanVar(value=True)
@@ -479,7 +545,11 @@ def open_hud_editor_window() -> None:
         freeze_var = tk.BooleanVar(value=False)
         score_raw_var = tk.BooleanVar(value=False)
         timer_raw_var = tk.BooleanVar(value=False)
-        status_var = tk.StringVar(value="Ready. HUD Editor writes live digit texture pairs; win counters also toggle tens/hundreds pane enables.")
+        p1_streak_enabled_var = tk.BooleanVar(value=False)
+        p2_streak_enabled_var = tk.BooleanVar(value=False)
+        p1_streak_auto_var = tk.BooleanVar(value=True)
+        p2_streak_auto_var = tk.BooleanVar(value=True)
+        status_var = tk.StringVar(value="Ready. Use Hold Visible Wins to keep a side's wins on-screen through NEW HERO resets.")
         readout_var = tk.StringVar(value="Current: --")
 
         last_applied = {
@@ -491,6 +561,10 @@ def open_hud_editor_window() -> None:
             "TIMER": 99,
         }
         freeze_kinds: set[str] = set()
+        streak_last_raw = {
+            "P1": read_raw_win_count("P1"),
+            "P2": read_raw_win_count("P2"),
+        }
 
         root_frame = tk.Frame(win, bg=_BG, padx=16, pady=14)
         root_frame.pack(fill="both", expand=True)
@@ -502,8 +576,9 @@ def open_hud_editor_window() -> None:
 
         desc = _label(
             root_frame,
-            "Edits live HUD texture selectors: VS win counters, result win copies, arcade score digits, stage digit, and timer digits.",
+            "Edits live HUD texture selectors. Hold Visible Wins preserves a side's displayed wins through NEW HERO resets; Win Count is for direct manual HUD edits.",
             muted=True,
+            wraplength=980,
         )
         desc.pack(fill="x", pady=(4, 10))
 
@@ -524,8 +599,11 @@ def open_hud_editor_window() -> None:
             p2_score = read_score_display("P2")
             stage = read_stage_display()
             timer = read_timer_display()
+            raw_p1 = read_raw_win_count("P1")
+            raw_p2 = read_raw_win_count("P2")
             readout_var.set(
                 f"VS wins P1 {p1_vs if p1_vs is not None else '--'} | P2 {p2_vs if p2_vs is not None else '--'}    "
+                f"Raw P1 {raw_p1 if raw_p1 is not None else '--'} | P2 {raw_p2 if raw_p2 is not None else '--'}    "
                 f"Result P1 {p1_hud if p1_hud is not None else '--'} | P2 {p2_hud if p2_hud is not None else '--'}    "
                 f"Score P1 {p1_score or '--'} | P2 {p2_score or '--'}    "
                 f"Stage {stage if stage is not None else '--'}    Timer {timer if timer is not None else '--'}"
@@ -569,6 +647,96 @@ def open_hud_editor_window() -> None:
                 status_var.set(f"Timer display set to {value_i:02d}" if ok else "Timer write failed; confirm Dolphin is hooked")
                 update_readout()
 
+
+        def _streak_controls_for(player: str):
+            player = str(player or "P1").upper()
+            if player == "P2":
+                return p2_streak_var, p2_streak_enabled_var, p2_streak_auto_var
+            return p1_streak_var, p1_streak_enabled_var, p1_streak_auto_var
+
+        def capture_streak_from_vs(player: str) -> None:
+            player = str(player or "P1").upper()
+            var, _enabled_var, _auto_var = _streak_controls_for(player)
+            current = read_win_count(player, bank_name="VS")
+            if current is None:
+                current = read_raw_win_count(player)
+            if current is None:
+                current = _clamp_int(var.get(), 0, 999)
+            var.set(str(_clamp_int(current, 0, 999)))
+            last_applied[f"{player}_WIN"] = _clamp_int(var.get(), 0, 999)
+            streak_last_raw[player] = read_raw_win_count(player)
+            status_var.set(f"Captured {player} visible wins as {var.get()}.")
+            update_readout()
+
+        def enable_streak(player: str) -> None:
+            player = str(player or "P1").upper()
+            var, enabled_var, _auto_var = _streak_controls_for(player)
+            value_i = _clamp_int(var.get(), 0, 999)
+            var.set(str(value_i))
+            last_applied[f"{player}_WIN"] = value_i
+            freeze_kinds.add(f"{player}_WIN")
+            enabled_var.set(True)
+            streak_last_raw[player] = read_raw_win_count(player)
+            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+            status_var.set(f"{player} visible wins held at {value_i}. It will ignore NEW HERO resets and add future raw {player} increments.")
+            update_readout()
+
+        def bump_streak(player: str, delta: int) -> None:
+            player = str(player or "P1").upper()
+            var, _enabled_var, _auto_var = _streak_controls_for(player)
+            value_i = _clamp_int(var.get(), 0, 999)
+            value_i = max(0, min(999, value_i + int(delta)))
+            var.set(str(value_i))
+            last_applied[f"{player}_WIN"] = value_i
+            freeze_kinds.add(f"{player}_WIN")
+            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+            status_var.set(f"{player} held wins adjusted to {value_i}.")
+            update_readout()
+
+        def disable_streak(player: str) -> None:
+            player = str(player or "P1").upper()
+            _var, enabled_var, _auto_var = _streak_controls_for(player)
+            enabled_var.set(False)
+            status_var.set(f"{player} visible win hold released. The game can show NEW HERO normally again after the next HUD refresh.")
+            update_readout()
+
+        def apply_stored_streak(player: str) -> None:
+            player = str(player or "P1").upper()
+            var, _enabled_var, _auto_var = _streak_controls_for(player)
+            value_i = _clamp_int(var.get(), 0, 999)
+            var.set(str(value_i))
+            last_applied[f"{player}_WIN"] = value_i
+            freeze_kinds.add(f"{player}_WIN")
+            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+            status_var.set(f"Held {player} wins {value_i} written.")
+            update_readout()
+
+        def streak_tick_once() -> None:
+            for player in ("P1", "P2"):
+                var, enabled_var, auto_var = _streak_controls_for(player)
+                if not bool(enabled_var.get()):
+                    continue
+
+                current_raw = read_raw_win_count(player)
+                previous_raw = streak_last_raw.get(player)
+                stored = _clamp_int(var.get(), 0, 999)
+
+                if bool(auto_var.get()) and current_raw is not None and previous_raw is not None:
+                    # Positive raw deltas mean this player won another match.
+                    # Negative deltas are game resets/new-hero transitions and
+                    # should not reduce the preserved visual streak.
+                    if current_raw > previous_raw:
+                        stored = max(0, min(999, stored + (current_raw - previous_raw)))
+                        var.set(str(stored))
+                        status_var.set(f"{player} held wins auto-incremented to {stored} from raw {previous_raw}->{current_raw}.")
+                    streak_last_raw[player] = current_raw
+                elif current_raw is not None:
+                    streak_last_raw[player] = current_raw
+
+                last_applied[f"{player}_WIN"] = stored
+                freeze_kinds.add(f"{player}_WIN")
+                apply_win_count(player, stored, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+
         def make_win_card(parent: tk.Misc, player: str, var: tk.StringVar) -> tk.Frame:
             card = _card(parent)
             inner = card.inner  # type: ignore[attr-defined]
@@ -583,6 +751,46 @@ def open_hud_editor_window() -> None:
                     write_win(player, v)
                 _button(inner, str(preset), _cmd, width=4).grid(row=3, column=idx, padx=(0 if idx == 0 else 5, 0), pady=(10, 0), sticky="w")
             return card
+
+        streak_card = _card(root_frame)
+        streak_card.pack(fill="x", pady=(0, 10))
+        streak_inner = streak_card.inner  # type: ignore[attr-defined]
+        streak_inner.grid_columnconfigure(0, weight=1)
+        streak_inner.grid_columnconfigure(1, weight=1)
+        _label(streak_inner, "HOLD VISIBLE WINS", bold=True, size=11).grid(row=0, column=0, sticky="w", columnspan=2)
+        _label(
+            streak_inner,
+            "Use this before the game resets a side to NEW HERO. Capture the current displayed wins, hold that value on-screen, force WIN instead of NEW HERO, then optionally add later real wins while ignoring resets.",
+            muted=True,
+            wraplength=980,
+        ).grid(row=1, column=0, sticky="ew", columnspan=2, pady=(2, 10))
+
+        def make_hold_card(parent: tk.Misc, col: int, player: str, var: tk.StringVar, enabled_var: tk.BooleanVar, auto_var: tk.BooleanVar) -> None:
+            side_outer = tk.Frame(parent, bg=_BORDER, padx=1, pady=1)
+            side = tk.Frame(side_outer, bg=_PANEL_2, padx=10, pady=8)
+            side.pack(fill="both", expand=True)
+            side.grid_columnconfigure(0, weight=0)
+            side.grid_columnconfigure(1, weight=1)
+            side.grid_columnconfigure(2, weight=0)
+            side_outer.grid(row=2, column=col, sticky="ew", padx=(0, 6) if col == 0 else (6, 0))
+
+            _label(side, f"{player} visible wins", bold=True, size=10).grid(row=0, column=0, sticky="w", columnspan=4)
+            _check(side, f"Hold {player}", enabled_var).grid(row=1, column=0, sticky="w", pady=(6, 0))
+            _check(side, "Auto add real wins", auto_var).grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
+            _label(side, "Held", muted=True).grid(row=1, column=2, sticky="e", padx=(8, 4), pady=(6, 0))
+            _field(side, var, width=6, max_value=999).grid(row=1, column=3, sticky="w", pady=(6, 0))
+
+            btns = tk.Frame(side, bg=_PANEL_2)
+            btns.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(8, 0))
+            _button(btns, "Capture", lambda p=player: capture_streak_from_vs(p), width=8).pack(side="left")
+            _button(btns, "Hold", lambda p=player: enable_streak(p), width=7).pack(side="left", padx=(6, 0))
+            _button(btns, "Release", lambda p=player: disable_streak(p), width=8).pack(side="left", padx=(6, 0))
+            _button(btns, "-1", lambda p=player: bump_streak(p, -1), width=4).pack(side="left", padx=(10, 0))
+            _button(btns, "+1", lambda p=player: bump_streak(p, 1), width=4).pack(side="left", padx=(5, 0))
+            _button(btns, "Apply held", lambda p=player: apply_stored_streak(p), width=10).pack(side="left", padx=(8, 0))
+
+        make_hold_card(streak_inner, 0, "P1", p1_streak_var, p1_streak_enabled_var, p1_streak_auto_var)
+        make_hold_card(streak_inner, 1, "P2", p2_streak_var, p2_streak_enabled_var, p2_streak_auto_var)
 
         win_cards = tk.Frame(root_frame, bg=_BG)
         win_cards.pack(fill="x", pady=(0, 10))
@@ -636,7 +844,7 @@ def open_hud_editor_window() -> None:
         readout = tk.Label(root_frame, textvariable=readout_var, bg=_BG, fg=_GOOD, anchor="w", justify="left", font=("Segoe UI", 9, "bold"))
         readout.pack(fill="x", pady=(2, 4))
 
-        status = tk.Label(root_frame, textvariable=status_var, bg=_BG, fg=_MUTED, anchor="w", justify="left", wraplength=780, font=("Segoe UI", 9))
+        status = tk.Label(root_frame, textvariable=status_var, bg=_BG, fg=_MUTED, anchor="w", justify="left", wraplength=980, font=("Segoe UI", 9))
         status.pack(fill="x", pady=(2, 0))
 
         addr_card = _card(root_frame)
@@ -647,14 +855,17 @@ def open_hud_editor_window() -> None:
             addr_inner,
             "VS wins P1: 0x80BEBB80/BDA0/BFC0, P2: 0x80BEC940/CB60/CD80. Score P1 starts 0x80BE53C0, P2 starts 0x80BE7280. Stage 0x80BE9780. Timer 0x80BE4E80/0x80BE50A0.",
             muted=True,
+            wraplength=980,
         ).pack(fill="x", pady=(4, 0))
 
         def freeze_tick() -> None:
             try:
+                if bool(p1_streak_enabled_var.get()) or bool(p2_streak_enabled_var.get()):
+                    streak_tick_once()
                 if freeze_var.get():
-                    if "P1_WIN" in freeze_kinds:
+                    if "P1_WIN" in freeze_kinds and not bool(p1_streak_enabled_var.get()):
                         apply_win_count("P1", last_applied.get("P1_WIN", _clamp_int(p1_win_var.get(), 0, 999)), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
-                    if "P2_WIN" in freeze_kinds:
+                    if "P2_WIN" in freeze_kinds and not bool(p2_streak_enabled_var.get()):
                         apply_win_count("P2", last_applied.get("P2_WIN", _clamp_int(p2_win_var.get(), 0, 999)), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
                     if "P1_SCORE" in freeze_kinds:
                         apply_score_display("P1", last_applied.get("P1_SCORE", p1_score_var.get()))

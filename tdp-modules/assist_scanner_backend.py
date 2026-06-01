@@ -23,6 +23,70 @@ except Exception:
     def _lookup_move_name(aid: int) -> str | None:
         return None
 
+
+# Shared dark UI palette. Keep this scanner visually aligned with the main HUD
+# tools instead of leaving it on the default light Tk theme.
+UI_BG = "#0d1018"
+UI_PANEL = "#171b27"
+UI_PANEL_2 = "#202638"
+UI_BORDER = "#31384d"
+UI_TEXT = "#e9edf7"
+UI_MUTED = "#aeb8cc"
+UI_ACCENT = "#89a7ff"
+UI_ACTIVE = "#2a3553"
+UI_FIELD = "#0f1320"
+UI_TREE_SEL = "#2a3553"
+
+
+def _apply_dark_assist_theme(widget: tk.Misc) -> ttk.Style:
+    """Apply the same dark visual language used by HUD Editor."""
+    try:
+        widget.configure(bg=UI_BG)
+    except Exception:
+        pass
+
+    style = ttk.Style(widget)
+    try:
+        style.theme_use("clam")
+    except Exception:
+        pass
+
+    style.configure(".", background=UI_BG, foreground=UI_TEXT, fieldbackground=UI_FIELD, font=("Segoe UI", 9))
+    style.configure("TFrame", background=UI_BG)
+    style.configure("TLabel", background=UI_BG, foreground=UI_TEXT)
+    style.configure("Muted.TLabel", background=UI_BG, foreground=UI_MUTED)
+    style.configure("TButton", background=UI_PANEL_2, foreground=UI_TEXT, bordercolor=UI_BORDER, focusthickness=1, focuscolor=UI_ACCENT, padding=(8, 3))
+    style.map("TButton", background=[("active", UI_ACTIVE), ("pressed", UI_ACTIVE)], foreground=[("disabled", UI_MUTED)])
+    style.configure("TCheckbutton", background=UI_BG, foreground=UI_TEXT, focuscolor=UI_ACCENT)
+    style.map("TCheckbutton", background=[("active", UI_BG)], foreground=[("disabled", UI_MUTED)])
+    style.configure("TEntry", fieldbackground=UI_FIELD, foreground=UI_TEXT, bordercolor=UI_BORDER, insertcolor=UI_TEXT)
+    style.configure("TCombobox", fieldbackground=UI_FIELD, background=UI_PANEL_2, foreground=UI_TEXT, arrowcolor=UI_TEXT, bordercolor=UI_BORDER)
+    style.map("TCombobox", fieldbackground=[("readonly", UI_FIELD)], background=[("readonly", UI_PANEL_2)], foreground=[("readonly", UI_TEXT)])
+    style.configure("Horizontal.TProgressbar", troughcolor=UI_FIELD, background=UI_ACCENT, bordercolor=UI_BORDER, lightcolor=UI_ACCENT, darkcolor=UI_ACCENT)
+    style.configure(
+        "Treeview",
+        background=UI_FIELD,
+        fieldbackground=UI_FIELD,
+        foreground=UI_TEXT,
+        rowheight=24,
+        bordercolor=UI_BORDER,
+        lightcolor=UI_BORDER,
+        darkcolor=UI_BORDER,
+    )
+    style.configure("Treeview.Heading", background=UI_PANEL_2, foreground=UI_TEXT, bordercolor=UI_BORDER, font=("Segoe UI", 9, "bold"))
+    style.map("Treeview", background=[("selected", UI_TREE_SEL)], foreground=[("selected", UI_TEXT)])
+    style.map("Treeview.Heading", background=[("active", UI_ACTIVE)])
+    return style
+
+
+def _dark_toplevel(parent: tk.Misc, title: str, geometry: str | None = None) -> tk.Toplevel:
+    dlg = tk.Toplevel(parent)
+    dlg.title(title)
+    if geometry:
+        dlg.geometry(geometry)
+    _apply_dark_assist_theme(dlg)
+    return dlg
+
 SCAN_START = 0x90000000
 SCAN_END = 0x94000000
 SCAN_BLOCK = 0x40000
@@ -4791,7 +4855,9 @@ class AssistScannerWindow:
         self.root = tk.Toplevel(master)
         self.root.title("Assist Scanner - Shared Character Assist Picker")
         self.root.geometry("1420x700")
+        self.root.minsize(1100, 650)
         self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+        self._style = _apply_dark_assist_theme(self.root)
         self._scanning = False
         self._hit_by_iid: dict[str, dict] = {}
         self._sort_col = None
@@ -4829,14 +4895,17 @@ class AssistScannerWindow:
 
     def _build(self):
         top = ttk.Frame(self.root)
-        top.pack(side="top", fill="x", padx=8, pady=6)
+        top.pack(side="top", fill="x", padx=10, pady=8)
         ttk.Label(
             top,
             text=(
                 "Shows one profile row per loaded fighter using each shared character selector table. "
                 "Double-click a row to choose that fighter's assist. Use Auto Assist Trigger for duplicate characters."
             ),
-        ).pack(side="left")
+            style="Muted.TLabel",
+            wraplength=760,
+            justify="left",
+        ).pack(side="left", fill="x", expand=True)
         self._scan_btn = ttk.Button(top, text="Rescan Loaded", command=self._start)
         self._scan_btn.pack(side="right")
 
@@ -4853,11 +4922,16 @@ class AssistScannerWindow:
         self._prog = tk.DoubleVar()
         ttk.Progressbar(self.root, variable=self._prog, maximum=100).pack(fill="x", padx=8, pady=(0, 4))
         self._status = tk.StringVar(value="Ready")
-        ttk.Label(self.root, textvariable=self._status, anchor="w").pack(fill="x", padx=8)
+        ttk.Label(self.root, textvariable=self._status, anchor="w", style="Muted.TLabel").pack(fill="x", padx=10)
 
         frame = ttk.Frame(self.root)
-        frame.pack(fill="both", expand=True, padx=8, pady=6)
+        frame.pack(fill="both", expand=True, padx=10, pady=8)
         self._tree = ttk.Treeview(frame, columns=COL_IDS, show="headings", height=28)
+        try:
+            self._tree.tag_configure("even", background=UI_FIELD, foreground=UI_TEXT)
+            self._tree.tag_configure("odd", background="#121827", foreground=UI_TEXT)
+        except Exception:
+            pass
         widths = {
             "owner": 230, "slot": 60, "entry": 300,
             "address": 130, "raw": 240, "target": 130, "guess": 420,
@@ -4916,7 +4990,7 @@ class AssistScannerWindow:
                 if col_id == "address":
                     return f"0x{h['addr']:08X}"
                 return str(h.get(col_id, ""))
-            iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS))
+            iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS), tags=("odd" if len(self._hit_by_iid) % 2 else "even",))
             self._hit_by_iid[iid] = h
             if h.get("typ") in (
                 "u32-chun-selector",
@@ -5038,7 +5112,7 @@ class AssistScannerWindow:
                     if col_id == "address":
                         return f"0x{h['addr']:08X}"
                     return str(h.get(col_id, ""))
-                iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS))
+                iid = self._tree.insert("", "end", values=tuple(_val(c) for c in COL_IDS), tags=("odd" if len(self._hit_by_iid) % 2 else "even",))
                 self._hit_by_iid[iid] = h
                 if h.get("typ") in (
                     "u32-chun-selector",
@@ -5096,9 +5170,7 @@ class AssistScannerWindow:
 
     def _choose_ryu_preset_or_manual(self, addr: int, current: str) -> int | None:
         result: dict[str, int | None] = {"value": None}
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Choose Ryu Selector")
-        dlg.geometry("380x260")
+        dlg = _dark_toplevel(self.root, "Choose Ryu Selector", "380x260")
         dlg.transient(self.root)
         dlg.grab_set()
         ttk.Label(
@@ -5687,8 +5759,7 @@ class AssistScannerWindow:
             return None
 
         result: dict[str, object] = {"value": None, "label": ""}
-        dlg = tk.Toplevel(parent)
-        dlg.title("Choose loaded move preset")
+        dlg = _dark_toplevel(parent, "Choose loaded move preset")
         dlg.geometry("760x520")
         dlg.transient(parent)
         dlg.grab_set()
@@ -5826,9 +5897,7 @@ class AssistScannerWindow:
 
     def _choose_chun_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": True}
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Choose Chun selector word")
-        dlg.geometry("430x260")
+        dlg = _dark_toplevel(self.root, "Choose Chun selector word", "430x260")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -6089,9 +6158,7 @@ class AssistScannerWindow:
 
     def _choose_ryu_graft_selector_value(self, addr: int, current: str) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": True}
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Choose Ryu selector word")
-        dlg.geometry("430x260")
+        dlg = _dark_toplevel(self.root, "Choose Ryu selector word", "430x260")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -6266,9 +6333,7 @@ class AssistScannerWindow:
 
     def _choose_generic_selector_value(self, addr: int, current: str, source: str, owner_base_override: int | None = None, chr_tbl_base_override: int | None = None) -> tuple[int, bool] | None:
         result: dict[str, object] = {"value": None, "apply_all": True}
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Choose generic selector word")
-        dlg.geometry("450x280")
+        dlg = _dark_toplevel(self.root, "Choose generic selector word", "450x280")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -6791,9 +6856,7 @@ class AssistScannerWindow:
         current = f"0x{base_word:08X}"
 
         result: dict[str, object] = {"value": None, "apply_all": True, "label": ""}
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Choose assist move entry")
-        dlg.geometry("500x430")
+        dlg = _dark_toplevel(self.root, "Choose assist move entry", "500x430")
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -7556,10 +7619,8 @@ class AssistScannerWindow:
         except Exception as e:
             messagebox.showerror("Address", f"Read failed: {e}", parent=self.root)
             return
-        dlg = tk.Toplevel(self.root)
-        dlg.title(f"Assist bytes @ 0x{addr:08X}")
-        dlg.geometry("840x460")
-        txt = tk.Text(dlg, wrap="none", font=("Consolas", 10), bg="#101214", fg="#E8E8E8")
+        dlg = _dark_toplevel(self.root, f"Assist bytes @ 0x{addr:08X}", "840x460")
+        txt = tk.Text(dlg, wrap="none", font=("Consolas", 10), bg=UI_FIELD, fg=UI_TEXT, insertbackground=UI_TEXT, relief="flat", bd=1)
         txt.pack(fill="both", expand=True, padx=8, pady=8)
         current_line = (line_base - start) // line_size
         for i in range(17):

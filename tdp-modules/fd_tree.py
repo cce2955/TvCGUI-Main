@@ -222,6 +222,8 @@ def configure_styles(root: tk.Toplevel) -> None:
     style.configure("Top.TFrame", background=bg_main, borderwidth=0)
     style.configure("Hero.TFrame", background=bg_panel, borderwidth=1, relief="solid")
     style.configure("Card.TFrame", background=bg_card, borderwidth=1, relief="solid")
+    style.configure("Glass.TFrame", background="#182338", borderwidth=1, relief="solid")
+    style.configure("GlassInner.TFrame", background="#182338", borderwidth=0)
     style.configure("Inspector.TFrame", background=bg_panel, borderwidth=0)
     style.configure("Status.TFrame", background=bg_header, borderwidth=1, relief="solid")
 
@@ -229,6 +231,10 @@ def configure_styles(root: tk.Toplevel) -> None:
     style.configure("HeroTitle.TLabel", background=bg_panel, foreground=txt_main, font=("Segoe UI Semibold", 13))
     style.configure("HeroSub.TLabel", background=bg_panel, foreground=txt_muted, font=("Segoe UI", 9))
     style.configure("Muted.Top.TLabel", background=bg_main, foreground=txt_muted, font=("Segoe UI", 9))
+    style.configure("GlassTitle.TLabel", background="#182338", foreground="#DDEBFF", font=("Segoe UI Semibold", 9))
+    style.configure("GlassHint.TLabel", background="#182338", foreground=txt_muted, font=("Segoe UI", 8))
+    style.configure("Glass.TLabel", background="#182338", foreground=txt_main, font=("Segoe UI", 9))
+    style.configure("GlassMuted.TLabel", background="#182338", foreground=txt_muted, font=("Segoe UI", 8))
     style.configure("Card.TLabel", background=bg_card, foreground=txt_main, font=("Segoe UI", 9))
     style.configure("CardMuted.TLabel", background=bg_card, foreground=txt_muted, font=("Segoe UI", 9))
     style.configure("ValueChip.TLabel", background=bg_entry, foreground=txt_main, borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI", 9))
@@ -283,6 +289,39 @@ def configure_styles(root: tk.Toplevel) -> None:
         foreground=[("active", txt_main)],
     )
     style.configure("Small.TButton", font=("Segoe UI", 8), padding=(6, 2))
+    style.configure(
+        "Glass.TButton",
+        background="#22324C",
+        foreground=txt_main,
+        bordercolor="#3A5070",
+        lightcolor="#4E6B92",
+        darkcolor="#101827",
+        focusthickness=1,
+        focuscolor="#6D95C7",
+        font=("Segoe UI", 8),
+        padding=(8, 4),
+    )
+    style.map(
+        "Glass.TButton",
+        background=[("active", "#2E4669"), ("pressed", "#39567E"), ("disabled", "#172235")],
+        foreground=[("active", txt_main), ("disabled", "#65748A")],
+        bordercolor=[("active", "#6D95C7")],
+    )
+    style.configure(
+        "GlassPrimary.TButton",
+        background="#24466E",
+        foreground="#F0F7FF",
+        bordercolor="#6D95C7",
+        lightcolor="#7FA7D8",
+        darkcolor="#152338",
+        font=("Segoe UI Semibold", 8),
+        padding=(8, 4),
+    )
+    style.map(
+        "GlassPrimary.TButton",
+        background=[("active", "#315D8E"), ("pressed", "#3B6DA5")],
+        foreground=[("active", "#FFFFFF")],
+    )
 
     style.configure(
         "TEntry",
@@ -313,66 +352,107 @@ def build_top_bar(win) -> None:
         hero,
         textvariable=win._writer_var,
         style="HeroSub.TLabel",
+        wraplength=1250,
+        justify="left",
     ).pack(anchor="w", pady=(2, 0))
     if getattr(win, "_projectile_status_var", None) is not None:
         ttk.Label(
             hero,
             textvariable=win._projectile_status_var,
             style="HeroSub.TLabel",
+            wraplength=1250,
+            justify="left",
         ).pack(anchor="w", pady=(2, 0))
     if getattr(win, "_super_status_var", None) is not None:
         ttk.Label(
             hero,
             textvariable=win._super_status_var,
             style="HeroSub.TLabel",
+            wraplength=1250,
+            justify="left",
         ).pack(anchor="w", pady=(2, 0))
 
-    # Keep controls on full-width rows instead of one long right-packed line.
-    # The workbench now has enough actions that a single bar gets clipped on
-    # 1280-1700px windows.  Split into rows so every button remains visible.
+    # Command deck: group actions by purpose instead of one long strip of
+    # identical buttons.  Tk cannot do true acrylic blur, but these glass cards
+    # use a softer card fill, border, and primary/secondary button styling so
+    # the groups read like frosted panels instead of a clipped command line.
     controls = ttk.Frame(top, style="Top.TFrame")
     controls.pack(side="top", fill="x", pady=(8, 0))
+    for col in range(12):
+        controls.columnconfigure(col, weight=1)
 
-    search = ttk.Frame(controls, style="Top.TFrame")
-    search.pack(side="top", fill="x")
-    ttk.Label(search, text="Search", style="Top.TLabel").pack(side="left", padx=(0, 6))
-    ent = ttk.Entry(search, textvariable=win._filter_var, width=30)
-    ent.pack(side="left")
+    def _glass_card(parent, title: str, col: int, row: int, colspan: int = 1):
+        card = ttk.Frame(parent, style="Glass.TFrame", padding=(10, 8))
+        card.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
+        ttk.Label(card, text=title, style="GlassTitle.TLabel").pack(anchor="w")
+        inner = ttk.Frame(card, style="GlassInner.TFrame")
+        inner.pack(fill="x", pady=(6, 0))
+        return inner
+
+    def _button(parent, text: str = "", command=None, *, primary: bool = False, textvariable=None):
+        kwargs = {
+            "style": "GlassPrimary.TButton" if primary else "Glass.TButton",
+            "command": command,
+        }
+        if textvariable is not None:
+            kwargs["textvariable"] = textvariable
+        else:
+            kwargs["text"] = text
+        btn = ttk.Button(parent, **kwargs)
+        btn.pack(side="left", padx=(0, 6), pady=(0, 4))
+        return btn
+
+    # Search / filter group.
+    search = _glass_card(controls, "Search", 0, 0, 4)
+    ttk.Label(search, text="Text", style="GlassMuted.TLabel").pack(side="left", padx=(0, 6), pady=(1, 4))
+    ent = ttk.Entry(search, textvariable=win._filter_var, width=28)
+    ent.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=(0, 4))
     Tooltip(ent, "Search visible move names, kinds, and addresses. Press Enter to apply.")
     ent.bind("<Return>", lambda _e: win._apply_filter())
-    ttk.Button(search, text="Apply", command=win._apply_filter).pack(side="left", padx=(6, 0))
-    ttk.Button(search, text="Clear", command=win._clear_filter).pack(side="left", padx=(6, 12))
-    ttk.Label(search, textvariable=win._changed_count_var, style="Muted.Top.TLabel").pack(side="right", padx=(8, 4))
+    _button(search, "Apply", win._apply_filter, primary=True)
+    _button(search, "Clear", win._clear_filter)
+    ttk.Label(search, textvariable=win._changed_count_var, style="GlassMuted.TLabel").pack(side="right", padx=(8, 0), pady=(1, 4))
 
-    actions = ttk.Frame(controls, style="Top.TFrame")
-    actions.pack(side="top", fill="x", pady=(6, 0))
-    actions2 = ttk.Frame(controls, style="Top.TFrame")
-    actions2.pack(side="top", fill="x", pady=(4, 0))
-    actions3 = ttk.Frame(controls, style="Top.TFrame")
-    actions3.pack(side="top", fill="x", pady=(4, 0))
-
-    win._fd_view_var = tk.StringVar(master=win.root, value="View: Frame")
+    # View group.
+    view = _glass_card(controls, "View", 4, 0, 4)
+    win._fd_view_var = tk.StringVar(master=win.root, value="Frame")
     win._filter_panel_btn_var = tk.StringVar(master=win.root, value="Advanced filters")
+    ttk.Label(view, textvariable=win._fd_view_var, style="GlassMuted.TLabel").pack(side="left", padx=(0, 8), pady=(1, 4))
+    _button(view, "Frame", lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("frame"), primary=True)
+    _button(view, "Projectiles", lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("projectile"))
+    _button(view, "Supers", lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("super"))
+    _button(view, "All", lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("all"))
+    _button(view, command=lambda: getattr(win, "_toggle_advanced_filters", lambda: None)(), textvariable=win._filter_panel_btn_var)
 
-    ttk.Label(actions, textvariable=win._fd_view_var, style="Muted.Top.TLabel").pack(side="left", padx=(0, 4))
-    ttk.Button(actions, text="Frame", command=lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("frame")).pack(side="left", padx=(0, 2))
-    ttk.Button(actions, text="Projectiles", command=lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("projectile")).pack(side="left", padx=2)
-    ttk.Button(actions, text="Supers", command=lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("super")).pack(side="left", padx=2)
-    ttk.Button(actions, text="All", command=lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("all")).pack(side="left", padx=(2, 8))
-    ttk.Button(actions, textvariable=win._filter_panel_btn_var, command=lambda: getattr(win, "_toggle_advanced_filters", lambda: None)()).pack(side="left", padx=4)
-    ttk.Button(actions, text="Expand", command=win._expand_all).pack(side="left", padx=4)
-    ttk.Button(actions, text="Collapse", command=win._collapse_all).pack(side="left", padx=4)
-    ttk.Button(actions, text="Refresh", command=win._refresh_visible).pack(side="left", padx=4)
+    # Table navigation group.
+    table = _glass_card(controls, "Table", 8, 0, 4)
+    _button(table, "Expand", win._expand_all)
+    _button(table, "Collapse", win._collapse_all)
+    _button(table, "Refresh", win._refresh_visible, primary=True)
+    _button(table, "Reset order", lambda: getattr(win, "_reset_to_original_grouping", lambda: None)())
 
-    ttk.Button(actions2, text="Rescan projectiles", command=lambda: getattr(win, "_start_projectile_scan", lambda **_k: None)(auto=False)).pack(side="left", padx=(0, 4))
-    ttk.Button(actions2, text="Rescan specials", command=lambda: getattr(win, "_start_super_scan", lambda **_k: None)(auto=False)).pack(side="left", padx=4)
-    ttk.Button(actions2, text="Dump char", command=lambda: getattr(win, "_dump_character_data", lambda: None)()).pack(side="left", padx=4)
+    # Scan/data mining group.
+    scan = _glass_card(controls, "Scans and dumps", 0, 1, 5)
+    _button(scan, "Rescan projectiles", lambda: getattr(win, "_start_projectile_scan", lambda **_k: None)(auto=False), primary=True)
+    _button(scan, "Rescan specials", lambda: getattr(win, "_start_super_scan", lambda **_k: None)(auto=False), primary=True)
+    _button(scan, "Dump char", lambda: getattr(win, "_dump_character_data", lambda: None)())
+    _button(scan, "Show bones", lambda: getattr(win, "_show_bones", lambda: None)())
 
-    ttk.Button(actions3, text="Save patch", command=lambda: getattr(win, "_save_fd_patch_config", lambda: None)()).pack(side="left", padx=(0, 4))
-    ttk.Button(actions3, text="Load patch", command=lambda: getattr(win, "_load_fd_patch_config", lambda: None)()).pack(side="left", padx=4)
-    ttk.Button(actions3, text="Reset changed", command=win._reset_all_moves).pack(side="left", padx=(10, 4))
-    ttk.Button(actions3, text="Reset Order", command=lambda: getattr(win, "_reset_to_original_grouping", lambda: None)()).pack(side="left", padx=4)
-    ttk.Button(actions3, text="Show Bones", command=lambda: getattr(win, "_show_bones", lambda: None)()).pack(side="left", padx=4)
+    # Patch/session group.
+    patch = _glass_card(controls, "Patch session", 5, 1, 4)
+    _button(patch, "Save patch", lambda: getattr(win, "_save_fd_patch_config", lambda: None)(), primary=True)
+    _button(patch, "Load patch", lambda: getattr(win, "_load_fd_patch_config", lambda: None)())
+    _button(patch, "Reset changed", win._reset_all_moves)
+
+    # Fast help group.
+    hints = _glass_card(controls, "Quick guide", 9, 1, 3)
+    ttk.Label(
+        hints,
+        text="Double-click cells to edit. Projectiles/Supers views move emitter fields left. Use patches to save only changed values.",
+        style="GlassHint.TLabel",
+        wraplength=390,
+        justify="left",
+    ).pack(anchor="w", fill="x")
 
 
 def _build_inspector(win, parent: ttk.Frame) -> None:
