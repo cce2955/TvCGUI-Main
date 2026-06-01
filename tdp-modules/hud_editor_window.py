@@ -115,6 +115,15 @@ VS_WIN_MODE_ENABLES: dict[str, dict[str, int]] = {
     "P2": {"WIN": 0x80BEC61B, "NEWHERO": 0x80BEC3FB},
 }
 
+# The active in-fight HUD uses a separate tiny "S" pane for plural wins:
+#   1 WIN  -> S pane off
+#   2 WINS -> S pane on
+# Zero defaults to NEW HERO unless the user explicitly forces 0 WINS.
+VS_WIN_PLURAL_S_ENABLES: dict[str, int] = {
+    "P1": 0x80BEC0DB,  # vs_1_s
+    "P2": 0x80BECE9B,  # vs_2_s
+}
+
 # Upstream arcade/versus win counters. These are not the HUD, but they are
 # useful for auto-incrementing a persistent visual streak after the game resets
 # one side to NEW HERO. Use max mirror value for stability.
@@ -223,6 +232,13 @@ def _write_u8(addr: int, value: int) -> bool:
         return False
 
 
+def _read_u8(addr: int) -> int | None:
+    if rd8 is None:
+        return None
+    try:
+        return int(rd8(int(addr)))
+    except Exception:
+        return None
 
 
 def _read_u32(addr: int) -> int | None:
@@ -248,7 +264,7 @@ def read_raw_win_count(player: str) -> int | None:
     return max(vals)
 
 
-def _set_vs_win_mode(player: str, *, show_win: bool) -> None:
+def _set_vs_win_mode(player: str, *, show_win: bool, show_plural_s: bool = False) -> None:
     player = str(player or "P1").upper()
     addrs = VS_WIN_MODE_ENABLES.get(player)
     if not addrs:
@@ -257,6 +273,14 @@ def _set_vs_win_mode(player: str, *, show_win: bool) -> None:
     # The child digit panes can be enabled and still remain hidden under NewHero.
     _write_u8(addrs["WIN"], 1 if show_win else 0)
     _write_u8(addrs["NEWHERO"], 0 if show_win else 1)
+
+    # Singular/plural text is independent of the numeric digits.  The base pane
+    # is WIN; this tiny child pane supplies the trailing S for WINS.
+    s_addr = VS_WIN_PLURAL_S_ENABLES.get(player)
+    if s_addr is not None:
+        _write_u8(s_addr, 1 if (show_win and show_plural_s) else 0)
+
+
 def _write_pair(addr_a: int, addr_b: int, digit: int, table: dict[int, tuple[int, int]] = SCORE_DIGIT_TEXTURES) -> bool:
     if wd32 is None:
         return False
@@ -279,20 +303,31 @@ def _read_digit_pair(addr_a: int, addr_b: int, texture_to_digit: dict[tuple[int,
     return texture_to_digit.get(pair)
 
 
-def _set_win_pane_enables(player: str, bank_name: str, value: int) -> None:
-    if str(bank_name or "").upper() == "VS":
-        # Force the side out of NEW HERO mode and into the win display group.
-        _set_vs_win_mode(player, show_win=True)
+def _set_win_pane_enables(player: str, bank_name: str, value: int, *, force_zero_as_win: bool = False) -> None:
+    bank_key = str(bank_name or "").upper()
+    value_i = _clamp_int(value, 0, 999)
+
+    if bank_key == "VS":
+        if value_i == 0 and not force_zero_as_win:
+            # Normal game behavior: zero wins means NEW HERO, not 0 WIN(S).
+            _set_vs_win_mode(player, show_win=False, show_plural_s=False)
+        else:
+            # 1 WIN, 2+ WINS, and optional 0 WINS.
+            _set_vs_win_mode(player, show_win=True, show_plural_s=(value_i != 1))
 
     flags = WIN_PANE_ENABLES.get(player, {}).get(bank_name)
     if not flags:
         return
-    desired = (1, 1 if value >= 10 else 0, 1 if value >= 100 else 0)
+
+    if bank_key == "VS" and value_i == 0 and not force_zero_as_win:
+        desired = (0, 0, 0)
+    else:
+        desired = (1, 1 if value_i >= 10 else 0, 1 if value_i >= 100 else 0)
     for addr, enabled in zip(flags, desired):
         _write_u8(addr, enabled)
 
 
-def apply_win_count(player: str, value: Any, *, use_vs: bool = True, use_hud: bool = True, use_svm: bool = False) -> bool:
+def apply_win_count(player: str, value: Any, *, use_vs: bool = True, use_hud: bool = True, use_svm: bool = False, force_zero_as_win: bool = False) -> bool:
     player = str(player or "P1").upper()
     if player not in WIN_DIGIT_BANKS:
         player = "P1"
@@ -301,7 +336,7 @@ def apply_win_count(player: str, value: Any, *, use_vs: bool = True, use_hud: bo
     digits = _count_digits(value_i)
     ok_any = False
     for bank_name in _selected_banks(use_vs, use_hud, use_svm):
-        _set_win_pane_enables(player, bank_name, value_i)
+        _set_win_pane_enables(player, bank_name, value_i, force_zero_as_win=force_zero_as_win)
         for idx, (addr_a, addr_b) in enumerate(WIN_DIGIT_BANKS[player].get(bank_name, ())) :
             if _write_pair(addr_a, addr_b, digits[idx], SCORE_DIGIT_TEXTURES):
                 ok_any = True
@@ -323,6 +358,28 @@ def read_win_count(player: str, *, bank_name: str = "VS") -> int | None:
         digits.append(int(digit))
 
     return digits[0] + digits[1] * 10 + digits[2] * 100
+
+
+def read_visible_vs_win_count(player: str) -> int | None:
+    """Return what the in-fight VS HUD is actually meant to be showing.
+
+    If the side is in NEW HERO mode, the digit panes may still contain stale
+    values from an earlier write, so treat the visible count as zero.  This is
+    the value used to prefill the HUD Editor on open so merely opening the menu
+    does not reset a user's current progress to 0.
+    """
+    player = str(player or "P1").upper()
+    mode = VS_WIN_MODE_ENABLES.get(player)
+    if mode:
+        win_enabled = _read_u8(mode.get("WIN", 0))
+        newhero_enabled = _read_u8(mode.get("NEWHERO", 0))
+        if newhero_enabled == 1 and win_enabled != 1:
+            return 0
+
+    value = read_win_count(player, bank_name="VS")
+    if value is not None:
+        return value
+    return read_raw_win_count(player)
 
 
 def apply_score_display(player: str, score_text: Any) -> bool:
@@ -421,20 +478,24 @@ def _label(
 
 
 def _button(parent: tk.Misc, text: str, command: Callable[[], None] | None = None, *, width: int | None = None) -> tk.Button:
+    # Use a visibly different fill from the cards themselves.  Flat buttons on
+    # Windows blended into the dark panel and read like plain text, especially
+    # in the Hold Visible Wins action grid.
     return tk.Button(
         parent,
         text=text,
         command=command,
         width=width or 0,
-        bg=_PANEL_2,
+        bg=_ACTIVE,
         fg=_TEXT,
-        activebackground=_ACTIVE,
+        activebackground="#35466c",
         activeforeground=_TEXT,
-        relief="flat",
-        bd=0,
-        padx=9,
-        pady=4,
+        relief="raised",
+        bd=1,
+        padx=10,
+        pady=5,
         font=("Segoe UI", 9),
+        cursor="hand2",
         highlightthickness=1,
         highlightbackground=_BORDER,
         highlightcolor=_ACCENT,
@@ -549,7 +610,8 @@ def open_hud_editor_window() -> None:
         p2_streak_enabled_var = tk.BooleanVar(value=False)
         p1_streak_auto_var = tk.BooleanVar(value=True)
         p2_streak_auto_var = tk.BooleanVar(value=True)
-        status_var = tk.StringVar(value="Ready. Use Hold Visible Wins to keep a side's wins on-screen through NEW HERO resets.")
+        zero_wins_as_text_var = tk.BooleanVar(value=False)
+        status_var = tk.StringVar(value="Ready. Zero wins defaults to NEW HERO; enable 0 WINS only when you want the zero displayed as text.")
         readout_var = tk.StringVar(value="Current: --")
 
         last_applied = {
@@ -576,7 +638,7 @@ def open_hud_editor_window() -> None:
 
         desc = _label(
             root_frame,
-            "Edits live HUD texture selectors. Hold Visible Wins preserves a side's displayed wins through NEW HERO resets; Win Count is for direct manual HUD edits.",
+            "Edits live HUD texture selectors. Zero wins normally shows NEW HERO; Hold Visible Wins preserves a side's displayed wins through NEW HERO resets.",
             muted=True,
             wraplength=980,
         )
@@ -589,10 +651,11 @@ def open_hud_editor_window() -> None:
         _check(opts, "Write SVM wins too", svm_var).pack(side="left", padx=(18, 0))
         _check(opts, "Raw score too", score_raw_var).pack(side="left", padx=(26, 0))
         _check(opts, "Raw timer too", timer_raw_var).pack(side="left", padx=(18, 0))
+        _check(opts, "Show 0 WINS instead of NEW HERO", zero_wins_as_text_var).pack(side="left", padx=(26, 0))
 
         def update_readout() -> None:
-            p1_vs = read_win_count("P1", bank_name="VS")
-            p2_vs = read_win_count("P2", bank_name="VS")
+            p1_vs = read_visible_vs_win_count("P1")
+            p2_vs = read_visible_vs_win_count("P2")
             p1_hud = read_win_count("P1", bank_name="HUD")
             p2_hud = read_win_count("P2", bank_name="HUD")
             p1_score = read_score_display("P1")
@@ -609,9 +672,55 @@ def open_hud_editor_window() -> None:
                 f"Stage {stage if stage is not None else '--'}    Timer {timer if timer is not None else '--'}"
             )
 
+        def sample_current_hud_values() -> None:
+            """Prefill controls from the current HUD without writing anything.
+
+            This prevents the window from defaulting to 0 and accidentally
+            overwriting current progress when the user hits Apply/Hold.
+            """
+            sampled: dict[str, int] = {}
+            for player in ("P1", "P2"):
+                current = read_visible_vs_win_count(player)
+                if current is None:
+                    current = read_raw_win_count(player)
+                if current is None:
+                    current = 0
+                value_i = _clamp_int(current, 0, 999)
+                sampled[player] = value_i
+
+            p1_win_var.set(str(sampled["P1"]))
+            p2_win_var.set(str(sampled["P2"]))
+            p1_streak_var.set(str(sampled["P1"]))
+            p2_streak_var.set(str(sampled["P2"]))
+            last_applied["P1_WIN"] = sampled["P1"]
+            last_applied["P2_WIN"] = sampled["P2"]
+
+            p1_score = read_score_display("P1")
+            p2_score = read_score_display("P2")
+            stage = read_stage_display()
+            timer = read_timer_display()
+            if p1_score is not None:
+                p1_score_var.set(str(p1_score))
+                last_applied["P1_SCORE"] = str(p1_score)
+            if p2_score is not None:
+                p2_score_var.set(str(p2_score))
+                last_applied["P2_SCORE"] = str(p2_score)
+            if stage is not None:
+                stage_var.set(str(stage))
+                last_applied["STAGE"] = int(stage)
+            if timer is not None:
+                timer_var.set(str(timer))
+                last_applied["TIMER"] = int(timer)
+
+            status_var.set(
+                f"Sampled current HUD on open: P1 {sampled['P1']} wins, P2 {sampled['P2']} wins. No values were written."
+            )
+
+        sample_current_hud_values()
+
         def write_win(player: str, value: Any, *, announce: bool = True) -> None:
             value_i = _clamp_int(value, 0, 999)
-            ok = apply_win_count(player, value_i, use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+            ok = apply_win_count(player, value_i, use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
             last_applied[f"{player}_WIN"] = value_i
             freeze_kinds.add(f"{player}_WIN")
             if announce:
@@ -677,7 +786,7 @@ def open_hud_editor_window() -> None:
             freeze_kinds.add(f"{player}_WIN")
             enabled_var.set(True)
             streak_last_raw[player] = read_raw_win_count(player)
-            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
             status_var.set(f"{player} visible wins held at {value_i}. It will ignore NEW HERO resets and add future raw {player} increments.")
             update_readout()
 
@@ -689,7 +798,7 @@ def open_hud_editor_window() -> None:
             var.set(str(value_i))
             last_applied[f"{player}_WIN"] = value_i
             freeze_kinds.add(f"{player}_WIN")
-            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
             status_var.set(f"{player} held wins adjusted to {value_i}.")
             update_readout()
 
@@ -700,6 +809,24 @@ def open_hud_editor_window() -> None:
             status_var.set(f"{player} visible win hold released. The game can show NEW HERO normally again after the next HUD refresh.")
             update_readout()
 
+        def clear_visible_wins(player: str) -> None:
+            player = str(player or "P1").upper()
+            var, enabled_var, _auto_var = _streak_controls_for(player)
+            var.set("0")
+            enabled_var.set(False)
+            if player == "P1":
+                p1_win_var.set("0")
+            else:
+                p2_win_var.set("0")
+            last_applied[f"{player}_WIN"] = 0
+            freeze_kinds.discard(f"{player}_WIN")
+            apply_win_count(player, 0, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
+            if bool(zero_wins_as_text_var.get()):
+                status_var.set(f"{player} cleared to visible 0 WINS.")
+            else:
+                status_var.set(f"{player} cleared to NEW HERO/default zero state.")
+            update_readout()
+
         def apply_stored_streak(player: str) -> None:
             player = str(player or "P1").upper()
             var, _enabled_var, _auto_var = _streak_controls_for(player)
@@ -707,7 +834,7 @@ def open_hud_editor_window() -> None:
             var.set(str(value_i))
             last_applied[f"{player}_WIN"] = value_i
             freeze_kinds.add(f"{player}_WIN")
-            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+            apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
             status_var.set(f"Held {player} wins {value_i} written.")
             update_readout()
 
@@ -735,15 +862,16 @@ def open_hud_editor_window() -> None:
 
                 last_applied[f"{player}_WIN"] = stored
                 freeze_kinds.add(f"{player}_WIN")
-                apply_win_count(player, stored, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+                apply_win_count(player, stored, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
 
         def make_win_card(parent: tk.Misc, player: str, var: tk.StringVar) -> tk.Frame:
             card = _card(parent)
             inner = card.inner  # type: ignore[attr-defined]
             _label(inner, f"{player} WINS", bold=True, size=11).grid(row=0, column=0, sticky="w", columnspan=8)
-            _label(inner, "0-999. Tens/hundreds panes are enabled when needed.", muted=True).grid(row=1, column=0, sticky="w", columnspan=8, pady=(2, 8))
+            _label(inner, "0-999. 0 normally shows NEW HERO; 1 shows WIN; 2+ shows WINS.", muted=True).grid(row=1, column=0, sticky="w", columnspan=8, pady=(2, 8))
             _field(inner, var, width=7, max_value=999).grid(row=2, column=0, sticky="w")
             _button(inner, "Apply", lambda: write_win(player, var.get()), width=8).grid(row=2, column=1, padx=(8, 0), sticky="w")
+            _button(inner, "Clear", lambda: clear_visible_wins(player), width=7).grid(row=2, column=2, padx=(8, 0), sticky="w")
             presets = (0, 1, 2, 3, 5, 10, 21, 99)
             for idx, preset in enumerate(presets):
                 def _cmd(v=preset) -> None:
@@ -760,7 +888,7 @@ def open_hud_editor_window() -> None:
         _label(streak_inner, "HOLD VISIBLE WINS", bold=True, size=11).grid(row=0, column=0, sticky="w", columnspan=2)
         _label(
             streak_inner,
-            "Use this before the game resets a side to NEW HERO. Capture the current displayed wins, hold that value on-screen, force WIN instead of NEW HERO, then optionally add later real wins while ignoring resets.",
+            "Capture a side's current visible wins and keep that value through NEW HERO resets. 0 defaults to NEW HERO. Enable the 0 WINS option above only when you want zero shown as text. 1 shows WIN; 2+ shows WINS.",
             muted=True,
             wraplength=980,
         ).grid(row=1, column=0, sticky="ew", columnspan=2, pady=(2, 10))
@@ -769,25 +897,47 @@ def open_hud_editor_window() -> None:
             side_outer = tk.Frame(parent, bg=_BORDER, padx=1, pady=1)
             side = tk.Frame(side_outer, bg=_PANEL_2, padx=10, pady=8)
             side.pack(fill="both", expand=True)
-            side.grid_columnconfigure(0, weight=0)
-            side.grid_columnconfigure(1, weight=1)
-            side.grid_columnconfigure(2, weight=0)
+            for grid_col in range(4):
+                side.grid_columnconfigure(grid_col, weight=1, uniform="hold_actions")
             side_outer.grid(row=2, column=col, sticky="ew", padx=(0, 6) if col == 0 else (6, 0))
 
-            _label(side, f"{player} visible wins", bold=True, size=10).grid(row=0, column=0, sticky="w", columnspan=4)
-            _check(side, f"Hold {player}", enabled_var).grid(row=1, column=0, sticky="w", pady=(6, 0))
-            _check(side, "Auto add real wins", auto_var).grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
-            _label(side, "Held", muted=True).grid(row=1, column=2, sticky="e", padx=(8, 4), pady=(6, 0))
-            _field(side, var, width=6, max_value=999).grid(row=1, column=3, sticky="w", pady=(6, 0))
+            _label(side, f"{player} held wins", bold=True, size=10).grid(row=0, column=0, sticky="w", columnspan=2)
 
-            btns = tk.Frame(side, bg=_PANEL_2)
-            btns.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(8, 0))
-            _button(btns, "Capture", lambda p=player: capture_streak_from_vs(p), width=8).pack(side="left")
-            _button(btns, "Hold", lambda p=player: enable_streak(p), width=7).pack(side="left", padx=(6, 0))
-            _button(btns, "Release", lambda p=player: disable_streak(p), width=8).pack(side="left", padx=(6, 0))
-            _button(btns, "-1", lambda p=player: bump_streak(p, -1), width=4).pack(side="left", padx=(10, 0))
-            _button(btns, "+1", lambda p=player: bump_streak(p, 1), width=4).pack(side="left", padx=(5, 0))
-            _button(btns, "Apply held", lambda p=player: apply_stored_streak(p), width=10).pack(side="left", padx=(8, 0))
+            held_box = tk.Frame(side, bg=_PANEL_2)
+            held_box.grid(row=0, column=2, columnspan=2, sticky="e")
+            _label(held_box, "Held", muted=True).pack(side="left", padx=(0, 5))
+            _field(held_box, var, width=6, max_value=999).pack(side="left")
+
+            options = tk.Frame(side, bg=_PANEL_2)
+            options.grid(row=1, column=0, columnspan=4, sticky="ew", pady=(6, 0))
+            _check(options, "Hold this side", enabled_var).pack(side="left")
+            _check(options, "Auto add real wins", auto_var).pack(side="left", padx=(14, 0))
+
+            # Keep the action buttons in a contained 4-column grid.  The old
+            # single packed row overflowed badly on 1080px-wide windows.
+            actions = tk.Frame(side, bg=_PANEL_2)
+            actions.grid(row=2, column=0, columnspan=4, sticky="ew", pady=(8, 0))
+            for grid_col in range(4):
+                actions.grid_columnconfigure(grid_col, weight=1, uniform="hold_btns")
+
+            action_specs = (
+                ("Capture", lambda p=player: capture_streak_from_vs(p), 0, 0, 1),
+                ("Hold", lambda p=player: enable_streak(p), 0, 1, 1),
+                ("Release", lambda p=player: disable_streak(p), 0, 2, 1),
+                ("Clear", lambda p=player: clear_visible_wins(p), 0, 3, 1),
+                ("-1", lambda p=player: bump_streak(p, -1), 1, 0, 1),
+                ("+1", lambda p=player: bump_streak(p, 1), 1, 1, 1),
+                ("Apply held", lambda p=player: apply_stored_streak(p), 1, 2, 2),
+            )
+            for text, cmd, row, grid_col, span in action_specs:
+                _button(actions, text, cmd).grid(
+                    row=row,
+                    column=grid_col,
+                    columnspan=span,
+                    sticky="ew",
+                    padx=(0 if grid_col == 0 else 5, 0),
+                    pady=(0 if row == 0 else 6, 0),
+                )
 
         make_hold_card(streak_inner, 0, "P1", p1_streak_var, p1_streak_enabled_var, p1_streak_auto_var)
         make_hold_card(streak_inner, 1, "P2", p2_streak_var, p2_streak_enabled_var, p2_streak_auto_var)
@@ -864,9 +1014,9 @@ def open_hud_editor_window() -> None:
                     streak_tick_once()
                 if freeze_var.get():
                     if "P1_WIN" in freeze_kinds and not bool(p1_streak_enabled_var.get()):
-                        apply_win_count("P1", last_applied.get("P1_WIN", _clamp_int(p1_win_var.get(), 0, 999)), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+                        apply_win_count("P1", last_applied.get("P1_WIN", _clamp_int(p1_win_var.get(), 0, 999)), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
                     if "P2_WIN" in freeze_kinds and not bool(p2_streak_enabled_var.get()):
-                        apply_win_count("P2", last_applied.get("P2_WIN", _clamp_int(p2_win_var.get(), 0, 999)), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+                        apply_win_count("P2", last_applied.get("P2_WIN", _clamp_int(p2_win_var.get(), 0, 999)), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
                     if "P1_SCORE" in freeze_kinds:
                         apply_score_display("P1", last_applied.get("P1_SCORE", p1_score_var.get()))
                     if "P2_SCORE" in freeze_kinds:
