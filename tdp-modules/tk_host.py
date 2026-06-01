@@ -16,6 +16,7 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+import traceback
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -63,6 +64,10 @@ def _tk_thread_main() -> None:
                 task.out = task.fn(root)
             except BaseException as e:
                 task.err = e
+                try:
+                    traceback.print_exception(type(e), e, e.__traceback__)
+                except Exception:
+                    pass
             finally:
                 if task.done is not None:
                     task.done.set()

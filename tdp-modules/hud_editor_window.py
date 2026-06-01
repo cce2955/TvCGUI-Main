@@ -535,6 +535,40 @@ def clear_hud_editor_hold(player: str, *, apply_zero: bool = True) -> None:
         )
 
 
+
+def reset_hud_editor_runtime_state(*, apply_zero: bool = False) -> dict[str, Any]:
+    """Release HUD Editor persistent runtime state for the Overseer panel.
+
+    Safe restore releases holds without forcing a visible zero. Hard reset may
+    optionally apply zero/default if a caller asks for it.
+    """
+    before = {
+        "P1": dict(_runtime_hold("P1")),
+        "P2": dict(_runtime_hold("P2")),
+    }
+    for player in ("P1", "P2"):
+        hold = _runtime_hold(player)
+        hold["enabled"] = False
+        hold["auto"] = True
+        hold["value"] = 0
+        hold["last_raw"] = read_raw_win_count(player)
+        if apply_zero:
+            try:
+                apply_win_count(
+                    player,
+                    0,
+                    use_vs=True,
+                    use_hud=bool(_HUD_EDITOR_RUNTIME_STATE.get("use_hud", True)),
+                    use_svm=bool(_HUD_EDITOR_RUNTIME_STATE.get("use_svm", False)),
+                    force_zero_as_win=bool(_HUD_EDITOR_RUNTIME_STATE.get("force_zero_as_win", False)),
+                )
+            except Exception:
+                pass
+    _HUD_EDITOR_RUNTIME_STATE["last_tick_time"] = 0.0
+    _HUD_EDITOR_RUNTIME_STATE["last_force_time"] = 0.0
+    _HUD_EDITOR_RUNTIME_STATE["status"] = "HUD Editor runtime state reset by Overseer."
+    return {"before": before, "after": {"P1": dict(_runtime_hold("P1")), "P2": dict(_runtime_hold("P2"))}}
+
 def tick_hud_editor_state(*, now: float | None = None, force: bool = False) -> None:
     """Keep active HUD Editor holds alive even when the window is closed.
 

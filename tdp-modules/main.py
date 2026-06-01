@@ -138,11 +138,18 @@ except Exception as e:
     open_megacrash_trainer_window = None
     print(f"WARNING: megacrash trainer window not available ({e!r})")
 try:
-    from hud_editor_window import open_hud_editor_window, tick_hud_editor_state
+    from hud_editor_window import open_hud_editor_window, tick_hud_editor_state, get_hud_editor_runtime_state, reset_hud_editor_runtime_state
 except Exception as e:
     open_hud_editor_window = None
     tick_hud_editor_state = None
+    get_hud_editor_runtime_state = None
+    reset_hud_editor_runtime_state = None
     print(f"WARNING: HUD editor window not available ({e!r})")
+try:
+    from overseer_window import open_overseer_window
+except Exception as e:
+    open_overseer_window = None
+    print(f"WARNING: Tool State window not available ({e!r})")
 try:
     import fd_patch_runtime
 except Exception as e:
@@ -154,6 +161,9 @@ try:
         tick_assist_profiles_from_main,
         get_quick_assists_for_slot,
         apply_quick_assist_from_main,
+        get_assist_runtime_debug_state,
+        restore_assist_runtime_defaults_from_main,
+        clear_assist_runtime_state,
     )
 except Exception:
     from assist_scanner_window import open_assist_scanner_window
@@ -168,6 +178,12 @@ except Exception:
         ]
     def apply_quick_assist_from_main(_slot_label, _quick_index, _snap=None, quiet=False):
         return False
+    def get_assist_runtime_debug_state(_snaps=None):
+        return {}
+    def restore_assist_runtime_defaults_from_main(_snaps=None):
+        return {"restored": [], "failed": []}
+    def clear_assist_runtime_state(clear_route_cache=False):
+        return None
 
 from mission_manager import MissionManager
 from hud_overlay_manager import HudOverlayManager
@@ -211,7 +227,7 @@ MEGACRASH_SUPPORT_STATE_IDS = {420, 424, 425, 426, 427, 428, 430, 431, 432, 433,
 
 HB_BTN_X, HB_BTN_Y = 8, 8
 HB_BTN_W, HB_BTN_H = 130, 22
-TOP_UI_RESERVED = 60
+TOP_UI_RESERVED = 66
 QUICK_ASSIST_PERSIST_EVERY_FRAMES = 60
 
 
@@ -250,6 +266,7 @@ PERF_LOG_ENABLED = os.environ.get("TVC_PERF_LOG", "1").strip().lower() not in {"
 PERF_FRAME_WARN_MS = float(os.environ.get("TVC_PERF_FRAME_WARN_MS", "45"))
 PERF_SECTION_WARN_MS = float(os.environ.get("TVC_PERF_SECTION_WARN_MS", "12"))
 _PERF_LAST_LOG_TS: dict[str, float] = {}
+_PERF_LAST_ELAPSED_MS: dict[str, float] = {}
 
 # Automatic frame-data refreshes now use a cache-only worker and are debounced.
 # Manual scans / opening the frame-data window can still run the full dynamic
@@ -259,12 +276,20 @@ FD_AUTOSCAN_ENABLED = os.environ.get("TVC_FD_AUTOSCAN", "1").strip().lower() not
 FD_AUTOSCAN_DEBOUNCE_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_DEBOUNCE_SEC", "1.0") or "1.0")
 FD_AUTOSCAN_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_MIN_INTERVAL_SEC", "3.0") or "3.0")
 
+# Cache-only auto refresh keeps gameplay smooth, but a never-seen character needs
+# one full dynamic profile build or it will sit forever as an empty normals card.
+# This only fires for cache misses, is debounced, and can be disabled.
+FD_BUILD_MISSING_PROFILES = os.environ.get("TVC_FD_BUILD_MISSING_PROFILES", "1").strip().lower() not in {"0", "false", "off", "no"}
+FD_MISSING_PROFILE_BUILD_DELAY_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_DELAY_SEC", "2.0") or "2.0")
+FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC", "20.0") or "20.0")
+
 
 def _perf_warn(label: str, start_perf: float, *, threshold_ms: float | None = None, min_interval: float = 1.0) -> None:
     if not PERF_LOG_ENABLED:
         return
     try:
         elapsed_ms = (time.perf_counter() - float(start_perf)) * 1000.0
+        _PERF_LAST_ELAPSED_MS[str(label)] = round(float(elapsed_ms), 1)
     except Exception:
         return
     limit = PERF_SECTION_WARN_MS if threshold_ms is None else float(threshold_ms)
@@ -1570,7 +1595,15 @@ def draw_top_command_dock(
     mem_dump_label: str = "",
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
-) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
+) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
+    """Draw the compact two-row main command dock.
+
+    The old dock placed every command in one long row and kept a permanent tip
+    string on the right.  This version keeps frequently-toggled state controls
+    on the first row, tools on the second row, and replaces the permanent tip
+    string with a hover-sensitive help box.  Runtime behavior and returned rects
+    stay the same.
+    """
     mx, my = mouse_pos
     w, _h = screen.get_size()
 
@@ -1584,25 +1617,13 @@ def draw_top_command_dock(
     )
     pygame.draw.line(screen, (58, 64, 82), (0, dock_rect.bottom - 1), (w, dock_rect.bottom - 1))
 
-    # Quiet status text plus a tiny heartbeat indicator.
-    status_text = "Frame Data includes projectiles | Megacrash opens trainer settings | Right click panels/debug rows to copy"
-    status_surf = _fit_text(smallfont, status_text, GUI_TEXT_DIM, max(80, w - 920))
-    status_x = w - status_surf.get_width() - 10
-    pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 4.0)
-    dot_col = _brighten(GUI_APP_ACCENT, int(40 * pulse))
-    dot_alpha = int(120 + 80 * pulse)
-    dot = pygame.Surface((8, 8), pygame.SRCALPHA)
-    pygame.draw.circle(dot, (*dot_col, dot_alpha), (4, 4), 3)
-    pygame.draw.circle(dot, (*dot_col, 50), (4, 4), 4, 1)
-    screen.blit(dot, (status_x - 14, 13))
-    screen.blit(status_surf, (status_x, 11))
-
-    x = 8
-    y = 8
-    btn_h = 23
     gap = 8
+    y_top = 7
+    y_tools = 35
+    btn_h = 22
+    x = 8
 
-    hb_btn_rect = pygame.Rect(x, y, 142, btn_h)
+    hb_btn_rect = pygame.Rect(x, y_top, 142, btn_h)
     hb_on = any(hitbox_slots.values())
     draw_glass_button(
         screen,
@@ -1615,94 +1636,16 @@ def draw_top_command_dock(
         align="center",
     )
 
-    # Projectile editing now lives inside each slot's Frame Data Workbench, so
-    # keep a dummy rect for the old return shape but do not draw a separate
-    # projectile button in the main command dock.
+    # Projectile editing lives inside each slot's Frame Data Workbench.  Keep a
+    # dummy rect for older click handling and return tuple compatibility.
     ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
 
-    # Keep Overlay directly beside Hitboxes. Mission Mode depends on the master
-    # overlay process, so this placement makes that dependency easier to see.
-    x = hb_btn_rect.right + gap
-    hud_btn_rect = pygame.Rect(x, y, 142, btn_h)
-    draw_glass_button(
-        screen,
-        hud_btn_rect,
-        "Overlay: ON" if overlay_enabled else "Overlay: OFF",
-        smallfont,
-        active=overlay_enabled,
-        hover=hud_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        align="center",
-    )
-
-    x = hud_btn_rect.right + gap
-    as_btn_rect = pygame.Rect(x, y, 132, btn_h)
-    draw_glass_button(
-        screen,
-        as_btn_rect,
-        "Assist Scanner",
-        smallfont,
-        active=False,
-        hover=as_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        align="center",
-    )
-
-    x = as_btn_rect.right + gap
-    megacrash_btn_rect = pygame.Rect(x, y, 144, btn_h)
-    mega_label = f"Megacrash: {'ON' if megacrash_trainer_enabled else 'OFF'}"
-    draw_glass_button(
-        screen,
-        megacrash_btn_rect,
-        mega_label,
-        smallfont,
-        active=bool(megacrash_trainer_enabled),
-        hover=megacrash_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(44, 56, 82) if megacrash_trainer_enabled else (31, 33, 42),
-        align="center",
-    )
-
-    x = megacrash_btn_rect.right + gap
-    memdump_btn_rect = pygame.Rect(x, y, 110, btn_h)
-    dump_label = mem_dump_label if mem_dump_active and mem_dump_label else "Dump MEM"
-    draw_glass_button(
-        screen,
-        memdump_btn_rect,
-        dump_label,
-        smallfont,
-        active=bool(mem_dump_active),
-        hover=memdump_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(44, 56, 82) if mem_dump_active else (31, 33, 42),
-        align="center",
-    )
-
-    x = memdump_btn_rect.right + gap
-    win_counter_btn_rect = pygame.Rect(x, y, 118, btn_h)
-    draw_glass_button(
-        screen,
-        win_counter_btn_rect,
-        "HUD Editor",
-        smallfont,
-        active=False,
-        hover=win_counter_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(31, 33, 42),
-        align="center",
-    )
-
-    chip_y = y + btn_h + 6
-    label_surf = smallfont.render("Hitbox Slots:", True, GUI_TEXT_MUTED)
-    screen.blit(label_surf, (8, chip_y + 3))
-
-    chip_x = 8 + label_surf.get_width() + 10
-    chip_w = 60
+    chip_y = y_top + 2
+    chip_x = hb_btn_rect.right + 10
+    chip_w = 58
     chip_h = 18
-    chip_gap = 7
-
+    chip_gap = 6
     slot_colors = dict(GUI_SLOT_MUTED)
-
     hb_filter_rects = {}
 
     for slot_name in ("P1", "P2", "P3", "P4"):
@@ -1719,7 +1662,132 @@ def draw_top_command_dock(
         hb_filter_rects[slot_name] = chip_rect.inflate(4, 4)
         chip_x += chip_w + chip_gap
 
-    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, hb_filter_rects
+    x = chip_x + 4
+    hud_btn_rect = pygame.Rect(x, y_top, 142, btn_h)
+    draw_glass_button(
+        screen,
+        hud_btn_rect,
+        "Overlay: ON" if overlay_enabled else "Overlay: OFF",
+        smallfont,
+        active=overlay_enabled,
+        hover=hud_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        align="center",
+    )
+
+    x = hud_btn_rect.right + gap
+    megacrash_btn_rect = pygame.Rect(x, y_top, 144, btn_h)
+    mega_label = f"Megacrash: {'ON' if megacrash_trainer_enabled else 'OFF'}"
+    draw_glass_button(
+        screen,
+        megacrash_btn_rect,
+        mega_label,
+        smallfont,
+        active=bool(megacrash_trainer_enabled),
+        hover=megacrash_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(44, 56, 82) if megacrash_trainer_enabled else (31, 33, 42),
+        align="center",
+    )
+
+    # Second row: less-dangerous/open-window tools.  Dump MEM lives here now so
+    # the persistent/toggle-style controls above have room to breathe.
+    x = 8
+    as_btn_rect = pygame.Rect(x, y_tools, 132, btn_h)
+    draw_glass_button(
+        screen,
+        as_btn_rect,
+        "Assist Scanner",
+        smallfont,
+        active=False,
+        hover=as_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        align="center",
+    )
+
+    x = as_btn_rect.right + gap
+    win_counter_btn_rect = pygame.Rect(x, y_tools, 118, btn_h)
+    draw_glass_button(
+        screen,
+        win_counter_btn_rect,
+        "HUD Editor",
+        smallfont,
+        active=False,
+        hover=win_counter_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(31, 33, 42),
+        align="center",
+    )
+
+    x = win_counter_btn_rect.right + gap
+    overseer_btn_rect = pygame.Rect(x, y_tools, 108, btn_h)
+    draw_glass_button(
+        screen,
+        overseer_btn_rect,
+        "Tool State",
+        smallfont,
+        active=False,
+        hover=overseer_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(31, 33, 42),
+        align="center",
+    )
+
+    x = overseer_btn_rect.right + gap
+    memdump_btn_rect = pygame.Rect(x, y_tools, 110, btn_h)
+    dump_label = mem_dump_label if mem_dump_active and mem_dump_label else "Dump MEM"
+    draw_glass_button(
+        screen,
+        memdump_btn_rect,
+        dump_label,
+        smallfont,
+        active=bool(mem_dump_active),
+        hover=memdump_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(44, 56, 82) if mem_dump_active else (31, 33, 42),
+        align="center",
+    )
+
+    help_tip = "Hover a command for help. Right click panels/debug rows to copy."
+    help_accent = GUI_APP_ACCENT
+    if hb_btn_rect.collidepoint(mx, my):
+        help_tip = "Hitboxes: master toggle for drawing hitboxes in the HUD."
+    elif any(rect.collidepoint(mx, my) for rect in hb_filter_rects.values()):
+        help_tip = "P1-P4 chips: show or hide hitboxes for that specific slot."
+    elif hud_btn_rect.collidepoint(mx, my):
+        help_tip = "Overlay: starts or stops the master overlay process."
+    elif megacrash_btn_rect.collidepoint(mx, my):
+        help_tip = "Megacrash: opens trainer settings. It starts OFF and 0 percent by default."
+    elif as_btn_rect.collidepoint(mx, my):
+        help_tip = "Assist Scanner: inspect routes and choose quick assists."
+    elif win_counter_btn_rect.collidepoint(mx, my):
+        help_tip = "HUD Editor: score, timer, stage, and visible win controls."
+    elif overseer_btn_rect.collidepoint(mx, my):
+        help_tip = "Tool State: live state, safe restore, hard reset, and debug dumps."
+    elif memdump_btn_rect.collidepoint(mx, my):
+        help_tip = "Dump MEM: save a memory dump for route/profile analysis."
+
+    help_x = memdump_btn_rect.right + 12
+    help_w = max(160, w - help_x - 10)
+    if help_w >= 180:
+        help_rect = pygame.Rect(help_x, y_tools, help_w, btn_h)
+        _draw_vertical_gradient(
+            screen,
+            help_rect,
+            (23, 25, 35),
+            (16, 18, 26),
+            235,
+        )
+        pygame.draw.rect(screen, (52, 58, 76), help_rect, 1, border_radius=4)
+        pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 4.0)
+        dot_col = _brighten(help_accent, int(35 * pulse))
+        dot = pygame.Surface((8, 8), pygame.SRCALPHA)
+        pygame.draw.circle(dot, (*dot_col, int(115 + 75 * pulse)), (4, 4), 3)
+        screen.blit(dot, (help_rect.x + 8, help_rect.y + 7))
+        help_surf = _fit_text(smallfont, help_tip, GUI_TEXT_DIM, help_rect.width - 28)
+        screen.blit(help_surf, (help_rect.x + 22, help_rect.y + (help_rect.height - help_surf.get_height()) // 2))
+
+    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, hb_filter_rects
 
 
 def draw_status_rail(
@@ -2273,6 +2341,9 @@ def draw_scan_normals_polished(
             if char_name == "No character":
                 empty_msg = "No character loaded"
                 sub_msg = "This slot is currently empty"
+            elif bool(slot.get("profile_cache_miss")):
+                empty_msg = "Building profile"
+                sub_msg = "No cached normals yet; dynamic profile build is queued"
             elif had_scan_entry:
                 empty_msg = "No normals returned"
                 sub_msg = "The scan completed, but this slot returned no normal data"
@@ -3013,6 +3084,36 @@ def ensure_scan_now(last_scan_normals, last_scan_time):
     return None, last_scan_time
 
 
+def _fd_missing_profile_signature(scan_rows) -> tuple:
+    parts = []
+    try:
+        rows = list(scan_rows or [])
+    except Exception:
+        rows = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not row.get("profile_cache_miss"):
+            continue
+        slot = str(row.get("slot_label") or row.get("slot") or "")
+        key = str(row.get("profile_key") or row.get("char_name") or "")
+        if slot and key:
+            parts.append((slot, key))
+    return tuple(sorted(parts))
+
+
+def _fd_row_needs_dynamic_profile(slot_label: str, scan_rows) -> bool:
+    try:
+        rows = list(scan_rows or [])
+    except Exception:
+        rows = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        lbl = str(row.get("slot_label") or row.get("slot") or "")
+        if lbl == str(slot_label) and bool(row.get("profile_cache_miss")):
+            return True
+    return False
 
 
 def _panel_bar_fraction(value, maximum) -> float:
@@ -3398,7 +3499,10 @@ def legacy_main():
         # MEM2 scanner from running in the background during gameplay.  Manual
         # scans still call scan_normals_all.scan_once() directly and can create
         # new profiles when needed.
-        scan_worker = ScanNormalsWorker(lambda: scan_normals_all.scan_once(cache_only=True))
+        scan_worker = ScanNormalsWorker(
+            lambda: scan_normals_all.scan_once(cache_only=True),
+            full_scan_func=lambda: scan_normals_all.scan_once(force_dynamic=True, cache_only=False),
+        )
         scan_worker.start()
     else:
         scan_worker = None
@@ -3551,6 +3655,10 @@ def legacy_main():
     pending_rescan_signature = None
     last_rescan_request_time = 0.0
     last_rescan_request_signature = None
+    pending_missing_profile_signature = None
+    pending_missing_profile_since = 0.0
+    last_missing_profile_build_time = 0.0
+    last_missing_profile_build_signature = None
 
     def _fd_scan_signature(_snaps: dict) -> tuple:
         parts = []
@@ -3695,6 +3803,109 @@ def legacy_main():
         "last_done_time": 0.0,
     }
 
+    def _overseer_state_snapshot() -> dict:
+        slot_state = {}
+        try:
+            for _slot_label in ("P1-C1", "P1-C2", "P2-C1", "P2-C2"):
+                _snap = (render_snap_by_slot.get(_slot_label) or {})
+                if isinstance(_snap, dict):
+                    slot_state[_slot_label] = {
+                        "name": _snap.get("name") or _snap.get("char_name") or "",
+                        "base": int(_snap.get("base") or 0),
+                        "char_id": int(_snap.get("id") or _snap.get("csv_char_id") or _snap.get("char_id") or 0),
+                        "move": _snap.get("mv_label") or "",
+                        "move_id": _snap.get("mv_id_display"),
+                    }
+                else:
+                    slot_state[_slot_label] = {}
+        except Exception:
+            slot_state = {}
+        hud_state = {}
+        try:
+            if get_hud_editor_runtime_state is not None:
+                _h = get_hud_editor_runtime_state() or {}
+                hud_state = {
+                    "force_zero_as_win": bool(_h.get("force_zero_as_win", False)),
+                    "use_hud": bool(_h.get("use_hud", True)),
+                    "use_svm": bool(_h.get("use_svm", False)),
+                    "status": str(_h.get("status") or ""),
+                    "holds": {k: dict(v) for k, v in dict(_h.get("holds") or {}).items()},
+                }
+        except Exception as e:
+            hud_state = {"error": repr(e)}
+        mega_state = {
+            "enabled": bool(megacrash_trainer_state.get("enabled", False)),
+            "mode": str(megacrash_trainer_state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
+            "chance": int(megacrash_trainer_state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE) or 0),
+            "pulse_count": len(megacrash_trainer_state.get("pulses") or {}),
+            "scheduled_count": len(megacrash_trainer_state.get("scheduled_triggers") or {}),
+            "cooldown_until": float(megacrash_trainer_state.get("cooldown_until", 0.0) or 0.0),
+        }
+        try:
+            assist_state = get_assist_runtime_debug_state(dict(render_snap_by_slot))
+        except Exception as e:
+            assist_state = {"error": repr(e)}
+        try:
+            active_quick_state = {
+                k: dict(v) for k, v in list(active_quick_assist_by_slot.items())
+                if isinstance(v, dict)
+            }
+        except Exception as e:
+            active_quick_state = {"error": repr(e)}
+        try:
+            perf_state = dict(_PERF_LAST_ELAPSED_MS)
+        except Exception:
+            perf_state = {}
+        return {
+            "hooked": True,
+            "slots": slot_state,
+            "megacrash": mega_state,
+            "hud_editor": hud_state,
+            "assist": assist_state,
+            "perf": perf_state,
+            "active_quick_assist_by_slot": active_quick_state,
+        }
+
+    def _overseer_safe_restore() -> dict:
+        nonlocal megacrash_trainer_state
+        assist_result = restore_assist_runtime_defaults_from_main(render_snap_by_slot)
+        active_quick_assist_by_slot.clear()
+        quick_assist_reapply_state.clear()
+        quick_assist_slide_by_slot.clear()
+        if reset_hud_editor_runtime_state is not None:
+            hud_result = reset_hud_editor_runtime_state(apply_zero=False)
+        else:
+            hud_result = {}
+        megacrash_trainer_state["enabled"] = False
+        megacrash_trainer_state["chance"] = 0
+        megacrash_trainer_state["pulses"] = {}
+        megacrash_trainer_state["scheduled_triggers"] = {}
+        megacrash_trainer_state["cooldown_until"] = 0.0
+        megacrash_trainer_state["last_combo_keys"] = {}
+        try:
+            _save_megacrash_trainer_config(megacrash_trainer_state)
+        except Exception:
+            pass
+        return {"assist": assist_result, "hud": "released", "megacrash": "off"}
+
+    def _overseer_hard_reset() -> dict:
+        result = _overseer_safe_restore()
+        clear_assist_runtime_state(clear_route_cache=True)
+        quick_btn_flash.clear()
+        panel_btn_flash.update({s: 0 for (s, _, _) in SLOTS})
+        result["route_cache"] = "cleared"
+        result["ui_latches"] = "cleared"
+        return result
+
+    def _overseer_dump_state() -> str:
+        import datetime
+        os.makedirs("debug_dumps", exist_ok=True)
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join("debug_dumps", f"overseer_state_{stamp}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(_overseer_state_snapshot(), f, indent=2, default=str)
+        return path
+
     running = True
 
     # ------------------------------------------------------------------
@@ -3745,6 +3956,12 @@ def legacy_main():
                         print(f"[fd patch] scan overlay/apply failed: {e!r}")
                 last_scan_time    = ts
                 scan_anim = {"start": now, "dur": SCAN_SLIDE_DURATION}
+                try:
+                    _mode = scan_worker.last_mode() if hasattr(scan_worker, "last_mode") else "scan"
+                    if _mode == "full":
+                        print("[fd profile] full dynamic profile build completed")
+                except Exception:
+                    pass
 
         # Resolve slot bases
         resolved_slots = resolve_bases(last_base_by_ptr, y_off_by_base)
@@ -4182,7 +4399,7 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, hb_filter_rects = draw_top_command_dock(
+        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, hb_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -4601,6 +4818,14 @@ def legacy_main():
                 mouse_clicked_pos = None
                 continue
 
+            elif overseer_btn_rect.collidepoint(mx, my):
+                if open_overseer_window is not None:
+                    open_overseer_window(_overseer_state_snapshot, _overseer_safe_restore, _overseer_hard_reset, _overseer_dump_state)
+                else:
+                    print("[tool state] window unavailable")
+                mouse_clicked_pos = None
+                continue
+
             else:
                 for slot_name, cb_rect in hb_filter_rects.items():
                     if cb_rect.collidepoint(mx, my):
@@ -4717,6 +4942,12 @@ def legacy_main():
             ]:
                 if btn_rect.collidepoint(mx, my):
                     last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
+                    if _fd_row_needs_dynamic_profile(slot_label, last_scan_normals) and scan_worker:
+                        try:
+                            scan_worker.request(force_dynamic=True)
+                            print(f"[fd profile] queued full profile build for {slot_label}; cached normals are missing")
+                        except TypeError:
+                            scan_worker.request()
                     if last_scan_normals:
                         open_frame_data_window(slot_label, last_scan_normals)
                     panel_btn_flash[slot_label] = PANEL_FLASH_FRAMES
@@ -4958,9 +5189,44 @@ def legacy_main():
         elif HAVE_SCAN_NORMALS and need_rescan_normals and not FD_AUTOSCAN_ENABLED:
             need_rescan_normals = False
 
+        # Cache-only scans intentionally do not build brand-new profiles. If a
+        # loaded slot reports profile_cache_miss, run one debounced full dynamic
+        # scan in the background so characters like Ippatsuman do not remain
+        # permanently blank. Existing cached-profile characters stay fast.
+        if HAVE_SCAN_NORMALS and FD_BUILD_MISSING_PROFILES and scan_worker and last_scan_normals:
+            _missing_sig = _fd_missing_profile_signature(last_scan_normals)
+            if _missing_sig:
+                if pending_missing_profile_signature != _missing_sig:
+                    pending_missing_profile_signature = _missing_sig
+                    pending_missing_profile_since = now
+                _worker_busy = False
+                try:
+                    _worker_busy = bool(scan_worker.is_busy())
+                except Exception:
+                    _worker_busy = False
+                if (
+                    not _worker_busy
+                    and (now - pending_missing_profile_since) >= FD_MISSING_PROFILE_BUILD_DELAY_SEC
+                    and (now - last_missing_profile_build_time) >= FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC
+                    and _missing_sig != last_missing_profile_build_signature
+                ):
+                    try:
+                        scan_worker.request(force_dynamic=True)
+                    except TypeError:
+                        scan_worker.request()
+                    last_missing_profile_build_time = now
+                    last_missing_profile_build_signature = _missing_sig
+                    names = ", ".join(f"{slot}:{key}" for slot, key in _missing_sig)
+                    print(f"[fd profile] queued one-time full profile build for missing cached normals: {names}")
+            else:
+                pending_missing_profile_signature = None
+
         if HAVE_SCAN_NORMALS and manual_scan_requested:
             if scan_worker:
-                scan_worker.request()
+                try:
+                    scan_worker.request(force_dynamic=True)
+                except TypeError:
+                    scan_worker.request()
             else:
                 try:
                     last_scan_normals = scan_normals_all.scan_once()

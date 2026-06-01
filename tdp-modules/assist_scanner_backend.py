@@ -170,6 +170,22 @@ _QUICK_ROUTE_FAIL_UNTIL: dict[tuple[int, int], float] = {}
 _QUICK_ROUTE_FAIL_TTL_SECONDS = 0.75
 _QUICK_ROUTE_MAX_INFLIGHT = 1
 
+# Dedicated quick-assist click lane.
+#
+# HUD button clicks must not run route resolution, chr_tbl reads, or memory
+# writes on the pygame/main UI lane.  The public apply_quick_assist_from_main()
+# now only validates/queues the user's intent and returns immediately.  This
+# worker serializes the real resolver/write work off the UI lane and coalesces
+# repeated clicks per slot so a fast user click sequence does not build a
+# backlog of stale assist writes.
+_QUICK_ASSIST_LANE_LOCK = threading.RLock()
+_QUICK_ASSIST_LANE_EVENT = threading.Event()
+_QUICK_ASSIST_LANE_PENDING: dict[str, dict[str, object]] = {}
+_QUICK_ASSIST_LANE_ORDER: list[str] = []
+_QUICK_ASSIST_LANE_STARTED = False
+_QUICK_ASSIST_LANE_SEQ = 0
+_QUICK_ASSIST_LANE_LAST_RESULT: dict[str, dict[str, object]] = {}
+
 # UI scan result cache. This never changes assist write behavior. It only lets
 # the scanner window reuse rows that the proven scanner already found, instead
 # of rescanning MEM2 just to redraw the same table.
@@ -394,7 +410,13 @@ MOVE_PRESET_SLOT_SIZE = 0x90000
 # Some Tatsunoko/Capcom runtime chr_tbls are laid down shortly before
 # the nominal broad slot base. Scan back far enough to catch the active
 # table instead of falling back to random script bytes at the broad base.
-CHR_TBL_PRE_START_BACK = 0x12000
+# Some characters, especially late Tatsunoko slots such as Tekkaman Blade
+# on P2-C2, can place the active chr_tbl before the nominal broad owner
+# base. A 0x12000 back-scan misses Blade in observed dumps
+# (owner 0x9099D9C0, live chr_tbl 0x90986000, delta 0x179C0).
+# Keep this below the inter-slot gap so we do not walk into the previous
+# loaded character window.
+CHR_TBL_PRE_START_BACK = 0x24000
 MOVE_PRESET_LOOKAHEAD = 0x80
 MOVE_PRESET_ENTRY_OFFSETS = (0x00, 0x10, 0x20, 0x40, 0x70, 0x90)
 MOVE_PRESET_ANIM_HDR = bytes.fromhex("04 01 60 00 00 00 01 E8 3F 00 00 00")
@@ -4619,7 +4641,135 @@ def _selector_word_for_quick_preset(owner_base: int, row: dict, preset: dict) ->
     return (int(entry) + int(delta)) & 0xFFFFFFFF
 
 
+
+def _quick_assist_lane_start() -> None:
+    global _QUICK_ASSIST_LANE_STARTED
+    with _QUICK_ASSIST_LANE_LOCK:
+        if _QUICK_ASSIST_LANE_STARTED:
+            return
+        _QUICK_ASSIST_LANE_STARTED = True
+
+    def _worker() -> None:
+        while True:
+            _QUICK_ASSIST_LANE_EVENT.wait()
+            while True:
+                with _QUICK_ASSIST_LANE_LOCK:
+                    if not _QUICK_ASSIST_LANE_ORDER:
+                        _QUICK_ASSIST_LANE_EVENT.clear()
+                        break
+                    slot = _QUICK_ASSIST_LANE_ORDER.pop(0)
+                    job = _QUICK_ASSIST_LANE_PENDING.pop(slot, None)
+                if not job:
+                    continue
+
+                slot_label = str(job.get("slot_label") or slot)
+                try:
+                    quick_index = int(job.get("quick_index") or 0)
+                except Exception:
+                    quick_index = 0
+                snap = job.get("snap") if isinstance(job.get("snap"), dict) else None
+                label = str(job.get("label") or f"quick {quick_index}")
+                seq = int(job.get("seq") or 0)
+                t0 = time.perf_counter()
+                ok = False
+                err = ""
+                try:
+                    ok = bool(_apply_quick_assist_sync(slot_label, quick_index, snap, quiet=True))
+                except Exception as e:
+                    err = repr(e)
+                    ok = False
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                with _QUICK_ASSIST_LANE_LOCK:
+                    _QUICK_ASSIST_LANE_LAST_RESULT[slot_label] = {
+                        "ok": bool(ok),
+                        "label": label,
+                        "quick_index": int(quick_index),
+                        "seq": int(seq),
+                        "elapsed_ms": float(elapsed_ms),
+                        "error": err,
+                        "time": time.time(),
+                    }
+                try:
+                    if ok:
+                        print(f"[assist quick lane] applied {slot_label} -> {label} in {elapsed_ms:.1f}ms")
+                    else:
+                        suffix = f" error={err}" if err else ""
+                        print(f"[assist quick lane] failed {slot_label} -> {label} in {elapsed_ms:.1f}ms{suffix}")
+                except Exception:
+                    pass
+
+    try:
+        threading.Thread(target=_worker, name="quick-assist-lane", daemon=True).start()
+    except Exception:
+        with _QUICK_ASSIST_LANE_LOCK:
+            _QUICK_ASSIST_LANE_STARTED = False
+
+
+def _queue_quick_assist_job(slot_label: str, quick_index: int, snap: dict | None, preset: dict, quiet: bool = False) -> None:
+    global _QUICK_ASSIST_LANE_SEQ
+    label = str(preset.get("label") or preset.get("name") or preset.get("move") or f"quick {quick_index}")
+    clean_snap = dict(snap) if isinstance(snap, dict) else None
+    with _QUICK_ASSIST_LANE_LOCK:
+        _QUICK_ASSIST_LANE_SEQ += 1
+        job = {
+            "slot_label": str(slot_label),
+            "quick_index": int(quick_index),
+            "snap": clean_snap,
+            "label": label,
+            "seq": int(_QUICK_ASSIST_LANE_SEQ),
+            "queued_at": time.time(),
+        }
+        if str(slot_label) not in _QUICK_ASSIST_LANE_PENDING:
+            _QUICK_ASSIST_LANE_ORDER.append(str(slot_label))
+        _QUICK_ASSIST_LANE_PENDING[str(slot_label)] = job
+        _QUICK_ASSIST_LANE_EVENT.set()
+    _quick_assist_lane_start()
+    if not quiet:
+        try:
+            print(f"[assist quick lane] queued {slot_label} -> {label}")
+        except Exception:
+            pass
+
+
 def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict | None = None, quiet: bool = False) -> bool:
+    """Queue one JSON quick-assist entry without blocking the HUD/main UI lane.
+
+    The old path resolved routes and wrote memory synchronously in the mouse
+    click handler.  That made cold/stale route clicks visibly pause the main
+    GUI.  This wrapper validates the request, stores it on the dedicated quick
+    assist lane, and returns True immediately so the UI can animate/flash.
+    """
+    owner_base = _slot_owner_base_from_label(slot_label)
+    if owner_base is None:
+        return False
+    quicks = get_quick_assists_for_slot(slot_label, snap)
+    if quick_index < 0 or quick_index >= len(quicks):
+        return False
+    preset = dict(quicks[quick_index])
+
+    char_id = 0
+    if isinstance(snap, dict):
+        for field in ("id", "csv_char_id", "char_id"):
+            try:
+                char_id = int(snap.get(field) or 0)
+            except Exception:
+                char_id = 0
+            if char_id:
+                break
+
+    # A click is a strong signal that this route will be needed.  Prewarm in
+    # parallel, but do not wait for it.  The quick-assist lane will either use
+    # the warmed row or resolve on its own worker thread.
+    try:
+        _schedule_quick_route_prewarm(int(owner_base), char_id if char_id else None)
+    except Exception:
+        pass
+
+    _queue_quick_assist_job(str(slot_label), int(quick_index), snap, preset, quiet=quiet)
+    return True
+
+
+def _apply_quick_assist_sync(slot_label: str, quick_index: int, snap: dict | None = None, quiet: bool = False) -> bool:
     global _HEADLESS_LAST_PATCH_KEY
     """Apply one JSON quick-assist entry for a HUD slot.
 
@@ -5017,6 +5167,125 @@ def _headless_runtime_patch_from_main(snaps: dict) -> None:
                     f"[assist quick] runtime {slot_label} -> {profile.get('label', 'assist')}",
                     interval=0.75,
                 )
+
+
+def get_assist_runtime_debug_state(snaps: dict | None = None) -> dict:
+    """Small, read-only snapshot for the Overseer panel.
+
+    This must stay cheap. It reports cached/runtime state only; it does not
+    resolve routes, scan MEM2, or write anything.
+    """
+    out = {
+        "cache_epoch": int(_ASSIST_CACHE_EPOCH),
+        "slot_profiles": {},
+        "route_cache_count": 0,
+        "route_inflight_count": 0,
+        "last_runtime_write_by_slot": {},
+        "quick_lane_pending_count": 0,
+        "quick_lane_order": [],
+        "quick_lane_last_result": {},
+    }
+    try:
+        with _QUICK_ROUTE_LOCK:
+            out["route_cache_count"] = len(_QUICK_ROUTE_CACHE)
+            out["route_inflight_count"] = len(_QUICK_ROUTE_INFLIGHT)
+    except Exception:
+        pass
+
+    try:
+        with _QUICK_ASSIST_LANE_LOCK:
+            out["quick_lane_pending_count"] = len(_QUICK_ASSIST_LANE_PENDING)
+            out["quick_lane_order"] = list(_QUICK_ASSIST_LANE_ORDER)
+            out["quick_lane_last_result"] = {k: dict(v) for k, v in _QUICK_ASSIST_LANE_LAST_RESULT.items()}
+    except Exception:
+        pass
+
+    try:
+        for slot_label in FIGHTER_SLOT_LABELS:
+            prof = _HEADLESS_SLOT_ASSIST_PROFILES.get(str(slot_label))
+            snap = snaps.get(slot_label) if isinstance(snaps, dict) else None
+            row = dict((prof or {}).get("row", {}) or {}) if isinstance(prof, dict) else {}
+            last = _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT.get(str(slot_label))
+            state_id = _snap_state_id_for_runtime(snap if isinstance(snap, dict) else {})
+            out["slot_profiles"][str(slot_label)] = {
+                "selected": bool(prof),
+                "label": str((prof or {}).get("label") or "") if isinstance(prof, dict) else "",
+                "is_default": bool((prof or {}).get("is_default", False)) if isinstance(prof, dict) else False,
+                "word": None if not isinstance(prof, dict) or prof.get("word") is None else int(prof.get("word")) & 0xFFFFFFFF,
+                "char_id": int((prof or {}).get("char_id") or 0) if isinstance(prof, dict) else 0,
+                "owner_base": int((prof or {}).get("owner_base") or 0) if isinstance(prof, dict) else 0,
+                "fighter_base": int((prof or {}).get("fighter_base") or 0) if isinstance(prof, dict) else 0,
+                "route_type": str(row.get("typ") or ""),
+                "route_block": int(row.get("block") or 0),
+                "route_epoch": int(row.get("_assist_epoch", -1)) if row else -1,
+                "in_assist_window": bool(_snap_is_assist_runtime_window(snap if isinstance(snap, dict) else {})),
+                "state_id": state_id,
+                "last_write_age_sec": None if last is None else round(max(0.0, time.monotonic() - float(last[1])), 3),
+            }
+    except Exception as e:
+        out["error"] = repr(e)
+    return out
+
+
+def restore_assist_runtime_defaults_from_main(snaps: dict | None = None) -> dict:
+    """Best-effort restore of selected assist grafts, then clear runtime selection.
+
+    This is intentionally conservative: it uses the already-stored route rows,
+    writes default for each selected slot if possible, then clears persistent
+    quick-assist state. It does not scan MEM2.
+    """
+    restored: list[str] = []
+    failed: list[str] = []
+    for slot_label, prof in list(_HEADLESS_SLOT_ASSIST_PROFILES.items()):
+        if not isinstance(prof, dict):
+            continue
+        snap = snaps.get(slot_label) if isinstance(snaps, dict) else {}
+        default_prof = dict(prof)
+        default_prof["word"] = None
+        default_prof["label"] = "Default"
+        default_prof["is_default"] = True
+        try:
+            if _write_runtime_profile_for_slot(str(slot_label), snap if isinstance(snap, dict) else {}, default_prof):
+                restored.append(str(slot_label))
+            else:
+                failed.append(str(slot_label))
+        except Exception:
+            failed.append(str(slot_label))
+    clear_assist_runtime_state(clear_route_cache=False)
+    return {"restored": restored, "failed": failed}
+
+
+def clear_assist_runtime_state(*, clear_route_cache: bool = False) -> None:
+    """Clear quick-assist runtime selection and latches without touching UI files."""
+    global _HEADLESS_LAST_PATCH_KEY
+    _HEADLESS_ASSIST_PROFILES.clear()
+    _HEADLESS_SLOT_ASSIST_PROFILES.clear()
+    _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.clear()
+    _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT.clear()
+    with _QUICK_ASSIST_LANE_LOCK:
+        _QUICK_ASSIST_LANE_PENDING.clear()
+        _QUICK_ASSIST_LANE_ORDER.clear()
+        _QUICK_ASSIST_LANE_LAST_RESULT.clear()
+        _QUICK_ASSIST_LANE_EVENT.clear()
+    _HEADLESS_LAST_PATCH_KEY = None
+    inst = _inst
+    if inst is not None:
+        try:
+            inst._slot_assist_profiles.clear()
+            inst._main_last_assist_attack_by_base.clear()
+            inst._main_patch_latch_by_base.clear()
+            inst._main_last_patch_key = None
+        except Exception:
+            pass
+    if clear_route_cache:
+        with _QUICK_ROUTE_LOCK:
+            _QUICK_ROUTE_CACHE.clear()
+            _QUICK_ROUTE_INFLIGHT.clear()
+            _QUICK_ROUTE_FAIL_UNTIL.clear()
+        with _ASSIST_SCAN_CACHE_LOCK:
+            global _ASSIST_SCAN_CACHE_SIGNATURE, _ASSIST_SCAN_CACHE_HITS
+            _ASSIST_SCAN_CACHE_SIGNATURE = None
+            _ASSIST_SCAN_CACHE_HITS = []
 
 
 class AssistScannerWindow:
