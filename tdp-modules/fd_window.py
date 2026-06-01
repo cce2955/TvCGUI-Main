@@ -4,6 +4,7 @@ import os
 import sys
 import struct
 import threading
+from collections import deque
 from datetime import datetime
 
 import tkinter as tk
@@ -169,6 +170,27 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._initial_load_running = False
         self._fd_eager_deep_probe = False
         self._auto_scans_enabled = False
+        self._link_probe_after_id = None
+        self._link_probe_items: list[str] = []
+        self._link_probe_index = 0
+
+        # Optional pattern probes used to run on the Tk event thread.  On some
+        # machines/Dolphin sessions a single per-row probe can stall long enough
+        # to make selection, scrolling, or post-edit refresh feel frozen.  Keep
+        # the workbench responsive by doing those loose pattern scans on one
+        # low-priority worker thread and applying only the finished cell values
+        # back on the Tk thread.
+        self._optional_probe_lock = threading.RLock()
+        self._optional_probe_queue = deque()
+        self._optional_probe_results = deque()
+        self._optional_probe_queued_keys: set[tuple] = set()
+        self._optional_probe_thread: threading.Thread | None = None
+        self._optional_probe_stop = False
+        self._optional_probe_poll_after_id = None
+        self._optional_probe_generation = 0
+        self._optional_probe_total = 0
+        self._optional_probe_done_count = 0
+
 
         # Shareable frame-data patch config support. A saved patch stores only
         # changed values for this character and can be merged into the same JSON
@@ -529,7 +551,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._projectile_status_var = tk.StringVar(master=self.root, value="Projectiles: queued")
         self._super_status_var = tk.StringVar(master=self.root, value="Supers: queued")
 
-        self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
         fd_tree.configure_styles(self.root)
         fd_tree.build_top_bar(self)
@@ -558,6 +580,45 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self.root.after(25, self._initial_populate_tree)
         except Exception:
             self._initial_populate_tree()
+    def _on_close(self):
+        try:
+            with self._optional_probe_lock:
+                self._optional_probe_stop = True
+                self._optional_probe_queue.clear()
+                self._optional_probe_results.clear()
+                self._optional_probe_queued_keys.clear()
+        except Exception:
+            pass
+        try:
+            if self.root and self._optional_probe_poll_after_id is not None:
+                self.root.after_cancel(self._optional_probe_poll_after_id)
+        except Exception:
+            pass
+        self._optional_probe_poll_after_id = None
+        try:
+            if self.root and self._link_probe_after_id is not None:
+                self.root.after_cancel(self._link_probe_after_id)
+        except Exception:
+            pass
+        self._link_probe_after_id = None
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+
+    def _reset_optional_probe_session(self) -> None:
+        try:
+            with self._optional_probe_lock:
+                self._optional_probe_generation += 1
+                self._optional_probe_queue.clear()
+                self._optional_probe_results.clear()
+                self._optional_probe_queued_keys.clear()
+                self._optional_probe_total = 0
+                self._optional_probe_done_count = 0
+                self._optional_probe_stop = False
+        except Exception:
+            pass
+
     def _initial_populate_tree(self):
         if self._initial_load_running or self._initial_tree_loaded:
             return
@@ -566,11 +627,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             if self._status_var is not None:
                 src = "profile cache" if self._profile_fast_path else "scanner snapshot"
                 self._status_var.set(f"Loading frame rows from {src}... optional probes are lazy")
+            self._reset_optional_probe_session()
             fd_tree.populate_tree(self)
             self._initial_tree_loaded = True
             if self._status_var is not None:
                 src = "profile cache" if self._profile_fast_path else "scanner snapshot"
-                self._status_var.set(f"Frame rows loaded from {src}. Projectiles/specials scan only when their view or rescan button is used.")
+                self._status_var.set(f"Frame rows loaded from {src}. Resolving Hit FX/reach in background...")
+            self._queue_lazy_link_probe()
         except Exception as e:
             if self._status_var is not None:
                 self._status_var.set(f"Frame rows failed to populate: {e}")
@@ -1395,6 +1458,451 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             pass
 
+    def _tree_has_column(self, col_name: str) -> bool:
+        try:
+            return bool(self.tree and col_name in set(self.tree["columns"]))
+        except Exception:
+            return False
+
+    def _set_tree_value_if_present(self, item_id: str | None, col_name: str, value: str) -> None:
+        if not item_id or not self._tree_has_column(col_name):
+            return
+        try:
+            self.tree.set(item_id, col_name, value)
+        except Exception:
+            pass
+
+    def _optional_probe_needs_work(self, mv: dict | None, *, force: bool = False) -> bool:
+        if not isinstance(mv, dict):
+            return False
+        try:
+            if not int(mv.get("abs") or 0):
+                return False
+        except Exception:
+            return False
+        if force:
+            return True
+        if mv.get("_optional_probe_done"):
+            return False
+        # Any of these blank addresses means the row has not had the loose
+        # pattern pass yet.  Missing packets are normal for many moves, so the
+        # worker marks the row done after one pass to avoid re-probing it every
+        # time the user clicks the row.
+        return any(mv.get(k) is None for k in (
+            "hit_spark_addr", "stretch_packet_addr", "post_link_addr",
+            "speed_mod_addr", "attack_property_addr", "superbg_addr",
+        ))
+
+    def _sync_optional_tree_cells_for_move(self, mv: dict | None, item_id: str | None = None) -> None:
+        """Copy already-known optional values into the tree without scanning."""
+        if not isinstance(mv, dict):
+            return
+        self._set_tree_value_if_present(item_id, "hit_spark", U.fmt_hit_spark_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_part", U.fmt_stretch_part_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_len", U.fmt_stretch_len_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_width", U.fmt_stretch_width_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_height", U.fmt_stretch_height_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_time", U.fmt_stretch_time_ui(mv))
+        self._set_tree_value_if_present(item_id, "post_link", U.fmt_post_link_ui(mv))
+        if mv.get("speed_mod_addr"):
+            self._set_tree_value_if_present(item_id, "speed_mod", U.fmt_speed_mod_ui(mv.get("speed_mod")))
+        if mv.get("attack_property_addr"):
+            self._set_tree_value_if_present(item_id, "attack_property", fmt_attack_property(mv.get("attack_property")))
+        if mv.get("superbg_addr"):
+            self._set_tree_value_if_present(item_id, "superbg", U.fmt_superbg(mv.get("superbg_val")))
+        if mv.get("proj_radius") is not None:
+            try:
+                radius_txt = f"{float(mv.get('proj_radius')):.2f}" if mv.get("proj_radius") else ""
+            except Exception:
+                radius_txt = ""
+            self._set_tree_value_if_present(item_id, "proj_radius", radius_txt)
+
+    def _compute_optional_probe_updates(self, mv_snapshot: dict, *, force: bool = False) -> dict:
+        """Pure/background-safe optional probe scanner.
+
+        Never touches Tk objects.  It reads Dolphin memory, resolves loose packet
+        addresses/values, and returns a dict that the Tk thread can merge into
+        the live row.
+        """
+        updates: dict = {"_optional_probe_done": True}
+        if not isinstance(mv_snapshot, dict):
+            return updates
+        try:
+            move_abs = int(mv_snapshot.get("abs") or 0)
+        except Exception:
+            move_abs = 0
+        if not move_abs:
+            return updates
+
+        try:
+            from dolphin_io import rbytes as _real_rbytes
+        except Exception as e:
+            updates["_optional_probe_error"] = repr(e)
+            return updates
+
+        read_cache: dict[tuple[int, int], bytes] = {}
+
+        def _cached_rbytes(addr: int, size: int) -> bytes:
+            try:
+                addr_i = int(addr or 0)
+                size_i = max(0, int(size or 0))
+            except Exception:
+                return b""
+            # The pattern finders usually read from the same move_abs with
+            # different lengths.  Reuse the largest read for smaller requests.
+            best_key = None
+            best_data = None
+            for (a, sz), data in read_cache.items():
+                if a == addr_i and sz >= size_i:
+                    best_key = (a, sz)
+                    best_data = data
+                    break
+            if best_data is not None:
+                return best_data[:size_i]
+            try:
+                data = _real_rbytes(addr_i, size_i) or b""
+            except Exception:
+                data = b""
+            read_cache[(addr_i, size_i)] = data
+            return data
+
+        def _cached_rd8(addr: int):
+            data = _cached_rbytes(addr, 1)
+            return data[0] if data and len(data) >= 1 else None
+
+        try:
+            if force or mv_snapshot.get("hit_spark_addr") is None:
+                sp_pkt, sp_addr, sp_val, sp_ctx = find_hit_spark_addr(move_abs, _cached_rbytes)
+                if sp_addr:
+                    updates.update({
+                        "hit_spark_packet_addr": sp_pkt,
+                        "hit_spark_addr": sp_addr,
+                        "hit_spark": sp_val,
+                        "hit_spark_sig": sp_ctx,
+                    })
+        except Exception as e:
+            updates["_optional_probe_hit_spark_error"] = repr(e)
+
+        try:
+            if force or mv_snapshot.get("stretch_packet_addr") is None:
+                stretch = find_limb_stretch_packet(move_abs, _cached_rbytes)
+                if stretch:
+                    updates.update({
+                        "stretch_packet_addr": stretch.get("packet_addr"),
+                        "stretch_part_addr": stretch.get("part_addr"),
+                        "stretch_len_addr": stretch.get("scale1_addr"),
+                        "stretch_width_addr": stretch.get("scale2_addr"),
+                        "stretch_height_addr": stretch.get("scale3_addr"),
+                        "stretch_time_addr": stretch.get("timing_addr"),
+                        "stretch_part": stretch.get("part"),
+                        "stretch_len": stretch.get("scale1"),
+                        "stretch_width": stretch.get("scale2"),
+                        "stretch_height": stretch.get("scale3"),
+                        "stretch_time": stretch.get("timing"),
+                        "stretch_sig": stretch.get("context"),
+                    })
+        except Exception as e:
+            updates["_optional_probe_stretch_error"] = repr(e)
+
+        try:
+            if force or mv_snapshot.get("post_link_addr") is None:
+                pl_pkt, pl_addr, pl_val, pl_ctx = find_post_animation_link_addr(move_abs, _cached_rbytes)
+                if pl_addr:
+                    updates.update({
+                        "post_link_packet_addr": pl_pkt,
+                        "post_link_addr": pl_addr,
+                        "post_link": pl_val,
+                        "post_link_sig": pl_ctx,
+                    })
+        except Exception as e:
+            updates["_optional_probe_post_link_error"] = repr(e)
+
+        try:
+            if force or mv_snapshot.get("speed_mod_addr") is None:
+                saddr, sval, ssig = find_speed_mod_addr(move_abs, _cached_rbytes)
+                if saddr:
+                    updates.update({
+                        "speed_mod_addr": saddr,
+                        "speed_mod": sval,
+                        "speed_mod_sig": ssig,
+                    })
+        except Exception as e:
+            updates["_optional_probe_speed_error"] = repr(e)
+
+        try:
+            if force or mv_snapshot.get("attack_property_addr") is None:
+                ap_addr, ap_val, ap_sig = find_attack_property_addr(move_abs, _cached_rbytes)
+                if ap_addr:
+                    updates.update({
+                        "attack_property_addr": ap_addr,
+                        "attack_property": ap_val,
+                        "attack_property_sig": ap_sig,
+                    })
+        except Exception as e:
+            updates["_optional_probe_attack_property_error"] = repr(e)
+
+        try:
+            if force or mv_snapshot.get("superbg_addr") is None:
+                saddr, sval = find_superbg_addr(move_abs, _cached_rbytes, _cached_rd8)
+                if saddr:
+                    updates.update({
+                        "superbg_addr": saddr,
+                        "superbg_val": sval,
+                    })
+        except Exception as e:
+            updates["_optional_probe_superbg_error"] = repr(e)
+
+        return updates
+
+    def _start_optional_probe_worker_locked(self) -> None:
+        if self._optional_probe_thread is not None and self._optional_probe_thread.is_alive():
+            return
+        self._optional_probe_stop = False
+        t = threading.Thread(target=self._optional_probe_worker, name="FDOptionalProbe", daemon=True)
+        self._optional_probe_thread = t
+        t.start()
+
+    def _request_optional_probe(self, item_id: str | None, mv: dict | None, *, priority: bool = False, force: bool = False, announce: bool = False) -> bool:
+        if not item_id or not isinstance(mv, dict):
+            return False
+        if not self._optional_probe_needs_work(mv, force=force):
+            self._sync_optional_tree_cells_for_move(mv, item_id)
+            return False
+        try:
+            generation = int(getattr(self, "_optional_probe_generation", 0) or 0)
+            move_abs = int(mv.get("abs") or 0)
+        except Exception:
+            return False
+        if not move_abs:
+            return False
+        key = (generation, item_id, bool(force))
+        with self._optional_probe_lock:
+            if key in self._optional_probe_queued_keys:
+                return False
+            self._optional_probe_queued_keys.add(key)
+            payload = (generation, item_id, dict(mv), bool(force))
+            if priority:
+                self._optional_probe_queue.appendleft(payload)
+            else:
+                self._optional_probe_queue.append(payload)
+            self._optional_probe_total += 1
+            self._start_optional_probe_worker_locked()
+        self._schedule_optional_probe_poll()
+        if announce and self._status_var is not None:
+            try:
+                self._status_var.set("Queued optional frame-data probe; UI remains usable")
+            except Exception:
+                pass
+        return True
+
+    def _optional_probe_worker(self) -> None:
+        while True:
+            with self._optional_probe_lock:
+                if self._optional_probe_stop or not self._optional_probe_queue:
+                    self._optional_probe_thread = None
+                    return
+                generation, item_id, mv_snapshot, force = self._optional_probe_queue.popleft()
+                self._optional_probe_queued_keys.discard((generation, item_id, bool(force)))
+            try:
+                updates = self._compute_optional_probe_updates(mv_snapshot, force=force)
+            except Exception as e:
+                updates = {"_optional_probe_done": True, "_optional_probe_error": repr(e)}
+            with self._optional_probe_lock:
+                self._optional_probe_results.append((generation, item_id, updates))
+
+    def _schedule_optional_probe_poll(self) -> None:
+        if not self.root:
+            return
+        if self._optional_probe_poll_after_id is not None:
+            return
+        try:
+            self._optional_probe_poll_after_id = self.root.after(50, self._drain_optional_probe_results)
+        except Exception:
+            self._optional_probe_poll_after_id = None
+
+    def _drain_optional_probe_results(self) -> None:
+        self._optional_probe_poll_after_id = None
+        if not self.root or not self.tree:
+            return
+        drained = 0
+        while drained < 16:
+            with self._optional_probe_lock:
+                if not self._optional_probe_results:
+                    break
+                generation, item_id, updates = self._optional_probe_results.popleft()
+            drained += 1
+            if generation != int(getattr(self, "_optional_probe_generation", 0) or 0):
+                continue
+            try:
+                if not self.tree.exists(item_id):
+                    continue
+            except Exception:
+                continue
+            mv = self.move_to_tree_item.get(item_id)
+            if not isinstance(mv, dict):
+                continue
+            try:
+                mv.update(updates or {})
+                self._sync_optional_tree_cells_for_move(mv, item_id)
+                self._apply_row_tags(item_id, mv)
+            except Exception:
+                pass
+            try:
+                sel = self.tree.selection()
+                if sel and sel[0] == item_id:
+                    self._refresh_inspector(item_id, mv)
+            except Exception:
+                pass
+            self._optional_probe_done_count += 1
+
+        pending = False
+        with self._optional_probe_lock:
+            pending = bool(self._optional_probe_queue or self._optional_probe_results or (self._optional_probe_thread is not None and self._optional_probe_thread.is_alive()))
+        if pending:
+            try:
+                if self._status_var is not None:
+                    done = int(getattr(self, "_optional_probe_done_count", 0) or 0)
+                    total = int(getattr(self, "_optional_probe_total", 0) or 0)
+                    if total:
+                        self._status_var.set(f"Optional probes running in background... {min(done, total)}/{total}")
+                self._optional_probe_poll_after_id = self.root.after(75, self._drain_optional_probe_results)
+            except Exception:
+                self._optional_probe_poll_after_id = None
+        else:
+            try:
+                if self._status_var is not None:
+                    src = "profile cache" if self._profile_fast_path else "scanner snapshot"
+                    self._status_var.set(f"Frame rows loaded from {src}. Optional probes ready where present.")
+            except Exception:
+                pass
+
+    def _resolve_hit_fx_reach_links_for_move(self, mv: dict | None, item_id: str | None = None, *, force: bool = False) -> bool:
+        """Resolve optional script-link fields without rebuilding the window.
+
+        The profile fast path intentionally avoids the old all-rows deep scan on
+        open.  Hit Spark, limb reach/stretch, and post-link live in loose script
+        packets, so they need this small lazy resolver.  It runs per selected row,
+        from Refresh visible, and in a background trickle after the rows paint.
+        """
+        if not isinstance(mv, dict):
+            return False
+        try:
+            move_abs = int(mv.get("abs") or 0)
+        except Exception:
+            move_abs = 0
+        if not move_abs:
+            return False
+
+        need_spark = force or mv.get("hit_spark_addr") is None
+        need_stretch = force or mv.get("stretch_packet_addr") is None
+        need_post = force or mv.get("post_link_addr") is None
+        if not (need_spark or need_stretch or need_post):
+            # Existing profile/session addresses may already be present; make
+            # sure the visible row is synchronized anyway.
+            self._set_tree_value_if_present(item_id, "hit_spark", U.fmt_hit_spark_ui(mv))
+            self._set_tree_value_if_present(item_id, "stretch_part", U.fmt_stretch_part_ui(mv))
+            self._set_tree_value_if_present(item_id, "stretch_len", U.fmt_stretch_len_ui(mv))
+            self._set_tree_value_if_present(item_id, "stretch_width", U.fmt_stretch_width_ui(mv))
+            self._set_tree_value_if_present(item_id, "stretch_height", U.fmt_stretch_height_ui(mv))
+            self._set_tree_value_if_present(item_id, "stretch_time", U.fmt_stretch_time_ui(mv))
+            self._set_tree_value_if_present(item_id, "post_link", U.fmt_post_link_ui(mv))
+            return False
+
+        changed = False
+        try:
+            from dolphin_io import rbytes
+        except Exception:
+            return False
+
+        if need_spark:
+            try:
+                sp_pkt, sp_addr, sp_val, sp_ctx = find_hit_spark_addr(move_abs, rbytes)
+            except Exception:
+                sp_pkt, sp_addr, sp_val, sp_ctx = (None, None, None, None)
+            if sp_addr:
+                mv["hit_spark_packet_addr"] = sp_pkt
+                mv["hit_spark_addr"] = sp_addr
+                mv["hit_spark"] = sp_val
+                mv["hit_spark_sig"] = sp_ctx
+                changed = True
+
+        if need_stretch:
+            try:
+                stretch = find_limb_stretch_packet(move_abs, rbytes)
+            except Exception:
+                stretch = None
+            if stretch:
+                mv["stretch_packet_addr"] = stretch.get("packet_addr")
+                mv["stretch_part_addr"] = stretch.get("part_addr")
+                mv["stretch_len_addr"] = stretch.get("scale1_addr")
+                mv["stretch_width_addr"] = stretch.get("scale2_addr")
+                mv["stretch_height_addr"] = stretch.get("scale3_addr")
+                mv["stretch_time_addr"] = stretch.get("timing_addr")
+                mv["stretch_part"] = stretch.get("part")
+                mv["stretch_len"] = stretch.get("scale1")
+                mv["stretch_width"] = stretch.get("scale2")
+                mv["stretch_height"] = stretch.get("scale3")
+                mv["stretch_time"] = stretch.get("timing")
+                mv["stretch_sig"] = stretch.get("context")
+                changed = True
+
+        if need_post:
+            try:
+                pl_pkt, pl_addr, pl_val, pl_ctx = find_post_animation_link_addr(move_abs, rbytes)
+            except Exception:
+                pl_pkt, pl_addr, pl_val, pl_ctx = (None, None, None, None)
+            if pl_addr:
+                mv["post_link_packet_addr"] = pl_pkt
+                mv["post_link_addr"] = pl_addr
+                mv["post_link"] = pl_val
+                mv["post_link_sig"] = pl_ctx
+                changed = True
+
+        self._set_tree_value_if_present(item_id, "hit_spark", U.fmt_hit_spark_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_part", U.fmt_stretch_part_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_len", U.fmt_stretch_len_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_width", U.fmt_stretch_width_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_height", U.fmt_stretch_height_ui(mv))
+        self._set_tree_value_if_present(item_id, "stretch_time", U.fmt_stretch_time_ui(mv))
+        self._set_tree_value_if_present(item_id, "post_link", U.fmt_post_link_ui(mv))
+        return changed
+
+    def _queue_lazy_link_probe(self) -> None:
+        """Fill optional columns without blocking Tk.
+
+        v22 solved blank Hit FX/reach by doing a tiny main-thread trickle, but
+        each trickle item can still block if Dolphin/process-memory reads are
+        slow.  Queue the probes to the worker instead; the tree/scrollbar stays
+        responsive while cells fill in behind the scenes.
+        """
+        if not self.root or not self.tree:
+            return
+        try:
+            if self._link_probe_after_id is not None:
+                self.root.after_cancel(self._link_probe_after_id)
+        except Exception:
+            pass
+        self._link_probe_after_id = None
+        self._link_probe_items = list(getattr(self, "_all_item_ids", []) or [])
+        self._link_probe_index = 0
+        queued = 0
+        for item_id in self._link_probe_items:
+            mv = self.move_to_tree_item.get(item_id)
+            if not mv:
+                continue
+            if self._request_optional_probe(item_id, mv, priority=False, force=False, announce=False):
+                queued += 1
+        if queued and self._status_var is not None:
+            try:
+                self._status_var.set(f"Queued {queued} optional probes in background; UI remains usable")
+            except Exception:
+                pass
+
+    def _lazy_link_probe_step(self) -> None:
+        # Legacy name retained for any existing after() callback.  Optional
+        # probes now run on the background worker via _queue_lazy_link_probe().
+        self._queue_lazy_link_probe()
+
     def _refresh_inspector(self, item_id: str | None = None, mv: dict | None = None):
         if not getattr(self, "_inspector_value_vars", None):
             return
@@ -1446,6 +1954,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 self._inspector_hint_var.set("Projectile/super values are promoted to the top here. Compact projectile-super cards use Life, Hits, Emit, Interval, FX, Proj ID, Bone, Spawn X/Y, and Scale.")
             else:
                 self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
+
+        # Keep selection instant.  Do not run loose pattern probes here; queue
+        # them on the background worker and show whatever values are already
+        # known.  This is the big fix for click/scroll/edit freezes.
+        self._sync_optional_tree_cells_for_move(mv, item_id)
+        self._request_optional_probe(item_id, mv, priority=True, force=False, announce=False)
 
         all_cols = set(self.tree["columns"])
         for col, var in self._inspector_value_vars.items():
@@ -2082,6 +2596,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._row_counter = 0
 
         # Repopulate (this now reuses cached hitbox candidates in fd_tree.py)
+        self._reset_optional_probe_session()
         fd_tree.populate_tree(self)
 
         # Force top so you SEE the reorder immediately
@@ -2556,152 +3071,41 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     # ---------- Refresh visible ----------
 
     def _refresh_visible(self):
-        # Manual refresh is the one place we intentionally run heavier optional
-        # probes.  Normal open/edit paths stay fast and update cells in place.
-        self._fd_eager_deep_probe = True
-        refreshed = 0
-        for item_id in self._all_item_ids:
-            if item_id in self._detached:
+        # Manual refresh used to synchronously scan every visible row for speed,
+        # attack property, SuperBG, Hit FX, reach/stretch, and post-link.  That
+        # made the whole workbench unresponsive.  Re-probe in the background and
+        # update cells as results arrive.
+        if not self.tree:
+            return
+        queued = 0
+        visible = 0
+        for item_id in list(getattr(self, "_all_item_ids", []) or []):
+            if item_id in getattr(self, "_detached", set()):
                 continue
+            visible += 1
             mv = self.move_to_tree_item.get(item_id)
             if not mv:
                 continue
-            mv = self.move_to_tree_item.get(item_id)
-            if not mv:
-                continue
-            move_abs = mv.get("abs")
-            if not move_abs:
-                continue
-
-            # === COLLECT + APPEND REGION HITS ===
             try:
-                import os
-                base_dir = os.path.dirname(__file__)
-                path = os.path.join(base_dir, "fd_region_hits.txt")
-
-                hits = []
-
-                if mv.get("abs"):
-                    hits.append(mv["abs"])
-
-                if mv.get("speed_mod_addr"):
-                    hits.append(mv["speed_mod_addr"])
-
-                if mv.get("attack_property_addr"):
-                    hits.append(mv["attack_property_addr"])
-
-                if mv.get("superbg_addr"):
-                    hits.append(mv["superbg_addr"])
-
-                if mv.get("damage_addr"):
-                    hits.append(mv["damage_addr"])
-
-                if mv.get("active_addr"):
-                    hits.append(mv["active_addr"])
-
-
-                if hits:
-                    print(f"[FD] writing {len(hits)} hits -> {path}")
-                    with open(path, "a") as f:
-                        for h in hits:
-                            f.write(f"{h}\n")
-
-            except Exception as e:
-                print("[FD] write failed:", e)
-                        # === COLLECT + APPEND REGION HITS ===
-            try:
-                hits = []
-
-                if mv.get("abs"):
-                    hits.append(mv["abs"])
-
-                if mv.get("speed_mod_addr"):
-                    hits.append(mv["speed_mod_addr"])
-
-                if mv.get("attack_property_addr"):
-                    hits.append(mv["attack_property_addr"])
-
-                if mv.get("superbg_addr"):
-                    hits.append(mv["superbg_addr"])
-
-                if mv.get("damage_addr"):
-                    hits.append(mv["damage_addr"])
-
-                if mv.get("active_addr"):
-                    hits.append(mv["active_addr"])
-
-
-                if hits:
-                    print("WRITING REGION HITS")
-                    with open("fd_region_hits.txt", "a") as f:
-                        for h in hits:
-                            f.write(f"{h}\n")
+                mv.pop("_optional_probe_done", None)
+                mv.pop("_optional_probe_error", None)
             except Exception:
                 pass
-
-            # speed mod
-            if mv.get("speed_mod_addr") is None:
-                try:
-                    from dolphin_io import rbytes
-                    saddr, sval, ssig = find_speed_mod_addr(move_abs, rbytes)
-                except Exception:
-                    saddr, sval, ssig = (None, None, None)
-                if saddr:
-                    mv["speed_mod_addr"] = saddr
-                    mv["speed_mod"] = sval
-                    mv["speed_mod_sig"] = ssig
-            if mv.get("speed_mod_addr"):
-                self.tree.set(item_id, "speed_mod", U.fmt_speed_mod_ui(mv.get("speed_mod")))
-
-            # attack property (lazy resolve)
-            if mv.get("attack_property_addr") is None:
-                try:
-                    from dolphin_io import rbytes
-                    ap_addr, ap_val, ap_sig = find_attack_property_addr(move_abs, rbytes)
-                except Exception:
-                    ap_addr, ap_val, ap_sig = (None, None, None)
-                if ap_addr:
-                    mv["attack_property_addr"] = ap_addr
-                    mv["attack_property"] = ap_val
-                    mv["attack_property_sig"] = ap_sig
-            if mv.get("attack_property_addr"):
-                self.tree.set(item_id, "attack_property", fmt_attack_property(mv.get("attack_property")))
-
-            # projectile radius (lazy resolve)
-            if mv.get("proj_radius") is None:
-                try:
-                    U.resolve_projectile_radius_for_move(mv, region_abs=move_abs)
-                    self.tree.set(
-                        item_id,
-                        "proj_radius",
-                        f"{mv['proj_radius']:.2f}" if mv.get("proj_radius") else "",
-                    )
-                except Exception:
-                    pass
-
-            # superbg (lazy resolve)
-            if mv.get("superbg_addr") is None:
-                try:
-                    from dolphin_io import rbytes, rd8
-                    saddr, sval = find_superbg_addr(move_abs, rbytes, rd8)
-                except Exception:
-                    saddr, sval = (None, None)
-                if saddr:
-                    mv["superbg_addr"] = saddr
-                    mv["superbg_val"] = sval
-            if mv.get("superbg_addr"):
-                self.tree.set(item_id, "superbg", U.fmt_superbg(mv.get("superbg_val")))
-
-            self._apply_row_tags(item_id, mv)
-            refreshed += 1
-
-        self._fd_eager_deep_probe = False
-        self._status_var.set(f"Refreshed {refreshed} visible rows")
+            if self._request_optional_probe(item_id, mv, priority=False, force=True, announce=False):
+                queued += 1
+        if self._status_var is not None:
+            if queued:
+                self._status_var.set(f"Queued optional refresh for {queued}/{visible} rows; UI remains usable")
+            else:
+                self._status_var.set("Visible rows already have optional fields cached")
         try:
             sel = self.tree.selection()
             if sel:
-                mv = self.move_to_tree_item.get(sel[0])
-                self._refresh_inspector(sel[0], mv)
+                item_id = sel[0]
+                mv = self.move_to_tree_item.get(item_id)
+                if mv:
+                    self._request_optional_probe(item_id, mv, priority=True, force=True, announce=False)
+                    self._refresh_inspector(item_id, mv)
         except Exception:
             pass
 
@@ -4094,9 +4498,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "meter": ("meter_addr", "Meter"),
             "active": ("active_addr", "Active"),
             "active2": ("active2_addr", "Active 2"),
-            "hitstun": ("stun_addr", "Hitstun", 15),
-            "blockstun": ("stun_addr", "Blockstun", 31),
-            "hitstop": ("stun_addr", "Hitstop", 38),
+            "hitstun": (("hitstun_addr", "stun_addr"), "Hitstun", 15),
+            "blockstun": (("blockstun_addr", "stun_addr"), "Blockstun", 31),
+            "hitstop": (("hitstop_addr", "stun_addr"), "Hitstop", 38),
             "hit_spark": ("hit_spark_addr", "Hit Spark"),
             "stretch_part": ("stretch_part_addr", "Stretch Part"),
             "stretch_len": ("stretch_len_addr", "Reach Length"),
@@ -4122,9 +4526,19 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             else:
                 addr_key, label = addr_info
                 addr_offset = 0
-            addr = mv.get(addr_key)
-            if addr and addr_offset:
-                addr = int(addr) + int(addr_offset)
+            if isinstance(addr_key, (tuple, list)):
+                direct_key = addr_key[0]
+                fallback_key = addr_key[1] if len(addr_key) > 1 else None
+                addr = mv.get(direct_key)
+                if not addr and fallback_key:
+                    addr = mv.get(fallback_key)
+                    if addr and addr_offset:
+                        addr = int(addr) + int(addr_offset)
+                addr_key = direct_key
+            else:
+                addr = mv.get(addr_key)
+                if addr and addr_offset:
+                    addr = int(addr) + int(addr_offset)
 
             if addr_key == "speed_mod_addr" and not addr:
                 self._ensure_speed_mod(mv)

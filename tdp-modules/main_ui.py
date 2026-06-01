@@ -418,6 +418,19 @@ def draw_top_command_dock(
     )
 
     x = hb_btn_rect.right + gap
+    hud_btn_rect = pygame.Rect(x, y, 142, btn_h)
+    draw_glass_button(
+        screen,
+        hud_btn_rect,
+        "Overlay: ON" if overlay_enabled else "Overlay: OFF",
+        smallfont,
+        active=overlay_enabled,
+        hover=hud_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        align="center",
+    )
+
+    x = hud_btn_rect.right + gap
     ps_btn_rect = pygame.Rect(x, y, 150, btn_h)
     draw_glass_button(
         screen,
@@ -444,19 +457,6 @@ def draw_top_command_dock(
     )
 
     x = as_btn_rect.right + gap
-    hud_btn_rect = pygame.Rect(x, y, 142, btn_h)
-    draw_glass_button(
-        screen,
-        hud_btn_rect,
-        "Overlay: ON" if overlay_enabled else "Overlay: OFF",
-        smallfont,
-        active=overlay_enabled,
-        hover=hud_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        align="center",
-    )
-
-    x = hud_btn_rect.right + gap
     megacrash_btn_rect = pygame.Rect(x, y, 124, btn_h)
     mega_label = f"Megacrash {max(0.0, megacrash_remaining):.1f}s" if megacrash_active else "Megacrash"
     draw_glass_button(
@@ -1152,16 +1152,143 @@ def draw_scan_normals_polished(
             y += row_h
 
 
-def _quick_assist_accent_for_label(label: str, is_default: bool = False) -> tuple[int, int, int]:
-    """Return the cohesive accent color used by quick-assist buttons.
+_QUICK_ASSIST_STRENGTH_MARKS = ("α", "β", "γ")
+# UMvC3-style assist strength colors: Alpha red, Beta green, Gamma blue.
+_QUICK_ASSIST_STRENGTH_COLORS = (
+    (236, 70, 82),
+    (74, 214, 114),
+    (82, 156, 255),
+)
 
-    Earlier builds tinted each strength differently. That was readable, but it
-    made the main GUI feel like a stack of unrelated color systems. Quick
-    assists now use one selected/action accent, while default stays muted.
+
+def _quick_assist_strength_meta(quick_index: int, is_default: bool = False) -> tuple[str, tuple[int, int, int]] | None:
+    """Return the visual assist-strength marker for custom quick assists.
+
+    This is intentionally display-only. The quick-assist JSON labels stay
+    unchanged for lookup/write logic, while the first three non-default buttons
+    get Marvel-style Alpha/Beta/Gamma markers.
     """
     if is_default:
+        return None
+    try:
+        qi = int(quick_index)
+    except Exception:
+        return None
+    if 0 <= qi < len(_QUICK_ASSIST_STRENGTH_MARKS):
+        return _QUICK_ASSIST_STRENGTH_MARKS[qi], _QUICK_ASSIST_STRENGTH_COLORS[qi]
+    return None
+
+
+def _quick_assist_display_label(label: str, quick_index: int, is_default: bool = False) -> str:
+    """Return the raw visible move label. Strength marks are drawn separately."""
+    return str(label or "")
+
+
+def _quick_assist_accent_for_label(
+    label: str,
+    is_default: bool = False,
+    quick_index: int | None = None,
+) -> tuple[int, int, int]:
+    """Return the accent color used by quick-assist buttons."""
+    if is_default:
         return GUI_TEXT_DIM
+    meta = _quick_assist_strength_meta(quick_index, is_default) if quick_index is not None else None
+    if meta:
+        return meta[1]
     return GUI_CONFIRM
+
+
+def _draw_quick_assist_button(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    label: str,
+    font: pygame.font.Font,
+    *,
+    active: bool = False,
+    hover: bool = False,
+    accent: tuple[int, int, int] = GUI_ACCENT_BLUE,
+    fill: tuple[int, int, int] | None = None,
+    mark_meta: tuple[str, tuple[int, int, int]] | None = None,
+) -> None:
+    """Draw a quick-assist button with a colored Alpha/Beta/Gamma marker lane."""
+    draw_glass_button(
+        surf,
+        rect,
+        "",
+        font,
+        active=active,
+        hover=hover,
+        accent=accent,
+        fill=fill,
+        align="center",
+    )
+
+    draw_rect = rect.move(0, -1 if hover else 0)
+    text_col = GUI_TEXT if active or hover else GUI_TEXT_MUTED
+
+    if mark_meta:
+        mark, mark_col = mark_meta
+        mark_lane_w = max(20, min(26, rect.width // 4))
+        divider_x = draw_rect.x + mark_lane_w
+
+        mark_surf = _render_outlined_text(
+            font,
+            mark,
+            mark_col,
+            (0, 0, 0),
+            max(8, mark_lane_w - 5),
+            outline_px=1,
+        )
+        surf.blit(
+            mark_surf,
+            (
+                draw_rect.x + (mark_lane_w - mark_surf.get_width()) // 2,
+                draw_rect.y + (draw_rect.height - mark_surf.get_height()) // 2,
+            ),
+        )
+
+        divider_top = draw_rect.y + 4
+        divider_bottom = draw_rect.bottom - 4
+        pygame.draw.line(
+            surf,
+            _darken(mark_col, 46),
+            (divider_x, divider_top),
+            (divider_x, divider_bottom),
+            1,
+        )
+        pygame.draw.line(
+            surf,
+            _brighten(mark_col, 20),
+            (divider_x + 1, divider_top),
+            (divider_x + 1, divider_bottom),
+            1,
+        )
+
+        text_x = divider_x + 6
+        text_w = max(8, draw_rect.right - text_x - 6)
+        label_surf = _render_outlined_text(
+            font,
+            label,
+            text_col,
+            (0, 0, 0),
+            text_w,
+            outline_px=1,
+        )
+        tx = text_x + (text_w - label_surf.get_width()) // 2
+    else:
+        text_w = max(8, draw_rect.width - 12)
+        label_surf = _render_outlined_text(
+            font,
+            label,
+            text_col,
+            (0, 0, 0),
+            text_w,
+            outline_px=1,
+        )
+        tx = draw_rect.x + (draw_rect.width - label_surf.get_width()) // 2
+
+    ty = draw_rect.y + (draw_rect.height - label_surf.get_height()) // 2
+    surf.blit(label_surf, (tx, ty))
 
 
 def _ease_out_cubic(t: float) -> float:
@@ -1177,6 +1304,73 @@ def _ease_in_out_smootherstep(t: float) -> float:
     """
     t = max(0.0, min(1.0, float(t)))
     return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+def _apply_panel_element_enter_animation(
+    panel_surf: pygame.Surface,
+    panel_fx: dict | None,
+    now: float,
+) -> pygame.Surface:
+    """Cascade fighter-card contents in after the card itself starts entering.
+
+    This is intentionally cheap: it slices the already-rendered card into a few
+    horizontal content bands and gives each band a tiny delayed fade/slide.  The
+    scanner profile cache buys us enough room for this polish without creating
+    new per-widget draw state or expensive per-pixel work every frame.
+    """
+    if not isinstance(panel_fx, dict):
+        return panel_surf
+    entry = panel_fx.get("panel_enter")
+    if not isinstance(entry, dict):
+        return panel_surf
+
+    try:
+        start = float(entry.get("start", 0.0) or 0.0)
+        dur = max(0.001, float(entry.get("dur", 0.68) or 0.68))
+    except Exception:
+        return panel_surf
+    if start <= 0.0:
+        return panel_surf
+
+    raw = (float(now) - start) / dur
+    if raw <= 0.0:
+        raw = 0.0
+    if raw >= 1.0:
+        return panel_surf
+
+    w, h = panel_surf.get_size()
+    if w <= 0 or h <= 0:
+        return panel_surf
+
+    out = pygame.Surface((w, h), pygame.SRCALPHA)
+
+    # Leave a low-alpha ghost of the full card so the panel never looks empty
+    # while the content bands are staggering in.
+    ghost = panel_surf.copy()
+    ghost.set_alpha(max(20, min(110, int(28 + 72 * _ease_out_cubic(raw)))))
+    out.blit(ghost, (0, 0))
+
+    bands = [
+        (0, int(h * 0.35), 0.00, -10, 5),       # portrait/header/HP
+        (int(h * 0.27), int(h * 0.56), 0.08, -8, 4),   # pool/baroque
+        (int(h * 0.48), int(h * 0.74), 0.16, -6, 3),   # move/status
+        (int(h * 0.66), h, 0.24, 0, 5),         # buttons/quick assists
+    ]
+
+    for y0, y1, delay, dx, dy in bands:
+        y0 = max(0, min(h, int(y0)))
+        y1 = max(y0, min(h, int(y1)))
+        if y1 <= y0:
+            continue
+        denom = max(0.001, 1.0 - delay)
+        local = max(0.0, min(1.0, (raw - delay) / denom))
+        eased = _ease_out_cubic(local)
+        if eased <= 0.0:
+            continue
+        piece = panel_surf.subsurface(pygame.Rect(0, y0, w, y1 - y0)).copy()
+        piece.set_alpha(max(0, min(255, int(255 * eased))))
+        out.blit(piece, (int((1.0 - eased) * dx), y0 + int((1.0 - eased) * dy)))
+
+    return out
 
 def draw_quick_assist_footer(
     surf: pygame.Surface,
@@ -1262,9 +1456,12 @@ def draw_quick_assist_footer(
     for qi, quick in enumerate(quick_defs):
         qx = qa_x0 + qi * (qa_w + qa_gap)
         qrect_local = pygame.Rect(qx, qa_y, qa_w, qa_h)
-        qlabel = str(quick.get("label", f"A{qi + 1}"))
-        accent = _quick_assist_accent_for_label(qlabel, bool(quick.get("default", False)))
-        button_rows.append((qi, quick, qrect_local, qlabel, accent))
+        raw_qlabel = str(quick.get("label", f"A{qi + 1}"))
+        is_default_quick = bool(quick.get("default", False))
+        qlabel = _quick_assist_display_label(raw_qlabel, qi, is_default_quick)
+        mark_meta = _quick_assist_strength_meta(qi, is_default_quick)
+        accent = _quick_assist_accent_for_label(raw_qlabel, is_default_quick, qi)
+        button_rows.append((qi, quick, qrect_local, qlabel, accent, mark_meta))
 
     # Sliding selection plate. Use a time-based smootherstep motion, a longer
     # duration, and no immediate selected-button fill during travel. That keeps
@@ -1276,7 +1473,7 @@ def draw_quick_assist_footer(
     slide_frac = 1.0
 
     if active_quick_index is not None:
-        for qi, _quick, qrect_local, _qlabel, accent in button_rows:
+        for qi, _quick, qrect_local, _qlabel, accent, _mark_meta in button_rows:
             if qi == int(active_quick_index):
                 selected_rect = qrect_local
                 selected_accent = accent
@@ -1295,7 +1492,7 @@ def draw_quick_assist_footer(
                 dur = max(0.001, float(slide_anim.get("dur", 0.38) or 0.38))
 
                 if dst_i == int(active_quick_index) and start_ts > 0.0:
-                    for qi, _quick, qrect_local, _qlabel, _accent in button_rows:
+                    for qi, _quick, qrect_local, _qlabel, _accent, _mark_meta in button_rows:
                         if qi == src_i:
                             src_rect = qrect_local
                         if qi == dst_i:
@@ -1409,7 +1606,7 @@ def draw_quick_assist_footer(
             except Exception:
                 pass
 
-    for qi, quick, qrect_local, qlabel, accent in button_rows:
+    for qi, quick, qrect_local, qlabel, accent, mark_meta in button_rows:
         qhover = qrect_local.collidepoint(mx_local, my_local)
 
         is_selected = active_quick_index is not None and int(active_quick_index) == qi
@@ -1425,7 +1622,7 @@ def draw_quick_assist_footer(
         if is_flashing:
             fill = _brighten(fill, 30)
 
-        draw_glass_button(
+        _draw_quick_assist_button(
             surf,
             qrect_local,
             qlabel,
@@ -1434,7 +1631,7 @@ def draw_quick_assist_footer(
             hover=qhover,
             accent=accent,
             fill=fill,
-            align="center",
+            mark_meta=mark_meta,
         )
 
         if is_selected_fill:

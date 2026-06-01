@@ -180,8 +180,10 @@ def open_megacrash_trainer_window(
         win = tk.Toplevel(root)
         _OPEN_WINDOW = win
         win.title("Megacrash Trainer")
-        win.geometry("590x455")
-        win.minsize(560, 430)
+        # Default height must show Trigger, both mode cards, Cooldown, status, and buttons.
+        # The previous 455px height clipped the bottom controls on Windows.
+        win.geometry("590x535")
+        win.minsize(560, 500)
         win.configure(bg=_BG)
 
         try:
@@ -355,6 +357,19 @@ def open_megacrash_trainer_window(
             win.destroy()
 
         win.protocol("WM_DELETE_WINDOW", _on_close)
+
+        # Size to the actual requested content so no control starts hidden.
+        # Keep this conservative so it still feels like the rest of the compact GUI.
+        try:
+            win.update_idletasks()
+            screen_h = int(win.winfo_screenheight())
+            req_w = max(590, int(win.winfo_reqwidth()) + 8)
+            req_h = max(535, int(win.winfo_reqheight()) + 8)
+            req_h = min(req_h, max(500, screen_h - 80))
+            win.geometry(f"{req_w}x{req_h}")
+        except Exception:
+            pass
+
         label_entry.focus_set()
         win.focus_force()
 

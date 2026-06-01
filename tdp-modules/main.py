@@ -6,6 +6,9 @@ import math
 import random
 import subprocess
 import sys
+import threading
+import zipfile
+from datetime import datetime
 import pygame
 from subprocess_compat import frozen_exe
 
@@ -17,12 +20,52 @@ def resource_path(*parts):
         base = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, *parts)
 
+
+def _safe_pygame_event_get():
+    """Return pygame events without letting a corrupted SDL event crash the GUI.
+
+    On pygame 2.6.x + Python 3.13, pygame.event.get() can very rarely surface
+    as SystemError("<built-in function get> returned a result with an exception set")
+    with an internal KeyError: 0.  That is not a TvC state problem; it means the
+    pygame C extension left a Python error set while translating an SDL event.
+    Clear the queue and keep the overlay alive.
+    """
+    try:
+        return pygame.event.get()
+    except (SystemError, KeyError) as e:
+        try:
+            print(f"[pygame event] recovered from event queue error: {e!r}; clearing queue", flush=True)
+        except Exception:
+            pass
+        try:
+            pygame.event.clear()
+        except Exception:
+            try:
+                pygame.event.pump()
+            except Exception:
+                pass
+        return []
+    except Exception as e:
+        try:
+            print(f"[pygame event] recovered from unexpected event queue error: {e!r}; clearing queue", flush=True)
+        except Exception:
+            pass
+        try:
+            pygame.event.clear()
+        except Exception:
+            pass
+        return []
+
 from constants import (
     SLOTS,
     CHAR_NAMES,
     OFF_CHAR_ID,
     ATT_ID_OFF_PRIMARY,
     ATT_ID_OFF_SECOND,
+    MEM1_LO,
+    MEM1_HI,
+    MEM2_LO,
+    MEM2_HI,
 )
 
 import pygame
@@ -94,6 +137,11 @@ try:
 except Exception as e:
     open_megacrash_trainer_window = None
     print(f"WARNING: megacrash trainer window not available ({e!r})")
+try:
+    from hud_editor_window import open_hud_editor_window
+except Exception as e:
+    open_hud_editor_window = None
+    print(f"WARNING: HUD editor window not available ({e!r})")
 try:
     import fd_patch_runtime
 except Exception as e:
@@ -191,6 +239,126 @@ def _copy_to_clipboard(text: str) -> None:
         except Exception as e:
             print(f"[copy] failed ({e!r}) -> {text}")
     print(f"[copy] (no pyperclip) -> {text}")
+
+
+def _runtime_output_dir(*parts: str) -> str:
+    """Writable app-adjacent output path for source and onefile builds."""
+    try:
+        if getattr(sys, "frozen", False):
+            base = os.path.dirname(os.path.abspath(sys.executable))
+        else:
+            base = os.path.dirname(os.path.abspath(__file__))
+    except Exception:
+        base = os.getcwd()
+    return os.path.join(base, *parts)
+
+
+def _start_memory_dump(mem_dump_state: dict) -> bool:
+    """Start a background MEM1/MEM2 dump without freezing the GUI.
+
+    The dump is written as a zip containing mem1.raw, mem2.raw, and a small
+    manifest.  Files land beside the app under memory_dumps/, which keeps them
+    easy to grab/upload for diffing while avoiding Git-tracked runtime JSON.
+    """
+    if bool(mem_dump_state.get("active", False)):
+        return False
+
+    def _worker():
+        chunk_size = 0x100000  # 1 MiB keeps the UI responsive and progress smooth.
+        started = time.time()
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = _runtime_output_dir("memory_dumps")
+        zip_path = os.path.join(out_dir, f"tvc_memdump_{stamp}.zip")
+        manifest = {
+            "created_at": stamp,
+            "ranges": [],
+            "errors": [],
+            "duration_sec": None,
+        }
+
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+            ranges = [
+                ("mem1.raw", MEM1_LO, MEM1_HI),
+                ("mem2.raw", MEM2_LO, MEM2_HI),
+            ]
+            total = sum(max(0, hi - lo) for _name, lo, hi in ranges)
+            done = 0
+            mem_dump_state.update({
+                "active": True,
+                "progress": 0.0,
+                "label": "Dumping 0%",
+                "path": zip_path,
+                "error": "",
+            })
+
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
+                for arc_name, lo, hi in ranges:
+                    size = max(0, hi - lo)
+                    bad_chunks = []
+                    range_started = time.time()
+                    with zf.open(arc_name, "w") as out_f:
+                        addr = lo
+                        while addr < hi:
+                            n = min(chunk_size, hi - addr)
+                            data = b""
+                            try:
+                                data = rbytes(addr, n)
+                            except Exception as e:
+                                manifest["errors"].append(f"{arc_name} read exception at 0x{addr:08X}: {e!r}")
+                            if len(data) != n:
+                                bad_chunks.append({
+                                    "addr": f"0x{addr:08X}",
+                                    "requested": int(n),
+                                    "read": int(len(data) if data else 0),
+                                })
+                                # Keep raw offsets stable for diffing even if a read misses.
+                                data = (data or b"") + (b"\x00" * max(0, n - len(data or b"")))
+                            out_f.write(data)
+                            addr += n
+                            done += n
+                            pct = (done / total) if total else 1.0
+                            mem_dump_state["progress"] = pct
+                            mem_dump_state["label"] = f"Dumping {int(pct * 100):d}%"
+                    manifest["ranges"].append({
+                        "file": arc_name,
+                        "lo": f"0x{lo:08X}",
+                        "hi": f"0x{hi:08X}",
+                        "size": int(size),
+                        "bad_chunks": bad_chunks,
+                        "duration_sec": round(time.time() - range_started, 3),
+                    })
+                manifest["duration_sec"] = round(time.time() - started, 3)
+                zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+
+            mem_dump_state.update({
+                "active": False,
+                "progress": 1.0,
+                "label": "Dump complete",
+                "path": zip_path,
+                "last_done_time": time.time(),
+                "error": "",
+            })
+            print(f"[memdump] wrote {zip_path}", flush=True)
+        except Exception as e:
+            mem_dump_state.update({
+                "active": False,
+                "label": "Dump failed",
+                "error": repr(e),
+                "last_done_time": time.time(),
+            })
+            print(f"[memdump] failed: {e!r}", flush=True)
+
+    mem_dump_state.update({
+        "active": True,
+        "progress": 0.0,
+        "label": "Dumping 0%",
+        "error": "",
+    })
+    th = threading.Thread(target=_worker, name="TvCMemoryDump", daemon=True)
+    mem_dump_state["thread"] = th
+    th.start()
+    return True
 
 
 def _u32be_bytes(value: int) -> bytes:
@@ -1318,9 +1486,11 @@ def draw_top_command_dock(
     megacrash_trainer_delay_frames: int = MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES,
     megacrash_trainer_cooldown_sec: float = MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC,
     megacrash_trainer_cooldown_remaining: float = 0.0,
+    mem_dump_active: bool = False,
+    mem_dump_label: str = "",
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
-) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
+) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
     mx, my = mouse_pos
     w, _h = screen.get_size()
 
@@ -1336,7 +1506,7 @@ def draw_top_command_dock(
 
     # Quiet status text plus a tiny heartbeat indicator.
     status_text = "Frame Data includes projectiles | Megacrash opens trainer settings | Right click panels/debug rows to copy"
-    status_surf = _fit_text(smallfont, status_text, GUI_TEXT_DIM, max(80, w - 640))
+    status_surf = _fit_text(smallfont, status_text, GUI_TEXT_DIM, max(80, w - 920))
     status_x = w - status_surf.get_width() - 10
     pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 4.0)
     dot_col = _brighten(GUI_APP_ACCENT, int(40 * pulse))
@@ -1370,20 +1540,9 @@ def draw_top_command_dock(
     # projectile button in the main command dock.
     ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
 
+    # Keep Overlay directly beside Hitboxes. Mission Mode depends on the master
+    # overlay process, so this placement makes that dependency easier to see.
     x = hb_btn_rect.right + gap
-    as_btn_rect = pygame.Rect(x, y, 132, btn_h)
-    draw_glass_button(
-        screen,
-        as_btn_rect,
-        "Assist Scanner",
-        smallfont,
-        active=False,
-        hover=as_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        align="center",
-    )
-
-    x = as_btn_rect.right + gap
     hud_btn_rect = pygame.Rect(x, y, 142, btn_h)
     draw_glass_button(
         screen,
@@ -1397,6 +1556,19 @@ def draw_top_command_dock(
     )
 
     x = hud_btn_rect.right + gap
+    as_btn_rect = pygame.Rect(x, y, 132, btn_h)
+    draw_glass_button(
+        screen,
+        as_btn_rect,
+        "Assist Scanner",
+        smallfont,
+        active=False,
+        hover=as_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        align="center",
+    )
+
+    x = as_btn_rect.right + gap
     megacrash_btn_rect = pygame.Rect(x, y, 144, btn_h)
     mega_label = f"Megacrash: {'ON' if megacrash_trainer_enabled else 'OFF'}"
     draw_glass_button(
@@ -1408,6 +1580,35 @@ def draw_top_command_dock(
         hover=megacrash_btn_rect.collidepoint(mx, my),
         accent=GUI_APP_ACCENT,
         fill=(44, 56, 82) if megacrash_trainer_enabled else (31, 33, 42),
+        align="center",
+    )
+
+    x = megacrash_btn_rect.right + gap
+    memdump_btn_rect = pygame.Rect(x, y, 110, btn_h)
+    dump_label = mem_dump_label if mem_dump_active and mem_dump_label else "Dump MEM"
+    draw_glass_button(
+        screen,
+        memdump_btn_rect,
+        dump_label,
+        smallfont,
+        active=bool(mem_dump_active),
+        hover=memdump_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(44, 56, 82) if mem_dump_active else (31, 33, 42),
+        align="center",
+    )
+
+    x = memdump_btn_rect.right + gap
+    win_counter_btn_rect = pygame.Rect(x, y, 118, btn_h)
+    draw_glass_button(
+        screen,
+        win_counter_btn_rect,
+        "HUD Editor",
+        smallfont,
+        active=False,
+        hover=win_counter_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(31, 33, 42),
         align="center",
     )
 
@@ -1438,7 +1639,7 @@ def draw_top_command_dock(
         hb_filter_rects[slot_name] = chip_rect.inflate(4, 4)
         chip_x += chip_w + chip_gap
 
-    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, hb_filter_rects
+    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, hb_filter_rects
 
 
 def draw_status_rail(
@@ -2120,16 +2321,143 @@ def draw_scan_normals_polished(
             y += row_h
 
 
-def _quick_assist_accent_for_label(label: str, is_default: bool = False) -> tuple[int, int, int]:
-    """Return the cohesive accent color used by quick-assist buttons.
+_QUICK_ASSIST_STRENGTH_MARKS = ("α", "β", "γ")
+# UMvC3-style assist strength colors: Alpha red, Beta green, Gamma blue.
+_QUICK_ASSIST_STRENGTH_COLORS = (
+    (236, 70, 82),
+    (74, 214, 114),
+    (82, 156, 255),
+)
 
-    Earlier builds tinted each strength differently. That was readable, but it
-    made the main GUI feel like a stack of unrelated color systems. Quick
-    assists now use one selected/action accent, while default stays muted.
+
+def _quick_assist_strength_meta(quick_index: int, is_default: bool = False) -> tuple[str, tuple[int, int, int]] | None:
+    """Return the visual assist-strength marker for custom quick assists.
+
+    This is intentionally display-only. The quick-assist JSON labels stay
+    unchanged for lookup/write logic, while the first three non-default buttons
+    get Marvel-style Alpha/Beta/Gamma markers.
     """
     if is_default:
+        return None
+    try:
+        qi = int(quick_index)
+    except Exception:
+        return None
+    if 0 <= qi < len(_QUICK_ASSIST_STRENGTH_MARKS):
+        return _QUICK_ASSIST_STRENGTH_MARKS[qi], _QUICK_ASSIST_STRENGTH_COLORS[qi]
+    return None
+
+
+def _quick_assist_display_label(label: str, quick_index: int, is_default: bool = False) -> str:
+    """Return the raw visible move label. Strength marks are drawn separately."""
+    return str(label or "")
+
+
+def _quick_assist_accent_for_label(
+    label: str,
+    is_default: bool = False,
+    quick_index: int | None = None,
+) -> tuple[int, int, int]:
+    """Return the accent color used by quick-assist buttons."""
+    if is_default:
         return GUI_TEXT_DIM
+    meta = _quick_assist_strength_meta(quick_index, is_default) if quick_index is not None else None
+    if meta:
+        return meta[1]
     return GUI_CONFIRM
+
+
+def _draw_quick_assist_button(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    label: str,
+    font: pygame.font.Font,
+    *,
+    active: bool = False,
+    hover: bool = False,
+    accent: tuple[int, int, int] = GUI_ACCENT_BLUE,
+    fill: tuple[int, int, int] | None = None,
+    mark_meta: tuple[str, tuple[int, int, int]] | None = None,
+) -> None:
+    """Draw a quick-assist button with a colored Alpha/Beta/Gamma marker lane."""
+    draw_glass_button(
+        surf,
+        rect,
+        "",
+        font,
+        active=active,
+        hover=hover,
+        accent=accent,
+        fill=fill,
+        align="center",
+    )
+
+    draw_rect = rect.move(0, -1 if hover else 0)
+    text_col = GUI_TEXT if active or hover else GUI_TEXT_MUTED
+
+    if mark_meta:
+        mark, mark_col = mark_meta
+        mark_lane_w = max(20, min(26, rect.width // 4))
+        divider_x = draw_rect.x + mark_lane_w
+
+        mark_surf = _render_outlined_text(
+            font,
+            mark,
+            mark_col,
+            (0, 0, 0),
+            max(8, mark_lane_w - 5),
+            outline_px=1,
+        )
+        surf.blit(
+            mark_surf,
+            (
+                draw_rect.x + (mark_lane_w - mark_surf.get_width()) // 2,
+                draw_rect.y + (draw_rect.height - mark_surf.get_height()) // 2,
+            ),
+        )
+
+        divider_top = draw_rect.y + 4
+        divider_bottom = draw_rect.bottom - 4
+        pygame.draw.line(
+            surf,
+            _darken(mark_col, 46),
+            (divider_x, divider_top),
+            (divider_x, divider_bottom),
+            1,
+        )
+        pygame.draw.line(
+            surf,
+            _brighten(mark_col, 20),
+            (divider_x + 1, divider_top),
+            (divider_x + 1, divider_bottom),
+            1,
+        )
+
+        text_x = divider_x + 6
+        text_w = max(8, draw_rect.right - text_x - 6)
+        label_surf = _render_outlined_text(
+            font,
+            label,
+            text_col,
+            (0, 0, 0),
+            text_w,
+            outline_px=1,
+        )
+        tx = text_x + (text_w - label_surf.get_width()) // 2
+    else:
+        text_w = max(8, draw_rect.width - 12)
+        label_surf = _render_outlined_text(
+            font,
+            label,
+            text_col,
+            (0, 0, 0),
+            text_w,
+            outline_px=1,
+        )
+        tx = draw_rect.x + (draw_rect.width - label_surf.get_width()) // 2
+
+    ty = draw_rect.y + (draw_rect.height - label_surf.get_height()) // 2
+    surf.blit(label_surf, (tx, ty))
 
 
 def _ease_out_cubic(t: float) -> float:
@@ -2145,6 +2473,73 @@ def _ease_in_out_smootherstep(t: float) -> float:
     """
     t = max(0.0, min(1.0, float(t)))
     return t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+
+def _apply_panel_element_enter_animation(
+    panel_surf: pygame.Surface,
+    panel_fx: dict | None,
+    now: float,
+) -> pygame.Surface:
+    """Cascade fighter-card contents in after the card itself starts entering.
+
+    This is intentionally cheap: it slices the already-rendered card into a few
+    horizontal content bands and gives each band a tiny delayed fade/slide.  The
+    scanner profile cache buys us enough room for this polish without creating
+    new per-widget draw state or expensive per-pixel work every frame.
+    """
+    if not isinstance(panel_fx, dict):
+        return panel_surf
+    entry = panel_fx.get("panel_enter")
+    if not isinstance(entry, dict):
+        return panel_surf
+
+    try:
+        start = float(entry.get("start", 0.0) or 0.0)
+        dur = max(0.001, float(entry.get("dur", 0.68) or 0.68))
+    except Exception:
+        return panel_surf
+    if start <= 0.0:
+        return panel_surf
+
+    raw = (float(now) - start) / dur
+    if raw <= 0.0:
+        raw = 0.0
+    if raw >= 1.0:
+        return panel_surf
+
+    w, h = panel_surf.get_size()
+    if w <= 0 or h <= 0:
+        return panel_surf
+
+    out = pygame.Surface((w, h), pygame.SRCALPHA)
+
+    # Leave a low-alpha ghost of the full card so the panel never looks empty
+    # while the content bands are staggering in.
+    ghost = panel_surf.copy()
+    ghost.set_alpha(max(20, min(110, int(28 + 72 * _ease_out_cubic(raw)))))
+    out.blit(ghost, (0, 0))
+
+    bands = [
+        (0, int(h * 0.35), 0.00, -10, 5),       # portrait/header/HP
+        (int(h * 0.27), int(h * 0.56), 0.08, -8, 4),   # pool/baroque
+        (int(h * 0.48), int(h * 0.74), 0.16, -6, 3),   # move/status
+        (int(h * 0.66), h, 0.24, 0, 5),         # buttons/quick assists
+    ]
+
+    for y0, y1, delay, dx, dy in bands:
+        y0 = max(0, min(h, int(y0)))
+        y1 = max(y0, min(h, int(y1)))
+        if y1 <= y0:
+            continue
+        denom = max(0.001, 1.0 - delay)
+        local = max(0.0, min(1.0, (raw - delay) / denom))
+        eased = _ease_out_cubic(local)
+        if eased <= 0.0:
+            continue
+        piece = panel_surf.subsurface(pygame.Rect(0, y0, w, y1 - y0)).copy()
+        piece.set_alpha(max(0, min(255, int(255 * eased))))
+        out.blit(piece, (int((1.0 - eased) * dx), y0 + int((1.0 - eased) * dy)))
+
+    return out
 
 def draw_quick_assist_footer(
     surf: pygame.Surface,
@@ -2230,9 +2625,12 @@ def draw_quick_assist_footer(
     for qi, quick in enumerate(quick_defs):
         qx = qa_x0 + qi * (qa_w + qa_gap)
         qrect_local = pygame.Rect(qx, qa_y, qa_w, qa_h)
-        qlabel = str(quick.get("label", f"A{qi + 1}"))
-        accent = _quick_assist_accent_for_label(qlabel, bool(quick.get("default", False)))
-        button_rows.append((qi, quick, qrect_local, qlabel, accent))
+        raw_qlabel = str(quick.get("label", f"A{qi + 1}"))
+        is_default_quick = bool(quick.get("default", False))
+        qlabel = _quick_assist_display_label(raw_qlabel, qi, is_default_quick)
+        mark_meta = _quick_assist_strength_meta(qi, is_default_quick)
+        accent = _quick_assist_accent_for_label(raw_qlabel, is_default_quick, qi)
+        button_rows.append((qi, quick, qrect_local, qlabel, accent, mark_meta))
 
     # Sliding selection plate. Use a time-based smootherstep motion, a longer
     # duration, and no immediate selected-button fill during travel. That keeps
@@ -2244,7 +2642,7 @@ def draw_quick_assist_footer(
     slide_frac = 1.0
 
     if active_quick_index is not None:
-        for qi, _quick, qrect_local, _qlabel, accent in button_rows:
+        for qi, _quick, qrect_local, _qlabel, accent, _mark_meta in button_rows:
             if qi == int(active_quick_index):
                 selected_rect = qrect_local
                 selected_accent = accent
@@ -2263,7 +2661,7 @@ def draw_quick_assist_footer(
                 dur = max(0.001, float(slide_anim.get("dur", 0.38) or 0.38))
 
                 if dst_i == int(active_quick_index) and start_ts > 0.0:
-                    for qi, _quick, qrect_local, _qlabel, _accent in button_rows:
+                    for qi, _quick, qrect_local, _qlabel, _accent, _mark_meta in button_rows:
                         if qi == src_i:
                             src_rect = qrect_local
                         if qi == dst_i:
@@ -2377,7 +2775,7 @@ def draw_quick_assist_footer(
             except Exception:
                 pass
 
-    for qi, quick, qrect_local, qlabel, accent in button_rows:
+    for qi, quick, qrect_local, qlabel, accent, mark_meta in button_rows:
         qhover = qrect_local.collidepoint(mx_local, my_local)
 
         is_selected = active_quick_index is not None and int(active_quick_index) == qi
@@ -2393,7 +2791,7 @@ def draw_quick_assist_footer(
         if is_flashing:
             fill = _brighten(fill, 30)
 
-        draw_glass_button(
+        _draw_quick_assist_button(
             surf,
             qrect_local,
             qlabel,
@@ -2402,7 +2800,7 @@ def draw_quick_assist_footer(
             hover=qhover,
             accent=accent,
             fill=fill,
-            align="center",
+            mark_meta=mark_meta,
         )
 
         if is_selected_fill:
@@ -3110,6 +3508,15 @@ def legacy_main():
     megacrash_trainer_state.setdefault("roll_count", 0)
     megacrash_trainer_state.setdefault("trigger_count", 0)
 
+    mem_dump_state = {
+        "active": False,
+        "progress": 0.0,
+        "label": "",
+        "path": "",
+        "error": "",
+        "last_done_time": 0.0,
+    }
+
     running = True
 
     # ------------------------------------------------------------------
@@ -3122,7 +3529,7 @@ def legacy_main():
         mouse_right_clicked_pos = None
 
         # Events
-        for ev in pygame.event.get():
+        for ev in _safe_pygame_event_get():
             if ev.type == pygame.QUIT:
                 running = False
             elif ev.type == pygame.VIDEORESIZE:
@@ -3337,6 +3744,10 @@ def legacy_main():
             if last_char_by_slot.get(slotname) != snap.get("name"):
                 last_char_by_slot[slotname] = snap.get("name")
                 anim_queue_after_scan.add((slotname, "fadein"))
+                # Stagger the internal card elements after the shell starts
+                # sliding in.  This keeps the first appearance premium without
+                # running any extra scanner work.
+                slot_fx["panel_enter"] = {"start": now + 0.18, "dur": 0.74}
                 need_rescan_normals = True
 
             render_snap_by_slot[slotname]    = snap
@@ -3542,13 +3953,13 @@ def legacy_main():
             dur  = anim.get("dur") or PANEL_SLIDE_DURATION
             frac = max(0.0, min(1.0, t / dur)) if dur else 1.0
 
-            y = anim["from_y"] + (anim["to_y"] - anim["from_y"]) * frac
+            eased_frac = _ease_out_cubic(frac)
+            y = anim["from_y"] + (anim["to_y"] - anim["from_y"]) * eased_frac
 
             from_a = anim.get("from_a", 255)
             to_a   = anim.get("to_a",   255)
             if from_a == 0 and to_a > 0:
-                inner = max(0.0, min(1.0, (frac - 0.9) / 0.1)) if frac > 0.9 else 0.0
-                alpha = int(from_a + (to_a - from_a) * inner)
+                alpha = int(from_a + (to_a - from_a) * eased_frac)
             else:
                 alpha = int(from_a + (to_a - from_a) * frac)
 
@@ -3566,7 +3977,7 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, hb_filter_rects = draw_top_command_dock(
+        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, hb_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -3575,6 +3986,8 @@ def legacy_main():
             megacrash_trainer_chance=int(megacrash_trainer_state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
             megacrash_trainer_mode=str(megacrash_trainer_state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
             megacrash_trainer_delay_frames=int(megacrash_trainer_state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
+            mem_dump_active=bool(mem_dump_state.get("active", False)),
+            mem_dump_label=str(mem_dump_state.get("label") or ""),
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
         )
@@ -3633,6 +4046,11 @@ def legacy_main():
                 if _active_char_id == 0 or _snap_char_id == 0 or _active_char_id == _snap_char_id:
                     current_assist_label = str(_active_row_for_panel.get("label") or "--")
 
+            slot_panel_fx = {
+                **panel_fx_state.get(slot_label, {}),
+                "victory_pulse_live": (slot_label in victory_slots),
+            }
+
             draw_panel_polished_stats(
                 surf,
                 surf.get_rect(),
@@ -3643,7 +4061,7 @@ def legacy_main():
                 header,
                 t_ms,
                 assist_label=current_assist_label,
-                panel_fx={**panel_fx_state.get(slot_label, {}), "victory_pulse_live": (slot_label in victory_slots)},
+                panel_fx=slot_panel_fx,
             )
 
             btn_h          = 20
@@ -3733,6 +4151,7 @@ def legacy_main():
                 )
             )
 
+            surf = _apply_panel_element_enter_animation(surf, slot_panel_fx, now)
             surf.set_alpha(alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))
 
@@ -3898,6 +4317,15 @@ def legacy_main():
                     age = 999.0
                 if age < 2.0:
                     status_parts.append(f"Mega hit {last_trig.get('slot', '?')}")
+        if bool(mem_dump_state.get("active", False)):
+            status_parts.append(str(mem_dump_state.get("label") or "Memory dump running"))
+        else:
+            dump_err = str(mem_dump_state.get("error") or "")
+            dump_done_t = float(mem_dump_state.get("last_done_time", 0.0) or 0.0)
+            if dump_err and now - dump_done_t < 6.0:
+                status_parts.append(f"Dump failed {dump_err}")
+            elif dump_done_t and now - dump_done_t < 6.0:
+                status_parts.append(f"Dump saved {os.path.basename(str(mem_dump_state.get('path') or ''))}")
 
         draw_status_rail(
             screen,
@@ -3949,6 +4377,22 @@ def legacy_main():
                     open_megacrash_trainer_window(megacrash_trainer_state, _save_megacrash_trainer_config)
                 else:
                     print("[megacrash trainer] settings window unavailable")
+                mouse_clicked_pos = None
+                continue
+
+            elif memdump_btn_rect.collidepoint(mx, my):
+                if _start_memory_dump(mem_dump_state):
+                    print("[memdump] started", flush=True)
+                else:
+                    print("[memdump] already running", flush=True)
+                mouse_clicked_pos = None
+                continue
+
+            elif win_counter_btn_rect.collidepoint(mx, my):
+                if open_hud_editor_window is not None:
+                    open_hud_editor_window()
+                else:
+                    print("[hud editor] settings window unavailable")
                 mouse_clicked_pos = None
                 continue
 
@@ -4045,7 +4489,21 @@ def legacy_main():
             ]:
                 if btn_rect.collidepoint(mx, my):
                     mission_mgr.toggle_active_slot(slot_label)
+
+                    # Mission Mode is drawn by the master overlay process. If
+                    # both HUD overlay and hitboxes are off, there is no process
+                    # alive to display the mission route. Auto-enable Overlay
+                    # for active missions so Mission Mode works from a fully
+                    # quiet/off state.
+                    if mission_mgr.active_slot and (not overlay_enabled) and (not any(hitbox_slots.values())):
+                        overlay_enabled = True
+                        _write_master_control()
+                        _sync_master_overlay_state()
+
+                    mouse_clicked_pos = None
                     break
+            if mouse_clicked_pos is None:
+                continue
 
             # Frame data buttons
             for slot_label, btn_rect in [

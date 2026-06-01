@@ -2260,6 +2260,11 @@ def _load_profile_moves(
     prof = (doc.get("profiles") or {}).get(key)
     if not isinstance(prof, dict):
         return None
+    # Reject experimental Morrigan inherited-stun profiles from v28/v29.
+    # Those builds resolved FF FF FF FE default markers into guessed HS/BS values,
+    # but we are intentionally returning Morrigan to the old blank behavior.
+    if "morrigan" in key.lower() and "morrigan-stun" in str(prof.get("scanner_build") or "").lower():
+        return None
     if int(prof.get("version") or 0) != PROFILE_CACHE_VERSION:
         return None
     if str(prof.get("table_signature") or "") != sig:
