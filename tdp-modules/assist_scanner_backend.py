@@ -18,6 +18,11 @@ except Exception:
     wbytes = None
 
 try:
+    import runtime_patch_manager as _rpm
+except Exception:
+    _rpm = None
+
+try:
     from move_id_map import lookup_move_name as _lookup_move_name
 except Exception:
     def _lookup_move_name(aid: int) -> str | None:
@@ -144,7 +149,7 @@ _HEADLESS_SLOT_ASSIST_PROFILES: dict[str, dict[str, object]] = {}
 _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE: dict[int, bool] = {}
 _HEADLESS_LAST_PATCH_KEY: tuple[int, int] | None = None
 _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT: dict[str, tuple[tuple, float]] = {}
-_ASSIST_RUNTIME_WRITE_THROTTLE_SECONDS = 0.045
+_ASSIST_RUNTIME_WRITE_THROTTLE_SECONDS = 0.012
 _ASSIST_LOG_LAST_TS: dict[str, float] = {}
 
 
@@ -168,7 +173,7 @@ _QUICK_ROUTE_INFLIGHT: set[tuple[int, int]] = set()
 _QUICK_ROUTE_LOCK = threading.RLock()
 _QUICK_ROUTE_FAIL_UNTIL: dict[tuple[int, int], float] = {}
 _QUICK_ROUTE_FAIL_TTL_SECONDS = 0.75
-_QUICK_ROUTE_MAX_INFLIGHT = 1
+_QUICK_ROUTE_MAX_INFLIGHT = 4
 
 # Dedicated quick-assist click lane.
 #
@@ -4301,7 +4306,29 @@ def _selector_writes_for_row_module(row: dict, raw_val: int | None) -> dict[int,
     return {}
 
 
-def _write_many_module(writes: dict[int, bytes]) -> bool:
+def _write_many_module(
+    writes: dict[int, bytes],
+    *,
+    urgent: bool = False,
+    key: str = "assist:module",
+) -> bool:
+    if not writes:
+        return True
+    if _rpm is not None:
+        try:
+            return bool(_rpm.write_many(
+                writes,
+                key=key,
+                priority=98 if urgent else 70,
+                # Urgent assist graft writes are time-critical.  Do not spend
+                # the assist-entry frame reading the current bytes first; write
+                # the requested graft now and let RuntimePatchManager record it.
+                dirty=False if urgent else True,
+                force=True if urgent else False,
+                cache_ttl_sec=0.0,
+            ))
+        except Exception:
+            pass
     if wbytes is None:
         return False
     for addr, payload in writes.items():
@@ -4709,6 +4736,19 @@ def _queue_quick_assist_job(slot_label: str, quick_index: int, snap: dict | None
     global _QUICK_ASSIST_LANE_SEQ
     label = str(preset.get("label") or preset.get("name") or preset.get("move") or f"quick {quick_index}")
     clean_snap = dict(snap) if isinstance(snap, dict) else None
+
+    # If the user clicks during or right before an assist-entry window, do not
+    # let the old edge latch suppress the first real graft after the worker
+    # resolves the route.  This was the source of the "loaded, but grafts on the
+    # next assist 8 seconds later" feel.
+    try:
+        fighter_base = int((clean_snap or {}).get("base") or 0)
+        if fighter_base:
+            _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.pop(fighter_base, None)
+            _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT.pop(str(slot_label), None)
+    except Exception:
+        pass
+
     with _QUICK_ASSIST_LANE_LOCK:
         _QUICK_ASSIST_LANE_SEQ += 1
         job = {
@@ -4718,15 +4758,20 @@ def _queue_quick_assist_job(slot_label: str, quick_index: int, snap: dict | None
             "label": label,
             "seq": int(_QUICK_ASSIST_LANE_SEQ),
             "queued_at": time.time(),
+            "priority": 100,
         }
-        if str(slot_label) not in _QUICK_ASSIST_LANE_PENDING:
-            _QUICK_ASSIST_LANE_ORDER.append(str(slot_label))
+        if str(slot_label) in _QUICK_ASSIST_LANE_ORDER:
+            try:
+                _QUICK_ASSIST_LANE_ORDER.remove(str(slot_label))
+            except Exception:
+                pass
+        _QUICK_ASSIST_LANE_ORDER.insert(0, str(slot_label))
         _QUICK_ASSIST_LANE_PENDING[str(slot_label)] = job
         _QUICK_ASSIST_LANE_EVENT.set()
     _quick_assist_lane_start()
     if not quiet:
         try:
-            print(f"[assist quick lane] queued {slot_label} -> {label}")
+            print(f"[assist quick lane] queued urgent {slot_label} -> {label}")
         except Exception:
             pass
 
@@ -4757,14 +4802,9 @@ def apply_quick_assist_from_main(slot_label: str, quick_index: int, snap: dict |
             if char_id:
                 break
 
-    # A click is a strong signal that this route will be needed.  Prewarm in
-    # parallel, but do not wait for it.  The quick-assist lane will either use
-    # the warmed row or resolve on its own worker thread.
-    try:
-        _schedule_quick_route_prewarm(int(owner_base), char_id if char_id else None)
-    except Exception:
-        pass
-
+    # Do not launch a competing background prewarm from the click handler.  The
+    # dedicated quick-assist lane owns this urgent resolve/write now, so the
+    # route work happens once and at the front of the assist queue.
     _queue_quick_assist_job(str(slot_label), int(quick_index), snap, preset, quiet=quiet)
     return True
 
@@ -4846,7 +4886,7 @@ def _apply_quick_assist_sync(slot_label: str, quick_index: int, snap: dict | Non
                 pass
             return False
         writes.update(weapon_writes)
-    if not writes or not _write_many_module(writes):
+    if not writes or not _write_many_module(writes, urgent=True, key=f"assist:quick:{slot_label}"):
         if not quiet:
             try:
                 print(f"[assist quick] write failed for {slot_label} {preset.get('label', quick_index)}")
@@ -4880,6 +4920,17 @@ def _apply_quick_assist_sync(slot_label: str, quick_index: int, snap: dict | Non
     for key in keys:
         _HEADLESS_ASSIST_PROFILES[key] = profile
     _HEADLESS_SLOT_ASSIST_PROFILES[str(slot_label)] = dict(profile)
+
+    # New/changed quick profile must be eligible immediately even if this slot
+    # already entered an assist-ish window while the worker was resolving the
+    # route.  Clearing these latches makes the very next HUD tick write the
+    # graft instead of waiting for the next assist cooldown cycle.
+    try:
+        if fighter_base:
+            _HEADLESS_LAST_ASSIST_ATTACK_BY_BASE.pop(int(fighter_base), None)
+        _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT.pop(str(slot_label), None)
+    except Exception:
+        pass
 
     inst = _inst
     if inst is not None:
@@ -5094,7 +5145,7 @@ def _write_runtime_profile_for_slot(slot_label: str, snap: dict, profile: dict) 
     if volnutt_weapon is not None:
         owner_base_for_weapon = int(profile.get("owner_base") or row.get("owner_base") or 0)
         writes.update(_volnutt_weapon_writes(owner_base_for_weapon, int(volnutt_weapon), row))
-    return bool(writes and _write_many_module(writes))
+    return bool(writes and _write_many_module(writes, urgent=True, key=f"assist:runtime:{slot_label}"))
 
 
 def _headless_runtime_patch_from_main(snaps: dict) -> None:
@@ -5131,11 +5182,6 @@ def _headless_runtime_patch_from_main(snaps: dict) -> None:
 
         if not in_runtime_window:
             continue
-        # Non-duplicate path writes once on assist-window entry. Duplicate/mirror
-        # path may rewrite during the window because another same-character slot
-        # can replace the shared graft between prefetch and attack.
-        if not duplicate_char and was_window:
-            continue
 
         profile = _slot_runtime_profile(str(slot_label), snap, duplicate_char)
         if not profile:
@@ -5150,13 +5196,18 @@ def _headless_runtime_patch_from_main(snaps: dict) -> None:
 
         # Duplicate-character mirrors may remain in the assist window for many
         # frames.  Patch early and often enough to beat the game's graft read,
-        # but not every single frame.
+        # but not every single frame.  Non-duplicates usually write once per
+        # assist-entry edge, but if the profile became ready after the edge was
+        # already latched, still allow the first write for this patch key.
         now_mono = time.monotonic()
         slot_last = _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT.get(str(slot_label))
         if slot_last is not None:
             last_key, last_ts = slot_last
-            if last_key == patch_key and (now_mono - float(last_ts)) < _ASSIST_RUNTIME_WRITE_THROTTLE_SECONDS:
-                continue
+            if last_key == patch_key:
+                if not duplicate_char and was_window:
+                    continue
+                if (now_mono - float(last_ts)) < _ASSIST_RUNTIME_WRITE_THROTTLE_SECONDS:
+                    continue
 
         if _write_runtime_profile_for_slot(str(slot_label), snap, profile):
             _HEADLESS_LAST_RUNTIME_WRITE_BY_SLOT[str(slot_label)] = (patch_key, now_mono)
@@ -7542,7 +7593,21 @@ class AssistScannerWindow:
             for key in keys:
                 self._slot_assist_profiles[key] = profile
 
-    def _write_many_silent(self, writes: dict[int, bytes]) -> bool:
+    def _write_many_silent(self, writes: dict[int, bytes], *, urgent: bool = False) -> bool:
+        if not writes:
+            return True
+        if _rpm is not None:
+            try:
+                return bool(_rpm.write_many(
+                    writes,
+                    key="assist:window:urgent" if urgent else "assist:window",
+                    priority=98 if urgent else 70,
+                    dirty=False if urgent else True,
+                    force=True if urgent else False,
+                    cache_ttl_sec=0.0,
+                ))
+            except Exception:
+                pass
         if wbytes is None:
             return False
         for addr, payload in writes.items():
@@ -7779,7 +7844,7 @@ class AssistScannerWindow:
         if volnutt_weapon is not None:
             owner_base_for_weapon = int(profile.get("owner_base") or row.get("owner_base") or 0)
             writes.update(_volnutt_weapon_writes(owner_base_for_weapon, int(volnutt_weapon), row))
-        return bool(writes and self._write_many_silent(writes))
+        return bool(writes and self._write_many_silent(writes, urgent=True))
 
     def _snap_assist_state_id(self, snap: dict) -> int | None:
         """Return the current HUD-resolved move/state id for one fighter."""

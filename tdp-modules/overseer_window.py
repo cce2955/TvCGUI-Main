@@ -191,6 +191,25 @@ def _format_state_text(state: dict[str, Any]) -> str:
         )
     lines.append("")
 
+    rpm = state.get("runtime_patch_manager") or {}
+    lines.append("RUNTIME PATCH MANAGER")
+    if rpm:
+        lines.append(f"  writes ok/fail: {rpm.get('write_ok', 0)}/{rpm.get('write_fail', 0)}")
+        lines.append(f"  skipped dirty/cache: {rpm.get('skip_dirty', 0)}/{rpm.get('skip_cache', 0)}")
+        lines.append(f"  cache entries: {rpm.get('cache_entries', 0)}")
+        lines.append(
+            f"  last: key={rpm.get('last_write_key', '-')} "
+            f"addr={_fmt_addr(rpm.get('last_write_addr'))} "
+            f"size={rpm.get('last_write_size', 0)} "
+            f"ms={_format_value(rpm.get('last_write_ms', 0.0))} "
+            f"age={_age(rpm.get('last_write_age_sec'))}"
+        )
+        if rpm.get("last_error"):
+            lines.append(f"  error: {rpm.get('last_error')}")
+    else:
+        lines.append("  no patch-manager state reported yet")
+    lines.append("")
+
     perf = state.get("perf") or {}
     lines.append("PERFORMANCE")
     if perf:
@@ -201,7 +220,7 @@ def _format_state_text(state: dict[str, Any]) -> str:
     lines.append("")
 
     other_keys = sorted(k for k in state.keys() if k not in {
-        "hooked", "megacrash", "hud_editor", "assist", "slots", "perf", "active_quick_assist_by_slot",
+        "hooked", "megacrash", "hud_editor", "assist", "slots", "perf", "active_quick_assist_by_slot", "runtime_patch_manager",
     })
     if other_keys:
         lines.append("OTHER STATE")

@@ -17,6 +17,11 @@ except Exception:  # pragma: no cover
     wd8 = None
     wd32 = None
 
+try:
+    import runtime_patch_manager as _rpm
+except Exception:  # pragma: no cover
+    _rpm = None
+
 _OPEN_WINDOW: tk.Toplevel | None = None
 
 _BG = "#0d1018"
@@ -241,10 +246,15 @@ def _selected_banks(use_vs: bool, use_hud: bool, use_svm: bool) -> tuple[str, ..
 
 
 def _write_u8(addr: int, value: int) -> bool:
-    if wd8 is None:
-        return False
     addr_i = int(addr)
     value_i = int(value) & 0xFF
+    if _rpm is not None:
+        try:
+            return bool(_rpm.write_u8(addr_i, value_i, key="hud:u8", dirty=True))
+        except Exception:
+            pass
+    if wd8 is None:
+        return False
     # Dirty write: most persistent HUD holds repeatedly request the same byte.
     # Skip the write when the live value already matches.
     if rd8 is not None:
@@ -310,8 +320,6 @@ def _set_vs_win_mode(player: str, *, show_win: bool, show_plural_s: bool = False
 
 
 def _write_pair(addr_a: int, addr_b: int, digit: int, table: dict[int, tuple[int, int]] = SCORE_DIGIT_TEXTURES) -> bool:
-    if wd32 is None:
-        return False
     addr_a_i = int(addr_a)
     addr_b_i = int(addr_b)
     a, b = table[int(digit)]
@@ -323,6 +331,15 @@ def _write_pair(addr_a: int, addr_b: int, digit: int, table: dict[int, tuple[int
                 return True
     except Exception:
         pass
+    if _rpm is not None:
+        try:
+            ok_a = bool(_rpm.write_u32(addr_a_i, int(a), key="hud:pair", dirty=False))
+            ok_b = bool(_rpm.write_u32(addr_b_i, int(b), key="hud:pair", dirty=False))
+            return bool(ok_a and ok_b)
+        except Exception:
+            pass
+    if wd32 is None:
+        return False
     try:
         ok_a = bool(wd32(addr_a_i, int(a)))
         ok_b = bool(wd32(addr_b_i, int(b)))
@@ -671,10 +688,14 @@ def apply_timer_display(value: Any, *, write_raw: bool = False) -> bool:
     ok = False
     ok = _write_pair(TIMER_TENS_PAIR[0], TIMER_TENS_PAIR[1], tens, TIMER_DIGIT_TEXTURES) or ok
     ok = _write_pair(TIMER_ONES_PAIR[0], TIMER_ONES_PAIR[1], ones, TIMER_DIGIT_TEXTURES) or ok
-    if write_raw and wd32 is not None:
+    if write_raw:
         try:
             # Observed raw timer value is display - 1.
-            wd32(TIMER_RAW_ADDR, max(0, value_i - 1))
+            raw_timer = max(0, value_i - 1)
+            if _rpm is not None:
+                _rpm.write_u32(TIMER_RAW_ADDR, raw_timer, key="hud:timer_raw", dirty=True)
+            elif wd32 is not None:
+                wd32(TIMER_RAW_ADDR, raw_timer)
         except Exception:
             pass
     return ok
@@ -689,12 +710,14 @@ def read_timer_display() -> int | None:
 
 
 def write_arcade_score_raw_from_display(score_text: Any) -> bool:
-    if wd32 is None:
-        return False
     digits = _clean_digits(score_text, 14)
     try:
         visible_value = int(digits)
         raw_value = max(0, min(0xFFFFFFFF, visible_value // 100))
+        if _rpm is not None:
+            return bool(_rpm.write_u32(ARCADE_SCORE_RAW_ADDR, raw_value, key="hud:score_raw", dirty=True))
+        if wd32 is None:
+            return False
         return bool(wd32(ARCADE_SCORE_RAW_ADDR, raw_value))
     except Exception:
         return False

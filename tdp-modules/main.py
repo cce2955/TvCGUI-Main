@@ -156,6 +156,34 @@ except Exception as e:
     fd_patch_runtime = None
     print(f"WARNING: fd patch runtime not available ({e!r})")
 try:
+    import runtime_patch_manager as runtime_pm
+except Exception as e:
+    runtime_pm = None
+    print(f"WARNING: runtime patch manager not available ({e!r})")
+try:
+    from select_screen_probe import (
+        new_probe_state as new_select_probe_state,
+        zero_next_probe as zero_next_select_probe,
+        restore_all_probes as restore_select_probes,
+        probe_button_label as select_probe_button_label,
+        open_select_probe_window,
+        get_probe_debug_state as get_select_probe_debug_state,
+    )
+except Exception as e:
+    print(f"WARNING: select screen probe not available ({e!r})")
+    def new_select_probe_state():
+        return {"index": 0, "saved": {}, "last": "select probe unavailable", "modified_count": 0, "total": 0}
+    def zero_next_select_probe(_state, _read_fn, _write_fn):
+        return {"ok": False, "message": "select probe unavailable"}
+    def restore_select_probes(_state, _write_fn):
+        return {"ok": False, "message": "select probe unavailable"}
+    def select_probe_button_label(_state):
+        return "CS Probe"
+    def open_select_probe_window(_state, _read_fn, _write_fn):
+        return None
+    def get_select_probe_debug_state(_state):
+        return dict(_state or {})
+try:
     from assist_scanner_window import (
         open_assist_scanner_window,
         tick_assist_profiles_from_main,
@@ -978,7 +1006,11 @@ def _start_megacrash_trainer_pulse(state: dict, vic_snap: dict, now: float, reas
         addr = base + int(off)
         if not addr_in_ram(addr):
             continue
-        if wd32(addr, MEGACRASH_MOVE_ID):
+        if runtime_pm is not None:
+            ok_write = runtime_pm.write_u32(addr, MEGACRASH_MOVE_ID, key="megacrash:start", dirty=False, force=True)
+        else:
+            ok_write = wd32(addr, MEGACRASH_MOVE_ID)
+        if ok_write:
             wrote_any = True
             pulse_entries.append(addr)
 
@@ -1087,7 +1119,10 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
             except Exception:
                 addr = 0
             if addr and addr_in_ram(addr):
-                wd32(addr, MEGACRASH_MOVE_ID)
+                if runtime_pm is not None:
+                    runtime_pm.write_u32(addr, MEGACRASH_MOVE_ID, key="megacrash:pulse", dirty=False, force=True)
+                else:
+                    wd32(addr, MEGACRASH_MOVE_ID)
 
     cooldown_remaining = _megacrash_cooldown_remaining(state, now)
     if cooldown_remaining > 0.0:
@@ -1593,6 +1628,8 @@ def draw_top_command_dock(
     megacrash_trainer_cooldown_remaining: float = 0.0,
     mem_dump_active: bool = False,
     mem_dump_label: str = "",
+    select_probe_label: str = "CS Probe",
+    select_probe_active: bool = False,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
 ) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
@@ -1748,6 +1785,20 @@ def draw_top_command_dock(
         align="center",
     )
 
+    x = memdump_btn_rect.right + gap
+    select_probe_btn_rect = pygame.Rect(x, y_tools, 104, btn_h)
+    draw_glass_button(
+        screen,
+        select_probe_btn_rect,
+        select_probe_label or "CS Probe",
+        smallfont,
+        active=bool(select_probe_active),
+        hover=select_probe_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(52, 42, 32) if select_probe_active else (31, 33, 42),
+        align="center",
+    )
+
     help_tip = "Hover a command for help. Right click panels/debug rows to copy."
     help_accent = GUI_APP_ACCENT
     if hb_btn_rect.collidepoint(mx, my):
@@ -1766,8 +1817,10 @@ def draw_top_command_dock(
         help_tip = "Tool State: live state, safe restore, hard reset, and debug dumps."
     elif memdump_btn_rect.collidepoint(mx, my):
         help_tip = "Dump MEM: save a memory dump for route/profile analysis."
+    elif select_probe_btn_rect.collidepoint(mx, my):
+        help_tip = "CS Probe: opens the character-select probe window. Right click still restores all probe writes."
 
-    help_x = memdump_btn_rect.right + 12
+    help_x = select_probe_btn_rect.right + 12
     help_w = max(160, w - help_x - 10)
     if help_w >= 180:
         help_rect = pygame.Rect(help_x, y_tools, help_w, btn_h)
@@ -1787,7 +1840,7 @@ def draw_top_command_dock(
         help_surf = _fit_text(smallfont, help_tip, GUI_TEXT_DIM, help_rect.width - 28)
         screen.blit(help_surf, (help_rect.x + 22, help_rect.y + (help_rect.height - help_surf.get_height()) // 2))
 
-    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, hb_filter_rects
+    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, hb_filter_rects
 
 
 def draw_status_rail(
@@ -3803,6 +3856,20 @@ def legacy_main():
         "last_done_time": 0.0,
     }
 
+    select_probe_state = new_select_probe_state()
+
+    def _select_probe_zero_next() -> dict:
+        return zero_next_select_probe(select_probe_state, rbytes, wbytes)
+
+    def _select_probe_restore_all() -> dict:
+        return restore_select_probes(select_probe_state, wbytes)
+
+    def _select_probe_open_window() -> None:
+        try:
+            open_select_probe_window(select_probe_state, rbytes, wbytes)
+        except Exception as e:
+            print(f"[select probe] window unavailable: {e!r}", flush=True)
+
     def _overseer_state_snapshot() -> dict:
         slot_state = {}
         try:
@@ -3856,12 +3923,18 @@ def legacy_main():
             perf_state = dict(_PERF_LAST_ELAPSED_MS)
         except Exception:
             perf_state = {}
+        try:
+            patch_state = runtime_pm.get_runtime_patch_state() if runtime_pm is not None else {}
+        except Exception as e:
+            patch_state = {"error": repr(e)}
         return {
             "hooked": True,
             "slots": slot_state,
             "megacrash": mega_state,
             "hud_editor": hud_state,
             "assist": assist_state,
+            "runtime_patch_manager": patch_state,
+            "select_probe": get_select_probe_debug_state(select_probe_state),
             "perf": perf_state,
             "active_quick_assist_by_slot": active_quick_state,
         }
@@ -3882,17 +3955,33 @@ def legacy_main():
         megacrash_trainer_state["scheduled_triggers"] = {}
         megacrash_trainer_state["cooldown_until"] = 0.0
         megacrash_trainer_state["last_combo_keys"] = {}
+        patch_result = {}
+        try:
+            if runtime_pm is not None:
+                patch_result = runtime_pm.clear_runtime_patch_state(clear_cache=True)
+        except Exception as e:
+            patch_result = {"error": repr(e)}
+        select_probe_result = {}
+        try:
+            select_probe_result = _select_probe_restore_all()
+        except Exception as e:
+            select_probe_result = {"error": repr(e)}
         try:
             _save_megacrash_trainer_config(megacrash_trainer_state)
         except Exception:
             pass
-        return {"assist": assist_result, "hud": "released", "megacrash": "off"}
+        return {"assist": assist_result, "hud": "released", "megacrash": "off", "patch_manager": patch_result, "select_probe": select_probe_result}
 
     def _overseer_hard_reset() -> dict:
         result = _overseer_safe_restore()
         clear_assist_runtime_state(clear_route_cache=True)
         quick_btn_flash.clear()
         panel_btn_flash.update({s: 0 for (s, _, _) in SLOTS})
+        try:
+            if runtime_pm is not None:
+                result["patch_manager_hard_reset"] = runtime_pm.clear_runtime_patch_state(clear_cache=True)
+        except Exception as e:
+            result["patch_manager_hard_reset"] = {"error": repr(e)}
         result["route_cache"] = "cleared"
         result["ui_latches"] = "cleared"
         return result
@@ -4399,7 +4488,7 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, hb_filter_rects = draw_top_command_dock(
+        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, hb_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -4410,6 +4499,8 @@ def legacy_main():
             megacrash_trainer_delay_frames=int(megacrash_trainer_state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
             mem_dump_active=bool(mem_dump_state.get("active", False)),
             mem_dump_label=str(mem_dump_state.get("label") or ""),
+            select_probe_label=select_probe_button_label(select_probe_state),
+            select_probe_active=bool((select_probe_state or {}).get("modified_count", 0)),
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
         )
@@ -4749,6 +4840,10 @@ def legacy_main():
             elif dump_done_t and now - dump_done_t < 6.0:
                 status_parts.append(f"Dump saved {os.path.basename(str(mem_dump_state.get('path') or ''))}")
 
+        probe_last = str((select_probe_state or {}).get("last") or "")
+        if probe_last:
+            status_parts.append(f"CS Probe {probe_last}")
+
         draw_status_rail(
             screen,
             smallfont,
@@ -4760,6 +4855,12 @@ def legacy_main():
         # ------------------------------------------------------------------
         # Click handling
         # ------------------------------------------------------------------
+        if mouse_right_clicked_pos is not None:
+            mx, my = mouse_right_clicked_pos
+            if select_probe_btn_rect.collidepoint(mx, my):
+                _select_probe_restore_all()
+                mouse_right_clicked_pos = None
+
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
 
@@ -4807,6 +4908,11 @@ def legacy_main():
                     print("[memdump] started", flush=True)
                 else:
                     print("[memdump] already running", flush=True)
+                mouse_clicked_pos = None
+                continue
+
+            elif select_probe_btn_rect.collidepoint(mx, my):
+                _select_probe_open_window()
                 mouse_clicked_pos = None
                 continue
 
