@@ -142,15 +142,17 @@ RAW_WIN_COUNTERS: dict[str, tuple[int, ...]] = {
 # The window is only the control panel; main.py calls tick_hud_editor_state()
 # so active holds/freezes keep writing while the window is closed.
 _HUD_EDITOR_RUNTIME_STATE: dict[str, Any] = {
+    # Default ON at 0, but keep the game's normal NEW HERO presentation.
+    # Turn this on only when the user explicitly wants visible 0 WINS text.
     "force_zero_as_win": False,
     "use_hud": True,
     "use_svm": False,
     "last_tick_time": 0.0,
     "last_force_time": 0.0,
-    "status": "",
+    "status": "Default Win Score hold is ON at 0; zero shows NEW HERO.",
     "holds": {
-        "P1": {"enabled": False, "auto": True, "value": 0, "last_raw": None},
-        "P2": {"enabled": False, "auto": True, "value": 0, "last_raw": None},
+        "P1": {"enabled": True, "auto": True, "value": 0, "last_raw": None},
+        "P2": {"enabled": True, "auto": True, "value": 0, "last_raw": None},
     },
 }
 
@@ -847,7 +849,7 @@ def open_hud_editor_window() -> None:
 
         win = tk.Toplevel(root)
         _OPEN_WINDOW = win
-        win.title("HUD Editor")
+        win.title("Win Score")
         win.geometry("1080x820")
         win.minsize(1040, 720)
         win.configure(bg=_BG)
@@ -878,7 +880,7 @@ def open_hud_editor_window() -> None:
         p1_streak_auto_var = tk.BooleanVar(value=bool(_runtime_hold("P1").get("auto", True)))
         p2_streak_auto_var = tk.BooleanVar(value=bool(_runtime_hold("P2").get("auto", True)))
         zero_wins_as_text_var = tk.BooleanVar(value=bool(_HUD_EDITOR_RUNTIME_STATE.get("force_zero_as_win", False)))
-        status_var = tk.StringVar(value="Ready. Zero wins defaults to NEW HERO; enable 0 WINS only when you want the zero displayed as text.")
+        status_var = tk.StringVar(value="Ready. Win Score defaults ON at 0 for both sides, with NEW HERO kept as the normal zero display.")
         readout_var = tk.StringVar(value="Current: --")
 
         last_applied = {
@@ -900,7 +902,7 @@ def open_hud_editor_window() -> None:
 
         header = tk.Frame(root_frame, bg=_BG)
         header.pack(fill="x")
-        _label(header, "HUD Editor", bold=True, size=14).pack(side="left")
+        _label(header, "Win Score", bold=True, size=14).pack(side="left")
         _check(header, "Freeze writes", freeze_var).pack(side="right")
 
         desc = _label(
@@ -1123,7 +1125,37 @@ def open_hud_editor_window() -> None:
             _var, enabled_var, _auto_var = _streak_controls_for(player)
             enabled_var.set(False)
             release_hud_editor_hold(player)
-            status_var.set(f"{player} visible win hold released. The game can show NEW HERO normally again after the next HUD refresh.")
+            status_var.set(f"{player} Win Score hold released. The game can show NEW HERO normally again after the next HUD refresh.")
+            update_readout()
+
+        def enable_both_streaks() -> None:
+            _sync_runtime_options_from_ui()
+            for player in ("P1", "P2"):
+                var, enabled_var, auto_var = _streak_controls_for(player)
+                value_i = _clamp_int(var.get(), 0, 999)
+                var.set(str(value_i))
+                enabled_var.set(True)
+                last_applied[f"{player}_WIN"] = value_i
+                freeze_kinds.add(f"{player}_WIN")
+                streak_last_raw[player] = read_raw_win_count(player)
+                set_hud_editor_hold(
+                    player,
+                    value_i,
+                    enabled=True,
+                    auto=bool(auto_var.get()),
+                    force_zero_as_win=bool(zero_wins_as_text_var.get()),
+                    use_hud=bool(hud_var.get()),
+                    use_svm=bool(svm_var.get()),
+                )
+            status_var.set("Win Score enabled for P1 and P2.")
+            update_readout()
+
+        def disable_both_streaks() -> None:
+            for player in ("P1", "P2"):
+                _var, enabled_var, _auto_var = _streak_controls_for(player)
+                enabled_var.set(False)
+                release_hud_editor_hold(player)
+            status_var.set("Win Score disabled for P1 and P2. The game can show NEW HERO normally after the next HUD refresh.")
             update_readout()
 
         def clear_visible_wins(player: str) -> None:
@@ -1214,7 +1246,13 @@ def open_hud_editor_window() -> None:
             "Capture a side's current visible wins and keep that value through NEW HERO resets. 0 defaults to NEW HERO. Enable the 0 WINS option above only when you want zero shown as text. 1 shows WIN; 2+ shows WINS.",
             muted=True,
             wraplength=980,
-        ).grid(row=1, column=0, sticky="ew", columnspan=2, pady=(2, 10))
+        ).grid(row=1, column=0, sticky="ew", columnspan=2, pady=(2, 8))
+
+        both_row = tk.Frame(streak_inner, bg=_PANEL)
+        both_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        _button(both_row, "Enable both", enable_both_streaks, width=12).pack(side="left")
+        _button(both_row, "Disable both", disable_both_streaks, width=12).pack(side="left", padx=(8, 0))
+        _label(both_row, "Bulk toggle for P1/P2 Win Score holds.", muted=True).pack(side="left", padx=(12, 0))
 
         def make_hold_card(parent: tk.Misc, col: int, player: str, var: tk.StringVar, enabled_var: tk.BooleanVar, auto_var: tk.BooleanVar) -> None:
             side_outer = tk.Frame(parent, bg=_BORDER, padx=1, pady=1)
@@ -1222,7 +1260,7 @@ def open_hud_editor_window() -> None:
             side.pack(fill="both", expand=True)
             for grid_col in range(4):
                 side.grid_columnconfigure(grid_col, weight=1, uniform="hold_actions")
-            side_outer.grid(row=2, column=col, sticky="ew", padx=(0, 6) if col == 0 else (6, 0))
+            side_outer.grid(row=3, column=col, sticky="ew", padx=(0, 6) if col == 0 else (6, 0))
 
             _label(side, f"{player} held wins", bold=True, size=10).grid(row=0, column=0, sticky="w", columnspan=2)
 

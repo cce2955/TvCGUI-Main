@@ -1630,6 +1630,7 @@ def draw_top_command_dock(
     mem_dump_label: str = "",
     select_probe_label: str = "CS Probe",
     select_probe_active: bool = False,
+    win_score_enabled: bool = False,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
 ) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
@@ -1660,7 +1661,40 @@ def draw_top_command_dock(
     btn_h = 22
     x = 8
 
-    hb_btn_rect = pygame.Rect(x, y_top, 142, btn_h)
+    # Projectile editing lives inside each slot's Frame Data Workbench.  Keep a
+    # dummy rect for older click handling and return tuple compatibility.
+    ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+
+    # First row: live toggles/status. Win Score is first because it defaults
+    # on at 0, while keeping NEW HERO as the normal zero display.
+    win_counter_btn_rect = pygame.Rect(x, y_top, 126, btn_h)
+    draw_glass_button(
+        screen,
+        win_counter_btn_rect,
+        "Win Score: ON" if win_score_enabled else "Win Score: OFF",
+        smallfont,
+        active=bool(win_score_enabled),
+        hover=win_counter_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(44, 56, 82) if win_score_enabled else (31, 33, 42),
+        align="center",
+    )
+
+    x = win_counter_btn_rect.right + gap
+    hud_btn_rect = pygame.Rect(x, y_top, 132, btn_h)
+    draw_glass_button(
+        screen,
+        hud_btn_rect,
+        "Overlay: ON" if overlay_enabled else "Overlay: OFF",
+        smallfont,
+        active=overlay_enabled,
+        hover=hud_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        align="center",
+    )
+
+    x = hud_btn_rect.right + gap
+    hb_btn_rect = pygame.Rect(x, y_top, 134, btn_h)
     hb_on = any(hitbox_slots.values())
     draw_glass_button(
         screen,
@@ -1673,15 +1707,11 @@ def draw_top_command_dock(
         align="center",
     )
 
-    # Projectile editing lives inside each slot's Frame Data Workbench.  Keep a
-    # dummy rect for older click handling and return tuple compatibility.
-    ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-
     chip_y = y_top + 2
-    chip_x = hb_btn_rect.right + 10
-    chip_w = 58
+    chip_x = hb_btn_rect.right + 8
+    chip_w = 50
     chip_h = 18
-    chip_gap = 6
+    chip_gap = 5
     slot_colors = dict(GUI_SLOT_MUTED)
     hb_filter_rects = {}
 
@@ -1700,19 +1730,6 @@ def draw_top_command_dock(
         chip_x += chip_w + chip_gap
 
     x = chip_x + 4
-    hud_btn_rect = pygame.Rect(x, y_top, 142, btn_h)
-    draw_glass_button(
-        screen,
-        hud_btn_rect,
-        "Overlay: ON" if overlay_enabled else "Overlay: OFF",
-        smallfont,
-        active=overlay_enabled,
-        hover=hud_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        align="center",
-    )
-
-    x = hud_btn_rect.right + gap
     megacrash_btn_rect = pygame.Rect(x, y_top, 144, btn_h)
     mega_label = f"Megacrash: {'ON' if megacrash_trainer_enabled else 'OFF'}"
     draw_glass_button(
@@ -1727,8 +1744,7 @@ def draw_top_command_dock(
         align="center",
     )
 
-    # Second row: less-dangerous/open-window tools.  Dump MEM lives here now so
-    # the persistent/toggle-style controls above have room to breathe.
+    # Second row: tools that open helper windows or one-shot actions.
     x = 8
     as_btn_rect = pygame.Rect(x, y_tools, 132, btn_h)
     draw_glass_button(
@@ -1743,20 +1759,6 @@ def draw_top_command_dock(
     )
 
     x = as_btn_rect.right + gap
-    win_counter_btn_rect = pygame.Rect(x, y_tools, 118, btn_h)
-    draw_glass_button(
-        screen,
-        win_counter_btn_rect,
-        "HUD Editor",
-        smallfont,
-        active=False,
-        hover=win_counter_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(31, 33, 42),
-        align="center",
-    )
-
-    x = win_counter_btn_rect.right + gap
     overseer_btn_rect = pygame.Rect(x, y_tools, 108, btn_h)
     draw_glass_button(
         screen,
@@ -1812,7 +1814,7 @@ def draw_top_command_dock(
     elif as_btn_rect.collidepoint(mx, my):
         help_tip = "Assist Scanner: inspect routes and choose quick assists."
     elif win_counter_btn_rect.collidepoint(mx, my):
-        help_tip = "HUD Editor: score, timer, stage, and visible win controls."
+        help_tip = "Win Score: visible win count controls. Defaults ON at 0, with NEW HERO kept for zero."
     elif overseer_btn_rect.collidepoint(mx, my):
         help_tip = "Tool State: live state, safe restore, hard reset, and debug dumps."
     elif memdump_btn_rect.collidepoint(mx, my):
@@ -1841,6 +1843,18 @@ def draw_top_command_dock(
         screen.blit(help_surf, (help_rect.x + 22, help_rect.y + (help_rect.height - help_surf.get_height()) // 2))
 
     return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, hb_filter_rects
+
+
+def _win_score_active_for_dock() -> bool:
+    """Return whether visible win score hold should render as active in the dock."""
+    if get_hud_editor_runtime_state is None:
+        return False
+    try:
+        state = get_hud_editor_runtime_state() or {}
+        holds = state.get("holds") or {}
+        return any(bool((holds.get(player) or {}).get("enabled", False)) for player in ("P1", "P2"))
+    except Exception:
+        return False
 
 
 def draw_status_rail(
@@ -3781,7 +3795,7 @@ def legacy_main():
 
     # Hitbox filter
     HITBOX_FILTER_FILE = "hitbox_filter.json"
-    hitbox_slots = {"P1": True, "P2": True, "P3": True, "P4": True}
+    hitbox_slots = {"P1": False, "P2": False, "P3": False, "P4": False}
 
     def _write_hitbox_filter():
         try:
@@ -4501,6 +4515,7 @@ def legacy_main():
             mem_dump_label=str(mem_dump_state.get("label") or ""),
             select_probe_label=select_probe_button_label(select_probe_state),
             select_probe_active=bool((select_probe_state or {}).get("modified_count", 0)),
+            win_score_enabled=_win_score_active_for_dock(),
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
         )
