@@ -21,15 +21,34 @@ def resource_path(*parts):
     return os.path.join(base, *parts)
 
 
-def _safe_pygame_event_get():
-    """Return pygame events without letting a corrupted SDL event crash the GUI.
+# Python 3.13 + pygame 2.6.1 can hard-abort inside pygame.event.get()
+# with PyEval_RestoreThread before Python can raise/catch an exception.
+# Default to a pump-only input path and synthesize clicks from mouse state.
+# Set TVC_USE_PYGAME_EVENT_GET=1 only if you specifically need SDL events.
+_PYGAME_EVENT_GET_ENABLED = str(os.environ.get("TVC_USE_PYGAME_EVENT_GET", "0")).strip().lower() in {"1", "true", "yes", "on"}
+_PYGAME_EVENT_WARNED = False
 
-    On pygame 2.6.x + Python 3.13, pygame.event.get() can very rarely surface
-    as SystemError("<built-in function get> returned a result with an exception set")
-    with an internal KeyError: 0.  That is not a TvC state problem; it means the
-    pygame C extension left a Python error set while translating an SDL event.
-    Clear the queue and keep the overlay alive.
+
+def _safe_pygame_event_get():
+    """Return pygame events when enabled; otherwise only keep SDL responsive.
+
+    The older wrapper tried to catch pygame.event.get() failures. The crash the
+    user hit is a fatal C-level GIL abort, so avoiding event.get() entirely is
+    the only safe default on Python 3.13 in this HUD.
     """
+    global _PYGAME_EVENT_WARNED
+    if not _PYGAME_EVENT_GET_ENABLED:
+        try:
+            pygame.event.pump()
+        except Exception as e:
+            if not _PYGAME_EVENT_WARNED:
+                _PYGAME_EVENT_WARNED = True
+                try:
+                    print(f"[pygame event] pump failed, continuing without SDL events: {e!r}", flush=True)
+                except Exception:
+                    pass
+        return []
+
     try:
         return pygame.event.get()
     except (SystemError, KeyError) as e:
@@ -151,6 +170,16 @@ except Exception as e:
     open_overseer_window = None
     print(f"WARNING: Tool State window not available ({e!r})")
 try:
+    from char_test_window import open_char_test_window
+    from char_test_runtime import get_char_test_state, stop_char_test, restore_char_test, tick_char_test
+except Exception as e:
+    open_char_test_window = None
+    get_char_test_state = None
+    stop_char_test = None
+    restore_char_test = None
+    tick_char_test = None
+    print(f"WARNING: Char test window not available ({e!r})")
+try:
     import fd_patch_runtime
 except Exception as e:
     fd_patch_runtime = None
@@ -160,29 +189,6 @@ try:
 except Exception as e:
     runtime_pm = None
     print(f"WARNING: runtime patch manager not available ({e!r})")
-try:
-    from select_screen_probe import (
-        new_probe_state as new_select_probe_state,
-        zero_next_probe as zero_next_select_probe,
-        restore_all_probes as restore_select_probes,
-        probe_button_label as select_probe_button_label,
-        open_select_probe_window,
-        get_probe_debug_state as get_select_probe_debug_state,
-    )
-except Exception as e:
-    print(f"WARNING: select screen probe not available ({e!r})")
-    def new_select_probe_state():
-        return {"index": 0, "saved": {}, "last": "select probe unavailable", "modified_count": 0, "total": 0}
-    def zero_next_select_probe(_state, _read_fn, _write_fn):
-        return {"ok": False, "message": "select probe unavailable"}
-    def restore_select_probes(_state, _write_fn):
-        return {"ok": False, "message": "select probe unavailable"}
-    def select_probe_button_label(_state):
-        return "CS Probe"
-    def open_select_probe_window(_state, _read_fn, _write_fn):
-        return None
-    def get_select_probe_debug_state(_state):
-        return dict(_state or {})
 try:
     from assist_scanner_window import (
         open_assist_scanner_window,
@@ -1628,9 +1634,8 @@ def draw_top_command_dock(
     megacrash_trainer_cooldown_remaining: float = 0.0,
     mem_dump_active: bool = False,
     mem_dump_label: str = "",
-    select_probe_label: str = "CS Probe",
-    select_probe_active: bool = False,
     win_score_enabled: bool = False,
+    char_test_active: bool = False,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
 ) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
@@ -1788,16 +1793,16 @@ def draw_top_command_dock(
     )
 
     x = memdump_btn_rect.right + gap
-    select_probe_btn_rect = pygame.Rect(x, y_tools, 104, btn_h)
+    select_probe_btn_rect = pygame.Rect(x, y_tools, 96, btn_h)
     draw_glass_button(
         screen,
         select_probe_btn_rect,
-        select_probe_label or "CS Probe",
+        "Char test",
         smallfont,
-        active=bool(select_probe_active),
+        active=bool(char_test_active),
         hover=select_probe_btn_rect.collidepoint(mx, my),
         accent=GUI_APP_ACCENT,
-        fill=(52, 42, 32) if select_probe_active else (31, 33, 42),
+        fill=(44, 56, 82) if char_test_active else (31, 33, 42),
         align="center",
     )
 
@@ -1820,7 +1825,7 @@ def draw_top_command_dock(
     elif memdump_btn_rect.collidepoint(mx, my):
         help_tip = "Dump MEM: save a memory dump for route/profile analysis."
     elif select_probe_btn_rect.collidepoint(mx, my):
-        help_tip = "CS Probe: opens the character-select probe window. Right click still restores all probe writes."
+        help_tip = "Char test: roster table patch. Patch select-wheel slot -> character id."
 
     help_x = select_probe_btn_rect.right + 12
     help_w = max(160, w - help_x - 10)
@@ -1843,6 +1848,16 @@ def draw_top_command_dock(
         screen.blit(help_surf, (help_rect.x + 22, help_rect.y + (help_rect.height - help_surf.get_height()) // 2))
 
     return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, hb_filter_rects
+
+
+def _char_test_active_for_dock() -> bool:
+    """Return whether Char test is currently running."""
+    if get_char_test_state is None:
+        return False
+    try:
+        return bool(get_char_test_state().get("running", False))
+    except Exception:
+        return False
 
 
 def _win_score_active_for_dock() -> bool:
@@ -3870,20 +3885,6 @@ def legacy_main():
         "last_done_time": 0.0,
     }
 
-    select_probe_state = new_select_probe_state()
-
-    def _select_probe_zero_next() -> dict:
-        return zero_next_select_probe(select_probe_state, rbytes, wbytes)
-
-    def _select_probe_restore_all() -> dict:
-        return restore_select_probes(select_probe_state, wbytes)
-
-    def _select_probe_open_window() -> None:
-        try:
-            open_select_probe_window(select_probe_state, rbytes, wbytes)
-        except Exception as e:
-            print(f"[select probe] window unavailable: {e!r}", flush=True)
-
     def _overseer_state_snapshot() -> dict:
         slot_state = {}
         try:
@@ -3948,7 +3949,6 @@ def legacy_main():
             "hud_editor": hud_state,
             "assist": assist_state,
             "runtime_patch_manager": patch_state,
-            "select_probe": get_select_probe_debug_state(select_probe_state),
             "perf": perf_state,
             "active_quick_assist_by_slot": active_quick_state,
         }
@@ -3969,22 +3969,25 @@ def legacy_main():
         megacrash_trainer_state["scheduled_triggers"] = {}
         megacrash_trainer_state["cooldown_until"] = 0.0
         megacrash_trainer_state["last_combo_keys"] = {}
+        char_test_result = {}
+        try:
+            if stop_char_test is not None:
+                stop_char_test()
+            if restore_char_test is not None:
+                char_test_result = restore_char_test()
+        except Exception as e:
+            char_test_result = {"error": repr(e)}
         patch_result = {}
         try:
             if runtime_pm is not None:
                 patch_result = runtime_pm.clear_runtime_patch_state(clear_cache=True)
         except Exception as e:
             patch_result = {"error": repr(e)}
-        select_probe_result = {}
-        try:
-            select_probe_result = _select_probe_restore_all()
-        except Exception as e:
-            select_probe_result = {"error": repr(e)}
         try:
             _save_megacrash_trainer_config(megacrash_trainer_state)
         except Exception:
             pass
-        return {"assist": assist_result, "hud": "released", "megacrash": "off", "patch_manager": patch_result, "select_probe": select_probe_result}
+        return {"assist": assist_result, "hud": "released", "megacrash": "off", "char_test": char_test_result, "patch_manager": patch_result}
 
     def _overseer_hard_reset() -> dict:
         result = _overseer_safe_restore()
@@ -4010,6 +4013,8 @@ def legacy_main():
         return path
 
     running = True
+    _last_mouse_buttons = (False, False, False)
+    _mouse_input_warned = False
 
     # ------------------------------------------------------------------
     # Main loop
@@ -4043,6 +4048,26 @@ def legacy_main():
                     debug_scroll_offset -= 1
                 elif ev.y < 0 and debug_scroll_offset < debug_max_scroll:
                     debug_scroll_offset += 1
+
+        # Python 3.13/pygame 2.6.1 safe path: when SDL event object
+        # translation is disabled, synthesize button-down edges from mouse
+        # state so the GUI remains clickable without pygame.event.get().
+        if not _PYGAME_EVENT_GET_ENABLED:
+            try:
+                buttons = tuple(bool(x) for x in pygame.mouse.get_pressed(3))
+                pos = pygame.mouse.get_pos()
+                if buttons[0] and not _last_mouse_buttons[0]:
+                    mouse_clicked_pos = pos
+                if len(buttons) > 2 and buttons[2] and not _last_mouse_buttons[2]:
+                    mouse_right_clicked_pos = pos
+                _last_mouse_buttons = buttons
+            except Exception as e:
+                if not _mouse_input_warned:
+                    _mouse_input_warned = True
+                    try:
+                        print(f"[pygame input] mouse fallback failed: {e!r}", flush=True)
+                    except Exception:
+                        pass
 
         # Scan worker results
         if scan_worker:
@@ -4309,6 +4334,17 @@ def legacy_main():
                     print(f"[hud editor] persistent tick failed: {e!r}")
             _perf_warn("hud_editor_tick", _perf_section_start)
 
+        # Char test runtime tick. Current Char test only services queued
+        # roster-table patch/restore actions on the main HUD thread.
+        if tick_char_test is not None:
+            _perf_section_start = time.perf_counter()
+            try:
+                tick_char_test()
+            except Exception as e:
+                if frame_idx % 60 == 0:
+                    print(f"[char test] tick failed: {e!r}")
+            _perf_warn("char_test_tick", _perf_section_start)
+
         # Damage / hit logging
         if frame_idx % DAMAGE_EVERY_FRAMES == 0:
             for vic_slot, vic_snap in snaps.items():
@@ -4513,9 +4549,8 @@ def legacy_main():
             megacrash_trainer_delay_frames=int(megacrash_trainer_state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
             mem_dump_active=bool(mem_dump_state.get("active", False)),
             mem_dump_label=str(mem_dump_state.get("label") or ""),
-            select_probe_label=select_probe_button_label(select_probe_state),
-            select_probe_active=bool((select_probe_state or {}).get("modified_count", 0)),
             win_score_enabled=_win_score_active_for_dock(),
+            char_test_active=_char_test_active_for_dock(),
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
         )
@@ -4854,10 +4889,13 @@ def legacy_main():
                 status_parts.append(f"Dump failed {dump_err}")
             elif dump_done_t and now - dump_done_t < 6.0:
                 status_parts.append(f"Dump saved {os.path.basename(str(mem_dump_state.get('path') or ''))}")
-
-        probe_last = str((select_probe_state or {}).get("last") or "")
-        if probe_last:
-            status_parts.append(f"CS Probe {probe_last}")
+        if get_char_test_state is not None:
+            try:
+                _ct_state = get_char_test_state()
+                if bool(_ct_state.get("running", False)):
+                    status_parts.append("Char test roster patch")
+            except Exception:
+                pass
 
         draw_status_rail(
             screen,
@@ -4870,12 +4908,6 @@ def legacy_main():
         # ------------------------------------------------------------------
         # Click handling
         # ------------------------------------------------------------------
-        if mouse_right_clicked_pos is not None:
-            mx, my = mouse_right_clicked_pos
-            if select_probe_btn_rect.collidepoint(mx, my):
-                _select_probe_restore_all()
-                mouse_right_clicked_pos = None
-
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
 
@@ -4927,7 +4959,10 @@ def legacy_main():
                 continue
 
             elif select_probe_btn_rect.collidepoint(mx, my):
-                _select_probe_open_window()
+                if open_char_test_window is not None:
+                    open_char_test_window()
+                else:
+                    print("[char test] window unavailable")
                 mouse_clicked_pos = None
                 continue
 
