@@ -5,10 +5,11 @@ import threading
 from typing import Any
 
 try:
-    from dolphin_io import rbytes, wd32
+    from dolphin_io import rbytes, wd32, wbytes
 except Exception:  # pragma: no cover
     rbytes = None
     wd32 = None
+    wbytes = None
 
 _LOCK = threading.RLock()
 
@@ -116,6 +117,16 @@ YAMI_CLONE_SLOTS: tuple[tuple[int, int, str], ...] = (
 
 YAMI_CLONE_COUNT = 0x1E
 
+# Experimental visual-shell alias. The loaded chrsel resource table has a
+# hidden/locked silhouette label, but not select_yami/name_yami labels.
+# If appended hidden IDs resolve through the silhouette slot, aliasing these
+# strings to Zero gives the new Yami logical slots a cloned visible shell.
+# This is string-table aliasing only; Yami remains the roster-table character ID.
+VISUAL_ALIAS_STRINGS: tuple[tuple[int, bytes, bytes, str], ...] = (
+    (0x930DEF50, b"select_sil", b"select_zer", "select_sil -> select_zer"),
+    (0x930DE9E4, b"name_sil", b"name_zer", "name_sil -> name_zer"),
+)
+
 # Cursor/hover mirrors. Force-hover is intentionally separate from installing
 # clone table/count because it is a stronger live-state nudge.
 CURSOR_INDEX_ADDRS: tuple[int, ...] = (0x809BCEA0, 0x809BCF2C)
@@ -128,6 +139,7 @@ _NAME_TO_SLOT = {name.lower(): slot for slot, _cid, name in ROSTER_SLOT_TABLE}
 
 _ROSTER_QUEUE: list[dict[str, Any]] = []
 _ROSTER_ORIGINALS: dict[int, int] = {}
+_ROSTER_BYTE_ORIGINALS: dict[int, bytes] = {}
 _ROSTER_STATE: dict[str, Any] = {
     "last_error": "",
     "last_action": "",
@@ -140,6 +152,8 @@ _ROSTER_STATE: dict[str, Any] = {
     "clone_table_installed": False,
     "clone_count_installed": False,
     "last_clone_slot": "",
+    "visual_alias_installed": False,
+    "byte_restore_available": False,
 }
 
 _INT_RE = re.compile(r"0x[0-9a-fA-F]+|\b\d+\b")
@@ -266,6 +280,18 @@ def _safe_write_u32be(addr: int, value: int) -> bool:
         return False
     try:
         wd32(int(addr), int(value) & 0xFFFFFFFF)
+        return True
+    except Exception as e:
+        with _LOCK:
+            _ROSTER_STATE["last_error"] = repr(e)
+        return False
+
+
+def _safe_write_bytes(addr: int, data: bytes) -> bool:
+    if wbytes is None:
+        return False
+    try:
+        wbytes(int(addr), bytes(data))
         return True
     except Exception as e:
         with _LOCK:
@@ -411,6 +437,22 @@ def queue_yami_clone_install_all() -> dict[str, Any]:
     return {"ok": True, "queued": True}
 
 
+def queue_yami_visual_alias() -> dict[str, Any]:
+    with _LOCK:
+        _ROSTER_QUEUE.append({"op": "yami_visual_alias"})
+        _ROSTER_STATE["queued"] = len(_ROSTER_QUEUE)
+        _ROSTER_STATE["last_action"] = "Yami Zero visual alias queued"
+    return {"ok": True, "queued": True}
+
+
+def queue_yami_shell_attempt() -> dict[str, Any]:
+    with _LOCK:
+        _ROSTER_QUEUE.append({"op": "yami_shell_attempt"})
+        _ROSTER_STATE["queued"] = len(_ROSTER_QUEUE)
+        _ROSTER_STATE["last_action"] = "Yami shell attempt queued"
+    return {"ok": True, "queued": True}
+
+
 def queue_yami_force_hover(slot_index: Any = 0x1B) -> dict[str, Any]:
     slot = _parse_slot_value(slot_index, 0x1B) & 0xFF
     cid = _SLOT_TO_ID.get(slot, 0x17)
@@ -447,6 +489,32 @@ def _write_saved(addr: int, value: int) -> bool:
     return _safe_write_u32be(addr, value)
 
 
+def _remember_original_bytes(addr: int, size: int) -> bytes | None:
+    addr_i = int(addr) & 0xFFFFFFFF
+    data = _safe_read(addr_i, int(size))
+    if not data or len(data) < int(size):
+        return None
+    if addr_i not in _ROSTER_BYTE_ORIGINALS:
+        _ROSTER_BYTE_ORIGINALS[addr_i] = bytes(data[: int(size)])
+    return bytes(data[: int(size)])
+
+
+def _write_bytes_saved(addr: int, data: bytes, expected: bytes | None = None) -> bool:
+    addr_i = int(addr) & 0xFFFFFFFF
+    payload = bytes(data)
+    original = _remember_original_bytes(addr_i, len(payload))
+    if original is None:
+        return False
+    if expected is not None and not original.startswith(bytes(expected)):
+        with _LOCK:
+            _ROSTER_STATE["last_error"] = (
+                f"visual alias expected {bytes(expected)!r} at 0x{addr_i:08X}, "
+                f"found {original!r}"
+            )
+        return False
+    return _safe_write_bytes(addr_i, payload)
+
+
 def _install_yami_clone_table() -> tuple[int, int]:
     wrote = 0
     failed = 0
@@ -474,6 +542,20 @@ def _install_yami_clone_count() -> tuple[int, int]:
     return wrote, failed
 
 
+def _install_yami_visual_alias() -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for addr, expected, replacement, _label in VISUAL_ALIAS_STRINGS:
+        if _write_bytes_saved(addr, replacement, expected=expected):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["visual_alias_installed"] = failed == 0
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
+    return wrote, failed
+
+
 def _force_yami_hover(slot: int, target: int) -> tuple[int, int]:
     wrote = 0
     failed = 0
@@ -495,22 +577,35 @@ def _force_yami_hover(slot: int, target: int) -> tuple[int, int]:
 def _do_restore() -> dict[str, int]:
     restored = 0
     failed = 0
+
+    byte_originals = dict(_ROSTER_BYTE_ORIGINALS)
+    for addr, data in byte_originals.items():
+        if _safe_write_bytes(int(addr), bytes(data)):
+            restored += 1
+        else:
+            failed += 1
+
     originals = dict(_ROSTER_ORIGINALS)
     for addr, value in originals.items():
         if _safe_write_u32be(int(addr), int(value)):
             restored += 1
         else:
             failed += 1
+
     if failed == 0:
         _ROSTER_ORIGINALS.clear()
+        _ROSTER_BYTE_ORIGINALS.clear()
         with _LOCK:
             _ROSTER_STATE["clone_table_installed"] = False
             _ROSTER_STATE["clone_count_installed"] = False
+            _ROSTER_STATE["visual_alias_installed"] = False
+            _ROSTER_STATE["byte_restore_available"] = False
             _ROSTER_STATE["last_clone_slot"] = ""
     with _LOCK:
         _ROSTER_STATE["restored"] = int(_ROSTER_STATE.get("restored", 0) or 0) + restored
         _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + failed
-        _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS)
+        _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
         _ROSTER_STATE["last_action"] = f"restore done restored={restored} failed={failed}"
         _ROSTER_STATE["last_error"] = "" if failed == 0 else f"restore failed for {failed} address(es)"
         try:
@@ -543,15 +638,26 @@ def _tick_roster_actions() -> None:
                 _do_restore()
                 continue
 
-            if op in ("yami_clone_table", "yami_clone_count", "yami_clone_all", "yami_force_hover"):
+            if op in (
+                "yami_clone_table",
+                "yami_clone_count",
+                "yami_clone_all",
+                "yami_force_hover",
+                "yami_visual_alias",
+                "yami_shell_attempt",
+            ):
                 wrote = 0
                 failed = 0
-                if op in ("yami_clone_table", "yami_clone_all"):
+                if op in ("yami_clone_table", "yami_clone_all", "yami_shell_attempt"):
                     w, f = _install_yami_clone_table()
                     wrote += w
                     failed += f
-                if op in ("yami_clone_count", "yami_clone_all"):
+                if op in ("yami_clone_count", "yami_clone_all", "yami_shell_attempt"):
                     w, f = _install_yami_clone_count()
+                    wrote += w
+                    failed += f
+                if op in ("yami_visual_alias", "yami_shell_attempt"):
+                    w, f = _install_yami_visual_alias()
                     wrote += w
                     failed += f
                 if op == "yami_force_hover":
@@ -564,7 +670,8 @@ def _tick_roster_actions() -> None:
                 with _LOCK:
                     _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + wrote
                     _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + failed
-                    _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS)
+                    _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+                    _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
                     _ROSTER_STATE["last_action"] = f"{op} done wrote={wrote} failed={failed}"
                     _ROSTER_STATE["last_error"] = "" if failed == 0 else f"{op} failed for {failed} write(s)"
                     _ROSTER_STATE["last_snapshot"] = snap
@@ -612,9 +719,13 @@ def _tick_roster_actions() -> None:
 def get_roster_patch_state() -> dict[str, Any]:
     with _LOCK:
         state = dict(_ROSTER_STATE)
-        state["restore_available"] = bool(_ROSTER_ORIGINALS)
+        state["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+        state["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
         state["originals"] = {
             f"0x{k:08X}": _char_label(v) for k, v in _ROSTER_ORIGINALS.items()
+        }
+        state["byte_originals"] = {
+            f"0x{k:08X}": bytes(v).hex(" ") for k, v in _ROSTER_BYTE_ORIGINALS.items()
         }
         state["roster_slots"] = get_roster_slot_choices()
         state["target_chars"] = get_roster_char_choices()
@@ -625,6 +736,10 @@ def get_roster_patch_state() -> dict[str, Any]:
         ]
         state["clone_count"] = f"0x{YAMI_CLONE_COUNT:02X}"
         state["count_addrs"] = {f"0x{addr:08X}": label for addr, label in ROSTER_COUNT_ADDRS}
+        state["visual_alias_strings"] = [
+            {"addr": f"0x{addr:08X}", "from": old.decode("ascii"), "to": new.decode("ascii"), "label": label}
+            for addr, old, new, label in VISUAL_ALIAS_STRINGS
+        ]
     return state
 
 

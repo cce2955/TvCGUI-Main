@@ -161,7 +161,7 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
         muted=True,
     ).pack(fill="x", padx=12, pady=(0, 10))
     _label(info, "0x809BD0C4 + wheel_slot * 4 = character", bold=True).pack(fill="x", padx=12, pady=(0, 2))
-    _label(info, "The slot dropdown covers the observed wheel plus experimental appended Yami clone slots 0x1B..0x1D. The replacement dropdown includes visible characters plus hidden Yami IDs 0x17, 0x18, and 0x19.", muted=True).pack(fill="x", padx=12, pady=(0, 12))
+    _label(info, "The slot dropdown covers the observed wheel plus experimental appended Yami clone slots 0x1B..0x1D. The replacement dropdown includes visible characters plus hidden Yami IDs 0x17, 0x18, and 0x19. The shell lab can also alias the hidden silhouette select icon to Zero as a first visual-shell clone test.", muted=True).pack(fill="x", padx=12, pady=(0, 12))
 
     form = _card(root)
     form.pack(fill="x", pady=(0, 10))
@@ -232,7 +232,7 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
     _label(clone_card, "Yami clone append lab", bold=True).pack(fill="x", padx=12, pady=(12, 4))
     _label(
         clone_card,
-        "This tries real appended logical slots after Ryu: slot 0x1B = Yami 1, 0x1C = Yami 2, 0x1D = Yami 3. It patches the roster count from 0x1B to 0x1E. If the UI is count-driven, the cursor can reach them. If not, this proves we need a separate visual shell clone.",
+        "This tries real appended logical slots after Ryu: slot 0x1B = Yami 1, 0x1C = Yami 2, 0x1D = Yami 3. It patches the roster count from 0x1B to 0x1E. The new shell attempt also aliases the hidden silhouette icon/name strings to Zero, which is the safest first pass at cloning a visible icon shell without touching loader strings.",
         muted=True,
     ).pack(fill="x", padx=12, pady=(0, 8))
 
@@ -265,6 +265,14 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
         runtime.queue_yami_clone_install_all()
         status_var.set("Yami clone table + count queued.")
 
+    def _install_visual_alias() -> None:
+        runtime.queue_yami_visual_alias()
+        status_var.set("Zero visual alias queued: select_sil/name_sil -> select_zer/name_zer.")
+
+    def _install_shell_attempt() -> None:
+        runtime.queue_yami_shell_attempt()
+        status_var.set("Yami shell attempt queued: table + count + Zero visual alias.")
+
     def _force_yami_hover() -> None:
         result = runtime.queue_yami_force_hover(clone_slot_var.get())
         status_var.set(f"Yami force-hover queued: {result.get('slot')} -> {result.get('target_label')}.")
@@ -272,6 +280,8 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
     _button(clone_buttons, "Install Yami clone table", _install_yami_table).pack(side="left")
     _button(clone_buttons, "Bump count to 0x1E", _install_yami_count).pack(side="left", padx=(8, 0))
     _button(clone_buttons, "Install table + count", _install_yami_all).pack(side="left", padx=(8, 0))
+    _button(clone_buttons, "Zero visual alias", _install_visual_alias).pack(side="left", padx=(8, 0))
+    _button(clone_buttons, "Shell attempt", _install_shell_attempt).pack(side="left", padx=(8, 0))
     _button(clone_buttons, "Force hover target", _force_yami_hover).pack(side="right")
 
     state_card = _card(root)
@@ -304,11 +314,17 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
             lines = [
                 f"queued: {roster.get('queued', 0)}    patches: {roster.get('patches', 0)}    restored: {roster.get('restored', 0)}    failed: {roster.get('failed', 0)}",
                 f"restore available: {roster.get('restore_available')}    last action: {roster.get('last_action') or ''}",
-                f"clone table: {roster.get('clone_table_installed')}    clone count: {roster.get('clone_count_installed')}    last clone slot: {roster.get('last_clone_slot') or ''}",
-                f"error: {roster.get('last_error') or ''}",
+                f"clone table: {roster.get('clone_table_installed')}    clone count: {roster.get('clone_count_installed')}    visual alias: {roster.get('visual_alias_installed')}    last clone slot: {roster.get('last_clone_slot') or ''}",
+                f"byte restore: {roster.get('byte_restore_available')}    error: {roster.get('last_error') or ''}",
                 "",
                 "Originals:",
                 str(roster.get("originals") or {}),
+                "",
+                "Byte originals:",
+                str(roster.get("byte_originals") or {}),
+                "",
+                "Visual aliases:",
+                str(roster.get("visual_alias_strings") or []),
                 "",
                 "Snapshot:",
                 _format_snapshot(roster.get("last_snapshot") or {}),
