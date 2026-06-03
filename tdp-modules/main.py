@@ -170,15 +170,22 @@ except Exception as e:
     open_overseer_window = None
     print(f"WARNING: Tool State window not available ({e!r})")
 try:
-    from char_test_window import open_char_test_window
-    from char_test_runtime import get_char_test_state, stop_char_test, restore_char_test, tick_char_test
+    from char_test_runtime import (
+        get_char_test_state,
+        stop_char_test,
+        restore_char_test,
+        tick_char_test,
+        toggle_extra_characters,
+        toggle_solo_team,
+    )
 except Exception as e:
-    open_char_test_window = None
     get_char_test_state = None
     stop_char_test = None
     restore_char_test = None
     tick_char_test = None
-    print(f"WARNING: Char test window not available ({e!r})")
+    toggle_extra_characters = None
+    toggle_solo_team = None
+    print(f"WARNING: Extra characters toggle not available ({e!r})")
 try:
     import fd_patch_runtime
 except Exception as e:
@@ -1636,9 +1643,10 @@ def draw_top_command_dock(
     mem_dump_label: str = "",
     win_score_enabled: bool = False,
     char_test_active: bool = False,
+    solo_team_active: bool = False,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
-) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
+) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
     """Draw the compact two-row main command dock.
 
     The old dock placed every command in one long row and kept a permanent tip
@@ -1793,16 +1801,30 @@ def draw_top_command_dock(
     )
 
     x = memdump_btn_rect.right + gap
-    select_probe_btn_rect = pygame.Rect(x, y_tools, 96, btn_h)
+    select_probe_btn_rect = pygame.Rect(x, y_tools, 136, btn_h)
     draw_glass_button(
         screen,
         select_probe_btn_rect,
-        "Char test",
+        "Extra chars: ON" if char_test_active else "Extra chars: OFF",
         smallfont,
         active=bool(char_test_active),
         hover=select_probe_btn_rect.collidepoint(mx, my),
         accent=GUI_APP_ACCENT,
         fill=(44, 56, 82) if char_test_active else (31, 33, 42),
+        align="center",
+    )
+
+    x = select_probe_btn_rect.right + gap
+    solo_team_btn_rect = pygame.Rect(x, y_tools, 126, btn_h)
+    draw_glass_button(
+        screen,
+        solo_team_btn_rect,
+        "Solo team: ON" if solo_team_active else "Solo team: OFF",
+        smallfont,
+        active=bool(solo_team_active),
+        hover=solo_team_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT,
+        fill=(44, 56, 82) if solo_team_active else (31, 33, 42),
         align="center",
     )
 
@@ -1825,9 +1847,11 @@ def draw_top_command_dock(
     elif memdump_btn_rect.collidepoint(mx, my):
         help_tip = "Dump MEM: save a memory dump for route/profile analysis."
     elif select_probe_btn_rect.collidepoint(mx, my):
-        help_tip = "Char test: roster table patch. Patch select-wheel slot -> character id."
+        help_tip = "Extra chars: toggles the guarded Yami 1/2/3 roster/profile patch."
+    elif solo_team_btn_rect.collidepoint(mx, my):
+        help_tip = "Solo team: toggles the profile-row helper that allowed one-character teams."
 
-    help_x = select_probe_btn_rect.right + 12
+    help_x = solo_team_btn_rect.right + 12
     help_w = max(160, w - help_x - 10)
     if help_w >= 180:
         help_rect = pygame.Rect(help_x, y_tools, help_w, btn_h)
@@ -1847,7 +1871,7 @@ def draw_top_command_dock(
         help_surf = _fit_text(smallfont, help_tip, GUI_TEXT_DIM, help_rect.width - 28)
         screen.blit(help_surf, (help_rect.x + 22, help_rect.y + (help_rect.height - help_surf.get_height()) // 2))
 
-    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, hb_filter_rects
+    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, solo_team_btn_rect, hb_filter_rects
 
 
 def _char_test_active_for_dock() -> bool:
@@ -1856,6 +1880,16 @@ def _char_test_active_for_dock() -> bool:
         return False
     try:
         return bool(get_char_test_state().get("running", False))
+    except Exception:
+        return False
+
+
+def _solo_team_active_for_dock() -> bool:
+    if get_char_test_state is None:
+        return False
+    try:
+        state = get_char_test_state() or {}
+        return bool(state.get("solo_team_requested") or state.get("solo_team_enabled"))
     except Exception:
         return False
 
@@ -4538,7 +4572,7 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, hb_filter_rects = draw_top_command_dock(
+        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, solo_team_btn_rect, hb_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -4551,6 +4585,7 @@ def legacy_main():
             mem_dump_label=str(mem_dump_state.get("label") or ""),
             win_score_enabled=_win_score_active_for_dock(),
             char_test_active=_char_test_active_for_dock(),
+            solo_team_active=_solo_team_active_for_dock(),
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
         )
@@ -4893,7 +4928,9 @@ def legacy_main():
             try:
                 _ct_state = get_char_test_state()
                 if bool(_ct_state.get("running", False)):
-                    status_parts.append("Char test roster patch")
+                    status_parts.append("Extra chars ON")
+                if bool(_ct_state.get("solo_team_requested", False)):
+                    status_parts.append("Solo team ON")
             except Exception:
                 pass
 
@@ -4959,10 +4996,20 @@ def legacy_main():
                 continue
 
             elif select_probe_btn_rect.collidepoint(mx, my):
-                if open_char_test_window is not None:
-                    open_char_test_window()
+                if toggle_extra_characters is not None:
+                    result = toggle_extra_characters()
+                    print(f"[extra chars] toggle queued: {result}", flush=True)
                 else:
-                    print("[char test] window unavailable")
+                    print("[extra chars] toggle unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
+            elif solo_team_btn_rect.collidepoint(mx, my):
+                if toggle_solo_team is not None:
+                    result = toggle_solo_team()
+                    print(f"[solo team] toggle queued: {result}", flush=True)
+                else:
+                    print("[solo team] toggle unavailable", flush=True)
                 mouse_clicked_pos = None
                 continue
 
