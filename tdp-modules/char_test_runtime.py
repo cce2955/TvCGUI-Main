@@ -71,6 +71,11 @@ CHAR_ID_TO_NAME: dict[int, str] = {
     0x14: "Saki",
     0x15: "Soki",
     0x16: "PTX-40A",
+    # Hidden / non-wheel in-game entries requested for roster-table swizzle tests.
+    # Decimal IDs 23, 24, 25 = hex 0x17, 0x18, 0x19.
+    0x17: "Phase 1",
+    0x18: "Phase 2",
+    0x19: "Phase 3",
     0x1A: "Tekkaman Blade",
     0x1B: "Joe the Condor",
     0x1C: "Yatterman-2",
@@ -296,9 +301,16 @@ def get_roster_slot_choices() -> list[str]:
 
 
 def get_roster_char_choices() -> list[str]:
+    # Visible wheel characters first, in roster-table order. Then append any
+    # known non-wheel / hidden IDs so they can be swiped into existing slots.
     seen: set[int] = set()
     out: list[str] = []
     for _slot, cid, _name in ROSTER_SLOT_TABLE:
+        if cid in seen:
+            continue
+        seen.add(cid)
+        out.append(_char_label(cid))
+    for cid in sorted(CHAR_ID_TO_NAME):
         if cid in seen:
             continue
         seen.add(cid)

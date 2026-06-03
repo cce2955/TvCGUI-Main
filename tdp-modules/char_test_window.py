@@ -147,7 +147,7 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
         muted=True,
     ).pack(fill="x", padx=12, pady=(0, 10))
     _label(info, "0x809BD0C4 + wheel_slot * 4 = character", bold=True).pack(fill="x", padx=12, pady=(0, 2))
-    _label(info, "The dropdowns now cover the full observed roster and show character names with IDs.", muted=True).pack(fill="x", padx=12, pady=(0, 12))
+    _label(info, "The slot dropdown covers the observed wheel. The replacement dropdown includes visible characters plus hidden IDs 0x17, 0x18, and 0x19.", muted=True).pack(fill="x", padx=12, pady=(0, 12))
 
     form = _card(root)
     form.pack(fill="x", pady=(0, 10))
