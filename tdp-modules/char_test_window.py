@@ -51,14 +51,16 @@ def _card(parent: tk.Misc) -> tk.Frame:
     return tk.Frame(parent, bg=_CARD, bd=0, highlightthickness=1, highlightbackground="#2c3345")
 
 
-def _get_choices() -> tuple[list[str], list[str]]:
+def _get_choices() -> tuple[list[str], list[str], list[str]]:
     try:
         state = runtime.get_roster_patch_state()
         slots = list(state.get("roster_slots") or [])
         chars = list(state.get("target_chars") or [])
+        clone_slots = list(state.get("clone_slots") or [])
     except Exception:
         slots = []
         chars = []
+        clone_slots = []
     if not slots:
         slots = [
             "Ryu slot 0x1A (ID 0x0C)",
@@ -67,7 +69,13 @@ def _get_choices() -> tuple[list[str], list[str]]:
         ]
     if not chars:
         chars = ["Chun-Li (ID 0x0D)", "Ryu (ID 0x0C)", "Ken the Eagle (ID 0x01)"]
-    return slots, chars
+    if not clone_slots:
+        clone_slots = [
+            "Yami 1 clone slot 0x1B (ID 0x17)",
+            "Yami 2 clone slot 0x1C (ID 0x18)",
+            "Yami 3 clone slot 0x1D (ID 0x19)",
+        ]
+    return slots, chars, clone_slots
 
 
 def _format_snapshot(snapshot: dict[str, Any]) -> str:
@@ -83,6 +91,12 @@ def _format_snapshot(snapshot: dict[str, Any]) -> str:
         f"default {snapshot.get('hover_slot_default', '')}    "
         f"current {snapshot.get('hover_slot_label', '')}"
     )
+    lines.append("")
+    lines.append("Count fields:")
+    for item in snapshot.get("counts", []) or []:
+        marker = " clone-count" if item.get("is_clone_count") else ""
+        lines.append(f"{item.get('addr', '')}  {item.get('label', '')}: {item.get('value', '')}{marker}")
+
     lines.append("")
     lines.append("Selector fields:")
     for item in snapshot.get("fields", []) or []:
@@ -116,9 +130,9 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
     win = tk.Toplevel(master) if master is not None else tk.Toplevel()
     _WIN = win
     win.title("Char test - roster table patch")
-    win.geometry("880x720")
+    win.geometry("940x820")
     win.configure(bg=_BG)
-    win.minsize(780, 600)
+    win.minsize(820, 680)
 
     def _on_close() -> None:
         global _WIN
@@ -147,7 +161,7 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
         muted=True,
     ).pack(fill="x", padx=12, pady=(0, 10))
     _label(info, "0x809BD0C4 + wheel_slot * 4 = character", bold=True).pack(fill="x", padx=12, pady=(0, 2))
-    _label(info, "The slot dropdown covers the observed wheel. The replacement dropdown includes visible characters plus hidden IDs 0x17, 0x18, and 0x19.", muted=True).pack(fill="x", padx=12, pady=(0, 12))
+    _label(info, "The slot dropdown covers the observed wheel plus experimental appended Yami clone slots 0x1B..0x1D. The replacement dropdown includes visible characters plus hidden Yami IDs 0x17, 0x18, and 0x19.", muted=True).pack(fill="x", padx=12, pady=(0, 12))
 
     form = _card(root)
     form.pack(fill="x", pady=(0, 10))
@@ -155,7 +169,7 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
 
     grid = tk.Frame(form, bg=_CARD)
     grid.pack(fill="x", padx=12, pady=(0, 8))
-    slot_choices, char_choices = _get_choices()
+    slot_choices, char_choices, clone_choices = _get_choices()
     default_slot = next((s for s in slot_choices if "Ryu" in s and "slot 0x1A" in s), slot_choices[-1])
     default_target = next((c for c in char_choices if c.startswith("Chun-Li ")), char_choices[0])
     slot_var = tk.StringVar(value=default_slot)
@@ -213,6 +227,53 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
         muted=True,
     ).pack(fill="x", padx=12, pady=(0, 12))
 
+    clone_card = _card(root)
+    clone_card.pack(fill="x", pady=(0, 10))
+    _label(clone_card, "Yami clone append lab", bold=True).pack(fill="x", padx=12, pady=(12, 4))
+    _label(
+        clone_card,
+        "This tries real appended logical slots after Ryu: slot 0x1B = Yami 1, 0x1C = Yami 2, 0x1D = Yami 3. It patches the roster count from 0x1B to 0x1E. If the UI is count-driven, the cursor can reach them. If not, this proves we need a separate visual shell clone.",
+        muted=True,
+    ).pack(fill="x", padx=12, pady=(0, 8))
+
+    clone_grid = tk.Frame(clone_card, bg=_CARD)
+    clone_grid.pack(fill="x", padx=12, pady=(0, 8))
+    clone_slot_var = tk.StringVar(value=clone_choices[0])
+    _label(clone_grid, "Force-hover target", bold=True).grid(row=0, column=0, sticky="w", padx=(0, 10), pady=4)
+    clone_slot_box = ttk.Combobox(
+        clone_grid,
+        textvariable=clone_slot_var,
+        values=clone_choices,
+        width=46,
+        state="readonly",
+    )
+    clone_slot_box.grid(row=0, column=1, sticky="ew", pady=4)
+    clone_grid.columnconfigure(1, weight=1)
+
+    clone_buttons = tk.Frame(clone_card, bg=_CARD)
+    clone_buttons.pack(fill="x", padx=12, pady=(0, 12))
+
+    def _install_yami_table() -> None:
+        runtime.queue_yami_clone_table()
+        status_var.set("Yami clone table queued: slots 0x1B..0x1D -> IDs 0x17..0x19.")
+
+    def _install_yami_count() -> None:
+        runtime.queue_yami_clone_count()
+        status_var.set("Yami clone count bump queued: 0x1B -> 0x1E.")
+
+    def _install_yami_all() -> None:
+        runtime.queue_yami_clone_install_all()
+        status_var.set("Yami clone table + count queued.")
+
+    def _force_yami_hover() -> None:
+        result = runtime.queue_yami_force_hover(clone_slot_var.get())
+        status_var.set(f"Yami force-hover queued: {result.get('slot')} -> {result.get('target_label')}.")
+
+    _button(clone_buttons, "Install Yami clone table", _install_yami_table).pack(side="left")
+    _button(clone_buttons, "Bump count to 0x1E", _install_yami_count).pack(side="left", padx=(8, 0))
+    _button(clone_buttons, "Install table + count", _install_yami_all).pack(side="left", padx=(8, 0))
+    _button(clone_buttons, "Force hover target", _force_yami_hover).pack(side="right")
+
     state_card = _card(root)
     state_card.pack(fill="both", expand=True)
     _label(state_card, "State", bold=True).pack(fill="x", padx=12, pady=(12, 4))
@@ -243,6 +304,7 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
             lines = [
                 f"queued: {roster.get('queued', 0)}    patches: {roster.get('patches', 0)}    restored: {roster.get('restored', 0)}    failed: {roster.get('failed', 0)}",
                 f"restore available: {roster.get('restore_available')}    last action: {roster.get('last_action') or ''}",
+                f"clone table: {roster.get('clone_table_installed')}    clone count: {roster.get('clone_count_installed')}    last clone slot: {roster.get('last_clone_slot') or ''}",
                 f"error: {roster.get('last_error') or ''}",
                 "",
                 "Originals:",

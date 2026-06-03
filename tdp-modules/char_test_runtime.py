@@ -47,6 +47,11 @@ ROSTER_SLOT_TABLE: tuple[tuple[int, int, str], ...] = (
     (0x18, 0x0F, "Morrigan"),
     (0x19, 0x0D, "Chun-Li"),
     (0x1A, 0x0C, "Ryu"),
+    # Experimental appended logical clone slots. These do not replace visible slots;
+    # they are written after the stock 0x00..0x1A table and require the count bump.
+    (0x1B, 0x17, "Yami 1 clone"),
+    (0x1C, 0x18, "Yami 2 clone"),
+    (0x1D, 0x19, "Yami 3 clone"),
 )
 
 CHAR_ID_TO_NAME: dict[int, str] = {
@@ -73,9 +78,9 @@ CHAR_ID_TO_NAME: dict[int, str] = {
     0x16: "PTX-40A",
     # Hidden / non-wheel in-game entries requested for roster-table swizzle tests.
     # Decimal IDs 23, 24, 25 = hex 0x17, 0x18, 0x19.
-    0x17: "Phase 1",
-    0x18: "Phase 2",
-    0x19: "Phase 3",
+    0x17: "Yami 1",
+    0x18: "Yami 2",
+    0x19: "Yami 3",
     0x1A: "Tekkaman Blade",
     0x1B: "Joe the Condor",
     0x1C: "Yatterman-2",
@@ -93,6 +98,29 @@ ROSTER_SELECTOR_ADDRS: tuple[tuple[int, str], ...] = (
     (0x809BD098, "selected/locked or pending char id B"),
 )
 
+# Experimental logical append points for real extra Yami slots.
+# The staged dumps show 0x809BD0C0 holds 0x1B, matching the 27 stock wheel slots.
+# Writing 0x1E here and in the mirrored selector count fields is the first safe
+# test for whether the wheel can walk past Ryu into slots 0x1B..0x1D.
+ROSTER_COUNT_ADDRS: tuple[tuple[int, str], ...] = (
+    (0x809BCEA4, "selector count A"),
+    (0x809BCF3C, "selector count B"),
+    (0x809BD0C0, "roster table count"),
+)
+
+YAMI_CLONE_SLOTS: tuple[tuple[int, int, str], ...] = (
+    (0x1B, 0x17, "Yami 1"),
+    (0x1C, 0x18, "Yami 2"),
+    (0x1D, 0x19, "Yami 3"),
+)
+
+YAMI_CLONE_COUNT = 0x1E
+
+# Cursor/hover mirrors. Force-hover is intentionally separate from installing
+# clone table/count because it is a stronger live-state nudge.
+CURSOR_INDEX_ADDRS: tuple[int, ...] = (0x809BCEA0, 0x809BCF2C)
+HOVER_CHAR_ID_ADDRS: tuple[int, ...] = (0x809BCF1C, 0x809BCFC0)
+
 _SLOT_TO_ID = {slot: cid for slot, cid, _name in ROSTER_SLOT_TABLE}
 _SLOT_TO_DEFAULT_NAME = {slot: name for slot, _cid, name in ROSTER_SLOT_TABLE}
 _NAME_TO_ID = {name.lower(): cid for cid, name in CHAR_ID_TO_NAME.items()}
@@ -109,6 +137,9 @@ _ROSTER_STATE: dict[str, Any] = {
     "restored": 0,
     "failed": 0,
     "restore_available": False,
+    "clone_table_installed": False,
+    "clone_count_installed": False,
+    "last_clone_slot": "",
 }
 
 _INT_RE = re.compile(r"0x[0-9a-fA-F]+|\b\d+\b")
@@ -262,6 +293,16 @@ def _read_roster_selector_snapshot() -> dict[str, Any]:
             item["display"] = _slot_label(slot, cid) if cid is not None else f"slot {_fmt_hex(slot, 2)}"
         fields.append(item)
 
+    counts: list[dict[str, Any]] = []
+    for addr, label in ROSTER_COUNT_ADDRS:
+        value = _safe_read_u32be(addr)
+        counts.append({
+            "addr": f"0x{addr:08X}",
+            "label": label,
+            "value": (f"0x{int(value):08X}" if value is not None else ""),
+            "is_clone_count": bool(value == YAMI_CLONE_COUNT),
+        })
+
     table: list[dict[str, Any]] = []
     for slot, default_cid, default_name in ROSTER_SLOT_TABLE:
         addr = _roster_addr_for_slot(slot)
@@ -286,6 +327,7 @@ def _read_roster_selector_snapshot() -> dict[str, Any]:
 
     return {
         "fields": fields,
+        "counts": counts,
         "table": table,
         "hover_index": (f"0x{int(hover_idx):02X}" if hover_idx is not None else ""),
         "hover_slot_addr": (f"0x{hover_slot_addr:08X}" if hover_slot_addr else ""),
@@ -345,12 +387,109 @@ def queue_roster_patch_current_hover(target_char_id: Any = 0x0D) -> dict[str, An
     return {"ok": True, "queued": True, "target": f"0x{target:08X}", "target_label": _char_label(target)}
 
 
+def queue_yami_clone_table() -> dict[str, Any]:
+    with _LOCK:
+        _ROSTER_QUEUE.append({"op": "yami_clone_table"})
+        _ROSTER_STATE["queued"] = len(_ROSTER_QUEUE)
+        _ROSTER_STATE["last_action"] = "Yami clone table install queued"
+    return {"ok": True, "queued": True}
+
+
+def queue_yami_clone_count() -> dict[str, Any]:
+    with _LOCK:
+        _ROSTER_QUEUE.append({"op": "yami_clone_count"})
+        _ROSTER_STATE["queued"] = len(_ROSTER_QUEUE)
+        _ROSTER_STATE["last_action"] = "Yami clone count bump queued"
+    return {"ok": True, "queued": True}
+
+
+def queue_yami_clone_install_all() -> dict[str, Any]:
+    with _LOCK:
+        _ROSTER_QUEUE.append({"op": "yami_clone_all"})
+        _ROSTER_STATE["queued"] = len(_ROSTER_QUEUE)
+        _ROSTER_STATE["last_action"] = "Yami clone table + count queued"
+    return {"ok": True, "queued": True}
+
+
+def queue_yami_force_hover(slot_index: Any = 0x1B) -> dict[str, Any]:
+    slot = _parse_slot_value(slot_index, 0x1B) & 0xFF
+    cid = _SLOT_TO_ID.get(slot, 0x17)
+    with _LOCK:
+        _ROSTER_QUEUE.append({"op": "yami_force_hover", "slot": slot, "target": cid})
+        _ROSTER_STATE["queued"] = len(_ROSTER_QUEUE)
+        _ROSTER_STATE["last_action"] = f"Yami force-hover queued {_slot_label(slot, cid)}"
+    return {"ok": True, "queued": True, "slot": f"0x{slot:02X}", "target_label": _char_label(cid)}
+
+
 def queue_roster_restore() -> dict[str, Any]:
     with _LOCK:
         _ROSTER_QUEUE.append({"op": "restore"})
         _ROSTER_STATE["queued"] = len(_ROSTER_QUEUE)
         _ROSTER_STATE["last_action"] = "restore queued"
     return {"ok": True, "queued": True}
+
+
+def _remember_original(addr: int, value: int | None = None) -> int | None:
+    addr_i = int(addr) & 0xFFFFFFFF
+    if value is None:
+        value = _safe_read_u32be(addr_i)
+    if value is None:
+        return None
+    if addr_i not in _ROSTER_ORIGINALS:
+        _ROSTER_ORIGINALS[addr_i] = int(value) & 0xFFFFFFFF
+    return int(value) & 0xFFFFFFFF
+
+
+def _write_saved(addr: int, value: int) -> bool:
+    original = _remember_original(addr)
+    if original is None:
+        return False
+    return _safe_write_u32be(addr, value)
+
+
+def _install_yami_clone_table() -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for slot, cid, _name in YAMI_CLONE_SLOTS:
+        addr = _roster_addr_for_slot(slot)
+        if _write_saved(addr, cid):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["clone_table_installed"] = failed == 0
+    return wrote, failed
+
+
+def _install_yami_clone_count() -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for addr, _label in ROSTER_COUNT_ADDRS:
+        if _write_saved(addr, YAMI_CLONE_COUNT):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["clone_count_installed"] = failed == 0
+    return wrote, failed
+
+
+def _force_yami_hover(slot: int, target: int) -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for addr in CURSOR_INDEX_ADDRS:
+        if _write_saved(addr, int(slot) & 0xFF):
+            wrote += 1
+        else:
+            failed += 1
+    for addr in HOVER_CHAR_ID_ADDRS:
+        if _write_saved(addr, int(target) & 0xFFFFFFFF):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["last_clone_slot"] = _slot_label(slot, target)
+    return wrote, failed
 
 
 def _do_restore() -> dict[str, int]:
@@ -364,6 +503,10 @@ def _do_restore() -> dict[str, int]:
             failed += 1
     if failed == 0:
         _ROSTER_ORIGINALS.clear()
+        with _LOCK:
+            _ROSTER_STATE["clone_table_installed"] = False
+            _ROSTER_STATE["clone_count_installed"] = False
+            _ROSTER_STATE["last_clone_slot"] = ""
     with _LOCK:
         _ROSTER_STATE["restored"] = int(_ROSTER_STATE.get("restored", 0) or 0) + restored
         _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + failed
@@ -398,6 +541,33 @@ def _tick_roster_actions() -> None:
 
             if op == "restore":
                 _do_restore()
+                continue
+
+            if op in ("yami_clone_table", "yami_clone_count", "yami_clone_all", "yami_force_hover"):
+                wrote = 0
+                failed = 0
+                if op in ("yami_clone_table", "yami_clone_all"):
+                    w, f = _install_yami_clone_table()
+                    wrote += w
+                    failed += f
+                if op in ("yami_clone_count", "yami_clone_all"):
+                    w, f = _install_yami_clone_count()
+                    wrote += w
+                    failed += f
+                if op == "yami_force_hover":
+                    slot = int(action.get("slot", 0x1B)) & 0xFF
+                    target = int(action.get("target", _SLOT_TO_ID.get(slot, 0x17))) & 0xFFFFFFFF
+                    w, f = _force_yami_hover(slot, target)
+                    wrote += w
+                    failed += f
+                snap = _read_roster_selector_snapshot()
+                with _LOCK:
+                    _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + wrote
+                    _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + failed
+                    _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS)
+                    _ROSTER_STATE["last_action"] = f"{op} done wrote={wrote} failed={failed}"
+                    _ROSTER_STATE["last_error"] = "" if failed == 0 else f"{op} failed for {failed} write(s)"
+                    _ROSTER_STATE["last_snapshot"] = snap
                 continue
 
             if op == "patch_current":
@@ -449,6 +619,12 @@ def get_roster_patch_state() -> dict[str, Any]:
         state["roster_slots"] = get_roster_slot_choices()
         state["target_chars"] = get_roster_char_choices()
         state["roster_base"] = f"0x{ROSTER_TABLE_BASE:08X}"
+        state["clone_slots"] = [
+            f"{name} clone slot 0x{slot:02X} (ID 0x{cid:02X})"
+            for slot, cid, name in YAMI_CLONE_SLOTS
+        ]
+        state["clone_count"] = f"0x{YAMI_CLONE_COUNT:02X}"
+        state["count_addrs"] = {f"0x{addr:08X}": label for addr, label in ROSTER_COUNT_ADDRS}
     return state
 
 
