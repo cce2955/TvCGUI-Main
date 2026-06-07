@@ -31,28 +31,27 @@ ROSTER_SLOT_TABLE: tuple[tuple[int, int, str], ...] = (
     (0x07, 0x06, "Doronjo"),
     (0x08, 0x07, "Ippatsuman"),
     (0x09, 0x0B, "Gold Lightan"),
-    (0x0A, 0x1A, "Tekkaman Blade"),
-    (0x0B, 0x1B, "Joe the Condor"),
-    (0x0C, 0x1C, "Yatterman-2"),
-    (0x0D, 0x63, "Random"),
-    (0x0E, 0x1D, "Zero"),
-    (0x0F, 0x1E, "Frank West"),
-    (0x10, 0x16, "PTX-40A"),
-    (0x11, 0x11, "Viewtiful Joe"),
-    (0x12, 0x14, "Saki"),
-    (0x13, 0x13, "Roll"),
-    (0x14, 0x15, "Soki"),
-    (0x15, 0x12, "Volnutt"),
-    (0x16, 0x0E, "Batsu"),
-    (0x17, 0x10, "Alex"),
-    (0x18, 0x0F, "Morrigan"),
-    (0x19, 0x0D, "Chun-Li"),
-    (0x1A, 0x0C, "Ryu"),
-    # Experimental appended logical clone slots. These do not replace visible slots;
-    # they are written after the stock 0x00..0x1A table and require the count bump.
-    (0x1B, 0x17, "Yami 1 clone"),
-    (0x1C, 0x18, "Yami 2 clone"),
-    (0x1D, 0x19, "Yami 3 clone"),
+    (0x0A, 0x19, "Yami 3 after Gold Lightan"),
+    (0x0B, 0x1A, "Tekkaman Blade"),
+    (0x0C, 0x1B, "Joe the Condor"),
+    (0x0D, 0x1C, "Yatterman-2"),
+    (0x0E, 0x63, "Random"),
+    (0x0F, 0x1D, "Zero"),
+    (0x10, 0x18, "Yami 2 after Zero"),
+    (0x11, 0x1E, "Frank West"),
+    (0x12, 0x17, "Yami 1 after Frank"),
+    (0x13, 0x16, "PTX-40A"),
+    (0x14, 0x11, "Viewtiful Joe"),
+    (0x15, 0x14, "Saki"),
+    (0x16, 0x13, "Roll"),
+    (0x17, 0x15, "Soki"),
+    (0x18, 0x12, "Volnutt"),
+    (0x19, 0x0E, "Batsu"),
+    (0x1A, 0x10, "Alex"),
+    (0x1B, 0x0F, "Morrigan"),
+    (0x1C, 0x0D, "Chun-Li"),
+    (0x1D, 0x0C, "Ryu"),
+    (0x1E, 0x00, "Null/empty test slot"),
 )
 
 CHAR_ID_TO_NAME: dict[int, str] = {
@@ -116,6 +115,8 @@ YAMI_CLONE_SLOTS: tuple[tuple[int, int, str], ...] = (
 )
 
 YAMI_CLONE_COUNT = 0x1E
+
+EXTRA_CLONE10_SLOTS: tuple[tuple[int, int, str], ...] = ROSTER_SLOT_TABLE  # stock roster plus ONLY 3 inserted Yami entries
 
 # Experimental visual/icon-shell aliases. The hidden Yami shell appears to
 # resolve through the loaded silhouette labels. The roster table still supplies
@@ -373,49 +374,49 @@ MATERIAL_YAMI_TRIO_PLAN: tuple[tuple[int, bytes, str], ...] = (
 RESOURCE_0300_FIELD_SIZE = len(b"chr/tk1/0300.brres")
 RESOURCE_0300_YAMI_TRIO_PLAN: tuple[tuple[int, bytes, bytes, str], ...] = (
     # Yami 1 tk1 -> Yatterman-2 ya2
-    (0x90826404, b"chr/tk1/0300.brres", b"chr/ya2/0300.brres", "0300 table A tk1 -> ya2"),
-    (0x9082AE34, b"chr/tk1/0300.brres", b"chr/ya2/0300.brres", "0300 table B tk1 -> ya2"),
-    (0x9082FFEC, b"chr/tk1/0300.brres", b"chr/ya2/0300.brres", "0300 table C tk1 -> ya2"),
-    (0x90834A20, b"chr/tk1/0300.brres", b"chr/ya2/0300.brres", "0300 table D tk1 -> ya2"),
+    (0x90826404, b"chr/tk1/0300.brres", b"chr/fra/0300.brres", "0300 table A tk1 -> fra"),
+    (0x9082AE34, b"chr/tk1/0300.brres", b"chr/fra/0300.brres", "0300 table B tk1 -> fra"),
+    (0x9082FFEC, b"chr/tk1/0300.brres", b"chr/fra/0300.brres", "0300 table C tk1 -> fra"),
+    (0x90834A20, b"chr/tk1/0300.brres", b"chr/fra/0300.brres", "0300 table D tk1 -> fra"),
     # Yami 2 tk2 -> Tekkaman tek
-    (0x90826438, b"chr/tk2/0300.brres", b"chr/tek/0300.brres", "0300 table A tk2 -> tek"),
-    (0x9082AE68, b"chr/tk2/0300.brres", b"chr/tek/0300.brres", "0300 table B tk2 -> tek"),
-    (0x90830020, b"chr/tk2/0300.brres", b"chr/tek/0300.brres", "0300 table C tk2 -> tek"),
-    (0x90834A54, b"chr/tk2/0300.brres", b"chr/tek/0300.brres", "0300 table D tk2 -> tek"),
+    (0x90826438, b"chr/tk2/0300.brres", b"chr/tkb/0300.brres", "0300 table A tk2 -> tkb"),
+    (0x9082AE68, b"chr/tk2/0300.brres", b"chr/tkb/0300.brres", "0300 table B tk2 -> tkb"),
+    (0x90830020, b"chr/tk2/0300.brres", b"chr/tkb/0300.brres", "0300 table C tk2 -> tkb"),
+    (0x90834A54, b"chr/tk2/0300.brres", b"chr/tkb/0300.brres", "0300 table D tk2 -> tkb"),
     # Yami 3 tk3 -> Casshan cas
-    (0x9082646C, b"chr/tk3/0300.brres", b"chr/cas/0300.brres", "0300 table A tk3 -> cas"),
-    (0x9082AE9C, b"chr/tk3/0300.brres", b"chr/cas/0300.brres", "0300 table B tk3 -> cas"),
-    (0x90830054, b"chr/tk3/0300.brres", b"chr/cas/0300.brres", "0300 table C tk3 -> cas"),
-    (0x90834A88, b"chr/tk3/0300.brres", b"chr/cas/0300.brres", "0300 table D tk3 -> cas"),
+    (0x9082646C, b"chr/tk3/0300.brres", b"chr/ya2/0300.brres", "0300 table A tk3 -> ya2"),
+    (0x9082AE9C, b"chr/tk3/0300.brres", b"chr/ya2/0300.brres", "0300 table B tk3 -> ya2"),
+    (0x90830054, b"chr/tk3/0300.brres", b"chr/ya2/0300.brres", "0300 table C tk3 -> ya2"),
+    (0x90834A88, b"chr/tk3/0300.brres", b"chr/ya2/0300.brres", "0300 table D tk3 -> ya2"),
 )
 
 BORROWED_YAMI_ICON_PLAN: tuple[dict[str, Any], ...] = (
     {
         "yami_key": "tk1",
         "yami_label": "Yami 1",
+        "donor_key": "fra",
+        "donor_label": "Frank West",
+        "icon": b"icon_fra",
+        "select": b"select_fra",
+        "name": b"name_fra",
+    },
+    {
+        "yami_key": "tk2",
+        "yami_label": "Yami 2",
+        "donor_key": "tkb",
+        "donor_label": "Tekkaman Blade",
+        "icon": b"icon_tkb",
+        "select": b"select_tkb",
+        "name": b"name_tkb",
+    },
+    {
+        "yami_key": "tk3",
+        "yami_label": "Yami 3",
         "donor_key": "ya2",
         "donor_label": "Yatterman-2",
         "icon": b"icon_ya2",
         "select": b"select_ya2",
         "name": b"name_ya2",
-    },
-    {
-        "yami_key": "tk2",
-        "yami_label": "Yami 2",
-        "donor_key": "tek",
-        "donor_label": "Tekkaman",
-        "icon": b"icon_tek",
-        "select": b"select_tek",
-        "name": b"name_tek",
-    },
-    {
-        "yami_key": "tk3",
-        "yami_label": "Yami 3",
-        "donor_key": "cas",
-        "donor_label": "Casshan",
-        "icon": b"icon_cas",
-        "select": b"select_cas",
-        "name": b"name_cas",
     },
 )
 
@@ -667,6 +668,13 @@ _ROSTER_STATE: dict[str, Any] = {
     "solo_team_requested": False,
     "solo_team_mode": "",
     "solo_team_guard": "",
+    "thumbnail_alias_installed": False,
+    "thumbnail_alias_mode": "",
+    "thumbnail_material_copy_installed": False,
+    "thumbnail_material_copy_mode": "",
+    "thumbnail_material_optional_failed": 0,
+    "thumbnail_seq_matidx_installed": False,
+    "thumbnail_seq_matidx_mode": "",
 }
 
 _INT_RE = re.compile(r"0x[0-9a-fA-F]+|\b\d+\b")
@@ -678,6 +686,24 @@ _INT_RE = re.compile(r"0x[0-9a-fA-F]+|\b\d+\b")
 # armed and guarded instead of blindly writing.
 SELECT_SCREEN_STOCK_COUNT = 0x1B
 SELECT_SCREEN_PATCHED_COUNT = 0x1E
+# Extra Characters button insert mode: stock 27 entries + 3 inserted Yami
+# entries plus one null/empty test entry = 31 entries. The roster table is
+# rewritten in visual order so Yami 3 sits after Gold Lightan, Yami 2 after
+# Zero, and Yami 1 after Frank. Slot 0x1E is a deliberate ID 0x00 test slot
+# for a blank/no-character partner candidate.
+# This still avoids BRRES, scratch, material, resource-path, and seq/pane edits.
+EXTRA_CLONE10_COUNT = SELECT_SCREEN_STOCK_COUNT + 4  # 0x1F; 3 Yamis + one null test slot
+
+# Solo Team compatibility for the old “one real character + blank partner” path.
+# With Extra Characters ON we do not overwrite the inserted 3-Yami + null-test roster.
+# Instead, Solo Team temporarily appends the old hidden/Yami tail entries *after*
+# the new 0x1F-entry roster and bumps the count to 0x22.
+SOLO_TEAM_EXTRA_SLOTS: tuple[tuple[int, int, str], ...] = tuple(
+    (EXTRA_CLONE10_COUNT + i, cid, f"Solo empty {name}")
+    for i, (_old_slot, cid, name) in enumerate(YAMI_CLONE_SLOTS)
+)
+SOLO_TEAM_EXTRA_COUNT = EXTRA_CLONE10_COUNT + len(SOLO_TEAM_EXTRA_SLOTS)  # 0x22
+
 # 0x1C shows up after the game rebuilds character select with the profile table
 # append still resident. It is still a real select-screen roster/count state;
 # the old guard rejected it, so Extra chars stayed armed but never re-applied
@@ -687,17 +713,790 @@ SELECT_SCREEN_COUNT_VALUES = {
     SELECT_SCREEN_STOCK_COUNT,
     SELECT_SCREEN_INTERMEDIATE_COUNT,
     SELECT_SCREEN_PATCHED_COUNT,
+    EXTRA_CLONE10_COUNT,
+    SOLO_TEAM_EXTRA_COUNT,
 }
 SELECT_SCREEN_SIGNATURE_SLOTS: tuple[tuple[int, int], ...] = (
+    # Keep the guard on early stock rows that are unchanged by insertion.
+    # Later rows move when the Yami entries are inserted, so they are checked
+    # only after the patch is applied.
     (0x00, 0x01),  # Ken/Gatchaman
     (0x01, 0x08),  # Jun
     (0x02, 0x02),  # Casshan
     (0x03, 0x03),  # Tekkaman
-    (0x0E, 0x1D),  # Zero
-    (0x0F, 0x1E),  # Frank
-    (0x19, 0x0D),  # Chun-Li
-    (0x1A, 0x0C),  # Ryu
+    (0x09, 0x0B),  # Gold Lightan
 )
+# Rescue for the bad bottom-source probe. That probe patched stock chrsel.seq
+# carousel source rows (gac/ryu/chu and icon blanks) instead of cloned
+# Yami-only rows, which can poison menu navigation until the heap reloads.
+# This scrubber is signature-guarded and only restores fields if they contain
+# one of the known bad donor values from that probe.
+CHRSEL_SEQ_HEAP_BASE = 0x908183C0
+CHRSEL_SEQ_HEAP_SIZE = 0x2C310
+CHRSEL_SEQ_SIGNATURE_OFF = 0x40
+CHRSEL_SEQ_SIGNATURE = b"fpack/menu/001/0000.fpk\x00"
+
+
+# Bottom wheel thumbnail material aliases for the three appended Yami slots.
+# These are not donor roster slots. They only rename the extra physical thumbnail
+# material rows B27/B28/B29 so the appended slots borrow existing material names.
+# Slot mapping by roster index:
+#   0x1B / B27 -> Frank West material B15
+#   0x1C / B28 -> Tekkaman Blade material B10
+#   0x1D / B29 -> Yatterman-2 material B12
+# There are two mirrored thumbnail groups in chrsel.seq, so patch both.
+EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE = 0x18
+EXTRA_THUMBNAIL_ALIAS_ROWS: tuple[tuple[int, bytes, bytes, str], ...] = (
+    (0x9083BDC8, b"thumbnail_0622_B27", b"thumbnail_0622_B15", "Yami 1 thumbnail -> Frank"),
+    (0x9083BE28, b"thumbnail_0622_B28", b"thumbnail_0622_B10", "Yami 2 thumbnail -> Tekkaman Blade"),
+    (0x9083BE88, b"thumbnail_0622_B29", b"thumbnail_0622_B12", "Yami 3 thumbnail -> Yatterman-2"),
+    (0x9083C970, b"thumbnail_0622_B27", b"thumbnail_0622_B15", "Yami 1 thumbnail mirror -> Frank"),
+    (0x9083C9D0, b"thumbnail_0622_B28", b"thumbnail_0622_B10", "Yami 2 thumbnail mirror -> Tekkaman Blade"),
+    (0x9083CA30, b"thumbnail_0622_B29", b"thumbnail_0622_B12", "Yami 3 thumbnail mirror -> Yatterman-2"),
+)
+
+
+# Live bottom-wheel object pointer aliases. These are the actual wheel/pane-side
+# objects we found in the dumps: each object is a 0xD0-ish pane/material record,
+# and +0x64 is the pointer to the thumbnail material/string name. Renaming the
+# source strings was too late; this patches the wheel object pointer itself.
+#
+#   B27/B28/B29 are the three appended physical thumbnail rows.
+#   B15 = Frank West, B10 = Tekkaman Blade, B12 = Yatterman-2.
+#
+# There are two live banks, so patch both. The write is guarded: we only write
+# if the current value is still the known B27/B28/B29 pointer or already our
+# target.
+EXTRA_THUMBNAIL_OBJECT_PTR_ROWS: tuple[tuple[int, int, int, str], ...] = (
+    (0x80C1DEE4, 0x92D38A28, 0x92D38908, "wheel object A B27 -> B15 Frank"),
+    (0x80C1DFB4, 0x92D38A40, 0x92D38890, "wheel object A B28 -> B10 Tekkaman Blade"),
+    (0x80C1E084, 0x92D38A58, 0x92D388C0, "wheel object A B29 -> B12 Yatterman-2"),
+    (0x80CC0A84, 0x932FCBA0, 0x932FCA80, "wheel object B B27 -> B15 Frank"),
+    (0x80CC0B54, 0x932FCBB8, 0x932FCA08, "wheel object B B28 -> B10 Tekkaman Blade"),
+    (0x80CC0C24, 0x932FCBD0, 0x932FCA38, "wheel object B B29 -> B12 Yatterman-2"),
+)
+
+# Confirmed physical bottom-wheel thumbnail row table. This is the material row
+# copy pass, not another icon_* or thumbnail_* string rename. The Bxx suffixes
+# are decimal resource suffixes: B27 == row index 27 decimal == slot 0x1B.
+EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE = 0x60
+EXTRA_THUMBNAIL_MATERIAL_ROW_COPIES: tuple[tuple[int, int, str], ...] = (
+    (0x9083B948, 0x9083BDC8, "B27 / slot 0x1B <- B15 Frank donor row"),
+    (0x9083B768, 0x9083BE28, "B28 / slot 0x1C <- B10 Tekkaman Blade donor row"),
+    (0x9083B828, 0x9083BE88, "B29 / slot 0x1D <- B12 Yatterman-2 donor row"),
+)
+
+# CRASHGUARD 2026-06-06:
+# The full 0x60 row-copy probe made the game crash on cursor movement.
+# Treat the bottom wheel thumbnail/material layer as read-only by default.
+# Extra Characters still patches the logical Yami slots and donor profile rows,
+# but it no longer writes B27/B28/B29 thumbnail rows or live wheel object pointers.
+EXTRA_THUMBNAIL_ICON_WRITES_ENABLED = False
+
+# SEQ MATERIAL-INDEX PATCH 2026-06-06:
+# The 0x60 thumbnail rows are chrsel.seq layout/pane records, not BRRES
+# material payloads. The self-offset at +0x34 is why full row copies crashed.
+# The stable field for the visible thumbnail material selection is the 16-bit
+# material index at row +0x2E. Patch only that field in both carousel banks:
+#   B27 -> donor material index from B15 / Frank        (0x0010)
+#   B28 -> donor material index from B10 / TekkamanBlade (0x000B)
+#   B29 -> donor material index from B12 / Yatterman-2   (0x000D)
+EXTRA_THUMBNAIL_SEQ_MATIDX_WRITES_ENABLED = False
+EXTRA_THUMBNAIL_SEQ_MATIDX_ROWS: tuple[tuple[int, int, int, str], ...] = (
+    (0x9083BDF6, 0x001C, 0x0010, "seq bank A B27 material-index -> B15 Frank"),
+    (0x9083BE56, 0x001D, 0x000B, "seq bank A B28 material-index -> B10 Tekkaman Blade"),
+    (0x9083BEB6, 0x001E, 0x000D, "seq bank A B29 material-index -> B12 Yatterman-2"),
+    (0x9083C99E, 0x001C, 0x0010, "seq bank B B27 material-index -> B15 Frank"),
+    (0x9083C9FE, 0x001D, 0x000B, "seq bank B B28 material-index -> B10 Tekkaman Blade"),
+    (0x9083CA5E, 0x001E, 0x000D, "seq bank B B29 material-index -> B12 Yatterman-2"),
+)
+
+# VISUAL SCRATCH SUFFIX PATCH 2026-06-06:
+# New staged dumps prove the +0x2E seq material-index writes are already
+# present but the visible current-character render path still resolves Yami
+# slots to Ryu. The active chrsel visual scratch at 0x90818460/0x90818470 is:
+#   normal Chun hover -> mof_chu / chu
+#   Yami 1 or Yami 2 hover -> mof_ryu / ryu
+# So the wrong value is upstream of BRRES/materials. Keep this layer warm only
+# while the cursor is on the appended physical slots. Do not restore it; the
+# game rewrites it naturally on normal cursor movement.
+EXTRA_VISUAL_SCRATCH_WRITES_ENABLED = False
+EXTRA_VISUAL_SCRATCH_CURSOR_ADDRS: tuple[int, ...] = (0x809BCEA0, 0x809BCF2C)
+EXTRA_VISUAL_SCRATCH_MOF_ADDR = 0x90818460
+EXTRA_VISUAL_SCRATCH_SUFFIX_ADDR = 0x90818470
+EXTRA_VISUAL_SCRATCH_SLOT_PLAN: dict[int, tuple[bytes, bytes, str]] = {
+    0x1B: (b"mof_fra\x00", b"fra\x00", "B27 / slot 0x1B visual suffix -> Frank"),
+    0x1C: (b"mof_tkb\x00", b"tkb\x00", "B28 / slot 0x1C visual suffix -> Tekkaman Blade"),
+    0x1D: (b"mof_ya2\x00", b"ya2\x00", "B29 / slot 0x1D visual suffix -> Yatterman-2"),
+}
+
+
+# QUICKTRY 2026-06-06:
+# Minimal MDL0 material texture-pointer patch. This does NOT touch chrsel.seq
+# 0x60 carousel rows, thumbnail strings, object pointers, navigation fields, or
+# material names. It only swaps the resolved TEX0 pointer inside the live MDL0
+# material structs for the three appended physical thumbnail materials.
+#
+# Field confirmed from dump:
+#   material + 0x420 = absolute TEX0 pointer used by the thumbnail material
+#
+# Existing physical mapping in the dump:
+#   B27 -> icon_joe
+#   B28 -> icon_ya2
+#   B29 -> icon_zer
+#   B30 -> icon_fra
+#   B26 -> icon_tkb
+#
+# Desired appended extra slots:
+#   slot 0x1B / B27 -> icon_fra
+#   slot 0x1C / B28 -> icon_tkb
+#   slot 0x1D / B29 -> icon_ya2
+EXTRA_THUMBNAIL_MDL0_TEXPTR_WRITES_ENABLED = False
+EXTRA_THUMBNAIL_MDL0_TEXPTR_FIELD_OFF = 0x420
+EXTRA_THUMBNAIL_MDL0_MATERIAL_SIZE = 0x5E0
+EXTRA_THUMBNAIL_MDL0_TEXPTR_ROWS: tuple[tuple[int, int, int, int, str], ...] = (
+    # 1015.brres live copy
+    (0x92D23000, 0x1B, 0x92D2F6A0, 0x92D2EDA0, "1015 B27 / slot 0x1B -> icon_fra"),
+    (0x92D235E0, 0x1C, 0x92D33D20, 0x92D33660, "1015 B28 / slot 0x1C -> icon_tkb"),
+    (0x92D23BC0, 0x1D, 0x92D343E0, 0x92D33D20, "1015 B29 / slot 0x1D -> icon_ya2"),
+    # mirrored 1016/1022-side live copy
+    (0x932E6FC0, 0x1B, 0x932F37E0, 0x932F2EE0, "1016 B27 / slot 0x1B -> icon_fra"),
+    (0x932E75A0, 0x1C, 0x932F7E60, 0x932F77A0, "1016 B28 / slot 0x1C -> icon_tkb"),
+    (0x932E7B80, 0x1D, 0x932F8520, 0x932F7E60, "1016 B29 / slot 0x1D -> icon_ya2"),
+)
+
+# DUMP-CORRECTED 2026-06-06:
+# The +0x420 material-header pointer above is real, but it was not enough on
+# the user's test. The MDL0 material dictionary also leads to a smaller
+# per-material texture-binding record. These pointer addresses were mapped by
+# dictionary name from tvc_memdump_20260605_225943:
+#   1015 entry 28 = thumbnail_0622_B27, TEX0 pointer at binding +0x2C
+#   1015 entry 29 = thumbnail_0622_B28, TEX0 pointer at binding +0x2C
+#   1015 entry 30 = thumbnail_0622_B29, TEX0 pointer at binding +0x2C
+#   1016 mirror entries use the same names, but the TEX0 pointer lands at +0x6C.
+# This still avoids strings, 0x60 carousel rows, node rows, and navigation fields.
+EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_WRITES_ENABLED = False
+EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_ROWS: tuple[tuple[int, int, int, str], ...] = (
+    (0x92D21CA0, 0x92D32FA0, 0x92D2EDA0, "1015 binding B27 / slot 0x1B -> icon_fra"),
+    (0x92D22280, 0x92D331E0, 0x92D33660, "1015 binding B28 / slot 0x1C -> icon_tkb"),
+    (0x92D22860, 0x92D33420, 0x92D33D20, "1015 binding B29 / slot 0x1D -> icon_ya2"),
+    (0x932E5C60, 0x932F70E0, 0x932F2EE0, "1016 binding B27 / slot 0x1B -> icon_fra"),
+    (0x932E6240, 0x932F7320, 0x932F77A0, "1016 binding B28 / slot 0x1C -> icon_tkb"),
+    (0x932E6820, 0x932F7560, 0x932F7E60, "1016 binding B29 / slot 0x1D -> icon_ya2"),
+)
+
+CHRSEL_SOURCE_RESCUE_ROWS: tuple[tuple[int, bytes, tuple[bytes, ...]], ...] = (
+    (0x90825108, b'chr/tk1/0000.brres', (b'chr/fra/0000.brres',)),
+    (0x90829B38, b'chr/tk1/0000.brres', (b'chr/fra/0000.brres',)),
+    (0x9082ECF0, b'chr/tk1/0000.brres', (b'chr/fra/0000.brres',)),
+    (0x90833724, b'chr/tk1/0000.brres', (b'chr/fra/0000.brres',)),
+    (0x9082575C, b'chr/tk1/0100.brres', (b'chr/fra/0100.brres',)),
+    (0x9082A18C, b'chr/tk1/0100.brres', (b'chr/fra/0100.brres',)),
+    (0x9082F344, b'chr/tk1/0100.brres', (b'chr/fra/0100.brres',)),
+    (0x90833D78, b'chr/tk1/0100.brres', (b'chr/fra/0100.brres',)),
+    (0x90825DB0, b'chr/tk1/0200.brres', (b'chr/fra/0200.brres',)),
+    (0x9082A7E0, b'chr/tk1/0200.brres', (b'chr/fra/0200.brres',)),
+    (0x9082F998, b'chr/tk1/0200.brres', (b'chr/fra/0200.brres',)),
+    (0x908343CC, b'chr/tk1/0200.brres', (b'chr/fra/0200.brres',)),
+    (0x90826404, b'chr/tk1/0300.brres', (b'chr/fra/0300.brres',)),
+    (0x9082AE34, b'chr/tk1/0300.brres', (b'chr/fra/0300.brres',)),
+    (0x9082FFEC, b'chr/tk1/0300.brres', (b'chr/fra/0300.brres',)),
+    (0x90834A20, b'chr/tk1/0300.brres', (b'chr/fra/0300.brres',)),
+    (0x9082513C, b'chr/tk2/0000.brres', (b'chr/tkb/0000.brres',)),
+    (0x90829B6C, b'chr/tk2/0000.brres', (b'chr/tkb/0000.brres',)),
+    (0x9082ED24, b'chr/tk2/0000.brres', (b'chr/tkb/0000.brres',)),
+    (0x90833758, b'chr/tk2/0000.brres', (b'chr/tkb/0000.brres',)),
+    (0x90825790, b'chr/tk2/0100.brres', (b'chr/tkb/0100.brres',)),
+    (0x9082A1C0, b'chr/tk2/0100.brres', (b'chr/tkb/0100.brres',)),
+    (0x9082F378, b'chr/tk2/0100.brres', (b'chr/tkb/0100.brres',)),
+    (0x90833DAC, b'chr/tk2/0100.brres', (b'chr/tkb/0100.brres',)),
+    (0x90825DE4, b'chr/tk2/0200.brres', (b'chr/tkb/0200.brres',)),
+    (0x9082A814, b'chr/tk2/0200.brres', (b'chr/tkb/0200.brres',)),
+    (0x9082F9CC, b'chr/tk2/0200.brres', (b'chr/tkb/0200.brres',)),
+    (0x90834400, b'chr/tk2/0200.brres', (b'chr/tkb/0200.brres',)),
+    (0x90826438, b'chr/tk2/0300.brres', (b'chr/tkb/0300.brres',)),
+    (0x9082AE68, b'chr/tk2/0300.brres', (b'chr/tkb/0300.brres',)),
+    (0x90830020, b'chr/tk2/0300.brres', (b'chr/tkb/0300.brres',)),
+    (0x90834A54, b'chr/tk2/0300.brres', (b'chr/tkb/0300.brres',)),
+    (0x90825170, b'chr/tk3/0000.brres', (b'chr/ya2/0000.brres',)),
+    (0x90829BA0, b'chr/tk3/0000.brres', (b'chr/ya2/0000.brres',)),
+    (0x9082ED58, b'chr/tk3/0000.brres', (b'chr/ya2/0000.brres',)),
+    (0x9083378C, b'chr/tk3/0000.brres', (b'chr/ya2/0000.brres',)),
+    (0x908257C4, b'chr/tk3/0100.brres', (b'chr/ya2/0100.brres',)),
+    (0x9082A1F4, b'chr/tk3/0100.brres', (b'chr/ya2/0100.brres',)),
+    (0x9082F3AC, b'chr/tk3/0100.brres', (b'chr/ya2/0100.brres',)),
+    (0x90833DE0, b'chr/tk3/0100.brres', (b'chr/ya2/0100.brres',)),
+    (0x90825E18, b'chr/tk3/0200.brres', (b'chr/ya2/0200.brres',)),
+    (0x9082A848, b'chr/tk3/0200.brres', (b'chr/ya2/0200.brres',)),
+    (0x9082FA00, b'chr/tk3/0200.brres', (b'chr/ya2/0200.brres',)),
+    (0x90834434, b'chr/tk3/0200.brres', (b'chr/ya2/0200.brres',)),
+    (0x9082646C, b'chr/tk3/0300.brres', (b'chr/ya2/0300.brres',)),
+    (0x9082AE9C, b'chr/tk3/0300.brres', (b'chr/ya2/0300.brres',)),
+    (0x90830054, b'chr/tk3/0300.brres', (b'chr/ya2/0300.brres',)),
+    (0x90834A88, b'chr/tk3/0300.brres', (b'chr/ya2/0300.brres',)),
+    (0x9083B2A0, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083B2E8, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083CBF0, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083CCBC, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083CE58, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083CF24, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D0C0, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D18C, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D328, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D3F4, b'icon_\x00\x00\x00', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083AB00, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083AC2C, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083AFE4, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083B110, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083CD54, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083CDB8, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083CFBC, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D020, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D224, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D288, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D48C, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083D4F0, b'icon_gld', (b'icon_fra', b'icon_tkb', b'icon_ya2')),
+    (0x9083A3D8, b'mof_gac\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A3F8, b'mof_gac\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A418, b'mof_gac\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A438, b'mof_gac\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x90837CDC, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083868C, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x908390A0, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x90839A00, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A400, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A440, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A67C, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A69C, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A6A4, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A6BC, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A6DC, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A6E4, b'mof_ryu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x90837CA0, b'mof_chu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x90838650, b'mof_chu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x90839064, b'mof_chu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x908399C4, b'mof_chu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A3E0, b'mof_chu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A420, b'mof_chu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A684, b'mof_chu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A6C4, b'mof_chu\x00', (b'mof_fra\x00', b'mof_tkb\x00', b'mof_ya2\x00')),
+    (0x9083A3DC, b'gac\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A3FC, b'gac\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A41C, b'gac\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A43C, b'gac\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x90837CE0, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x90838690, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x908390A4, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x90839A04, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A404, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A444, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A680, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A6A0, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A6A8, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A6C0, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A6E0, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A6E8, b'ryu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x90837CA4, b'chu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x90838654, b'chu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x90839068, b'chu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x908399C8, b'chu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A3E4, b'chu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A424, b'chu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A688, b'chu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+    (0x9083A6C8, b'chu\x00', (b'fra\x00', b'tkb\x00', b'ya2\x00')),
+)
+
+
+
+
+def _chrsel_seq_heap_present() -> bool:
+    sig = _safe_read(CHRSEL_SEQ_HEAP_BASE + CHRSEL_SEQ_SIGNATURE_OFF, len(CHRSEL_SEQ_SIGNATURE))
+    return bool(sig == CHRSEL_SEQ_SIGNATURE)
+
+
+def _pad_thumb_name(name: bytes) -> bytes:
+    raw = bytes(name)
+    return raw[:EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE].ljust(EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE, b"\x00")
+
+
+def _extra_thumbnail_alias_rows_present() -> bool:
+    if not _chrsel_seq_heap_present():
+        return False
+    for addr, _expected, target, _label in EXTRA_THUMBNAIL_ALIAS_ROWS:
+        cur = _safe_read(addr, EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE)
+        if not cur or not cur.startswith(bytes(target)):
+            return False
+    return True
+
+
+def _install_extra_thumbnail_alias_rows() -> tuple[int, int]:
+    if not _chrsel_seq_heap_present():
+        return 0, len(EXTRA_THUMBNAIL_ALIAS_ROWS)
+    wrote = 0
+    failed = 0
+    for addr, expected, target, _label in EXTRA_THUMBNAIL_ALIAS_ROWS:
+        cur = _safe_read(addr, EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE)
+        if cur and cur.startswith(bytes(target)):
+            continue
+        # Only patch known original rows or our previous target. This avoids
+        # touching reused memory if the guard ever misfires.
+        if not cur or not (cur.startswith(bytes(expected)) or cur.startswith(bytes(target))):
+            failed += 1
+            continue
+        if _write_bytes_saved(addr, _pad_thumb_name(target), expected=None, size=EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_alias_installed"] = failed == 0
+        _ROSTER_STATE["thumbnail_alias_mode"] = "B27/B28/B29 -> Frank/Blade/Yatterman-2" if failed == 0 else ""
+        _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
+    return wrote, failed
+
+
+def _restore_extra_thumbnail_alias_rows_only() -> tuple[int, int]:
+    if not _chrsel_seq_heap_present():
+        return 0, 0
+    wrote = 0
+    failed = 0
+    for addr, expected, target, _label in EXTRA_THUMBNAIL_ALIAS_ROWS:
+        cur = _safe_read(addr, EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE)
+        if cur and cur.startswith(bytes(expected)):
+            continue
+        if cur and not cur.startswith(bytes(target)):
+            continue
+        if _write_bytes_saved(addr, _pad_thumb_name(expected), expected=None, size=EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        if failed == 0:
+            _ROSTER_STATE["thumbnail_alias_installed"] = False
+            _ROSTER_STATE["thumbnail_alias_mode"] = ""
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
+    return wrote, failed
+
+
+def _install_extra_visual_scratch_suffix() -> tuple[int, int]:
+    """Keep the active current-character visual suffix corrected for extra slots.
+
+    This is a warm/tick patch, not a permanent asset patch. The game rebuilds
+    this scratch buffer whenever the wheel hover changes. The 2026-06-06 dumps
+    showed B27/B28 resolving to mof_ryu/ryu even though the selector hover IDs
+    were 0x17/0x18 and the +0x2E material-index rows had already been patched.
+    """
+    if not EXTRA_VISUAL_SCRATCH_WRITES_ENABLED:
+        return 0, 0
+    if not _chrsel_seq_heap_present():
+        return 0, 0
+
+    slot: int | None = None
+    for cursor_addr in EXTRA_VISUAL_SCRATCH_CURSOR_ADDRS:
+        value = _safe_read_u32be(cursor_addr)
+        if value is None:
+            continue
+        candidate = int(value) & 0xFF
+        if candidate in EXTRA_VISUAL_SCRATCH_SLOT_PLAN:
+            slot = candidate
+            break
+
+    if slot is None:
+        with _LOCK:
+            _ROSTER_STATE["extra_visual_scratch_active"] = False
+            _ROSTER_STATE["extra_visual_scratch_mode"] = "idle; cursor not on extra visual slot"
+        return 0, 0
+
+    mof, suffix, label = EXTRA_VISUAL_SCRATCH_SLOT_PLAN[slot]
+    wrote = 0
+    failed = 0
+
+    cur_mof = _safe_read(EXTRA_VISUAL_SCRATCH_MOF_ADDR, len(mof))
+    if cur_mof != mof:
+        if _safe_write_bytes(EXTRA_VISUAL_SCRATCH_MOF_ADDR, mof):
+            wrote += 1
+        else:
+            failed += 1
+
+    cur_suffix = _safe_read(EXTRA_VISUAL_SCRATCH_SUFFIX_ADDR, len(suffix))
+    if cur_suffix != suffix:
+        if _safe_write_bytes(EXTRA_VISUAL_SCRATCH_SUFFIX_ADDR, suffix):
+            wrote += 1
+        else:
+            failed += 1
+
+    with _LOCK:
+        _ROSTER_STATE["extra_visual_scratch_active"] = failed == 0
+        _ROSTER_STATE["extra_visual_scratch_slot"] = f"0x{slot:02X}"
+        _ROSTER_STATE["extra_visual_scratch_mode"] = label
+        if failed:
+            _ROSTER_STATE["last_error"] = f"visual scratch suffix failed writes={failed}"
+    return wrote, failed
+
+
+def _extra_thumbnail_seq_matidx_present() -> bool:
+    if not EXTRA_THUMBNAIL_SEQ_MATIDX_WRITES_ENABLED or not _chrsel_seq_heap_present():
+        return False
+    ok = 0
+    for addr, _original, target, _label in EXTRA_THUMBNAIL_SEQ_MATIDX_ROWS:
+        cur = _safe_read_u16be(addr)
+        if cur == int(target):
+            ok += 1
+    return ok == len(EXTRA_THUMBNAIL_SEQ_MATIDX_ROWS)
+
+
+def _install_extra_thumbnail_seq_matidx() -> tuple[int, int]:
+    if not EXTRA_THUMBNAIL_SEQ_MATIDX_WRITES_ENABLED:
+        return 0, 0
+    if not _chrsel_seq_heap_present():
+        return 0, len(EXTRA_THUMBNAIL_SEQ_MATIDX_ROWS)
+    wrote = 0
+    failed = 0
+    touched_labels: list[str] = []
+    for addr, original, target, label in EXTRA_THUMBNAIL_SEQ_MATIDX_ROWS:
+        cur = _safe_read_u16be(addr)
+        if cur == int(target):
+            continue
+        if cur != int(original):
+            failed += 1
+            continue
+        payload = int(target).to_bytes(2, "big")
+        if _write_bytes_saved(addr, payload, expected=int(original).to_bytes(2, "big"), size=2):
+            wrote += 1
+            touched_labels.append(label)
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_seq_matidx_installed"] = _extra_thumbnail_seq_matidx_present()
+        _ROSTER_STATE["thumbnail_seq_matidx_mode"] = "B27/B28/B29 chrsel.seq material-index -> B15/B10/B12" if _ROSTER_STATE.get("thumbnail_seq_matidx_installed") else ""
+        if touched_labels:
+            _ROSTER_STATE["last_action"] = "SEQ thumbnail material-index patch: " + "; ".join(touched_labels[:6])
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
+    return wrote, failed
+
+
+def _restore_extra_thumbnail_seq_matidx_only() -> tuple[int, int]:
+    if not _chrsel_seq_heap_present():
+        return 0, 0
+    wrote = 0
+    failed = 0
+    for addr, original, target, _label in EXTRA_THUMBNAIL_SEQ_MATIDX_ROWS:
+        cur = _safe_read_u16be(addr)
+        if cur == int(original):
+            continue
+        if cur != int(target):
+            continue
+        payload = int(original).to_bytes(2, "big")
+        if _write_bytes_saved(addr, payload, expected=None, size=2):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_seq_matidx_installed"] = _extra_thumbnail_seq_matidx_present()
+        if not _ROSTER_STATE.get("thumbnail_seq_matidx_installed"):
+            _ROSTER_STATE["thumbnail_seq_matidx_mode"] = ""
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
+    return wrote, failed
+
+
+def _select_screen_signature_ok() -> bool:
+    counts = [_safe_read_u32be(addr) for addr, _label in ROSTER_COUNT_ADDRS]
+    if not counts or any(v not in SELECT_SCREEN_COUNT_VALUES for v in counts):
+        return False
+    for slot, expected in SELECT_SCREEN_SIGNATURE_SLOTS:
+        if _safe_read_u32be(_roster_addr_for_slot(slot)) != expected:
+            return False
+    return True
+
+
+def _thumbnail_object_alias_rows_present() -> bool:
+    if not _select_screen_signature_ok():
+        return False
+    for addr, _expected, target, _label in EXTRA_THUMBNAIL_OBJECT_PTR_ROWS:
+        cur = _safe_read_u32be(addr)
+        if cur != int(target):
+            return False
+    return True
+
+
+def _install_thumbnail_object_alias_rows() -> tuple[int, int]:
+    if not _select_screen_signature_ok():
+        return 0, len(EXTRA_THUMBNAIL_OBJECT_PTR_ROWS)
+    wrote = 0
+    failed = 0
+    for addr, expected, target, _label in EXTRA_THUMBNAIL_OBJECT_PTR_ROWS:
+        cur = _safe_read_u32be(addr)
+        if cur == int(target):
+            continue
+        if cur != int(expected):
+            failed += 1
+            continue
+        if _write_saved(addr, int(target)):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_object_alias_installed"] = failed == 0
+        _ROSTER_STATE["thumbnail_object_alias_mode"] = "B27/B28/B29 wheel objects -> Frank/Blade/Yatterman-2" if failed == 0 else ""
+        _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+    return wrote, failed
+
+
+def _restore_thumbnail_object_alias_rows_only() -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for addr, expected, target, _label in EXTRA_THUMBNAIL_OBJECT_PTR_ROWS:
+        cur = _safe_read_u32be(addr)
+        if cur == int(expected):
+            continue
+        if cur != int(target):
+            continue
+        if _write_saved(addr, int(expected)):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        if failed == 0:
+            _ROSTER_STATE["thumbnail_object_alias_installed"] = False
+            _ROSTER_STATE["thumbnail_object_alias_mode"] = ""
+        _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+    return wrote, failed
+
+
+def _row_copy_bytes_good(raw: bytes, size: int = EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE) -> bool:
+    if not raw or len(raw) < int(size):
+        return False
+    window = bytes(raw[: int(size)])
+    return not (all(b == 0x00 for b in window) or all(b == 0xFF for b in window))
+
+
+
+def _extra_thumbnail_mdl0_binding_texptrs_present() -> bool:
+    if not EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_WRITES_ENABLED:
+        return False
+    ok = 0
+    for ptr_addr, _original_tex0, target_tex0, _label in EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_ROWS:
+        if _safe_read_u32be(ptr_addr) == target_tex0:
+            ok += 1
+    return ok == len(EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_ROWS)
+
+
+def _install_extra_thumbnail_mdl0_binding_texptrs() -> tuple[int, int]:
+    if not EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_WRITES_ENABLED:
+        return 0, 0
+    wrote = 0
+    failed = 0
+    touched_labels: list[str] = []
+    for ptr_addr, original_tex0, target_tex0, label in EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_ROWS:
+        cur = _safe_read_u32be(ptr_addr)
+        if cur == target_tex0:
+            continue
+        if cur != original_tex0:
+            failed += 1
+            continue
+        if _safe_write_u32be(ptr_addr, target_tex0):
+            wrote += 1
+            touched_labels.append(label)
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_mdl0_binding_texptr_installed"] = _extra_thumbnail_mdl0_binding_texptrs_present()
+        _ROSTER_STATE["thumbnail_mdl0_binding_texptr_mode"] = "B27/B28/B29 MDL0 binding TEX0 ptrs -> fra/tkb/ya2" if _ROSTER_STATE.get("thumbnail_mdl0_binding_texptr_installed") else ""
+        if touched_labels:
+            _ROSTER_STATE["last_action"] = "MDL0 thumbnail binding TEX0 ptrs: " + "; ".join(touched_labels[:6])
+    return wrote, failed
+
+
+def _restore_extra_thumbnail_mdl0_binding_texptrs_only() -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for ptr_addr, original_tex0, target_tex0, _label in EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_ROWS:
+        cur = _safe_read_u32be(ptr_addr)
+        if cur == original_tex0:
+            continue
+        if cur != target_tex0:
+            failed += 1
+            continue
+        if _safe_write_u32be(ptr_addr, original_tex0):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_mdl0_binding_texptr_installed"] = _extra_thumbnail_mdl0_binding_texptrs_present()
+        if not _ROSTER_STATE.get("thumbnail_mdl0_binding_texptr_installed"):
+            _ROSTER_STATE["thumbnail_mdl0_binding_texptr_mode"] = ""
+    return wrote, failed
+
+def _extra_thumbnail_mdl0_texptrs_present() -> bool:
+    if not EXTRA_THUMBNAIL_MDL0_TEXPTR_WRITES_ENABLED:
+        return False
+    ok = 0
+    for mat_addr, mat_index, _original_tex0, target_tex0, _label in EXTRA_THUMBNAIL_MDL0_TEXPTR_ROWS:
+        size = _safe_read_u32be(mat_addr)
+        idx = _safe_read_u32be(mat_addr + 0x0C)
+        ptr = _safe_read_u32be(mat_addr + EXTRA_THUMBNAIL_MDL0_TEXPTR_FIELD_OFF)
+        if size == EXTRA_THUMBNAIL_MDL0_MATERIAL_SIZE and idx == mat_index and ptr == target_tex0:
+            ok += 1
+    return ok == len(EXTRA_THUMBNAIL_MDL0_TEXPTR_ROWS)
+
+
+def _install_extra_thumbnail_mdl0_texptrs() -> tuple[int, int]:
+    if not EXTRA_THUMBNAIL_MDL0_TEXPTR_WRITES_ENABLED:
+        return 0, 0
+    wrote = 0
+    failed = 0
+    touched_labels: list[str] = []
+    for mat_addr, mat_index, original_tex0, target_tex0, label in EXTRA_THUMBNAIL_MDL0_TEXPTR_ROWS:
+        size = _safe_read_u32be(mat_addr)
+        idx = _safe_read_u32be(mat_addr + 0x0C)
+        if size != EXTRA_THUMBNAIL_MDL0_MATERIAL_SIZE or idx != mat_index:
+            failed += 1
+            continue
+        ptr_addr = mat_addr + EXTRA_THUMBNAIL_MDL0_TEXPTR_FIELD_OFF
+        cur = _safe_read_u32be(ptr_addr)
+        # Guard hard. Only write the exact stock value or our already-patched value.
+        # If another experiment has touched this field, do not stack writes on top of it.
+        if cur == target_tex0:
+            continue
+        if cur != original_tex0:
+            failed += 1
+            continue
+        if _safe_write_u32be(ptr_addr, target_tex0):
+            wrote += 1
+            touched_labels.append(label)
+        else:
+            failed += 1
+    bw, bf = _install_extra_thumbnail_mdl0_binding_texptrs()
+    wrote += bw
+    failed += bf
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_mdl0_texptr_installed"] = _extra_thumbnail_mdl0_texptrs_present()
+        _ROSTER_STATE["thumbnail_mdl0_texptr_mode"] = "B27/B28/B29 MDL0 TEX0 ptrs -> fra/tkb/ya2" if _ROSTER_STATE.get("thumbnail_mdl0_texptr_installed") else ""
+        if touched_labels:
+            _ROSTER_STATE["last_action"] = "MDL0 thumbnail TEX0 ptr quicktry: " + "; ".join(touched_labels[:6])
+    return wrote, failed
+
+
+def _restore_extra_thumbnail_mdl0_texptrs_only() -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for mat_addr, mat_index, original_tex0, target_tex0, _label in EXTRA_THUMBNAIL_MDL0_TEXPTR_ROWS:
+        size = _safe_read_u32be(mat_addr)
+        idx = _safe_read_u32be(mat_addr + 0x0C)
+        if size != EXTRA_THUMBNAIL_MDL0_MATERIAL_SIZE or idx != mat_index:
+            failed += 1
+            continue
+        ptr_addr = mat_addr + EXTRA_THUMBNAIL_MDL0_TEXPTR_FIELD_OFF
+        cur = _safe_read_u32be(ptr_addr)
+        if cur == original_tex0:
+            continue
+        if cur != target_tex0:
+            failed += 1
+            continue
+        if _safe_write_u32be(ptr_addr, original_tex0):
+            wrote += 1
+        else:
+            failed += 1
+    bw, bf = _restore_extra_thumbnail_mdl0_binding_texptrs_only()
+    wrote += bw
+    failed += bf
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_mdl0_texptr_installed"] = _extra_thumbnail_mdl0_texptrs_present()
+        _ROSTER_STATE["thumbnail_mdl0_texptr_mode"] = "" if not _ROSTER_STATE.get("thumbnail_mdl0_texptr_installed") else _ROSTER_STATE.get("thumbnail_mdl0_texptr_mode", "")
+    return wrote, failed
+
+
+def _extra_thumbnail_material_row_copies_present() -> bool:
+    if not EXTRA_THUMBNAIL_ICON_WRITES_ENABLED:
+        return False
+    # Full material-row copy check. This intentionally compares the whole 0x60
+    # row because the failed probes changed only names/pointers while leaving the
+    # actual donor material payload behind.
+    if not _chrsel_seq_heap_present():
+        return False
+    for donor_addr, target_addr, _label in EXTRA_THUMBNAIL_MATERIAL_ROW_COPIES:
+        donor = _safe_read(donor_addr, EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE)
+        target = _safe_read(target_addr, EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE)
+        if not _row_copy_bytes_good(donor) or not _row_copy_bytes_good(target):
+            return False
+        if bytes(target[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE]) != bytes(donor[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE]):
+            return False
+    return True
+
+
+def _install_extra_thumbnail_material_row_copies() -> tuple[int, int]:
+    if not EXTRA_THUMBNAIL_ICON_WRITES_ENABLED:
+        with _LOCK:
+            _ROSTER_STATE["thumbnail_material_copy_installed"] = False
+            _ROSTER_STATE["thumbnail_material_copy_mode"] = "disabled by crashguard"
+        return 0, 0
+    if not _chrsel_seq_heap_present():
+        return 0, len(EXTRA_THUMBNAIL_MATERIAL_ROW_COPIES)
+
+    wrote = 0
+    failed = 0
+    for donor_addr, target_addr, _label in EXTRA_THUMBNAIL_MATERIAL_ROW_COPIES:
+        donor = _safe_read(donor_addr, EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE)
+        target = _safe_read(target_addr, EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE)
+        if not _row_copy_bytes_good(donor) or not _row_copy_bytes_good(target):
+            failed += 1
+            continue
+
+        payload = bytes(donor[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE])
+        if bytes(target[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE]) == payload:
+            continue
+
+        if _write_bytes_saved(target_addr, payload, expected=None, size=EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE):
+            wrote += 1
+        else:
+            failed += 1
+
+    with _LOCK:
+        _ROSTER_STATE["thumbnail_material_copy_installed"] = failed == 0
+        _ROSTER_STATE["thumbnail_material_copy_mode"] = (
+            "B27<-Frank, B28<-Tekkaman Blade, B29<-Yatterman-2 full 0x60 material rows"
+            if failed == 0 else ""
+        )
+        _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
+    return wrote, failed
+
+
+def _restore_extra_thumbnail_material_row_copies_only() -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for donor_addr, target_addr, _label in EXTRA_THUMBNAIL_MATERIAL_ROW_COPIES:
+        original = _ROSTER_BYTE_ORIGINALS.get(int(target_addr) & 0xFFFFFFFF)
+        if original and len(original) >= EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE:
+            cur = _safe_read(target_addr, EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE)
+            if cur and bytes(cur[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE]) == bytes(original[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE]):
+                continue
+            if _safe_write_bytes(target_addr, bytes(original[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE])):
+                wrote += 1
+            else:
+                failed += 1
+            continue
+
+        # If this build did not create the original backup, do not guess the row.
+        # A standalone patch may have already copied the row before the GUI saw it.
+        donor = _safe_read(donor_addr, EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE)
+        target = _safe_read(target_addr, EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE)
+        if (
+            _row_copy_bytes_good(donor)
+            and _row_copy_bytes_good(target)
+            and bytes(target[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE]) == bytes(donor[:EXTRA_THUMBNAIL_MATERIAL_ROW_SIZE])
+        ):
+            failed += 1
+
+    with _LOCK:
+        if failed == 0:
+            _ROSTER_STATE["thumbnail_material_copy_installed"] = False
+            _ROSTER_STATE["thumbnail_material_copy_mode"] = ""
+        _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
+        if failed:
+            _ROSTER_STATE["last_error"] = "thumbnail material row restore needs runtime backup; use full Restore if available"
+    return wrote, failed
 
 
 def _select_screen_status() -> dict[str, Any]:
@@ -719,12 +1518,18 @@ def _select_screen_status() -> dict[str, Any]:
 
     active = bool(count_ok and slot_ok)
 
-    clone_rows_present = bool(
+    extra_base_rows_present = bool(
         active
-        and all(_safe_read_u32be(addr) == SELECT_SCREEN_PATCHED_COUNT for addr, _label in ROSTER_COUNT_ADDRS)
-        and _safe_read_u32be(_roster_addr_for_slot(0x1B)) == 0x17
-        and _safe_read_u32be(_roster_addr_for_slot(0x1C)) == 0x18
-        and _safe_read_u32be(_roster_addr_for_slot(0x1D)) == 0x19
+        and all(_safe_read_u32be(_roster_addr_for_slot(slot)) == cid for slot, cid, _name in EXTRA_CLONE10_SLOTS)
+    )
+    clone_rows_present = bool(
+        extra_base_rows_present
+        and all(_safe_read_u32be(addr) == EXTRA_CLONE10_COUNT for addr, _label in ROSTER_COUNT_ADDRS)
+    )
+    solo_extra_rows_present = bool(
+        extra_base_rows_present
+        and all(_safe_read_u32be(addr) == SOLO_TEAM_EXTRA_COUNT for addr, _label in ROSTER_COUNT_ADDRS)
+        and all(_safe_read_u32be(_roster_addr_for_slot(slot)) == cid for slot, cid, _name in SOLO_TEAM_EXTRA_SLOTS)
     )
 
     # Important: the first guarded build only checked the logical roster rows.
@@ -741,13 +1546,47 @@ def _select_screen_status() -> dict[str, Any]:
         and actual_visual == expected_visual
         and actual_chars == expected_chars
     )
+    thumbnail_material_rows_present = bool(
+        active
+        and EXTRA_THUMBNAIL_ICON_WRITES_ENABLED
+        and _extra_thumbnail_material_row_copies_present()
+    )
+    thumbnail_rows_present = bool(
+        active
+        and EXTRA_THUMBNAIL_ICON_WRITES_ENABLED
+        and (_extra_thumbnail_alias_rows_present() or thumbnail_material_rows_present)
+    )
+    thumbnail_object_rows_present = bool(
+        active
+        and EXTRA_THUMBNAIL_ICON_WRITES_ENABLED
+        and _thumbnail_object_alias_rows_present()
+    )
+    thumbnail_mdl0_texptrs_present = bool(
+        active
+        and EXTRA_THUMBNAIL_MDL0_TEXPTR_WRITES_ENABLED
+        and _extra_thumbnail_mdl0_texptrs_present()
+    )
 
-    patch_present = bool(clone_rows_present and visual_rows_present)
+    # Integrated button path: the old crashguard correctly avoids the 0x60
+    # carousel rows, but the narrow MDL0 TEX0 pointer patch is now considered
+    # part of the Extra Characters ON state. This makes the GUI button keep the
+    # texture pointer patch warm instead of requiring the standalone BAT.
+    texptr_layer_ok = bool((not EXTRA_THUMBNAIL_MDL0_TEXPTR_WRITES_ENABLED) or thumbnail_mdl0_texptrs_present)
+    # Inserted Extra Characters mode: the button is considered present when
+    # the count is 0x1E and the shifted 30-entry roster table is written.
+    # Do not require the old Yami visual/profile rows.
+    patch_present = bool(clone_rows_present or solo_extra_rows_present)
     return {
         "active": active,
         "patch_present": patch_present,
+        "extra_base_rows_present": extra_base_rows_present,
         "clone_rows_present": clone_rows_present,
+        "solo_extra_rows_present": solo_extra_rows_present,
         "visual_rows_present": visual_rows_present,
+        "thumbnail_rows_present": thumbnail_rows_present,
+        "thumbnail_material_rows_present": thumbnail_material_rows_present,
+        "thumbnail_object_rows_present": thumbnail_object_rows_present,
+        "thumbnail_mdl0_texptrs_present": thumbnail_mdl0_texptrs_present,
         "count_ok": count_ok,
         "slot_ok": slot_ok,
         "counts": {k: _hex(v) for k, v in counts.items()},
@@ -774,12 +1613,53 @@ def _update_extra_guard_state(status: dict[str, Any] | None = None) -> dict[str,
     return status
 
 
+
+
+def _rescue_chrsel_source_rows() -> tuple[int, int]:
+    sig = _safe_read(CHRSEL_SEQ_HEAP_BASE + CHRSEL_SEQ_SIGNATURE_OFF, len(CHRSEL_SEQ_SIGNATURE))
+    if sig != CHRSEL_SEQ_SIGNATURE:
+        return 0, 0
+
+    wrote = 0
+    failed = 0
+    for addr, good, bads in CHRSEL_SOURCE_RESCUE_ROWS:
+        cur = _safe_read(addr, len(good))
+        if cur == good:
+            continue
+        if cur not in bads:
+            continue
+        if _safe_write_bytes(addr, good):
+            wrote += 1
+        else:
+            failed += 1
+
+    if wrote or failed:
+        with _LOCK:
+            _ROSTER_STATE["last_action"] = f"chrsel source rescue restored={wrote} failed={failed}"
+            _ROSTER_STATE["last_error"] = "" if failed == 0 else f"chrsel source rescue failed writes={failed}"
+    return wrote, failed
+
 def _tick_extra_characters_request() -> None:
     with _LOCK:
         requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+        solo_requested = bool(_ROSTER_STATE.get("solo_team_requested"))
     status = _update_extra_guard_state()
     active = bool(status.get("active"))
     present = bool(status.get("patch_present"))
+    visual_present = bool(status.get("visual_rows_present"))
+
+    # Solo Team is the old profile-row helper.  When it is active, the game can
+    # rebuild character select into an intermediate count/state.  The inserted
+    # Yami roster refresher used to see that as "not present" and immediately
+    # rewrite the roster/count back to the 3-Yami state, effectively fighting
+    # the Solo Team button.  Once Solo has installed its profile rows, pause the
+    # Extra Characters auto-repair loop until Solo is turned back off.
+    if requested and solo_requested and active and visual_present:
+        with _LOCK:
+            _ROSTER_STATE["extra_characters_enabled"] = True
+            _ROSTER_STATE["extra_characters_mode"] = "3 Yami roster paused while Solo team helper is active"
+            _ROSTER_STATE["last_error"] = ""
+        return
 
     if not requested:
         # OFF means do not apply. If the user toggles off outside character
@@ -798,14 +1678,9 @@ def _tick_extra_characters_request() -> None:
         return
 
     if present:
-        # Keep the three donor profile rows warm while character select is open.
-        # The game can rebuild parts of this table when entering/leaving character
-        # select, and the OFF/ON guard used to consider the patch complete as soon
-        # as the Yami roster rows existed. This refresh is small and only runs
-        # after the select-screen signature passes.
         with _LOCK:
             _ROSTER_STATE["extra_characters_enabled"] = True
-            _ROSTER_STATE["extra_characters_mode"] = "Yami 1/2/3 with Frank, Blade, Yatterman-2 profile rows"
+            _ROSTER_STATE["extra_characters_mode"] = "3 Yami only: after Frank, Zero, and Gold Lightan"
             _ROSTER_STATE["last_error"] = ""
         return
 
@@ -825,6 +1700,9 @@ def _tick_solo_team_request() -> None:
     status = _update_extra_guard_state()
     active = bool(status.get("active"))
     visual_present = bool(status.get("visual_rows_present"))
+    extra_present = bool(status.get("patch_present"))
+    solo_tail_present = _solo_tail_empty_rows_present()
+    solo_extra_present = bool(status.get("solo_extra_rows_present") or _solo_extra_empty_rows_present())
 
     if requested:
         if not active:
@@ -832,30 +1710,46 @@ def _tick_solo_team_request() -> None:
                 _ROSTER_STATE["solo_team_enabled"] = False
                 _ROSTER_STATE["solo_team_guard"] = "armed; waiting for character select"
             return
-        if not visual_present:
-            wrote, failed = _install_extra_profile_rows_only("Solo-team profile rows")
+
+        # Restore the actual old Solo Team behavior.  With Extra Characters OFF,
+        # Solo needs its own appended hidden/blank Yami tail slots.  With Extra
+        # Characters ON, do not disturb the inserted 3-Yami roster; just keep the
+        # profile rows warm.
+        need_install = False
+        if extra_requested:
+            need_install = (not visual_present) or (not extra_present) or (not solo_extra_present)
+        else:
+            need_install = (not visual_present) or (not solo_tail_present)
+
+        if need_install:
+            wrote, failed = _install_solo_team_rows_only(extra_requested=extra_requested)
             with _LOCK:
                 _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + int(wrote)
                 _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + int(failed)
-                _ROSTER_STATE["last_action"] = f"Solo team auto-applied profile rows wrote={wrote} failed={failed}"
+                _ROSTER_STATE["last_action"] = f"Solo team auto-applied empty-slot helper wrote={wrote} failed={failed}"
                 _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Solo team apply failed writes={failed}"
             status = _update_extra_guard_state()
             visual_present = bool(status.get("visual_rows_present"))
+            extra_present = bool(status.get("patch_present"))
+            solo_tail_present = _solo_tail_empty_rows_present()
+            solo_extra_present = bool(status.get("solo_extra_rows_present") or _solo_extra_empty_rows_present())
+
         with _LOCK:
-            _ROSTER_STATE["solo_team_enabled"] = bool(visual_present)
-            _ROSTER_STATE["solo_team_mode"] = "Profile-row solo-team helper" if visual_present else ""
+            _ROSTER_STATE["solo_team_enabled"] = bool(visual_present and (solo_extra_present if extra_requested else solo_tail_present))
+            _ROSTER_STATE["solo_team_mode"] = (
+                "Solo Team: blank Yami tail after inserted roster"
+                if extra_requested
+                else "Solo Team: appended hidden/blank Yami tail slots"
+            )
             _ROSTER_STATE["solo_team_guard"] = "character select detected"
         return
 
-    # Solo OFF should not tear out the shared profile rows while Extra chars is ON,
-    # because Extra chars intentionally uses those same rows for the three borrowed
-    # profile pictures.
-    if active and visual_present and not extra_requested:
-        wrote, failed = _restore_extra_profile_rows_only()
+    if active and visual_present:
+        wrote, failed = _restore_solo_team_rows_only(extra_requested=extra_requested)
         with _LOCK:
             _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + int(wrote)
             _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + int(failed)
-            _ROSTER_STATE["last_action"] = f"Solo team OFF restored profile rows wrote={wrote} failed={failed}"
+            _ROSTER_STATE["last_action"] = f"Solo team OFF restored helper rows wrote={wrote} failed={failed}"
             _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Solo team restore failed writes={failed}"
     with _LOCK:
         _ROSTER_STATE["solo_team_enabled"] = False
@@ -1044,7 +1938,7 @@ def queue_extra_characters_on() -> dict[str, Any]:
         _ROSTER_STATE["last_action"] = (
             "Extra characters ON armed; will apply on character select"
             if not status.get("active")
-            else "Extra characters ON armed; applying on tick"
+            else "Extra characters ON armed; applying 3 inserted Yami rows on tick"
         )
         _ROSTER_STATE["last_error"] = ""
     return {"ok": True, "queued": False, "requested": True, "select_active": bool(status.get("active"))}
@@ -1079,7 +1973,7 @@ def queue_solo_team_on() -> dict[str, Any]:
     with _LOCK:
         _ROSTER_STATE["solo_team_requested"] = True
         _ROSTER_STATE["solo_team_enabled"] = bool(status.get("active") and status.get("visual_rows_present"))
-        _ROSTER_STATE["solo_team_mode"] = "Profile-row solo-team helper"
+        _ROSTER_STATE["solo_team_mode"] = "Solo Team empty-slot helper"
         if status.get("active"):
             _ROSTER_STATE["solo_team_guard"] = "character select detected"
             _ROSTER_QUEUE.append({"op": "solo_team_on"})
@@ -1205,7 +2099,11 @@ def _restore_extra_roster_rows_only() -> tuple[int, int]:
             wrote += 1
         else:
             failed += 1
-    for slot, _cid, _name in YAMI_CLONE_SLOTS:
+    seen_slots: set[int] = set()
+    for slot, _cid, _name in tuple(YAMI_CLONE_SLOTS) + tuple(EXTRA_CLONE10_SLOTS) + tuple(SOLO_TEAM_EXTRA_SLOTS):
+        if slot in seen_slots:
+            continue
+        seen_slots.add(slot)
         if _write_saved(_roster_addr_for_slot(slot), 0):
             wrote += 1
         else:
@@ -1254,41 +2152,40 @@ def _install_yami_visual_table_append(index_values: tuple[int, ...], label: str)
 
 
 def _install_extra_characters_on() -> tuple[int, int]:
+    """Extra Characters button: insert three Yami entries and append one null test slot.
+
+    This uses the proven roster-table path, but rewrites the visible order:
+        Gold Lightan -> Yami 3 -> Tekkaman Blade
+        Zero -> Yami 2 -> Frank West
+        Frank West -> Yami 1 -> PTX-40A
+        Ryu -> Null/empty test slot
+    It only changes the select-wheel roster count/table.
+    No BRRES/MDL0/seq material/scratch/resource-path edits are applied here.
+    """
     wrote = 0
     failed = 0
 
-    # Shell attempt: install the logical Yami slots and selector count bump.
-    # Keep the old silhouette alias because it is the bit that made the hidden
-    # shell show up during earlier testing.
-    w, f = _install_yami_clone_table()
-    wrote += w
-    failed += f
-    w, f = _install_yami_clone_count()
-    wrote += w
-    failed += f
-    w, f = _install_yami_visual_alias("zero")
+    w, f = _install_extra_clone10_table()
     wrote += w
     failed += f
 
-    # Borrowed labels/icons are harmless fallback labels. The proven profile/card
-    # layer is handled below by the three-donor visual table append.
-    w, f = _install_yami_borrowed_icons()
-    wrote += w
-    failed += f
-
-    w, f = _install_yami_visual_table_append(
-        VISUAL_TABLE_THREE_DONOR_APPEND_INDEX,
-        VISUAL_TABLE_THREE_DONOR_LABEL,
-    )
+    w, f = _install_extra_clone10_count()
     wrote += w
     failed += f
 
     with _LOCK:
+        _ROSTER_STATE["thumbnail_material_optional_failed"] = 0
+        _ROSTER_STATE["visual_table_patch_installed"] = False
+        _ROSTER_STATE["visual_table_patch_mode"] = "not used by inserted roster-table mode"
+        _ROSTER_STATE["thumbnail_alias_installed"] = False
+        _ROSTER_STATE["thumbnail_alias_mode"] = "not used by inserted roster-table mode"
+        _ROSTER_STATE["thumbnail_material_copy_installed"] = False
+        _ROSTER_STATE["thumbnail_material_copy_mode"] = "not used by inserted roster-table mode"
         _ROSTER_STATE["extra_characters_enabled"] = failed == 0
         _ROSTER_STATE["extra_characters_requested"] = failed == 0
-        _ROSTER_STATE["extra_characters_mode"] = "Yami 1 -> Frank, Yami 2 -> Blade, Yami 3 -> Yatterman-2 profile rows"
-        _ROSTER_STATE["last_action"] = f"Extra characters ON wrote={wrote} failed={failed}; profile rows=Frank/Blade/Yatterman-2"
-        _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Extra characters ON failed writes={failed}"
+        _ROSTER_STATE["extra_characters_mode"] = "3 Yami inserts + one ID 0x00 null test slot"
+        _ROSTER_STATE["last_action"] = f"Extra 3-Yami + null-test roster ON wrote={wrote} failed={failed}; count=0x{EXTRA_CLONE10_COUNT:02X}"
+        _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Extra 3-Yami + null-test roster failed writes={failed}"
     return wrote, failed
 
 def _hex(value: int | None) -> str:
@@ -1413,6 +2310,16 @@ def _safe_read_u32be(addr: int) -> int | None:
         return None
 
 
+def _safe_read_u16be(addr: int) -> int | None:
+    data = _safe_read(int(addr), 2)
+    if not data or len(data) < 2:
+        return None
+    try:
+        return int.from_bytes(data[:2], "big")
+    except Exception:
+        return None
+
+
 def _safe_write_u32be(addr: int, value: int) -> bool:
     if wd32 is None:
         return False
@@ -1464,7 +2371,7 @@ def _read_roster_selector_snapshot() -> dict[str, Any]:
             "addr": f"0x{addr:08X}",
             "label": label,
             "value": (f"0x{int(value):08X}" if value is not None else ""),
-            "is_clone_count": bool(value == YAMI_CLONE_COUNT),
+            "is_clone_count": bool(value in {YAMI_CLONE_COUNT, EXTRA_CLONE10_COUNT, SOLO_TEAM_EXTRA_COUNT}),
         })
 
     table: list[dict[str, Any]] = []
@@ -2022,6 +2929,161 @@ def _install_yami_clone_count() -> tuple[int, int]:
     return wrote, failed
 
 
+def _solo_tail_empty_rows_present() -> bool:
+    """True when Solo Team's old empty/Yami tail slots are resident.
+
+    This is intentionally separate from the Extra Characters inserted-roster
+    layout.  Solo Team's original behavior was: pick one normal character, then
+    pick an appended blank/hidden Yami slot that the game accepts as teammate 2.
+    """
+    return bool(
+        all(_safe_read_u32be(addr) == YAMI_CLONE_COUNT for addr, _label in ROSTER_COUNT_ADDRS)
+        and all(_safe_read_u32be(_roster_addr_for_slot(slot)) == cid for slot, cid, _name in YAMI_CLONE_SLOTS)
+    )
+
+
+def _solo_extra_empty_rows_present() -> bool:
+    """True when Solo Team's blank partner tail is appended after the 3-Yami insert roster."""
+    return bool(
+        all(_safe_read_u32be(addr) == SOLO_TEAM_EXTRA_COUNT for addr, _label in ROSTER_COUNT_ADDRS)
+        and all(_safe_read_u32be(_roster_addr_for_slot(slot)) == cid for slot, cid, _name in EXTRA_CLONE10_SLOTS)
+        and all(_safe_read_u32be(_roster_addr_for_slot(slot)) == cid for slot, cid, _name in SOLO_TEAM_EXTRA_SLOTS)
+    )
+
+
+def _install_solo_team_rows_only(extra_requested: bool = False) -> tuple[int, int]:
+    """Install the real Solo Team helper.
+
+    Extra OFF: preserve the old behavior exactly enough to get the blank partner
+    tail: append the three hidden/Yami slots at 0x1B..0x1D and bump count to
+    0x1E.
+
+    Extra ON: keep the new inserted 3-Yami wheel order intact, then append the
+    same hidden/Yami blank partner tail at 0x1E..0x20 and bump count to 0x21.
+    That gives the solo picker its old empty partner slot without stealing the
+    current Morrigan/Chun/Ryu tail rows.
+    """
+    wrote = 0
+    failed = 0
+
+    if extra_requested:
+        w, f = _install_extra_clone10_table()
+        wrote += w
+        failed += f
+        for slot, cid, _name in SOLO_TEAM_EXTRA_SLOTS:
+            if _write_saved(_roster_addr_for_slot(slot), cid):
+                wrote += 1
+            else:
+                failed += 1
+        for addr, _label in ROSTER_COUNT_ADDRS:
+            if _write_saved(addr, SOLO_TEAM_EXTRA_COUNT):
+                wrote += 1
+            else:
+                failed += 1
+    else:
+        w, f = _install_yami_clone_table()
+        wrote += w
+        failed += f
+        w, f = _install_yami_clone_count()
+        wrote += w
+        failed += f
+
+    w, f = _install_extra_profile_rows_only("Solo-team empty-slot helper")
+    wrote += w
+    failed += f
+
+    with _LOCK:
+        _ROSTER_STATE["solo_team_enabled"] = failed == 0
+        _ROSTER_STATE["solo_team_mode"] = (
+            "Solo Team: blank Yami tail after inserted roster"
+            if extra_requested
+            else "Solo Team: appended hidden/blank Yami tail slots"
+        )
+    return wrote, failed
+
+
+def _restore_solo_team_rows_only(extra_requested: bool = False) -> tuple[int, int]:
+    """Restore only what Solo Team owns.
+
+    Extra ON: remove the temporary 0x1E..0x20 blank partner tail and return the
+    count to the normal inserted 0x1E roster.
+
+    Extra OFF: restore the old Solo Team tail back to stock.
+    """
+    wrote = 0
+    failed = 0
+
+    w, f = _restore_extra_profile_rows_only()
+    wrote += w
+    failed += f
+
+    if extra_requested:
+        for addr, _label in ROSTER_COUNT_ADDRS:
+            if _write_saved(addr, EXTRA_CLONE10_COUNT):
+                wrote += 1
+            else:
+                failed += 1
+        for slot, _cid, _name in SOLO_TEAM_EXTRA_SLOTS:
+            if _write_saved(_roster_addr_for_slot(slot), 0):
+                wrote += 1
+            else:
+                failed += 1
+    else:
+        for addr, _label in ROSTER_COUNT_ADDRS:
+            if _write_saved(addr, SELECT_SCREEN_STOCK_COUNT):
+                wrote += 1
+            else:
+                failed += 1
+        for slot, _cid, _name in YAMI_CLONE_SLOTS:
+            if _write_saved(_roster_addr_for_slot(slot), 0):
+                wrote += 1
+            else:
+                failed += 1
+
+    with _LOCK:
+        _ROSTER_STATE["solo_team_enabled"] = False
+        _ROSTER_STATE["solo_team_mode"] = ""
+        _ROSTER_STATE["solo_team_guard"] = "off"
+    return wrote, failed
+
+
+def _install_extra_clone10_table() -> tuple[int, int]:
+    """Rewrite the character-select roster table in inserted Yami order.
+
+    This keeps the stock list intact but shifts later entries down to place:
+        Yami 3 after Gold Lightan
+        Yami 2 after Zero
+        Yami 1 after Frank West
+        one ID 0x00 null/empty test slot after Ryu
+    No visual-string aliases, BRRES edits, seq material edits, scratch edits,
+    or resource-path edits are applied here.
+    """
+    wrote = 0
+    failed = 0
+    for slot, cid, _name in EXTRA_CLONE10_SLOTS:
+        addr = _roster_addr_for_slot(slot)
+        if _write_saved(addr, cid):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["clone_table_installed"] = failed == 0
+    return wrote, failed
+
+
+def _install_extra_clone10_count() -> tuple[int, int]:
+    wrote = 0
+    failed = 0
+    for addr, _label in ROSTER_COUNT_ADDRS:
+        if _write_saved(addr, EXTRA_CLONE10_COUNT):
+            wrote += 1
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["clone_count_installed"] = failed == 0
+    return wrote, failed
+
+
 def _install_yami_visual_alias(mode: str = "zero") -> tuple[int, int]:
     mode_key = str(mode or "zero").strip().lower()
     if mode_key not in VISUAL_ALIAS_PRESETS:
@@ -2500,6 +3562,11 @@ def _do_restore() -> dict[str, int]:
             _ROSTER_STATE["extra_characters_enabled"] = False
             _ROSTER_STATE["extra_characters_requested"] = False
             _ROSTER_STATE["extra_characters_mode"] = ""
+            _ROSTER_STATE["thumbnail_alias_installed"] = False
+            _ROSTER_STATE["thumbnail_alias_mode"] = ""
+            _ROSTER_STATE["thumbnail_material_copy_installed"] = False
+            _ROSTER_STATE["thumbnail_material_copy_mode"] = ""
+            _ROSTER_STATE["thumbnail_material_optional_failed"] = 0
             _ROSTER_STATE["solo_team_enabled"] = False
             _ROSTER_STATE["solo_team_requested"] = False
             _ROSTER_STATE["solo_team_mode"] = ""
@@ -2518,6 +3585,10 @@ def _do_restore() -> dict[str, int]:
 
 
 def _tick_roster_actions() -> None:
+    with _LOCK:
+        _extra_req_for_rescue = bool(_ROSTER_STATE.get("extra_characters_requested"))
+    if not _extra_req_for_rescue:
+        _rescue_chrsel_source_rows()
     _tick_extra_characters_request()
     _tick_solo_team_request()
     with _LOCK:
@@ -2674,6 +3745,21 @@ def _tick_roster_actions() -> None:
                         w, f = _restore_extra_roster_rows_only()
                         wrote += w
                         failed += f
+                        w, f = _restore_extra_thumbnail_mdl0_texptrs_only()
+                        wrote += w
+                        failed += f
+                        w, f = _restore_extra_thumbnail_seq_matidx_only()
+                        wrote += w
+                        failed += f
+                        w, f = _restore_extra_thumbnail_material_row_copies_only()
+                        wrote += w
+                        failed += f
+                        w, f = _restore_extra_thumbnail_alias_rows_only()
+                        wrote += w
+                        failed += f
+                        w, f = _restore_thumbnail_object_alias_rows_only()
+                        wrote += w
+                        failed += f
                         with _LOCK:
                             _ROSTER_STATE["extra_characters_requested"] = False
                             _ROSTER_STATE["extra_characters_enabled"] = False
@@ -2691,13 +3777,12 @@ def _tick_roster_actions() -> None:
                             _ROSTER_STATE["last_error"] = ""
                 if op == "solo_team_on":
                     status = _update_extra_guard_state()
+                    with _LOCK:
+                        _extra_requested_for_solo = bool(_ROSTER_STATE.get("extra_characters_requested"))
                     if status.get("active"):
-                        w, f = _install_extra_profile_rows_only("Solo-team profile rows")
+                        w, f = _install_solo_team_rows_only(extra_requested=_extra_requested_for_solo)
                         wrote += w
                         failed += f
-                        with _LOCK:
-                            _ROSTER_STATE["solo_team_enabled"] = f == 0
-                            _ROSTER_STATE["solo_team_mode"] = "Profile-row solo-team helper"
                     else:
                         with _LOCK:
                             _ROSTER_STATE["solo_team_requested"] = True
@@ -2705,8 +3790,10 @@ def _tick_roster_actions() -> None:
                             _ROSTER_STATE["solo_team_guard"] = "armed; waiting for character select"
                 if op == "solo_team_off":
                     status = _update_extra_guard_state()
-                    if status.get("active") and not bool(_ROSTER_STATE.get("extra_characters_requested")):
-                        w, f = _restore_extra_profile_rows_only()
+                    with _LOCK:
+                        _extra_requested_for_solo = bool(_ROSTER_STATE.get("extra_characters_requested"))
+                    if status.get("active"):
+                        w, f = _restore_solo_team_rows_only(extra_requested=_extra_requested_for_solo)
                         wrote += w
                         failed += f
                     with _LOCK:

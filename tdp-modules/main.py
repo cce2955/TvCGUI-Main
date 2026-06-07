@@ -23,31 +23,60 @@ def resource_path(*parts):
 
 # Python 3.13 + pygame 2.6.1 can hard-abort inside pygame.event.get()
 # with PyEval_RestoreThread before Python can raise/catch an exception.
-# Default to a pump-only input path and synthesize clicks from mouse state.
-# Set TVC_USE_PYGAME_EVENT_GET=1 only if you specifically need SDL events.
+# Default to a mouse-state input path, but still read *window lifecycle* events
+# so the title-bar X / Alt+F4 can actually close the app.
+# Set TVC_USE_PYGAME_EVENT_GET=1 only if you specifically need full SDL events.
 _PYGAME_EVENT_GET_ENABLED = str(os.environ.get("TVC_USE_PYGAME_EVENT_GET", "0")).strip().lower() in {"1", "true", "yes", "on"}
 _PYGAME_EVENT_WARNED = False
 
 
-def _safe_pygame_event_get():
-    """Return pygame events when enabled; otherwise only keep SDL responsive.
+def _pygame_window_event_types():
+    """Small event whitelist used by the safe pygame input path."""
+    names = (
+        "QUIT",
+        "VIDEORESIZE",
+        "WINDOWCLOSE",
+        "WINDOWRESIZED",
+        "WINDOWSIZECHANGED",
+    )
+    out = []
+    for name in names:
+        val = getattr(pygame, name, None)
+        if val is not None and val not in out:
+            out.append(val)
+    return out
 
-    The older wrapper tried to catch pygame.event.get() failures. The crash the
-    user hit is a fatal C-level GIL abort, so avoiding event.get() entirely is
-    the only safe default on Python 3.13 in this HUD.
+
+def _is_pygame_close_event(ev):
+    close_types = {pygame.QUIT}
+    for name in ("WINDOWCLOSE",):
+        val = getattr(pygame, name, None)
+        if val is not None:
+            close_types.add(val)
+    return getattr(ev, "type", None) in close_types
+
+
+def _safe_pygame_event_get():
+    """Return pygame events.
+
+    Full event.get() stays opt-in because it was the crash source on the
+    Python 3.13/pygame combo.  The default path only drains window lifecycle
+    events, then the HUD uses pygame.mouse.get_pressed() for clicks.  That keeps
+    the UI responsive *and* lets the title-bar X close main.py.
     """
     global _PYGAME_EVENT_WARNED
     if not _PYGAME_EVENT_GET_ENABLED:
         try:
             pygame.event.pump()
+            return pygame.event.get(_pygame_window_event_types())
         except Exception as e:
             if not _PYGAME_EVENT_WARNED:
                 _PYGAME_EVENT_WARNED = True
                 try:
-                    print(f"[pygame event] pump failed, continuing without SDL events: {e!r}", flush=True)
+                    print(f"[pygame event] window-event poll failed, continuing with mouse fallback only: {e!r}", flush=True)
                 except Exception:
                     pass
-        return []
+            return []
 
     try:
         return pygame.event.get()
@@ -99,7 +128,7 @@ from scan_worker import ScanNormalsWorker
 from training_flags import read_training_flags
 from debug_panel import read_debug_flags, draw_debug_overlay
 
-from dolphin_io import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes
+from dolphin_io import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes, prime_mem2_latch
 
 from config import (
     MIN_HIT_DAMAGE,
@@ -1814,19 +1843,9 @@ def draw_top_command_dock(
         align="center",
     )
 
-    x = select_probe_btn_rect.right + gap
-    solo_team_btn_rect = pygame.Rect(x, y_tools, 126, btn_h)
-    draw_glass_button(
-        screen,
-        solo_team_btn_rect,
-        "Solo team: ON" if solo_team_active else "Solo team: OFF",
-        smallfont,
-        active=bool(solo_team_active),
-        hover=solo_team_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(44, 56, 82) if solo_team_active else (31, 33, 42),
-        align="center",
-    )
+    # Solo Team button removed for now.  Keep a zero-size offscreen rect so the
+    # existing dock return shape and mouse-handler unpacking stay compatible.
+    solo_team_btn_rect = pygame.Rect(-10000, -10000, 0, 0)
 
     help_tip = "Hover a command for help. Right click panels/debug rows to copy."
     help_accent = GUI_APP_ACCENT
@@ -1848,10 +1867,8 @@ def draw_top_command_dock(
         help_tip = "Dump MEM: save a memory dump for route/profile analysis."
     elif select_probe_btn_rect.collidepoint(mx, my):
         help_tip = "Extra chars: toggles the guarded Yami 1/2/3 roster/profile patch."
-    elif solo_team_btn_rect.collidepoint(mx, my):
-        help_tip = "Solo team: toggles the profile-row helper that allowed one-character teams."
 
-    help_x = solo_team_btn_rect.right + 12
+    help_x = select_probe_btn_rect.right + 12
     help_w = max(160, w - help_x - 10)
     if help_w >= 180:
         help_rect = pygame.Rect(help_x, y_tools, help_w, btn_h)
@@ -3163,6 +3180,16 @@ def resolve_bases(last_base_by_ptr: dict, y_off_by_base: dict) -> list:
             base = raw_base
 
         changed = base is not None and last_base_by_ptr.get(ptr_addr) != base
+        if base:
+            # Non-blocking MEM2 primer. This keeps the tool armed when it was
+            # launched from menus: as soon as any live fighter pointer appears,
+            # dolphin_io can latch the correct MEM2 host map before we read
+            # fighter/y-position data.
+            try:
+                prime_mem2_latch()
+            except Exception:
+                pass
+
         if base and changed:
             last_base_by_ptr[ptr_addr] = base
             METER_CACHE.drop(base)
@@ -4062,10 +4089,16 @@ def legacy_main():
 
         # Events
         for ev in _safe_pygame_event_get():
-            if ev.type == pygame.QUIT:
+            if _is_pygame_close_event(ev):
                 running = False
             elif ev.type == pygame.VIDEORESIZE:
                 screen = pygame.display.set_mode(ev.size, pygame.RESIZABLE)
+            elif ev.type in {getattr(pygame, "WINDOWRESIZED", -1), getattr(pygame, "WINDOWSIZECHANGED", -2)}:
+                try:
+                    size = getattr(ev, "size", None) or pygame.display.get_window_size()
+                    screen = pygame.display.set_mode(size, pygame.RESIZABLE)
+                except Exception:
+                    pass
             elif ev.type == pygame.MOUSEBUTTONDOWN:
                 if ev.button == 1:
                     mouse_clicked_pos = ev.pos
@@ -5001,15 +5034,6 @@ def legacy_main():
                     print(f"[extra chars] toggle queued: {result}", flush=True)
                 else:
                     print("[extra chars] toggle unavailable", flush=True)
-                mouse_clicked_pos = None
-                continue
-
-            elif solo_team_btn_rect.collidepoint(mx, my):
-                if toggle_solo_team is not None:
-                    result = toggle_solo_team()
-                    print(f"[solo team] toggle queued: {result}", flush=True)
-                else:
-                    print("[solo team] toggle unavailable", flush=True)
                 mouse_clicked_pos = None
                 continue
 

@@ -5,11 +5,16 @@
 #
 # CHANGE (MEM2 latch):
 #   Dolphin can have multiple MEM2-sized committed regions. DME can
-#   attach to the wrong one. We "latch" the correct MEM2 host base by
-#   validating a known sentinel EA address and expected bytes.
+#   attach to the wrong one. We "latch" the correct MEM2 host base.
+#
+#   IMPORTANT: the latch used to depend on a fixed fighter-base sentinel
+#   (0x9246B9C0). That only exists during certain already-started matches,
+#   so the GUI would fail to detect matches if it was launched from menus.
+#   The latch is now dynamic: it polls the stable MEM1 fighter pointer slots
+#   and uses whichever live fighter base appears first as the MEM2 proof.
 #
 # Exposes:
-#   hook()               - block until Dolphin is hooked AND MEM2 latched
+#   hook()               - hook Dolphin immediately; MEM2 latches lazily
 #   addr_in_ram(a)       - True if address in MEM1 or MEM2
 #   rbytes(addr, size)   - bulk read, returns bytes
 #   rd8(addr)            - read 8-bit unsigned, returns int 0..255 or None
@@ -36,6 +41,17 @@ from constants import MEM1_LO, MEM1_HI, MEM2_LO, MEM2_HI
 # ============================================================
 
 
+# Stable MEM1 addresses that point to live fighter structs once a match exists.
+# These are safe to poll from menus; they simply read as null/invalid until
+# the match allocator installs fighter bases.
+DYNAMIC_SLOT_PTRS = (
+    0x803C9FCC,  # P1-C1
+    0x803C9FDC,  # P1-C2
+    0x803C9FD4,  # P2-C1
+    0x803C9FE4,  # P2-C2
+)
+
+# Legacy fallback only. Do not rely on this to prime MEM2 from menus.
 EXPECT_EA = 0x9246B9C0
 EXPECT_BYTES = bytes.fromhex(
     "00 00 80 0F 00 00 00 00 00 00 00 00 00 00 00 00 "
@@ -53,7 +69,8 @@ MEM2_SIZE = MEM2_HI - MEM2_LO  # usually 0x04000000 (64MB)
 # Process name to target
 DOLPHIN_EXE = "Dolphin.exe"
 
-# How often we retry latching if we can't find it yet
+# How often we retry latching if we can't find it yet. This is also the
+# non-blocking throttle used by rbytes/wbytes while no match is active.
 LATCH_RETRY_SLEEP = 0.25
 
 # ============================================================
@@ -152,10 +169,14 @@ _mem2_proc_handle = None
 _mem2_pid = None
 _mem2_host_base = None
 _mem2_host_size = None
+_mem2_latch_mode = None
+_mem2_latch_note = "unlatched"
+_mem2_last_latch_attempt = 0.0
 
 
 def _reset_mem2_latch():
     global _mem2_proc_handle, _mem2_pid, _mem2_host_base, _mem2_host_size
+    global _mem2_latch_mode, _mem2_latch_note
     if _mem2_proc_handle is not None and _IS_WINDOWS:
         try:
             kernel32.CloseHandle(_mem2_proc_handle)
@@ -165,6 +186,8 @@ def _reset_mem2_latch():
     _mem2_pid = None
     _mem2_host_base = None
     _mem2_host_size = None
+    _mem2_latch_mode = None
+    _mem2_latch_note = "unlatched"
 
 
 def _find_pid_by_name(exe_name: str):
@@ -294,37 +317,190 @@ def _score_match(buf: bytes) -> int:
     return score
 
 
-def _latch_mem2():
-    """
-    Find the correct MEM2 host mapping by scanning large readable committed regions,
-    and validating EXPECT_EA -> expected bytes.
-    """
-    global _mem2_proc_handle, _mem2_pid, _mem2_host_base, _mem2_host_size
+def _u32be_from(buf: bytes, off: int):
+    if off < 0 or off + 4 > len(buf):
+        return None
+    return struct.unpack_from(">I", buf, off)[0]
 
-    if not _IS_WINDOWS:
+
+def _f32be_from(buf: bytes, off: int):
+    if off < 0 or off + 4 > len(buf):
+        return None
+    try:
+        val = struct.unpack_from(">f", buf, off)[0]
+    except Exception:
+        return None
+    return val if math.isfinite(val) else None
+
+
+def _dme_rd32_be(addr: int):
+    """Read a MEM1 u32 directly through DME, bypassing MEM2 latch logic."""
+    try:
+        data = dme.read_bytes(int(addr), 4)
+    except Exception:
+        return None
+    if not data or len(data) != 4:
+        return None
+    return struct.unpack(">I", data)[0]
+
+
+def _dynamic_slot_pointer_candidates():
+    """Return unique MEM2-looking live fighter EAs from the stable MEM1 slots."""
+    out = []
+    seen = set()
+    for ptr_addr in DYNAMIC_SLOT_PTRS:
+        ea = _dme_rd32_be(ptr_addr)
+        if ea is None:
+            continue
+        if not (MEM2_LO <= int(ea) < MEM2_HI):
+            continue
+        # Fighter structs are word-aligned. This also filters garbage reads.
+        if int(ea) & 0x3:
+            continue
+        if int(ea) in seen:
+            continue
+        seen.add(int(ea))
+        out.append((ptr_addr, int(ea)))
+    return out
+
+
+def _fighter_block_score(buf: bytes) -> int:
+    """
+    Score a candidate fighter struct block read from a possible MEM2 host map.
+
+    This intentionally stays permissive enough for load/round transitions, but
+    strict enough to reject random committed regions. The candidate EA already
+    came from one of the game's live fighter pointer slots, so we only need to
+    prove the host base is the right MEM2 mirror.
+    """
+    if not buf or len(buf) < 0x130:
+        return 0
+
+    score = 0
+    first = _u32be_from(buf, 0x00)
+    cid = _u32be_from(buf, 0x14)
+    max_hp = _u32be_from(buf, 0x24)
+    cur_hp = _u32be_from(buf, 0x28)
+    aux_hp = _u32be_from(buf, 0x2C)
+    pos_x = _f32be_from(buf, 0xF0)
+
+    # Common live fighter header observed as 0x0000800F, with one known toggle
+    # variant 0x0000000F. Keep this as a strong clue, not a hard requirement.
+    if first in (0x0000800F, 0x0000000F):
+        score += 4
+    elif first is not None and (first & 0xFFFF) in (0x800F, 0x000F):
+        score += 2
+
+    # TvC retail/Yami IDs stay small. 0 can appear for null/helper slots, so
+    # treat it as a weak clue instead of rejecting it outright.
+    if cid is not None:
+        if 1 <= cid <= 0x40:
+            score += 3
+        elif cid == 0:
+            score += 1
+
+    # HP values vary, but real fighters are positive and not huge.
+    if max_hp is not None:
+        if 1000 <= max_hp <= 300000:
+            score += 3
+        elif 1 <= max_hp <= 1000000:
+            score += 1
+
+    if cur_hp is not None and max_hp is not None and max_hp > 0:
+        if 0 <= cur_hp <= max_hp * 2:
+            score += 2
+
+    if aux_hp is not None and max_hp is not None and max_hp > 0:
+        if 0 <= aux_hp <= max_hp * 2:
+            score += 1
+
+    if pos_x is not None and abs(pos_x) < 100000.0:
+        score += 1
+
+    # Reject all-zero and all-FF pages even if a few weak fields matched.
+    if buf[:0x80] == b"\x00" * 0x80 or buf[:0x80] == b"\xFF" * 0x80:
+        return 0
+
+    return score
+
+
+def _latch_mem2_from_dynamic_slots() -> bool:
+    """Latch MEM2 by validating live fighter pointer slots instead of a fixed EA."""
+    global _mem2_host_base, _mem2_host_size, _mem2_latch_mode, _mem2_latch_note
+
+    candidates = _dynamic_slot_pointer_candidates()
+    if not candidates:
+        _mem2_latch_note = "waiting for live fighter slot pointer"
         return False
 
-    pid = _find_pid_by_name(DOLPHIN_EXE)
-    if pid is None:
-        _reset_mem2_latch()
+    best = None  # (score, region_base, region_size, ptr_addr, fighter_ea)
+
+    for base, size, protect, state in _iter_regions(_mem2_proc_handle):
+        if state != MEM_COMMIT:
+            continue
+        prot = protect & 0xFF  # ignore guard/nocache flags
+        if prot not in READABLE_PROTECT:
+            continue
+        if size < MEM2_SIZE:
+            continue
+
+        for ptr_addr, fighter_ea in candidates:
+            off = fighter_ea - MEM2_LO
+            if off < 0 or off + 0x130 > size:
+                continue
+            block = _rpm(_mem2_proc_handle, base + off, 0x130)
+            if not block:
+                continue
+            score = _fighter_block_score(block)
+            if best is None or score > best[0]:
+                best = (score, base, size, ptr_addr, fighter_ea)
+                if score >= 10:
+                    break
+        if best is not None and best[0] >= 10:
+            break
+
+    if not best or best[0] < 7:
+        cand_s = ", ".join(f"0x{ea:08X}" for _ptr, ea in candidates[:4])
+        _mem2_latch_note = f"slot candidates present but no validated MEM2 map: {cand_s}"
         return False
 
-    # Reopen handle if PID changed
-    if _mem2_pid != pid or _mem2_proc_handle is None:
-        _reset_mem2_latch()
-        h = _open_process(pid)
-        if h is None:
-            return False
-        _mem2_proc_handle = h
-        _mem2_pid = pid
+    score, base, size, ptr_addr, fighter_ea = best
+    _mem2_host_base = int(base)
+    _mem2_host_size = int(size)
+    _mem2_latch_mode = "dynamic_slot"
+    _mem2_latch_note = f"slot 0x{ptr_addr:08X}->0x{fighter_ea:08X} score={score}"
+    print(f"[MEM2 latch] dynamic slot 0x{ptr_addr:08X}->0x{fighter_ea:08X}; host=0x{base:X}; score={score}")
+    return True
+
+
+def _latch_mem2_from_legacy_sentinel() -> bool:
+    """Disabled legacy fixed-EA latch.
+
+    The old sentinel at 0x9246B9C0 is mostly zero bytes.  From menus, many
+    committed Dolphin regions read as zeros at the same offset, so the legacy
+    score can falsely pass and permanently latch the wrong MEM2 host before a
+    match exists.  That is the exact startup-from-main-menu failure: once a
+    bad legacy latch is marked valid, the dynamic slot latch never gets a
+    chance when the real fighter pointers appear.
+
+    Keep this function stubbed so older callers do not break, but do not use
+    it for automatic priming.
+    """
+    global _mem2_latch_note
+    _mem2_latch_note = "legacy sentinel disabled; waiting for dynamic fighter slot"
+    return False
+
+
+def _latch_mem2_from_legacy_sentinel_DISABLED_OLD() -> bool:
+    """Old fixed-EA latch retained only for reference; do not call automatically."""
+    global _mem2_host_base, _mem2_host_size, _mem2_latch_mode, _mem2_latch_note
 
     # Compute EA offset into MEM2
     if not (MEM2_LO <= EXPECT_EA < MEM2_HI):
-        # Sentinel must be inside MEM2; if you move it, update EXPECT_EA
+        _mem2_latch_note = "legacy sentinel outside MEM2"
         return False
     ea_off = EXPECT_EA - MEM2_LO
 
-    # Scan regions
     best = None  # (score, base, size)
     for base, size, protect, state in _iter_regions(_mem2_proc_handle):
         if state != MEM_COMMIT:
@@ -345,24 +521,66 @@ def _latch_mem2():
         if best is None or score > best[0]:
             best = (score, base, size)
             if score >= len(EXPECT_BYTES):
-                # Perfect match, we can stop early.
                 break
 
     if not best:
-        _mem2_host_base = None
-        _mem2_host_size = None
+        _mem2_latch_note = "legacy sentinel not found"
         return False
 
     score, base, size = best
     if score < 16:
-        # Too weak; treat as failure
-        _mem2_host_base = None
-        _mem2_host_size = None
+        _mem2_latch_note = f"legacy sentinel weak score={score}"
         return False
 
     _mem2_host_base = int(base)
     _mem2_host_size = int(size)
+    _mem2_latch_mode = "legacy_sentinel"
+    _mem2_latch_note = f"legacy EXPECT_EA=0x{EXPECT_EA:08X} score={score}"
+    print(f"[MEM2 latch] legacy sentinel; host=0x{base:X}; score={score}")
     return True
+
+
+def _latch_mem2():
+    """
+    Find the correct MEM2 host mapping.
+
+    Primary path: dynamic live fighter slot pointers. This works when the GUI is
+    launched from menus, because it simply stays unlatched until a match starts.
+    Fallback path: the old fixed sentinel for already-active/legacy sessions.
+    """
+    global _mem2_proc_handle, _mem2_pid, _mem2_host_base, _mem2_host_size
+    global _mem2_latch_note
+
+    if not _IS_WINDOWS:
+        return False
+
+    pid = _find_pid_by_name(DOLPHIN_EXE)
+    if pid is None:
+        _reset_mem2_latch()
+        _mem2_latch_note = "Dolphin.exe not found"
+        return False
+
+    # Reopen handle if PID changed
+    if _mem2_pid != pid or _mem2_proc_handle is None:
+        _reset_mem2_latch()
+        h = _open_process(pid)
+        if h is None:
+            _mem2_latch_note = f"OpenProcess failed for pid={pid}"
+            return False
+        _mem2_proc_handle = h
+        _mem2_pid = pid
+
+    # Do not clear a good latch unless we're actively replacing process handles.
+    _mem2_host_base = None
+    _mem2_host_size = None
+
+    if _latch_mem2_from_dynamic_slots():
+        return True
+
+    # Do NOT fall back to the old fixed 0x9246B9C0 sentinel here.  In menu
+    # dumps that address is all-zero, and the old byte-score accepted zero
+    # pages as a "match", causing a permanent bad MEM2 latch before gameplay.
+    return False
 
 
 def _mem2_is_latched() -> bool:
@@ -374,21 +592,44 @@ def _mem2_host_addr(ea: int) -> int:
     return int(_mem2_host_base + (ea - MEM2_LO))
 
 
-def _ensure_mem2_latched():
+def _ensure_mem2_latched(max_attempts: int = 1, sleep: float = 0.0, force: bool = False):
     """
-    Ensure MEM2 latch exists. Retry a bit if Dolphin is launching.
-    """
-    if not _IS_WINDOWS:
-        return True  # non-windows: we just fall back to DME behavior
-    if _mem2_is_latched():
-        return True
+    Ensure MEM2 latch exists without blocking the GUI.
 
-    # Try a few times quickly
-    for _ in range(40):
+    Old behavior retried for ~10 seconds and depended on a fixed fighter struct.
+    New behavior is lazy: while no match exists it returns False quickly, then
+    automatically latches as soon as the live slot pointers become valid.
+    """
+    global _mem2_last_latch_attempt
+
+    if not _IS_WINDOWS:
+        return True  # non-windows: fall back to DME behavior
+    if _mem2_is_latched():
+        # Defensive: older builds could create a bad legacy_sentinel latch from
+        # the main menu.  If this module is hot-reloaded or reused, clear that
+        # latch so the dynamic slot path can take over once a match starts.
+        if _mem2_latch_mode == "legacy_sentinel":
+            _reset_mem2_latch()
+        else:
+            return True
+
+    now = time.time()
+    if not force and (now - float(_mem2_last_latch_attempt or 0.0)) < LATCH_RETRY_SLEEP:
+        return False
+
+    attempts = max(1, int(max_attempts or 1))
+    for i in range(attempts):
+        _mem2_last_latch_attempt = time.time()
         if _latch_mem2():
             return True
-        time.sleep(LATCH_RETRY_SLEEP)
+        if sleep and i + 1 < attempts:
+            time.sleep(float(sleep))
     return False
+
+
+def prime_mem2_latch() -> bool:
+    """Public non-blocking primer for the main loop/debug tools."""
+    return _ensure_mem2_latched(max_attempts=1, sleep=0.0, force=False)
 
 
 # ============================================================
@@ -397,7 +638,11 @@ def _ensure_mem2_latched():
 
 def hook():
     """
-    Block until Dolphin is successfully hooked, AND MEM2 latch is ready.
+    Hook Dolphin. MEM2 latches lazily when a live match slot appears.
+
+    This intentionally does not block on MEM2. Starting the GUI from the main
+    menu/character select should leave it armed in "MEM2 pending" state; the
+    first match frame with valid fighter slot pointers will prime the latch.
     """
     while not dme.is_hooked():
         try:
@@ -406,9 +651,11 @@ def hook():
             pass
         time.sleep(0.2)
 
-    # MEM2 latch (Windows only). If it fails, we still return, but MEM2 reads
-    # will fall back to DME (and may be wrong). So we try hard here.
-    _ensure_mem2_latched()
+    # One quick dynamic attempt is useful if a match is already running, but
+    # failure is normal from menus and must not stop future detection.  The old
+    # fixed sentinel path is disabled, so this cannot accidentally latch a zero
+    # menu page as MEM2.
+    _ensure_mem2_latched(max_attempts=1, sleep=0.0, force=True)
 
 
 def addr_in_ram(a):
@@ -566,5 +813,9 @@ def mem2_latch_info():
         "host_base": _mem2_host_base,
         "host_size": _mem2_host_size,
         "latched": _mem2_is_latched(),
+        "mode": _mem2_latch_mode,
+        "note": _mem2_latch_note,
+        "last_attempt": _mem2_last_latch_attempt,
         "expect_ea": EXPECT_EA,
+        "dynamic_slot_ptrs": DYNAMIC_SLOT_PTRS,
     }
