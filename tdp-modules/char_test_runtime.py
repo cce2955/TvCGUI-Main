@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from typing import Any
 
 try:
@@ -675,7 +676,18 @@ _ROSTER_STATE: dict[str, Any] = {
     "thumbnail_material_optional_failed": 0,
     "thumbnail_seq_matidx_installed": False,
     "thumbnail_seq_matidx_mode": "",
+    "_extra_tick_next": 0.0,
+    "_extra_active_since": 0.0,
+    "_extra_last_active": False,
+    "_extra_quiet_until": 0.0,
 }
+
+# Extra Characters should behave like a one-shot guarded install, not a 60 FPS
+# write loop. Applying after the select screen is stable and then staying quiet
+# prevents roster/count writes from landing mid-render and causing flicker.
+_EXTRA_TICK_MIN_INTERVAL_SEC = 0.20
+_EXTRA_SELECT_STABLE_DELAY_SEC = 0.18
+_EXTRA_POST_APPLY_QUIET_SEC = 0.90
 
 _INT_RE = re.compile(r"0x[0-9a-fA-F]+|\b\d+\b")
 
@@ -1640,13 +1652,30 @@ def _rescue_chrsel_source_rows() -> tuple[int, int]:
     return wrote, failed
 
 def _tick_extra_characters_request() -> None:
+    now = time.monotonic()
     with _LOCK:
         requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
         solo_requested = bool(_ROSTER_STATE.get("solo_team_requested"))
+        next_tick = float(_ROSTER_STATE.get("_extra_tick_next", 0.0) or 0.0)
+    if now < next_tick:
+        return
+    with _LOCK:
+        _ROSTER_STATE["_extra_tick_next"] = now + _EXTRA_TICK_MIN_INTERVAL_SEC
+
     status = _update_extra_guard_state()
     active = bool(status.get("active"))
     present = bool(status.get("patch_present"))
     visual_present = bool(status.get("visual_rows_present"))
+
+    with _LOCK:
+        last_active = bool(_ROSTER_STATE.get("_extra_last_active", False))
+        if active and not last_active:
+            _ROSTER_STATE["_extra_active_since"] = now
+        elif not active:
+            _ROSTER_STATE["_extra_active_since"] = 0.0
+        _ROSTER_STATE["_extra_last_active"] = active
+        active_since = float(_ROSTER_STATE.get("_extra_active_since", 0.0) or 0.0)
+        quiet_until = float(_ROSTER_STATE.get("_extra_quiet_until", 0.0) or 0.0)
 
     # Solo Team is the old profile-row helper.  When it is active, the game can
     # rebuild character select into an intermediate count/state.  The inserted
@@ -1684,14 +1713,29 @@ def _tick_extra_characters_request() -> None:
             _ROSTER_STATE["last_error"] = ""
         return
 
+    if active_since and (now - active_since) < _EXTRA_SELECT_STABLE_DELAY_SEC:
+        with _LOCK:
+            _ROSTER_STATE["extra_characters_enabled"] = False
+            _ROSTER_STATE["last_action"] = "Extra characters waiting for stable character-select frame"
+            _ROSTER_STATE["last_error"] = ""
+        return
+
+    if now < quiet_until:
+        # We just applied/restored around a select-screen load. Do not fight the
+        # renderer every frame; let the menu settle, then re-check normally.
+        with _LOCK:
+            _ROSTER_STATE["last_action"] = "Extra characters quiet after apply; skipping re-write"
+            _ROSTER_STATE["last_error"] = ""
+        return
+
     wrote, failed = _install_extra_characters_on()
     with _LOCK:
+        _ROSTER_STATE["_extra_quiet_until"] = now + _EXTRA_POST_APPLY_QUIET_SEC
         _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + int(wrote)
         _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + int(failed)
         _ROSTER_STATE["last_action"] = f"Extra characters auto-applied on character select wrote={wrote} failed={failed}"
         _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Extra characters auto-apply failed writes={failed}"
     _update_extra_guard_state()
-
 
 def _tick_solo_team_request() -> None:
     with _LOCK:

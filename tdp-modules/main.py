@@ -5150,6 +5150,15 @@ def legacy_main():
     _last_mouse_buttons = (False, False, False)
     _mouse_input_warned = False
 
+    # Extra Characters used to tick every HUD frame.  That is too aggressive
+    # for character select: the game can render the wheel while the external
+    # process is re-reading/re-applying guarded roster rows, which shows up as
+    # select-screen flicker on some machines.  The runtime itself is guarded,
+    # but the main HUD now services it at a low cadence and wakes it immediately
+    # only after the user toggles the button.
+    char_test_next_tick = 0.0
+    CHAR_TEST_TICK_INTERVAL = 0.25
+
     # ------------------------------------------------------------------
     # Main loop
     # ------------------------------------------------------------------
@@ -5540,14 +5549,17 @@ def legacy_main():
             _perf_warn("hud_editor_tick", _perf_section_start)
 
         # Char test runtime tick. Current Char test only services queued
-        # roster-table patch/restore actions on the main HUD thread.
-        if tick_char_test is not None:
+        # roster-table patch/restore actions on the main HUD thread.  Keep this
+        # debounced so Extra Chars does not fight the character-select renderer.
+        if tick_char_test is not None and now >= char_test_next_tick:
             _perf_section_start = time.perf_counter()
             try:
                 tick_char_test()
             except Exception as e:
                 if frame_idx % 60 == 0:
                     print(f"[char test] tick failed: {e!r}")
+            finally:
+                char_test_next_tick = now + CHAR_TEST_TICK_INTERVAL
             _perf_warn("char_test_tick", _perf_section_start)
 
         # Damage / hit logging
@@ -5836,12 +5848,11 @@ def legacy_main():
             )
 
             btn_h          = 20
-            idle_btn_w     = 92
             frame_btn_w    = 98
             mission_btn_w  = 104
             btn_gap        = 7
             bottom_pad     = 8
-            total_btn_w    = idle_btn_w + btn_gap + frame_btn_w + btn_gap + mission_btn_w
+            total_btn_w    = frame_btn_w + btn_gap + mission_btn_w
             btn_x          = panel_rect.width - total_btn_w - 10
             if btn_x < 10:
                 # Very narrow window fallback: keep the buttons visible instead
@@ -5849,29 +5860,15 @@ def legacy_main():
                 btn_x = 10
             btn_y          = panel_rect.height - btn_h - bottom_pad
 
-            idle_btn_local    = pygame.Rect(btn_x, btn_y, idle_btn_w, btn_h)
-            frame_btn_local   = pygame.Rect(btn_x + idle_btn_w + btn_gap, btn_y, frame_btn_w, btn_h)
+            frame_btn_local   = pygame.Rect(btn_x, btn_y, frame_btn_w, btn_h)
             mission_btn_local = pygame.Rect(frame_btn_local.right + btn_gap, btn_y, mission_btn_w, btn_h)
 
             mx, my       = pygame.mouse.get_pos()
             mx_local     = mx - panel_rect.x
             my_local     = my - panel_rect.y
-            idle_hover   = idle_btn_local.collidepoint(mx_local, my_local)
             frame_hover  = frame_btn_local.collidepoint(mx_local, my_local)
             mission_hover = mission_btn_local.collidepoint(mx_local, my_local)
             flash_left   = panel_btn_flash.get(slot_label, 0)
-
-            draw_glass_button(
-                surf,
-                idle_btn_local,
-                ko_dol_button_label(ko_dol_patch_index),
-                smallfont,
-                active=(0 <= int(ko_dol_patch_index) < (len(KO_DOL_PATCH_TESTS) - 1)),
-                hover=idle_hover,
-                accent=GUI_ACCENT_GREEN,
-                fill=(31, 42, 36),
-                align="center",
-            )
 
             draw_glass_button(
                 surf,
@@ -5945,11 +5942,6 @@ def legacy_main():
             surf.set_alpha(alpha)
             screen.blit(surf, (panel_rect.x, panel_rect.y))
 
-            idle_btn_rect = pygame.Rect(
-                panel_rect.x + idle_btn_local.x,
-                panel_rect.y + idle_btn_local.y,
-                idle_btn_w, btn_h,
-            )
             frame_btn_rect   = pygame.Rect(
                 panel_rect.x + frame_btn_local.x,
                 panel_rect.y + frame_btn_local.y,
@@ -5960,22 +5952,20 @@ def legacy_main():
                 panel_rect.y + mission_btn_local.y,
                 mission_btn_w, btn_h,
             )
-            return idle_btn_rect, frame_btn_rect, mission_btn_rect
+            return frame_btn_rect, mission_btn_rect
 
-        idle_btn_p1c1, btn_p1c1, mission_btn_p1c1 = blit_panel_with_buttons(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
-        idle_btn_p2c1, btn_p2c1, mission_btn_p2c1 = blit_panel_with_buttons(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
+        btn_p1c1, mission_btn_p1c1 = blit_panel_with_buttons(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
+        btn_p2c1, mission_btn_p2c1 = blit_panel_with_buttons(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
 
         if (not layout.get("p1_is_giant")) and ("P1-C2" in snaps):
-            idle_btn_p1c2, btn_p1c2, mission_btn_p1c2 = blit_panel_with_buttons(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
+            btn_p1c2, mission_btn_p1c2 = blit_panel_with_buttons(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
         else:
-            idle_btn_p1c2   = pygame.Rect(0, 0, 0, 0)
             btn_p1c2        = pygame.Rect(0, 0, 0, 0)
             mission_btn_p1c2 = pygame.Rect(0, 0, 0, 0)
 
         if (not layout.get("p2_is_giant")) and ("P2-C2" in snaps):
-            idle_btn_p2c2, btn_p2c2, mission_btn_p2c2 = blit_panel_with_buttons(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
+            btn_p2c2, mission_btn_p2c2 = blit_panel_with_buttons(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
         else:
-            idle_btn_p2c2   = pygame.Rect(0, 0, 0, 0)
             btn_p2c2        = pygame.Rect(0, 0, 0, 0)
             mission_btn_p2c2 = pygame.Rect(0, 0, 0, 0)
 
@@ -6205,6 +6195,9 @@ def legacy_main():
             elif select_probe_btn_rect.collidepoint(mx, my):
                 if toggle_extra_characters is not None:
                     result = toggle_extra_characters()
+                    # Wake the debounced char-test tick immediately for the
+                    # user's click, then let it fall back to the safe cadence.
+                    char_test_next_tick = 0.0
                     print(f"[extra chars] toggle queued: {result}", flush=True)
                 else:
                     print("[extra chars] toggle unavailable", flush=True)
@@ -6334,42 +6327,8 @@ def legacy_main():
                 mouse_clicked_pos = None
                 continue
 
-            # KO lab: base-relative idle restore poke.  This is deliberately
-            # a one-shot packet per visible slot so we can test whether the
-            # winner can be pulled out of the post-KO action without hunting
-            # breakpoints.
-            idle_restore_clicked = False
-            for slot_label, btn_rect in [
-                ("P1-C1", idle_btn_p1c1), ("P2-C1", idle_btn_p2c1),
-                ("P1-C2", idle_btn_p1c2), ("P2-C2", idle_btn_p2c2),
-            ]:
-                if btn_rect.collidepoint(mx, my):
-                    ko_control_full_enabled = False
-                    ko_dol_patch_index = (int(ko_dol_patch_index) + 1) % len(KO_DOL_PATCH_TESTS)
-                    result = apply_ko_dol_result_patch(ko_dol_patch_index, verify=True)
-                    idle_restore_hold_until_by_slot.clear()
-                    try:
-                        _test_meta = KO_DOL_PATCH_TESTS[int(ko_dol_patch_index)]
-                    except Exception:
-                        _test_meta = {}
-                    _hold_seconds = float(_test_meta.get("hold_seconds") or 0.0) if isinstance(_test_meta, dict) else 0.0
-                    _hold_kind = str(_test_meta.get("hold_kind") or "ko_rescue") if isinstance(_test_meta, dict) else "ko_rescue"
-                    if _hold_seconds > 0.0:
-                        _hold_payload = {"until": now + _hold_seconds, "kind": _hold_kind}
-                        if _hold_kind in KO_GLOBAL_HOLD_GROUPS:
-                            ko_global_hold_baseline = capture_ko_global_baseline(_hold_kind)
-                            _hold_payload["global_baseline"] = ko_global_hold_baseline
-                        idle_restore_hold_until_by_slot[slot_label] = _hold_payload
-                    elif str(_test_meta.get("short") or "") == "DOL Reset":
-                        ko_global_hold_baseline = None
-                    idle_restore_status = {"text": ko_dol_status_text(result) + (f"; {_hold_kind} hold {slot_label} {_hold_seconds:.1f}s" if _hold_seconds > 0.0 else ""), "until": now + 5.0}
-                    print(f"[ko dol] {idle_restore_status['text']}", flush=True)
-                    panel_btn_flash[slot_label] = PANEL_FLASH_FRAMES
-                    idle_restore_clicked = True
-                    break
-            if idle_restore_clicked:
-                mouse_clicked_pos = None
-                continue
+            # KO DOL lab buttons were removed from the portrait panels.
+            # The supported control path is now the top-dock KO Ctrl auto toggle.
 
             # Mission mode buttons
             for slot_label, btn_rect in [
