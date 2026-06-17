@@ -172,7 +172,7 @@ def _inject_entry_addresses(mv: dict, entry: dict) -> None:
     keys = (
         "damage_addr", "meter_addr", "active_addr", "active2_addr",
         "stun_addr", "knockback_addr", "speed_mod_addr", "attack_property_addr",
-        "hit_reaction_addr", "superbg_addr", "combo_kb_mod_addr", "proj_tpl",
+        "hit_reaction_addr", "hit_result_addr", "superbg_addr", "combo_kb_mod_addr", "proj_tpl",
     )
     for key in keys:
         if mv.get(key) not in (None, ""):
@@ -230,7 +230,7 @@ def _entry_address_values(entry: dict) -> set[int]:
     for key, value in addresses.items():
         if str(key).endswith("_rel"):
             continue
-        if key in {"abs", "damage_addr", "active_addr", "active2_addr", "stun_addr", "knockback_addr", "attack_property_addr", "hit_reaction_addr"}:
+        if key in {"abs", "damage_addr", "active_addr", "active2_addr", "stun_addr", "knockback_addr", "attack_property_addr", "hit_reaction_addr", "hit_result_addr"}:
             parsed = parse_patch_abs(value)
             if parsed is not None:
                 values.add(int(parsed))
@@ -274,7 +274,7 @@ def find_patch_target_in_slot(slot_data: dict, entry: dict) -> tuple[dict | None
     # segment's active/damage/stun/KB address rather than the parent move base.
     if address_values:
         for _parent, seg in _iter_move_hit_segments(moves):
-            for key in ("abs", "active_addr", "damage_addr", "stun_addr", "knockback_addr", "attack_property_addr", "hit_reaction_addr"):
+            for key in ("abs", "active_addr", "damage_addr", "stun_addr", "knockback_addr", "attack_property_addr", "hit_reaction_addr", "hit_result_addr"):
                 try:
                     if int(seg.get(key) or -1) in address_values:
                         return seg, f"hit_{key}"
@@ -629,6 +629,11 @@ def apply_patch_change_to_move(mv: dict, entry: dict, *, write_to_dolphin: bool 
                 return False, "write failed"
             mv["hit_reaction"] = new_val
 
+        elif group == "hit_result_flags":
+            new_val = int(value) & 0xFFFFFFFF
+            if not write_u32_field_inline(mv, "hit_result_addr", "hit_result_flags", new_val):
+                return False, "write failed"
+
         elif group == "superbg":
             _ensure_superbg(mv)
             enabled = _patch_bool_enabled(value)
@@ -705,7 +710,7 @@ def apply_patch_value_to_move(mv: dict, entry: dict) -> None:
                 e = s
             mv["active2_start"] = s
             mv["active2_end"] = e
-        elif group in {"hitstun", "blockstun", "hitstop", "hit_spark", "stretch_part", "stretch_time", "post_link", "launch_profile", "kb_unknown", "speed_mod", "attack_property", "hit_reaction", "combo_kb_mod", "proj_dmg"}:
+        elif group in {"hitstun", "blockstun", "hitstop", "hit_spark", "stretch_part", "stretch_time", "post_link", "launch_profile", "kb_unknown", "speed_mod", "attack_property", "hit_reaction", "hit_result_flags", "combo_kb_mod", "proj_dmg"}:
             mv[group] = int(value)
         elif group in {"kb_x", "air_kb", "stretch_len", "stretch_width", "stretch_height", "hb"}:
             if group == "hb":

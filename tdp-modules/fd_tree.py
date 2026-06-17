@@ -21,6 +21,7 @@ from fd_patterns import (
     find_limb_stretch_packet,
     find_post_animation_link_addr,
     fmt_attack_property,
+    find_hit_result_flags_addr,
 )
 from fd_widgets import Tooltip, get_field_help
 from fd_move_families import annotate_move_families
@@ -36,7 +37,7 @@ FD_COLUMNS = (
     "hitstun", "blockstun", "hitstop",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
-    "speed_mod", "invuln", "attack_property", "hit_reaction",
+    "speed_mod", "invuln", "attack_property", "hit_reaction", "hit_result_flags",
     "superbg",
     # Projectile columns are hidden from the simplest frame-data view but live
     # in the same Treeview so users no longer need a separate projectile table.
@@ -52,7 +53,7 @@ FD_CORE_COLUMNS = (
     "hitstun", "blockstun", "hitstop",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
-    "speed_mod", "invuln", "attack_property", "hit_reaction",
+    "speed_mod", "invuln", "attack_property", "hit_reaction", "hit_result_flags",
     # Keep only the compact projectile basics in the frame view. Dedicated
     # projectile/super views move the heavy projectile columns up front so the
     # user does not have to horizontal-scroll across the raw scout table.
@@ -127,6 +128,7 @@ FD_LABELS = {
     "invuln": "Invuln",
     "attack_property": "Attack Property",
     "hit_reaction": "Hit Reaction",
+    "hit_result_flags": "Hit Result",
     "superbg": "SuperBG",
     **FPI.PROJECTILE_LABELS,
     "abs": "Address",
@@ -607,7 +609,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         ("Move link", ["link"]),
         ("Impact", ["hits", "damage", "meter", "hitstop"]),
         ("Timing", ["startup", "active", "active2", "speed_mod"]),
-        ("Stun and pressure", ["hitstun", "blockstun", "attack_property", "hit_reaction"]),
+        ("Stun and pressure", ["hitstun", "blockstun", "attack_property", "hit_reaction", "hit_result_flags"]),
         ("Launch and knockback controls", ["kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb"]),
         ("Hit FX and reach", ["hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time"]),
         ("Dangerous script links", ["post_link"]),
@@ -770,6 +772,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "speed_mod": 10,
         "attack_property": 14,
         "hit_reaction": 16,
+        "hit_result_flags": 14,
         "superbg": 10,
         "proj_cluster": 16,
         "proj_fmt": 12,
@@ -839,6 +842,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "speed_mod": "Speed",
         "attack_property": "Property",
         "hit_reaction": "HitReact",
+        "hit_result_flags": "HitResult",
         "superbg": "SuperBG",
         "proj_cluster": "ProjGroup",
         "proj_fmt": "ProjFmt",
@@ -1027,6 +1031,7 @@ def build_tree_widget(win) -> ttk.Frame:
         ("speed_mod", "Speed"),
         ("attack_property", "Attack Property"),
         ("hit_reaction", "Hit Reaction"),
+        ("hit_result_flags", "Hit Result"),
         ("superbg", "SuperBG"),
         ("proj_cluster", "Proj Group"),
         ("proj_fmt", "Proj Fmt"),
@@ -1118,6 +1123,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("speed_mod", width=116, anchor="center")
     win.tree.column("attack_property", width=178, anchor="w")
     win.tree.column("hit_reaction", width=260, anchor="w")
+    win.tree.column("hit_result_flags", width=128, anchor="w")
     win.tree.column("superbg", width=78, anchor="center")
     win.tree.column("proj_cluster", width=170, anchor="w")
     win.tree.column("proj_fmt", width=110, anchor="w")
@@ -1582,6 +1588,20 @@ def populate_tree(win) -> None:
 
         hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
 
+        if move_abs and mv.get("hit_result_addr") is None:
+            try:
+                rbytes = _fd_cached_rbytes
+                _pkt, _addr, _val, _mask, _ctx = find_hit_result_flags_addr(move_abs, rbytes)
+                if _addr is not None:
+                    mv["hit_result_packet_addr"] = _pkt
+                    mv["hit_result_addr"] = _addr
+                    mv["hit_result_flags"] = _val
+                    mv["hit_result_clear_mask"] = _mask
+                    mv["hit_result_sig"] = _ctx
+            except Exception:
+                pass
+        hit_result_txt = U.fmt_hit_result_flags_ui(mv)
+
         # -------------------------
         # Insert row
         # -------------------------
@@ -1639,6 +1659,7 @@ def populate_tree(win) -> None:
                 invuln_txt,
                 attack_property_txt,
                 hr_txt,
+                hit_result_txt,
                 superbg_txt,
                 *("" for _ in FPI.PROJECTILE_COLUMNS),
                 f"0x{move_abs:08X}" if move_abs else "",

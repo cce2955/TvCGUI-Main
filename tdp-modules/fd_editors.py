@@ -28,7 +28,7 @@ from fd_write_helpers import (
 )
 
 import fd_utils as U
-from fd_widgets import ManualAnimIDDialog, get_field_help, ask_integer_with_help, ask_float_with_help
+from fd_widgets import ManualAnimIDDialog, get_field_help, ask_integer_with_help, ask_float_with_help, ask_hit_result_flags_with_presets
 
 
 class FDCellEditorsMixin:
@@ -154,6 +154,40 @@ class FDCellEditorsMixin:
             self._notify_fd_cell_changed(item, mv, "combo_kb_mod")
         else:
             messagebox.showerror("Combo KB Mod", "Failed to write Combo KB Mod byte.")
+
+
+    def _edit_hit_result_flags(self, item, mv, current: str):
+        addr = mv.get("hit_result_addr")
+        if not addr:
+            messagebox.showerror(
+                "Hit Result Flags",
+                "Hit-result flag slot not found for this move.\nTry Refresh visible, or this move may not use the 0x80042F00/+0x240 pattern.",
+            )
+            return
+
+        cur_val = mv.get("hit_result_flags")
+        if cur_val is None:
+            try:
+                raw = str(current or "").split()[0]
+                cur_val = int(raw, 16) if raw.lower().startswith("0x") else int(raw, 10)
+            except Exception:
+                cur_val = 0
+
+        new_val = ask_hit_result_flags_with_presets(
+            self.root,
+            title="Edit Hit Result Flags",
+            help_text=get_field_help("hit_result_flags"),
+            initialvalue=int(cur_val),
+            address=int(addr),
+        )
+        if new_val is None:
+            return
+
+        if write_u32_field_inline(mv, "hit_result_addr", "hit_result_flags", int(new_val)):
+            self.tree.set(item, "hit_result_flags", U.fmt_hit_result_flags_ui(mv))
+            self._notify_fd_cell_changed(item, mv, "hit_result_flags")
+        else:
+            messagebox.showerror("Hit Result Flags", "Failed to write hit-result flags.")
 
     # ----- Simple scalar editors (damage/meter/hitstop) -----
 

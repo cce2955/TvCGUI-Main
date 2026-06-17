@@ -85,6 +85,7 @@ FIELD_HELP = {
     "invuln": "Display-only startup-protection probe. This flags 0x70-family packets seen on Shoryuken-style startup and Jun 6B; it is not editable yet.",
     "attack_property": "Attack property byte. Use the known-value dropdown for confirmed properties; manual entry is for testing unknown bytes.",
     "hit_reaction": "The reaction state/animation chosen on hit, such as standing hitstun, low hitstun, overhead hitstun, knockdown, crumple, or special reactions.",
+    "hit_result_flags": "OTG toggle written to fighter +0x240 after the 0x80042F00 clear mask. User-verified: 0x00000000 = OTG off, 0x00004000 = OTG on. Values 0x00004100 and above enter reaction/knockdown families and are kept as manual/custom testing values.",
     "superbg": "Super background flag. Toggles whether the super-style background effect is enabled for this move when the signature is found.",
     "abs": "Absolute move-table address for this row. This is for lookup/debugging and address tools; it is not directly edited as frame data.",
     "combo_kb_mod": "Combo knockback modifier byte when the signature is found. Useful for testing combo scaling/knockback behavior.",
@@ -108,6 +109,134 @@ FIELD_HELP = {
 
 def get_field_help(field: str, fallback: str = "") -> str:
     return FIELD_HELP.get(field, fallback)
+
+
+HIT_RESULT_FLAG_PRESETS = [
+    ("Manual / keep typed value", None),
+    ("OTG off / stock simple hit (0x00000000)", 0x00000000),
+    ("OTG on / clean toggle (0x00004000)", 0x00004000),
+]
+
+
+def _parse_u32_text(raw: str) -> int:
+    raw = (raw or "").strip().replace("_", "")
+    if not raw:
+        return 0
+    return int(raw, 16) if raw.lower().startswith("0x") else int(raw, 10)
+
+
+def ask_hit_result_flags_with_presets(
+    parent,
+    *,
+    title: str = "Edit Hit Result Flags",
+    help_text: str = "",
+    initialvalue: int = 0,
+    address: int | None = None,
+) -> int | None:
+    """Hit-result flag editor with both a manual hex field and known presets."""
+    dlg = tk.Toplevel(parent)
+    dlg.title(title)
+    dlg.resizable(False, False)
+    dlg.transient(parent)
+    dlg.grab_set()
+
+    result = {"value": None}
+
+    body = ttk.Frame(dlg, padding=12)
+    body.pack(fill="both", expand=True)
+
+    ttk.Label(
+        body,
+        text="OTG result toggle / manual value",
+        font=("Segoe UI", 10, "bold"),
+    ).pack(anchor="w", pady=(0, 4))
+
+    if help_text:
+        ttk.Label(body, text=help_text, justify="left", wraplength=520).pack(anchor="w", pady=(0, 8))
+    if address is not None:
+        ttk.Label(body, text=f"Address: 0x{int(address):08X}").pack(anchor="w", pady=(0, 8))
+
+    preset_by_label = {label: val for label, val in HIT_RESULT_FLAG_PRESETS}
+    labels = [label for label, _val in HIT_RESULT_FLAG_PRESETS]
+
+    preset_row = ttk.Frame(body)
+    preset_row.pack(fill="x", pady=(0, 8))
+    ttk.Label(preset_row, text="Preset:").pack(side="left")
+    preset_var = tk.StringVar(master=dlg, value=labels[0])
+    combo = ttk.Combobox(
+        preset_row,
+        textvariable=preset_var,
+        values=labels,
+        state="readonly",
+        width=62,
+    )
+    combo.pack(side="left", padx=(8, 0), fill="x", expand=True)
+
+    value_row = ttk.Frame(body)
+    value_row.pack(fill="x", pady=(0, 8))
+    ttk.Label(value_row, text="Manual value:").pack(side="left")
+    value_var = tk.StringVar(master=dlg, value=f"0x{int(initialvalue) & 0xFFFFFFFF:08X}")
+    ent = ttk.Entry(value_row, textvariable=value_var, width=16)
+    ent.pack(side="left", padx=(8, 0))
+
+    note = (
+        "Manual stays fully editable. Choosing a preset only copies its value into the manual box.\n"
+        "Use 0x00000000 for OTG off and 0x00004000 for OTG on. "
+        "0x00004100+ is left for manual reaction-family testing."
+    )
+    ttk.Label(body, text=note, justify="left", wraplength=520).pack(anchor="w", pady=(0, 10))
+
+    def on_preset_selected(_evt=None):
+        val = preset_by_label.get(preset_var.get())
+        if val is None:
+            return
+        value_var.set(f"0x{int(val) & 0xFFFFFFFF:08X}")
+        ent.focus_set()
+        ent.selection_range(0, "end")
+
+    combo.bind("<<ComboboxSelected>>", on_preset_selected)
+
+    quick = ttk.Frame(body)
+    quick.pack(fill="x", pady=(0, 10))
+
+    def set_value(v: int):
+        value_var.set(f"0x{int(v) & 0xFFFFFFFF:08X}")
+        ent.focus_set()
+        ent.selection_range(0, "end")
+
+    ttk.Button(quick, text="OTG off 0x0", command=lambda: set_value(0x00000000)).pack(side="left")
+    ttk.Button(quick, text="OTG on 0x4000", command=lambda: set_value(0x00004000)).pack(side="left", padx=(6, 0))
+    ttk.Button(quick, text="Current", command=lambda: set_value(int(initialvalue) & 0xFFFFFFFF)).pack(side="left", padx=(6, 0))
+
+    buttons = ttk.Frame(body)
+    buttons.pack(fill="x")
+
+    def apply_value():
+        try:
+            val = _parse_u32_text(value_var.get()) & 0xFFFFFFFF
+        except Exception:
+            messagebox.showerror(title, "Invalid integer value. Use decimal or hex like 0x4000.", parent=dlg)
+            return
+        result["value"] = val
+        dlg.destroy()
+
+    def cancel():
+        result["value"] = None
+        dlg.destroy()
+
+    ttk.Button(buttons, text="OK", command=apply_value).pack(side="right", padx=(6, 0))
+    ttk.Button(buttons, text="Cancel", command=cancel).pack(side="right")
+
+    ent.focus_set()
+    ent.selection_range(0, "end")
+    dlg.bind("<Return>", lambda _e: apply_value())
+    dlg.bind("<Escape>", lambda _e: cancel())
+
+    try:
+        parent.wait_window(dlg)
+    except Exception:
+        pass
+    return result["value"]
 
 
 def ask_integer_with_help(

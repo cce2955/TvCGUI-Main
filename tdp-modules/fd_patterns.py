@@ -807,3 +807,75 @@ def find_post_animation_link_addr(
     val = _u32be(buf, i + 0x04)
     ctx = buf[max(0, i - 8):min(len(buf), i + 0x10)]
     return move_abs + i, move_abs + i + 0x04, val, ctx
+
+
+# ---- Hit-result / OTG toggle flag pattern ----
+# User-verified on Alex normals after the 0x80042F00 clear mask:
+#   0x00000000 = OTG off
+#   0x00004000 = OTG on
+#   0x00004100+ = reaction/knockdown families. These remain manually editable,
+#                 but the preset UI treats OTG as a clean off/on toggle.
+HIT_RESULT_CLEAR_SIG = bytes.fromhex("04176000 00000240 3F000000")
+HIT_RESULT_OR_SIG = bytes.fromhex("04156000 00000240 3F000000")
+HIT_RESULT_CLEAR_MASK = 0x80042F00
+HIT_RESULT_OTG_ON = 0x00004000
+HIT_RESULT_SCAN_MAX = 0x900
+
+
+def find_hit_result_flags_addr(
+    move_abs: int,
+    rbytes: Callable[[int, int], bytes],
+    *,
+    scan_len: int = HIT_RESULT_SCAN_MAX,
+) -> tuple[int | None, int | None, int | None, int | None, bytes | None]:
+    """
+    Locate the post-hitbox hit-result flag slot for a move block.
+
+    Returns:
+        (packet_addr, value_addr, value, clear_mask, context_bytes)
+
+    The preferred candidate is the OR packet immediately following the clear
+    mask packet used by Alex Wild Stomp / 2A. This exact slot is where
+    0x00004000 was verified as the clean OTG-on value; 0x00000000 is OTG off.
+    """
+    if not move_abs:
+        return None, None, None, None, None
+    try:
+        buf = rbytes(move_abs, int(scan_len or HIT_RESULT_SCAN_MAX))
+    except Exception:
+        return None, None, None, None, None
+    if not buf or len(buf) < 0x20:
+        return None, None, None, None, None
+
+    # Best case: clear-mask packet followed immediately by OR-to-+0x240 packet.
+    pos = 0
+    while True:
+        i = buf.find(HIT_RESULT_CLEAR_SIG, pos)
+        if i < 0:
+            break
+        pos = i + 1
+        if i + 0x20 > len(buf):
+            continue
+        clear_mask = _u32be(buf, i + 0x0C)
+        if clear_mask != HIT_RESULT_CLEAR_MASK:
+            continue
+        j = i + 0x10
+        if buf[j:j + len(HIT_RESULT_OR_SIG)] != HIT_RESULT_OR_SIG:
+            continue
+        val = _u32be(buf, j + 0x0C)
+        if val is None:
+            continue
+        ctx = buf[max(0, i - 0x10):min(len(buf), j + 0x20)]
+        return move_abs + j, move_abs + j + 0x0C, int(val), int(clear_mask), ctx
+
+    # Fallback: expose the first raw OR-to-+0x240 packet so unknown move blocks
+    # can still be edited/scouted, but callers should treat this as lower
+    # confidence because it may be a later/secondary result word.
+    i = buf.find(HIT_RESULT_OR_SIG)
+    if i >= 0 and i + 0x10 <= len(buf):
+        val = _u32be(buf, i + 0x0C)
+        if val is not None:
+            ctx = buf[max(0, i - 0x10):min(len(buf), i + 0x20)]
+            return move_abs + i, move_abs + i + 0x0C, int(val), None, ctx
+
+    return None, None, None, None, None

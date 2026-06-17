@@ -2120,6 +2120,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "speed_mod": ("speed_mod", ("speed_mod",)),
             "attack_property": ("attack_property", ("attack_property",)),
             "hit_reaction": ("hit_reaction", ("hit_reaction",)),
+            "hit_result_flags": ("hit_result_flags", ("hit_result_flags",)),
             "superbg": ("superbg", ("superbg",)),
             # Older/hidden editors are still tracked if routed from legacy builds.
             "combo_kb_mod": ("combo_kb_mod", ("combo_kb_mod",)),
@@ -2182,6 +2183,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "speed_mod": ("speed_mod", "speed_mod_addr", "speed_mod_sig"),
             "attack_property": ("attack_property", "attack_property_addr", "attack_property_sig"),
             "hit_reaction": ("hit_reaction", "hit_reaction_addr"),
+            "hit_result_flags": ("hit_result_flags", "hit_result_addr"),
             "superbg": ("superbg_val", "superbg_addr"),
             "combo_kb_mod": ("combo_kb_mod", "combo_kb_mod_addr"),
             "proj_dmg": ("proj_dmg", "proj_tpl"),
@@ -3224,7 +3226,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         keys = (
             "abs", "damage_addr", "meter_addr", "active_addr", "active2_addr",
             "stun_addr", "knockback_addr", "speed_mod_addr", "attack_property_addr",
-            "hit_reaction_addr", "superbg_addr", "combo_kb_mod_addr", "hit_spark_addr", "stretch_part_addr", "stretch_len_addr", "stretch_width_addr", "stretch_height_addr", "stretch_time_addr", "post_link_addr", "proj_tpl", "hb_off",
+            "hit_reaction_addr", "hit_result_addr", "superbg_addr", "combo_kb_mod_addr", "hit_spark_addr", "stretch_part_addr", "stretch_len_addr", "stretch_width_addr", "stretch_height_addr", "stretch_time_addr", "post_link_addr", "proj_tpl", "hb_off",
         )
         out = {}
         base = mv.get("abs")
@@ -3647,6 +3649,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self.tree.set(item_id, "attack_property", fmt_attack_property(mv.get("attack_property")))
         elif group == "hit_reaction":
             self.tree.set(item_id, "hit_reaction", U.fmt_hit_reaction(mv.get("hit_reaction")))
+        elif group == "hit_result_flags":
+            self.tree.set(item_id, "hit_result_flags", U.fmt_hit_result_flags_ui(mv))
         elif group == "superbg":
             self.tree.set(item_id, "superbg", U.fmt_superbg(mv.get("superbg_val")))
         elif group == "combo_kb_mod" and "combo_kb_mod" in self.tree["columns"]:
@@ -3801,6 +3805,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 if not write_hit_reaction_inline(mv, new_val, U.WRITER_AVAILABLE):
                     return False, "write failed"
                 mv["hit_reaction"] = new_val
+
+            elif group == "hit_result_flags":
+                new_val = int(value) & 0xFFFFFFFF
+                if not write_u32_field_inline(mv, "hit_result_addr", "hit_result_flags", new_val):
+                    return False, "write failed"
 
             elif group == "superbg":
                 self._ensure_superbg_for_patch(mv)
@@ -4108,6 +4117,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     if val is not None and write_hit_reaction_inline(mv, int(val), U.WRITER_AVAILABLE):
                         mv["hit_reaction"] = int(val)
                         self.tree.set(item_id, "hit_reaction", U.fmt_hit_reaction(int(val)))
+                        ok = True
+
+                elif group == "hit_result_flags":
+                    val = old.get("hit_result_flags")
+                    mv["hit_result_addr"] = old.get("hit_result_addr")
+                    if val is not None and write_u32_field_inline(mv, "hit_result_addr", "hit_result_flags", int(val)):
+                        self.tree.set(item_id, "hit_result_flags", U.fmt_hit_result_flags_ui(mv))
                         ok = True
 
                 elif group == "superbg":
@@ -4472,6 +4488,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._edit_air_kb(item, mv, current_val)
         elif col_name == "hit_reaction":
             self._edit_hit_reaction(item, mv, current_val)
+        elif col_name == "hit_result_flags":
+            self._edit_hit_result_flags(item, mv, current_val)
         elif col_name == "superbg":
             self._toggle_superbg(item, mv)
 

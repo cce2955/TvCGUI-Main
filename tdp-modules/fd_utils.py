@@ -670,3 +670,33 @@ def ensure_range_pair(text: str, default_s: int, default_e: int) -> tuple[int, i
         except Exception:
             return default_s, default_e
     return default_s, default_e
+
+HIT_RESULT_OTG_OFF = 0x00000000
+HIT_RESULT_OTG_ON = 0x00004000
+HIT_RESULT_REACTION_FAMILY_MIN = 0x00004100
+
+
+def fmt_hit_result_flags_ui(value_or_mv) -> str:
+    """Format the verified +0x240 hit-result flag slot for the FD grid."""
+    if isinstance(value_or_mv, dict):
+        v = value_or_mv.get("hit_result_flags")
+    else:
+        v = value_or_mv
+    if v is None or v == "":
+        return ""
+    try:
+        vv = int(v) & 0xFFFFFFFF
+    except Exception:
+        return str(v)
+
+    if vv == HIT_RESULT_OTG_OFF:
+        label = "OTG off"
+    elif vv == HIT_RESULT_OTG_ON:
+        label = "OTG on"
+    elif vv >= HIT_RESULT_REACTION_FAMILY_MIN and (vv & HIT_RESULT_OTG_ON):
+        label = "OTG+reaction"
+    elif vv & HIT_RESULT_OTG_ON:
+        label = "OTG on?"
+    else:
+        label = "custom"
+    return f"0x{vv:08X} {label}"
