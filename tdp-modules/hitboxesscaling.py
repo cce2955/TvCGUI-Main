@@ -40,11 +40,105 @@ MOTION_THRESHOLD: float = 0.003
 STILL_FRAME_LIMIT: int = 4
 MOTION_FRAME_REQUIRED: int = 2
 ACTOR_TABLE = 0x80476E50
-ACTOR_MAX   = 16
+ACTOR_MAX   = 16  # confirmed live projectile table slots; multiple actors appear inside this table
+
+# Some supers (Morrigan Finishing Shower / similar missile showers) allocate
+# many projectile actors in the projectile actor pool, but only a couple of
+# those actors are exposed through ACTOR_TABLE on a given frame.  Scan this
+# small stride-based pool too so multi-missile moves do not collapse to one
+# or two misleading probes.  Normal player hitboxes are untouched by this.
+PROJECTILE_ACTOR_POOL_BASES = (
+    0x91B159B4,
+)
+PROJECTILE_ACTOR_POOL_STRIDE = 0x1A4
+PROJECTILE_ACTOR_POOL_COUNT = 48
+
 
 ACTOR_OFF_X = 0x5C
 ACTOR_OFF_Y = 0x6C
 ACTOR_OFF_Z = 0x7C
+
+# Live projectile actor layout, confirmed from Volnutt dump sequences.
+# The actor table can contain duplicate pointers, so projectile reads de-dupe
+# by actor address and then validate owner/id/position before drawing.
+ACTOR_OFF_PREV_X = 0xBC
+ACTOR_OFF_PREV_Y = 0xCC
+ACTOR_OFF_PREV_Z = 0xDC
+
+ACTOR_OFF_SWEEP_X = 0xE0
+ACTOR_OFF_SWEEP_Y = 0xE4
+ACTOR_OFF_SWEEP_Z = 0xE8
+
+ACTOR_OFF_OWNER = 0x130
+ACTOR_OFF_PROJ_ID = 0x134
+ACTOR_OFF_OWNER_MIRROR = 0x138
+ACTOR_OFF_LINKED_RECORD = 0x13C
+
+# Secondary projectile contact/result anchor. Casshan/FLAG_309 tests showed
+# +0x118/+0x11C becomes populated on hit and snaps near the defender. That is
+# useful as an impact/result point, but it is NOT the live projectile hitbox,
+# so do not use it as the projectile anchor by default.
+ACTOR_OFF_IMPACT_X = 0x118
+ACTOR_OFF_IMPACT_Y = 0x11C
+ACTOR_OFF_IMPACT_Z = 0x120
+PROJECTILE_USE_IMPACT_ANCHOR = False
+PROJECTILE_IMPACT_ANCHOR_MAX_DIST = 1.75
+
+# Projectile actor positions are useful, but the actor-table radii/sweep fields
+# are NOT confirmed collision boxes. Keep this conservative: draw a small probe
+# at the live actor point only, and do not draw actor +0xE0/+0xE4 as a sweep.
+PROJECTILE_FALLBACK_RADIUS = 0.35
+PROJECTILE_SWEEP_MIN_WORLD = 0.03
+PROJECTILE_SWEEP_MAX_WORLD = 12.0
+
+# Candidate collision visualizer.  This intentionally draws a SHORT local
+# capsule in front of the projectile root, using the projectile direction vector
+# and the actor's scale-ish field.  It does not use actor +0xE0/+0xE4, because
+# live Hadouken tests proved that field is an emitter/origin anchor, not a
+# collision sweep.
+ACTOR_OFF_SCALE_CANDIDATE = 0xF8
+ACTOR_OFF_DIR_X = 0x108
+ACTOR_OFF_DIR_Y = 0x10C
+ACTOR_OFF_DIR_Z = 0x104
+LINKED_OFF_TARGET = 0x34
+LINKED_OFF_DIR_X = 0xAC
+LINKED_OFF_DIR_Y = 0xB0
+PROJECTILE_SCALE_RADIUS_MIN = 0.08
+PROJECTILE_SCALE_RADIUS_MAX = 0.85
+PROJECTILE_DEFAULT_EXTENT = 0.80
+PROJECTILE_EXTENT_MIN = 0.35
+PROJECTILE_EXTENT_MAX = 1.25
+PROJECTILE_EXTENT_BY_ID = {
+    0x135: 0.80,  # Casshan FLAG_309 probe: impact lands ~0.75-0.85u ahead of root.
+    0x160: 0.70,  # Volnutt/Morrigan-style multi actors observed as separate 0x160 projectiles.
+    0x163: 0.80,  # Morrigan Finishing Shower missile actors.
+}
+
+# Doronjo/Odronjo-style giant objects can be actor-table projectiles with a
+# very small actor id (0x1), so they pass through the actor system but do not
+# carry the usual actor +0xF8 radius.  The linked hit-state card below was
+# observed on the big object:
+#   linked +0x80 == 0x0000030C
+#   linked +0x84 == 0x00000123
+# Use this as a narrow signature instead of treating every id=1 actor as huge.
+PROJECTILE_LARGE_FIELD_RADIUS = 1.10
+PROJECTILE_LARGE_FIELD_EXTENT = 1.45
+PROJECTILE_LARGE_FIELD_CARDS = {
+    (0x0000030C, 0x00000123),
+}
+
+# For some missile showers, actor +0x108/+0x10C is the local/up vector,
+# not forward.  These ids draw their candidate capsule from per-frame motion
+# first, then fall back to the actor/link direction fields if motion is zero.
+PROJECTILE_MOTION_DIR_FIRST_IDS = {
+    0x163,
+}
+
+# Leave empty until a projectile ID has a collision-confirmed radius.
+# Earlier 0x130/0x134/0x160 = 1.20 guesses were visual/template scale and
+# produced bogus half-screen circles on Hadouken-style projectiles.
+PROJECTILE_RADIUS_BY_ID = {
+}
 
 # ----------------------------
 # Projectile signature scanner (kept but commented out from active use)
@@ -577,6 +671,57 @@ class ProjectileNodeState:
     actor_ptr: int = 0
     inactive_frames: int = 0
     active: bool = False
+
+
+@dataclass
+class ProjectileActorState:
+    actor: int
+    owner: int
+    owner_slot: str
+    proj_id: int
+    x: float
+    y: float
+    z: float
+    prev_x: float
+    prev_y: float
+    prev_z: float
+    sweep_x: float
+    sweep_y: float
+    sweep_z: float
+    radius: float
+    linked_record: int = 0
+    anchor_source: str = "root"
+    root_x: float = 0.0
+    root_y: float = 0.0
+    root_z: float = 0.0
+    impact_x: float = 0.0
+    impact_y: float = 0.0
+    impact_z: float = 0.0
+    contact_valid: bool = False
+    target_ptr: int = 0
+    dir_x: float = 0.0
+    dir_y: float = 0.0
+    dir_z: float = 0.0
+    hit_start_x: float = 0.0
+    hit_start_y: float = 0.0
+    hit_start_z: float = 0.0
+    hit_end_x: float = 0.0
+    hit_end_y: float = 0.0
+    hit_end_z: float = 0.0
+    extent: float = 0.0
+
+    @property
+    def has_sweep(self) -> bool:
+        # Disabled: actor +0xE0/+0xE4 is not collision sweep in live tests.
+        return False
+
+    def label(self, debug: bool = False) -> str:
+        if debug:
+            return (
+                f"PRJ {self.owner_slot}:0x{self.proj_id:X} "
+                f"{self.anchor_source} @0x{self.actor:08X}"
+            )
+        return f"PRJ {self.owner_slot}:0x{self.proj_id:X}@{self.actor & 0xFFFF:04X}"
 
 
 class ProjectileNodeTracker:
@@ -1139,7 +1284,25 @@ class Overlay:
             txt = self.font_small.render(label, True, color[:3])
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
-    def draw_projectile_hitbox(self, x, y, z, r, color, label):
+    def draw_projectile_hitbox(
+        self,
+        x,
+        y,
+        z,
+        r,
+        color,
+        label,
+        sweep_x=None,
+        sweep_y=None,
+        sweep_z=None,
+        contact_x=None,
+        contact_y=None,
+        contact_z=None,
+        contact_valid=False,
+        root_x=None,
+        root_y=None,
+        root_z=None,
+    ):
         result = self._project_hitbox(x, y, z, r)
         if result is None:
             return
@@ -1147,37 +1310,84 @@ class Overlay:
 
         r_c, g_c, b_c = color[:3]
 
-        pad = 8
+        # Candidate local capsule. Unlike the failed +0xE0/+0xE4 sweep, this
+        # uses caller-provided short endpoints: root -> root + dir*extent.
+        if sweep_x is not None and sweep_y is not None:
+            try:
+                ex, ey, _depth_e, _focal_e = self.world_to_screen(x, y, z)
+                bx, by, _depth_b, _focal_b = self.world_to_screen(sweep_x, sweep_y, sweep_z or z)
+                width = max(2, min(180, int(rpx * 2)))
+                pad = max(12, rpx + 10)
+                min_x = min(bx, ex) - pad
+                min_y = min(by, ey) - pad
+                max_x = max(bx, ex) + pad
+                max_y = max(by, ey) + pad
+                w = max(1, max_x - min_x)
+                h = max(1, max_y - min_y)
+                surf = pygame.Surface((w, h), pygame.SRCALPHA)
+                p0 = (bx - min_x, by - min_y)
+                p1 = (ex - min_x, ey - min_y)
+                # Same projectile geometry as the frame-verified build; only the paint
+                # changed.  Lower fill alpha keeps large missile showers readable
+                # without clamping radius, hiding actors, or altering labels.
+                pygame.draw.line(surf, (r_c, g_c, b_c, 18), p0, p1, width)
+                pygame.draw.circle(surf, (r_c, g_c, b_c, 18), p0, max(1, width // 2))
+                pygame.draw.circle(surf, (r_c, g_c, b_c, 18), p1, max(1, width // 2))
+                pygame.draw.line(surf, (r_c, g_c, b_c, 145), p0, p1, max(1, min(3, width // 3)))
+                pygame.draw.circle(surf, (r_c, g_c, b_c, 170), p0, max(3, min(7, width // 5)), 1)
+                pygame.draw.circle(surf, (r_c, g_c, b_c, 170), p1, max(3, min(7, width // 5)), 1)
+                self.screen.blit(surf, (min_x, min_y))
+            except Exception:
+                pass
+        else:
+            pad = 8
+            size = rpx * 2 + pad * 2
+            surf = pygame.Surface((size, size), pygame.SRCALPHA)
+            cx = cy = rpx + pad
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 80), (cx, cy), rpx + 3, 1)
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 145), (cx, cy), rpx, 1)
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 16), (cx, cy), rpx)
+            self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
 
-        r_c, g_c, b_c = color[:3]
+        # Root marker: actor transform point, not the hit result.
+        if root_x is not None and root_y is not None:
+            try:
+                rx, ry, _d, _f = self.world_to_screen(root_x, root_y, root_z or z)
+                d = 5
+                pygame.draw.line(self.screen, (r_c, g_c, b_c), (rx - d, ry), (rx + d, ry), 1)
+                pygame.draw.line(self.screen, (r_c, g_c, b_c), (rx, ry - d), (rx, ry + d), 1)
+            except Exception:
+                pass
 
-        pad = 8
-        size = rpx * 2 + pad * 2
-        surf = pygame.Surface((size, size), pygame.SRCALPHA)
-        cx = cy = rpx + pad
+        # Contact marker: only after the linked hit-state reports a target ptr.
+        # It should snap to the defender on hit; label it so it is not mistaken
+        # for the live hitbox.
+        if contact_valid and contact_x is not None and contact_y is not None:
+            try:
+                cx, cy, _d, _f = self.world_to_screen(contact_x, contact_y, contact_z or z)
+                d = max(6, min(12, rpx // 2))
+                contact_col = (255, 255, 255)
+                pygame.draw.polygon(
+                    self.screen,
+                    contact_col,
+                    [(cx, cy - d), (cx + d, cy), (cx, cy + d), (cx - d, cy)],
+                    2,
+                )
+                if self.font_small is not None:
+                    txt = self.font_small.render("CONTACT", True, contact_col)
+                    self.screen.blit(txt, (cx + d + 3, cy - 8))
+            except Exception:
+                pass
 
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 55), (cx, cy), rpx + 3, 2)
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 190), (cx, cy), rpx, 1)
-        if rpx >= 6:
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 95), (cx, cy), max(rpx - 3, 1), 1)
-        pygame.draw.circle(surf, (r_c, g_c, b_c, 45), (cx, cy), rpx)
-
-        self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
-
-        d = max(3, min(7, rpx // 3))
-        dia_s = pygame.Surface((d * 2 + 3, d * 2 + 3), pygame.SRCALPHA)
-        dc = d + 1
-        pygame.draw.polygon(
-            dia_s,
-            (r_c, g_c, b_c, 200),
-            [(dc, dc - d), (dc + d, dc), (dc, dc + d), (dc - d, dc)],
-            1,
-        )
-        self.screen.blit(dia_s, (sx - d - 1, sy - d - 1))
-
-        if rpx >= 10 and self.font_small is not None:
-            txt = self.font_small.render(f"{label} r={r:.2f}", True, (*color[:3], 150))
+        if rpx >= 8 and self.font_small is not None:
+            label_text = f"{label} r={r:.2f}"
+            # Same label content and placement; add a tiny shadow so it is readable
+            # without needing heavy projectile fills behind it.
+            shadow = self.font_small.render(label_text, True, (0, 0, 0))
+            txt = self.font_small.render(label_text, True, color[:3])
+            self.screen.blit(shadow, (sx + rpx + 6, sy - 7))
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
+
 
     def draw_hud(self, counts, motion_filter: MotionFilter, node_tracker: ProjectileNodeTracker):
         if self.font_hud is None:
@@ -1203,7 +1413,7 @@ class HitboxRenderer:
         total_nodes = len(PROJECTILE_POOLS) * PROJECTILE_NODE_COUNT
         self.node_tracker = ProjectileNodeTracker(total_nodes)
 
-        self.cached_projectiles: List[Tuple[float, float, float]] = []
+        self.cached_projectiles: List[ProjectileActorState] = []
         self.last_char_ids: Dict[str, int] = {}
         self.last_counts: Dict[str, int] = {}
         self.fd_by_slot: Dict[str, Dict[int, MoveFrameData]] = {}
@@ -1315,7 +1525,7 @@ class HitboxRenderer:
                 print(f"[SlotError] {name}: {slot_exc!r}")
 
         if pygame.time.get_ticks() % 2 == 0:
-            self.cached_projectiles = read_projectile_positions()
+            self.cached_projectiles = read_projectile_hitboxes()
 
         if pygame.time.get_ticks() % 300 == 0:
             self.motion_filter.cleanup()
@@ -1364,14 +1574,27 @@ class HitboxRenderer:
                     label = f"{name}[{i}] f={action_frame}/{fd.active_text()}"
                 ov.draw_hitbox(x, y, 0, r, draw_color, label, is_active=is_active)
 
-        for x, y, z in self.cached_projectiles:
+        for proj in self.cached_projectiles:
+            if not slot_filter.get(proj.owner_slot, True):
+                continue
+            color = PROJ_COLORS.get(proj.owner_slot, COL_PROJ)
             ov.draw_projectile_hitbox(
-                x,
-                y + PROJECTILE_Y_OFFSET,
-                z,
-                0.35,
-                COL_PROJ,
-                "PRJ",
+                proj.x,
+                proj.y + PROJECTILE_Y_OFFSET,
+                proj.z,
+                proj.radius,
+                color,
+                proj.label(debug_labels),
+                sweep_x=proj.hit_start_x,
+                sweep_y=proj.hit_start_y + PROJECTILE_Y_OFFSET,
+                sweep_z=proj.hit_start_z,
+                contact_x=proj.impact_x,
+                contact_y=proj.impact_y + PROJECTILE_Y_OFFSET,
+                contact_z=proj.impact_z,
+                contact_valid=proj.contact_valid,
+                root_x=proj.root_x,
+                root_y=proj.root_y + PROJECTILE_Y_OFFSET,
+                root_z=proj.root_z,
             )
 
         ov.draw_hud(self.last_counts, self.motion_filter, self.node_tracker)
@@ -1379,39 +1602,304 @@ class HitboxRenderer:
 # ----------------------------
 # Main
 # ----------------------------
-def get_projectile_actors():
+def _valid_projectile_actor_candidate(actor: int, require_link_or_table: bool = True, table_seen: Optional[set] = None) -> bool:
+    actor = int(actor or 0) & 0xFFFFFFFF
+    if not (0x91000000 <= actor <= 0x94000000):
+        return False
 
-    actors = []
+    owner = rd32(actor + ACTOR_OFF_OWNER) or 0
+    if _owner_slot_name(owner) is None:
+        return False
+
+    proj_id = (rd32(actor + ACTOR_OFF_PROJ_ID) or 0) & 0xFFFFFFFF
+    if proj_id <= 0 or proj_id > 0xFFFF:
+        return False
+
+    root_x = _rf(actor + ACTOR_OFF_X)
+    root_y = _rf(actor + ACTOR_OFF_Y)
+    root_z = _rf(actor + ACTOR_OFF_Z)
+    if not _sane_projectile_world_point(root_x, root_y, root_z):
+        return False
+    if not _nonzero_projectile_world_point(root_x, root_y, root_z):
+        return False
+
+    if not require_link_or_table:
+        return True
+
+    if table_seen is not None and actor in table_seen:
+        return True
+
+    linked_record = rd32(actor + ACTOR_OFF_LINKED_RECORD) or 0
+    return 0x90000000 <= linked_record <= 0x94000000
+
+
+def get_projectile_actors():
+    """Return unique raw projectile actor pointers.
+
+    ACTOR_TABLE is reliable for simple projectiles, but Morrigan-style missile
+    showers can have many actor structs in the projectile actor pool while only
+    exposing a small subset through ACTOR_TABLE.  We seed from ACTOR_TABLE, then
+    scan the small stride-based actor pool and include candidates with valid
+    owner/id/root and either a valid linked hit record or table presence.
+    """
+    actors: List[int] = []
+    seen = set()
+    table_seen = set()
 
     for i in range(ACTOR_MAX):
-
-        ptr = rd32(ACTOR_TABLE + i*4)
-
+        ptr = rd32(ACTOR_TABLE + i * 4)
         if ptr is None:
             continue
-
         if not (0x91000000 <= ptr <= 0x94000000):
             continue
-
+        if ptr in seen:
+            continue
+        seen.add(ptr)
+        table_seen.add(ptr)
         actors.append(ptr)
 
+    for pool_base in PROJECTILE_ACTOR_POOL_BASES:
+        for i in range(PROJECTILE_ACTOR_POOL_COUNT):
+            ptr = pool_base + i * PROJECTILE_ACTOR_POOL_STRIDE
+            if ptr in seen:
+                continue
+            if not _valid_projectile_actor_candidate(ptr, require_link_or_table=True, table_seen=table_seen):
+                continue
+            seen.add(ptr)
+            actors.append(ptr)
+
     return actors
-def read_projectile_positions():
 
-    actors = get_projectile_actors()
 
-    result = []
+def _owner_slot_name(owner: int) -> Optional[str]:
+    owner = int(owner or 0) & 0xFFFFFFFF
+    for slot_name, slot_base in SLOT_BASES.items():
+        if owner == int(slot_base):
+            return slot_name
+    return None
 
-    for a in actors:
 
-        x = _rf(a + ACTOR_OFF_X)
-        y = _rf(a + ACTOR_OFF_Y)
-        z = _rf(a + ACTOR_OFF_Z)
+def _sane_projectile_world_point(x: float, y: float, z: float) -> bool:
+    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+        return False
+    return abs(x) < 30.0 and abs(y) < 30.0 and abs(z) < 30.0
 
-        if abs(x) < 30 and abs(y) < 30:
-            result.append((x,y,z))
+
+def _nonzero_projectile_world_point(x: float, y: float, z: float) -> bool:
+    return abs(x) + abs(y) + abs(z) > 0.001
+
+
+def _projectile_anchor_distance(a_x: float, a_y: float, b_x: float, b_y: float) -> float:
+    dx = float(a_x) - float(b_x)
+    dy = float(a_y) - float(b_y)
+    return math.sqrt(dx * dx + dy * dy)
+
+
+def _valid_slot_ptr(ptr: int) -> bool:
+    ptr = int(ptr or 0) & 0xFFFFFFFF
+    return ptr in set(int(v) for v in SLOT_BASES.values())
+
+
+def _safe_radius_from_scale(scale_value: float, fallback: float = PROJECTILE_FALLBACK_RADIUS) -> float:
+    if math.isfinite(scale_value) and PROJECTILE_SCALE_RADIUS_MIN <= scale_value <= PROJECTILE_SCALE_RADIUS_MAX:
+        return float(scale_value)
+    return float(fallback)
+
+
+def _normalize_2d(dx: float, dy: float) -> Tuple[float, float]:
+    if not (math.isfinite(dx) and math.isfinite(dy)):
+        return 0.0, 0.0
+    mag = math.sqrt(dx * dx + dy * dy)
+    if mag < 0.05 or mag > 4.0:
+        return 0.0, 0.0
+    return dx / mag, dy / mag
+
+
+def _is_large_projectile_field(proj_id: int, linked_record: int) -> bool:
+    if proj_id != 0x1:
+        return False
+    if not (0x90000000 <= int(linked_record or 0) <= 0x94000000):
+        return False
+    card0 = rd32(linked_record + 0x80) or 0
+    card1 = rd32(linked_record + 0x84) or 0
+    return (card0, card1) in PROJECTILE_LARGE_FIELD_CARDS
+
+
+def _projectile_direction(actor: int, linked_record: int, proj_id: int, root_x: float, root_y: float, prev_x: float, prev_y: float) -> Tuple[float, float, float]:
+    # Morrigan Finishing Shower / id 0x163 showed actor +0x108/+0x10C as
+    # local/up, not forward. Doronjo/Odronjo's large field id 0x1 does the
+    # same, so use per-frame root motion first for those cases.
+    if proj_id in PROJECTILE_MOTION_DIR_FIRST_IDS or _is_large_projectile_field(proj_id, linked_record):
+        ndx, ndy = _normalize_2d(root_x - prev_x, root_y - prev_y)
+        if ndx or ndy:
+            return ndx, ndy, 0.0
+
+    # Casshan FLAG_309: actor +0x108/+0x10C and linked +0xAC/+0xB0 both
+    # hold the useful forward vector.  actor +0x104 is Z-ish/unused for 2D.
+    dx = _rf(actor + ACTOR_OFF_DIR_X)
+    dy = _rf(actor + ACTOR_OFF_DIR_Y)
+    ndx, ndy = _normalize_2d(dx, dy)
+    if ndx or ndy:
+        return ndx, ndy, _rf(actor + ACTOR_OFF_DIR_Z)
+
+    if linked_record and (0x90000000 <= linked_record <= 0x94000000):
+        dx = _rf(linked_record + LINKED_OFF_DIR_X)
+        dy = _rf(linked_record + LINKED_OFF_DIR_Y)
+        ndx, ndy = _normalize_2d(dx, dy)
+        if ndx or ndy:
+            return ndx, ndy, 0.0
+
+    # Last fallback: motion vector from previous point to current root.
+    ndx, ndy = _normalize_2d(root_x - prev_x, root_y - prev_y)
+    return ndx, ndy, 0.0
+
+
+def _projectile_extent(proj_id: int, radius: float) -> float:
+    if proj_id in PROJECTILE_EXTENT_BY_ID:
+        return float(PROJECTILE_EXTENT_BY_ID[proj_id])
+    # Conservative generic guess: one diameter ahead of the root, clamped.
+    return max(PROJECTILE_EXTENT_MIN, min(PROJECTILE_EXTENT_MAX, float(radius) * 2.0))
+
+
+def _read_projectile_actor(actor: int) -> Optional[ProjectileActorState]:
+    owner = rd32(actor + ACTOR_OFF_OWNER) or 0
+    owner_slot = _owner_slot_name(owner)
+    if owner_slot is None:
+        return None
+
+    proj_id = rd32(actor + ACTOR_OFF_PROJ_ID) or 0
+    proj_id &= 0xFFFFFFFF
+    if proj_id <= 0 or proj_id > 0xFFFF:
+        return None
+
+    root_x = _rf(actor + ACTOR_OFF_X)
+    root_y = _rf(actor + ACTOR_OFF_Y)
+    root_z = _rf(actor + ACTOR_OFF_Z)
+    if not _sane_projectile_world_point(root_x, root_y, root_z):
+        return None
+
+    prev_x = _rf(actor + ACTOR_OFF_PREV_X)
+    prev_y = _rf(actor + ACTOR_OFF_PREV_Y)
+    prev_z = _rf(actor + ACTOR_OFF_PREV_Z)
+    if not _sane_projectile_world_point(prev_x, prev_y, prev_z):
+        prev_x, prev_y, prev_z = root_x, root_y, root_z
+
+    linked_record = rd32(actor + ACTOR_OFF_LINKED_RECORD) or 0
+    target_ptr = 0
+    if linked_record and (0x90000000 <= linked_record <= 0x94000000):
+        target_ptr = rd32(linked_record + LINKED_OFF_TARGET) or 0
+
+    impact_x = _rf(actor + ACTOR_OFF_IMPACT_X)
+    impact_y = _rf(actor + ACTOR_OFF_IMPACT_Y)
+    impact_z = _rf(actor + ACTOR_OFF_IMPACT_Z)
+    contact_valid = (
+        _valid_slot_ptr(target_ptr)
+        and _sane_projectile_world_point(impact_x, impact_y, impact_z)
+        and _nonzero_projectile_world_point(impact_x, impact_y, impact_z)
+    )
+
+    # The candidate collision shape is a short local capsule projected forward
+    # from the actor root.  This is a probe for the actual damaging volume, not
+    # a proven final answer yet.  Contact/result is drawn separately and never
+    # used as the live projectile anchor.
+    large_field = _is_large_projectile_field(proj_id, linked_record)
+    if large_field:
+        radius = PROJECTILE_LARGE_FIELD_RADIUS
+        extent = PROJECTILE_LARGE_FIELD_EXTENT
+    else:
+        scale_radius = _safe_radius_from_scale(_rf(actor + ACTOR_OFF_SCALE_CANDIDATE))
+        radius = float(PROJECTILE_RADIUS_BY_ID.get(proj_id, scale_radius))
+        extent = _projectile_extent(proj_id, radius)
+
+    dir_x, dir_y, dir_z = _projectile_direction(actor, linked_record, proj_id, root_x, root_y, prev_x, prev_y)
+    if not (dir_x or dir_y):
+        # If direction is unknown, keep the probe centered on the root rather
+        # than drawing misleading geometry.
+        hit_start_x, hit_start_y, hit_start_z = root_x, root_y, root_z
+        hit_end_x, hit_end_y, hit_end_z = root_x, root_y, root_z
+        x, y, z = root_x, root_y, root_z
+        anchor_source = "root"
+    else:
+        hit_start_x, hit_start_y, hit_start_z = root_x, root_y, root_z
+        hit_end_x = root_x + dir_x * extent
+        hit_end_y = root_y + dir_y * extent
+        hit_end_z = root_z
+        x = root_x + dir_x * (extent * 0.5)
+        y = root_y + dir_y * (extent * 0.5)
+        z = root_z
+        anchor_source = "field" if large_field else "cand"
+
+    # Keep these fields populated for debug/backward compatibility, but do not
+    # draw actor +0xE0/+0xE4 as a sweep. That field caused bogus half-screen
+    # bars in live tests.
+    sweep_x = hit_start_x
+    sweep_y = hit_start_y
+    sweep_z = hit_start_z
+
+    return ProjectileActorState(
+        actor=actor,
+        owner=owner,
+        owner_slot=owner_slot,
+        proj_id=proj_id,
+        x=x,
+        y=y,
+        z=z,
+        prev_x=prev_x,
+        prev_y=prev_y,
+        prev_z=prev_z,
+        sweep_x=sweep_x,
+        sweep_y=sweep_y,
+        sweep_z=sweep_z,
+        radius=radius,
+        linked_record=linked_record,
+        anchor_source=anchor_source,
+        root_x=root_x,
+        root_y=root_y,
+        root_z=root_z,
+        impact_x=impact_x,
+        impact_y=impact_y,
+        impact_z=impact_z,
+        contact_valid=contact_valid,
+        target_ptr=target_ptr,
+        dir_x=dir_x,
+        dir_y=dir_y,
+        dir_z=dir_z,
+        hit_start_x=hit_start_x,
+        hit_start_y=hit_start_y,
+        hit_start_z=hit_start_z,
+        hit_end_x=hit_end_x,
+        hit_end_y=hit_end_y,
+        hit_end_z=hit_end_z,
+        extent=extent,
+    )
+
+def read_projectile_hitboxes(slot_filter: Optional[Dict[str, bool]] = None) -> List[ProjectileActorState]:
+    """Read live projectile actor hitboxes from ACTOR_TABLE.
+
+    This replaces the old synthetic projectile position reader.  Normal slot
+    hitboxes/hurtboxes still come from read_hitboxes() and are not touched here.
+
+    Multi-projectile moves are handled by unique actor pointer, not by owner/id.
+    Example: owner P1/id 0x160 can appear as two different actor pointers in
+    the same frame, and both should draw even though they share the same id.
+    """
+    result: List[ProjectileActorState] = []
+
+    for actor in get_projectile_actors():
+        proj = _read_projectile_actor(actor)
+        if proj is None:
+            continue
+        if slot_filter is not None and not slot_filter.get(proj.owner_slot, True):
+            continue
+        result.append(proj)
 
     return result
+
+
+def read_projectile_positions():
+    """Compatibility shim for old callers: return current points only."""
+    return [(p.x, p.y, p.z) for p in read_projectile_hitboxes()]
+
 def debug_dump_pools():
 
     print("\n--- projectile pool dump ---")
@@ -1607,15 +2095,26 @@ def main():
                     break
                 
             if any(slot_filter.values()):
-                projectiles = read_projectile_positions()
-                for x, y, z in projectiles:
+                projectiles = read_projectile_hitboxes(slot_filter)
+                for proj in projectiles:
+                    color = PROJ_COLORS.get(proj.owner_slot, COL_PROJ)
                     overlay.draw_projectile_hitbox(
-                        x,
-                        y + PROJECTILE_Y_OFFSET,
-                        z,
-                        0.35,
-                        COL_PROJ,
-                        "PRJ",
+                        proj.x,
+                        proj.y + PROJECTILE_Y_OFFSET,
+                        proj.z,
+                        proj.radius,
+                        color,
+                        proj.label(False),
+                        sweep_x=proj.hit_start_x,
+                        sweep_y=proj.hit_start_y + PROJECTILE_Y_OFFSET,
+                        sweep_z=proj.hit_start_z,
+                        contact_x=proj.impact_x,
+                        contact_y=proj.impact_y + PROJECTILE_Y_OFFSET,
+                        contact_z=proj.impact_z,
+                        contact_valid=proj.contact_valid,
+                        root_x=proj.root_x,
+                        root_y=proj.root_y + PROJECTILE_Y_OFFSET,
+                        root_z=proj.root_z,
                     )
 
             if pygame.time.get_ticks() % 300 == 0:
