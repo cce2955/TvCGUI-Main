@@ -28,6 +28,8 @@ from dolphin_io import hook, rd32, rbytes
 import json as _json
 
 WORLD_Y_OFFSET = -0.7
+HURTBOX_BUILD_TAG = "TAKEWHEEL_V23_NOHOTKEYS"
+_last_hurt_debug_text = "hurt=not-run"
 PROJECTILE_Y_OFFSET: float = 0
 PROJECTILE_RADIUS_SCALE: float = 0.5
 PROJECTILE_DESPAWN_FRAMES: int = 6
@@ -35,6 +37,8 @@ PERSPECTIVE_Z_OVERRIDE: Optional[float] = None
 HITBOX_FILTER_FILE = "hitbox_filter.json"
 _last_filter_mtime = 0.0
 _slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
+_hurtbox_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
+_show_hurtboxes = True
 
 MOTION_THRESHOLD: float = 0.003
 STILL_FRAME_LIMIT: int = 4
@@ -264,17 +268,50 @@ def is_passive_state(state_id: int) -> bool:
     return state_id in PASSIVE_STATE_IDS
 _last_state_ids: Dict[str, int] = {}
 _last_state_raws: Dict[str, int] = {}
-def _read_slot_filter() -> dict:
-    global _last_filter_mtime, _slot_filter
+def _slots_from_payload(value, fallback):
+    out = dict(fallback)
+    if isinstance(value, dict):
+        for slot in ("P1", "P2", "P3", "P4"):
+            if slot in value:
+                out[slot] = bool(value.get(slot))
+    return out
+
+
+def _read_filter_payload() -> None:
+    global _last_filter_mtime, _slot_filter, _hurtbox_filter, _show_hurtboxes
     try:
         mt = os.path.getmtime(HITBOX_FILTER_FILE)
-        if mt != _last_filter_mtime:
-            _last_filter_mtime = mt
-            with open(HITBOX_FILTER_FILE) as f:
-                _slot_filter = _json.load(f)
+        if mt == _last_filter_mtime:
+            return
+        _last_filter_mtime = mt
+        with open(HITBOX_FILTER_FILE) as f:
+            data = _json.load(f)
+
+        if not isinstance(data, dict):
+            return
+
+        # Backward compatible: old files are {"P1": true, ...}.
+        # New files keep those top-level attack filters and add hurtbox_slots.
+        _slot_filter = _slots_from_payload(data.get("hitbox_slots", data), _slot_filter)
+        _hurtbox_filter = _slots_from_payload(data.get("hurtbox_slots", data.get("_hurtbox_slots", _hurtbox_filter)), _hurtbox_filter)
+        _show_hurtboxes = bool(data.get("show_hurtboxes", any(_hurtbox_filter.values())))
     except Exception:
         pass
+
+
+def _read_slot_filter() -> dict:
+    _read_filter_payload()
     return _slot_filter
+
+
+def _read_hurtbox_filter() -> dict:
+    _read_filter_payload()
+    return _hurtbox_filter
+
+
+def _hurtbox_layer_requested() -> bool:
+    _read_filter_payload()
+    return bool(_show_hurtboxes and any(_hurtbox_filter.values()))
 def dump_state18(slot_name: str, slot_base: int) -> None:
     raw = rd32(slot_base + OFF_STATE_ID)
     raw = 0 if raw is None else raw
@@ -534,6 +571,32 @@ HITBOX = HitboxLayout(
     off_flag=0xC3,
 )
 
+# Skeletal hurtbox descriptors.  This is separate from the existing normal
+# slot hitbox reader above.  Each descriptor points at a live 3x4 bone matrix
+# in MEM1, has a local offset, and a radius.  Draw this only for active hit
+# targets for now so normal/projectile UX does not get buried.
+HURTBOX_DESC_BASE = 0xC20
+HURTBOX_DESC_STRIDE = 0x18
+HURTBOX_DESC_COUNT = 24
+HURTBOX_MIN_RADIUS = 0.025
+HURTBOX_MAX_RADIUS = 0.85
+HURTBOX_CONTACT_PAD = 0.03
+# Reaction/hitstun states from move_id_map_charagnostic.csv.  The first
+# hurtbox probe only drew when a transient hit-contact record was found,
+# which often disappears by the time the overlay frame paints.  Keep the
+# contact highlight path, but also draw the victim skeletal hurtboxes while
+# they are visibly in hitstun/knockdown/recovery states.
+HURTBOX_REACTION_STATE_IDS = {
+    60, 61, 62, 64, 65,
+    70, 73, 74, 75, 76, 77, 79, 80,
+    89, 90, 91, 92, 93, 94, 95, 96, 98,
+    101, 102, 104, 108, 109,
+    113, 115, 116, 119, 124, 126, 128, 129, 130, 132, 133, 142,
+    161, 166,
+}
+HIT_EVENT_SCAN_START = 0x91970000
+HIT_EVENT_SCAN_END = 0x91978000
+
 CAMERA = CameraLayout(
     base=0x8053CB20,
     off_x=0x00,
@@ -587,6 +650,67 @@ HITBOX_ACTIVE_PULSE_SPEED = 0.22
 
 # --- surface cache ---
 _surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
+
+# Cached hurtbox sprites.  Always-on hurtboxes need to be readable, but creating
+# a translucent Surface per box per frame tanks FPS.  Cache by screen radius,
+# color, and highlight state so the draw path is a cheap blit.
+_hurt_surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
+
+def _get_cached_hurtbox_surface(rpx: int, color: Tuple[int,int,int], highlight: bool, detail: bool = True) -> pygame.Surface:
+    """Cached bright-outline hurtbox sprite.
+
+    All hurtboxes stay transparent/unfilled, but every circle is intentionally
+    bright and eye-catching. Contact/collision gets a stronger yellow-white
+    highlight. Geometry is unchanged; this is only paint style.
+    """
+    rpx = max(2, int(rpx))
+    rpx = max(2, int(round(rpx / 2.0) * 2))
+
+    if highlight:
+        rim = (255, 232, 100)
+        halo = (255, 247, 180)
+        inner = (255, 255, 255)
+        key = (rpx, rim, True, True)
+    else:
+        rim = (95, 235, 255)
+        halo = (120, 248, 255)
+        inner = (225, 252, 255)
+        key = (rpx, rim, False, True)
+
+    surf = _hurt_surface_cache.get(key)
+    if surf is not None:
+        return surf
+
+    scale = 2
+    pad = 8
+    size = (rpx * 2 + pad * 2 + 8) * scale
+    hi = pygame.Surface((size, size), pygame.SRCALPHA)
+    cx = cy = size // 2
+    rr = rpx * scale
+
+    if highlight:
+        pygame.draw.circle(hi, (*halo, 50), (cx, cy), rr + 5 * scale, 2 * scale)
+        pygame.draw.circle(hi, (*rim, 255), (cx, cy), rr, 3 * scale)
+        pygame.draw.circle(hi, (*inner, 210), (cx, cy), max(2, rr - 4 * scale), 1 * scale)
+    else:
+        # Same bright treatment for all hurtboxes so no circle fades into the background.
+        pygame.draw.circle(hi, (*halo, 30), (cx, cy), rr + 3 * scale, 2 * scale)
+        pygame.draw.circle(hi, (*rim, 220), (cx, cy), rr, 2 * scale)
+        pygame.draw.circle(hi, (*inner, 92), (cx, cy), max(2, rr - 4 * scale), 1 * scale)
+
+    # Minimal center reticle.
+    c = (4 if highlight else 3) * scale
+    a = 225 if highlight else 125
+    pygame.draw.line(hi, (255, 255, 255, a), (cx - c, cy), (cx + c, cy), 1 * scale)
+    pygame.draw.line(hi, (255, 255, 255, a), (cx, cy - c), (cx, cy + c), 1 * scale)
+
+    try:
+        surf = pygame.transform.smoothscale(hi, (size // scale, size // scale))
+    except Exception:
+        surf = pygame.transform.scale(hi, (size // scale, size // scale))
+    _hurt_surface_cache[key] = surf
+    return surf
+
 def slot_passive_override(name: str, state_id: int) -> bool:
     return is_passive_state(state_id)
 def _get_cached_hitbox_surface(rpx: int, color: Tuple[int,int,int], active: bool):
@@ -722,6 +846,43 @@ class ProjectileActorState:
                 f"{self.anchor_source} @0x{self.actor:08X}"
             )
         return f"PRJ {self.owner_slot}:0x{self.proj_id:X}@{self.actor & 0xFFFF:04X}"
+
+
+@dataclass
+class HurtboxState:
+    slot_name: str
+    slot_base: int
+    index: int
+    desc_addr: int
+    matrix_ptr: int
+    local_x: float
+    local_y: float
+    local_z: float
+    x: float
+    y: float
+    z: float
+    radius: float
+    raw_type: int = 0
+
+    def label(self) -> str:
+        return f"HURT {self.slot_name}[{self.index}]"
+
+
+@dataclass
+class HitContactState:
+    event_addr: int
+    source: int
+    source_slot: str
+    target: int
+    target_slot: str
+    x: float
+    y: float
+    z: float
+    dir_x: float = 0.0
+    dir_y: float = 0.0
+
+    def label(self) -> str:
+        return f"HIT {self.source_slot}>{self.target_slot}"
 
 
 class ProjectileNodeTracker:
@@ -966,6 +1127,143 @@ def read_hitboxes(slot_base: int, layout: HitboxLayout):
         r = _rf(base + b + layout.off_r)
         out.append((x, y, r, flag))
     return out
+
+
+def _valid_matrix_ptr(ptr: int) -> bool:
+    ptr = int(ptr or 0) & 0xFFFFFFFF
+    return 0x80000000 <= ptr < 0x81800000 and (ptr & 3) == 0
+
+
+def _matrix_transform_point(matrix_ptr: int, lx: float, ly: float, lz: float) -> Tuple[float, float, float]:
+    # Live bone matrices are row-major 3x4:
+    #   [r00 r01 r02 tx]
+    #   [r10 r11 r12 ty]
+    #   [r20 r21 r22 tz]
+    x = (_rf(matrix_ptr + 0x00) * lx) + (_rf(matrix_ptr + 0x04) * ly) + (_rf(matrix_ptr + 0x08) * lz) + _rf(matrix_ptr + 0x0C)
+    y = (_rf(matrix_ptr + 0x10) * lx) + (_rf(matrix_ptr + 0x14) * ly) + (_rf(matrix_ptr + 0x18) * lz) + _rf(matrix_ptr + 0x1C)
+    z = (_rf(matrix_ptr + 0x20) * lx) + (_rf(matrix_ptr + 0x24) * ly) + (_rf(matrix_ptr + 0x28) * lz) + _rf(matrix_ptr + 0x2C)
+    return x, y, z
+
+
+def _sane_world_box(x: float, y: float, z: float, r: float) -> bool:
+    return (
+        math.isfinite(x) and math.isfinite(y) and math.isfinite(z) and math.isfinite(r)
+        and abs(x) < 40.0 and abs(y) < 40.0 and abs(z) < 40.0
+        and HURTBOX_MIN_RADIUS <= r <= HURTBOX_MAX_RADIUS
+    )
+
+
+def read_hurtboxes(slot_name: str, slot_base: int) -> List[HurtboxState]:
+    out: List[HurtboxState] = []
+    for i in range(HURTBOX_DESC_COUNT):
+        desc = slot_base + HURTBOX_DESC_BASE + i * HURTBOX_DESC_STRIDE
+        raw_type = rd32(desc) or 0
+        matrix_ptr = rd32(desc + 0x04) or 0
+
+        # A blank descriptor means the current list is done.
+        if raw_type == 0 and matrix_ptr == 0:
+            break
+        if not _valid_matrix_ptr(matrix_ptr):
+            continue
+
+        lx = _rf(desc + 0x08)
+        ly = _rf(desc + 0x0C)
+        lz = _rf(desc + 0x10)
+        r = _rf(desc + 0x14)
+        x, y, z = _matrix_transform_point(matrix_ptr, lx, ly, lz)
+        if not _sane_world_box(x, y, z, r):
+            continue
+
+        out.append(HurtboxState(
+            slot_name=slot_name,
+            slot_base=slot_base,
+            index=i,
+            desc_addr=desc,
+            matrix_ptr=matrix_ptr,
+            local_x=lx,
+            local_y=ly,
+            local_z=lz,
+            x=x,
+            y=y,
+            z=z,
+            radius=r,
+            raw_type=raw_type,
+        ))
+    return out
+
+
+def _slot_name_from_base(ptr: int) -> Optional[str]:
+    ptr = int(ptr or 0) & 0xFFFFFFFF
+    for name, base in SLOT_BASES.items():
+        if ptr == int(base):
+            return name
+    return None
+
+
+def read_hit_contacts() -> List[HitContactState]:
+    # Normal hit resolution records show source/target at +0x30/+0x34 and
+    # resolved contact-ish point at +0x5C/+0x60.  +0x48 is 0 while the contact
+    # is live, then returns to FFFFFFFF when the record is stale.
+    out: List[HitContactState] = []
+    seen = set()
+    for addr in range(HIT_EVENT_SCAN_START, HIT_EVENT_SCAN_END, 4):
+        source = rd32(addr + 0x30) or 0
+        target = rd32(addr + 0x34) or 0
+        source_slot = _slot_name_from_base(source)
+        target_slot = _slot_name_from_base(target)
+        if source_slot is None or target_slot is None or source == target:
+            continue
+        if (rd32(addr + 0x48) or 0) != 0:
+            continue
+        x = _rf(addr + 0x5C)
+        y = _rf(addr + 0x60)
+        z = _rf(addr + 0x64)
+        if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+            continue
+        if abs(x) > 40.0 or abs(y) > 40.0 or abs(z) > 40.0:
+            continue
+        key = (source, target, round(x, 3), round(y, 3))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(HitContactState(
+            event_addr=addr,
+            source=source,
+            source_slot=source_slot,
+            target=target,
+            target_slot=target_slot,
+            x=x,
+            y=y,
+            z=z,
+            dir_x=_rf(addr + 0x6C),
+            dir_y=_rf(addr + 0x70),
+        ))
+    return out
+
+
+def hurtbox_contains_contact(hurtbox: HurtboxState, contact: HitContactState) -> bool:
+    return math.hypot(hurtbox.x - contact.x, hurtbox.y - contact.y) <= (hurtbox.radius + HURTBOX_CONTACT_PAD)
+
+
+def should_draw_reaction_hurtboxes(slot_base: int) -> bool:
+    state_id = read_state_id(slot_base)
+    return state_id in HURTBOX_REACTION_STATE_IDS
+
+
+def read_and_draw_hurtboxes_for_slot(overlay, slot_name: str, slot_base: int, contacts=None) -> int:
+    contacts = contacts or []
+    hurt_palette = COLORS.get(slot_name, [(120, 220, 255)])
+    drawn = 0
+    for hurt in read_hurtboxes(slot_name, slot_base):
+        highlight = any(hurtbox_contains_contact(hurt, contact) for contact in contacts)
+        color = hurt_palette[hurt.index % len(hurt_palette)]
+        if not highlight:
+            color = _dim_hitbox_color(color)
+        overlay.draw_hurtbox(
+            hurt.x, hurt.y, hurt.z, hurt.radius, color, hurt.label(), highlight=highlight
+        )
+        drawn += 1
+    return drawn
 
 
 def read_fighter_root(slot_base: int):
@@ -1220,69 +1518,98 @@ class Overlay:
         age = self.frame_index - self.hitbox_spawn_start[label]
         spawn_t = min(1.0, age / float(max(1, HITBOX_SPAWN_FRAMES - 1)))
 
-        draw_rpx = max(2, int(rpx * (0.70 + 0.30 * spawn_t)))
+        draw_rpx = max(2, int(rpx * (0.72 + 0.28 * spawn_t)))
         show_cross = age >= 2
-        fill_t = max(0.0, min(1.0, (spawn_t - 0.35) / 0.65))
 
-        pad = 10
-        size = draw_rpx * 2 + pad * 2 + 12
+        pad = 12
+        size = draw_rpx * 2 + pad * 2 + 18
         surf = pygame.Surface((size, size), pygame.SRCALPHA)
         cx = cy = size // 2
 
-        shock_r = max(draw_rpx + 2, int(rpx * (1.18 - 0.18 * spawn_t)))
-        shock_alpha = int(190 * (1.0 - spawn_t))
-        if shock_alpha > 0:
-            pygame.draw.circle(surf, (r_c, g_c, b_c, shock_alpha), (cx, cy), shock_r, 3)
-
         pulse_t = 0.0
-        pulse_px = 0
-        pulse_alpha = 0
         if is_active:
             pulse_t = 0.5 + 0.5 * math.sin(self.frame_index * HITBOX_ACTIVE_PULSE_SPEED)
-            pulse_px = int(2 + 4 * pulse_t)
-            pulse_alpha = int(55 + 65 * pulse_t)
 
-        outer_alpha = int(105 + 85 * spawn_t + (20 * pulse_t if is_active else 0))
-        ring_alpha = int(165 + 70 * spawn_t + (25 * pulse_t if is_active else 0))
-        fill_alpha = int((150 if is_active else 95) * (0.35 + 0.65 * spawn_t))
+        # Force a strong "danger" visual identity that separates from cyan hurtboxes.
+        core_fill = (255, 105, 40) if is_active else (215, 78, 38)
+        core_hi   = (255, 182, 70)
+        white_rim = (255, 248, 235)
+        dark_rim  = (24, 8, 4)
 
-        fill_r = min(255, int(r_c + (255 - r_c) * 0.18))
-        fill_g = min(255, int(g_c + (255 - g_c) * 0.18))
-        fill_b = min(255, int(b_c + (255 - b_c) * 0.18))
+        halo_alpha = int((42 if is_active else 28) + 26 * pulse_t)
+        pygame.draw.circle(surf, (*core_fill, halo_alpha), (cx, cy), draw_rpx + 7)
 
-        pygame.draw.circle(surf, (fill_r, fill_g, fill_b, fill_alpha), (cx, cy), draw_rpx)
+        # Dark punch-out ring so the hitbox remains visible over dense hurtbox lines.
+        pygame.draw.circle(surf, (*dark_rim, 190), (cx, cy), draw_rpx + 4, 5)
+        pygame.draw.circle(surf, (*white_rim, 230), (cx, cy), draw_rpx + 1, 3)
 
-        if is_active and pulse_alpha > 0:
-            pygame.draw.circle(
-                surf,
-                (r_c, g_c, b_c, pulse_alpha),
-                (cx, cy),
-                draw_rpx + 5 + pulse_px,
-                2,
-            )
+        fill_alpha = 180 if is_active else 148
+        pygame.draw.circle(surf, (*core_fill, fill_alpha), (cx, cy), draw_rpx)
+        pygame.draw.circle(surf, (*core_hi, 120 if is_active else 90), (cx, cy), max(draw_rpx - 4, 1))
+        pygame.draw.circle(surf, (255, 255, 255, 62 if is_active else 40), (cx, cy), max(draw_rpx - 7, 1), 1)
 
-        pygame.draw.circle(surf, (r_c, g_c, b_c, outer_alpha), (cx, cy), draw_rpx + 3, 3)
-        pygame.draw.circle(surf, (r_c, g_c, b_c, ring_alpha), (cx, cy), draw_rpx, 2)
-
+        # Active pulse ring.
         if is_active:
-            hi = (min(r_c + 90, 255), min(g_c + 90, 255), min(b_c + 90, 255))
-            hi_alpha = int(135 + 70 * spawn_t + 30 * pulse_t)
-            pygame.draw.circle(surf, (*hi, hi_alpha), (cx, cy), max(draw_rpx - 3, 1), 1)
+            pulse_px = int(2 + 4 * pulse_t)
+            pulse_alpha = int(80 + 80 * pulse_t)
+            pygame.draw.circle(surf, (*core_hi, pulse_alpha), (cx, cy), draw_rpx + 8 + pulse_px, 2)
 
         self.screen.blit(surf, (sx - cx, sy - cy))
 
         if show_cross:
-            cross_col = (min(r_c + 60, 255), min(g_c + 60, 255), min(b_c + 60, 255))
             cs = max(4, min(10, draw_rpx // 3))
             cross_s = pygame.Surface((cs * 2 + 2, cs * 2 + 2), pygame.SRCALPHA)
-            cross_alpha = int(220 * spawn_t)
-            pygame.draw.line(cross_s, (*cross_col, cross_alpha), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
-            pygame.draw.line(cross_s, (*cross_col, cross_alpha), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
+            pygame.draw.line(cross_s, (255, 250, 242, 220), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
+            pygame.draw.line(cross_s, (255, 250, 242, 220), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
             self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
 
         if rpx >= 12 and self.font_small is not None:
-            txt = self.font_small.render(label, True, color[:3])
-            self.screen.blit(txt, (sx + rpx + 5, sy - 8))
+            label_txt = label if str(label).startswith("HIT ") else f"HIT {label}"
+            txt = self.font_small.render(label_txt, True, (255, 245, 230))
+            tw, th = txt.get_size()
+            bx = sx + rpx + 6
+            by = sy - 10
+            badge = pygame.Surface((tw + 8, th + 4), pygame.SRCALPHA)
+            pygame.draw.rect(badge, (18, 6, 4, 210), (0, 0, tw + 8, th + 4), border_radius=4)
+            pygame.draw.rect(badge, (255, 168, 70, 255), (0, 0, tw + 8, th + 4), 1, border_radius=4)
+            badge.blit(txt, (4, 2))
+            self.screen.blit(badge, (bx, by))
+
+    def draw_hurtbox(self, x, y, z, r, color, label, highlight=False, detail=True):
+        """Polished cached hurtbox draw.
+
+        Same data and same geometry as V13.  The difference is visual language:
+        hitboxes are solid/warm/labeled; hurtboxes are blue glass outlines.
+        """
+        result = self._project_hitbox(x, y, z, r)
+        if result is None:
+            return
+        sx, sy, rpx = result
+        rpx = max(2, int(rpx))
+
+        surf = _get_cached_hurtbox_surface(rpx, color[:3], bool(highlight), bool(detail))
+        cx = surf.get_width() // 2
+        cy = surf.get_height() // 2
+        self.screen.blit(surf, (sx - cx, sy - cy))
+
+        # Only contacted/highlighted hurtboxes get text, so normal play stays clean.
+        if highlight and self.font_small is not None:
+            shadow = self.font_small.render(label, True, (0, 0, 0))
+            txt = self.font_small.render(label, True, (255, 245, 130))
+            self.screen.blit(shadow, (sx + rpx + 7, sy - 7))
+            self.screen.blit(txt, (sx + rpx + 6, sy - 8))
+
+    def draw_hit_contact(self, contact: HitContactState, color=(255, 255, 255)):
+        try:
+            sx, sy, _d, _f = self.world_to_screen(contact.x, contact.y, contact.z)
+            d = 8
+            pygame.draw.line(self.screen, color, (sx - d, sy - d), (sx + d, sy + d), 2)
+            pygame.draw.line(self.screen, color, (sx - d, sy + d), (sx + d, sy - d), 2)
+            if self.font_small is not None:
+                txt = self.font_small.render(contact.label(), True, color)
+                self.screen.blit(txt, (sx + d + 4, sy - 8))
+        except Exception:
+            pass
 
     def draw_projectile_hitbox(
         self,
@@ -1330,12 +1657,18 @@ class Overlay:
                 # Same projectile geometry as the frame-verified build; only the paint
                 # changed.  Lower fill alpha keeps large missile showers readable
                 # without clamping radius, hiding actors, or altering labels.
-                pygame.draw.line(surf, (r_c, g_c, b_c, 18), p0, p1, width)
-                pygame.draw.circle(surf, (r_c, g_c, b_c, 18), p0, max(1, width // 2))
-                pygame.draw.circle(surf, (r_c, g_c, b_c, 18), p1, max(1, width // 2))
-                pygame.draw.line(surf, (r_c, g_c, b_c, 145), p0, p1, max(1, min(3, width // 3)))
-                pygame.draw.circle(surf, (r_c, g_c, b_c, 170), p0, max(3, min(7, width // 5)), 1)
-                pygame.draw.circle(surf, (r_c, g_c, b_c, 170), p1, max(3, min(7, width // 5)), 1)
+                pygame.draw.line(surf, (20, 8, 4, 115), p0, p1, width + 4)
+                pygame.draw.line(surf, (255, 126, 50, 30), p0, p1, width)
+                pygame.draw.circle(surf, (20, 8, 4, 115), p0, max(1, width // 2) + 2)
+                pygame.draw.circle(surf, (255, 126, 50, 30), p0, max(1, width // 2))
+                pygame.draw.circle(surf, (20, 8, 4, 115), p1, max(1, width // 2) + 2)
+                pygame.draw.circle(surf, (255, 126, 50, 30), p1, max(1, width // 2))
+                pygame.draw.line(surf, (255, 248, 235, 205), p0, p1, max(1, min(3, width // 3)))
+                pygame.draw.line(surf, (255, 108, 38, 235), p0, p1, max(1, min(2, width // 4)))
+                pygame.draw.circle(surf, (255, 248, 235, 235), p0, max(3, min(7, width // 5)) + 1, 1)
+                pygame.draw.circle(surf, (255, 108, 38, 245), p0, max(3, min(7, width // 5)), 1)
+                pygame.draw.circle(surf, (255, 248, 235, 235), p1, max(3, min(7, width // 5)) + 1, 1)
+                pygame.draw.circle(surf, (255, 108, 38, 245), p1, max(3, min(7, width // 5)), 1)
                 self.screen.blit(surf, (min_x, min_y))
             except Exception:
                 pass
@@ -1344,9 +1677,10 @@ class Overlay:
             size = rpx * 2 + pad * 2
             surf = pygame.Surface((size, size), pygame.SRCALPHA)
             cx = cy = rpx + pad
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 80), (cx, cy), rpx + 3, 1)
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 145), (cx, cy), rpx, 1)
-            pygame.draw.circle(surf, (r_c, g_c, b_c, 16), (cx, cy), rpx)
+            pygame.draw.circle(surf, (20, 8, 4, 200), (cx, cy), rpx + 4, 4)
+            pygame.draw.circle(surf, (255, 248, 235, 220), (cx, cy), rpx + 1, 2)
+            pygame.draw.circle(surf, (255, 108, 38, 235), (cx, cy), rpx, 2)
+            pygame.draw.circle(surf, (255, 120, 45, 42), (cx, cy), rpx)
             self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
 
         # Root marker: actor transform point, not the hit result.
@@ -1389,18 +1723,33 @@ class Overlay:
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
 
 
-    def draw_hud(self, counts, motion_filter: MotionFilter, node_tracker: ProjectileNodeTracker):
+    def draw_hud(self, counts, motion_filter: MotionFilter, node_tracker: ProjectileNodeTracker, hurt_counts=None):
         if self.font_hud is None:
             return
-        base = " | ".join([f"{k}={v}" for k, v in counts.items()])
+        base = HURTBOX_BUILD_TAG + " | " + " | ".join([f"{k}={v}" for k, v in counts.items()])
         ref_str = f"{self.ref_cam_z:.4f}" if self.ref_cam_z is not None else "none"
         debug = f"  |  cam_z={self.cam_z:.4f}  ref_z={ref_str}"
         suppressed_total = sum(1 for s in motion_filter._states.values() if s.suppressed)
         supp_str = f"  |  suppressed={suppressed_total}"
         active_prj = len(node_tracker.visible_nodes())
-        prj_str = f"  |  prj_active={active_prj}  [F2=rescan F3=dump]"
-        hud = self.font_hud.render(base + debug + supp_str + prj_str, True, COL_DIM)
+        prj_str = f"  |  prj_active={active_prj}"
+        hurt_str = "  |  hurt=NONE"
+        if hurt_counts is not None:
+            hurt_str = "  |  hurt=" + ",".join([f"{k}:{v}" for k, v in hurt_counts.items()])
+        hud = self.font_hud.render(base + debug + supp_str + prj_str, True, (210, 230, 255))
         self.screen.blit(hud, (8, 8))
+
+        # Put hurtbox counts on their own line so they do not get clipped off the
+        # right edge of the Dolphin window.
+        try:
+            hurt_line = self.font_hud.render(hurt_str.strip(), True, (255, 255, 120))
+            self.screen.blit(hurt_line, (8, 24))
+            legend = self.font_hud.render("KEY: HIT = danger core   |   HURT = cyan outlines (focus on contact)", True, (180, 245, 255))
+            self.screen.blit(legend, (8, 40))
+            # Keep the player HUD clean.  Full per-slot sample coords were only
+            # for bring-up debugging and make the overlay harder to read.
+        except Exception:
+            pass
 
     def present(self):
         pygame.display.flip()
@@ -1414,6 +1763,11 @@ class HitboxRenderer:
         self.node_tracker = ProjectileNodeTracker(total_nodes)
 
         self.cached_projectiles: List[ProjectileActorState] = []
+        self.cached_hurtboxes: Dict[str, List[HurtboxState]] = {}
+        self.cached_hit_contacts: List[HitContactState] = []
+        self.hurt_counts: Dict[str, int] = {}
+        self._last_hurt_update_ms: int = 0
+        self._last_contact_update_ms: int = 0
         self.last_char_ids: Dict[str, int] = {}
         self.last_counts: Dict[str, int] = {}
         self.fd_by_slot: Dict[str, Dict[int, MoveFrameData]] = {}
@@ -1428,17 +1782,22 @@ class HitboxRenderer:
 
     @staticmethod
     def _hitboxes_enabled(control=None) -> bool:
-        """Return the master/UI hitbox toggle state.
-
-        The master overlay process can stay alive for the HUD even when hitboxes
-        are disabled.  Keep the real hitbox renderer quiet in that state; this
-        includes projectile synthetic hitboxes, which do not belong to any one
-        slot and were previously bypassing the slot filter.
-        """
+        """Attack/projectile hitbox layer toggle."""
         return bool(getattr(control, "show_hitboxes", True))
+
+    @staticmethod
+    def _hurtboxes_enabled(control=None) -> bool:
+        """Defender/body hurtbox layer toggle."""
+        return bool(getattr(control, "show_hurtboxes", True)) and _hurtbox_layer_requested()
+
+    def _any_collision_layer_enabled(self, control=None) -> bool:
+        return self._hitboxes_enabled(control) or self._hurtboxes_enabled(control)
 
     def _clear_runtime_hitbox_state(self) -> None:
         self.cached_projectiles.clear()
+        self.cached_hurtboxes.clear()
+        self.cached_hit_contacts.clear()
+        self.hurt_counts = {}
         self.last_counts = {}
         self.motion_filter._states.clear()
         for node in getattr(self.node_tracker, "_nodes", {}).values():
@@ -1475,7 +1834,9 @@ class HitboxRenderer:
         return (hitbox_flag == 0x53), action_frame, fd
 
     def update(self, dt: float, control=None) -> None:
-        if not self._hitboxes_enabled(control):
+        hitboxes_on = self._hitboxes_enabled(control)
+        hurtboxes_on = self._hurtboxes_enabled(control)
+        if not (hitboxes_on or hurtboxes_on):
             self._clear_runtime_hitbox_state()
             return
 
@@ -1490,42 +1851,104 @@ class HitboxRenderer:
         if char_changed or not self._fd_scan_done:
             self._refresh_frame_data_cache()
 
-        if pygame.time.get_ticks() % 2 == 0:
-            pools = resolve_projectile_pools() or PROJECTILE_POOLS
-            node_idx = 0
-            for pool in pools:
-                for i in range(PROJECTILE_NODE_COUNT):
-                    node_addr = pool + i * PROJECTILE_NODE_STRIDE
-                    self.node_tracker.update_from_node(node_idx, node_addr)
-                    node_idx += 1
+        # Projectiles move fast; do not throttle this on pygame tick parity.
+        # The old parity gate made projectile overlays appear to update at a
+        # lower frame rate than the actual projectile.
+        pools = resolve_projectile_pools() or PROJECTILE_POOLS
+        node_idx = 0
+        for pool in pools:
+            for i in range(PROJECTILE_NODE_COUNT):
+                node_addr = pool + i * PROJECTILE_NODE_STRIDE
+                self.node_tracker.update_from_node(node_idx, node_addr)
+                node_idx += 1
 
         slot_filter = _read_slot_filter()
         counts: Dict[str, int] = {}
 
-        for name, base in SLOT_BASES.items():
-            try:
-                if not slot_filter.get(name, True):
-                    counts[name] = 0
-                    continue
+        if hitboxes_on:
+            for name, base in SLOT_BASES.items():
+                try:
+                    if not slot_filter.get(name, True):
+                        counts[name] = 0
+                        continue
 
-                raw_state = read_state_raw(base)
-                state_id = decode_state_id(raw_state)
-                if slot_passive_override(name, state_id):
-                    continue
+                    raw_state = read_state_raw(base)
+                    state_id = decode_state_id(raw_state)
+                    if slot_passive_override(name, state_id):
+                        continue
 
-                boxes = read_hitboxes(base, HITBOX)
-                active = 0
-                for i, (x, y, r, flag) in enumerate(boxes):
-                    visible = self.motion_filter.update(name, i, x, y, r)
-                    if visible and r > 0.001:
-                        active += 1
-                counts[name] = active
+                    boxes = read_hitboxes(base, HITBOX)
+                    active = 0
+                    for i, (x, y, r, flag) in enumerate(boxes):
+                        visible = self.motion_filter.update(name, i, x, y, r)
+                        if visible and r > 0.001:
+                            active += 1
+                    counts[name] = active
 
-            except Exception as slot_exc:
-                print(f"[SlotError] {name}: {slot_exc!r}")
+                except Exception as slot_exc:
+                    print(f"[SlotError] {name}: {slot_exc!r}")
 
-        if pygame.time.get_ticks() % 2 == 0:
+            # Read projectile actors every overlay update so the drawn volume
+            # tracks fast projectiles frame-for-frame.
             self.cached_projectiles = read_projectile_hitboxes()
+        else:
+            self.cached_projectiles = []
+            self.motion_filter.cleanup()
+
+        now_ms = pygame.time.get_ticks()
+
+        # Cache skeletal hurtboxes in update(), not draw().  Drawing should only
+        # paint already-read data; repeated live matrix reads inside draw() were
+        # the main FPS killer once hurtboxes were always-on.
+        if hurtboxes_on and now_ms - self._last_hurt_update_ms >= 16:
+            hurt_filter = _read_hurtbox_filter()
+            hurt_counts: Dict[str, int] = {}
+            sample_bits = []
+            cached: Dict[str, List[HurtboxState]] = {}
+            for hurt_slot, hurt_base in SLOT_BASES.items():
+                if not hurt_filter.get(hurt_slot, True):
+                    cached[hurt_slot] = []
+                    hurt_counts[hurt_slot] = 0
+                    sample_bits.append(f"{hurt_slot}[0]=OFF")
+                    continue
+                hlist = read_hurtboxes(hurt_slot, hurt_base)
+                cached[hurt_slot] = hlist
+                hurt_counts[hurt_slot] = len(hlist)
+                if hlist:
+                    h0 = hlist[0]
+                    sample_bits.append(f"{hurt_slot}[0]={h0.x:.2f},{h0.y:.2f} r={h0.radius:.2f}")
+                else:
+                    sample_bits.append(f"{hurt_slot}[0]=NONE")
+            self.cached_hurtboxes = cached
+            self.hurt_counts = hurt_counts
+            globals()["_last_hurt_debug_text"] = " | ".join(sample_bits)
+            self._last_hurt_update_ms = now_ms
+        elif not hurtboxes_on:
+            self.cached_hurtboxes = {}
+            self.hurt_counts = {}
+            self.cached_hit_contacts = []
+            globals()["_last_hurt_debug_text"] = "hurt=off"
+
+        # Contact-record scan is the expensive part.  Do NOT run it merely
+        # because an active hitbox exists; that tanks whiff/neutral frames exactly
+        # when normals appear.  Hurtboxes themselves stay always-on/accurate.
+        # Only scan for the resolver contact point once a defender is already in
+        # a reaction state, where the highlight can actually be useful.
+        reaction_present = False
+        for _hb_slot, _hb_base in SLOT_BASES.items():
+            try:
+                if read_state_id(_hb_base) in HURTBOX_REACTION_STATE_IDS:
+                    reaction_present = True
+                    break
+            except Exception:
+                pass
+
+        want_contact_scan = hurtboxes_on and reaction_present
+        if want_contact_scan and (now_ms - self._last_contact_update_ms >= 50):
+            self.cached_hit_contacts = read_hit_contacts()
+            self._last_contact_update_ms = now_ms
+        elif not want_contact_scan:
+            self.cached_hit_contacts = []
 
         if pygame.time.get_ticks() % 300 == 0:
             self.motion_filter.cleanup()
@@ -1533,7 +1956,9 @@ class HitboxRenderer:
         self.last_counts = counts
 
     def draw(self, screen: pygame.Surface, control=None) -> None:
-        if not self._hitboxes_enabled(control):
+        hitboxes_on = self._hitboxes_enabled(control)
+        hurtboxes_on = self._hurtboxes_enabled(control)
+        if not (hitboxes_on or hurtboxes_on):
             return
 
         camx, camy, camz, camw = read_camera_pos(CAMERA)
@@ -1546,58 +1971,154 @@ class HitboxRenderer:
         ov.on_resize(screen.get_width(), screen.get_height())
 
         slot_filter = _read_slot_filter()
+        hurt_filter = _read_hurtbox_filter()
+        debug_labels = bool(getattr(control, "show_debug", False))
 
-        for name, base in SLOT_BASES.items():
-            if not slot_filter.get(name, True):
-                continue
+        contacts_by_target: Dict[str, List[HitContactState]] = {}
+        focus_mode = False
+        focus_sources = set()
+        focus_targets = set()
+        focus_points = []
+        if self.cached_hit_contacts:
+            focus_mode = True
+            for contact in self.cached_hit_contacts:
+                if hurt_filter.get(contact.target_slot, True):
+                    contacts_by_target.setdefault(contact.target_slot, []).append(contact)
+                    focus_sources.add(contact.source_slot)
+                    focus_targets.add(contact.target_slot)
+                    focus_points.append((contact.x, contact.y, contact.z, contact))
 
-            raw_state = read_state_raw(base)
-            state_id = decode_state_id(raw_state)
-            if slot_passive_override(name, state_id):
-                continue
+        # In collision focus mode, collapse the scene to only the relevant data.
+        # This reduces both clutter and draw cost exactly when impact frames get dense.
+        HURT_FOCUS_MARGIN = 1.05
+        HIT_FOCUS_PAD = 2.4
+        PROJ_FOCUS_PAD = 2.8
 
-            boxes = read_hitboxes(base, HITBOX)
-            palette = COLORS.get(name, [(255, 255, 255)])
-            debug_labels = bool(getattr(control, "show_debug", False))
-
-            for i, (x, y, r, flag) in enumerate(boxes):
-                if r <= 0.001:
+        if hurtboxes_on:
+            for hurt_slot, hlist in self.cached_hurtboxes.items():
+                if not hurt_filter.get(hurt_slot, True):
                     continue
 
-                base_color = palette[i % len(palette)]
-                is_active, action_frame, fd = self._frame_gate_for_slot(name, base, state_id, flag)
-                if state_id in MEGACRASH_STATE_IDS and not is_active:
+                if focus_mode and hurt_slot not in focus_targets:
                     continue
-                draw_color = base_color if is_active else _dim_hitbox_color(base_color)
-                label = f"{name}[{i}]"
-                if debug_labels and fd is not None and action_frame is not None:
-                    label = f"{name}[{i}] f={action_frame}/{fd.active_text()}"
-                ov.draw_hitbox(x, y, 0, r, draw_color, label, is_active=is_active)
 
-        for proj in self.cached_projectiles:
-            if not slot_filter.get(proj.owner_slot, True):
-                continue
-            color = PROJ_COLORS.get(proj.owner_slot, COL_PROJ)
-            ov.draw_projectile_hitbox(
-                proj.x,
-                proj.y + PROJECTILE_Y_OFFSET,
-                proj.z,
-                proj.radius,
-                color,
-                proj.label(debug_labels),
-                sweep_x=proj.hit_start_x,
-                sweep_y=proj.hit_start_y + PROJECTILE_Y_OFFSET,
-                sweep_z=proj.hit_start_z,
-                contact_x=proj.impact_x,
-                contact_y=proj.impact_y + PROJECTILE_Y_OFFSET,
-                contact_z=proj.impact_z,
-                contact_valid=proj.contact_valid,
-                root_x=proj.root_x,
-                root_y=proj.root_y + PROJECTILE_Y_OFFSET,
-                root_z=proj.root_z,
-            )
+                hurt_palette = COLORS.get(hurt_slot, [(120, 220, 255)])
+                contacts = contacts_by_target.get(hurt_slot, [])
 
-        ov.draw_hud(self.last_counts, self.motion_filter, self.node_tracker)
+                priority_indices = set()
+                if len(hlist) <= 8:
+                    priority_indices = {h.index for h in hlist}
+                else:
+                    priority_indices = {h.index for h in sorted(hlist, key=lambda hb: hb.radius, reverse=True)[:6]}
+
+                for hurt in hlist:
+                    highlight = any(hurtbox_contains_contact(hurt, contact) for contact in contacts)
+                    if focus_mode:
+                        near_focus = highlight
+                        if not near_focus:
+                            for fx, fy, fz, _c in focus_points:
+                                if math.hypot(hurt.x - fx, hurt.y - fy) <= (hurt.radius + HURT_FOCUS_MARGIN):
+                                    near_focus = True
+                                    break
+                        if not near_focus:
+                            continue
+                    color = hurt_palette[hurt.index % len(hurt_palette)]
+                    if not highlight:
+                        color = _dim_hitbox_color(color)
+                    detail = highlight or (hurt.index in priority_indices) or focus_mode
+                    ov.draw_hurtbox(
+                        hurt.x,
+                        hurt.y,
+                        hurt.z,
+                        hurt.radius,
+                        color,
+                        hurt.label(),
+                        highlight=highlight,
+                        detail=detail,
+                    )
+
+            for contact in self.cached_hit_contacts:
+                if hurt_filter.get(contact.target_slot, True):
+                    ov.draw_hit_contact(contact)
+
+        if hitboxes_on:
+            for name, base in SLOT_BASES.items():
+                if not slot_filter.get(name, True):
+                    continue
+                if focus_mode and name not in focus_sources:
+                    continue
+
+                raw_state = read_state_raw(base)
+                state_id = decode_state_id(raw_state)
+                if slot_passive_override(name, state_id):
+                    continue
+
+                boxes = read_hitboxes(base, HITBOX)
+                palette = COLORS.get(name, [(255, 255, 255)])
+
+                for i, (x, y, r, flag) in enumerate(boxes):
+                    if r <= 0.001:
+                        continue
+
+                    base_color = palette[i % len(palette)]
+                    is_active, action_frame, fd = self._frame_gate_for_slot(name, base, state_id, flag)
+                    if state_id in MEGACRASH_STATE_IDS and not is_active:
+                        continue
+
+                    if focus_mode:
+                        # Only active hitboxes near the actual impact matter in focus mode.
+                        if not is_active:
+                            continue
+                        near_focus = False
+                        for fx, fy, fz, _c in focus_points:
+                            if math.hypot(x - fx, y - fy) <= (r + HIT_FOCUS_PAD):
+                                near_focus = True
+                                break
+                        if not near_focus:
+                            continue
+
+                    draw_color = base_color if is_active else _dim_hitbox_color(base_color)
+                    label = f"{name}[{i}]"
+                    if debug_labels and fd is not None and action_frame is not None:
+                        label = f"{name}[{i}] f={action_frame}/{fd.active_text()}"
+                    ov.draw_hitbox(x, y, 0, r, draw_color, label, is_active=is_active)
+
+            for proj in self.cached_projectiles:
+                if not slot_filter.get(proj.owner_slot, True):
+                    continue
+                if focus_mode and proj.owner_slot not in focus_sources:
+                    continue
+
+                if focus_mode:
+                    near_focus = False
+                    for fx, fy, fz, _c in focus_points:
+                        if math.hypot(proj.x - fx, (proj.y + PROJECTILE_Y_OFFSET) - fy) <= (proj.radius + PROJ_FOCUS_PAD):
+                            near_focus = True
+                            break
+                    if not near_focus and not proj.contact_valid:
+                        continue
+
+                color = PROJ_COLORS.get(proj.owner_slot, COL_PROJ)
+                ov.draw_projectile_hitbox(
+                    proj.x,
+                    proj.y + PROJECTILE_Y_OFFSET,
+                    proj.z,
+                    proj.radius,
+                    color,
+                    proj.label(debug_labels and not focus_mode),
+                    sweep_x=proj.hit_start_x,
+                    sweep_y=proj.hit_start_y + PROJECTILE_Y_OFFSET,
+                    sweep_z=proj.hit_start_z,
+                    contact_x=proj.impact_x,
+                    contact_y=proj.impact_y + PROJECTILE_Y_OFFSET,
+                    contact_z=proj.impact_z,
+                    contact_valid=proj.contact_valid,
+                    root_x=proj.root_x,
+                    root_y=proj.root_y + PROJECTILE_Y_OFFSET,
+                    root_z=proj.root_z,
+                )
+
+        ov.draw_hud(self.last_counts, self.motion_filter, self.node_tracker, self.hurt_counts if hurtboxes_on else {})
 
 # ----------------------------
 # Main
@@ -1985,17 +2506,7 @@ def main():
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
-                    elif event.key == pygame.K_F1:
-                        overlay.debug_axes = not overlay.debug_axes
-                    elif event.key == pygame.K_F2:
-                        print("F2: signature scan disabled — using node watcher")
-                    elif event.key == pygame.K_F3:
-                        node_tracker.dump_active()
-                    elif event.key == pygame.K_F4:
-                        debug_dump_pools()
+                # Keyboard hotkeys intentionally disabled; use the main GUI controls.
 
             char_changed = False
             for name, base in SLOT_BASES.items():
@@ -2094,6 +2605,27 @@ def main():
                     running = False
                     break
                 
+            # Always draw skeletal hurtboxes for every real slot, independent of
+            # the attack-hitbox slot filter. The P1/P2/P3/P4 toggles can hide
+            # normal attack boxes, but hurtboxes need to be visible before a hit
+            # connects so we can see what the active hitbox is actually touching.
+            # Live hit-contact records only add a CONTACT marker/highlight.
+            hit_contacts = read_hit_contacts()
+            contacts_by_target: Dict[str, List[HitContactState]] = {}
+            if hit_contacts:
+                for contact in hit_contacts:
+                    contacts_by_target.setdefault(contact.target_slot, []).append(contact)
+                    overlay.draw_hit_contact(contact)
+
+            hurt_counts: Dict[str, int] = {}
+            for hurt_slot, hurt_base in SLOT_BASES.items():
+                hurt_counts[hurt_slot] = read_and_draw_hurtboxes_for_slot(
+                    overlay,
+                    hurt_slot,
+                    hurt_base,
+                    contacts_by_target.get(hurt_slot, []),
+                )
+
             if any(slot_filter.values()):
                 projectiles = read_projectile_hitboxes(slot_filter)
                 for proj in projectiles:
@@ -2117,10 +2649,35 @@ def main():
                         root_z=proj.root_z,
                     )
 
+            # Late hurtbox pass: draw this layer after normal boxes/projectiles so
+            # it cannot be hidden underneath the existing overlay primitives.
+            # Recompute counts here so the HUD reflects the late pass too.
+            hurt_counts = {}
+            for hurt_slot, hurt_base in SLOT_BASES.items():
+                hurt_counts[hurt_slot] = read_and_draw_hurtboxes_for_slot(
+                    overlay,
+                    hurt_slot,
+                    hurt_base,
+                    contacts_by_target.get(hurt_slot, []),
+                )
+
+            try:
+                sample_bits = []
+                for _hs, _hb in SLOT_BASES.items():
+                    _hlist = read_hurtboxes(_hs, _hb)
+                    if _hlist:
+                        _h0 = _hlist[0]
+                        sample_bits.append(f"{_hs}[0]={_h0.x:.2f},{_h0.y:.2f} r={_h0.radius:.2f}")
+                    else:
+                        sample_bits.append(f"{_hs}[0]=NONE")
+                globals()["_last_hurt_debug_text"] = " | ".join(sample_bits)
+            except Exception as _e:
+                globals()["_last_hurt_debug_text"] = f"hurt debug err={_e!r}"
+
             if pygame.time.get_ticks() % 300 == 0:
                 motion_filter.cleanup()
 
-            overlay.draw_hud(counts, motion_filter, node_tracker)
+            overlay.draw_hud(counts, motion_filter, node_tracker, hurt_counts)
             overlay.present()
             clock.tick(DISPLAY.fps)
 

@@ -2694,6 +2694,7 @@ def draw_top_command_dock(
     smallfont: pygame.font.Font,
     *,
     hitbox_slots: dict,
+    hurtbox_slots: dict,
     overlay_enabled: bool,
     megacrash_trainer_enabled: bool = False,
     megacrash_trainer_chance: int = MEGACRASH_TRAINER_DEFAULT_CHANCE,
@@ -2710,7 +2711,7 @@ def draw_top_command_dock(
     solo_team_active: bool = False,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
-) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict]:
+) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict, dict]:
     """Draw the compact two-row main command dock.
 
     The old dock placed every command in one long row and kept a permanent tip
@@ -2807,6 +2808,37 @@ def draw_top_command_dock(
         chip_x += chip_w + chip_gap
 
     x = chip_x + 4
+    hurt_btn_rect = pygame.Rect(x, y_top, 136, btn_h)
+    hurt_on = any(hurtbox_slots.values())
+    draw_glass_button(
+        screen,
+        hurt_btn_rect,
+        "Hurtboxes: ON" if hurt_on else "Hurtboxes: OFF",
+        smallfont,
+        active=hurt_on,
+        hover=hurt_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_GREEN,
+        align="center",
+    )
+
+    hurt_chip_y = y_top + 2
+    hurt_chip_x = hurt_btn_rect.right + 8
+    hurt_filter_rects = {}
+    for slot_name in ("P1", "P2", "P3", "P4"):
+        chip_rect = pygame.Rect(hurt_chip_x, hurt_chip_y, chip_w, chip_h)
+        draw_slot_chip(
+            screen,
+            chip_rect,
+            slot_name,
+            smallfont,
+            enabled=bool(hurtbox_slots.get(slot_name, False)),
+            accent=slot_colors.get(slot_name, GUI_ACCENT_GREEN),
+            hover=chip_rect.collidepoint(mx, my),
+        )
+        hurt_filter_rects[slot_name] = chip_rect.inflate(4, 4)
+        hurt_chip_x += chip_w + chip_gap
+
+    x = hurt_chip_x + 4
     megacrash_btn_rect = pygame.Rect(x, y_top, 144, btn_h)
     mega_label = f"Megacrash: {'ON' if megacrash_trainer_enabled else 'OFF'}"
     draw_glass_button(
@@ -2899,9 +2931,15 @@ def draw_top_command_dock(
     help_tip = "Hover a command for help. Right click panels/debug rows to copy."
     help_accent = GUI_APP_ACCENT
     if hb_btn_rect.collidepoint(mx, my):
-        help_tip = "Hitboxes: master toggle for drawing hitboxes in the HUD."
+        help_tip = "Hitboxes: master toggle for attack/projectile collision boxes."
     elif any(rect.collidepoint(mx, my) for rect in hb_filter_rects.values()):
-        help_tip = "P1-P4 chips: show or hide hitboxes for that specific slot."
+        help_tip = "P1-P4 chips beside Hitboxes: show or hide attack/projectile boxes for that raw slot."
+    elif hurt_btn_rect.collidepoint(mx, my):
+        help_tip = "Hurtboxes: master toggle for defender/body collision bubbles."
+        help_accent = GUI_ACCENT_GREEN
+    elif any(rect.collidepoint(mx, my) for rect in hurt_filter_rects.values()):
+        help_tip = "P1-P4 chips beside Hurtboxes: show or hide hurtboxes for that raw slot."
+        help_accent = GUI_ACCENT_GREEN
     elif hud_btn_rect.collidepoint(mx, my):
         help_tip = "Overlay: starts or stops the master overlay process."
     elif megacrash_btn_rect.collidepoint(mx, my):
@@ -2940,7 +2978,7 @@ def draw_top_command_dock(
         help_surf = _fit_text(smallfont, help_tip, GUI_TEXT_DIM, help_rect.width - 28)
         screen.blit(help_surf, (help_rect.x + 22, help_rect.y + (help_rect.height - help_surf.get_height()) // 2))
 
-    return hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, hb_filter_rects
+    return hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, hb_filter_rects, hurt_filter_rects
 
 
 def _char_test_active_for_dock() -> bool:
@@ -4945,19 +4983,27 @@ def legacy_main():
     # Hitbox filter
     HITBOX_FILTER_FILE = "hitbox_filter.json"
     hitbox_slots = {"P1": False, "P2": False, "P3": False, "P4": False}
+    hurtbox_slots = {"P1": False, "P2": False, "P3": False, "P4": False}
 
     def _write_hitbox_filter():
+        # Keep P1/P2/P3/P4 at top-level for older overlay builds, and add
+        # separate hurtbox controls for the new split layer.
+        payload = dict(hitbox_slots)
+        payload["show_hitboxes"] = any(hitbox_slots.values())
+        payload["hurtbox_slots"] = dict(hurtbox_slots)
+        payload["show_hurtboxes"] = any(hurtbox_slots.values())
         try:
             with open(HITBOX_FILTER_FILE, "w") as f:
-                json.dump(hitbox_slots, f)
+                json.dump(payload, f)
         except Exception:
             pass
 
     def _write_master_control():
         payload = {
-            "show_hud":      overlay_enabled,
-            "show_hitboxes": any(hitbox_slots.values()),
-            "show_debug":    False,
+            "show_hud":       overlay_enabled,
+            "show_hitboxes":  any(hitbox_slots.values()),
+            "show_hurtboxes": any(hurtbox_slots.values()),
+            "show_debug":     False,
         }
         try:
             with open(MASTER_CONTROL_FILE, "w", encoding="utf-8") as f:
@@ -4967,7 +5013,8 @@ def legacy_main():
 
     def _sync_master_overlay_state():
         want_hitboxes = any(hitbox_slots.values())
-        want_process  = overlay_enabled or want_hitboxes
+        want_hurtboxes = any(hurtbox_slots.values())
+        want_process  = overlay_enabled or want_hitboxes or want_hurtboxes
         if want_process and not master_overlay_active:
             _launch_master_overlay()
         elif not want_process and master_overlay_active:
@@ -5755,10 +5802,11 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, hb_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, hb_filter_rects, hurt_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
+            hurtbox_slots=hurtbox_slots,
             overlay_enabled=overlay_enabled,
             megacrash_trainer_enabled=bool(megacrash_trainer_state.get("enabled", False)),
             megacrash_trainer_chance=int(megacrash_trainer_state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
@@ -6089,6 +6137,11 @@ def legacy_main():
             status_parts.append(f"Hitboxes {active_hitbox_slots}")
         else:
             status_parts.append("Hitboxes OFF")
+        if any(hurtbox_slots.values()):
+            active_hurtbox_slots = ", ".join(k for k, v in hurtbox_slots.items() if v)
+            status_parts.append(f"Hurtboxes {active_hurtbox_slots}")
+        else:
+            status_parts.append("Hurtboxes OFF")
         if mission_mgr.active_slot:
             status_parts.append(f"Mission {mission_mgr.active_slot}")
         if bool(megacrash_trainer_state.get("enabled", False)):
@@ -6149,6 +6202,16 @@ def legacy_main():
                 new_state = not any(hitbox_slots.values())
                 for k in hitbox_slots:
                     hitbox_slots[k] = new_state
+                _write_hitbox_filter()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif hurt_btn_rect.collidepoint(mx, my):
+                new_state = not any(hurtbox_slots.values())
+                for k in hurtbox_slots:
+                    hurtbox_slots[k] = new_state
                 _write_hitbox_filter()
                 _write_master_control()
                 _sync_master_overlay_state()
@@ -6242,13 +6305,24 @@ def legacy_main():
                 continue
 
             else:
+                clicked_filter = False
                 for slot_name, cb_rect in hb_filter_rects.items():
                     if cb_rect.collidepoint(mx, my):
                         hitbox_slots[slot_name] = not hitbox_slots[slot_name]
                         _write_hitbox_filter()
                         _write_master_control()
                         _sync_master_overlay_state()
+                        clicked_filter = True
                         break
+                if not clicked_filter:
+                    for slot_name, cb_rect in hurt_filter_rects.items():
+                        if cb_rect.collidepoint(mx, my):
+                            hurtbox_slots[slot_name] = not hurtbox_slots[slot_name]
+                            _write_hitbox_filter()
+                            _write_master_control()
+                            _sync_master_overlay_state()
+                            clicked_filter = True
+                            break
 
             for _tab_key, _tab_rect in list(bottom_tab_rects.items()):
                 if _tab_rect.collidepoint(mx, my):
@@ -6343,7 +6417,7 @@ def legacy_main():
                     # alive to display the mission route. Auto-enable Overlay
                     # for active missions so Mission Mode works from a fully
                     # quiet/off state.
-                    if mission_mgr.active_slot and (not overlay_enabled) and (not any(hitbox_slots.values())):
+                    if mission_mgr.active_slot and (not overlay_enabled) and (not any(hitbox_slots.values())) and (not any(hurtbox_slots.values())):
                         overlay_enabled = True
                         _write_master_control()
                         _sync_master_overlay_state()

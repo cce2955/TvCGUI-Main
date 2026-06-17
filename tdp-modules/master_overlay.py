@@ -222,6 +222,7 @@ def sync_overlay_to_dolphin(dolphin_hwnd: Optional[int], overlay_hwnd: Optional[
 class MasterControl:
     show_hud: bool = True
     show_hitboxes: bool = True
+    show_hurtboxes: bool = True
     show_debug: bool = False
 
 
@@ -541,6 +542,7 @@ class MasterOverlay:
         payload = {
             "show_hud": self.control.show_hud,
             "show_hitboxes": self.control.show_hitboxes,
+            "show_hurtboxes": self.control.show_hurtboxes,
             "show_debug": self.control.show_debug,
         }
         try:
@@ -561,6 +563,7 @@ class MasterOverlay:
 
             self.control.show_hud = bool(data.get("show_hud", True))
             self.control.show_hitboxes = bool(data.get("show_hitboxes", True))
+            self.control.show_hurtboxes = bool(data.get("show_hurtboxes", True))
             self.control.show_debug = bool(data.get("show_debug", False))
         except Exception:
             pass
@@ -666,24 +669,7 @@ class MasterOverlay:
                     })
                     return
 
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_ESCAPE:
-                    self.running = False
-
-                elif event.key == pygame.K_F1:
-                    self.control.show_hud = not self.control.show_hud
-                    print(f"[master] show_hud={self.control.show_hud}")
-                    self._write_control_file()
-
-                elif event.key == pygame.K_F2:
-                    self.control.show_hitboxes = not self.control.show_hitboxes
-                    print(f"[master] show_hitboxes={self.control.show_hitboxes}")
-                    self._write_control_file()
-
-                elif event.key == pygame.K_F3:
-                    self.control.show_debug = not self.control.show_debug
-                    print(f"[master] show_debug={self.control.show_debug}")
-                    self._write_control_file()
+            # Keyboard hotkeys intentionally disabled; layer controls live in the main GUI.
 
     def clear(self) -> None:
         assert self.screen is not None
@@ -700,7 +686,7 @@ class MasterOverlay:
             f"{self.w}x{self.h}",
             f"HUD: {'ON' if self.control.show_hud else 'OFF'}",
             f"HITBOXES: {'ON' if self.control.show_hitboxes else 'OFF'}",
-            "F1 HUD  F2 HITBOXES  F3 DEBUG  ESC QUIT",
+            f"HURTBOXES: {'ON' if self.control.show_hurtboxes else 'OFF'}",
             f"dt={dt:.4f}",
         ]
 
@@ -1730,10 +1716,7 @@ class MasterOverlay:
         assert self.overlay_hwnd is not None
 
         print("[master] started")
-        print("[master] F1 = toggle HUD")
-        print("[master] F2 = toggle hitboxes")
-        print("[master] F3 = toggle debug")
-        print("[master] ESC = quit")
+        print("[master] overlay controls are managed by the main GUI")
 
         while self.running:
             try:
