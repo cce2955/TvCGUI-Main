@@ -1,3 +1,4 @@
+# TAKEWHEEL_V41_RESULT_RESOLVER_UNLOCK
 import os
 import csv
 import time
@@ -703,6 +704,11 @@ KO_DOL_ORIGINALS_U32 = (
     (0x800492BC, 0x901F01EC),
     (0x800492EC, 0x90BF0060),
 
+    # Final-KO result resolver gate.  These are restored whenever KO Ctrl
+    # returns to SAFE/OFF; they are only overridden during FULL final-team KO.
+    (0x800447E0, 0x64600400),  # oris r0,r3,0x400: sets +0x60 result lock
+    (0x800447E8, 0x4182000C),  # beq to normal resolver / otherwise return -2
+
     # 9410 / 9414 action-source reads inside 0x80048270.
     (0x80048750, 0x808D9410),
     (0x80048834, 0x808D9414),
@@ -779,6 +785,21 @@ SKIP_64_RESULT_OVERRIDE = (
 )
 POST_KO_CONTROL_PACKET = KEEP_LOW_INPUT_BYTE + SKIP_64_RESULT_OVERRIDE + PATCH_8D9C_IDLE
 
+# V41: final-result resolver exception.
+#
+# 0x800446F4 sees fighter+0x64 bit 0x40 during the victory result sequence,
+# writes +0x60 |= 0x04000000, then returns -2 before ordinary action
+# resolution.  The selector therefore falls back to the cached result action
+# (0x2A).  Do not rewind the result manager: while FULL is active after the
+# final team KO, clear only that resolver lock bit and continue into the native
+# action resolver.  The KO scene/camera/result manager remain untouched.
+#
+# This is FULL-only.  SAFE/OFF restore the original instructions above.
+KO_RESULT_RESOLVER_UNLOCK_PACKET = (
+    (0x800447E0, 0x54600188),  # rlwinm r0,r3,0,6,4 -> clear 0x04000000 result lock
+    (0x800447E8, 0x4800000C),  # b 0x800447F4 -> do not return -2 on result bit
+)
+
 # These are the newer raw-pad / interpreter-feed tests.  v17 only NOPed the
 # +13xx clear stores, but 0x80076300 can return before the buffer builder ever
 # runs, and 0x800767B0 can skip the real controller conversion before +13CC is
@@ -818,6 +839,7 @@ KO_CONTROL_FULL_PACKET = (
     + FORCE_BUFFER_BUILD
     + NO_LATE_13D0_CLEAR
     + NO_ZERO_R31
+    + KO_RESULT_RESOLVER_UNLOCK_PACKET
 )
 
 KO_DOL_PATCH_TESTS = (
@@ -924,7 +946,8 @@ def apply_ko_control_auto_mode(mode: str, *, verify: bool = True) -> dict:
     mode="off" restores every KO/input DOL address.
     mode="safe" applies only the non-leaky post-KO control packet.
     mode="full" applies the heavier Control+Full packet during the KO/result
-    window, then auto-mode should drop back to safe/originals later.
+    window, including the final-result resolver unlock.  Auto-mode drops back
+    to SAFE/originals later.
     """
     mode = str(mode or "off").lower()
     if mode not in ("off", "safe", "full"):
