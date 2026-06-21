@@ -1,9 +1,0 @@
-Frame Data Workbench — Helper Hover Persistence Fix
-
-Changed:
-- The contextual action-help box no longer resets when the mouse leaves a button
-  or when button focus moves away.
-- It now keeps the last action description you hovered/focused until you hover
-  another action.
-
-No profiling, table, Dolphin-read, or write behavior changed.
