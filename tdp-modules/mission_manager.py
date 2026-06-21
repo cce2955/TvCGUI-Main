@@ -42,6 +42,18 @@ MISSION_CELEBRATE_ACK_FILE = "mission_celebrate_ack.json"
 # Sets / constants (same values as in the old main)
 # ---------------------------------------------------------------------------
 
+# Verified crouch-hit reaction state IDs. They still help on frames where the
+# reaction animation is visible, while the global counter remains the long-lived
+# combo authority. 67 is confirmed crouching hitstun (Hit Low) and must be
+# treated as valid hitstun rather than a reset/neutral state.
+MISSION_CROUCH_REACTION_STATES = {51, 67}
+
+# Verified global in-game combo counter. It rises for every confirmed hit and
+# returns to 0 when that combo ends, including crouching, airborne, relaunch,
+# and character-specific reaction animations. Treat this as the sustained
+# combo-liveness authority; state IDs and HP drops are only confirmation aids.
+MISSION_GLOBAL_COMBO_COUNTER_ADDR = 0x809BDDB3
+
 MISSION_REACTION_STATES = {
     48, 49, 50, 52, 53, 60, 61, 62, 64, 65, 66, 73, 74, 75, 76, 79, 80,
     81, 82, 83, 88, 89, 90, 91, 92, 94, 95, 96, 97, 98, 101, 102, 105,
@@ -49,7 +61,7 @@ MISSION_REACTION_STATES = {
     4608, 4609, 4610, 4611, 4613, 4614, 4615, 4616, 4617, 4618, 4619,
     4620, 4621, 4622, 4623, 4625,
     4562, 4565, 4568, 4571, 4573, 4631,
-}
+} | MISSION_CROUCH_REACTION_STATES
 MISSION_MEGACRASH_STATES = {448}
 
 # Mission-only combo keep-alive. Do not add Megacrash to the normal
@@ -131,6 +143,7 @@ def _new_mission_runtime(
         "last_seen_hitstun": False,
         "last_inputs": {},
         "hitstun_grace": 0,
+        "global_combo_count": 0,
         "pending_step_index": None,
         "pending_labels": [],
         "pending_anim": None,
@@ -832,6 +845,18 @@ class MissionManager:
     def _opponent_in_megacrash(self, slot_label: str, snaps_dict: dict) -> bool:
         return self._opponent_in_state(slot_label, snaps_dict, MISSION_MEGACRASH_STATES)
 
+    def _global_combo_count(self) -> int | None:
+        """Read TvC's game-wide combo count, or None if Dolphin is unavailable.
+
+        This survives crouching/airborne hitstun action-ID changes and resets to
+        zero only when the combo itself has actually ended.
+        """
+        try:
+            value = rd8(MISSION_GLOBAL_COMBO_COUNTER_ADDR)
+            return int(value) if value is not None else None
+        except Exception:
+            return None
+
     def _opponent_damage_this_frame(self, slot_label: str, snaps_dict: dict) -> list[int]:
         if not slot_label:
             return []
@@ -1156,9 +1181,19 @@ class MissionManager:
         current_inputs = snap.get("inputs") or {}
         opponent_in_hitstun = self._opponent_in_hitstun(slot, snaps_dict)
         opponent_in_megacrash = self._opponent_in_megacrash(slot, snaps_dict)
+        global_combo_count = self._global_combo_count()
+        global_combo_active = bool(global_combo_count is not None and global_combo_count > 0)
+        self._runtime["global_combo_count"] = int(global_combo_count or 0)
         damage_values = self._opponent_damage_this_frame(slot, snaps_dict)
         opponent_took_damage = bool(damage_values)
         frame_damage = sum(int(x) for x in damage_values)
+
+        # A valid HP drop is authoritative evidence that the opponent was hit.
+        # Keep this as a same-frame Mission Mode fallback in addition to the
+        # action-state list: crouching characters can pass through a reaction
+        # state Mission Mode has not mapped yet, but their real hit still must
+        # be eligible to confirm the current mission step.
+        opponent_hit_confirmed_this_frame = opponent_took_damage
         baroque_pool_adjusted = bool(snap.get("baroque_cancel_raw"))
 
         # Meter-refill mission gate. Refill outside combo, disable refill during combo.
@@ -1176,11 +1211,10 @@ class MissionManager:
 
         progress_index = int(self._runtime.get("progress_index", 0))
 
-        # Hitstun grace
-        if opponent_in_hitstun:
-            self._runtime["hitstun_grace"] = 0
-        else:
-            self._runtime["hitstun_grace"] = 0
+        # Keep the old action-state read as a fast local hint, but use the
+        # verified global counter for sustained combo liveness. This is what
+        # prevents crouching hitstun from looking like a one-frame HP event.
+        self._runtime["hitstun_grace"] = 0
 
         # Shell release grace
         shell_release_grace = int(self._runtime.get("shell_release_grace", 0) or 0)
@@ -1190,8 +1224,10 @@ class MissionManager:
         reset_grace_active_now = int(self._runtime.get("reset_grace_frames", 0)) > 0
 
         opponent_real_combo_state = (
-            opponent_in_hitstun
+            global_combo_active
+            or opponent_in_hitstun
             or opponent_in_megacrash
+            or opponent_hit_confirmed_this_frame
             or int(self._runtime.get("shell_release_grace", 0)) > 0
         )
 
@@ -1584,7 +1620,10 @@ class MissionManager:
             self._runtime.update({
                 "last_seen_label": current_label,
                 "last_seen_anim": current_anim,
-                "last_seen_hitstun": opponent_in_hitstun,
+                # Store the same sustained signal used for liveness. Otherwise
+                # a crouching reaction with an unmapped action ID can look like a
+                # new combo edge every frame while the global counter is nonzero.
+                "last_seen_hitstun": opponent_in_combo_state,
                 "last_inputs": dict(current_inputs),
             })
 

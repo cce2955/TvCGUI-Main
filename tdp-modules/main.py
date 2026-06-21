@@ -1329,7 +1329,8 @@ POOL32_OFF = 0x2C
 
 FIGHTER_BLOCK_SIZE = 0x120
 
-REACTION_STATES = {48, 64, 65, 66, 73, 79, 80, 81, 82, 90, 92, 95, 96, 97}
+# Include 51 so generic hit logging also recognizes the low/crouching reaction lane.
+REACTION_STATES = {48, 51, 64, 65, 66, 73, 79, 80, 81, 82, 90, 92, 95, 96, 97}
 
 GIANT_IDS = {11, 22}
 
@@ -1346,10 +1347,39 @@ MEGACRASH_TRAINER_MAX_DELAY_FRAMES = 300
 MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC = 2.0
 MEGACRASH_TRAINER_MAX_COOLDOWN_SEC = 60.0
 MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL = ""
+MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE = "any"
+MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE = 1
+
+# Verified from the 2026-06-21 Shinkuu dump set. This global byte rose
+# 08 -> 15 -> 19 -> 20 across Shinkuu hits and reset to 00 after the combo.
+# Unlike the earlier per-fighter candidates, this source covers all point slots
+# and gives one true hit-edge stream for the active combo.
+MEGACRASH_GLOBAL_COMBO_COUNTER_ADDR = 0x809BDDB3
+MEGACRASH_GLOBAL_COMBO_COUNTER_LABEL = "Global 0x809BDDB3"
+
+# Legacy candidate offsets remain documented for comparison only. Runtime no
+# longer relies on them, because the fixed global counter is the authoritative
+# source for repeated labels and multi-hit moves.
+MEGACRASH_COMBO_COUNTER_OFFSETS_BY_SLOT = {
+    "P1-C1": (0x11C7, 0x20DB),
+    "P2-C1": (0x11E7,),
+}
+MEGACRASH_TRAINER_MAX_TARGET_OCCURRENCE = 99
 MEGACRASH_TRAINER_PULSE_SEC = 0.08
 MEGACRASH_TRAINER_WRITE_OFFSETS = (ATT_ID_OFF_PRIMARY,)
 MEGACRASH_TRAINER_CHANCE_PRESETS = (0, 5, 10, 15, 20, 25, 33, 50, 75, 100)
 MEGACRASH_SUPPORT_STATE_IDS = {420, 424, 425, 426, 427, 428, 430, 431, 432, 433, 0x01A1, 0x01A8, 0x01AE}
+# Megacrash needs its own victim-state family. The old REACTION_STATES subset
+# covered mostly grounded reactions, so airborne hit/relaunch states never armed
+# the trainer. Keep the broader set local to Megacrash; do not alter generic
+# logging/mission state behavior.
+MEGACRASH_REACTION_STATES = {
+    48, 49, 50, 52, 53, 60, 61, 62, 64, 65, 66, 73, 74, 75, 76, 79, 80,
+    81, 82, 83, 88, 89, 90, 91, 92, 94, 95, 96, 97, 98, 101, 102, 105,
+    106, 142, 449,
+    4562, 4565, 4568, 4571, 4573, 4608, 4609, 4610, 4611, 4613, 4614,
+    4615, 4616, 4617, 4618, 4619, 4620, 4621, 4622, 4623, 4625, 4631,
+}
 
 HB_BTN_X, HB_BTN_Y = 8, 8
 HB_BTN_W, HB_BTN_H = 130, 22
@@ -1587,6 +1617,21 @@ def _clamp_megacrash_cooldown_sec(value) -> float:
     return round(value, 2)
 
 
+def _clamp_megacrash_target_occurrence(value) -> int:
+    try:
+        value = int(round(float(value)))
+    except Exception:
+        value = MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE
+    return max(1, min(MEGACRASH_TRAINER_MAX_TARGET_OCCURRENCE, value))
+
+
+def _clean_megacrash_attacker_scope(value) -> str:
+    value = str(value or "").strip()
+    if not value or value.lower() in {"any", "all", "*"}:
+        return MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE
+    return value[:64]
+
+
 def _clean_megacrash_target_label(value) -> str:
     text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
     while "  " in text:
@@ -1668,6 +1713,76 @@ def _megacrash_label_id_cache() -> dict[str, set[int]]:
     return out
 
 
+_MEGACRASH_LABEL_OPTIONS_CACHE: dict[int, list[str]] | None = None
+
+def _megacrash_label_options_for_char(char_id: int | None) -> list[str]:
+    """Return known move labels for one roster character plus universal rows.
+
+    The GUI uses this for a readonly dropdown. Matching still goes through the
+    normal alias/id resolver, so a selected friendly label remains resilient to
+    a live HUD fallback name or temporary raw-ID display.
+    """
+    global _MEGACRASH_LABEL_OPTIONS_CACHE
+    if _MEGACRASH_LABEL_OPTIONS_CACHE is None:
+        catalog: dict[int, set[str]] = {}
+        csv_path = resource_path("move_id_map_charagnostic.csv")
+        try:
+            with open(csv_path, newline="", encoding="utf-8-sig") as f:
+                reader = csv.reader(f)
+                for row in reader:
+                    if not row:
+                        continue
+                    first = str(row[0] or "").strip()
+                    if not first or first.startswith("#") or len(row) < 3:
+                        continue
+                    try:
+                        owner = int(str(row[-1]).strip())
+                    except Exception:
+                        continue
+                    label = _clean_megacrash_target_label(row[2])
+                    low = label.casefold()
+                    if not label or low in {"anim_--", "unknown", "idle"}:
+                        continue
+                    catalog.setdefault(owner, set()).add(label)
+        except Exception as e:
+            print(f"[megacrash trainer] label option catalog unavailable: {e!r}")
+        _MEGACRASH_LABEL_OPTIONS_CACHE = {
+            key: sorted(values, key=lambda s: (s.casefold(), s))
+            for key, values in catalog.items()
+        }
+
+    labels: set[str] = set(_MEGACRASH_LABEL_OPTIONS_CACHE.get(100, []))
+    try:
+        cid = int(char_id or 0)
+    except Exception:
+        cid = 0
+    if cid:
+        labels.update(_MEGACRASH_LABEL_OPTIONS_CACHE.get(cid, []))
+    return sorted(labels, key=lambda s: (s.casefold(), s))
+
+
+def _megacrash_roster_context(snaps: dict) -> list[dict]:
+    """Snapshot roster slots for the readonly Megacrash source/label pickers."""
+    out: list[dict] = []
+    for slot in ("P1-C1", "P1-C2", "P2-C1", "P2-C2"):
+        snap = (snaps or {}).get(slot) or {}
+        if not isinstance(snap, dict):
+            continue
+        try:
+            char_id = int(snap.get("id") or snap.get("csv_char_id") or snap.get("char_id") or 0)
+        except Exception:
+            char_id = 0
+        name = str(snap.get("name") or snap.get("char_name") or "Unknown").strip() or "Unknown"
+        out.append({
+            "scope": f"slot:{slot}",
+            "slot": slot,
+            "name": name,
+            "char_id": char_id,
+            "labels": _megacrash_label_options_for_char(char_id),
+        })
+    return out
+
+
 def _megacrash_label_matches(target_label, atk_label, atk_id) -> bool:
     tokens = _megacrash_target_tokens(target_label)
     if not tokens:
@@ -1732,10 +1847,14 @@ def _megacrash_mode_summary(state: dict) -> str:
     mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
     cd = _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
     target_txt = _megacrash_target_summary(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
+    scope = _clean_megacrash_attacker_scope(state.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
+    source_txt = "any point" if scope == MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE else scope.replace("slot:", "")
+    nth = _clamp_megacrash_target_occurrence(state.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE))
     cd_txt = f" cd {cd:g}s"
+    trigger_txt = f"{source_txt} {target_txt} #{nth}"
     if mode == "targeted":
-        return f"{target_txt} +{_clamp_megacrash_delay_frames(state.get('delay_frames', 0))}f{cd_txt}"
-    return f"{target_txt} roll {_clamp_megacrash_chance(state.get('chance', MEGACRASH_TRAINER_DEFAULT_CHANCE))}%{cd_txt}"
+        return f"{trigger_txt} +{_clamp_megacrash_delay_frames(state.get('delay_frames', 0))}f{cd_txt}"
+    return f"{trigger_txt} in combo • roll {_clamp_megacrash_chance(state.get('chance', MEGACRASH_TRAINER_DEFAULT_CHANCE))}%{cd_txt}"
 
 
 def _load_megacrash_trainer_config() -> dict:
@@ -1750,6 +1869,8 @@ def _load_megacrash_trainer_config() -> dict:
         "delay_frames": MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES,
         "cooldown_sec": MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC,
         "target_label": MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL,
+        "attacker_scope": MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE,
+        "target_occurrence": MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE,
     }
     try:
         with open(MEGACRASH_TRAINER_CONFIG_FILE, "r", encoding="utf-8") as f:
@@ -1764,6 +1885,8 @@ def _load_megacrash_trainer_config() -> dict:
             cfg["delay_frames"] = _clamp_megacrash_delay_frames(raw.get("delay_frames", cfg["delay_frames"]))
             cfg["cooldown_sec"] = _clamp_megacrash_cooldown_sec(raw.get("cooldown_sec", cfg["cooldown_sec"]))
             cfg["target_label"] = _clean_megacrash_target_label(raw.get("target_label", cfg["target_label"]))
+            cfg["attacker_scope"] = _clean_megacrash_attacker_scope(raw.get("attacker_scope", cfg["attacker_scope"]))
+            cfg["target_occurrence"] = _clamp_megacrash_target_occurrence(raw.get("target_occurrence", cfg["target_occurrence"]))
     except FileNotFoundError:
         pass
     except Exception as e:
@@ -1789,6 +1912,8 @@ def _save_megacrash_trainer_config(state: dict) -> None:
             "delay_frames": _clamp_megacrash_delay_frames(save_src.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
             "cooldown_sec": _clamp_megacrash_cooldown_sec(save_src.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)),
             "target_label": _clean_megacrash_target_label(save_src.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)),
+            "attacker_scope": _clean_megacrash_attacker_scope(save_src.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE)),
+            "target_occurrence": _clamp_megacrash_target_occurrence(save_src.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE)),
         }
         with open(MEGACRASH_TRAINER_CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
@@ -1817,6 +1942,8 @@ def _extract_mission_megacrash_setup(payload: dict) -> dict:
     out["delay_frames"] = _clamp_megacrash_delay_frames(out.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
     out["cooldown_sec"] = _clamp_megacrash_cooldown_sec(out.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
     out["target_label"] = _clean_megacrash_target_label(out.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
+    out["attacker_scope"] = _clean_megacrash_attacker_scope(out.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
+    out["target_occurrence"] = _clamp_megacrash_target_occurrence(out.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE))
     return out
 
 
@@ -1825,6 +1952,12 @@ def _clear_megacrash_runtime_state(state: dict) -> None:
         state.setdefault("last_combo_keys", {}).clear()
         state.setdefault("pulses", {}).clear()
         state.setdefault("scheduled_triggers", {}).clear()
+        state.setdefault("match_occurrences", {}).clear()
+        state.setdefault("combo_counter_probes", {}).clear()
+        state["global_combo_counter_probe"] = {"last": None, "seen_zero": False}
+        state["occurrence_counter"] = 0
+        state["live_combo_counter"] = 0
+        state["live_combo_counter_source"] = ""
         state["cooldown_until"] = 0.0
     except Exception:
         pass
@@ -1872,6 +2005,8 @@ def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
             "delay_frames": _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
             "cooldown_sec": _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)),
             "target_label": _clean_megacrash_target_label(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)),
+            "attacker_scope": _clean_megacrash_attacker_scope(state.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE)),
+            "target_occurrence": _clamp_megacrash_target_occurrence(state.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE)),
         }
         state["mission_saved_settings"] = saved
         state["mission_override_key"] = mission_key
@@ -1891,6 +2026,8 @@ def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
     state["delay_frames"] = _clamp_megacrash_delay_frames(setup.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
     state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(setup.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
     state["target_label"] = _clean_megacrash_target_label(setup.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
+    state["attacker_scope"] = _clean_megacrash_attacker_scope(setup.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
+    state["target_occurrence"] = _clamp_megacrash_target_occurrence(setup.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE))
     return state
 
 
@@ -1934,8 +2071,18 @@ def _snap_primary_action_id(snap: dict) -> int | None:
 
 
 def _snap_is_hitstun_primary(snap: dict) -> bool:
+    """Megacrash victim gate: grounded + airborne/relaunch reaction families."""
     mid = _snap_primary_action_id(snap)
-    return bool(mid in REACTION_STATES if mid is not None else False)
+    return bool(mid in MEGACRASH_REACTION_STATES if mid is not None else False)
+
+
+def _megacrash_attacker_scope_matches(state: dict, atk_slot: str, atk_snap: dict) -> bool:
+    scope = _clean_megacrash_attacker_scope((state or {}).get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
+    if scope == MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE:
+        return True
+    expected = scope.replace("slot:", "", 1)
+    live_slot = str((atk_snap or {}).get("slotname") or (atk_snap or {}).get("slot_label") or atk_slot or "")
+    return bool(expected and live_slot == expected)
 
 
 def _opponent_teamtag(teamtag: str) -> str:
@@ -2020,6 +2167,244 @@ def _megacrash_cooldown_remaining(state: dict, now: float) -> float:
     return max(0.0, cooldown_until - float(now))
 
 
+def _megacrash_occurrence_key(victim_base: int | str | None) -> str:
+    """Stable key for one victim's current hitstun/combo sequence."""
+    try:
+        return str(int(victim_base or 0))
+    except Exception:
+        return str(victim_base or "")
+
+
+def _megacrash_combo_occurrences(state: dict) -> dict:
+    """Return the per-victim combo occurrence map, repairing old runtime state."""
+    current = state.get("match_occurrences") if isinstance(state, dict) else None
+    if not isinstance(current, dict):
+        current = {}
+        try:
+            state["match_occurrences"] = current
+        except Exception:
+            pass
+    return current
+
+
+def _megacrash_refresh_occurrence_display(state: dict) -> None:
+    """Keep the legacy UI count meaningful: show the most recent live combo count."""
+    try:
+        entries = _megacrash_combo_occurrences(state).values()
+        counts = []
+        for entry in entries:
+            if isinstance(entry, dict):
+                counts.append(max(0, int(entry.get("count", 0) or 0)))
+        state["occurrence_counter"] = max(counts) if counts else 0
+    except Exception:
+        try:
+            state["occurrence_counter"] = 0
+        except Exception:
+            pass
+
+
+def _megacrash_combo_counter_probes(state: dict) -> dict:
+    """Per-victim records for the verified live combo-counter byte."""
+    current = state.get("combo_counter_probes") if isinstance(state, dict) else None
+    if not isinstance(current, dict):
+        current = {}
+        try:
+            state["combo_counter_probes"] = current
+        except Exception:
+            pass
+    return current
+
+
+def _megacrash_global_combo_probe(state: dict) -> dict:
+    """Return the single global combo-counter probe record."""
+    probe = state.get("global_combo_counter_probe") if isinstance(state, dict) else None
+    if not isinstance(probe, dict):
+        probe = {"last": None, "seen_zero": False}
+        try:
+            state["global_combo_counter_probe"] = probe
+        except Exception:
+            pass
+    return probe
+
+
+def _megacrash_reset_occurrences_for_global_combo_end(state: dict) -> None:
+    """The global byte returning to zero is the authoritative combo boundary."""
+    try:
+        state.setdefault("match_occurrences", {}).clear()
+        state.setdefault("last_combo_keys", {}).clear()
+        state["occurrence_counter"] = 0
+        state["last_matching_label"] = ""
+        state["last_matching_combo_base"] = ""
+    except Exception:
+        pass
+    _megacrash_refresh_occurrence_display(state)
+
+
+def _megacrash_read_global_combo_counter(state: dict, *, consume_only: bool = False) -> dict | None:
+    """Read the fixed global hit counter and expose a delta-based hit event.
+
+    A rising counter means one or more actual hits occurred.  ``delta`` is
+    deliberately preserved: multi-hit labels such as Shinkuu contribute every
+    hit, while a label that reappears after another label continues adding to
+    its existing per-combo total.  The first read while already mid-combo is
+    only a baseline; it does not retroactively count unknown earlier hits.
+    """
+    probe = _megacrash_global_combo_probe(state)
+    try:
+        raw = rd8(MEGACRASH_GLOBAL_COMBO_COUNTER_ADDR)
+    except Exception:
+        raw = None
+    if raw is None:
+        return None
+    try:
+        current = int(raw) & 0xFF
+    except Exception:
+        return None
+    try:
+        previous = int(probe.get("last")) & 0xFF if probe.get("last") is not None else None
+    except Exception:
+        previous = None
+
+    reset = False
+    fresh = False
+    delta = 0
+    baseline = previous is None
+    if previous is None:
+        # The initial read only arms the tracker. If it is zero, the next rise
+        # belongs to a fresh combo; if it is already nonzero, avoid assigning
+        # earlier unseen hits to whichever label happens to be on screen.
+        probe["seen_zero"] = bool(current == 0)
+    elif current == 0:
+        reset = bool(previous != 0)
+        probe["seen_zero"] = True
+    elif previous == 0:
+        # First observed rise after a known reset. Tick gaps can legitimately
+        # skip from 0 to N, so count all N hits on the active label.
+        fresh = True
+        delta = int(current)
+        probe["seen_zero"] = False
+    elif current > previous:
+        fresh = True
+        delta = int(current - previous)
+        probe["seen_zero"] = False
+    elif current < previous:
+        # A nonzero drop is treated as a new counter sequence/wrap. Do not
+        # carry the old combo's selected-label total into this new sequence.
+        reset = True
+        fresh = True
+        delta = int(current)
+        probe["seen_zero"] = False
+
+    probe.update({"last": current, "address": MEGACRASH_GLOBAL_COMBO_COUNTER_ADDR})
+    state["live_combo_counter"] = current
+    state["live_combo_counter_source"] = MEGACRASH_GLOBAL_COMBO_COUNTER_LABEL
+    if reset:
+        _megacrash_reset_occurrences_for_global_combo_end(state)
+
+    return {
+        "fresh": False if consume_only else bool(fresh),
+        "delta": 0 if consume_only else max(0, int(delta)),
+        "value": current,
+        "reset": bool(reset),
+        "baseline": bool(baseline),
+        "source": MEGACRASH_GLOBAL_COMBO_COUNTER_LABEL,
+    }
+
+
+def _megacrash_counter_offsets_for_slot(slot: str) -> tuple[int, ...]:
+    return tuple(MEGACRASH_COMBO_COUNTER_OFFSETS_BY_SLOT.get(str(slot or ""), ()))
+
+
+def _megacrash_read_live_combo_counter(
+    state: dict, victim_base: int, attacker_slot: str, attacker_snap: dict, *, consume_only: bool = False
+) -> dict | None:
+    """Read the confirmed combo byte and report whether a new hit occurred.
+
+    A repeated move label (2A -> 2A -> 2A) can now produce distinct events
+    because the byte advances 1 -> 2 -> 3. Unknown slot layouts return None
+    and therefore retain the prior label-change behavior.
+    """
+    offsets = _megacrash_counter_offsets_for_slot(attacker_slot)
+    if not offsets:
+        return None
+    try:
+        attacker_base = int((attacker_snap or {}).get("base") or 0)
+    except Exception:
+        attacker_base = 0
+    if not attacker_base:
+        return None
+
+    key = _megacrash_occurrence_key(victim_base)
+    probes = _megacrash_combo_counter_probes(state)
+    probe = probes.get(key)
+    if (not isinstance(probe, dict)
+            or int(probe.get("attacker_base") or 0) != attacker_base
+            or str(probe.get("attacker_slot") or "") != str(attacker_slot)):
+        probe = {"attacker_base": attacker_base, "attacker_slot": str(attacker_slot), "offset": int(offsets[0]), "last": None}
+        probes[key] = probe
+
+    try:
+        offset = int(probe.get("offset") or offsets[0])
+    except Exception:
+        offset = int(offsets[0])
+    if offset not in offsets:
+        offset = int(offsets[0])
+    try:
+        raw = rd8(attacker_base + offset)
+    except Exception:
+        raw = None
+    if raw is None:
+        return None
+    try:
+        current = int(raw) & 0xFF
+    except Exception:
+        return None
+    try:
+        previous = int(probe.get("last")) & 0xFF if probe.get("last") is not None else None
+    except Exception:
+        previous = None
+
+    fresh = bool(current > 0 and (previous is None or current > previous))
+    probe.update({"attacker_base": attacker_base, "attacker_slot": str(attacker_slot), "offset": offset, "last": current})
+    state["live_combo_counter"] = current
+    state["live_combo_counter_source"] = f"{attacker_slot} +0x{offset:X}"
+    return {"fresh": False if consume_only else fresh, "value": current, "offset": offset, "slot": str(attacker_slot)}
+
+
+def _megacrash_prime_live_combo_counters(state: dict, snaps: dict) -> None:
+    """Consume global counter movement during cooldown without arming a hit."""
+    _megacrash_read_global_combo_counter(state, consume_only=True)
+
+
+def _megacrash_clear_finished_combo_occurrences(state: dict, snaps: dict) -> None:
+    """A combo count belongs to one victim hitstun sequence and dies when it ends."""
+    occurrences = _megacrash_combo_occurrences(state)
+    live_bases: set[str] = set()
+    for _snap in (snaps or {}).values():
+        if not isinstance(_snap, dict):
+            continue
+        try:
+            base = int(_snap.get("base") or 0)
+        except Exception:
+            base = 0
+        # Megacrash itself temporarily replaces the victim reaction state. Keep
+        # the combo record alive through that short pulse so the same combo
+        # cannot re-arm immediately after the burst.
+        if base and (_snap_is_hitstun_primary(_snap) or _snap_primary_action_id(_snap) == MEGACRASH_MOVE_ID):
+            live_bases.add(_megacrash_occurrence_key(base))
+    probes = _megacrash_combo_counter_probes(state)
+    for key in list(occurrences):
+        if str(key) not in live_bases:
+            occurrences.pop(key, None)
+    for key in list(probes):
+        if str(key) not in live_bases:
+            probes.pop(key, None)
+    if not live_bases:
+        state["live_combo_counter"] = 0
+        state["live_combo_counter_source"] = ""
+    _megacrash_refresh_occurrence_display(state)
+
+
 def _megacrash_combo_key_for_attacker(atk_slot: str, atk_snap: dict) -> tuple | None:
     atk_label = _snap_move_label(atk_snap)
     atk_id = _snap_action_id(atk_snap)
@@ -2058,7 +2443,7 @@ def _megacrash_mark_visible_combo_keys(snaps: dict, last_keys: dict) -> None:
         if not isinstance(atk_snap, dict) or _is_support_or_assist_snap(atk_snap):
             continue
         atk_primary = _snap_primary_action_id(atk_snap)
-        if atk_primary in REACTION_STATES or atk_primary == MEGACRASH_MOVE_ID:
+        if _snap_is_hitstun_primary(atk_snap) or atk_primary == MEGACRASH_MOVE_ID:
             continue
         combo_key = _megacrash_combo_key_for_attacker(atk_slot, atk_snap)
         if combo_key is not None:
@@ -2146,6 +2531,14 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
     state["delay_frames"] = _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
     state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
     state["target_label"] = _clean_megacrash_target_label(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
+    state["attacker_scope"] = _clean_megacrash_attacker_scope(state.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
+    state["target_occurrence"] = _clamp_megacrash_target_occurrence(state.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE))
+    state.setdefault("occurrence_counter", 0)
+    state.setdefault("match_occurrences", {})
+    state.setdefault("combo_counter_probes", {})
+    state.setdefault("global_combo_counter_probe", {"last": None, "seen_zero": False})
+    state.setdefault("live_combo_counter", 0)
+    state.setdefault("live_combo_counter_source", "")
     pulses = state.setdefault("pulses", {})
     last_keys = state.setdefault("last_combo_keys", {})
     scheduled = state.setdefault("scheduled_triggers", {})
@@ -2163,6 +2556,12 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
             pulses.clear()
             scheduled.clear()
             last_keys.clear()
+            state.setdefault("match_occurrences", {}).clear()
+            state.setdefault("combo_counter_probes", {}).clear()
+            state["global_combo_counter_probe"] = {"last": None, "seen_zero": False}
+            state["occurrence_counter"] = 0
+            state["live_combo_counter"] = 0
+            state["live_combo_counter_source"] = ""
             state["cooldown_until"] = 0.0
         except Exception:
             pass
@@ -2190,6 +2589,13 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
             _base = 0
         if _base:
             snaps_by_base[_base] = _snap
+
+    # Read once per tick. The returned event belongs to the next valid
+    # point-vs-point pair below; it is deliberately consumed even if the hit's
+    # label is not the user-selected one, so a later matching label receives
+    # only its own hits rather than an accumulated jump from unrelated labels.
+    global_combo_event = _megacrash_read_global_combo_counter(state)
+    global_combo_event_used = False
 
     # Keep the Megacrash poke pinned only until the game visibly accepts 448,
     # then release immediately.  This prevents the trainer from manufacturing
@@ -2229,6 +2635,8 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         # attacker label after the cooldown expires.
         scheduled.clear()
         _megacrash_mark_visible_combo_keys(snaps, last_keys)
+        _megacrash_prime_live_combo_counters(state, snaps)
+        _megacrash_clear_finished_combo_occurrences(state, snaps)
         return state
 
     # Process targeted delayed-burst schedules. A schedule is tied to the victim
@@ -2300,6 +2708,9 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
 
         if not _snap_is_hitstun_primary(vic_snap):
             last_keys.pop(base, None)
+            _megacrash_combo_occurrences(state).pop(_megacrash_occurrence_key(base), None)
+            _megacrash_combo_counter_probes(state).pop(_megacrash_occurrence_key(base), None)
+            _megacrash_refresh_occurrence_display(state)
             continue
 
         atk_team = _opponent_teamtag(teamtag)
@@ -2313,7 +2724,7 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
             continue
 
         atk_primary = _snap_primary_action_id(atk_snap)
-        if atk_primary in REACTION_STATES or atk_primary == MEGACRASH_MOVE_ID:
+        if _snap_is_hitstun_primary(atk_snap) or atk_primary == MEGACRASH_MOVE_ID:
             # Do not let a simultaneously hitstunned point roll against the
             # other victim. This was the path that could make both point chars
             # burst from one clean hit.
@@ -2329,12 +2740,80 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         combo_key = _megacrash_combo_key_for_attacker(atk_slot, atk_snap)
         if combo_key is None:
             continue
-        if last_keys.get(base) == combo_key:
-            continue
-        last_keys[base] = combo_key
 
-        if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
+        # Global counter path: every rising edge is a real hit. Consume it on
+        # the first valid point-vs-point pair, *before* filtering the chosen
+        # character/label. That is what lets 2A -> 2B -> 2A keep 2A's old total
+        # while preventing the 2B hits from being misattributed to the later 2A.
+        using_global_counter = bool(
+            isinstance(global_combo_event, dict)
+            and bool(global_combo_event.get("fresh", False))
+            and not global_combo_event_used
+        )
+        if isinstance(global_combo_event, dict) and bool(global_combo_event.get("fresh", False)) and global_combo_event_used:
+            # One global hit stream can only belong to one point-vs-point pair.
             continue
+
+        if using_global_counter:
+            global_combo_event_used = True
+            hit_delta = max(1, int(global_combo_event.get("delta", 1) or 1))
+            last_keys[base] = tuple(combo_key) + ("global_combo_counter", int(global_combo_event.get("value", 0) or 0))
+            if not _megacrash_attacker_scope_matches(state, atk_slot, atk_snap):
+                continue
+            if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
+                continue
+        else:
+            # Read failure fallback: still allow the previous label-change path
+            # rather than making the trainer dead if the global byte is absent.
+            if isinstance(global_combo_event, dict):
+                continue
+            if not _megacrash_attacker_scope_matches(state, atk_slot, atk_snap):
+                continue
+            if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
+                continue
+            if last_keys.get(base) == combo_key:
+                continue
+            last_keys[base] = combo_key
+            hit_delta = 1
+
+        # Count matching *hits* inside this victim's current combo only.
+        # The count starts at global counter reset / combo end. Each selected
+        # label contributes every one of its hit increments; other labels are
+        # consumed but do not change this selected-label total. Once the Nth
+        # matching hit is reached, that combo is consumed.
+        occurrence_target = _clamp_megacrash_target_occurrence(state.get("target_occurrence", 1))
+        occurrence_key = _megacrash_occurrence_key(base)
+        occurrences = _megacrash_combo_occurrences(state)
+        combo_occurrence = occurrences.get(occurrence_key)
+        if not isinstance(combo_occurrence, dict):
+            combo_occurrence = {"count": 0, "triggered": False}
+            occurrences[occurrence_key] = combo_occurrence
+
+        if bool(combo_occurrence.get("triggered", False)):
+            # This combo already reached its selected trigger point. Wait for
+            # hitstun to end before a fresh combo can arm another burst.
+            continue
+
+        occurrence_counter = max(0, int(combo_occurrence.get("count", 0) or 0)) + max(1, int(hit_delta or 1))
+        combo_occurrence.update({
+            "count": occurrence_counter,
+            "attacker": str(atk_slot),
+            "label": str(atk_label or atk_id),
+            "last_combo_key": tuple(combo_key),
+            "last_hit_delta": max(1, int(hit_delta or 1)),
+            "counter_source": str((global_combo_event or {}).get("source") or "label fallback"),
+        })
+        state["last_matching_label"] = str(atk_label or atk_id)
+        state["last_matching_combo_base"] = occurrence_key
+        _megacrash_refresh_occurrence_display(state)
+        if occurrence_counter < occurrence_target:
+            continue
+
+        # The selected Nth event has been reached. Mark it consumed before
+        # scheduling/rolling so a long combo cannot keep producing repeats.
+        combo_occurrence["triggered"] = True
+        combo_occurrence["triggered_at"] = occurrence_counter
+        _megacrash_refresh_occurrence_display(state)
 
         if mode == "targeted":
             delay_frames = _clamp_megacrash_delay_frames(state.get("delay_frames", 0))
@@ -2345,7 +2824,7 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
                 "label": str(atk_label or atk_id),
                 "fire_frame": fire_frame,
                 "fire_time": now + (delay_frames / float(TARGET_FPS)),
-                "reason": f"{atk_slot} {atk_label or atk_id} targeted +{delay_frames}f",
+                "reason": f"{atk_slot} {atk_label or atk_id} matching-hit #{occurrence_counter} in combo +{delay_frames}f",
             }
             state["roll_count"] = int(state.get("roll_count", 0) or 0) + 1
             if int(state.get("roll_count", 0) or 0) % 20 == 1:
@@ -2357,13 +2836,14 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         roll = random.random() * 100.0
         state["roll_count"] = int(state.get("roll_count", 0) or 0) + 1
         if chance > 0 and roll < float(chance):
-            reason = f"{atk_slot} {atk_label or atk_id} roll {roll:.1f}<{chance}%"
+            reason = f"{atk_slot} {atk_label or atk_id} nth-in-combo roll {roll:.1f}<{chance}%"
             _start_megacrash_trainer_pulse(state, vic_snap, now, reason=reason)
         else:
             if frame_idx_mod := int(state.get("roll_count", 0) or 0):
                 if frame_idx_mod % 20 == 0:
                     print(f"[megacrash trainer] roll skip {atk_slot} {atk_label or atk_id}: {roll:.1f}>={chance}%")
 
+    _megacrash_clear_finished_combo_occurrences(state, snaps)
     return state
 
 
@@ -5077,6 +5557,13 @@ def legacy_main():
     megacrash_trainer_state.setdefault("scheduled_triggers", {})
     megacrash_trainer_state.setdefault("cooldown_until", 0.0)
     megacrash_trainer_state.setdefault("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)
+    megacrash_trainer_state.setdefault("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE)
+    megacrash_trainer_state.setdefault("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE)
+    megacrash_trainer_state.setdefault("occurrence_counter", 0)
+    megacrash_trainer_state.setdefault("match_occurrences", {})
+    megacrash_trainer_state.setdefault("combo_counter_probes", {})
+    megacrash_trainer_state.setdefault("live_combo_counter", 0)
+    megacrash_trainer_state.setdefault("live_combo_counter_source", "")
     megacrash_trainer_state.setdefault("roll_count", 0)
     megacrash_trainer_state.setdefault("trigger_count", 0)
 
@@ -6264,7 +6751,7 @@ def legacy_main():
 
             elif megacrash_btn_rect.collidepoint(mx, my):
                 if open_megacrash_trainer_window is not None:
-                    open_megacrash_trainer_window(megacrash_trainer_state, _save_megacrash_trainer_config)
+                    open_megacrash_trainer_window(megacrash_trainer_state, _save_megacrash_trainer_config, lambda: _megacrash_roster_context(render_snap_by_slot))
                 else:
                     print("[megacrash trainer] settings window unavailable")
                 mouse_clicked_pos = None
@@ -6485,7 +6972,7 @@ def legacy_main():
 
             if megacrash_btn_rect.collidepoint(mx, my):
                 if open_megacrash_trainer_window is not None:
-                    open_megacrash_trainer_window(megacrash_trainer_state, _save_megacrash_trainer_config)
+                    open_megacrash_trainer_window(megacrash_trainer_state, _save_megacrash_trainer_config, lambda: _megacrash_roster_context(render_snap_by_slot))
                 else:
                     print("[megacrash trainer] settings window unavailable")
                 mouse_right_clicked_pos = None
