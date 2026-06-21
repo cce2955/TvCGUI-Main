@@ -193,7 +193,7 @@ SLOT_REGION_PAD = 0x2000
 # frame_data_profiles.json or set TVC_FD_PROFILE_CACHE=0 to force the legacy
 # dynamic path.
 PROFILE_CACHE_VERSION = 1
-PROFILE_SCANNER_BUILD = "fd-profile-v1"
+PROFILE_SCANNER_BUILD = "fd-profile-v2-extras"
 PROFILE_CACHE_FILENAME = "frame_data_profiles.json"
 PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PROFILE_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
@@ -248,7 +248,16 @@ _PROFILE_CACHE_LOCK = threading.RLock()
 _PROFILE_CACHE_DOC: Optional[Dict[str, Any]] = None
 _PROFILE_SAVE_WARNED: set[str] = set()
 
-_PROFILE_ADDRESS_KEYS = {"abs", "parent_abs", "addr"}
+_PROFILE_ADDRESS_KEYS = {
+    "abs", "parent_abs", "addr",
+    # Extra-profile rows carry several resolved script/dispatch addresses that
+    # do not use the usual *_addr spelling. Keep their cached values relative
+    # to chr_tbl too, so the profile survives a new match/slot allocation.
+    "child_target", "slot_base", "slot_end",
+    "dispatch_range_start", "dispatch_range_end",
+    "super_entry_addr", "owned_scan_start", "owned_scan_end",
+    "packet_addr", "owner_root", "owner_post_link",
+}
 _PROFILE_ADDRESS_SUFFIXES = ("_addr",)
 
 
@@ -1961,7 +1970,9 @@ def _rebase_profile_obj(obj: Any, chr_tbl_abs: int, parent_key: str | None = Non
         # Keep 0/None-ish addresses blank, but rebase plausible relative offsets.
         try:
             rel = int(obj)
-            if rel == 0 and parent_key != "abs":
+            # slot_base is legitimately table-relative zero. Keep it so
+            # cached 00/23 child links can still resolve after rebasing.
+            if rel == 0 and parent_key not in ("abs", "slot_base"):
                 return None
             if -0x100000 <= rel <= CHR_TBL_MAX_MOVE_OFFSET + SLOT_REGION_PAD + 0x10000:
                 return int(chr_tbl_abs) + rel
@@ -2314,6 +2325,12 @@ def _save_profile_moves(
     sig = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
     try:
         rows = [_relativize_profile_obj(copy.deepcopy(mv), chr_tbl_abs) for mv in moves]
+        doc = _load_profile_doc()
+        profiles = doc.setdefault("profiles", {})
+        previous = profiles.get(key) if isinstance(profiles.get(key), dict) else {}
+        # A normal-only rebuild must not throw away a projectile/special pass
+        # that the user already profiled for this exact character table.
+        keep_extras = str(previous.get("table_signature") or "") == sig
         profile = {
             "version": PROFILE_CACHE_VERSION,
             "scanner_build": PROFILE_SCANNER_BUILD,
@@ -2326,8 +2343,10 @@ def _save_profile_moves(
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
             "moves": rows,
         }
-        doc = _load_profile_doc()
-        profiles = doc.setdefault("profiles", {})
+        if keep_extras:
+            for extra_key in ("projectiles", "specials", "projectiles_profiled", "specials_profiled", "projectiles_profiled_at", "specials_profiled_at"):
+                if extra_key in previous:
+                    profile[extra_key] = copy.deepcopy(previous[extra_key])
         profiles[key] = profile
         if not _save_profile_doc(doc):
             _profile_warn_once(
@@ -2347,6 +2366,144 @@ def _save_profile_moves(
 
 
 # ============================================================
+# Optional projectile/special profile passes
+# ============================================================
+
+
+def _profile_extra_bundle(
+    char_id: Optional[int],
+    char_name: str,
+    chr_tbl_abs: int,
+    table_signature: str,
+) -> Dict[str, Any]:
+    """Return cached projectile/special scan rows rebased to the live table.
+
+    These rows are deliberately *not* rescanned here.  The one-time discovery
+    pass is user-triggered from the Frame Data workbench; subsequent openings
+    only deserialize and rebase the proven records for the loaded character.
+    """
+    empty = {
+        "projectiles": [],
+        "specials": [],
+        "projectiles_profiled": False,
+        "specials_profiled": False,
+    }
+    if not PROFILE_CACHE_ENABLED:
+        return empty
+    key = _profile_key(char_id, char_name)
+    prof = (_load_profile_doc().get("profiles") or {}).get(key)
+    if not isinstance(prof, dict):
+        return empty
+    if int(prof.get("version") or 0) != PROFILE_CACHE_VERSION:
+        return empty
+    if str(prof.get("table_signature") or "") != str(table_signature or ""):
+        return empty
+
+    out = dict(empty)
+    for cache_key, out_key in (("projectiles", "projectiles"), ("specials", "specials")):
+        profiled_key = f"{cache_key}_profiled"
+        out[profiled_key] = bool(prof.get(profiled_key))
+        rows = prof.get(cache_key)
+        if not isinstance(rows, list):
+            continue
+        rebased = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            value = _rebase_profile_obj(copy.deepcopy(row), chr_tbl_abs)
+            if isinstance(value, dict):
+                value["_profile_fast_path"] = True
+                rebased.append(value)
+        out[out_key] = rebased
+    return out
+
+
+def load_profile_extras(
+    char_id: Optional[int],
+    char_name: str,
+    chr_tbl_abs: int,
+    tbl_move_addrs: Optional[List[int]] = None,
+    *,
+    table_signature: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Public extra-profile loader used by scan_once and the workbench."""
+    sig = str(table_signature or _profile_table_signature(list(tbl_move_addrs or []), chr_tbl_abs))
+    return _profile_extra_bundle(char_id, char_name, chr_tbl_abs, sig)
+
+
+def save_profile_extras(
+    char_id: Optional[int],
+    char_name: str,
+    chr_tbl_abs: int,
+    tbl_move_addrs: Optional[List[int]] = None,
+    *,
+    table_signature: Optional[str] = None,
+    projectile_hits: Optional[List[Dict[str, Any]]] = None,
+    super_hits: Optional[List[Dict[str, Any]]] = None,
+) -> bool:
+    """Persist completed projectile and/or special discovery passes.
+
+    The normal move profile and each optional pass share one profile key and
+    table signature.  Supplying only one list updates only that pass, which
+    lets the UI build projectiles and specials independently without replacing
+    the other section.
+    """
+    if not PROFILE_CACHE_ENABLED:
+        return False
+    key = _profile_key(char_id, char_name)
+    sig = str(table_signature or _profile_table_signature(list(tbl_move_addrs or []), chr_tbl_abs))
+    try:
+        doc = _load_profile_doc()
+        profiles = doc.setdefault("profiles", {})
+        previous = profiles.get(key) if isinstance(profiles.get(key), dict) else {}
+        if str(previous.get("table_signature") or "") not in ("", sig):
+            previous = {}
+
+        profile = copy.deepcopy(previous)
+        profile.update({
+            "version": PROFILE_CACHE_VERSION,
+            "scanner_build": PROFILE_SCANNER_BUILD,
+            "char_id": char_id,
+            "char_name": char_name,
+            "key": key,
+            "table_signature": sig,
+            "table_move_count": int(previous.get("table_move_count") or len(tbl_move_addrs or [])),
+            "created_from": previous.get("created_from") or "frame_data_workbench",
+            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
+        })
+
+        if projectile_hits is not None:
+            profile["projectiles"] = [
+                _relativize_profile_obj(copy.deepcopy(row), chr_tbl_abs)
+                for row in list(projectile_hits or []) if isinstance(row, dict)
+            ]
+            profile["projectiles_profiled"] = True
+            profile["projectiles_profiled_at"] = profile["updated_at"]
+        if super_hits is not None:
+            profile["specials"] = [
+                _relativize_profile_obj(copy.deepcopy(row), chr_tbl_abs)
+                for row in list(super_hits or []) if isinstance(row, dict)
+            ]
+            profile["specials_profiled"] = True
+            profile["specials_profiled_at"] = profile["updated_at"]
+
+        profiles[key] = profile
+        ok = _save_profile_doc(doc)
+        if ok:
+            _profile_warn_once(
+                f"extras:{key}",
+                f"[fd profile] saved optional passes for {char_name} ({key})",
+            )
+        return bool(ok)
+    except Exception as e:
+        _profile_warn_once(
+            f"extras-failed:{key}",
+            f"[fd profile] optional-pass save skipped for {char_name}: {e!r}",
+        )
+        return False
+
+
+# ============================================================
 # MAIN SCAN
 # ============================================================
 
@@ -2360,9 +2517,11 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
         result.append({
             "slot_label": "",
             "char_name": "",
+            "char_id": None,
             "moves": [],
             "chr_tbl_abs": None,
             "tbl_move_count": 0,
+            "profile_table_signature": "",
         })
 
     for slot_idx, (slot_label, fighter_base_abs, cid, cname) in enumerate(slots_info):
@@ -2391,15 +2550,26 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
 
         tbl_move_addrs = parse_chr_tbl(tbl_buf, tbl_start, chr_tbl_abs)
 
+        table_signature = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
         if _profile_cache_allowed(force_dynamic):
             profiled_moves = _load_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs)
             if profiled_moves is not None:
+                extras = load_profile_extras(
+                    cid, cname, chr_tbl_abs, tbl_move_addrs,
+                    table_signature=table_signature,
+                )
                 result[slot_idx] = {
                     "slot_label": slot_label,
                     "char_name": cname,
+                    "char_id": cid,
                     "moves": sorted(profiled_moves, key=sort_key),
                     "chr_tbl_abs": chr_tbl_abs,
                     "tbl_move_count": len(tbl_move_addrs),
+                    "profile_table_signature": table_signature,
+                    "profile_projectile_hits": list(extras.get("projectiles") or []),
+                    "profile_super_hits": list(extras.get("specials") or []),
+                    "profile_projectiles_profiled": bool(extras.get("projectiles_profiled")),
+                    "profile_specials_profiled": bool(extras.get("specials_profiled")),
                     "profile_fast_path": True,
                     "profile_key": _profile_key(cid, cname),
                 }
@@ -2415,9 +2585,11 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
             result[slot_idx] = {
                 "slot_label": slot_label,
                 "char_name": cname,
+                "char_id": cid,
                 "moves": [],
                 "chr_tbl_abs": chr_tbl_abs,
                 "tbl_move_count": len(tbl_move_addrs),
+                "profile_table_signature": table_signature,
                 "profile_fast_path": False,
                 "profile_cache_miss": True,
                 "profile_key": _profile_key(cid, cname),
@@ -2439,12 +2611,22 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
         sorted_moves = sorted(moves, key=sort_key)
         _save_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs, sorted_moves)
 
+        extras = load_profile_extras(
+            cid, cname, chr_tbl_abs, tbl_move_addrs,
+            table_signature=table_signature,
+        )
         result[slot_idx] = {
             "slot_label": slot_label,
             "char_name": cname,
+            "char_id": cid,
             "moves": sorted_moves,
             "chr_tbl_abs": chr_tbl_abs,
             "tbl_move_count": len(tbl_move_addrs),
+            "profile_table_signature": table_signature,
+            "profile_projectile_hits": list(extras.get("projectiles") or []),
+            "profile_super_hits": list(extras.get("specials") or []),
+            "profile_projectiles_profiled": bool(extras.get("projectiles_profiled")),
+            "profile_specials_profiled": bool(extras.get("specials_profiled")),
             "profile_fast_path": False,
             "profile_key": _profile_key(cid, cname),
         }

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import re
+import time
 import tkinter as tk
 from tkinter import ttk
 
@@ -433,10 +434,12 @@ def build_top_bar(win) -> None:
     _button(table, "Refresh", win._refresh_visible, primary=True)
     _button(table, "Reset order", lambda: getattr(win, "_reset_to_original_grouping", lambda: None)())
 
-    # Scan/data mining group.
-    scan = _glass_card(controls, "Scans and dumps", 0, 1, 5)
-    _button(scan, "Rescan projectiles", lambda: getattr(win, "_start_projectile_scan", lambda **_k: None)(auto=False), primary=True)
-    _button(scan, "Rescan specials", lambda: getattr(win, "_start_super_scan", lambda **_k: None)(auto=False), primary=True)
+    # Per-character profile group. These are explicit discovery passes; simply
+    # opening a view never starts a broad projectile/special scan.
+    scan = _glass_card(controls, "Character profile", 0, 1, 5)
+    _button(scan, "Build full profile", lambda: getattr(win, "_build_full_profile", lambda: None)(), primary=True)
+    _button(scan, "Projectile pass", lambda: getattr(win, "_start_projectile_scan", lambda **_k: None)(auto=False))
+    _button(scan, "Specials pass", lambda: getattr(win, "_start_super_scan", lambda **_k: None)(auto=False))
     _button(scan, "Dump char", lambda: getattr(win, "_dump_character_data", lambda: None)())
     _button(scan, "Show bones", lambda: getattr(win, "_show_bones", lambda: None)())
 
@@ -450,7 +453,7 @@ def build_top_bar(win) -> None:
     hints = _glass_card(controls, "Quick guide", 9, 1, 3)
     ttk.Label(
         hints,
-        text="Double-click cells to edit. Projectiles/Supers views move emitter fields left. Use patches to save only changed values.",
+        text="Build Full Profile discovers projectile + special rows once for this character; later opens load them from the saved profile.",
         style="GlassHint.TLabel",
         wraplength=390,
         justify="left",
@@ -715,6 +718,54 @@ def build_tree_widget(win) -> ttk.Frame:
     ttk.Label(quick, textvariable=win._quick_subtitle_var, style="CardMuted.TLabel", wraplength=950).pack(anchor="w", pady=(3, 6))
     win._quick_chips_frame = ttk.Frame(quick, style="Card.TFrame")
     win._quick_chips_frame.pack(fill="x")
+
+    # The selection strip is deliberately a fixed reusable pool.  Recreating
+    # 20-30 chip cards on every TreeviewSelect was more expensive than reading
+    # the saved profile itself.  fd_window only changes these StringVars and
+    # hides unused slots now.
+    win._quick_chip_slots = []
+
+    def _quick_slot_click(slot):
+        col = slot.get("col") if isinstance(slot, dict) else None
+        if col and hasattr(win, "_edit_selected_column"):
+            try:
+                win._edit_selected_column(col)
+            except Exception:
+                pass
+
+    for _slot_index in range(30):
+        _cell = ttk.Frame(win._quick_chips_frame, style="Card.TFrame")
+        _cell.grid(row=_slot_index // 6, column=_slot_index % 6, sticky="ew", padx=(0, 8), pady=(0, 5))
+        _label_var = tk.StringVar(master=win.root, value="")
+        _value_var = tk.StringVar(master=win.root, value="")
+        _lab = ttk.Label(_cell, textvariable=_label_var, style="CardMuted.TLabel")
+        _lab.pack(anchor="w")
+        _val = ttk.Label(_cell, textvariable=_value_var, style="QuickValue.TLabel", anchor="center")
+        _val.pack(fill="x")
+        _slot = {
+            "cell": _cell,
+            "label_var": _label_var,
+            "value_var": _value_var,
+            "label_widget": _lab,
+            "value_widget": _val,
+            "label_value": None,
+            "text_value": None,
+            "style_state": None,
+            "visible": False,
+            "col": None,
+        }
+        _cell.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
+        _lab.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
+        _val.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
+        _cell.grid_remove()
+        win._quick_chip_slots.append(_slot)
+    for _col_index in range(6):
+        win._quick_chips_frame.grid_columnconfigure(_col_index, weight=1)
+    win._quick_empty_label = ttk.Label(
+        win._quick_chips_frame,
+        text="No parsed values for this row yet.",
+        style="CardMuted.TLabel",
+    )
 
     frame = ttk.Frame(left, style="FD.TFrame")
     frame.pack(fill="both", expand=True)
@@ -1230,18 +1281,9 @@ def build_tree_widget(win) -> ttk.Frame:
         except Exception:
             pass
 
-        # Lazy-load heavy sections only when the user asks for those views.
-        # This keeps the Frame Data button responsive and prevents projectile/
-        # action graph scans from running during basic frame-data edits.
-        try:
-            if mode == "projectile" and not getattr(win, "_projectile_hits", None) and not getattr(win, "_projectile_scanning", False):
-                win._auto_scans_enabled = True
-                win._start_projectile_scan(auto=True)
-            elif mode == "super" and not getattr(win, "_super_hits", None) and not getattr(win, "_super_scanning", False):
-                win._auto_scans_enabled = True
-                win._start_super_scan(auto=True)
-        except Exception:
-            pass
+        # Views are display-only. Projectile/special discovery is an explicit
+        # saved profile pass from the Character profile toolbar; do not start a
+        # scanner here just because the user changed columns.
 
     def _toggle_core_columns():
         # Legacy shortcut kept for old callers: Frame <-> All.
@@ -1348,7 +1390,7 @@ def _compact_row_context(mv: dict | None, attack_property_txt: str = "", hr_txt:
         bits.append(f"Invuln {invuln_txt}")
     return " | ".join([b for b in bits if b])
 
-def populate_tree(win) -> None:
+def _populate_tree_sync(win) -> None:
     cname = win.target_slot.get("char_name", "-")
     try:
         annotate_move_families(win.moves, cname)
@@ -1588,7 +1630,13 @@ def populate_tree(win) -> None:
 
         hr_txt = U.fmt_hit_reaction(mv.get("hit_reaction"))
 
-        if move_abs and mv.get("hit_result_addr") is None:
+        # Hit-result / OTG probing is another 0x900-byte pattern scan.  It was
+        # accidentally left outside the deep-probe guard, so opening a profile
+        # with ~1,400 rows could issue ~1,400 Dolphin reads before the window
+        # painted.  Keep first-open cache-only.  The selected row / Refresh
+        # path resolves this lazily in the background, and direct editing also
+        # resolves it on demand.
+        if move_abs and deep_probe and mv.get("hit_result_addr") is None:
             try:
                 rbytes = _fd_cached_rbytes
                 _pkt, _addr, _val, _mask, _ctx = find_hit_result_flags_addr(move_abs, rbytes)
@@ -1875,6 +1923,294 @@ def populate_tree(win) -> None:
             win._refresh_inspector(None, None)
     except Exception:
         pass
+
+
+class _FrameTreePlan:
+    """Small in-memory Treeview stand-in used to stage cached FD rows.
+
+    The old population code does useful grouping/tag work, but calling the
+    real Treeview for every row makes Tk spend a long uninterrupted time in
+    Python/Tcl crossings.  This plan records the finished hierarchy first,
+    then the real widget receives it in paint-friendly batches.
+    """
+
+    def __init__(self, columns):
+        self._columns = tuple(columns or ())
+        self._nodes: dict[str, dict] = {}
+        self._roots: list[str] = []
+        self._selection: tuple[str, ...] = ()
+        self._focus = ""
+        self._next_id = 0
+        self._insert_order: list[str] = []
+
+    def __getitem__(self, key):
+        if key == "columns":
+            return self._columns
+        raise KeyError(key)
+
+    def get_children(self, item=""):
+        if not item:
+            return tuple(self._roots)
+        node = self._nodes.get(str(item))
+        return tuple(node.get("children", ())) if node else ()
+
+    def parent(self, item):
+        node = self._nodes.get(str(item))
+        return str(node.get("parent") or "") if node else ""
+
+    def insert(self, parent, index, iid=None, **kwargs):
+        parent = str(parent or "")
+        if iid is None:
+            self._next_id += 1
+            iid = f"fd_stream_{self._next_id}"
+        iid = str(iid)
+        values = tuple(kwargs.get("values") or ())
+        tags = tuple(kwargs.get("tags") or ())
+        node = {
+            "iid": iid,
+            "parent": parent,
+            "index": index,
+            "text": kwargs.get("text", ""),
+            "values": values,
+            "tags": tags,
+            "open": bool(kwargs.get("open", False)),
+            "children": [],
+        }
+        self._nodes[iid] = node
+        siblings = self._roots if not parent else self._nodes[parent]["children"]
+        if index in ("end", "", None):
+            siblings.append(iid)
+        else:
+            try:
+                siblings.insert(max(0, int(index)), iid)
+            except Exception:
+                siblings.append(iid)
+        self._insert_order.append(iid)
+        return iid
+
+    def delete(self, *items):
+        for item in list(items):
+            self._delete_one(str(item))
+
+    def _delete_one(self, iid):
+        node = self._nodes.get(iid)
+        if not node:
+            return
+        for child in list(node.get("children") or ()):
+            self._delete_one(child)
+        parent = node.get("parent") or ""
+        siblings = self._roots if not parent else self._nodes.get(parent, {}).get("children", [])
+        try:
+            siblings.remove(iid)
+        except Exception:
+            pass
+        self._nodes.pop(iid, None)
+        self._selection = tuple(x for x in self._selection if x != iid)
+
+    def item(self, iid, option=None, **kwargs):
+        node = self._nodes.get(str(iid))
+        if node is None:
+            return "" if option else {}
+        for key, value in kwargs.items():
+            if key == "tags":
+                node["tags"] = tuple(value or ())
+            elif key == "values":
+                node["values"] = tuple(value or ())
+            elif key == "open":
+                node["open"] = bool(value)
+            elif key == "text":
+                node["text"] = value
+        if option:
+            return node.get(option, "")
+        return {
+            "text": node.get("text", ""),
+            "values": node.get("values", ()),
+            "tags": node.get("tags", ()),
+            "open": node.get("open", False),
+        }
+
+    def set(self, iid, column, value=None):
+        node = self._nodes.get(str(iid))
+        if node is None:
+            return ""
+        try:
+            idx = self._columns.index(column)
+        except Exception:
+            return ""
+        values = list(node.get("values") or ())
+        if len(values) <= idx:
+            values.extend("" for _ in range(idx + 1 - len(values)))
+        if value is None:
+            return values[idx]
+        values[idx] = value
+        node["values"] = tuple(values)
+        return ""
+
+    def selection_set(self, items):
+        if isinstance(items, (tuple, list)):
+            self._selection = tuple(str(x) for x in items)
+        else:
+            self._selection = (str(items),)
+
+    def selection(self):
+        return self._selection
+
+    def focus(self, item=None):
+        if item is None:
+            return self._focus
+        self._focus = str(item)
+
+    def see(self, _item):
+        return None
+
+
+def _build_stream_plan(win):
+    """Reuse the mature synchronous grouping logic without touching Tk."""
+    real_tree = win.tree
+    plan = _FrameTreePlan(real_tree["columns"] if real_tree is not None else FD_COLUMNS)
+    sentinel = object()
+    old_on_select = win.__dict__.get("_on_select", sentinel)
+    old_refresh = win.__dict__.get("_refresh_inspector", sentinel)
+    # The legacy path ends by selecting a row and updating inspector controls.
+    # It must not touch real widgets while the temporary plan is installed.
+    win.tree = plan
+    win._on_select = lambda *_a, **_k: None
+    win._refresh_inspector = lambda *_a, **_k: None
+    try:
+        _populate_tree_sync(win)
+    finally:
+        win.tree = real_tree
+        if old_on_select is sentinel:
+            win.__dict__.pop("_on_select", None)
+        else:
+            win.__dict__["_on_select"] = old_on_select
+        if old_refresh is sentinel:
+            win.__dict__.pop("_refresh_inspector", None)
+        else:
+            win.__dict__["_refresh_inspector"] = old_refresh
+    return plan
+
+
+def _stream_tree_plan(win, plan: _FrameTreePlan, on_complete=None):
+    """Insert a staged profile tree in short Tk batches instead of one freeze."""
+    tree = getattr(win, "tree", None)
+    root = getattr(win, "root", None)
+    if tree is None or root is None:
+        if callable(on_complete):
+            on_complete(RuntimeError("Frame-data tree is unavailable"))
+        return False
+
+    # A new request invalidates any unfinished batch chain from a prior rebuild.
+    generation = int(getattr(win, "_fd_stream_generation", 0) or 0) + 1
+    win._fd_stream_generation = generation
+    win._fd_stream_loading = True
+    win._fd_stream_total = len(plan._nodes)
+    win._fd_stream_inserted = 0
+
+    try:
+        roots = list(tree.get_children(""))
+        if roots:
+            tree.delete(*roots)
+    except Exception:
+        pass
+
+    entries = [plan._nodes[iid] for iid in plan._insert_order if iid in plan._nodes]
+    total = len(entries)
+    cursor = 0
+
+    # Keep a batch beneath a frame on ordinary machines.  The time cap protects
+    # slower PCs while the count cap avoids scheduling thousands of tiny events.
+    batch_limit = 60
+    budget_seconds = 0.012
+
+    def _finish(error=None):
+        if int(getattr(win, "_fd_stream_generation", 0) or 0) != generation:
+            return
+        win._fd_stream_loading = False
+        win._fd_stream_inserted = total
+        try:
+            if error is None:
+                first = next((iid for iid in getattr(win, "_all_item_ids", []) if iid in getattr(win, "move_to_tree_item", {})), None)
+                if first:
+                    tree.selection_set(first)
+                    tree.focus(first)
+                    tree.see(first)
+                    win._on_select()
+                else:
+                    win._refresh_inspector(None, None)
+        except Exception:
+            pass
+        if callable(on_complete):
+            try:
+                on_complete(error)
+            except Exception:
+                pass
+
+    def _batch():
+        nonlocal cursor
+        if int(getattr(win, "_fd_stream_generation", 0) or 0) != generation:
+            return
+        if not getattr(win, "root", None) or not getattr(win, "tree", None):
+            return
+        started = time.perf_counter()
+        inserted_this_tick = 0
+        try:
+            while cursor < total and inserted_this_tick < batch_limit:
+                node = entries[cursor]
+                tree.insert(
+                    node["parent"],
+                    "end" if node["parent"] else node.get("index", "end"),
+                    iid=node["iid"],
+                    text=node.get("text", ""),
+                    values=node.get("values", ()),
+                    tags=node.get("tags", ()),
+                    open=bool(node.get("open", False)),
+                )
+                cursor += 1
+                inserted_this_tick += 1
+                if (time.perf_counter() - started) >= budget_seconds:
+                    break
+            win._fd_stream_inserted = cursor
+            if getattr(win, "_status_var", None) is not None:
+                win._status_var.set(f"Loading saved profile rows… {cursor:,}/{total:,}")
+        except Exception as exc:
+            _finish(exc)
+            return
+        if cursor >= total:
+            _finish(None)
+        else:
+            try:
+                root.after(1, _batch)
+            except Exception as exc:
+                _finish(exc)
+
+    try:
+        root.after_idle(_batch)
+    except Exception as exc:
+        _finish(exc)
+        return False
+    return True
+
+
+def populate_tree(win, *, stream: bool = False, on_complete=None):
+    """Populate the grid.
+
+    Normal rebuild callers keep the old synchronous behavior.  First-open
+    profile loads opt into `stream=True`, which only consumes saved profile
+    data and yields to Tk after small insertion batches.
+    """
+    if not stream:
+        return _populate_tree_sync(win)
+    try:
+        plan = _build_stream_plan(win)
+        return _stream_tree_plan(win, plan, on_complete=on_complete)
+    except Exception as exc:
+        if callable(on_complete):
+            try:
+                on_complete(exc)
+            except Exception:
+                pass
+        return False
 
 
 def _tree_rank_bucket(win, item_id: str):

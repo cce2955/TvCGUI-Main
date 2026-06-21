@@ -15,6 +15,10 @@ import fd_tree
 import fd_projectile_integration as FPI
 import fd_super_integration as FSI
 try:
+    import scan_normals_all as FDProfileCache
+except Exception:
+    FDProfileCache = None
+try:
     import char_dumper
 except Exception as _char_dumper_import_error:
     char_dumper = None
@@ -53,9 +57,62 @@ from tk_host import tk_call
 
 class EditableFrameDataWindow(FDCellEditorsMixin):
     def __init__(self, master, slot_label, target_slot):
+        """Create a native window immediately; build the cached workspace next tick.
+
+        The saved profile has already been produced by the cache worker.  A
+        Frame Data click must not wait for profile rebasing, model sorting, or
+        construction of the several-hundred-widget inspector before Windows
+        even receives a Toplevel to paint.
+        """
         self.master = master
         self.slot_label = slot_label
-        self.target_slot = target_slot
+        self.target_slot = target_slot or {}
+        self.root: tk.Toplevel | None = tk.Toplevel(self.master)
+        cname = self.target_slot.get("char_name", "-")
+        self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
+        self.root.geometry("1700x820")
+        self.root.minsize(1280, 640)
+        self._opening_cancelled = False
+        self._opening_after_id = None
+        self._launch_status_var = tk.StringVar(
+            master=self.root,
+            value="Opening saved profile… no scan is running.",
+        )
+        self._launch_frame = ttk.Frame(self.root, padding=(22, 18))
+        self._launch_frame.pack(fill="both", expand=True)
+        ttk.Label(
+            self._launch_frame,
+            text=f"Frame Data Workbench: {self.slot_label} ({cname})",
+            font=("Segoe UI", 13, "bold"),
+        ).pack(anchor="w")
+        ttk.Label(
+            self._launch_frame,
+            textvariable=self._launch_status_var,
+            wraplength=1000,
+            justify="left",
+        ).pack(anchor="w", pady=(8, 0))
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Returning to the Tk event loop here is the important part: the GUI
+        # button receives an actual window right away rather than waiting for
+        # profile/model preparation on the Tk host queue.
+        try:
+            self.root.update_idletasks()
+            self._opening_after_id = self.root.after_idle(self._finish_window_bootstrap)
+        except Exception:
+            self._finish_window_bootstrap()
+
+    def _finish_window_bootstrap(self):
+        """Finish the non-visual model setup after the launch shell is paintable."""
+        self._opening_after_id = None
+        if self._opening_cancelled or not self.root:
+            return
+        try:
+            if not bool(self.root.winfo_exists()):
+                return
+        except Exception:
+            return
+        target_slot = self.target_slot
         self._profile_fast_path = bool((target_slot or {}).get("profile_fast_path"))
         self._profile_key = (target_slot or {}).get("profile_key")
         self._sort_state = {}  # col_name -> ascending bool
@@ -130,7 +187,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._col_filter_vars: dict[str, tk.StringVar] = {}
         self._col_filter_after_id = None
 
-        self.root: tk.Toplevel | None = None
         self.tree: ttk.Treeview | None = None
 
         # Right-side selected-move inspector. fd_tree builds these widgets; the
@@ -143,6 +199,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._inspector_subtitle_var: tk.StringVar | None = None
         self._inspector_hint_var: tk.StringVar | None = None
 
+        # Selection rendering is intentionally cache-only.  Tree selection must
+        # paint before the large detail pane changes, and normal-to-normal
+        # clicks should not reconfigure the whole inspector or start Dolphin
+        # probes.  These caches make 5A -> 5B a value update, not a widget
+        # teardown/rebuild.
+        self._selection_render_after_id = None
+        self._selection_render_generation = 0
+        self._inspector_value_cache: dict[str, str] = {}
+        self._inspector_button_state_cache: dict[str, str] = {}
+        self._inspector_chip_style_cache: dict[str, tuple] = {}
+        self._inspector_layout_signature = None
+
         # Session edits. These do not change write behavior; they only let the
         # UI reflect edits immediately and reset only the values touched in this
         # editor session instead of walking the whole move list.
@@ -152,24 +220,26 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._changed_count_var: tk.StringVar | None = None
         self._suppress_dirty_tracking = False
 
-        # Combined projectile-table support.  Projectile records are scanned in
-        # the background and appended into the same Treeview as frame-data rows.
-        self._projectile_hits: list[dict] = []
+        # Combined projectile/special profile support. These lists come from
+        # the saved per-character profile when available. Discovery is explicit
+        # (Build profile), never triggered just by opening a view.
+        self._projectile_hits: list[dict] = list((target_slot or {}).get("profile_projectile_hits", []) or [])
         self._projectile_scanning = False
+        self._projectile_profiled = bool((target_slot or {}).get("profile_projectiles_profiled"))
         self._projectile_status_var: tk.StringVar | None = None
-        self._super_hits: list[dict] = []
+        self._super_hits: list[dict] = list((target_slot or {}).get("profile_super_hits", []) or [])
         self._super_scanning = False
+        self._super_profiled = bool((target_slot or {}).get("profile_specials_profiled"))
         self._super_status_var: tk.StringVar | None = None
+        self._profile_building = False
         self._char_dumping = False
 
-        # Performance mode.  Opening the frame-data editor should create the
-        # window first, then load rows/scans after Tk has painted.  Heavy
-        # optional probes are lazy by default and can still be populated by the
-        # Refresh button.
+        # Performance mode. Opening the workbench paints first, then populates
+        # cached rows. Loose display probes remain background-only; they are not
+        # part of the projectile/special discovery pipeline.
         self._initial_tree_loaded = False
         self._initial_load_running = False
         self._fd_eager_deep_probe = False
-        self._auto_scans_enabled = False
         self._link_probe_after_id = None
         self._link_probe_items: list[str] = []
         self._link_probe_index = 0
@@ -199,6 +269,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._last_patch_config_path: str | None = None
 
         self._build()
+
     def _reset_to_original_grouping(self):
         # Clear sort state so arrows do not lie
         self._sort_state.clear()
@@ -536,7 +607,17 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _build(self):
         cname = self.target_slot.get("char_name", "-")
 
-        self.root = tk.Toplevel(self.master)
+        # __init__ creates the native Toplevel immediately. Reuse it here so
+        # launching cannot show a throwaway second window after the profile
+        # model is staged.
+        if self.root is None:
+            self.root = tk.Toplevel(self.master)
+        try:
+            if getattr(self, "_launch_frame", None) is not None:
+                self._launch_frame.destroy()
+        except Exception:
+            pass
+        self._launch_frame = None
         self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
         self.root.geometry("1700x820")
         self.root.minsize(1280, 640)
@@ -572,15 +653,23 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # so doing populate_tree() synchronously here made the Frame Data button
         # feel frozen for 20-30 seconds.
         try:
-            self._status_var.set("Opening frame-data window... loading rows after paint")
-            if self._projectile_status_var is not None:
-                self._projectile_status_var.set("Projectiles: lazy; open Projectiles view or Rescan projectiles")
-            if self._super_status_var is not None:
-                self._super_status_var.set("Specials: lazy; open Supers view or Rescan specials")
-            self.root.after(25, self._initial_populate_tree)
+            self._status_var.set("Opening frame-data window... loading saved profile rows after paint")
+            self._refresh_profile_status_labels()
+            # Flush construction/layout work before the large tree pass begins.
+            # A small delay gives Windows an actual native paint opportunity;
+            # the profile tree no longer performs per-row Dolphin probes here.
+            self.root.update_idletasks()
+            self.root.after(100, self._initial_populate_tree)
         except Exception:
             self._initial_populate_tree()
     def _on_close(self):
+        self._opening_cancelled = True
+        try:
+            if self.root is not None and self._opening_after_id is not None:
+                self.root.after_cancel(self._opening_after_id)
+        except Exception:
+            pass
+        self._opening_after_id = None
         try:
             with self._optional_probe_lock:
                 self._optional_probe_stop = True
@@ -619,6 +708,17 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             pass
 
+    def _finish_initial_tree_population(self, error=None):
+        self._initial_load_running = False
+        if error is not None:
+            if self._status_var is not None:
+                self._status_var.set(f"Frame rows failed to populate: {error}")
+            return
+        self._initial_tree_loaded = True
+        if self._status_var is not None:
+            src = "profile cache" if self._profile_fast_path else "scanner snapshot"
+            self._status_var.set(f"Frame rows loaded from {src}. No background discovery scan is running.")
+
     def _initial_populate_tree(self):
         if self._initial_load_running or self._initial_tree_loaded:
             return
@@ -626,19 +726,20 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         try:
             if self._status_var is not None:
                 src = "profile cache" if self._profile_fast_path else "scanner snapshot"
-                self._status_var.set(f"Loading frame rows from {src}... optional probes are lazy")
+                self._status_var.set(f"Staging saved frame profile from {src}... no scan is running")
             self._reset_optional_probe_session()
-            fd_tree.populate_tree(self)
-            self._initial_tree_loaded = True
-            if self._status_var is not None:
-                src = "profile cache" if self._profile_fast_path else "scanner snapshot"
-                self._status_var.set(f"Frame rows loaded from {src}. Resolving Hit FX/reach in background...")
-            self._queue_lazy_link_probe()
+            # A completed profile is already all the data we need.  Stage the
+            # hierarchy in memory, then insert it in short Tk batches so the
+            # window stays interactive while rows roll in.
+            queued = fd_tree.populate_tree(
+                self,
+                stream=True,
+                on_complete=self._finish_initial_tree_population,
+            )
+            if not queued:
+                self._finish_initial_tree_population(RuntimeError("Could not queue saved profile rows"))
         except Exception as e:
-            if self._status_var is not None:
-                self._status_var.set(f"Frame rows failed to populate: {e}")
-        finally:
-            self._initial_load_running = False
+            self._finish_initial_tree_population(e)
 
     def _ensure_initial_tree_loaded(self):
         if not self._initial_tree_loaded:
@@ -649,42 +750,114 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
 
 
-    # ---------- Combined projectile table ----------
+    # ---------- Saved projectile/special profile passes ----------
 
-    def _start_projectile_scan(self, auto: bool = False):
+    def _refresh_profile_status_labels(self):
+        """Reflect cached pass state without starting any memory scan."""
+        if self._projectile_status_var is not None:
+            count = len(self._projectile_hits or [])
+            if self._projectile_profiled:
+                self._projectile_status_var.set(f"Projectiles: profile loaded ({count})")
+            else:
+                self._projectile_status_var.set("Projectiles: not profiled — use Build profile")
+        if self._super_status_var is not None:
+            count = len(self._super_hits or [])
+            if self._super_profiled:
+                self._super_status_var.set(f"Specials: profile loaded ({count})")
+            else:
+                self._super_status_var.set("Specials: not profiled — use Build profile")
+
+    def _persist_optional_profile(self, *, projectile_hits=None, super_hits=None) -> bool:
+        """Write completed discovery-pass rows into the existing character profile."""
+        if FDProfileCache is None:
+            return False
+        try:
+            chr_tbl_abs = int(self.target_slot.get("chr_tbl_abs") or 0)
+        except Exception:
+            chr_tbl_abs = 0
+        if not chr_tbl_abs:
+            if self._status_var is not None:
+                self._status_var.set("Profile cache save skipped: missing character-table base.")
+            return False
+        try:
+            ok = bool(FDProfileCache.save_profile_extras(
+                self.target_slot.get("char_id"),
+                self.target_slot.get("char_name", "-"),
+                chr_tbl_abs,
+                table_signature=self.target_slot.get("profile_table_signature"),
+                projectile_hits=projectile_hits,
+                super_hits=super_hits,
+            ))
+        except Exception as e:
+            ok = False
+            if self._status_var is not None:
+                self._status_var.set(f"Profile cache save failed: {e}")
+        return ok
+
+    def _profile_build_finished(self, ok: bool):
+        self._profile_building = False
+        self._refresh_profile_status_labels()
+        if self._status_var is not None:
+            if ok:
+                self._status_var.set(
+                    f"Saved profile for {self.target_slot.get('char_name', '-')}: "
+                    f"{len(self._projectile_hits)} projectile row(s), {len(self._super_hits)} special/action row(s)."
+                )
+            else:
+                self._status_var.set("Profile build finished with a failed or unavailable pass; check the two profile statuses.")
+
+    def _build_full_profile(self):
+        """Run both one-time discovery passes and persist them under this character."""
+        if self._profile_building or self._projectile_scanning or self._super_scanning:
+            if self._status_var is not None:
+                self._status_var.set("A profile pass is already running...")
+            return
+        self._profile_building = True
+        if self._status_var is not None:
+            self._status_var.set("Building saved projectile + special profile for this character...")
+
+        def _after_projectiles(projectile_ok: bool):
+            # Still run the special pass if projectiles are unavailable. Some
+            # characters have useful action graphs without projectile rows.
+            self._start_super_scan(
+                auto=False,
+                on_complete=lambda special_ok: self._profile_build_finished(bool(projectile_ok or special_ok)),
+            )
+
+        self._start_projectile_scan(auto=False, on_complete=_after_projectiles)
+
+    def _start_projectile_scan(self, auto: bool = False, on_complete=None):
+        """Explicit projectile discovery pass; results are immediately profiled."""
         try:
             self._ensure_initial_tree_loaded()
         except Exception:
             pass
-        if auto and not self._auto_scans_enabled:
-            if self._projectile_status_var is not None:
-                self._projectile_status_var.set("Projectiles: lazy; click Projectiles or Rescan projectiles")
-            return
-        if auto and getattr(self, "_projectile_hits", None):
-            if self._projectile_status_var is not None:
-                self._projectile_status_var.set(f"Projectiles: {len(self._projectile_hits)} cached")
-            return
         if self._projectile_scanning:
             if self._projectile_status_var is not None:
-                self._projectile_status_var.set("Projectiles: scanning...")
+                self._projectile_status_var.set("Projectiles: profile pass already running...")
             return
 
         cname = self.target_slot.get("char_name", "-")
         if not FPI.projectile_key_for_char(cname):
             if self._projectile_status_var is not None:
                 self._projectile_status_var.set("Projectiles: no map for this character")
+            if callable(on_complete):
+                try:
+                    on_complete(False)
+                except Exception:
+                    pass
             return
 
         self._projectile_scanning = True
         if self._projectile_status_var is not None:
-            self._projectile_status_var.set("Projectiles: scanning MEM2...")
+            self._projectile_status_var.set("Projectiles: building saved profile...")
         if self._status_var is not None:
-            self._status_var.set("Scanning projectile definitions for this character...")
+            self._status_var.set("Profiling projectile definitions for this character...")
 
         def _progress(pct: float):
             try:
                 if self.root and self._projectile_status_var is not None:
-                    self.root.after(0, lambda p=pct: self._projectile_status_var.set(f"Projectiles: scanning {p:0.0f}%"))
+                    self.root.after(0, lambda p=pct: self._projectile_status_var.set(f"Projectiles: profiling {p:0f}%"))
             except Exception:
                 pass
 
@@ -698,24 +871,34 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
             def _done():
                 self._projectile_scanning = False
+                ok = err is None
                 if err is not None:
                     if self._projectile_status_var is not None:
-                        self._projectile_status_var.set("Projectiles: scan failed")
+                        self._projectile_status_var.set("Projectiles: profile pass failed")
                     if self._status_var is not None:
-                        self._status_var.set(f"Projectile scan failed: {err}")
-                    return
-
-                self._projectile_hits = list(hits or [])
-                try:
-                    fd_tree.populate_projectile_rows(self, replace=True)
-                except Exception as e2:
-                    if self._status_var is not None:
-                        self._status_var.set(f"Projectile rows failed to populate: {e2}")
-                count = len(self._projectile_hits)
-                if self._projectile_status_var is not None:
-                    self._projectile_status_var.set(f"Projectiles: {count} loaded" if count else "Projectiles: none found")
-                if self._status_var is not None:
-                    self._status_var.set(f"Loaded {count} projectile record(s) into the frame-data table")
+                        self._status_var.set(f"Projectile profile pass failed: {err}")
+                else:
+                    self._projectile_hits = list(hits or [])
+                    self._projectile_profiled = True
+                    self.target_slot["profile_projectile_hits"] = list(self._projectile_hits)
+                    self.target_slot["profile_projectiles_profiled"] = True
+                    persisted = self._persist_optional_profile(projectile_hits=self._projectile_hits)
+                    try:
+                        fd_tree.populate_projectile_rows(self, replace=True)
+                    except Exception as e2:
+                        ok = False
+                        if self._status_var is not None:
+                            self._status_var.set(f"Projectile rows failed to populate: {e2}")
+                    if self._projectile_status_var is not None:
+                        suffix = "saved" if persisted else "loaded (cache write deferred)"
+                        self._projectile_status_var.set(f"Projectiles: {len(self._projectile_hits)} profiled + {suffix}")
+                    if self._status_var is not None and ok:
+                        self._status_var.set(f"Profiled {len(self._projectile_hits)} projectile record(s); next open uses the saved pass.")
+                if callable(on_complete):
+                    try:
+                        on_complete(bool(ok))
+                    except Exception:
+                        pass
 
             try:
                 self.root.after(0, _done)
@@ -724,53 +907,44 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _start_super_scan(self, auto: bool = False):
+    def _start_super_scan(self, auto: bool = False, on_complete=None):
+        """Explicit special/action discovery pass; results are immediately profiled."""
         try:
             self._ensure_initial_tree_loaded()
         except Exception:
             pass
-        if auto and not self._auto_scans_enabled:
-            if self._super_status_var is not None:
-                self._super_status_var.set("Specials: lazy; click Supers or Rescan specials")
-            return
-        if auto and getattr(self, "_super_hits", None):
-            if self._super_status_var is not None:
-                self._super_status_var.set(f"Specials: {len(self._super_hits)} cached")
-            return
         if self._super_scanning:
             if self._super_status_var is not None:
-                self._super_status_var.set("Specials: scanning...")
+                self._super_status_var.set("Specials: profile pass already running...")
             return
 
         cname = self.target_slot.get("char_name", "-")
         if not FSI.super_key_for_char(cname):
             if self._super_status_var is not None:
                 self._super_status_var.set("Specials: no key for this character")
+            if callable(on_complete):
+                try:
+                    on_complete(False)
+                except Exception:
+                    pass
             return
 
         self._super_scanning = True
         if self._super_status_var is not None:
-            self._super_status_var.set("Specials: scanning 00/23 callers...")
+            self._super_status_var.set("Specials: building saved profile...")
         if self._status_var is not None:
-            self._status_var.set("Scanning action graph: dispatch rows, child links, and projectilemap matches...")
+            self._status_var.set("Profiling action graph, dispatch rows, and child links...")
 
         def _progress(pct: float):
             try:
                 if self.root and self._super_status_var is not None:
-                    self.root.after(0, lambda p=pct: self._super_status_var.set(f"Supers: scanning {p:0.0f}%"))
+                    self.root.after(0, lambda p=pct: self._super_status_var.set(f"Specials: profiling {p:0f}%"))
             except Exception:
                 pass
 
-        # Reuse already-scanned projectile/payload rows when available so the
-        # Super Finder can attach known beam/projectile payload fields without
-        # forcing a duplicate projectile scan. If this snapshot is empty, the
-        # super scanner falls back to its own payload pass.
+        # Use a just-built projectile profile as the payload snapshot. This is
+        # intentionally the only coupling between the two explicit passes.
         payload_snapshot = [dict(h) for h in list(getattr(self, "_projectile_hits", []) or [])]
-        # Important perf rule: do not let the action/special scanner trigger a
-        # full projectile scan as a fallback.  If projectiles have not been
-        # scanned yet, pass an empty list and rely on the child-forward
-        # projectilemap damage sniff.  Users can run Rescan projectiles when
-        # they want template/payload fields attached too.
 
         def _worker():
             try:
@@ -788,29 +962,34 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
             def _done():
                 self._super_scanning = False
+                ok = err is None
                 if err is not None:
                     if self._super_status_var is not None:
-                        self._super_status_var.set("Specials: scan failed")
+                        self._super_status_var.set("Specials: profile pass failed")
                     if self._status_var is not None:
-                        self._status_var.set(f"Super scan failed: {err}")
-                    return
-
-                self._super_hits = list(hits or [])
-                try:
-                    fd_tree.populate_super_rows(self, replace=True)
-                except Exception as e2:
-                    if self._status_var is not None:
-                        self._status_var.set(f"Super rows failed to populate: {e2}")
-                count = len(self._super_hits)
-                payload_count = 0
-                try:
-                    payload_count = sum(int((h or {}).get("payload_count") or 0) for h in self._super_hits)
-                except Exception:
-                    payload_count = 0
-                if self._super_status_var is not None:
-                    self._super_status_var.set(f"Supers: {count} dispatch row(s), {payload_count} payload link(s)" if count else "Supers: none found")
-                if self._status_var is not None:
-                    self._status_var.set(f"Loaded {count} super dispatch row(s) with {payload_count} attached payload candidate(s)")
+                        self._status_var.set(f"Special profile pass failed: {err}")
+                else:
+                    self._super_hits = list(hits or [])
+                    self._super_profiled = True
+                    self.target_slot["profile_super_hits"] = list(self._super_hits)
+                    self.target_slot["profile_specials_profiled"] = True
+                    persisted = self._persist_optional_profile(super_hits=self._super_hits)
+                    try:
+                        fd_tree.populate_super_rows(self, replace=True)
+                    except Exception as e2:
+                        ok = False
+                        if self._status_var is not None:
+                            self._status_var.set(f"Special rows failed to populate: {e2}")
+                    if self._super_status_var is not None:
+                        suffix = "saved" if persisted else "loaded (cache write deferred)"
+                        self._super_status_var.set(f"Specials: {len(self._super_hits)} profiled + {suffix}")
+                    if self._status_var is not None and ok:
+                        self._status_var.set(f"Profiled {len(self._super_hits)} special/action record(s); next open uses the saved pass.")
+                if callable(on_complete):
+                    try:
+                        on_complete(bool(ok))
+                    except Exception:
+                        pass
 
             try:
                 self.root.after(0, _done)
@@ -1208,32 +1387,46 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         return labels.get(col_name, col_name)
 
     def _refresh_quick_panel(self, item_id: str | None = None, mv: dict | None = None):
-        """Update the compact selection strip above the table.
+        """Update the compact selection strip without rebuilding widgets.
 
-        This replaces the always-visible Details column. The grid stays
-        readable, while projectile/super-specific values are visible without
-        horizontal scrolling or digging through the inspector.
+        The original version destroyed and recreated up to ninety Tk widgets on
+        every row click.  That made ordinary 5A -> 5B navigation look like a
+        scan even when every value already lived in the saved profile.  Slots
+        are now built once by ``fd_tree.build_tree_widget`` and only their text,
+        style, and visibility change here.
         """
         frame = getattr(self, "_quick_chips_frame", None)
+        slots = list(getattr(self, "_quick_chip_slots", []) or [])
         if frame is None:
             return
-        try:
-            for child in list(frame.winfo_children()):
-                child.destroy()
-        except Exception:
-            pass
 
         title_var = getattr(self, "_quick_title_var", None)
         sub_var = getattr(self, "_quick_subtitle_var", None)
+        empty_label = getattr(self, "_quick_empty_label", None)
 
-        if not item_id or not mv or not getattr(self, "tree", None):
+        def _set_text(var, value: str):
             try:
-                if title_var is not None:
-                    title_var.set("Selection details")
-                if sub_var is not None:
-                    sub_var.set("Select a move, projectile, or super row to see the values that matter here.")
+                if var is not None and str(var.get()) != str(value):
+                    var.set(str(value))
             except Exception:
                 pass
+
+        if not item_id or not mv or not getattr(self, "tree", None):
+            _set_text(title_var, "Selection details")
+            _set_text(sub_var, "Select a move, projectile, or super row to see the values that matter here.")
+            for slot in slots:
+                slot["col"] = None
+                if slot.get("visible"):
+                    try:
+                        slot["cell"].grid_remove()
+                    except Exception:
+                        pass
+                    slot["visible"] = False
+            if empty_label is not None:
+                try:
+                    empty_label.grid_remove()
+                except Exception:
+                    pass
             return
 
         def _tree_val(col: str) -> str:
@@ -1243,20 +1436,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 val = ""
             return str(val or "").strip()
 
-        def _clean_move_text(text: str) -> str:
-            return str(text or "").strip()
-
         def _present(value) -> bool:
-            s = str(value or "").strip().lower()
-            return bool(s and s not in {"-", "not found", "none", "0x00000000"})
+            text = str(value or "").strip().lower()
+            return bool(text and text not in {"-", "not found", "none", "0x00000000"})
 
-        move_txt = _clean_move_text(_tree_val("move") or mv.get("pretty_name") or mv.get("move_name") or "Selected row")
+        move_txt = _tree_val("move") or str(mv.get("pretty_name") or mv.get("move_name") or "Selected row").strip()
         kind = str(mv.get("kind") or _tree_val("kind") or "").strip()
-        try:
-            if title_var is not None:
-                title_var.set(move_txt)
-        except Exception:
-            pass
+        _set_text(title_var, move_txt)
 
         chips: list[tuple[str, str, str, str | None]] = []
 
@@ -1267,11 +1453,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         if FSI.is_super_row(mv):
             hit = mv.get("_super_hit") or {}
-            try:
-                if sub_var is not None:
-                    sub_var.set("Super dispatch row | 00/23 caller | advanced")
-            except Exception:
-                pass
+            _set_text(sub_var, "Super dispatch row | 00/23 caller | advanced")
             add("Selector", FSI.format_super_value(mv, "dispatch_selector"), important=True, col="dispatch_selector")
             add("Variant", FSI.format_super_value(mv, "dispatch_variant"), col="dispatch_variant")
             add("Phase", FSI.format_super_value(mv, "dispatch_phase"), important=True, col="dispatch_phase")
@@ -1281,29 +1463,22 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             add("Confidence", FSI.format_super_value(mv, "dispatch_confidence"), important=True)
             add("Super Proof", FSI.format_super_value(mv, "dispatch_super_proof"), important=True)
             add("Owner Proof", FSI.format_super_value(mv, "dispatch_owner_proof"), important=bool(hit.get("dispatch_owner_proof")))
-            for _label, _col in (
-                ("Damage", "damage"),
-                ("KB X", "kb_x"),
-                ("KB Y", "air_kb"),
-                ("Hitstun", "hitstun"),
-                ("Blockstun", "blockstun"),
-                ("Hitstop", "hitstop"),
-                ("Attack Property", "attack_property"),
-                ("Hit Reaction", "hit_reaction"),
-                ("Extra Launch", "launch_profile"),
-                ("Launch Adjust", "kb_unknown"),
+            for label, col in (
+                ("Damage", "damage"), ("KB X", "kb_x"), ("KB Y", "air_kb"),
+                ("Hitstun", "hitstun"), ("Blockstun", "blockstun"), ("Hitstop", "hitstop"),
+                ("Attack Property", "attack_property"), ("Hit Reaction", "hit_reaction"),
+                ("Extra Launch", "launch_profile"), ("Launch Adjust", "kb_unknown"),
             ):
-                add(_label, FSI.format_super_value(mv, _col), important=_col in {"damage", "kb_x", "air_kb"}, col=_col)
+                add(label, FSI.format_super_value(mv, col), important=col in {"damage", "kb_x", "air_kb"}, col=col)
             add("Owned Payloads", str(hit.get("payload_count") or ""), important=bool(hit.get("payload_count")))
             add("Owned Payload Summary", str(hit.get("payload_summary") or ""))
             add("Owned Script Fields", str(hit.get("owned_script_field_summary") or ""))
             add("Payload Fields", str(hit.get("payload_field_summary") or ""))
             add("Payload-Only Scout", str(hit.get("payload_only_summary") or ""))
             try:
-                scout = FSI._scout_summary(hit)
+                add("Child Scout", FSI._scout_summary(hit))
             except Exception:
-                scout = ""
-            add("Child Scout", scout)
+                pass
         elif FPI.is_projectile_row(mv):
             hit = mv.get("_proj_hit") or {}
             role = str(hit.get("proj_role") or "").strip()
@@ -1313,150 +1488,130 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             fmt = FPI.format_projectile_value(mv, "proj_fmt")
             is_emitter = bool(getattr(FPI, "is_projectile_emitter_row", lambda _mv: False)(mv))
             is_ps = bool(getattr(FPI, "is_projectile_super_card", lambda _mv: False)(mv))
-            try:
-                if sub_var is not None:
-                    sub = "Projectile emitter" if is_emitter else ("Projectile-super card" if is_ps else "Projectile record")
-                    if fmt:
-                        sub += f" | {fmt}"
-                    if role:
-                        sub += f" | {role}"
-                    sub_var.set(sub)
-            except Exception:
-                pass
+            sub = "Projectile emitter" if is_emitter else ("Projectile-super card" if is_ps else "Projectile record")
+            if fmt:
+                sub += f" | {fmt}"
+            if role:
+                sub += f" | {role}"
+            _set_text(sub_var, sub)
             add("Damage", FPI.format_projectile_value(mv, "damage"), important=True, col="damage")
-
             if is_emitter:
-                add("Cards", FPI.format_projectile_value(mv, "proj_emit_count"), important=True, col="proj_emit_count")
-                add("KB X", FPI.format_projectile_value(mv, "kb_x"), important=True, col="kb_x")
-                add("KB Y", FPI.format_projectile_value(mv, "air_kb") or FPI.format_projectile_value(mv, "proj_kb_y"), important=True, col="air_kb")
-                add("Life", FPI.format_projectile_value(mv, "proj_ps_lifetime") or FPI.format_projectile_value(mv, "proj_life"), important=True, col="proj_ps_lifetime")
-                add("Origin", FPI.format_projectile_value(mv, "proj_spawn_origin"), important=True, col="proj_spawn_origin")
-                add("Hits", FPI.format_projectile_value(mv, "proj_ps_hit_count"), col="proj_ps_hit_count")
-                add("Interval", FPI.format_projectile_value(mv, "proj_ps_interval"), col="proj_ps_interval")
-                add("Speed", FPI.format_projectile_value(mv, "proj_speed"), important=True, col="proj_speed")
-                add("Accel", FPI.format_projectile_value(mv, "proj_accel"), col="proj_accel")
-                add("Scale", FPI.format_projectile_value(mv, "proj_ps_scale"), important=True, col="proj_ps_scale")
-                add("FX", FPI.format_projectile_value(mv, "proj_ps_particle_fx"), col="proj_ps_particle_fx")
-                add("Proj ID", FPI.format_projectile_value(mv, "proj_ps_projectile_id"), col="proj_ps_projectile_id")
-                add("Bone", FPI.format_projectile_value(mv, "proj_ps_spawn_bone"), col="proj_ps_spawn_bone")
+                fields = [
+                    ("Cards", "proj_emit_count", True), ("KB X", "kb_x", True), ("KB Y", "air_kb", True),
+                    ("Life", "proj_ps_lifetime", True), ("Origin", "proj_spawn_origin", True),
+                    ("Hits", "proj_ps_hit_count", False), ("Interval", "proj_ps_interval", False),
+                    ("Speed", "proj_speed", True), ("Accel", "proj_accel", False), ("Scale", "proj_ps_scale", True),
+                    ("FX", "proj_ps_particle_fx", False), ("Proj ID", "proj_ps_projectile_id", False),
+                    ("Bone", "proj_ps_spawn_bone", False),
+                ]
+                for label, col, important in fields:
+                    val = FPI.format_projectile_value(mv, col)
+                    if col == "proj_ps_lifetime":
+                        val = val or FPI.format_projectile_value(mv, "proj_life")
+                    if col == "air_kb":
+                        val = val or FPI.format_projectile_value(mv, "proj_kb_y")
+                    add(label, val, important=important, col=col)
             elif is_ps:
-                add("Card", FPI.format_projectile_value(mv, "proj_ps_card_type"), col="proj_ps_card_type")
-                add("Life", FPI.format_projectile_value(mv, "proj_ps_lifetime"), important=True, col="proj_ps_lifetime")
-                add("Hits", FPI.format_projectile_value(mv, "proj_ps_hit_count"), important=True, col="proj_ps_hit_count")
-                add("Emit", FPI.format_projectile_value(mv, "proj_ps_emit_count"), col="proj_ps_emit_count")
-                add("Interval", FPI.format_projectile_value(mv, "proj_ps_interval"), col="proj_ps_interval")
-                add("Mode", FPI.format_projectile_value(mv, "proj_ps_mode"), col="proj_ps_mode")
-                add("Spawn X", FPI.format_projectile_value(mv, "proj_ps_offset_x"), col="proj_ps_offset_x")
-                add("Spawn Y", FPI.format_projectile_value(mv, "proj_ps_offset_y"), col="proj_ps_offset_y")
-                add("Scale", FPI.format_projectile_value(mv, "proj_ps_scale"), important=True, col="proj_ps_scale")
-                add("FX", FPI.format_projectile_value(mv, "proj_ps_particle_fx"), col="proj_ps_particle_fx")
-                add("Proj ID", FPI.format_projectile_value(mv, "proj_ps_projectile_id"), col="proj_ps_projectile_id")
-                add("Bone", FPI.format_projectile_value(mv, "proj_ps_spawn_bone"), col="proj_ps_spawn_bone")
+                for label, col, important in [
+                    ("Card", "proj_ps_card_type", False), ("Life", "proj_ps_lifetime", True),
+                    ("Hits", "proj_ps_hit_count", True), ("Emit", "proj_ps_emit_count", False),
+                    ("Interval", "proj_ps_interval", False), ("Mode", "proj_ps_mode", False),
+                    ("Spawn X", "proj_ps_offset_x", False), ("Spawn Y", "proj_ps_offset_y", False),
+                    ("Scale", "proj_ps_scale", True), ("FX", "proj_ps_particle_fx", False),
+                    ("Proj ID", "proj_ps_projectile_id", False), ("Bone", "proj_ps_spawn_bone", False),
+                ]:
+                    add(label, FPI.format_projectile_value(mv, col), important=important, col=col)
             else:
-                add("ID", FPI.format_projectile_value(mv, "proj_id"))
-                add("Type", FPI.format_projectile_value(mv, "proj_type"))
+                for label, col, important in [
+                    ("ID", "proj_id", False), ("Type", "proj_type", False), ("Life", "proj_life", False),
+                    ("Origin", "proj_spawn_origin", True), ("Speed", "proj_speed", True), ("Accel", "proj_accel", False),
+                    ("Radius", "proj_radius", True), ("FX", "proj_fx", True), ("Hitbox", "proj_hitbox", False),
+                    ("Arc", "proj_arc", False), ("Arc 2", "proj_arc2", False),
+                ]:
+                    add(label, FPI.format_projectile_value(mv, col), important=important, col=col)
                 add("Tier", tier_txt)
-                add("Life", FPI.format_projectile_value(mv, "proj_life"))
-                add("Origin", FPI.format_projectile_value(mv, "proj_spawn_origin"), important=True, col="proj_spawn_origin")
-                add("Speed", FPI.format_projectile_value(mv, "proj_speed"), important=True, col="proj_speed")
-                add("Accel", FPI.format_projectile_value(mv, "proj_accel"), col="proj_accel")
-                add("Radius", FPI.format_projectile_value(mv, "proj_radius"), important=True, col="proj_radius")
-                add("FX", FPI.format_projectile_value(mv, "proj_fx"), important=True, col="proj_fx")
-                add("Hitbox", FPI.format_projectile_value(mv, "proj_hitbox"), col="proj_hitbox")
-                kx = FPI.format_projectile_value(mv, "kb_x")
-                ky = FPI.format_projectile_value(mv, "proj_kb_y") or FPI.format_projectile_value(mv, "air_kb")
-                add("KB X", kx, important=True, col="kb_x")
-                add("KB Y", ky, important=True, col="air_kb")
-                add("Arc", FPI.format_projectile_value(mv, "proj_arc"), col="proj_arc")
-                add("Arc 2", FPI.format_projectile_value(mv, "proj_arc2"))
-
-            # Shinkuu/Kikosho/Disco Ball-style super-beam cards keep their
-            # separate controls. Compact 00/23 cards do not use these fields.
-            add("Lifetime", FPI.format_projectile_value(mv, "proj_super_lifetime"), important=True, col="proj_super_lifetime")
-            add("Hit Count", FPI.format_projectile_value(mv, "proj_super_hit_count"), important=True, col="proj_super_hit_count")
-            add("Interval", FPI.format_projectile_value(mv, "proj_super_hit_interval"), col="proj_super_hit_interval")
-            add("FX", FPI.format_projectile_value(mv, "proj_super_particle_fx"), col="proj_super_particle_fx")
-            add("Spawn Bone", FPI.format_projectile_value(mv, "proj_super_spawn_bone"), col="proj_super_spawn_bone")
-            add("Hit Source", FPI.format_projectile_value(mv, "proj_super_hit_source"), col="proj_super_hit_source")
-            add("Beam Speed", FPI.format_projectile_value(mv, "proj_super_beam_speed"), important=True, col="proj_super_beam_speed")
-            add("Beam Force", FPI.format_projectile_value(mv, "proj_super_beam_force"), col="proj_super_beam_force")
-            add("Hit Radius", FPI.format_projectile_value(mv, "proj_super_hit_radius"), important=True, col="proj_super_hit_radius")
-            add("Visual", FPI.format_projectile_value(mv, "proj_super_beam_visual"), col="proj_super_beam_visual")
-            add("Final Dmg", FPI.format_projectile_value(mv, "proj_final_damage"), important=True, col="proj_final_damage")
-            add("Final FX", FPI.format_projectile_value(mv, "proj_final_particle_fx"), col="proj_final_particle_fx")
-        else:
-            try:
-                if sub_var is not None:
-                    parts = []
-                    if kind:
-                        parts.append(f"{kind}")
-                    aid = mv.get("id")
-                    if aid is not None:
-                        parts.append(f"Anim 0x{int(aid):04X}")
-                    abs_addr = mv.get("abs")
-                    if abs_addr:
-                        parts.append(f"0x{int(abs_addr):08X}")
-                    sub_var.set(" | ".join(parts) if parts else "Frame-data row")
-            except Exception:
-                pass
+                add("KB X", FPI.format_projectile_value(mv, "kb_x"), important=True, col="kb_x")
+                add("KB Y", FPI.format_projectile_value(mv, "proj_kb_y") or FPI.format_projectile_value(mv, "air_kb"), important=True, col="air_kb")
             for label, col, important in [
-                ("Damage", "damage", True),
-                ("Meter", "meter", False),
-                ("Start", "startup", False),
-                ("Active", "active", True),
-                ("HS", "hitstun", False),
-                ("BS", "blockstun", False),
-                ("Stop", "hitstop", False),
-                ("Spark", "hit_spark", False),
-                ("Reach", "stretch_len", True),
-                ("Post Link", "post_link", False),
-                ("KB Style", "kb_type", False),
-                ("Extra Launch", "launch_profile", False),
-                ("Launch Adj", "kb_unknown", False),
-                ("KB X", "kb_x", True),
-                ("Arc", "air_kb", True),
-                ("Speed", "speed_mod", False),
-                ("Property", "attack_property", False),
-                ("React", "hit_reaction", False),
-                ("Invuln", "invuln", True),
-                ("SuperBG", "superbg", False),
+                ("Lifetime", "proj_super_lifetime", True), ("Hit Count", "proj_super_hit_count", True),
+                ("Interval", "proj_super_hit_interval", False), ("FX", "proj_super_particle_fx", False),
+                ("Spawn Bone", "proj_super_spawn_bone", False), ("Hit Source", "proj_super_hit_source", False),
+                ("Beam Speed", "proj_super_beam_speed", True), ("Beam Force", "proj_super_beam_force", False),
+                ("Hit Radius", "proj_super_hit_radius", True), ("Visual", "proj_super_beam_visual", False),
+                ("Final Dmg", "proj_final_damage", True), ("Final FX", "proj_final_particle_fx", False),
+            ]:
+                add(label, FPI.format_projectile_value(mv, col), important=important, col=col)
+        else:
+            parts = []
+            if kind:
+                parts.append(kind)
+            aid = mv.get("id")
+            if aid is not None:
+                try:
+                    parts.append(f"Anim 0x{int(aid):04X}")
+                except Exception:
+                    pass
+            abs_addr = mv.get("abs")
+            if abs_addr:
+                try:
+                    parts.append(f"0x{int(abs_addr):08X}")
+                except Exception:
+                    pass
+            _set_text(sub_var, " | ".join(parts) if parts else "Frame-data row")
+            for label, col, important in [
+                ("Damage", "damage", True), ("Meter", "meter", False), ("Start", "startup", False),
+                ("Active", "active", True), ("HS", "hitstun", False), ("BS", "blockstun", False),
+                ("Stop", "hitstop", False), ("Spark", "hit_spark", False), ("Reach", "stretch_len", True),
+                ("Post Link", "post_link", False), ("KB Style", "kb_type", False),
+                ("Extra Launch", "launch_profile", False), ("Launch Adj", "kb_unknown", False),
+                ("KB X", "kb_x", True), ("Arc", "air_kb", True), ("Speed", "speed_mod", False),
+                ("Property", "attack_property", False), ("React", "hit_reaction", False),
+                ("Invuln", "invuln", True), ("SuperBG", "superbg", False),
             ]:
                 add(label, _tree_val(col), important=important, col=col)
 
-        if not chips:
+        if empty_label is not None:
             try:
-                ttk.Label(frame, text="No parsed values for this row yet.", style="CardMuted.TLabel").pack(anchor="w")
+                if chips:
+                    empty_label.grid_remove()
+                else:
+                    empty_label.grid(row=0, column=0, columnspan=6, sticky="w")
             except Exception:
                 pass
-            return
 
-        try:
-            # A small chip grid reads better than one long packed text string.
-            # Keep labels muted and values boxed so projectiles/supers feel like
-            # a compact stat card instead of another spreadsheet row.
-            max_cols = 6
-            for idx, (label, value, flavor, col) in enumerate(chips[:30]):
-                cell = ttk.Frame(frame, style="Card.TFrame")
-                cell.grid(row=idx // max_cols, column=idx % max_cols, sticky="ew", padx=(0, 8), pady=(0, 5))
-                lab = ttk.Label(cell, text=label, style="CardMuted.TLabel")
-                lab.pack(anchor="w")
-                value_style = "QuickImportant.TLabel" if flavor == "important" else "QuickValue.TLabel"
-                val = ttk.Label(cell, text=value, style=value_style, anchor="center")
-                val.pack(fill="x")
-                if col and hasattr(self, "_edit_selected_column") and col not in {"kind", "hits", "link", "invuln", "abs"}:
+        for idx, slot in enumerate(slots):
+            if idx >= len(chips) or idx >= 30:
+                slot["col"] = None
+                if slot.get("visible"):
                     try:
-                        cell.configure(cursor="hand2")
-                        lab.configure(cursor="hand2")
-                        val.configure(cursor="hand2")
-                        cell.bind("<Button-1>", lambda _e, c=col: self._edit_selected_column(c))
-                        lab.bind("<Button-1>", lambda _e, c=col: self._edit_selected_column(c))
-                        val.bind("<Button-1>", lambda _e, c=col: self._edit_selected_column(c))
+                        slot["cell"].grid_remove()
                     except Exception:
                         pass
-            for col_i in range(max_cols):
-                frame.grid_columnconfigure(col_i, weight=1)
-        except Exception:
-            pass
+                    slot["visible"] = False
+                continue
+            label, value, flavor, col = chips[idx]
+            style = "QuickImportant.TLabel" if flavor == "important" else "QuickValue.TLabel"
+            editable = bool(col and col not in {"kind", "hits", "link", "invuln", "abs"})
+            slot["col"] = col if editable else None
+            try:
+                if slot.get("label_value") != label:
+                    slot["label_var"].set(label)
+                    slot["label_value"] = label
+                if slot.get("text_value") != value:
+                    slot["value_var"].set(value)
+                    slot["text_value"] = value
+                state = (style, editable)
+                if slot.get("style_state") != state:
+                    cursor = "hand2" if editable else ""
+                    slot["cell"].configure(cursor=cursor)
+                    slot["label_widget"].configure(cursor=cursor)
+                    slot["value_widget"].configure(cursor=cursor, style=style)
+                    slot["style_state"] = state
+                if not slot.get("visible"):
+                    slot["cell"].grid()
+                    slot["visible"] = True
+            except Exception:
+                pass
 
     def _tree_has_column(self, col_name: str) -> bool:
         try:
@@ -1465,7 +1620,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return False
 
     def _set_tree_value_if_present(self, item_id: str | None, col_name: str, value: str) -> None:
-        if not item_id or not self._tree_has_column(col_name):
+        """Write a late-resolved optional cell only when it has a real value.
+
+        Optional profile fields only ever fill in; selection should not issue a
+        dozen empty Tcl ``tree.set`` calls for every cached normal row.
+        """
+        if not item_id or value in (None, "") or not self._tree_has_column(col_name):
             return
         try:
             self.tree.set(item_id, col_name, value)
@@ -1487,15 +1647,23 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # Any of these blank addresses means the row has not had the loose
         # pattern pass yet.  Missing packets are normal for many moves, so the
         # worker marks the row done after one pass to avoid re-probing it every
-        # time the user clicks the row.
+        # time the user clicks the row.  Hit-result/OTG lookup lives here too,
+        # rather than in first-open tree construction.
         return any(mv.get(k) is None for k in (
             "hit_spark_addr", "stretch_packet_addr", "post_link_addr",
             "speed_mod_addr", "attack_property_addr", "superbg_addr",
+            "hit_result_addr",
         ))
 
-    def _sync_optional_tree_cells_for_move(self, mv: dict | None, item_id: str | None = None) -> None:
-        """Copy already-known optional values into the tree without scanning."""
+    def _sync_optional_tree_cells_for_move(self, mv: dict | None, item_id: str | None = None, *, force: bool = False) -> None:
+        """Copy already-known optional values into the tree without scanning.
+
+        A profile row is already formatted during initial population.  Do this
+        at most once per row unless a background/manual refresh has changed it.
+        """
         if not isinstance(mv, dict):
+            return
+        if not force and mv.get("_optional_tree_synced"):
             return
         self._set_tree_value_if_present(item_id, "hit_spark", U.fmt_hit_spark_ui(mv))
         self._set_tree_value_if_present(item_id, "stretch_part", U.fmt_stretch_part_ui(mv))
@@ -1510,12 +1678,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._set_tree_value_if_present(item_id, "attack_property", fmt_attack_property(mv.get("attack_property")))
         if mv.get("superbg_addr"):
             self._set_tree_value_if_present(item_id, "superbg", U.fmt_superbg(mv.get("superbg_val")))
+        if mv.get("hit_result_addr"):
+            self._set_tree_value_if_present(item_id, "hit_result_flags", U.fmt_hit_result_flags_ui(mv))
         if mv.get("proj_radius") is not None:
             try:
                 radius_txt = f"{float(mv.get('proj_radius')):.2f}" if mv.get("proj_radius") else ""
             except Exception:
                 radius_txt = ""
             self._set_tree_value_if_present(item_id, "proj_radius", radius_txt)
+        try:
+            mv["_optional_tree_synced"] = True
+        except Exception:
+            pass
 
     def _compute_optional_probe_updates(self, mv_snapshot: dict, *, force: bool = False) -> dict:
         """Pure/background-safe optional probe scanner.
@@ -1652,6 +1826,24 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception as e:
             updates["_optional_probe_superbg_error"] = repr(e)
 
+        # The OTG / hit-result finder used to run synchronously once per row at
+        # window creation.  Resolve it only for selected/refreshed rows in this
+        # worker so the first profile open stays immediate.
+        try:
+            if force or mv_snapshot.get("hit_result_addr") is None:
+                from fd_patterns import find_hit_result_flags_addr
+                pkt, addr, value, clear_mask, ctx = find_hit_result_flags_addr(move_abs, _cached_rbytes)
+                if addr is not None:
+                    updates.update({
+                        "hit_result_packet_addr": pkt,
+                        "hit_result_addr": addr,
+                        "hit_result_flags": value,
+                        "hit_result_clear_mask": clear_mask,
+                        "hit_result_sig": ctx,
+                    })
+        except Exception as e:
+            updates["_optional_probe_hit_result_error"] = repr(e)
+
         return updates
 
     def _start_optional_probe_worker_locked(self) -> None:
@@ -1743,7 +1935,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 continue
             try:
                 mv.update(updates or {})
-                self._sync_optional_tree_cells_for_move(mv, item_id)
+                self._sync_optional_tree_cells_for_move(mv, item_id, force=True)
                 self._apply_row_tags(item_id, mv)
             except Exception:
                 pass
@@ -1904,8 +2096,27 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._queue_lazy_link_probe()
 
     def _refresh_inspector(self, item_id: str | None = None, mv: dict | None = None):
+        """Render cached selected-row values with minimal Tcl churn.
+
+        This is deliberately a pure profile-view operation.  It does *not*
+        kick off an optional Dolphin scan just because the user clicked a row;
+        the Refresh button and a direct edit remain the explicit ways to probe
+        missing loose script fields.
+        """
         if not getattr(self, "_inspector_value_vars", None):
             return
+
+        def _set_var_cached(col: str, value: str):
+            text = str(value)
+            if self._inspector_value_cache.get(col) == text:
+                return
+            var = self._inspector_value_vars.get(col)
+            if var is not None:
+                try:
+                    var.set(text)
+                except Exception:
+                    return
+            self._inspector_value_cache[col] = text
 
         if not item_id or not mv or not self.tree:
             if self._inspector_title_var is not None:
@@ -1914,16 +2125,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 self._inspector_subtitle_var.set("Use the inspector for normal edits without parsing the whole grid.")
             if self._inspector_hint_var is not None:
                 self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
-            for var in self._inspector_value_vars.values():
-                try:
-                    var.set("-")
-                except Exception:
-                    pass
+            for col in self._inspector_value_vars:
+                _set_var_cached(col, "-")
             for col, btn in getattr(self, "_inspector_buttons", {}).items():
-                try:
-                    btn.configure(state=("disabled" if col != "abs" else "disabled"))
-                except Exception:
-                    pass
+                if self._inspector_button_state_cache.get(col) != "disabled":
+                    try:
+                        btn.configure(state="disabled")
+                    except Exception:
+                        pass
+                    self._inspector_button_state_cache[col] = "disabled"
             self._refresh_quick_panel(None, None)
             return
 
@@ -1932,64 +2142,88 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         aid = mv.get("id")
         abs_addr = mv.get("abs")
 
-        if self._inspector_title_var is not None:
+        if self._inspector_title_var is not None and self._inspector_title_var.get() != move_txt:
             self._inspector_title_var.set(move_txt)
-
         parts = [f"Kind: {kind}"]
         if aid is not None:
-            parts.append(f"Anim: 0x{int(aid):04X}")
+            try:
+                parts.append(f"Anim: 0x{int(aid):04X}")
+            except Exception:
+                pass
         if abs_addr:
-            parts.append(f"Address: 0x{int(abs_addr):08X}")
-        if self._inspector_subtitle_var is not None:
-            self._inspector_subtitle_var.set(" | ".join(parts))
+            try:
+                parts.append(f"Address: 0x{int(abs_addr):08X}")
+            except Exception:
+                pass
+        subtitle = " | ".join(parts)
+        if self._inspector_subtitle_var is not None and self._inspector_subtitle_var.get() != subtitle:
+            self._inspector_subtitle_var.set(subtitle)
+
         if self._inspector_hint_var is not None:
             changed = sum(1 for snap in self._dirty_cells.values() if snap.get("item_id") == item_id)
             if changed:
-                self._inspector_hint_var.set(f"Changed values on this move: {changed}. Click a changed chip to edit again, or use Reset changed.")
+                hint = f"Changed values on this move: {changed}. Click a changed chip to edit again, or use Reset changed."
             elif FSI.is_super_row(mv):
-                self._inspector_hint_var.set("Super dispatch rows are the caller layer. Selector/link are dangerous; phase length is the safest timing poke.")
+                hint = "Super dispatch rows are the caller layer. Selector/link are dangerous; phase length is the safest timing poke."
             elif FPI.is_projectile_emitter_row(mv):
-                self._inspector_hint_var.set("Emitter rows bulk-edit the projectile cards spawned by this barrage. Count is display-only; damage/life/speed/scale/FX edits apply to the grouped cards.")
+                hint = "Emitter rows bulk-edit the projectile cards spawned by this barrage. Count is display-only; damage/life/speed/scale/FX edits apply to the grouped cards."
             elif FPI.is_projectile_row(mv):
-                self._inspector_hint_var.set("Projectile/super values are promoted to the top here. Compact projectile-super cards use Life, Hits, Emit, Interval, FX, Proj ID, Bone, Spawn X/Y, and Scale.")
+                hint = "Projectile/super values are promoted to the top here. Compact projectile-super cards use Life, Hits, Emit, Interval, FX, Proj ID, Bone, Spawn X/Y, and Scale."
             else:
-                self._inspector_hint_var.set("Click any value chip to edit it. Address copies to the clipboard.")
+                hint = "Click any value chip to edit it. Address copies to the clipboard."
+            if self._inspector_hint_var.get() != hint:
+                self._inspector_hint_var.set(hint)
 
-        # Keep selection instant.  Do not run loose pattern probes here; queue
-        # them on the background worker and show whatever values are already
-        # known.  This is the big fix for click/scroll/edit freezes.
+        # Cached rows may carry optional data discovered during a previous
+        # explicit refresh.  Copy it once, but never scan from a selection.
         self._sync_optional_tree_cells_for_move(mv, item_id)
-        self._request_optional_probe(item_id, mv, priority=True, force=False, announce=False)
 
         all_cols = set(self.tree["columns"])
-        for col, var in self._inspector_value_vars.items():
+        for col in self._inspector_value_vars:
             try:
                 value = self.tree.set(item_id, col) if col in all_cols else ""
             except Exception:
                 value = ""
             if value is None or str(value).strip() == "":
                 value = "not found"
-            try:
-                var.set(str(value))
-            except Exception:
-                pass
+            _set_var_cached(col, str(value))
 
         writer_ok = bool(U.WRITER_AVAILABLE)
         for col, btn in getattr(self, "_inspector_buttons", {}).items():
-            try:
-                state_ok = writer_ok
-                if col == "move" and mv.get("_hit_segment_index") is not None:
-                    state_ok = False
-                btn.configure(state=("normal" if state_ok else "disabled"))
-            except Exception:
-                pass
+            state_ok = writer_ok and not (col == "move" and mv.get("_hit_segment_index") is not None)
+            state = "normal" if state_ok else "disabled"
+            if self._inspector_button_state_cache.get(col) != state:
+                try:
+                    btn.configure(state=state)
+                except Exception:
+                    pass
+                self._inspector_button_state_cache[col] = state
 
+        # Do not call _configure_inspector_chip_style for every field.  That
+        # helper re-queries selection and dirty state one widget at a time;
+        # cache the actual style state instead.
         for col, widget in getattr(self, "_inspector_value_widgets", {}).items():
+            static = (
+                col in {"kind", "hits", "link", "invuln"}
+                or col in FPI.PROJECTILE_STATIC_COLUMNS
+                or (col.startswith("proj_") and FPI.is_projectile_row(mv) and not FPI.projectile_editable(col))
+                or (col.startswith("proj_") and not FPI.is_projectile_row(mv))
+                or (col.startswith("dispatch_") and not FSI.is_super_row(mv))
+                or (col.startswith("dispatch_") and FSI.is_super_row(mv) and not FSI.super_editable(col))
+                or (col == "abs" and not abs_addr)
+            )
+            dirty = False if static else self._is_col_dirty(item_id, col)
+            style_key = ("static",) if static else (("dirty",) if dirty else ("edit",))
+            if self._inspector_chip_style_cache.get(col) == style_key:
+                continue
             try:
-                if col in {"kind", "hits", "link", "invuln"} or col in FPI.PROJECTILE_STATIC_COLUMNS or (col.startswith("proj_") and FPI.is_projectile_row(mv) and not FPI.projectile_editable(col)) or (col.startswith("proj_") and not FPI.is_projectile_row(mv)) or (col == "abs" and not abs_addr):
+                if static:
                     widget.configure(cursor="", style="ValueStatic.TLabel")
+                elif dirty:
+                    widget.configure(cursor="hand2", style="ValueChanged.TLabel")
                 else:
-                    self._configure_inspector_chip_style(widget, col, hover=False)
+                    widget.configure(cursor="hand2", style="ValueChip.TLabel")
+                self._inspector_chip_style_cache[col] = style_key
             except Exception:
                 pass
 
@@ -2063,6 +2297,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             for title in ["Super dispatch", "Projectile emitter", "Projectile super", "Projectile data", "Super beam", "Final hit", "Projectile super probes"]:
                 if title in order and not _section_has(title):
                     order.remove(title)
+
+        # Normal -> normal selection has the same card arrangement.  Repacking
+        # a scrollable sidebar on every click is expensive and was the other
+        # half of the perceived selection lag.
+        layout_signature = tuple(order)
+        if getattr(self, "_inspector_layout_signature", None) == layout_signature:
+            return
+        self._inspector_layout_signature = layout_signature
 
         seen = set(order)
         for title, card, _fields in sections:
@@ -2525,7 +2767,26 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             pass
         self._status_var.set(" | ".join(s) if s else "Ready")
 
+    def _render_selected_row_after_idle(self, generation: int, item_id: str):
+        self._selection_render_after_id = None
+        if generation != int(getattr(self, "_selection_render_generation", 0) or 0):
+            return
+        if not self.tree or not self.root:
+            return
+        try:
+            sel = self.tree.selection()
+        except Exception:
+            return
+        if not sel or sel[0] != item_id:
+            return
+        mv = self.move_to_tree_item.get(item_id)
+        if not mv:
+            self._refresh_inspector(None, None)
+            return
+        self._refresh_inspector(item_id, mv)
+
     def _on_select(self, _evt=None):
+        """Keep the Treeview click path tiny and render details after paint."""
         sel = self.tree.selection()
         if not sel:
             self._last_selected_item_id = None
@@ -2533,9 +2794,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._refresh_inspector(None, None)
             return
         item = sel[0]
-        # Tk can fire duplicate selection events while focus/scrolling changes.
-        # Rebuilding the quick strip and sidebar for the same row again makes
-        # the menu feel sluggish, so skip duplicate event-driven refreshes.
         if _evt is not None and getattr(self, "_last_selected_item_id", None) == item:
             return
         self._last_selected_item_id = item
@@ -2545,7 +2803,23 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._refresh_inspector(None, None)
             return
         self._set_status_for_item(item, mv)
-        self._refresh_inspector(item, mv)
+
+        # Let Tk paint the selection highlight immediately.  Rapid keyboard or
+        # mouse navigation cancels stale detail renders rather than making the
+        # sidebar chase every intermediate row.
+        self._selection_render_generation = int(getattr(self, "_selection_render_generation", 0) or 0) + 1
+        generation = self._selection_render_generation
+        try:
+            if self._selection_render_after_id is not None:
+                self.root.after_cancel(self._selection_render_after_id)
+        except Exception:
+            pass
+        try:
+            self._selection_render_after_id = self.root.after_idle(
+                lambda g=generation, iid=item: self._render_selected_row_after_idle(g, iid)
+            )
+        except Exception:
+            self._refresh_inspector(item, mv)
 
     # ---------- Expand/collapse/filter ----------
 

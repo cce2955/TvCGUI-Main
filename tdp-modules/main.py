@@ -4329,15 +4329,15 @@ def compute_team_giant_solo(snaps: dict) -> tuple[bool, bool]:
 
 
 def ensure_scan_now(last_scan_normals, last_scan_time):
-    if last_scan_normals is not None:
-        return last_scan_normals, last_scan_time
-    if HAVE_SCAN_NORMALS and scan_normals_all is not None:
-        try:
-            data = scan_normals_all.scan_once()
-            return data, time.time()
-        except Exception as e:
-            print("sync scan failed:", e)
-    return None, last_scan_time
+    """Return only the already-ready background snapshot.
+
+    A profile cache can be tens of megabytes and rebasing/refeshing its move
+    packets is still real work.  That work belongs to ScanNormalsWorker, never
+    to the pygame click handler.  The Frame Data button therefore opens from
+    the most recent ready snapshot, or waits for the normal background refresh
+    when no snapshot exists yet.
+    """
+    return last_scan_normals, last_scan_time
 
 
 def _fd_missing_profile_signature(scan_rows) -> tuple:
@@ -6456,6 +6456,10 @@ def legacy_main():
                 ("P1-C2", btn_p1c2), ("P2-C2", btn_p2c2),
             ]:
                 if btn_rect.collidepoint(mx, my):
+                    # Strict no-stall launch: use the ready worker snapshot only.
+                    # If the round/character just changed and the worker has not
+                    # finished rebasing its profile yet, request it in the
+                    # background instead of turning this click into a cache scan.
                     last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
                     if _fd_row_needs_dynamic_profile(slot_label, last_scan_normals) and scan_worker:
                         try:
@@ -6465,6 +6469,12 @@ def legacy_main():
                             scan_worker.request()
                     if last_scan_normals:
                         open_frame_data_window(slot_label, last_scan_normals)
+                    elif scan_worker:
+                        try:
+                            scan_worker.request()
+                            print("[fd profile] Frame Data snapshot is warming on the background worker; click again once it is ready")
+                        except Exception:
+                            pass
                     panel_btn_flash[slot_label] = PANEL_FLASH_FRAMES
                     break
 

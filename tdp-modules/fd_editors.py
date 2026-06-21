@@ -11,6 +11,7 @@ from fd_dialogs import ReplaceMoveDialog
 
 from fd_patterns import (
     find_combo_kb_mod_addr,
+    find_hit_result_flags_addr,
     find_superbg_addr,
     SUPERBG_ON,
 )
@@ -156,7 +157,35 @@ class FDCellEditorsMixin:
             messagebox.showerror("Combo KB Mod", "Failed to write Combo KB Mod byte.")
 
 
+    def _ensure_hit_result_flags(self, mv) -> None:
+        """Resolve the OTG / hit-result packet only for the row being edited.
+
+        First-open profile rendering deliberately avoids this loose 0x900-byte
+        scan for every move.  Keeping this fallback here preserves the old
+        edit behavior without making the whole workbench wait on Dolphin.
+        """
+        if not isinstance(mv, dict) or mv.get("hit_result_addr") is not None:
+            return
+        try:
+            move_abs = int(mv.get("abs") or 0)
+        except Exception:
+            move_abs = 0
+        if not move_abs:
+            return
+        try:
+            from dolphin_io import rbytes
+            pkt, addr, value, clear_mask, ctx = find_hit_result_flags_addr(move_abs, rbytes)
+        except Exception:
+            pkt = addr = value = clear_mask = ctx = None
+        if addr is not None:
+            mv["hit_result_packet_addr"] = pkt
+            mv["hit_result_addr"] = addr
+            mv["hit_result_flags"] = value
+            mv["hit_result_clear_mask"] = clear_mask
+            mv["hit_result_sig"] = ctx
+
     def _edit_hit_result_flags(self, item, mv, current: str):
+        self._ensure_hit_result_flags(mv)
         addr = mv.get("hit_result_addr")
         if not addr:
             messagebox.showerror(
