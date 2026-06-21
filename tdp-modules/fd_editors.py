@@ -29,7 +29,7 @@ from fd_write_helpers import (
 )
 
 import fd_utils as U
-from fd_widgets import ManualAnimIDDialog, get_field_help, ask_integer_with_help, ask_float_with_help, ask_hit_result_flags_with_presets
+from fd_widgets import ManualAnimIDDialog, get_field_help, ask_integer_with_help, ask_float_with_help, ask_hit_result_flags_with_presets, apply_titlebar_icon, configure_light_dialog, build_dialog_shell, make_list_picker, finalize_dialog_geometry
 
 
 class FDCellEditorsMixin:
@@ -61,29 +61,25 @@ class FDCellEditorsMixin:
 
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Active 2 Frames")
-        dlg.geometry("420x245")
-
-        tk.Label(
-            dlg,
-            text=get_field_help("active2"),
-            fg="gray",
-            wraplength=390,
-            justify="left",
-        ).pack(anchor="w", padx=12, pady=(10, 6))
-
-        tk.Label(dlg, text="Active 2 Start Frame:", font=("Arial", 10)).pack(pady=3)
-        sv = tk.IntVar(value=cur_s)
-        tk.Entry(dlg, textvariable=sv, font=("Arial", 10)).pack()
-
-        tk.Label(dlg, text="Active 2 End Frame:", font=("Arial", 10)).pack(pady=3)
-        ev = tk.IntVar(value=cur_e)
-        tk.Entry(dlg, textvariable=ev, font=("Arial", 10)).pack()
-
+        configure_light_dialog(dlg, self.root, width=440, height=260)
         addr = mv.get("active2_addr")
-        if addr:
-            tk.Label(dlg, text=f"Address: 0x{addr:08X}", fg="gray", font=("Arial", 9)).pack(pady=5)
-        else:
-            tk.Label(dlg, text="No address found", fg="red", font=("Arial", 9)).pack(pady=5)
+        outer = build_dialog_shell(
+            dlg,
+            title_text="Active 2 Frames",
+            help_text=get_field_help("active2"),
+            current_text=f"Current: {cur_s}-{cur_e}",
+            address=addr if addr else None,
+            wrap=400,
+        )
+        tk.Label(outer, text="Manual entry:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(6, 2))
+        row1 = tk.Frame(outer, bg="#F3F4F7"); row1.pack(anchor="w", pady=3)
+        tk.Label(row1, text="Start frame:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10)).pack(side="left")
+        sv = tk.IntVar(value=cur_s)
+        ttk.Entry(row1, textvariable=sv, width=10).pack(side="left", padx=(8,0))
+        row2 = tk.Frame(outer, bg="#F3F4F7"); row2.pack(anchor="w", pady=3)
+        tk.Label(row2, text="End frame:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10)).pack(side="left")
+        ev = tk.IntVar(value=cur_e)
+        ttk.Entry(row2, textvariable=ev, width=10).pack(side="left", padx=(11,0))
 
         def on_ok():
             s = int(sv.get())
@@ -99,7 +95,12 @@ class FDCellEditorsMixin:
                 messagebox.showerror("Error", "Failed to write Active 2 frames")
             dlg.destroy()
 
-        tk.Button(dlg, text="OK", command=on_ok, font=("Arial", 10)).pack(pady=10)
+        btns = tk.Frame(outer, bg="#F3F4F7")
+        btns.pack(fill="x", pady=(12, 0))
+        ttk.Button(btns, text="OK", command=on_ok).pack(side="right", padx=(6, 0))
+        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side="right")
+        finalize_dialog_geometry(dlg, 540, 440)
+        finalize_dialog_geometry(dlg, 440, 260)
 
     # ----- Combo KB Mod -----
 
@@ -304,8 +305,8 @@ class FDCellEditorsMixin:
         cur = U.ensure_int(current, 0)
         new_val = ask_integer_with_help(
             self.root,
-            title="Edit Hitstop",
-            prompt="New hitstop:",
+            title="Edit Hitstop (Unverified)",
+            prompt="New hitstop value (unverified):",
             help_text=get_field_help("hitstop"),
             initialvalue=cur,
             minvalue=0,
@@ -352,23 +353,25 @@ class FDCellEditorsMixin:
 
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Active Frames")
-        dlg.geometry("420x225")
-
-        tk.Label(
+        configure_light_dialog(dlg, self.root, width=460, height=280)
+        outer = build_dialog_shell(
             dlg,
-            text=get_field_help("active"),
-            fg="gray",
-            wraplength=390,
-            justify="left",
-        ).pack(anchor="w", padx=12, pady=(10, 6))
+            title_text="Active Frames",
+            help_text=get_field_help("active"),
+            current_text=f"Current: {cur_s}-{cur_e}",
+            address=mv.get("active_addr"),
+            wrap=420,
+        )
 
-        tk.Label(dlg, text="Active Start:").pack(pady=3)
+        tk.Label(outer, text="Manual entry:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(6, 2))
+        row1 = tk.Frame(outer, bg="#F3F4F7"); row1.pack(anchor="w", pady=3)
+        tk.Label(row1, text="Active start:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10)).pack(side="left")
         sv = tk.IntVar(value=cur_s)
-        tk.Entry(dlg, textvariable=sv).pack()
-
-        tk.Label(dlg, text="Active End:").pack(pady=3)
+        ttk.Entry(row1, textvariable=sv, width=10).pack(side="left", padx=(8, 0))
+        row2 = tk.Frame(outer, bg="#F3F4F7"); row2.pack(anchor="w", pady=3)
+        tk.Label(row2, text="Active end:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10)).pack(side="left")
         ev = tk.IntVar(value=cur_e)
-        tk.Entry(dlg, textvariable=ev).pack()
+        ttk.Entry(row2, textvariable=ev, width=10).pack(side="left", padx=(12, 0))
 
         def on_ok():
             s = int(sv.get())
@@ -383,7 +386,11 @@ class FDCellEditorsMixin:
                 self._notify_fd_cell_changed(item, mv, "active")
             dlg.destroy()
 
-        tk.Button(dlg, text="OK", command=on_ok).pack(pady=8)
+        btns = tk.Frame(outer, bg="#F3F4F7")
+        btns.pack(fill="x", pady=(12, 0))
+        ttk.Button(btns, text="OK", command=on_ok).pack(side="right", padx=(6, 0))
+        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side="right")
+        finalize_dialog_geometry(dlg, 460, 280)
 
     # ----- Stun fields -----
 
@@ -496,32 +503,40 @@ class FDCellEditorsMixin:
 
         dlg = tk.Toplevel(self.root)
         dlg.title(title)
-        dlg.geometry("460x240")
-        dlg.transient(self.root)
-        dlg.resizable(False, False)
+        configure_light_dialog(dlg, self.root, width=520, height=320)
+        outer = build_dialog_shell(
+            dlg,
+            title_text=label,
+            help_text=help_text,
+            current_text=f"Current: {current_text}",
+            address=mv.get("knockback_addr"),
+            wrap=470,
+        )
 
-        tk.Label(dlg, text=label, font=("Arial", 11, "bold")).pack(pady=(10, 3))
-        tk.Label(dlg, text=help_text, fg="gray", wraplength=430, justify="left").pack(padx=12, pady=(0, 8), anchor="w")
-
-        row = tk.Frame(dlg)
-        row.pack(fill="x", padx=14, pady=4)
-        tk.Label(row, text="Value:", width=10, anchor="w").pack(side="left")
         var = tk.StringVar(value=current_text)
-        ent = tk.Entry(row, textvariable=var, width=18)
+        if suggestions:
+            tk.Label(outer, text="Suggested values:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(6, 4))
+            sug_wrap = tk.Frame(outer, bg="#FFFFFF", bd=1, relief="solid")
+            sug_wrap.pack(fill="x", pady=(0, 8))
+            sug_inner = tk.Frame(sug_wrap, bg="#FFFFFF")
+            sug_inner.pack(fill="x", padx=6, pady=6)
+            for i, (txt, val) in enumerate(suggestions):
+                ttk.Button(sug_inner, text=txt, command=lambda v=val: var.set(formatter(v))).grid(row=0, column=i, padx=4, pady=2, sticky="ew")
+                try:
+                    sug_inner.grid_columnconfigure(i, weight=1)
+                except Exception:
+                    pass
+
+        tk.Label(outer, text="Manual entry:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(6, 2))
+        entry_row = tk.Frame(outer, bg="#F3F4F7")
+        entry_row.pack(anchor="w", fill="x")
+        ent = ttk.Entry(entry_row, textvariable=var, width=18)
         ent.pack(side="left")
         ent.focus_set()
         ent.selection_range(0, "end")
 
-        if suggestions:
-            sug = tk.LabelFrame(dlg, text="Suggested values")
-            sug.pack(fill="x", padx=14, pady=(8, 6))
-            for i, (txt, val) in enumerate(suggestions):
-                tk.Button(sug, text=txt, width=12, command=lambda v=val: var.set(formatter(v))).grid(
-                    row=0, column=i, padx=3, pady=5
-                )
-
-        btns = tk.Frame(dlg)
-        btns.pack(pady=10)
+        btns = tk.Frame(outer, bg="#F3F4F7")
+        btns.pack(fill="x", pady=(12, 0))
 
         def on_ok():
             try:
@@ -544,10 +559,11 @@ class FDCellEditorsMixin:
             else:
                 messagebox.showerror(title, "Failed to write value.")
 
-        tk.Button(btns, text="OK", width=10, command=on_ok).pack(side="left", padx=5)
-        tk.Button(btns, text="Cancel", width=10, command=dlg.destroy).pack(side="left", padx=5)
+        ttk.Button(btns, text="OK", command=on_ok).pack(side="right", padx=(6, 0))
+        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side="right")
         dlg.bind("<Return>", lambda _e: on_ok())
         dlg.bind("<Escape>", lambda _e: dlg.destroy())
+        finalize_dialog_geometry(dlg, 520, 320)
 
     def _edit_launch_profile(self, item, mv, current: str):
         cur = mv.get("launch_profile")
@@ -815,6 +831,7 @@ class FDCellEditorsMixin:
 
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Hit Physics Fields")
+        apply_titlebar_icon(dlg, self.root)
         dlg.geometry("820x860")
         dlg.transient(self.root)
 
@@ -1168,30 +1185,16 @@ class FDCellEditorsMixin:
 
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Hit Reaction")
-        dlg.geometry("520x420")
-
-        tk.Label(dlg, text="Hit Reaction Type", font=("Arial", 12, "bold")).pack(pady=5)
-        tk.Label(
+        configure_light_dialog(dlg, self.root, width=540, height=440)
+        outer = build_dialog_shell(
             dlg,
-            text=get_field_help("hit_reaction"),
-            fg="gray",
-            wraplength=490,
-            justify="left",
-        ).pack(anchor="w", padx=10, pady=(0, 5))
+            title_text="Hit Reaction Type",
+            help_text=get_field_help("hit_reaction"),
+            current_text=f"Current: {U.fmt_hit_reaction_ui(cur_hr)}" if cur_hr is not None else "",
+            wrap=500,
+        )
 
-        if cur_hr is not None:
-            tk.Label(dlg, text=f"Current: {U.fmt_hit_reaction_ui(cur_hr)}", fg="blue", font=("Arial", 10)).pack(pady=3)
-
-        tk.Label(dlg, text="Common Reactions:", font=("Arial", 10, "bold")).pack(anchor="w", padx=10, pady=(10, 5))
-
-        frame = tk.Frame(dlg)
-        frame.pack(fill="both", expand=True, padx=10, pady=5)
-
-        scrollbar = tk.Scrollbar(frame)
-        scrollbar.pack(side="right", fill="y")
-
-        listbox = tk.Listbox(frame, yscrollcommand=scrollbar.set)
-        scrollbar.config(command=listbox.yview)
+        tk.Label(outer, text="Common Reactions:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(8, 4))
 
         common_vals = [
             0x000000, 0x000001, 0x000002, 0x000003, 0x000004,
@@ -1202,32 +1205,28 @@ class FDCellEditorsMixin:
             0x001003,
         ]
         common = [(v, U.HIT_REACTION_MAP.get(v, "Unknown")) for v in common_vals]
-
-        for val, desc in common:
-            listbox.insert("end", f"0x{val:06X}: {desc}")
-
-        listbox.pack(fill="both", expand=True)
+        _frame, listbox = make_list_picker(outer, items=[f"0x{val:06X}: {desc}" for val, desc in common], height=10)
 
         selected_val = tk.IntVar(value=cur_hr or 0)
+        tk.Label(outer, text="Manual entry:", bg="#F3F4F7", fg="#111111", font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(8, 2))
+        entry_row = tk.Frame(outer, bg="#F3F4F7")
+        entry_row.pack(anchor="w", fill="x")
+        hex_var = tk.StringVar(master=dlg, value=f"0x{cur_hr:06X}" if cur_hr is not None else "0x000000")
+        hex_entry = ttk.Entry(entry_row, textvariable=hex_var, width=18)
+        hex_entry.pack(side="left")
 
-        tk.Label(dlg, text="Or enter hex/decimal value:", font=("Arial", 10)).pack(anchor="w", padx=10, pady=(10, 0))
-        hex_entry = tk.Entry(dlg, width=20)
-        hex_entry.insert(0, f"0x{cur_hr:06X}" if cur_hr is not None else "0x000000")
-        hex_entry.pack(anchor="w", padx=10)
-
-        def on_select(_evt):
+        def on_select(_evt=None):
             sel = listbox.curselection()
             if not sel:
                 return
             val, _desc = common[sel[0]]
             selected_val.set(val)
-            hex_entry.delete(0, tk.END)
-            hex_entry.insert(0, f"0x{val:06X}")
+            hex_var.set(f"0x{val:06X}")
 
         listbox.bind("<<ListboxSelect>>", on_select)
 
         def on_ok():
-            val = U.parse_hit_reaction_input(hex_entry.get())
+            val = U.parse_hit_reaction_input(hex_var.get())
             if val is None:
                 val = int(selected_val.get())
 
@@ -1237,7 +1236,11 @@ class FDCellEditorsMixin:
                 self._notify_fd_cell_changed(item, mv, "hit_reaction")
             dlg.destroy()
 
-        tk.Button(dlg, text="OK", command=on_ok).pack(pady=10)
+        btns = tk.Frame(outer, bg="#F3F4F7")
+        btns.pack(fill="x", pady=(12, 0))
+        ttk.Button(btns, text="OK", command=on_ok).pack(side="right", padx=(6, 0))
+        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side="right")
+        finalize_dialog_geometry(dlg, 440, 260)
 
     # ----- Hitbox -----
 
@@ -1301,6 +1304,7 @@ class FDCellEditorsMixin:
     def _edit_hitbox_simple(self, item, mv, cands):
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Hitbox Values")
+        apply_titlebar_icon(dlg, self.root)
         dlg.transient(self.root)
         dlg.grab_set()
 
@@ -1351,6 +1355,7 @@ class FDCellEditorsMixin:
     def _edit_hitbox_scrollable(self, item, mv, cands):
         dlg = tk.Toplevel(self.root)
         dlg.title("Edit Hitbox Values")
+        apply_titlebar_icon(dlg, self.root)
         dlg.transient(self.root)
         dlg.grab_set()
         dlg.geometry("400x500")

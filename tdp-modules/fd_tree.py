@@ -166,7 +166,12 @@ def _indent_move_text(tree: ttk.Treeview, parent: str, text: str) -> str:
     if not parent:
         return text
     depth = max(1, _tree_depth(tree, parent) + 1)
-    return ("    " * depth) + text
+    prefix = ("    " * max(0, depth - 1)) + ("↳ " if depth >= 1 else "")
+    return prefix + text
+
+
+def _decorate_move_text(tree: ttk.Treeview, parent: str, text: str, mv: dict | None) -> str:
+    return _indent_move_text(tree, parent, text)
 
 
 def _rank_bucket(win, mv: dict):
@@ -245,8 +250,26 @@ def configure_styles(root: tk.Toplevel) -> None:
     style.configure("ValueChanged.TLabel", background="#2B2412", foreground="#FFE3A3", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
     style.configure("ValueChangedHover.TLabel", background="#3A2E12", foreground="#FFE9B8", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
     style.configure("ValueStatic.TLabel", background=bg_card, foreground=txt_main, padding=(7, 3), font=("Segoe UI", 9))
+    # Selection-strip values are display tiles, not Entry lookalikes.  The old
+    # outlined value labels made the cached summary read like an office form.
+    # These use a quiet card surface, a thin color rail, and a larger number so
+    # the row feels like a fighting-game stat readout instead.
     style.configure("QuickValue.TLabel", background=bg_entry, foreground=txt_main, borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI", 9))
     style.configure("QuickImportant.TLabel", background="#173A5D", foreground="#ECF7FF", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
+    style.configure("QuickImportantHover.TLabel", background="#245178", foreground="#FFFFFF", borderwidth=1, relief="solid", padding=(7, 3), font=("Segoe UI Semibold", 9))
+
+    quick_tile_specs = {
+        "QuickTile": ("#16253A", "#9DB2CC", "#F0F6FF"),
+        "QuickImportantTile": ("#173452", "#B8D8FF", "#FFFFFF"),
+        "QuickOtgOnTile": ("#20354E", "#A9D9FF", "#FFFFFF"),
+        "QuickOtgOffTile": ("#1C2D3C", "#9BB3BF", "#E8F5F7"),
+        "QuickMissingTile": ("#172131", "#7E91AA", "#A8B7C9"),
+    }
+    for _base, (_bg, _label_fg, _value_fg) in quick_tile_specs.items():
+        style.configure(f"{_base}.TFrame", background=_bg, borderwidth=0, relief="flat")
+        style.configure(f"{_base}Label.TLabel", background=_bg, foreground=_label_fg, font=("Segoe UI Semibold", 8))
+        style.configure(f"{_base}Value.TLabel", background=_bg, foreground=_value_fg, font=("Segoe UI Semibold", 11), padding=(0, 1, 0, 0))
+    style.configure("QuickInlineColon.TLabel", background="#16253A", foreground="#8FA7C3", font=("Segoe UI Semibold", 8))
     style.configure("Section.TLabel", background=bg_card, foreground=txt_accent, font=("Segoe UI Semibold", 9))
     style.configure("InspectorTitle.TLabel", background=bg_panel, foreground=txt_main, font=("Segoe UI Semibold", 13))
     style.configure("InspectorSub.TLabel", background=bg_panel, foreground=txt_muted, font=("Segoe UI", 9))
@@ -264,7 +287,7 @@ def configure_styles(root: tk.Toplevel) -> None:
         rowheight=24,
         font=("Segoe UI", 9),
     )
-    style.map("Treeview", background=[("selected", bg_select)], foreground=[("selected", txt_main)])
+    style.map("Treeview", background=[("selected", "#355F95")], foreground=[("selected", "#FFFFFF")])
 
     style.configure(
         "Treeview.Heading",
@@ -326,6 +349,73 @@ def configure_styles(root: tk.Toplevel) -> None:
         foreground=[("active", "#FFFFFF")],
     )
 
+    # Polished workbench chrome. Major regions have a restrained card edge;
+    # ordinary read-only data stays flat so the UI does not become a grid of
+    # nested boxes.
+    style.configure("WorkbenchBar.TFrame", background="#1B2940", borderwidth=0, relief="flat")
+    style.configure("CommandBar.TFrame", background="#18263D", borderwidth=0, relief="flat")
+    style.configure("WorkbenchTitle.TLabel", background="#1A2940", foreground="#F6FAFF", font=("Segoe UI Semibold", 13))
+    style.configure("WorkbenchSubtitle.TLabel", background="#1A2940", foreground="#A6B8CC", font=("Segoe UI", 9))
+    style.configure("CommandLabel.TLabel", background="#17253B", foreground="#A8BDD5", font=("Segoe UI Semibold", 8))
+    style.configure("CommandMuted.TLabel", background="#17253B", foreground="#9AAFCA", font=("Segoe UI", 8))
+    style.configure("SortBadge.TLabel", background="#203854", foreground="#CFE6FF", borderwidth=0, relief="flat", padding=(8, 4), font=("Segoe UI Semibold", 8))
+    style.configure("Badge.TLabel", background="#24354D", foreground="#D6E7FF", borderwidth=0, relief="flat", padding=(8, 4), font=("Segoe UI Semibold", 8))
+    style.configure("BadgeGood.TLabel", background="#21433B", foreground="#C9F5D8", borderwidth=0, relief="flat", padding=(8, 4), font=("Segoe UI Semibold", 8))
+    style.configure("BadgeWarn.TLabel", background="#51402A", foreground="#FFE9B8", borderwidth=0, relief="flat", padding=(8, 4), font=("Segoe UI Semibold", 8))
+    style.configure("Toolbar.TButton", background="#223650", foreground=txt_main, bordercolor="#2D4563", lightcolor="#385778", darkcolor="#182538", font=("Segoe UI", 8), padding=(10, 5))
+    style.map("Toolbar.TButton", background=[("active", "#2D476A"), ("pressed", "#385778")])
+    style.configure("ToolbarPrimary.TButton", background="#34679A", foreground="#FFFFFF", bordercolor="#5F8FC2", lightcolor="#76A4D6", darkcolor="#1F3C5D", font=("Segoe UI Semibold", 8), padding=(10, 5))
+    style.map("ToolbarPrimary.TButton", background=[("active", "#3971AA"), ("pressed", "#24547F")])
+    style.configure("CompareDelta.TFrame", background="#17263C", borderwidth=0)
+    style.configure("CompareDeltaChip.TFrame", background="#1A2C44", borderwidth=1, relief="solid")
+    style.configure("CompareDeltaLabel.TLabel", background="#1A2C44", foreground="#8FB0D1", font=("Segoe UI", 7))
+    style.configure("CompareDeltaValue.TLabel", background="#1A2C44", foreground="#F3F8FF", font=("Segoe UI Semibold", 9))
+    style.configure("CompareDeltaPos.TLabel", background="#1A2C44", foreground="#9FE3B1", font=("Segoe UI Semibold", 9))
+    style.configure("CompareDeltaNeg.TLabel", background="#1A2C44", foreground="#FFB6B6", font=("Segoe UI Semibold", 9))
+    style.configure("CompareDeltaNeutral.TLabel", background="#1A2C44", foreground="#C9D6E6", font=("Segoe UI Semibold", 9))
+    style.configure("MoveTableHint.TLabel", background=bg_card, foreground="#8FA6C2", font=("Segoe UI", 8))
+    style.configure("Toolbar.TMenubutton", background="#223650", foreground=txt_main, bordercolor="#2D4563", lightcolor="#385778", darkcolor="#182538", font=("Segoe UI", 8), padding=(10, 5))
+    style.map("Toolbar.TMenubutton", background=[("active", "#2D476A"), ("pressed", "#385778")])
+    style.configure("ToolbarPrimary.TMenubutton", background="#34679A", foreground="#FFFFFF", bordercolor="#5F8FC2", lightcolor="#76A4D6", darkcolor="#1F3C5D", font=("Segoe UI Semibold", 8), padding=(10, 5))
+    style.map("ToolbarPrimary.TMenubutton", background=[("active", "#3971AA"), ("pressed", "#24547F")])
+    style.configure("InspectorHero.TFrame", background="#17263B", borderwidth=1, relief="solid")
+    style.configure("InspectorHeroTitle.TLabel", background="#17263B", foreground="#F5FAFF", font=("Segoe UI Semibold", 15))
+    style.configure("InspectorHeroSub.TLabel", background="#17263B", foreground="#9FB4CC", font=("Segoe UI", 8))
+    style.configure("InspectorHelp.TFrame", background="#13233A", borderwidth=0, relief="flat")
+    style.configure("InspectorHelpTitle.TLabel", background="#13233A", foreground="#8CBFFF", font=("Segoe UI Semibold", 8))
+    style.configure("InspectorHelpText.TLabel", background="#13233A", foreground="#BFD1E6", font=("Segoe UI", 8))
+    style.configure("InspectorAction.TButton", background="#20314A", foreground=txt_main, bordercolor="#43627F", font=("Segoe UI Semibold", 8), padding=(8, 4))
+    style.map("InspectorAction.TButton", background=[("active", "#2D476A"), ("pressed", "#385778")])
+    style.configure("InspectorSection.TFrame", background="#132036", borderwidth=1, relief="solid")
+    style.configure("InspectorRow.TFrame", background="#132036", borderwidth=0)
+    style.configure("InspectorSection.TLabel", background="#132036", foreground="#8CBFFF", font=("Segoe UI Semibold", 8))
+    style.configure("InspectorField.TLabel", background="#132036", foreground="#91A7C1", font=("Segoe UI", 8))
+    style.configure("InspectorStatic.TLabel", background="#132036", foreground="#E8F1FF", font=("Segoe UI", 9), padding=(7, 3))
+    style.configure("Inspector.Vertical.TScrollbar", background="#4A6A90", troughcolor="#0D1521", bordercolor="#2C3E58", arrowcolor="#E8F1FF", width=14)
+    style.configure("InspectorValue.TLabel", background="#1A2A42", foreground="#EAF2FF", borderwidth=0, relief="flat", padding=(8, 5), font=("Segoe UI Semibold", 9))
+    style.configure("InspectorValueHover.TLabel", background="#223A5A", foreground="#FFFFFF", borderwidth=0, relief="flat", padding=(8, 5), font=("Segoe UI Semibold", 9))
+    style.configure("InspectorValueChanged.TLabel", background="#3A2D17", foreground="#FFE8AE", borderwidth=0, relief="flat", padding=(8, 5), font=("Segoe UI Semibold", 9))
+    style.configure("InspectorValueChangedHover.TLabel", background="#4B3A1A", foreground="#FFF1C7", borderwidth=0, relief="flat", padding=(8, 5), font=("Segoe UI Semibold", 9))
+    style.configure("InspectorReadOnly.TLabel", background="#18263A", foreground="#D6E6F9", borderwidth=0, relief="flat", padding=(8, 5), font=("Segoe UI", 9))
+    style.configure("InspectorDataRow.TFrame", background="#132036", borderwidth=0)
+    style.configure("InspectorDataRowAlt.TFrame", background="#16253C", borderwidth=0)
+    style.configure("InspectorDataLabel.TLabel", background="#132036", foreground="#8FA7C3", font=("Segoe UI Semibold", 8))
+    style.configure("InspectorDataLabelAlt.TLabel", background="#16253C", foreground="#8FA7C3", font=("Segoe UI Semibold", 8))
+    style.configure("SurfaceReset.TButton", background="#6A4652", foreground="#FFF2F4", bordercolor="#8D6670", lightcolor="#9D7B84", darkcolor="#4B3038", font=("Segoe UI Semibold", 8), padding=(10, 5))
+    style.map("SurfaceReset.TButton", background=[("active", "#734A56"), ("pressed", "#50303B")])
+    style.configure("GradientHint.TLabel", background="#16243A", foreground="#AABDD3", font=("Segoe UI", 8))
+    style.map("Inspector.Vertical.TScrollbar", background=[("active", "#6288B7"), ("pressed", "#7CA7D8")])
+    style.configure("Timeline.TFrame", background="#0F1724", borderwidth=1, relief="solid")
+    style.configure("TimelineTitle.TLabel", background="#0F1724", foreground="#AFC9E9", font=("Segoe UI Semibold", 8))
+    style.configure("TimelineSub.TLabel", background="#0F1724", foreground="#7E98B8", font=("Segoe UI", 8))
+    style.configure("Compare.TFrame", background="#132137", borderwidth=1, relief="solid")
+    style.configure("CompareTitle.TLabel", background="#132137", foreground="#AFC9E9", font=("Segoe UI Semibold", 8))
+    style.configure("CompareSub.TLabel", background="#132137", foreground="#C7D9F0", font=("Segoe UI", 8))
+    style.configure("StatusMuted.TLabel", background=bg_header, foreground="#A8BDD5", font=("Segoe UI", 8))
+    style.configure("Palette.TFrame", background="#101722")
+    style.configure("PaletteTitle.TLabel", background="#101722", foreground="#F3F8FF", font=("Segoe UI Semibold", 13))
+    style.configure("PaletteSub.TLabel", background="#101722", foreground="#9FB4CC", font=("Segoe UI", 8))
+
     style.configure(
         "TEntry",
         fieldbackground=bg_entry,
@@ -339,125 +429,115 @@ def configure_styles(root: tk.Toplevel) -> None:
 
 
 def build_top_bar(win) -> None:
+    """Compact command bar with a clear primary workflow.
+
+    The old top deck gave equal visual weight to every action. This version puts
+    the current character/profile state first, keeps navigation on one line,
+    and moves lower-frequency utilities into small menus.
+    """
     cname = win.target_slot.get("char_name", "-")
+    normal_count = len(getattr(win, "moves", []) or [])
 
     top = ttk.Frame(win.root, style="Top.TFrame")
-    top.pack(side="top", fill="x", padx=10, pady=(10, 6))
+    top.pack(side="top", fill="x", padx=12, pady=(10, 8))
 
-    header = ttk.Frame(top, style="Top.TFrame")
-    header.pack(side="top", fill="x")
+    identity = ttk.Frame(top, style="WorkbenchBar.TFrame", padding=(12, 10))
+    identity.pack(fill="x")
+    left = ttk.Frame(identity, style="WorkbenchBar.TFrame")
+    left.pack(side="left", fill="x", expand=True)
+    ttk.Label(left, text="Frame Data", style="WorkbenchTitle.TLabel").pack(side="left")
+    ttk.Label(left, text=f"{cname}  |  {win.slot_label}", style="WorkbenchSubtitle.TLabel").pack(side="left", padx=(12, 0), pady=(3, 0))
 
-    hero = ttk.Frame(header, style="Hero.TFrame", padding=(12, 8))
-    hero.pack(side="left", fill="x", expand=True)
+    chips = ttk.Frame(identity, style="WorkbenchBar.TFrame")
+    chips.pack(side="right")
+    writer_style = "BadgeGood.TLabel" if U.WRITER_AVAILABLE else "BadgeWarn.TLabel"
+    ttk.Label(chips, textvariable=win._writer_var, style=writer_style).pack(side="left", padx=(6, 0))
+    ttk.Label(chips, text=f"Normals {normal_count:,}", style="BadgeGood.TLabel").pack(side="left", padx=(6, 0))
+    ttk.Label(chips, textvariable=win._projectile_status_var, style="Badge.TLabel").pack(side="left", padx=(6, 0))
+    ttk.Label(chips, textvariable=win._super_status_var, style="Badge.TLabel").pack(side="left", padx=(6, 0))
 
-    ttk.Label(hero, text=f"Frame Data Workbench: {win.slot_label} ({cname})", style="HeroTitle.TLabel").pack(anchor="w")
-    ttk.Label(
-        hero,
-        textvariable=win._writer_var,
-        style="HeroSub.TLabel",
-        wraplength=1250,
-        justify="left",
-    ).pack(anchor="w", pady=(2, 0))
-    if getattr(win, "_projectile_status_var", None) is not None:
-        ttk.Label(
-            hero,
-            textvariable=win._projectile_status_var,
-            style="HeroSub.TLabel",
-            wraplength=1250,
-            justify="left",
-        ).pack(anchor="w", pady=(2, 0))
-    if getattr(win, "_super_status_var", None) is not None:
-        ttk.Label(
-            hero,
-            textvariable=win._super_status_var,
-            style="HeroSub.TLabel",
-            wraplength=1250,
-            justify="left",
-        ).pack(anchor="w", pady=(2, 0))
+    command = ttk.Frame(top, style="CommandBar.TFrame", padding=(10, 8))
+    command.pack(fill="x", pady=(8, 0))
 
-    # Command deck: group actions by purpose instead of one long strip of
-    # identical buttons.  Tk cannot do true acrylic blur, but these glass cards
-    # use a softer card fill, border, and primary/secondary button styling so
-    # the groups read like frosted panels instead of a clipped command line.
-    controls = ttk.Frame(top, style="Top.TFrame")
-    controls.pack(side="top", fill="x", pady=(8, 0))
-    for col in range(12):
-        controls.columnconfigure(col, weight=1)
-
-    def _glass_card(parent, title: str, col: int, row: int, colspan: int = 1):
-        card = ttk.Frame(parent, style="Glass.TFrame", padding=(10, 8))
-        card.grid(row=row, column=col, columnspan=colspan, sticky="nsew", padx=4, pady=4)
-        ttk.Label(card, text=title, style="GlassTitle.TLabel").pack(anchor="w")
-        inner = ttk.Frame(card, style="GlassInner.TFrame")
-        inner.pack(fill="x", pady=(6, 0))
-        return inner
-
-    def _button(parent, text: str = "", command=None, *, primary: bool = False, textvariable=None):
-        kwargs = {
-            "style": "GlassPrimary.TButton" if primary else "Glass.TButton",
-            "command": command,
-        }
-        if textvariable is not None:
-            kwargs["textvariable"] = textvariable
-        else:
-            kwargs["text"] = text
-        btn = ttk.Button(parent, **kwargs)
-        btn.pack(side="left", padx=(0, 6), pady=(0, 4))
-        return btn
-
-    # Search / filter group.
-    search = _glass_card(controls, "Search", 0, 0, 4)
-    ttk.Label(search, text="Text", style="GlassMuted.TLabel").pack(side="left", padx=(0, 6), pady=(1, 4))
-    ent = ttk.Entry(search, textvariable=win._filter_var, width=28)
-    ent.pack(side="left", fill="x", expand=True, padx=(0, 6), pady=(0, 4))
-    Tooltip(ent, "Search visible move names, kinds, and addresses. Press Enter to apply.")
+    search = ttk.Frame(command, style="CommandBar.TFrame")
+    search.pack(side="left", fill="x", expand=True)
+    ttk.Label(search, text="Search", style="CommandLabel.TLabel").pack(side="left", padx=(0, 6))
+    ent = ttk.Entry(search, textvariable=win._filter_var, width=34)
+    ent.pack(side="left", fill="x", expand=True)
+    win._search_entry = ent
+    Tooltip(ent, "Search move names, kinds, and addresses. Ctrl+F jumps here.")
     ent.bind("<Return>", lambda _e: win._apply_filter())
-    _button(search, "Apply", win._apply_filter, primary=True)
-    _button(search, "Clear", win._clear_filter)
-    ttk.Label(search, textvariable=win._changed_count_var, style="GlassMuted.TLabel").pack(side="right", padx=(8, 0), pady=(1, 4))
+    ttk.Button(search, text="Clear", style="Toolbar.TButton", command=win._clear_filter).pack(side="left", padx=(6, 0))
 
-    # View group.
-    view = _glass_card(controls, "View", 4, 0, 4)
-    win._fd_view_var = tk.StringVar(master=win.root, value="Frame")
-    win._filter_panel_btn_var = tk.StringVar(master=win.root, value="Advanced filters")
-    ttk.Label(view, textvariable=win._fd_view_var, style="GlassMuted.TLabel").pack(side="left", padx=(0, 8), pady=(1, 4))
-    _button(view, "Frame", lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("frame"), primary=True)
-    _button(view, "Projectiles", lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("projectile"))
-    _button(view, "Supers", lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("super"))
-    _button(view, "All", lambda: getattr(win, "_set_fd_view_mode", lambda *_a: None)("all"))
-    _button(view, command=lambda: getattr(win, "_toggle_advanced_filters", lambda: None)(), textvariable=win._filter_panel_btn_var)
+    divider = ttk.Separator(command, orient="vertical")
+    divider.pack(side="left", fill="y", padx=10)
 
-    # Table navigation group.
-    table = _glass_card(controls, "Table", 8, 0, 4)
-    _button(table, "Expand", win._expand_all)
-    _button(table, "Collapse", win._collapse_all)
-    _button(table, "Refresh", win._refresh_visible, primary=True)
-    _button(table, "Reset order", lambda: getattr(win, "_reset_to_original_grouping", lambda: None)())
+    win._filter_panel_btn_var = tk.StringVar(master=win.root, value="Filters")
+    nav = ttk.Frame(command, style="CommandBar.TFrame")
+    nav.pack(side="left")
+    for label, mode in (("Frame", "frame"), ("Projectiles", "projectile"), ("Supers", "super"), ("All", "all")):
+        ttk.Button(nav, text=label, style="Toolbar.TButton", command=lambda m=mode: win._set_fd_view_mode(m)).pack(side="left", padx=(0 if label == "Frame" else 4, 0))
+    ttk.Button(nav, textvariable=win._filter_panel_btn_var, style="Toolbar.TButton", command=lambda: getattr(win, "_toggle_advanced_filters", lambda: None)()).pack(side="left", padx=(6, 0))
 
-    # Per-character profile group. These are explicit discovery passes; simply
-    # opening a view never starts a broad projectile/special scan.
-    scan = _glass_card(controls, "Character profile", 0, 1, 5)
-    _button(scan, "Build full profile", lambda: getattr(win, "_build_full_profile", lambda: None)(), primary=True)
-    _button(scan, "Projectile pass", lambda: getattr(win, "_start_projectile_scan", lambda **_k: None)(auto=False))
-    _button(scan, "Specials pass", lambda: getattr(win, "_start_super_scan", lambda **_k: None)(auto=False))
-    _button(scan, "Dump char", lambda: getattr(win, "_dump_character_data", lambda: None)())
-    _button(scan, "Show bones", lambda: getattr(win, "_show_bones", lambda: None)())
+    divider2 = ttk.Separator(command, orient="vertical")
+    divider2.pack(side="left", fill="y", padx=10)
 
-    # Patch/session group.
-    patch = _glass_card(controls, "Patch session", 5, 1, 4)
-    _button(patch, "Save patch", lambda: getattr(win, "_save_fd_patch_config", lambda: None)(), primary=True)
-    _button(patch, "Load patch", lambda: getattr(win, "_load_fd_patch_config", lambda: None)())
-    _button(patch, "Reset changed", win._reset_all_moves)
+    menus = ttk.Frame(command, style="CommandBar.TFrame")
+    menus.pack(side="left")
 
-    # Fast help group.
-    hints = _glass_card(controls, "Quick guide", 9, 1, 3)
-    ttk.Label(
-        hints,
-        text="Build Full Profile discovers projectile + special rows once for this character; later opens load them from the saved profile.",
-        style="GlassHint.TLabel",
-        wraplength=390,
-        justify="left",
-    ).pack(anchor="w", fill="x")
+    density_btn = ttk.Menubutton(menus, text="Density", style="Toolbar.TMenubutton")
+    win._density_button = density_btn
+    density_menu = tk.Menu(density_btn, tearoff=False)
+    for label, key in (("Compact", "compact"), ("Standard", "standard"), ("Detailed", "detailed")):
+        density_menu.add_command(label=label, command=lambda k=key: win._set_table_density(k))
+    density_btn["menu"] = density_menu
+    density_btn.pack(side="left")
+    win._density_menu = density_menu
+
+    tools_btn = ttk.Menubutton(menus, text="Tools", style="Toolbar.TMenubutton")
+    tools_menu = tk.Menu(tools_btn, tearoff=False)
+    tools_menu.add_command(label="Refresh visible fields (F5)", command=win._refresh_visible)
+    tools_menu.add_command(label="Show changed rows", command=win._toggle_changed_rows)
+    tools_menu.add_command(label="Reset all changed values", command=win._reset_all_moves)
+    tools_menu.add_separator()
+    tools_menu.add_command(label="Expand all", command=win._expand_all)
+    tools_menu.add_command(label="Collapse all", command=win._collapse_all)
+    tools_menu.add_command(label="Reset move order", command=win._reset_to_original_grouping)
+    tools_menu.add_command(label="Reset layout to clean default", command=win._reset_workbench_layout)
+    tools_menu.add_separator()
+    tools_menu.add_command(label="Dump character", command=lambda: getattr(win, "_dump_character_data", lambda: None)())
+    tools_menu.add_command(label="Show bones", command=lambda: getattr(win, "_show_bones", lambda: None)())
+    tools_menu.add_command(label="Command palette (Ctrl+P)", command=win._show_command_palette)
+    tools_btn["menu"] = tools_menu
+    tools_btn.pack(side="left", padx=(5, 0))
+    win._tools_menu = tools_menu
+
+    win._sort_status_var = tk.StringVar(master=win.root, value="Sort: profile order")
+    ttk.Label(command, textvariable=win._sort_status_var, style="SortBadge.TLabel").pack(side="left", padx=(8, 0))
+
+    profile_btn = ttk.Menubutton(command, text="Build profile", style="ToolbarPrimary.TMenubutton")
+    profile_menu = tk.Menu(profile_btn, tearoff=False)
+    profile_menu.add_command(label="Build missing passes", command=win._build_full_profile)
+    profile_menu.add_command(label="Projectile pass", command=lambda: win._start_projectile_scan(auto=False))
+    profile_menu.add_command(label="Specials pass", command=lambda: win._start_super_scan(auto=False))
+    profile_btn["menu"] = profile_menu
+    profile_btn.pack(side="right", padx=(8, 0))
+    win._profile_menu = profile_menu
+
+    ttk.Button(command, text="Save patch", style="ToolbarPrimary.TButton", command=win._save_fd_patch_config).pack(side="right")
+    reset_layout = ttk.Button(command, text="Reset view", style="Toolbar.TButton", command=win._reset_workbench_layout)
+    reset_layout.pack(side="right", padx=(6, 0))
+    Tooltip(reset_layout, "Restore the clean Frame-data view: sane columns, widths, filters, order, and inspector split. Does not change patch edits.")
+    reset_all = ttk.Button(command, text="Reset all", style="SurfaceReset.TButton", command=win._reset_all_moves)
+    reset_all.pack(side="right", padx=(6, 0))
+    Tooltip(reset_all, "Reset all changed values in this patch session back to their defaults/original cached values.")
+    redo = ttk.Button(command, text="Redo", style="Toolbar.TButton", command=win._redo_last_change)
+    redo.pack(side="right", padx=(6, 0))
+    undo = ttk.Button(command, text="Undo", style="Toolbar.TButton", command=win._undo_last_change)
+    undo.pack(side="right", padx=(6, 0))
+    win._redo_button = redo
+    win._undo_button = undo
+    ttk.Label(command, textvariable=win._session_summary_var, style="CommandMuted.TLabel").pack(side="right", padx=(0, 8))
 
 
 def _build_inspector(win, parent: ttk.Frame) -> None:
@@ -474,8 +554,10 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     parent.columnconfigure(0, weight=1)
     parent.columnconfigure(1, weight=0)
 
-    canvas = tk.Canvas(parent, bg="#152033", highlightthickness=0, bd=0)
-    scroll = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+    canvas = tk.Canvas(parent, bg="#132036", highlightthickness=0, bd=0, takefocus=True)
+    # Use a dedicated visible scrollbar style. The default clam thumb can blend
+    # into the inspector background on some Windows themes.
+    scroll = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview, style="Inspector.Vertical.TScrollbar")
     canvas.configure(yscrollcommand=scroll.set)
     canvas.grid(row=0, column=0, sticky="nsew")
     scroll.grid(row=0, column=1, sticky="ns")
@@ -486,50 +568,115 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     win._inspector_inner = inner
     window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
 
-    def _on_configure(_evt=None):
+    # Tk can fire Canvas/inner <Configure> before every inspector card has
+    # finished requesting its height.  Measuring canvas.bbox(window_id) at that
+    # moment makes the scrollregion exactly the viewport height, which is why
+    # the old scrollbar looked maxed out even with cards below the fold.
+    _scroll_sync_after_id = None
+
+    def _sync_scrollregion(_evt=None):
+        """Measure the *requested* inspector height after layout settles.
+
+        The requested height is authoritative here; Canvas bbox() alone can
+        still reflect the pre-layout viewport during an idle resize.
+        """
+        nonlocal _scroll_sync_after_id
+        _scroll_sync_after_id = None
         try:
-            canvas.configure(scrollregion=canvas.bbox("all"))
-            # Keep the inner frame fitted to the visible canvas so value chips
-            # gain width instead of being clipped by an action-button column.
-            canvas.itemconfigure(window_id, width=max(1, canvas.winfo_width()))
+            if not canvas.winfo_exists() or not inner.winfo_exists():
+                return
+            viewport_w = max(1, int(canvas.winfo_width()))
+            viewport_h = max(1, int(canvas.winfo_height()))
+            canvas.itemconfigure(window_id, width=viewport_w)
+            # The inner frame contains all cards.  reqheight remains correct
+            # after pack_forget()/pack() changes made by context layout.
+            content_h = max(int(inner.winfo_reqheight()), int(inner.winfo_height()), viewport_h)
+            bbox = canvas.bbox(window_id)
+            if bbox:
+                content_h = max(content_h, int(bbox[3] - bbox[1]))
+            canvas.configure(scrollregion=(0, 0, viewport_w, content_h))
         except Exception:
             pass
 
+    def _schedule_scrollregion(_evt=None):
+        """Coalesce resize/repack storms into one post-layout measurement."""
+        nonlocal _scroll_sync_after_id
+        try:
+            if _scroll_sync_after_id is not None:
+                canvas.after_cancel(_scroll_sync_after_id)
+        except Exception:
+            pass
+        try:
+            _scroll_sync_after_id = canvas.after_idle(_sync_scrollregion)
+        except Exception:
+            _sync_scrollregion()
+
+    # Other code repacks cards for projectile/super context.  Give it a small,
+    # explicit hook so scroll limits are always refreshed after that operation.
+    win._refresh_inspector_scrollregion = _schedule_scrollregion
+
+    def _pointer_is_over_inspector(event) -> bool:
+        """Use screen coordinates, not widget-master walking.
+
+        Ttk children embedded in a Canvas can have surprising master chains on
+        Windows; bounds testing is reliable for labels, buttons, and entries.
+        """
+        try:
+            x = int(event.x_root)
+            y = int(event.y_root)
+            left = min(int(canvas.winfo_rootx()), int(scroll.winfo_rootx()))
+            right = max(int(canvas.winfo_rootx() + canvas.winfo_width()), int(scroll.winfo_rootx() + scroll.winfo_width()))
+            top = min(int(canvas.winfo_rooty()), int(scroll.winfo_rooty()))
+            bottom = max(int(canvas.winfo_rooty() + canvas.winfo_height()), int(scroll.winfo_rooty() + scroll.winfo_height()))
+            return left <= x < right and top <= y < bottom
+        except Exception:
+            return False
+
     def _wheel(event):
+        # bind_all is necessary because the pointer is normally over a ttk Label
+        # inside the Canvas window. Do not steal the wheel from the move table
+        # or any other control in the workbench.
+        if not _pointer_is_over_inspector(event):
+            return None
         try:
             if getattr(event, "num", None) == 4:
-                delta = -1
+                delta = -3
             elif getattr(event, "num", None) == 5:
-                delta = 1
+                delta = 3
             else:
-                delta = -int(event.delta / 120) if event.delta else 0
-            if delta:
-                canvas.yview_scroll(delta, "units")
+                raw = int(getattr(event, "delta", 0) or 0)
+                if not raw:
+                    return "break"
+                steps = int(raw / 120)
+                if not steps:
+                    steps = 1 if raw > 0 else -1
+                # Three small Canvas units per standard Windows notch gives a
+                # normal inspector scroll speed without jumping whole cards.
+                delta = -steps * 3
+            canvas.yview_scroll(delta, "units")
         except Exception:
             pass
         return "break"
 
-    def _bind_wheel(_evt=None):
-        try:
-            canvas.bind_all("<MouseWheel>", _wheel)
-            canvas.bind_all("<Button-4>", _wheel)
-            canvas.bind_all("<Button-5>", _wheel)
-        except Exception:
-            pass
+    # Keep these bindings installed for this workbench only. Unlike bind/unbind
+    # on <Enter>/<Leave>, this survives moving over the inspector's nested
+    # labels, buttons, and value chips. Returning None outside the inspector
+    # lets the Treeview keep its normal wheel behavior.
+    try:
+        win._inspector_wheel_bind_ids = [
+            ("<MouseWheel>", win.root.bind_all("<MouseWheel>", _wheel, add="+")),
+            ("<Button-4>", win.root.bind_all("<Button-4>", _wheel, add="+")),
+            ("<Button-5>", win.root.bind_all("<Button-5>", _wheel, add="+")),
+        ]
+    except Exception:
+        win._inspector_wheel_bind_ids = []
 
-    def _unbind_wheel(_evt=None):
-        try:
-            canvas.unbind_all("<MouseWheel>")
-            canvas.unbind_all("<Button-4>")
-            canvas.unbind_all("<Button-5>")
-        except Exception:
-            pass
-
-    inner.bind("<Configure>", _on_configure)
-    canvas.bind("<Configure>", _on_configure)
-    canvas.bind("<Enter>", _bind_wheel)
-    inner.bind("<Enter>", _bind_wheel)
-    canvas.bind("<Leave>", _unbind_wheel)
+    inner.bind("<Configure>", _schedule_scrollregion)
+    canvas.bind("<Configure>", _schedule_scrollregion)
+    canvas.bind("<Prior>", lambda _e: (canvas.yview_scroll(-1, "pages"), "break")[1])
+    canvas.bind("<Next>", lambda _e: (canvas.yview_scroll(1, "pages"), "break")[1])
+    canvas.bind("<Home>", lambda _e: (canvas.yview_moveto(0.0), "break")[1])
+    canvas.bind("<End>", lambda _e: (canvas.yview_moveto(1.0), "break")[1])
 
     def _value_click(col: str):
         if col == "link":
@@ -575,7 +722,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
 
     def _make_chip(parent_widget, col: str, var: tk.StringVar):
         editable = col not in {"kind", "hits", "link", "invuln"}
-        style = "ValueChip.TLabel" if editable else "ValueStatic.TLabel"
+        style = "InspectorValue.TLabel" if editable else "InspectorReadOnly.TLabel"
         chip = ttk.Label(parent_widget, textvariable=var, style=style, anchor="w")
         chip.pack(side="left", fill="x", expand=True, padx=(4, 0))
         win._inspector_value_widgets[col] = chip
@@ -592,21 +739,135 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         return chip
 
     win._inspector_title_var = tk.StringVar(master=win.root, value="Select a move")
-    win._inspector_subtitle_var = tk.StringVar(master=win.root, value="Use the inspector for normal edits without parsing the whole grid.")
-    win._inspector_hint_var = tk.StringVar(master=win.root, value="Click any value chip to edit it. Changed values are highlighted until Reset changed restores them.")
+    win._inspector_subtitle_var = tk.StringVar(master=win.root, value="Choose a move to inspect cached data. Selection never triggers a scan.")
+    win._inspector_hint_var = tk.StringVar(master=win.root, value="Click a highlighted value to edit it. Read-only fields stay flat.")
+    win._inspector_action_help_default = (
+        "Pin Compare keeps this move as a read-only reference while you browse. "
+        "Copy Address places this row's move-table anchor on the clipboard."
+    )
+    win._inspector_action_help_var = tk.StringVar(master=win.root, value=win._inspector_action_help_default)
 
-    ttk.Label(inner, textvariable=win._inspector_title_var, style="InspectorTitle.TLabel", wraplength=380).pack(anchor="w")
-    ttk.Label(inner, textvariable=win._inspector_subtitle_var, style="InspectorSub.TLabel", wraplength=380).pack(anchor="w", pady=(3, 10))
+    def _set_action_help(text: str | None = None):
+        value = str(text or win._inspector_action_help_default)
+        try:
+            if win._inspector_action_help_var.get() != value:
+                win._inspector_action_help_var.set(value)
+        except Exception:
+            pass
 
-    move_card = ttk.Frame(inner, style="Card.TFrame", padding=(10, 8))
-    move_card.pack(fill="x", pady=(0, 10))
-    ttk.Label(move_card, text="Selected move", style="Section.TLabel").pack(anchor="w")
-    mv_row = ttk.Frame(move_card, style="Card.TFrame")
-    mv_row.pack(fill="x", pady=(6, 0))
-    btn = ttk.Button(mv_row, text="Replace animation", style="Small.TButton", command=lambda: win._edit_selected_column("move"))
-    btn.pack(side="left")
+    # Let the rest of the workbench update the small permanent help box without
+    # rebuilding inspector widgets. This is intentionally separate from the
+    # below-buttons edit hint, which explains the selected move's field state.
+    win._set_inspector_action_help = _set_action_help
+
+    hero = ttk.Frame(inner, style="InspectorHero.TFrame", padding=(12, 10))
+    hero.pack(fill="x", pady=(0, 10))
+    ttk.Label(hero, textvariable=win._inspector_title_var, style="InspectorHeroTitle.TLabel", wraplength=390).pack(anchor="w")
+    ttk.Label(hero, textvariable=win._inspector_subtitle_var, style="InspectorHeroSub.TLabel", wraplength=390).pack(anchor="w", pady=(2, 7))
+
+    help_box = ttk.Frame(hero, style="InspectorHelp.TFrame", padding=(8, 4))
+    help_box.pack(fill="x", pady=(0, 8))
+    ttk.Label(help_box, textvariable=win._inspector_action_help_var, style="InspectorHelpText.TLabel", wraplength=360, justify="left").pack(anchor="w")
+
+    hero_actions = ttk.Frame(hero, style="InspectorHero.TFrame")
+    hero_actions.pack(fill="x")
+
+    def _action_button(text: str, command, help_text: str, *, primary: bool = False):
+        button = ttk.Button(
+            hero_actions,
+            text=text,
+            style="ToolbarPrimary.TButton" if primary else "InspectorAction.TButton",
+            command=command,
+        )
+        button.pack(side="left", padx=(0 if not hero_actions.winfo_children() else 5, 0))
+        # The helper panel should hold the last action the user inspected.
+        # Resetting on <Leave>/<FocusOut> made it jump back to the initial
+        # Pin Compare text, which is both misleading and visually twitchy.
+        button.bind("<Enter>", lambda _e, t=help_text: _set_action_help(t), add=True)
+        button.bind("<FocusIn>", lambda _e, t=help_text: _set_action_help(t), add=True)
+        Tooltip(button, help_text)
+        return button
+
+    btn = _action_button(
+        "Replace anim",
+        lambda: win._edit_selected_column("move"),
+        "Replace animation changes this row's animation ID. It writes only the selected move's animation reference.",
+        primary=True,
+    )
     win._inspector_buttons["move"] = btn
-    ttk.Label(move_card, textvariable=win._inspector_hint_var, style="CardMuted.TLabel", wraplength=380).pack(anchor="w", pady=(8, 0))
+    _action_button(
+        "Refresh row",
+        lambda: win._refresh_selected_row(),
+        "Refresh Row reads optional loose fields for this selected move in the background. It does not rebuild or rescan the character profile.",
+    )
+    _action_button(
+        "Pin compare",
+        lambda: win._pin_current_move(),
+        "Pin Compare locks this move as a read-only reference. Select another move and the Compare card shows cached damage, timing, and stun differences.",
+    )
+    _action_button(
+        "Copy address",
+        lambda: win._copy_selected_address(),
+        "Copy Address puts this move's table anchor (for example 0x908AFBE6) on the clipboard. It is the row anchor, not every individual field's write address.",
+    )
+    ttk.Label(hero, textvariable=win._inspector_hint_var, style="InspectorHeroSub.TLabel", wraplength=390).pack(anchor="w", pady=(9, 0))
+
+    # These headline values are not merely decorative. They are the fastest
+    # edit targets for the four fields people change most often.
+    win._headline_stat_widgets = {}
+    stats = ttk.Frame(inner, style="InspectorSection.TFrame")
+    stats.pack(fill="x", pady=(0, 10))
+    for label, key in (("Startup", "startup"), ("Active", "active"), ("Hitstop", "hitstop"), ("Blockstun", "blockstun")):
+        cell = ttk.Frame(stats, style="InspectorSection.TFrame")
+        cell.pack(side="left", fill="x", expand=True, padx=(0 if label == "Startup" else 5, 0))
+        ttk.Label(cell, text=label, style="InspectorField.TLabel").pack(anchor="w")
+        var = tk.StringVar(master=win.root, value="—")
+        win._headline_stat_vars[key] = var
+        value = ttk.Label(cell, textvariable=var, style="QuickImportant.TLabel", anchor="center", cursor="hand2", takefocus=True)
+        value.pack(fill="x", pady=(2, 0))
+        value.bind("<Button-1>", lambda _e, c=key: _value_click(c))
+        value.bind("<Return>", lambda _e, c=key: _value_click(c))
+        value.bind("<space>", lambda _e, c=key: _value_click(c))
+        value.bind("<Enter>", lambda _e, w=value: w.configure(style="QuickImportantHover.TLabel"))
+        value.bind("<Leave>", lambda _e, w=value: w.configure(style="QuickImportant.TLabel"))
+        win._headline_stat_widgets[key] = value
+        field_help = get_field_help(key, "")
+        Tooltip(value, (field_help + "\n\n" if field_help else "") + "Click to edit this value.")
+
+    timeline = ttk.Frame(inner, style="Timeline.TFrame", padding=(10, 8))
+    timeline.pack(fill="x", pady=(0, 10))
+    ttk.Label(timeline, text="FRAME TIMELINE", style="TimelineTitle.TLabel").pack(anchor="w")
+    win._timeline_summary_var = tk.StringVar(master=win.root, value="Select a move to draw its cached startup and active frames.")
+    ttk.Label(timeline, textvariable=win._timeline_summary_var, style="TimelineSub.TLabel", wraplength=390).pack(anchor="w", pady=(2, 5))
+    # Do not reuse the outer inspector Canvas variable here.  The inspector
+    # scroll callbacks close over it; rebinding that name to the timeline Canvas
+    # made scrollregion updates target the timeline instead of the sidebar.
+    timeline_canvas = tk.Canvas(timeline, height=42, bg="#0F1724", highlightthickness=0, bd=0)
+    timeline_canvas.pack(fill="x")
+    win._timeline_canvas = timeline_canvas
+    timeline_canvas.bind("<Configure>", lambda _e: win._refresh_frame_timeline())
+
+    compare = ttk.Frame(inner, style="Compare.TFrame", padding=(10, 8))
+    compare.pack(fill="x", pady=(0, 10))
+    compare_head = ttk.Frame(compare, style="Compare.TFrame")
+    compare_head.pack(fill="x")
+    ttk.Label(compare_head, text="COMPARE", style="CompareTitle.TLabel").pack(side="left")
+    ttk.Button(compare_head, text="Clear", style="Small.TButton", command=lambda: win._clear_pinned_move()).pack(side="right")
+    win._compare_title_var = tk.StringVar(master=win.root, value="No pinned move")
+    win._compare_summary_var = tk.StringVar(master=win.root, value="Pin a move to compare damage, timing, and stun as you browse.")
+    ttk.Label(compare, textvariable=win._compare_title_var, style="CompareSub.TLabel").pack(anchor="w", pady=(4, 0))
+    ttk.Label(compare, textvariable=win._compare_summary_var, style="CompareSub.TLabel", wraplength=390).pack(anchor="w", pady=(2, 6))
+    delta_row = ttk.Frame(compare, style="CompareDelta.TFrame")
+    delta_row.pack(fill="x")
+    win._compare_delta_vars = {}
+    for _label in ("Damage", "Startup", "Active", "Hitstop", "Blockstun"):
+        key = _label.lower().replace(" ", "_")
+        chip = ttk.Frame(delta_row, style="CompareDeltaChip.TFrame", padding=(7, 5))
+        chip.pack(side="left", fill="x", expand=True, padx=(0 if not delta_row.winfo_children() else 5, 0))
+        ttk.Label(chip, text=_label, style="CompareDeltaLabel.TLabel").pack(anchor="w")
+        _var = tk.StringVar(master=win.root, value="—")
+        win._compare_delta_vars[key] = _var
+        ttk.Label(chip, textvariable=_var, style="CompareDeltaNeutral.TLabel").pack(anchor="w", pady=(1, 0))
 
     sections = [
         ("Move link", ["link"]),
@@ -640,18 +901,22 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     }
 
     for section_title, fields in sections:
-        card = ttk.Frame(inner, style="Card.TFrame", padding=(10, 8))
-        card.pack(fill="x", pady=(0, 10))
+        card = ttk.Frame(inner, style="InspectorSection.TFrame", padding=(10, 8))
+        card.pack(fill="x", pady=(0, 7))
         try:
             win._inspector_sections.append((section_title, card, tuple(fields)))
         except Exception:
             pass
-        ttk.Label(card, text=section_title, style="Section.TLabel").pack(anchor="w", pady=(0, 4))
-        for col in fields:
-            row = ttk.Frame(card, style="Card.TFrame")
+        ttk.Label(card, text=section_title.upper(), style="InspectorSection.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Separator(card, orient="horizontal").pack(fill="x", pady=(0, 4))
+        for _row_index, col in enumerate(fields):
+            _alt = bool(_row_index % 2)
+            _row_style = "InspectorDataRowAlt.TFrame" if _alt else "InspectorDataRow.TFrame"
+            _label_style = "InspectorDataLabelAlt.TLabel" if _alt else "InspectorDataLabel.TLabel"
+            row = ttk.Frame(card, style=_row_style, padding=(8, 5))
             row.pack(fill="x", pady=2)
 
-            label = ttk.Label(row, text=FD_LABELS.get(col, col), style="CardMuted.TLabel", width=14, anchor="w")
+            label = ttk.Label(row, text=FD_LABELS.get(col, col), style=_label_style, width=16, anchor="w")
             label.pack(side="left")
 
             var = tk.StringVar(master=win.root, value="-")
@@ -672,13 +937,17 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
                 Tooltip(chip, tip_text)
 
     try:
-        win.root.after_idle(_on_configure)
+        # One idle pass catches the first layout; the short delayed pass catches
+        # Windows theme/font settling after Toplevel creation.
+        win.root.after_idle(_schedule_scrollregion)
+        win.root.after(80, _schedule_scrollregion)
     except Exception:
         pass
 
 def build_tree_widget(win) -> ttk.Frame:
     body = ttk.Panedwindow(win.root, orient="horizontal")
     body.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+    win._workbench_pane = body
 
     left = ttk.Frame(body, style="FD.TFrame")
     right = ttk.Frame(body, style="Inspector.TFrame")
@@ -699,8 +968,14 @@ def build_tree_widget(win) -> ttk.Frame:
             if total_w <= 1:
                 body.after(40, _set_initial_sash)
                 return
-            inspector_w = 440
-            left_w = max(780, total_w - inspector_w)
+            saved = (getattr(win, "_ui_prefs", {}) or {}).get("sash_pos")
+            if saved is not None:
+                try:
+                    left_w = max(780, min(int(saved), total_w - 420))
+                except Exception:
+                    left_w = max(780, total_w - 470)
+            else:
+                left_w = max(780, total_w - 470)
             body.sashpos(0, left_w)
         except Exception:
             pass
@@ -715,7 +990,7 @@ def build_tree_widget(win) -> ttk.Frame:
     top_line = ttk.Frame(quick, style="Card.TFrame")
     top_line.pack(fill="x")
     ttk.Label(top_line, textvariable=win._quick_title_var, style="Section.TLabel").pack(side="left", anchor="w")
-    ttk.Label(quick, textvariable=win._quick_subtitle_var, style="CardMuted.TLabel", wraplength=950).pack(anchor="w", pady=(3, 6))
+    ttk.Label(quick, textvariable=win._quick_subtitle_var, style="CardMuted.TLabel", wraplength=950).pack(anchor="w", pady=(3, 4))
     win._quick_chips_frame = ttk.Frame(quick, style="Card.TFrame")
     win._quick_chips_frame.pack(fill="x")
 
@@ -734,16 +1009,29 @@ def build_tree_widget(win) -> ttk.Frame:
                 pass
 
     for _slot_index in range(30):
-        _cell = ttk.Frame(win._quick_chips_frame, style="Card.TFrame")
-        _cell.grid(row=_slot_index // 6, column=_slot_index % 6, sticky="ew", padx=(0, 8), pady=(0, 5))
+        # A slim color rail makes the strip read as stats rather than a grid of
+        # form fields.  The styles are switched in-place by _refresh_quick_panel
+        # so selection changes stay cache-only and do not rebuild widgets.
+        _cell = ttk.Frame(win._quick_chips_frame, style="QuickTile.TFrame")
+        _cell.grid(row=_slot_index // 6, column=_slot_index % 6, sticky="ew", padx=(0, 8), pady=(0, 6))
+        _rail = tk.Frame(_cell, width=3, background="#4D78A3", highlightthickness=0, bd=0)
+        _rail.pack(side="left", fill="y")
+        _content = ttk.Frame(_cell, style="QuickTile.TFrame", padding=(8, 4, 8, 4))
+        _content.pack(side="left", fill="both", expand=True)
+        _line = ttk.Frame(_content, style="QuickTile.TFrame")
+        _line.pack(fill="x")
         _label_var = tk.StringVar(master=win.root, value="")
         _value_var = tk.StringVar(master=win.root, value="")
-        _lab = ttk.Label(_cell, textvariable=_label_var, style="CardMuted.TLabel")
-        _lab.pack(anchor="w")
-        _val = ttk.Label(_cell, textvariable=_value_var, style="QuickValue.TLabel", anchor="center")
-        _val.pack(fill="x")
+        _lab = ttk.Label(_line, textvariable=_label_var, style="QuickTileLabel.TLabel", anchor="w")
+        _lab.pack(side="left")
+        _colon = ttk.Label(_line, text=": ", style="QuickInlineColon.TLabel", anchor="w")
+        _colon.pack(side="left")
+        _val = ttk.Label(_line, textvariable=_value_var, style="QuickTileValue.TLabel", anchor="w")
+        _val.pack(side="left", fill="x", expand=True)
         _slot = {
             "cell": _cell,
+            "rail": _rail,
+            "content": _content,
             "label_var": _label_var,
             "value_var": _value_var,
             "label_widget": _lab,
@@ -755,6 +1043,8 @@ def build_tree_widget(win) -> ttk.Frame:
             "col": None,
         }
         _cell.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
+        _rail.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
+        _content.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
         _lab.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
         _val.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
         _cell.grid_remove()
@@ -1026,7 +1316,7 @@ def build_tree_widget(win) -> ttk.Frame:
                 panel.pack_forget()
             win._filter_panel_visible = False
             if getattr(win, "_filter_panel_btn_var", None) is not None:
-                win._filter_panel_btn_var.set("Advanced filters")
+                win._filter_panel_btn_var.set("Filters")
         else:
             panel = _ensure_filter_panel_built()
             panel.pack(fill="x", padx=0, pady=(0, 8), before=tree_wrap)
@@ -1051,7 +1341,7 @@ def build_tree_widget(win) -> ttk.Frame:
     tree_wrap.columnconfigure(0, weight=1)
 
     win.tree.heading("#0", text="")
-    win.tree.column("#0", width=18, stretch=False, anchor="w")
+    win.tree.column("#0", width=34, stretch=False, anchor="center")
 
     headers = [
         ("move", "Move"),
@@ -1146,7 +1436,7 @@ def build_tree_widget(win) -> ttk.Frame:
     for c, txt in headers:
         win.tree.heading(c, text=txt, command=lambda col=c: win._on_sort_column(col))
 
-    win.tree.column("move", width=280, anchor="w")
+    win.tree.column("move", width=320, anchor="w")
     win.tree.column("kind", width=80, anchor="w")
     win.tree.column("hits", width=62, anchor="center")
     win.tree.column("link", width=210, anchor="w")
@@ -1236,6 +1526,22 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("dispatch_child_target", width=120, anchor="center")
     win.tree.column("abs", width=124, anchor="w")
 
+    # Save the current built-in widths before applying persisted user choices.
+    # Reset layout uses this for a true first-load restoration.
+    try:
+        win._fd_builtin_column_widths = {c: int(win.tree.column(c, "width")) for c in cols}
+    except Exception:
+        win._fd_builtin_column_widths = {}
+
+    # Restore a user-resized table layout after default column definitions are
+    # in place. Unknown/deleted columns are ignored safely.
+    try:
+        for _col, _width in ((getattr(win, "_ui_prefs", {}) or {}).get("column_widths") or {}).items():
+            if _col in cols:
+                win.tree.column(_col, width=max(32, int(_width)))
+    except Exception:
+        pass
+
     win._fd_all_columns = tuple(cols)
     win._fd_core_columns = tuple(FD_CORE_COLUMNS)
     win._fd_projectile_columns = tuple(c for c in FD_PROJECTILE_COLUMNS_FOCUSED if c in cols)
@@ -1258,6 +1564,10 @@ def build_tree_widget(win) -> ttk.Frame:
             mode = "frame"
         win.tree.configure(displaycolumns=columns)
         win._fd_view_mode = mode
+        try:
+            win._ui_prefs["view_mode"] = mode
+        except Exception:
+            pass
         label_map = {
             "frame": "View: Frame",
             "projectile": "View: Projectiles",
@@ -1294,7 +1604,40 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win._set_fd_view_mode = _set_fd_view_mode
     win._toggle_core_columns = _toggle_core_columns
-    _set_fd_view_mode("frame")
+
+    def _set_table_density(density="standard"):
+        density = str(density or "standard").lower()
+        presets = {
+            "compact": (20, ("Segoe UI", 8)),
+            "standard": (24, ("Segoe UI", 9)),
+            "detailed": (29, ("Segoe UI", 10)),
+        }
+        if density not in presets:
+            density = "standard"
+        rowheight, font = presets[density]
+        try:
+            ttk.Style(win.root).configure("Treeview", rowheight=rowheight, font=font)
+        except Exception:
+            pass
+        win._table_density = density
+        try:
+            win._ui_prefs["density"] = density
+        except Exception:
+            pass
+        try:
+            button = getattr(win, "_density_button", None)
+            if button is not None:
+                button.configure(text=f"Density: {density.title()}")
+        except Exception:
+            pass
+        try:
+            win._status_var.set(f"Table density: {density}")
+        except Exception:
+            pass
+
+    win._set_table_density = _set_table_density
+    _set_table_density((getattr(win, "_ui_prefs", {}) or {}).get("density", "standard"))
+    _set_fd_view_mode((getattr(win, "_ui_prefs", {}) or {}).get("view_mode", "frame"))
 
     def _update_hover_help(event):
         try:
@@ -1324,8 +1667,8 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win.tree.bind("<Motion>", _update_hover_help, add=True)
 
-    win.tree.tag_configure("row_even", background="#142033")
-    win.tree.tag_configure("row_odd", background="#101A29")
+    win.tree.tag_configure("row_even", background="#132034")
+    win.tree.tag_configure("row_odd", background="#101A2C")
 
     # Section/header colors are deliberately brighter than normal rows. Tk's
     # Treeview does not support a true per-row gradient, so these use a
@@ -1342,9 +1685,9 @@ def build_tree_widget(win) -> ttk.Frame:
     # enough contrast to edit individual records.
     win.tree.tag_configure("child_row", foreground="#D8EAFF")
     win.tree.tag_configure("grandchild_row", foreground="#BFD8F5")
-    win.tree.tag_configure("special_row", foreground="#D4ECFF")
-    win.tree.tag_configure("super_row", background="#183154", foreground="#EFF7FF")
-    win.tree.tag_configure("projectile_row", background="#17344F", foreground="#D9F6FF")
+    win.tree.tag_configure("special_row", background="#13253D", foreground="#D8EFFF")
+    win.tree.tag_configure("super_row", background="#1B2E4C", foreground="#EFF7FF")
+    win.tree.tag_configure("projectile_row", background="#163247", foreground="#D9F6FF")
     win.tree.tag_configure("super_row", background="#1F2D55", foreground="#E7ECFF")
 
     win.tree.tag_configure("kb_hot", foreground="#9FCCFF")
@@ -1354,9 +1697,34 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("missing_addr", foreground="#FF9A9A")
     win.tree.tag_configure("group_parent", foreground="#FFE3A3")
     win.tree.tag_configure("family_linked", foreground="#C9E2FF")
-    win.tree.tag_configure("edited_row", background="#263955")
+    win.tree.tag_configure("edited_row", background="#2A3E5D")
 
     _build_inspector(win, right)
+
+    def _capture_initial_layout_snapshot():
+        # Snapshot what *this* instance looked like when it opened, after saved
+        # preferences and the initial sash have settled. Reset layout restores
+        # this UI state without touching frame-data edits.
+        try:
+            pane = getattr(win, "_workbench_pane", None)
+            sash = int(pane.sashpos(0)) if pane is not None else None
+        except Exception:
+            sash = None
+        try:
+            widths = {c: int(win.tree.column(c, "width")) for c in win.tree["columns"]}
+        except Exception:
+            widths = dict(getattr(win, "_fd_builtin_column_widths", {}) or {})
+        win._initial_layout_snapshot = {
+            "view_mode": str(getattr(win, "_fd_view_mode", "frame") or "frame"),
+            "density": str(getattr(win, "_table_density", "standard") or "standard"),
+            "column_widths": widths,
+            "sash_pos": sash,
+        }
+
+    try:
+        win.root.after(180, _capture_initial_layout_snapshot)
+    except Exception:
+        _capture_initial_layout_snapshot()
 
     return body
 
@@ -1657,7 +2025,7 @@ def _populate_tree_sync(win) -> None:
         row_tag = "row_even" if (win._row_counter % 2 == 0) else "row_odd"
         win._row_counter += 1
 
-        display_pretty = _indent_move_text(win.tree, parent, pretty)
+        display_pretty = _decorate_move_text(win.tree, parent, pretty, mv)
         row_tags = [row_tag]
         if parent:
             row_tags.append("child_row")
@@ -1710,6 +2078,11 @@ def _populate_tree_sync(win) -> None:
                 hit_result_txt,
                 superbg_txt,
                 *("" for _ in FPI.PROJECTILE_COLUMNS),
+                # FD_COLUMNS also contains the super-dispatch block between
+                # projectile fields and abs. Leaving this padding out shifted
+                # every normal row's Address into Dispatch Group, so the actual
+                # Address column appeared empty in the All table view.
+                *("" for _ in FSI.SUPER_DISPATCH_COLUMNS),
                 f"0x{move_abs:08X}" if move_abs else "",
             ),
         )

@@ -14,6 +14,7 @@ import fd_utils as U
 import fd_tree
 import fd_projectile_integration as FPI
 import fd_super_integration as FSI
+import fd_ui_prefs as FDUIPrefs
 try:
     import scan_normals_all as FDProfileCache
 except Exception:
@@ -26,7 +27,7 @@ from bonescan import BoneScanner
 from config import INTERVAL
 
 from fd_editors import FDCellEditorsMixin
-from fd_widgets import get_field_help, ask_integer_with_help
+from fd_widgets import get_field_help, ask_integer_with_help, apply_titlebar_icon
 
 from fd_patterns import (
     find_superbg_addr,
@@ -67,10 +68,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.master = master
         self.slot_label = slot_label
         self.target_slot = target_slot or {}
+        self._ui_prefs = FDUIPrefs.load()
         self.root: tk.Toplevel | None = tk.Toplevel(self.master)
         cname = self.target_slot.get("char_name", "-")
         self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
-        self.root.geometry("1700x820")
+        apply_titlebar_icon(self.root, self.master)
+        apply_titlebar_icon(self.root, self.master)
+        self.root.geometry(str(self._ui_prefs.get("geometry") or "1700x820"))
         self.root.minsize(1280, 640)
         self._opening_cancelled = False
         self._opening_after_id = None
@@ -116,6 +120,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._profile_fast_path = bool((target_slot or {}).get("profile_fast_path"))
         self._profile_key = (target_slot or {}).get("profile_key")
         self._sort_state = {}  # col_name -> ascending bool
+        self._sort_active_column: str | None = None
+        self._sort_status_var: tk.StringVar | None = None
+        self._initial_layout_snapshot: dict | None = None
         self._assist_tables = None
         self._assist_table_count = ""
 
@@ -210,6 +217,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._inspector_button_state_cache: dict[str, str] = {}
         self._inspector_chip_style_cache: dict[str, tuple] = {}
         self._inspector_layout_signature = None
+        self._timeline_canvas = None
+        self._timeline_summary_var: tk.StringVar | None = None
+        self._headline_stat_vars: dict[str, tk.StringVar] = {}
 
         # Session edits. These do not change write behavior; they only let the
         # UI reflect edits immediately and reset only the values touched in this
@@ -218,7 +228,20 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._pending_edit_snapshots: dict[tuple, dict] = {}
         self._dirty_row_items: set[str] = set()
         self._changed_count_var: tk.StringVar | None = None
+        self._session_summary_var: tk.StringVar | None = None
+        self._undo_stack: list[tuple] = []
+        self._redo_stack: list[dict] = []
+        self._undo_button: ttk.Button | None = None
+        self._redo_button: ttk.Button | None = None
+        self._changed_only = False
         self._suppress_dirty_tracking = False
+
+        # Lightweight comparison pin. It keeps a cached move snapshot and never
+        # causes a Dolphin read while navigating the table.
+        self._pinned_move_snapshot: dict | None = None
+        self._compare_title_var: tk.StringVar | None = None
+        self._compare_summary_var: tk.StringVar | None = None
+        self._compare_delta_vars: dict[str, tk.StringVar] = {}
 
         # Combined projectile/special profile support. These lists come from
         # the saved per-character profile when available. Discovery is explicit
@@ -271,17 +294,87 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._build()
 
     def _reset_to_original_grouping(self):
-        # Clear sort state so arrows do not lie
+        """Restore the saved-profile/notation ordering and clear visual sort state."""
         self._sort_state.clear()
-
-        # Reset headers (remove ASC/DESC)
+        self._sort_active_column = None
         if self.tree:
             for c in self.tree["columns"]:
-                base = self.tree.heading(c, "text").split(" ")[0]
-                self.tree.heading(c, text=base)
-
-        # Rebuild in original notation order
+                try:
+                    self.tree.heading(c, text=self._heading_text_for_col(c))
+                except Exception:
+                    pass
+        if getattr(self, "_sort_status_var", None) is not None:
+            try:
+                self._sort_status_var.set("Sort: profile order")
+            except Exception:
+                pass
         self.sort_by_notation_order()
+
+    def _reset_workbench_layout(self):
+        """Restore the clean, usable default workbench view.
+
+        This intentionally ignores stale saved presentation preferences.  A
+        layout reset must never restore a raw All-columns view that squeezes
+        dozens of scout fields into the table.  It does not reset patch edits;
+        ``Reset all`` remains the data-write reset.
+        """
+        try:
+            if getattr(self, "_filter_var", None) is not None:
+                self._filter_var.set("")
+            self._clear_col_filters()
+        except Exception:
+            pass
+        try:
+            self._changed_only = False
+            self._reattach_all()
+        except Exception:
+            pass
+
+        # Clean baseline: normal Frame view and the project's built-in widths.
+        try:
+            self._set_fd_view_mode("frame")
+        except Exception:
+            pass
+        try:
+            # Keep the current density if it is one of the valid presets; the
+            # cramped problem is columns, not row height.
+            density = str(getattr(self, "_table_density", "detailed") or "detailed").lower()
+            self._set_table_density(density if density in {"compact", "standard", "detailed"} else "detailed")
+        except Exception:
+            pass
+        try:
+            if self.tree is not None:
+                builtin = dict(getattr(self, "_fd_builtin_column_widths", {}) or {})
+                for col in self.tree["columns"]:
+                    if col in builtin:
+                        self.tree.column(col, width=max(32, int(builtin[col])))
+        except Exception:
+            pass
+        try:
+            self._reset_to_original_grouping()
+        except Exception:
+            pass
+        try:
+            pane = getattr(self, "_workbench_pane", None)
+            if pane is not None:
+                total_w = int(pane.winfo_width() or 0)
+                if total_w > 1:
+                    # Reserve the inspector at a readable width rather than
+                    # restoring a stale sash position that can hide it.
+                    pane.sashpos(0, max(780, total_w - 470))
+        except Exception:
+            pass
+        try:
+            if self.tree is not None:
+                self.tree.xview_moveto(0.0)
+                self.tree.yview_moveto(0.0)
+        except Exception:
+            pass
+        try:
+            if self._status_var is not None:
+                self._status_var.set("Layout reset to the clean Frame-data default")
+        except Exception:
+            pass
 
     def _move_order_text(self, mv):
         parts = []
@@ -619,18 +712,19 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             pass
         self._launch_frame = None
         self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
-        self.root.geometry("1700x820")
+        self.root.geometry(str(self._ui_prefs.get("geometry") or "1700x820"))
         self.root.minsize(1280, 640)
 
         self._filter_var = tk.StringVar(master=self.root)
         self._status_var = tk.StringVar(master=self.root, value="Ready")
         self._writer_var = tk.StringVar(
             master=self.root,
-            value=("Writable (writes to Dolphin)" if U.WRITER_AVAILABLE else "Read-only (move_writer missing)"),
+            value=("Writable" if U.WRITER_AVAILABLE else "Read-only"),
         )
         self._changed_count_var = tk.StringVar(master=self.root, value="Changed: 0")
-        self._projectile_status_var = tk.StringVar(master=self.root, value="Projectiles: queued")
-        self._super_status_var = tk.StringVar(master=self.root, value="Supers: queued")
+        self._session_summary_var = tk.StringVar(master=self.root, value="No unsaved changes")
+        self._projectile_status_var = tk.StringVar(master=self.root, value="Projectiles: not profiled")
+        self._super_status_var = tk.StringVar(master=self.root, value="Specials: not profiled")
 
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -646,7 +740,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         status = ttk.Frame(self.root, style="Status.TFrame")
         status.pack(side="bottom", fill="x")
-        ttk.Label(status, textvariable=self._status_var, style="Status.TLabel").pack(side="left", padx=8, pady=4)
+        ttk.Label(status, textvariable=self._status_var, style="Status.TLabel").pack(side="left", padx=10, pady=4)
+        ttk.Label(status, textvariable=self._session_summary_var, style="StatusMuted.TLabel").pack(side="right", padx=10, pady=4)
+        self._update_history_controls()
+        self._bind_workbench_shortcuts()
 
         # Paint the window before any heavy tree population or memory scanning.
         # Tk does not draw the Toplevel until control returns to the event loop,
@@ -662,6 +759,161 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self.root.after(100, self._initial_populate_tree)
         except Exception:
             self._initial_populate_tree()
+    def _save_ui_preferences(self):
+        """Persist presentation only; profile/patch data stays in its own files."""
+        if not self.root:
+            return
+        data = dict(getattr(self, "_ui_prefs", {}) or {})
+        try:
+            data["geometry"] = self.root.geometry()
+        except Exception:
+            pass
+        try:
+            pane = getattr(self, "_workbench_pane", None)
+            if pane is not None:
+                data["sash_pos"] = int(pane.sashpos(0))
+        except Exception:
+            pass
+        try:
+            data["view_mode"] = str(getattr(self, "_fd_view_mode", "frame") or "frame")
+        except Exception:
+            pass
+        try:
+            data["density"] = str(getattr(self, "_table_density", "standard") or "standard")
+        except Exception:
+            pass
+        try:
+            widths = {}
+            if self.tree is not None:
+                for col in self.tree["columns"]:
+                    widths[str(col)] = int(self.tree.column(col, "width"))
+            data["column_widths"] = widths
+        except Exception:
+            pass
+        self._ui_prefs = data
+        FDUIPrefs.save(data)
+
+    def _bind_workbench_shortcuts(self):
+        """Keyboard affordances make the editor feel like a real workbench."""
+        if not self.root:
+            return
+        binds = {
+            "<Control-f>": lambda _e: self._focus_move_search(),
+            "<Control-s>": lambda _e: self._save_fd_patch_config(),
+            "<Control-z>": lambda _e: self._undo_last_change(),
+            "<Control-y>": lambda _e: self._redo_last_change(),
+            "<Control-Shift-Z>": lambda _e: self._redo_last_change(),
+            "<Control-p>": lambda _e: self._show_command_palette(),
+            "<F5>": lambda _e: self._refresh_visible(),
+        }
+        for sequence, callback in binds.items():
+            try:
+                self.root.bind(sequence, callback, add=True)
+            except Exception:
+                pass
+
+    def _focus_move_search(self):
+        entry = getattr(self, "_search_entry", None)
+        if entry is None:
+            return "break"
+        try:
+            entry.focus_set()
+            entry.selection_range(0, "end")
+        except Exception:
+            pass
+        return "break"
+
+    def _show_command_palette(self):
+        """Small command palette for commonly used workbench actions."""
+        if not self.root:
+            return "break"
+        existing = getattr(self, "_command_palette", None)
+        try:
+            if existing is not None and existing.winfo_exists():
+                existing.deiconify()
+                existing.lift()
+                return "break"
+        except Exception:
+            pass
+
+        dlg = tk.Toplevel(self.root)
+        apply_titlebar_icon(dlg, self.root)
+        self._command_palette = dlg
+        dlg.title("Command Palette")
+        dlg.transient(self.root)
+        dlg.geometry("520x360")
+        dlg.minsize(420, 280)
+        try:
+            dlg.configure(bg="#101722")
+        except Exception:
+            pass
+
+        shell = ttk.Frame(dlg, style="Palette.TFrame", padding=(12, 12))
+        shell.pack(fill="both", expand=True)
+        query = tk.StringVar(master=dlg)
+        ttk.Label(shell, text="Command Palette", style="PaletteTitle.TLabel").pack(anchor="w")
+        ttk.Label(shell, text="Type to filter actions. Enter runs the selected command.", style="PaletteSub.TLabel").pack(anchor="w", pady=(2, 9))
+        ent = ttk.Entry(shell, textvariable=query)
+        ent.pack(fill="x")
+        listbox = tk.Listbox(shell, activestyle="none", exportselection=False, height=10,
+                             bg="#121C2B", fg="#E8F1FF", selectbackground="#28466A",
+                             selectforeground="#FFFFFF", highlightthickness=0, bd=0,
+                             font=("Segoe UI", 10))
+        listbox.pack(fill="both", expand=True, pady=(10, 0))
+
+        commands = [
+            ("Focus move search", self._focus_move_search),
+            ("Build full character profile", self._build_full_profile),
+            ("Run projectile profile pass", lambda: self._start_projectile_scan(auto=False)),
+            ("Run specials profile pass", lambda: self._start_super_scan(auto=False)),
+            ("Refresh visible optional fields", self._refresh_visible),
+            ("Save patch", self._save_fd_patch_config),
+            ("Load patch", self._load_fd_patch_config),
+            ("Undo last edit", self._undo_last_change),
+            ("Redo last edit", self._redo_last_change),
+            ("Reset all changed values", self._reset_all_moves),
+            ("Show changed rows", self._toggle_changed_rows),
+            ("Frame columns", lambda: self._set_fd_view_mode("frame")),
+            ("Projectile columns", lambda: self._set_fd_view_mode("projectile")),
+            ("Super columns", lambda: self._set_fd_view_mode("super")),
+            ("All columns", lambda: self._set_fd_view_mode("all")),
+        ]
+        filtered = []
+
+        def populate(*_args):
+            needle = (query.get() or "").strip().lower()
+            filtered[:] = [pair for pair in commands if not needle or needle in pair[0].lower()]
+            listbox.delete(0, "end")
+            for title, _command in filtered:
+                listbox.insert("end", title)
+            if filtered:
+                listbox.selection_set(0)
+
+        def run_selected(_evt=None):
+            sel = listbox.curselection()
+            if not sel or sel[0] >= len(filtered):
+                return "break"
+            _title, command = filtered[sel[0]]
+            try:
+                dlg.destroy()
+            except Exception:
+                pass
+            try:
+                command()
+            except Exception as exc:
+                if self._status_var is not None:
+                    self._status_var.set(f"Command failed: {exc}")
+            return "break"
+
+        query.trace_add("write", populate)
+        ent.bind("<Return>", run_selected)
+        listbox.bind("<Double-Button-1>", run_selected)
+        dlg.bind("<Return>", run_selected)
+        dlg.bind("<Escape>", lambda _e: dlg.destroy())
+        populate()
+        ent.focus_set()
+        return "break"
+
     def _on_close(self):
         self._opening_cancelled = True
         try:
@@ -690,6 +942,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             pass
         self._link_probe_after_id = None
+        try:
+            self._save_ui_preferences()
+        except Exception:
+            pass
         try:
             self.root.destroy()
         except Exception:
@@ -757,15 +1013,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if self._projectile_status_var is not None:
             count = len(self._projectile_hits or [])
             if self._projectile_profiled:
-                self._projectile_status_var.set(f"Projectiles: profile loaded ({count})")
+                self._projectile_status_var.set(f"Projectiles {count} ready")
             else:
-                self._projectile_status_var.set("Projectiles: not profiled — use Build profile")
+                self._projectile_status_var.set("Projectiles —")
         if self._super_status_var is not None:
             count = len(self._super_hits or [])
             if self._super_profiled:
-                self._super_status_var.set(f"Specials: profile loaded ({count})")
+                self._super_status_var.set(f"Specials {count} ready")
             else:
-                self._super_status_var.set("Specials: not profiled — use Build profile")
+                self._super_status_var.set("Specials —")
 
     def _persist_optional_profile(self, *, projectile_hits=None, super_hits=None) -> bool:
         """Write completed discovery-pass rows into the existing character profile."""
@@ -1079,6 +1335,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
 
         win = tk.Toplevel(self.root)
+        apply_titlebar_icon(win, self.root)
         win.title(f"Bones: {self.slot_label} @ 0x{anchor:08X}")
         win.geometry("980x520")
 
@@ -1446,10 +1703,36 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         chips: list[tuple[str, str, str, str | None]] = []
 
-        def add(label: str, value, *, important: bool = False, col: str | None = None):
+        def add(label: str, value, *, important: bool = False, col: str | None = None, flavor: str | None = None):
             text = str(value or "").strip()
             if _present(text):
-                chips.append((label, text, "important" if important else "normal", col))
+                chips.append((label, text, flavor or ("important" if important else "normal"), col))
+
+        def _otg_tile_value() -> tuple[str, str]:
+            """Return a compact, cache-only OTG summary for the selection strip.
+
+            This intentionally never starts the optional pattern scan.  A row
+            that has not been refreshed says so, but remains clickable so the
+            normal edit path can resolve/write the OTG flag on demand.
+            """
+            raw = _tree_val("hit_result_flags")
+            if not raw:
+                try:
+                    known = mv.get("hit_result_flags")
+                except Exception:
+                    known = None
+                raw = U.fmt_hit_result_flags_ui(known) if known is not None else ""
+            text = str(raw or "").strip()
+            low = text.lower()
+            if not text:
+                return "Not profiled", "missing"
+            if "otg+reaction" in low:
+                return "On + reaction", "otg_on"
+            if "otg on" in low or "0x00004000" in low:
+                return "On", "otg_on"
+            if "otg off" in low or low.startswith("0x00000000"):
+                return "Off", "otg_off"
+            return text, "normal"
 
         if FSI.is_super_row(mv):
             hit = mv.get("_super_hit") or {}
@@ -1566,6 +1849,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 ("Extra Launch", "launch_profile", False), ("Launch Adj", "kb_unknown", False),
                 ("KB X", "kb_x", True), ("Arc", "air_kb", True), ("Speed", "speed_mod", False),
                 ("Property", "attack_property", False), ("React", "hit_reaction", False),
+            ]:
+                add(label, _tree_val(col), important=important, col=col)
+            _otg_text, _otg_flavor = _otg_tile_value()
+            add("OTG", _otg_text, important=_otg_flavor == "otg_on", col="hit_result_flags", flavor=_otg_flavor)
+            for label, col, important in [
                 ("Invuln", "invuln", True), ("SuperBG", "superbg", False),
             ]:
                 add(label, _tree_val(col), important=important, col=col)
@@ -1590,22 +1878,41 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     slot["visible"] = False
                 continue
             label, value, flavor, col = chips[idx]
-            style = "QuickImportant.TLabel" if flavor == "important" else "QuickValue.TLabel"
             editable = bool(col and col not in {"kind", "hits", "link", "invuln", "abs"})
             slot["col"] = col if editable else None
+
+            # The row keeps a single tile surface; the value itself is no longer
+            # framed like a form input.  Important frame data and OTG states get
+            # a different surface/rail without asking Tk to recreate the cell.
+            if flavor == "important":
+                tile_base, rail = "QuickImportantTile", "#66AEF0"
+            elif flavor == "otg_on":
+                tile_base, rail = "QuickOtgOnTile", "#70D6D0"
+            elif flavor == "otg_off":
+                tile_base, rail = "QuickOtgOffTile", "#7FAFC1"
+            elif flavor == "missing":
+                tile_base, rail = "QuickMissingTile", "#61748F"
+            else:
+                tile_base, rail = "QuickTile", "#4D78A3"
             try:
                 if slot.get("label_value") != label:
-                    slot["label_var"].set(label)
+                    slot["label_var"].set(f"{label}")
                     slot["label_value"] = label
                 if slot.get("text_value") != value:
                     slot["value_var"].set(value)
                     slot["text_value"] = value
-                state = (style, editable)
+                state = (tile_base, rail, editable)
                 if slot.get("style_state") != state:
                     cursor = "hand2" if editable else ""
-                    slot["cell"].configure(cursor=cursor)
-                    slot["label_widget"].configure(cursor=cursor)
-                    slot["value_widget"].configure(cursor=cursor, style=style)
+                    slot["cell"].configure(cursor=cursor, style=f"{tile_base}.TFrame")
+                    slot.get("content").configure(cursor=cursor, style=f"{tile_base}.TFrame")
+                    slot.get("rail").configure(cursor=cursor, background=rail)
+                    slot["label_widget"].configure(cursor=cursor, style=f"{tile_base}Label.TLabel")
+                    try:
+                        slot.get("colon_widget").configure(cursor=cursor, style=f"{tile_base}Label.TLabel")
+                    except Exception:
+                        pass
+                    slot["value_widget"].configure(cursor=cursor, style=f"{tile_base}Value.TLabel")
                     slot["style_state"] = state
                 if not slot.get("visible"):
                     slot["cell"].grid()
@@ -2218,17 +2525,273 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 continue
             try:
                 if static:
-                    widget.configure(cursor="", style="ValueStatic.TLabel")
+                    widget.configure(cursor="", style="InspectorReadOnly.TLabel")
                 elif dirty:
-                    widget.configure(cursor="hand2", style="ValueChanged.TLabel")
+                    widget.configure(cursor="hand2", style="InspectorValueChanged.TLabel")
                 else:
-                    widget.configure(cursor="hand2", style="ValueChip.TLabel")
+                    widget.configure(cursor="hand2", style="InspectorValue.TLabel")
                 self._inspector_chip_style_cache[col] = style_key
             except Exception:
                 pass
 
         self._refresh_quick_panel(item_id, mv)
+        self._refresh_inspector_headline(item_id, mv)
+        self._refresh_frame_timeline(item_id, mv)
+        self._refresh_compare_summary(item_id, mv)
         self._apply_inspector_context_layout(mv)
+
+    def _refresh_inspector_headline(self, item_id: str | None, mv: dict | None):
+        """Update four constant-time headline stats from cached table cells."""
+        for col, var in (getattr(self, "_headline_stat_vars", {}) or {}).items():
+            value = "—"
+            try:
+                if item_id and self.tree and col in self.tree["columns"]:
+                    value = str(self.tree.set(item_id, col) or "").strip() or "—"
+            except Exception:
+                pass
+            try:
+                if var.get() != value:
+                    var.set(value)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _timeline_number(value, default=None):
+        try:
+            text = str(value or "").strip()
+            if not text:
+                return default
+            if "-" in text:
+                text = text.split("-", 1)[0].strip()
+            return int(float(text))
+        except Exception:
+            return default
+
+    def _refresh_frame_timeline(self, item_id: str | None = None, mv: dict | None = None):
+        canvas = getattr(self, "_timeline_canvas", None)
+        summary_var = getattr(self, "_timeline_summary_var", None)
+        if canvas is None:
+            return
+        if item_id is None and self.tree is not None:
+            try:
+                selected = self.tree.selection()
+                if selected:
+                    item_id = selected[0]
+                    mv = self.move_to_tree_item.get(item_id)
+            except Exception:
+                pass
+        try:
+            canvas.delete("all")
+        except Exception:
+            return
+        if not item_id or not mv or not self.tree:
+            if summary_var is not None:
+                summary_var.set("Select a move to draw its cached startup and active frames.")
+            return
+        try:
+            start = int(mv.get("active_start")) if mv.get("active_start") is not None else self._timeline_number(self.tree.set(item_id, "startup"))
+        except Exception:
+            start = None
+        try:
+            end = int(mv.get("active_end")) if mv.get("active_end") is not None else None
+        except Exception:
+            end = None
+        if end is None:
+            try:
+                active_text = self.tree.set(item_id, "active")
+                end = self._timeline_number(str(active_text).split("-", 1)[-1] if "-" in str(active_text) else active_text)
+            except Exception:
+                end = None
+        if start is None:
+            if summary_var is not None:
+                summary_var.set("No cached timing packet on this row.")
+            return
+        end = max(int(end or start), int(start))
+        startup_frames = max(0, start - 1)
+        visible_end = max(end + 10, 22)
+        try:
+            width = max(240, int(canvas.winfo_width() or 360))
+        except Exception:
+            width = 360
+        left, right = 7, max(8, width - 7)
+        span = max(1, right - left)
+        unit = span / float(visible_end)
+        y1, y2 = 12, 29
+        def x(frame):
+            return int(left + ((max(0, frame - 1)) * unit))
+        # Startup / active / unknown recovery. The recovery block is intentionally
+        # muted because profiles do not yet have a reliable recovery endpoint.
+        if startup_frames:
+            canvas.create_rectangle(x(1), y1, max(x(start) - 1, x(1) + 2), y2, fill="#355B8C", outline="")
+        canvas.create_rectangle(x(start), y1, max(x(end + 1) - 1, x(start) + 3), y2, fill="#4D9C78", outline="")
+        canvas.create_rectangle(x(end + 1), y1, right, y2, fill="#27384E", outline="")
+        for frame in (1, start, end + 1):
+            xpos = min(right, max(left, x(frame)))
+            canvas.create_line(xpos, y1 - 3, xpos, y2 + 3, fill="#7993B3")
+        canvas.create_text(left, 4, anchor="w", text="1", fill="#91A7C1", font=("Segoe UI", 7))
+        canvas.create_text(max(left + 20, x(start)), 4, anchor="w", text=f"{start}", fill="#91A7C1", font=("Segoe UI", 7))
+        canvas.create_text(max(left + 38, x(end + 1)), 4, anchor="w", text=f"{end + 1}", fill="#91A7C1", font=("Segoe UI", 7))
+        if summary_var is not None:
+            active_count = (end - start) + 1
+            summary_var.set(f"Startup 1–{startup_frames} ({startup_frames}f)  |  Active {start}–{end} ({active_count}f)  |  Recovery not profiled")
+
+    def _refresh_selected_row(self):
+        if not self.tree:
+            return
+        try:
+            selected = self.tree.selection()
+        except Exception:
+            selected = ()
+        if not selected:
+            if self._status_var is not None:
+                self._status_var.set("Select a move to refresh optional fields.")
+            return
+        item_id = selected[0]
+        mv = self.move_to_tree_item.get(item_id)
+        if not mv:
+            return
+        try:
+            mv.pop("_optional_probe_done", None)
+            mv.pop("_optional_probe_error", None)
+        except Exception:
+            pass
+        queued = self._request_optional_probe(item_id, mv, priority=True, force=True, announce=True)
+        if self._status_var is not None:
+            self._status_var.set("Refreshing selected row in the background..." if queued else "Selected row already has cached optional fields.")
+
+    def _pin_current_move(self):
+        if not self.tree:
+            return
+        try:
+            selected = self.tree.selection()
+        except Exception:
+            selected = ()
+        if not selected:
+            return
+        item_id = selected[0]
+        mv = self.move_to_tree_item.get(item_id)
+        if not mv:
+            return
+        fields = ("damage", "startup", "active", "hitstun", "blockstun", "hitstop")
+        values = {}
+        for field in fields:
+            try:
+                values[field] = self.tree.set(item_id, field)
+            except Exception:
+                values[field] = ""
+        try:
+            label = self.tree.set(item_id, "move")
+        except Exception:
+            label = mv.get("pretty_name") or mv.get("move_name") or "Pinned move"
+        self._pinned_move_snapshot = {"item_id": item_id, "label": label, "values": values}
+        self._refresh_compare_summary(item_id, mv)
+        if self._status_var is not None:
+            self._status_var.set(f"Pinned {label} for comparison")
+
+    def _clear_pinned_move(self):
+        self._pinned_move_snapshot = None
+        if self._compare_title_var is not None:
+            self._compare_title_var.set("No pinned move")
+        if self._compare_summary_var is not None:
+            self._compare_summary_var.set("Pin a move to compare damage, timing, and stun as you browse.")
+        for _var in (getattr(self, "_compare_delta_vars", {}) or {}).values():
+            try:
+                _var.set("—")
+            except Exception:
+                pass
+
+    def _refresh_compare_summary(self, item_id: str | None, mv: dict | None):
+        title_var = self._compare_title_var
+        summary_var = self._compare_summary_var
+        delta_vars = getattr(self, "_compare_delta_vars", {}) or {}
+        pinned = getattr(self, "_pinned_move_snapshot", None)
+        if title_var is None or summary_var is None:
+            return
+
+        def _set_delta(key: str, value: str):
+            try:
+                if key in delta_vars:
+                    delta_vars[key].set(value)
+            except Exception:
+                pass
+
+        def _active_count(text: str | None):
+            text = str(text or "").strip()
+            if not text:
+                return None
+            if "-" in text:
+                try:
+                    a, b = text.split("-", 1)
+                    a_i = int(float(a.strip()))
+                    b_i = int(float(b.strip()))
+                    return (b_i - a_i) + 1
+                except Exception:
+                    return None
+            try:
+                return 1 if int(float(text)) else None
+            except Exception:
+                return None
+
+        if not pinned:
+            title_var.set("No pinned move")
+            summary_var.set("Pin a move to compare damage, timing, and stun as you browse.")
+            for key in ("damage", "startup", "active", "hitstop", "blockstun"):
+                _set_delta(key, "—")
+            return
+        pinned_label = str(pinned.get("label") or "Pinned move")
+        title_var.set(f"Pinned: {pinned_label}")
+        if not item_id or not self.tree:
+            summary_var.set("Choose another move to compare against the pinned snapshot.")
+            for key in ("damage", "startup", "active", "hitstop", "blockstun"):
+                _set_delta(key, "—")
+            return
+        if item_id == pinned.get("item_id"):
+            summary_var.set("This is the pinned move. Select another row to see deltas.")
+            for key in ("damage", "startup", "active", "hitstop", "blockstun"):
+                _set_delta(key, "Pinned")
+            return
+        current = {}
+        for field in ("damage", "startup", "active", "hitstun", "blockstun", "hitstop"):
+            try:
+                current[field] = self.tree.set(item_id, field)
+            except Exception:
+                current[field] = ""
+        parts = []
+        for field, label, delta_key in (("damage", "Damage", "damage"), ("startup", "Startup", "startup"), ("blockstun", "Blockstun", "blockstun"), ("hitstop", "Hitstop", "hitstop")):
+            before = self._timeline_number((pinned.get("values") or {}).get(field))
+            after = self._timeline_number(current.get(field))
+            if before is not None and after is not None:
+                delta = after - before
+                pretty = "same" if delta == 0 else f"{delta:+d}"
+                _set_delta(delta_key, pretty)
+                parts.append(f"{label} {pretty}")
+            else:
+                _set_delta(delta_key, "—")
+        before_active = str((pinned.get("values") or {}).get("active") or "")
+        after_active = str(current.get("active") or "")
+        if before_active and after_active:
+            if before_active == after_active:
+                active_pretty = "same"
+            else:
+                before_count = _active_count(before_active)
+                after_count = _active_count(after_active)
+                if before_count is not None and after_count is not None:
+                    diff = after_count - before_count
+                    active_pretty = f"{diff:+d}f" if diff else "same"
+                else:
+                    active_pretty = f"{before_active}→{after_active}"
+            _set_delta("active", active_pretty)
+            if before_active != after_active:
+                parts.append(f"Active {before_active} → {after_active}")
+            else:
+                parts.append("Active same")
+        else:
+            _set_delta("active", "—")
+        try:
+            current_label = self.tree.set(item_id, "move")
+        except Exception:
+            current_label = "Selected move"
+        summary_var.set(f"{current_label}  |  " + (" • ".join(parts) if parts else "No comparable cached values"))
 
     def _apply_inspector_context_layout(self, mv: dict | None):
         """Reorder/hide inspector cards so selected-row-specific data is not buried.
@@ -2328,6 +2891,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         try:
             if getattr(self, "_inspector_canvas", None) is not None:
                 self._inspector_canvas.yview_moveto(0.0)
+        except Exception:
+            pass
+        try:
+            refresh_region = getattr(self, "_refresh_inspector_scrollregion", None)
+            if refresh_region is not None:
+                self.root.after_idle(refresh_region)
         except Exception:
             pass
 
@@ -2501,6 +3070,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         group_key, _cols = self._dirty_group_for_cell(mv, col_name)
         if group_key:
             key = self._dirty_key(item_id, mv, group_key)
+            was_dirty = key in self._dirty_cells
             snap = self._dirty_cells.get(key) or self._pending_edit_snapshots.pop(key, None)
             if snap:
                 current = self._current_values_for_cols(item_id, snap.get("cols", ()))
@@ -2508,8 +3078,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     snap["item_id"] = item_id
                     snap["mv"] = mv
                     self._dirty_cells[key] = snap
+                    # One history entry per field group preserves the original
+                    # session baseline and makes Undo deterministic even when a
+                    # value is edited several times.
+                    if not was_dirty and key not in self._undo_stack:
+                        self._undo_stack.append(key)
+                        self._redo_stack.clear()
                 else:
                     self._dirty_cells.pop(key, None)
+                    try:
+                        self._undo_stack = [k for k in self._undo_stack if k != key]
+                    except Exception:
+                        pass
         self._update_dirty_ui(item_id, mv)
 
     def _update_dirty_ui(self, item_id: str | None = None, mv: dict | None = None):
@@ -2519,6 +3099,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             count = len(self._dirty_cells)
             label = "Changed: 0" if count == 0 else f"Changed: {count}"
             self._changed_count_var.set(label)
+        self._update_history_controls()
 
         # Keep the main Normals Preview in sync with this workbench. This does
         # not write anything; it only publishes the current dirty entries so
@@ -2558,6 +3139,93 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             except Exception:
                 pass
 
+    def _update_history_controls(self):
+        count = len(getattr(self, "_dirty_cells", {}) or {})
+        if self._session_summary_var is not None:
+            if count:
+                text = f"{count} unsaved change{'s' if count != 1 else ''}"
+            else:
+                text = "No unsaved changes"
+            try:
+                if self._session_summary_var.get() != text:
+                    self._session_summary_var.set(text)
+            except Exception:
+                pass
+        for button, enabled in (
+            (getattr(self, "_undo_button", None), bool(getattr(self, "_undo_stack", []))),
+            (getattr(self, "_redo_button", None), bool(getattr(self, "_redo_stack", []))),
+        ):
+            if button is None:
+                continue
+            try:
+                button.configure(state="normal" if enabled else "disabled")
+            except Exception:
+                pass
+
+    def _undo_last_change(self):
+        if not U.WRITER_AVAILABLE:
+            if self._status_var is not None:
+                self._status_var.set("Undo needs the frame-data writer.")
+            return "break"
+        while self._undo_stack:
+            key = self._undo_stack.pop()
+            snap = self._dirty_cells.get(key)
+            if not snap:
+                continue
+            entry = self._patch_entry_from_dirty_snapshot(snap)
+            if not entry:
+                continue
+            saved_snap = dict(snap)
+            saved_snap["mv_values"] = dict(snap.get("mv_values") or {})
+            restored = self._reset_dirty_keys([key], announce=False, preserve_history=True)
+            if restored:
+                self._redo_stack.append({"key": key, "snap": saved_snap, "entry": entry})
+                self._update_history_controls()
+                if self._status_var is not None:
+                    self._status_var.set("Undid last edited field")
+                return "break"
+            # Failed writes should not silently lose the history entry.
+            self._undo_stack.append(key)
+            break
+        self._update_history_controls()
+        if self._status_var is not None:
+            self._status_var.set("Nothing to undo")
+        return "break"
+
+    def _redo_last_change(self):
+        if not U.WRITER_AVAILABLE:
+            if self._status_var is not None:
+                self._status_var.set("Redo needs the frame-data writer.")
+            return "break"
+        while self._redo_stack:
+            record = self._redo_stack.pop()
+            snap = record.get("snap") or {}
+            entry = record.get("entry") or {}
+            key = record.get("key")
+            item_id = snap.get("item_id")
+            mv = snap.get("mv") or self.move_to_tree_item.get(item_id)
+            if not item_id or not mv or not entry:
+                continue
+            ok, reason = self._apply_patch_change(item_id, mv, entry)
+            if not ok:
+                self._redo_stack.append(record)
+                if self._status_var is not None:
+                    self._status_var.set(f"Redo failed: {reason}")
+                self._update_history_controls()
+                return "break"
+            self._apply_patch_tree_update(item_id, mv, str(entry.get("group") or snap.get("group") or ""))
+            self._dirty_cells[key] = snap
+            if key not in self._undo_stack:
+                self._undo_stack.append(key)
+            self._update_dirty_ui(item_id, mv)
+            if self._status_var is not None:
+                self._status_var.set("Redid last edited field")
+            return "break"
+        self._update_history_controls()
+        if self._status_var is not None:
+            self._status_var.set("Nothing to redo")
+        return "break"
+
     def _is_col_dirty(self, item_id: str | None, col_name: str) -> bool:
         if not item_id:
             return False
@@ -2581,11 +3249,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             except Exception:
                 mv = None
             if col_name in {"kind", "hits", "link"} or col_name in FPI.PROJECTILE_STATIC_COLUMNS or (col_name.startswith("proj_") and not FPI.is_projectile_row(mv)) or (col_name.startswith("dispatch_") and not FSI.super_editable(col_name)) or (col_name.startswith("dispatch_") and not FSI.is_super_row(mv)) :
-                widget.configure(cursor="", style="ValueStatic.TLabel")
+                widget.configure(cursor="", style="InspectorReadOnly.TLabel")
             elif changed:
-                widget.configure(cursor="hand2", style="ValueChangedHover.TLabel" if hover else "ValueChanged.TLabel")
+                widget.configure(cursor="hand2", style="InspectorValueChangedHover.TLabel" if hover else "InspectorValueChanged.TLabel")
             else:
-                widget.configure(cursor="hand2", style="ValueChipHover.TLabel" if hover else "ValueChip.TLabel")
+                widget.configure(cursor="hand2", style="InspectorValueHover.TLabel" if hover else "InspectorValue.TLabel")
         except Exception:
             pass
 
@@ -2723,8 +3391,26 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if FPI.is_projectile_row(mv):
             tags.add("projectile_row")
 
-        if item_id in getattr(self, "_dirty_row_items", set()):
+        is_edited = item_id in getattr(self, "_dirty_row_items", set())
+        if is_edited:
             tags.add("edited_row")
+
+        # The tree gutter is occupied by expand/collapse arrows, so its text
+        # can disappear for nested rows.  Keep a gutter dot *and* a visible
+        # Move-column marker for edited records.  The base label is retained
+        # so Reset all cleanly removes the marker again.
+        try:
+            current_move = str(self.tree.set(item_id, "move") or "")
+            base_move = mv.get("_tree_move_base")
+            if not base_move:
+                base_move = current_move[2:] if current_move.startswith("● ") else current_move
+                mv["_tree_move_base"] = base_move
+            desired_move = f"● {base_move}" if is_edited else str(base_move)
+            if current_move != desired_move:
+                self.tree.set(item_id, "move", desired_move)
+            self.tree.item(item_id, text="●" if is_edited else "")
+        except Exception:
+            pass
 
         ordered = [
             t for t in (
@@ -2917,6 +3603,32 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     def sort_by_abs_order(self):
         self._rebuild_tree_with_moves(self._moves_abs, "abs order")
+    def _update_sort_visuals(self, col_name: str, ascending: bool):
+        """Keep column sorting obvious without a heavy header redesign."""
+        tree = self.tree
+        if not tree:
+            return
+        self._sort_active_column = col_name
+        direction = "▲" if ascending else "▼"
+        for c in tree["columns"]:
+            base = self._heading_text_for_col(c)
+            suffix = f"  {direction}" if c == col_name else ""
+            try:
+                tree.heading(c, text=f"{base}{suffix}")
+            except Exception:
+                pass
+        label = self._heading_text_for_col(col_name)
+        if getattr(self, "_sort_status_var", None) is not None:
+            try:
+                self._sort_status_var.set(f"Sort: {label} {direction}")
+            except Exception:
+                pass
+        try:
+            if self._status_var is not None:
+                self._status_var.set(f"Sorted by {label} {'ascending' if ascending else 'descending'}")
+        except Exception:
+            pass
+
     def _sort_treeview_grouped(self, col_name: str):
         tree = self.tree
         if not tree:
@@ -2925,11 +3637,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         asc = self._sort_state.get(col_name, True)
         self._sort_state[col_name] = not asc
 
-        # Header direction labels. Avoid icon glyphs so the UI stays ASCII-only.
-        for c in tree["columns"]:
-            base = self._heading_text_for_col(c)
-            suffix = " [ASC]" if c == col_name and asc else " [DESC]" if c == col_name else ""
-            tree.heading(c, text=f"{base}{suffix}")
+        self._update_sort_visuals(col_name, asc)
 
         parents = list(tree.get_children(""))
 
@@ -2951,11 +3659,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         asc = self._sort_state.get(col_name, True)
         self._sort_state[col_name] = not asc
 
-        # Header direction labels. Avoid icon glyphs so the UI stays ASCII-only.
-        for c in tree["columns"]:
-            base = self._heading_text_for_col(c)
-            suffix = " [ASC]" if c == col_name and asc else " [DESC]" if c == col_name else ""
-            tree.heading(c, text=f"{base}{suffix}")
+        self._update_sort_visuals(col_name, asc)
 
         rows = []
         for item in tree.get_children(""):
@@ -3038,6 +3742,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._filter_var.set("")
         self._clear_col_filters()
 
+    def _toggle_changed_rows(self):
+        self._changed_only = not bool(getattr(self, "_changed_only", False))
+        self._apply_filter()
+        if self._status_var is not None:
+            self._status_var.set("Showing changed rows only" if self._changed_only else "Showing all rows")
+
     def _apply_filter(self):
         global_q = (self._filter_var.get() or "").strip().lower()
 
@@ -3049,17 +3759,30 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 col_filters[col] = v
 
         self._reattach_all()
+        changed_only = bool(getattr(self, "_changed_only", False))
 
-        if not global_q and not col_filters:
+        if not global_q and not col_filters and not changed_only:
             self._status_var.set("Filter cleared")
             return
 
         keep: set[str] = set()
+        changed_keep: set[str] = set()
+        if changed_only:
+            for dirty_item in set(getattr(self, "_dirty_row_items", set()) or set()):
+                if not dirty_item:
+                    continue
+                changed_keep.add(dirty_item)
+                parent = self.tree.parent(dirty_item)
+                while parent:
+                    changed_keep.add(parent)
+                    parent = self.tree.parent(parent)
 
         # Global filter searches only these columns
         global_cols = ("move", "kind", "abs")
 
         for item_id in self._all_item_ids:
+            if changed_only and item_id not in changed_keep:
+                continue
             # 1) Global filter check
             if global_q:
                 hay_parts = []
@@ -3102,6 +3825,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             parts.append(f"q='{global_q}'")
         if col_filters:
             parts.append("cols=" + ", ".join(f"{k}:{v}" for k, v in col_filters.items()))
+        if changed_only:
+            parts.append("changed only")
         self._status_var.set(f"Filter applied ({' | '.join(parts)}), hidden {detached}")
 
     # ---------- Speed modifier resolve + edit ----------
@@ -3225,6 +3950,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         byte entry remains available for testing unknown/experimental values.
         """
         dlg = tk.Toplevel(self.root)
+        apply_titlebar_icon(dlg, self.root)
         dlg.title("Edit Attack Property")
         dlg.resizable(False, False)
         dlg.transient(self.root)
@@ -4210,14 +4936,19 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     # ---------- Reset to original ----------
 
-    def _reset_all_moves(self):
+    def _reset_dirty_keys(self, keys=None, *, announce=True, preserve_history=False):
         if not U.WRITER_AVAILABLE:
-            messagebox.showerror("Error", "Writer unavailable")
-            return
+            if announce:
+                messagebox.showerror("Error", "Writer unavailable")
+            return 0
 
-        if not self._dirty_cells:
-            self._status_var.set("No changed values to reset")
-            return
+        if keys is None:
+            keys = list(self._dirty_cells.keys())
+        keys = [key for key in list(keys or []) if key in self._dirty_cells]
+        if not keys:
+            if announce and self._status_var is not None:
+                self._status_var.set("No changed values to reset")
+            return 0
 
         reset_count = 0
         failed_writes = []
@@ -4225,7 +4956,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         # Only touch fields changed during this editor session. This avoids the
         # old full-list reset pass that walked every scanned move.
-        for key, snap in list(self._dirty_cells.items()):
+        for key in keys:
+            snap = self._dirty_cells.get(key)
+            if not snap:
+                continue
             item_id = snap.get("item_id")
             mv = snap.get("mv") or {}
             group = snap.get("group")
@@ -4467,12 +5201,22 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             pass
 
+        if not preserve_history:
+            active_keys = set(self._dirty_cells.keys())
+            self._undo_stack = [key for key in self._undo_stack if key in active_keys]
+            self._redo_stack.clear()
+        self._update_history_controls()
         msg = f"Reset changed values: {reset_count} write(s) restored"
         if failed_writes:
             msg += " | failed: " + ", ".join(failed_writes[:6])
-        self._status_var.set(msg)
-        if failed_writes:
+        if self._status_var is not None:
+            self._status_var.set(msg)
+        if announce and failed_writes:
             messagebox.showwarning("Reset changed", msg)
+        return reset_count
+
+    def _reset_all_moves(self):
+        return self._reset_dirty_keys(None, announce=True, preserve_history=False)
 
     # ---------- Double-click routing ----------
 
@@ -4905,6 +5649,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         current_line_index = (line_base - start) // LINE_SIZE
 
         dlg = tk.Toplevel(self.root)
+        apply_titlebar_icon(dlg, self.root)
         dlg.title(title)
         dlg.geometry("700x460")
 
@@ -4927,6 +5672,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     def _show_raw_data(self, mv: dict):
         dlg = tk.Toplevel(self.root)
+        apply_titlebar_icon(dlg, self.root)
         dlg.title("Raw Move Data")
         dlg.geometry("680x560")
 

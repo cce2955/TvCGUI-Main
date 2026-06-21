@@ -5,14 +5,14 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from fd_widgets import apply_titlebar_icon, configure_light_dialog, finalize_dialog_geometry
 
 
 class ReplaceMoveDialog(tk.Toplevel):
     def __init__(self, parent, all_moves):
         super().__init__(parent)
         self.title("Replace Move")
-        self.geometry("620x480")
-        self.resizable(True, True)
+        configure_light_dialog(self, parent, width=620, height=480, resizable=(True, True))
 
         self.result = None
         self.all_moves = list(all_moves or [])
@@ -73,6 +73,7 @@ class ReplaceMoveDialog(tk.Toplevel):
         self.transient(parent)
         self.grab_set()
         self.listbox.focus_set()
+        finalize_dialog_geometry(self, 620, 480)
 
     def _on_ok(self):
         sel = self.listbox.curselection()
