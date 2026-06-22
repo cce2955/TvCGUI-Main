@@ -96,7 +96,7 @@
     "superbg": 78
   },
   "density": "detailed",
-  "geometry": "1700x820+-95+273",
+  "geometry": "1700x820+130+89",
   "sash_pos": 1210,
   "view_mode": "frame"
 }

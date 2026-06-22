@@ -4,6 +4,7 @@ import os
 import sys
 import struct
 import threading
+import re
 from collections import deque
 from datetime import datetime
 
@@ -973,7 +974,27 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._initial_tree_loaded = True
         if self._status_var is not None:
             src = "profile cache" if self._profile_fast_path else "scanner snapshot"
-            self._status_var.set(f"Frame rows loaded from {src}. No background discovery scan is running.")
+            self._status_var.set(f"Frame rows loaded from {src}. Building any missing profile passes automatically.")
+        self._queue_auto_profile_build()
+
+    def _queue_auto_profile_build(self):
+        """Build missing projectile/special passes once, after the window paints."""
+        if getattr(self, "_auto_profile_scheduled", False):
+            return
+        if bool(getattr(self, "_projectile_profiled", False)) and bool(getattr(self, "_super_profiled", False)):
+            return
+        self._auto_profile_scheduled = True
+        try:
+            self.root.after(250, self._run_auto_profile_build)
+        except Exception:
+            self._run_auto_profile_build()
+
+    def _run_auto_profile_build(self):
+        self._auto_profile_scheduled = False
+        if not self.root or getattr(self, "_opening_cancelled", False):
+            return
+        if not bool(getattr(self, "_projectile_profiled", False)) or not bool(getattr(self, "_super_profiled", False)):
+            self._build_full_profile()
 
     def _initial_populate_tree(self):
         if self._initial_load_running or self._initial_tree_loaded:
@@ -1063,24 +1084,30 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 self._status_var.set("Profile build finished with a failed or unavailable pass; check the two profile statuses.")
 
     def _build_full_profile(self):
-        """Run both one-time discovery passes and persist them under this character."""
+        """Automatically build only missing projectile/special profile passes."""
         if self._profile_building or self._projectile_scanning or self._super_scanning:
-            if self._status_var is not None:
-                self._status_var.set("A profile pass is already running...")
+            return
+        need_projectiles = not bool(self._projectile_profiled)
+        need_supers = not bool(self._super_profiled)
+        if not need_projectiles and not need_supers:
             return
         self._profile_building = True
         if self._status_var is not None:
-            self._status_var.set("Building saved projectile + special profile for this character...")
+            self._status_var.set("Auto-building missing character profile passes...")
 
-        def _after_projectiles(projectile_ok: bool):
-            # Still run the special pass if projectiles are unavailable. Some
-            # characters have useful action graphs without projectile rows.
-            self._start_super_scan(
-                auto=False,
-                on_complete=lambda special_ok: self._profile_build_finished(bool(projectile_ok or special_ok)),
-            )
+        def _finish_after_projectiles(projectile_ok: bool):
+            if need_supers:
+                self._start_super_scan(
+                    auto=True,
+                    on_complete=lambda special_ok: self._profile_build_finished(bool(projectile_ok or special_ok)),
+                )
+            else:
+                self._profile_build_finished(bool(projectile_ok))
 
-        self._start_projectile_scan(auto=False, on_complete=_after_projectiles)
+        if need_projectiles:
+            self._start_projectile_scan(auto=True, on_complete=_finish_after_projectiles)
+        else:
+            self._start_super_scan(auto=True, on_complete=lambda special_ok: self._profile_build_finished(bool(special_ok)))
 
     def _start_projectile_scan(self, auto: bool = False, on_complete=None):
         """Explicit projectile discovery pass; results are immediately profiled."""
@@ -1111,9 +1138,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._status_var.set("Profiling projectile definitions for this character...")
 
         def _progress(pct: float):
+            # Worker thread -> Tk host queue. Do not call Toplevel.after from a
+            # worker; automatic profile builds must not make the window hang.
             try:
-                if self.root and self._projectile_status_var is not None:
-                    self.root.after(0, lambda p=pct: self._projectile_status_var.set(f"Projectiles: profiling {p:0f}%"))
+                tk_call(lambda _root, p=pct: self._projectile_status_var.set(f"Projectiles: profiling {p:0f}%") if self.root and self._projectile_status_var is not None else None)
             except Exception:
                 pass
 
@@ -1157,7 +1185,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         pass
 
             try:
-                self.root.after(0, _done)
+                tk_call(lambda _root: _done())
             except Exception:
                 pass
 
@@ -1193,8 +1221,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         def _progress(pct: float):
             try:
-                if self.root and self._super_status_var is not None:
-                    self.root.after(0, lambda p=pct: self._super_status_var.set(f"Specials: profiling {p:0f}%"))
+                tk_call(lambda _root, p=pct: self._super_status_var.set(f"Specials: profiling {p:0f}%") if self.root and self._super_status_var is not None else None)
             except Exception:
                 pass
 
@@ -1248,7 +1275,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         pass
 
             try:
-                self.root.after(0, _done)
+                tk_call(lambda _root: _done())
             except Exception:
                 pass
 
@@ -1748,7 +1775,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             add("Owner Proof", FSI.format_super_value(mv, "dispatch_owner_proof"), important=bool(hit.get("dispatch_owner_proof")))
             for label, col in (
                 ("Damage", "damage"), ("KB X", "kb_x"), ("KB Y", "air_kb"),
-                ("Hitstun", "hitstun"), ("Blockstun", "blockstun"), ("Hitstop", "hitstop"),
+                ("Hitstun", "hitstun"), ("Invuln", "invuln"), ("Blockstun", "blockstun"), ("Hitstop", "hitstop"),
                 ("Attack Property", "attack_property"), ("Hit Reaction", "hit_reaction"),
                 ("Extra Launch", "launch_profile"), ("Launch Adjust", "kb_unknown"),
             ):
@@ -1843,8 +1870,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             _set_text(sub_var, " | ".join(parts) if parts else "Frame-data row")
             for label, col, important in [
                 ("Damage", "damage", True), ("Meter", "meter", False), ("Start", "startup", False),
-                ("Active", "active", True), ("HS", "hitstun", False), ("BS", "blockstun", False),
-                ("Stop", "hitstop", False), ("Spark", "hit_spark", False), ("Reach", "stretch_len", True),
+                ("Active", "active", True), ("HS", "hitstun", False),
+            ]:
+                add(label, _tree_val(col), important=important, col=col)
+            _invuln_text = _tree_val("invuln") or "None"
+            add("Invuln", _invuln_text, important=_invuln_text != "None", col="invuln")
+            for label, col, important in [
+                ("BS", "blockstun", False), ("Stop", "hitstop", False), ("Spark", "hit_spark", False), ("Reach", "stretch_len", True),
                 ("Post Link", "post_link", False), ("KB Style", "kb_type", False),
                 ("Extra Launch", "launch_profile", False), ("Launch Adj", "kb_unknown", False),
                 ("KB X", "kb_x", True), ("Arc", "air_kb", True), ("Speed", "speed_mod", False),
@@ -1853,10 +1885,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 add(label, _tree_val(col), important=important, col=col)
             _otg_text, _otg_flavor = _otg_tile_value()
             add("OTG", _otg_text, important=_otg_flavor == "otg_on", col="hit_result_flags", flavor=_otg_flavor)
-            for label, col, important in [
-                ("Invuln", "invuln", True), ("SuperBG", "superbg", False),
-            ]:
-                add(label, _tree_val(col), important=important, col=col)
+            add("SuperBG", _tree_val("superbg"), important=False, col="superbg")
 
         if empty_label is not None:
             try:
@@ -2561,9 +2590,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             text = str(value or "").strip()
             if not text:
                 return default
+            text = text.split("/", 1)[0].strip()
             if "-" in text:
                 text = text.split("-", 1)[0].strip()
-            return int(float(text))
+            match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+            return int(float(match.group(0))) if match else default
         except Exception:
             return default
 
@@ -2606,9 +2637,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             if summary_var is not None:
                 summary_var.set("No cached timing packet on this row.")
             return
+        try:
+            invuln_text = self.tree.set(item_id, "invuln")
+        except Exception:
+            invuln_text = mv.get("invuln") or ""
+        invuln_frames = self._timeline_number(invuln_text, 0) or 0
         end = max(int(end or start), int(start))
         startup_frames = max(0, start - 1)
-        visible_end = max(end + 10, 22)
+        visible_end = max(end + 10, invuln_frames + 5, 22)
         try:
             width = max(240, int(canvas.winfo_width() or 360))
         except Exception:
@@ -2616,24 +2652,32 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         left, right = 7, max(8, width - 7)
         span = max(1, right - left)
         unit = span / float(visible_end)
-        y1, y2 = 12, 29
         def x(frame):
             return int(left + ((max(0, frame - 1)) * unit))
-        # Startup / active / unknown recovery. The recovery block is intentionally
-        # muted because profiles do not yet have a reliable recovery endpoint.
+
+        inv_y1, inv_y2 = 13, 23
+        main_y1, main_y2 = 37, 54
+        canvas.create_text(left, 8, anchor="w", text="INVULN", fill="#7FBFC0", font=("Segoe UI", 7, "bold"))
+        if invuln_frames:
+            canvas.create_rectangle(x(1), inv_y1, max(x(invuln_frames + 1) - 1, x(1) + 3), inv_y2, fill="#3F9B95", outline="")
+            canvas.create_text(min(right - 3, max(left + 38, x(invuln_frames + 1))), 8, anchor="e", text=f"1–{invuln_frames}", fill="#9CDDD5", font=("Segoe UI", 7))
+        else:
+            canvas.create_rectangle(left, inv_y1, right, inv_y2, fill="#243446", outline="")
+            canvas.create_text(left + 4, inv_y1 + 5, anchor="w", text="none", fill="#71869D", font=("Segoe UI", 7))
         if startup_frames:
-            canvas.create_rectangle(x(1), y1, max(x(start) - 1, x(1) + 2), y2, fill="#355B8C", outline="")
-        canvas.create_rectangle(x(start), y1, max(x(end + 1) - 1, x(start) + 3), y2, fill="#4D9C78", outline="")
-        canvas.create_rectangle(x(end + 1), y1, right, y2, fill="#27384E", outline="")
+            canvas.create_rectangle(x(1), main_y1, max(x(start) - 1, x(1) + 2), main_y2, fill="#355B8C", outline="")
+        canvas.create_rectangle(x(start), main_y1, max(x(end + 1) - 1, x(start) + 3), main_y2, fill="#4D9C78", outline="")
+        canvas.create_rectangle(x(end + 1), main_y1, right, main_y2, fill="#27384E", outline="")
         for frame in (1, start, end + 1):
             xpos = min(right, max(left, x(frame)))
-            canvas.create_line(xpos, y1 - 3, xpos, y2 + 3, fill="#7993B3")
-        canvas.create_text(left, 4, anchor="w", text="1", fill="#91A7C1", font=("Segoe UI", 7))
-        canvas.create_text(max(left + 20, x(start)), 4, anchor="w", text=f"{start}", fill="#91A7C1", font=("Segoe UI", 7))
-        canvas.create_text(max(left + 38, x(end + 1)), 4, anchor="w", text=f"{end + 1}", fill="#91A7C1", font=("Segoe UI", 7))
+            canvas.create_line(xpos, main_y1 - 3, xpos, main_y2 + 3, fill="#7993B3")
+        canvas.create_text(left, 30, anchor="w", text="1", fill="#91A7C1", font=("Segoe UI", 7))
+        canvas.create_text(max(left + 20, x(start)), 30, anchor="w", text=f"{start}", fill="#91A7C1", font=("Segoe UI", 7))
+        canvas.create_text(max(left + 38, x(end + 1)), 30, anchor="w", text=f"{end + 1}", fill="#91A7C1", font=("Segoe UI", 7))
         if summary_var is not None:
             active_count = (end - start) + 1
-            summary_var.set(f"Startup 1–{startup_frames} ({startup_frames}f)  |  Active {start}–{end} ({active_count}f)  |  Recovery not profiled")
+            inv_summary = f"  |  Invuln 1–{invuln_frames} ({invuln_frames}f)" if invuln_frames else "  |  Invuln none"
+            summary_var.set(f"Startup 1–{startup_frames} ({startup_frames}f)  |  Active {start}–{end} ({active_count}f){inv_summary}  |  Recovery not profiled")
 
     def _refresh_selected_row(self):
         if not self.tree:

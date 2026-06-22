@@ -164,15 +164,20 @@ STUN_TOTAL_LEN = 43
 
 PAIR_RANGE = 0x600
 
-# Display-only invincibility/intangibility probe. Confirmed useful on Ryu
-# Shoryu and Jun 6B: startup scripts write several 0x70-family fields while
-# ordinary normals do not. These are not edited yet; they only expose where
-# likely invuln/hurtbox-suppression packets exist.
-INVULN_PROBE_HDR = bytes([0x04, 0x01, 0x70, 0x00])
-INVULN_PROBE_FIELDS = {0x130, 0x134, 0x13C, 0x140, 0x144, 0x148}
-INVULN_PROBE_MARKER = 0x3F000000
-INVULN_FIRST_HIT_RANGE = 0x380
-INVULN_SCAN_RANGE = 0x900
+# Proven static startup-invulnerability phase signature.
+#
+#   04 01 60 00 00 00 12 18 3F 00 00 00 00 00 NN 00
+#
+# The signature is action-owned: Ryu Shoryu L/M/H use 6/10/13 and Jun 6B
+# uses 20. Values 0-2 are ordinary phase housekeeping and are suppressed.
+INVULN_SIGNATURE_HDR = bytes([
+    0x04, 0x01, 0x60, 0x00,
+    0x00, 0x00, 0x12, 0x18,
+    0x3F, 0x00, 0x00, 0x00,
+])
+INVULN_SIGNATURE_MIN_FRAMES = 3
+INVULN_SIGNATURE_ROOT_BACKTRACK = 8
+INVULN_SIGNATURE_PROFILE_REVISION = 1
 
 HITBOX_OFF_X = 0x40
 HITBOX_OFF_Y = 0x48
@@ -193,7 +198,7 @@ SLOT_REGION_PAD = 0x2000
 # frame_data_profiles.json or set TVC_FD_PROFILE_CACHE=0 to force the legacy
 # dynamic path.
 PROFILE_CACHE_VERSION = 1
-PROFILE_SCANNER_BUILD = "fd-profile-v2-extras"
+PROFILE_SCANNER_BUILD = "fd-profile-v2-invuln1218"
 PROFILE_CACHE_FILENAME = "frame_data_profiles.json"
 PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PROFILE_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
@@ -457,6 +462,39 @@ def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
 
     return moves
 
+
+def parse_chr_tbl_action_entries(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[Tuple[int, int]]:
+    """Return canonical ``(action_id, script_root)`` pairs from chr_tbl.
+
+    The normal move scanner deliberately deduplicates roots. The invuln
+    signature needs the original table index as well, because Shoryu begins
+    eight bytes before its action root and 6B carries the packet later in the
+    action interval.
+    """
+    tbl_off = abs_to_file_off(chr_tbl_abs, mem_base)
+    if tbl_off < 0 or tbl_off + 4 > len(buf):
+        return []
+    act_rel = _find_chr_act_rel(buf, tbl_off)
+    if act_rel is None:
+        act_rel = min(CHR_TBL_SCAN_MAX_BYTES, len(buf) - tbl_off)
+
+    entries: List[Tuple[int, int]] = []
+    for action_id in range(max(0, act_rel // 4)):
+        off = tbl_off + action_id * 4
+        if off + 4 > len(buf):
+            break
+        entry = rd_u32_be(buf, off)
+        if entry == 0xFFFFFFFF:
+            break
+        if entry == 0 or entry % 4 != 0:
+            continue
+        if entry < MOVE_DATA_START_OFF or entry > CHR_TBL_MAX_MOVE_OFFSET:
+            continue
+        root = chr_tbl_abs + entry
+        if is_mem2_addr(root):
+            entries.append((int(action_id), int(root)))
+    return entries
+
 # ============================================================
 # Slot model
 # ============================================================
@@ -644,85 +682,118 @@ def parse_stun(buf: bytes, pos: int) -> Optional[Tuple[int, int, int]]:
     return (buf[pos + 15], buf[pos + 31], buf[pos + 38])
 
 
-def collect_invuln_probes(buf: bytes, base_abs: int, mv_abs: int, *, first_range: int = INVULN_FIRST_HIT_RANGE, scan_range: int = INVULN_SCAN_RANGE) -> List[Dict[str, Any]]:
-    """Return display-only 0x70-family startup protection probes near a move.
+def _invuln_signature_frames(raw_value: int) -> Optional[int]:
+    """Decode the exact +0x1218 payload: ``00 00 NN 00``."""
+    try:
+        raw = int(raw_value) & 0xFFFFFFFF
+    except Exception:
+        return None
+    if raw & 0xFFFF00FF:
+        return None
+    frames = (raw >> 8) & 0xFF
+    return frames if frames >= INVULN_SIGNATURE_MIN_FRAMES else None
 
-    This does not claim a perfect invulnerability model. It catches the startup
-    protection pattern that appears on Ryu Shoryu and Jun 6B while avoiding
-    ordinary normals by requiring the first probe to appear close to the move
-    anchor.
+
+def collect_invuln_signature_map(
+    buf: bytes,
+    base_abs: int,
+    action_entries: Sequence[Tuple[int, int]],
+) -> Tuple[Dict[int, List[Dict[str, Any]]], Dict[int, List[Dict[str, Any]]]]:
+    """Scan each canonical action interval for the exact +0x1218 signature.
+
+    The interval ends at the next distinct chr_tbl root. This prevents a row
+    from inheriting a neighbor's terminal phase timer. Eight bytes of backtrack
+    catch Shoryu's root-leading packet.
     """
-    rel = mv_abs - base_abs
-    if rel < 0 or rel >= len(buf):
-        return []
-
-    first_end = min(len(buf), rel + int(first_range or INVULN_FIRST_HIT_RANGE))
-    first = buf.find(INVULN_PROBE_HDR, rel, first_end)
-    if first < 0:
-        return []
-
-    scan_end = min(len(buf), rel + int(scan_range or INVULN_SCAN_RANGE))
-    probes: List[Dict[str, Any]] = []
-    pos = rel
-    while True:
-        idx = buf.find(INVULN_PROBE_HDR, pos, scan_end)
-        if idx < 0:
-            break
-        pos = idx + 1
-        if idx + 16 > len(buf):
-            continue
-        field = rd_u32_be(buf, idx + 4)
-        marker = rd_u32_be(buf, idx + 8)
-        value = rd_u32_be(buf, idx + 12)
-        if marker != INVULN_PROBE_MARKER:
-            continue
-        if field not in INVULN_PROBE_FIELDS:
-            continue
-        probes.append({
-            "addr": base_abs + idx,
-            "field": field,
-            "value": value,
-        })
-    return probes
-
-
-def summarize_invuln_probes(probes: List[Dict[str, Any]]) -> str:
-    if not probes:
-        return ""
-    fields: List[int] = []
-    for probe in probes:
+    valid: List[Tuple[int, int]] = []
+    for action_id, root in action_entries or ():
         try:
-            field = int(probe.get("field"))
+            aid, addr = int(action_id), int(root)
         except Exception:
             continue
-        if field not in fields:
-            fields.append(field)
-    fields.sort()
-    field_txt = "/".join(f"0x{field:03X}" for field in fields[:6])
-    more = "+" if len(fields) > 6 else ""
-    return f"{len(probes)} probe(s): {field_txt}{more}"
+        rel = addr - int(base_abs)
+        if 0 <= rel < len(buf):
+            valid.append((aid, addr))
+    if not valid:
+        return {}, {}
+
+    roots = sorted({root for _aid, root in valid})
+    by_root: Dict[int, List[Dict[str, Any]]] = {}
+    for index, root in enumerate(roots):
+        next_root = roots[index + 1] if index + 1 < len(roots) else int(base_abs) + len(buf)
+        start_abs = max(int(base_abs), int(root) - INVULN_SIGNATURE_ROOT_BACKTRACK)
+        end_abs = min(int(base_abs) + len(buf), max(start_abs, int(next_root)))
+        start_rel = start_abs - int(base_abs)
+        end_rel = end_abs - int(base_abs)
+        hits: List[Dict[str, Any]] = []
+        pos = start_rel
+        while True:
+            idx = buf.find(INVULN_SIGNATURE_HDR, pos, end_rel)
+            if idx < 0:
+                break
+            pos = idx + 1
+            if idx + 16 > end_rel:
+                continue
+            raw = rd_u32_be(buf, idx + 12)
+            frames = _invuln_signature_frames(raw)
+            if frames is None:
+                continue
+            hits.append({
+                "packet_addr": int(base_abs) + idx,
+                "value_addr": int(base_abs) + idx + 12,
+                "raw_value": int(raw),
+                "frames": int(frames),
+                "action_root": int(root),
+            })
+        if hits:
+            by_root[int(root)] = hits
+
+    by_action: Dict[int, List[Dict[str, Any]]] = {}
+    for action_id, root in valid:
+        hits = by_root.get(int(root))
+        if hits:
+            by_action[int(action_id)] = [dict(hit, action_id=int(action_id)) for hit in hits]
+    return by_action, by_root
 
 
-def should_probe_invuln(mv: Dict[str, Any], char_id: Optional[int] = None) -> bool:
-    """Gate the noisy 0x70 probe to rows where it has been observed useful."""
-    name = str(mv.get("move_name") or "").strip().lower()
-    aid = mv.get("id")
-    try:
-        aid_low = int(aid) & 0xFF if aid is not None else None
-    except Exception:
-        aid_low = None
+def summarize_invuln_signatures(signatures: Sequence[Dict[str, Any]]) -> str:
+    values: List[int] = []
+    for signature in signatures or ():
+        try:
+            frames = int(signature.get("frames"))
+        except Exception:
+            continue
+        if frames >= INVULN_SIGNATURE_MIN_FRAMES and frames not in values:
+            values.append(frames)
+    return " / ".join(f"{frames}f" for frames in values)
 
-    # Jun 6B is a wrapper with no direct hit packet, but its startup-protection
-    # writes are right after the wrapper. Show that instead of a totally blank row.
-    if int(char_id or 0) == 8 and (name == "6b" or aid_low == 0x0E):
-        return True
 
-    # Ryu/Shoto DP-style rows expose the same protection family and are useful
-    # comparison points for Jun 6B.
-    if "shoryu" in name or "uppercut" in name:
-        return True
+def apply_invuln_signatures_to_moves(
+    moves: Sequence[Dict[str, Any]],
+    by_action: Dict[int, List[Dict[str, Any]]],
+    by_root: Dict[int, List[Dict[str, Any]]],
+) -> None:
+    """Attach action-owned signature hits without changing move discovery."""
+    for mv in moves or ():
+        hits: List[Dict[str, Any]] = []
+        try:
+            root_hits = by_root.get(int(mv.get("abs") or 0))
+        except Exception:
+            root_hits = None
+        if root_hits:
+            hits = [dict(hit) for hit in root_hits]
+        if not hits:
+            try:
+                action_hits = by_action.get(int(mv.get("id")))
+            except Exception:
+                action_hits = None
+            if action_hits:
+                hits = [dict(hit) for hit in action_hits]
 
-    return False
+        mv["invuln_signatures"] = hits
+        mv["invuln_signature_count"] = len(hits)
+        mv["invuln"] = summarize_invuln_signatures(hits)
+        mv["invuln_addr"] = int(hits[0]["value_addr"]) if hits else None
 
 
 def pick_best_block(mv_abs: int, blocks: List[Tuple[int, Any]],
@@ -1520,16 +1591,12 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                     and str(mv.get("move_name") or "").strip().lower().replace(" ", "") == "6b"
                 )
 
-        if should_probe_invuln(mv, char_id):
-            invuln_probes = collect_invuln_probes(buf, base_abs, mv_abs)
-            mv["invuln_probes"] = invuln_probes
-            mv["invuln_probe_count"] = len(invuln_probes)
-            mv["invuln"] = summarize_invuln_probes(invuln_probes)
-            if invuln_probes:
-                try:
-                    mv["invuln_addr"] = int(invuln_probes[0].get("addr") or 0)
-                except Exception:
-                    mv["invuln_addr"] = None
+        # The exact +0x1218 startup signature is action-interval-owned and is
+        # attached after the full chr_tbl map is available in scan_once().
+        mv["invuln_signatures"] = []
+        mv["invuln_signature_count"] = 0
+        mv["invuln"] = ""
+        mv["invuln_addr"] = None
 
 
 def move_quality_score(mv: Dict[str, Any]) -> Tuple[int, int, int, int, int, int]:
@@ -2032,6 +2099,17 @@ def _profile_read_u8(buf: bytes, base_abs: int, addr: Any) -> Optional[int]:
     return int(buf[off])
 
 
+def _profile_read_u32(buf: bytes, base_abs: int, addr: Any) -> Optional[int]:
+    """Read a cached profile's rebased big-endian u32 safely."""
+    off = _profile_off(buf, base_abs, addr, 4)
+    if off is None:
+        return None
+    try:
+        return int(rd_u32_be(buf, off))
+    except Exception:
+        return None
+
+
 def _profile_read_f32(buf: bytes, base_abs: int, addr: Any) -> Optional[float]:
     off = _profile_off(buf, base_abs, addr, 4)
     if off is None:
@@ -2205,20 +2283,25 @@ def _profile_refresh_move(mv: Dict[str, Any], buf: bytes, base_abs: int, char_id
             except Exception:
                 pass
 
-    probes = mv.get("invuln_probes")
-    if isinstance(probes, list):
-        for probe in probes:
-            if not isinstance(probe, dict):
+    signatures = mv.get("invuln_signatures")
+    if isinstance(signatures, list):
+        refreshed: List[Dict[str, Any]] = []
+        for signature in signatures:
+            if not isinstance(signature, dict):
                 continue
-            addr = probe.get("addr")
-            val = _profile_read_u8(buf, base_abs, int(addr) + 15) if addr else None
-            if val is not None:
-                probe["value"] = val
-        mv["invuln_probe_count"] = len([p for p in probes if isinstance(p, dict)])
-        try:
-            mv["invuln"] = summarize_invuln_probes([p for p in probes if isinstance(p, dict)])
-        except Exception:
-            pass
+            value_addr = signature.get("value_addr")
+            raw = _profile_read_u32(buf, base_abs, value_addr) if value_addr else None
+            frames = _invuln_signature_frames(raw) if raw is not None else None
+            if frames is None:
+                continue
+            updated = dict(signature)
+            updated["raw_value"] = int(raw)
+            updated["frames"] = int(frames)
+            refreshed.append(updated)
+        mv["invuln_signatures"] = refreshed
+        mv["invuln_signature_count"] = len(refreshed)
+        mv["invuln"] = summarize_invuln_signatures(refreshed)
+        mv["invuln_addr"] = int(refreshed[0]["value_addr"]) if refreshed else None
 
     total_frames = mv.get("speed") or 0x3C
     a_end = mv.get("active_end")
@@ -2341,6 +2424,7 @@ def _save_profile_moves(
             "table_move_count": len(tbl_move_addrs or []),
             "created_from": "dynamic_scan_once",
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
+            "invuln_signature_revision": INVULN_SIGNATURE_PROFILE_REVISION,
             "moves": rows,
         }
         if keep_extras:
@@ -2503,6 +2587,53 @@ def save_profile_extras(
         return False
 
 
+def _profile_needs_invuln_signature_upgrade(
+    char_id: Optional[int], char_name: str, table_signature: str,
+) -> bool:
+    if not PROFILE_CACHE_ENABLED:
+        return False
+    try:
+        profile = (_load_profile_doc().get("profiles") or {}).get(_profile_key(char_id, char_name))
+        if not isinstance(profile, dict):
+            return False
+        if str(profile.get("table_signature") or "") != str(table_signature or ""):
+            return False
+        return int(profile.get("invuln_signature_revision") or 0) < INVULN_SIGNATURE_PROFILE_REVISION
+    except Exception:
+        return False
+
+
+def _auto_upgrade_profile_invuln(
+    moves: List[Dict[str, Any]],
+    *,
+    char_id: Optional[int],
+    char_name: str,
+    chr_tbl_abs: int,
+    tbl_move_addrs: List[int],
+    tbl_buf: bytes,
+    tbl_base_abs: int,
+    action_entries: Sequence[Tuple[int, int]],
+) -> bool:
+    """One-time lightweight profile upgrade for the +0x1218 signature.
+
+    This does not rebuild move discovery, grouping, projectiles, or supers. It
+    reads the loaded character script span once, adds the known values to the
+    already-saved rows, then persists them so the next open is cache-only.
+    """
+    try:
+        region_start, region_end = slot_scan_region_from_tbl(tbl_buf, tbl_base_abs, chr_tbl_abs)
+        region_buf = safe_rbytes(region_start, region_end - region_start)
+        if not region_buf:
+            return False
+        by_action, by_root = collect_invuln_signature_map(region_buf, region_start, action_entries)
+        apply_invuln_signatures_to_moves(moves, by_action, by_root)
+        _save_profile_moves(char_id, char_name, chr_tbl_abs, tbl_move_addrs, moves)
+        return True
+    except Exception as exc:
+        _profile_warn_once(f"invuln-upgrade-failed:{_profile_key(char_id, char_name)}", f"[fd profile] invuln upgrade skipped for {char_name}: {exc!r}")
+        return False
+
+
 # ============================================================
 # MAIN SCAN
 # ============================================================
@@ -2549,11 +2680,23 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
             continue
 
         tbl_move_addrs = parse_chr_tbl(tbl_buf, tbl_start, chr_tbl_abs)
+        tbl_action_entries = parse_chr_tbl_action_entries(tbl_buf, tbl_start, chr_tbl_abs)
 
         table_signature = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
         if _profile_cache_allowed(force_dynamic):
             profiled_moves = _load_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs)
             if profiled_moves is not None:
+                if _profile_needs_invuln_signature_upgrade(cid, cname, table_signature):
+                    _auto_upgrade_profile_invuln(
+                        profiled_moves,
+                        char_id=cid,
+                        char_name=cname,
+                        chr_tbl_abs=chr_tbl_abs,
+                        tbl_move_addrs=tbl_move_addrs,
+                        tbl_buf=tbl_buf,
+                        tbl_base_abs=tbl_start,
+                        action_entries=tbl_action_entries,
+                    )
                 extras = load_profile_extras(
                     cid, cname, chr_tbl_abs, tbl_move_addrs,
                     table_signature=table_signature,
@@ -2607,6 +2750,10 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
         moves = collect_move_anchors(region_buf, region_start, tbl_move_addrs=in_slice)
         blocks = collect_blocks(region_buf, region_start)
         attach_move_fields(moves, region_buf, region_start, blocks, char_id=cid)
+        invuln_by_action, invuln_by_root = collect_invuln_signature_map(
+            region_buf, region_start, tbl_action_entries,
+        )
+        apply_invuln_signatures_to_moves(moves, invuln_by_action, invuln_by_root)
         moves = collapse_duplicate_normals_by_quality(moves)
         sorted_moves = sorted(moves, key=sort_key)
         _save_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs, sorted_moves)

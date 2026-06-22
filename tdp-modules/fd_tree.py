@@ -35,10 +35,10 @@ FD_COLUMNS = (
     "damage",
     "meter",
     "startup", "active", "active2",
-    "hitstun", "blockstun", "hitstop",
+    "hitstun", "invuln", "blockstun", "hitstop",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
-    "speed_mod", "invuln", "attack_property", "hit_reaction", "hit_result_flags",
+    "speed_mod", "attack_property", "hit_reaction", "hit_result_flags",
     "superbg",
     # Projectile columns are hidden from the simplest frame-data view but live
     # in the same Treeview so users no longer need a separate projectile table.
@@ -51,10 +51,10 @@ FD_CORE_COLUMNS = (
     "move", "hits", "link",
     "damage", "meter",
     "startup", "active",
-    "hitstun", "blockstun", "hitstop",
+    "hitstun", "invuln", "blockstun", "hitstop",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
-    "speed_mod", "invuln", "attack_property", "hit_reaction", "hit_result_flags",
+    "speed_mod", "attack_property", "hit_reaction", "hit_result_flags",
     # Keep only the compact projectile basics in the frame view. Dedicated
     # projectile/super views move the heavy projectile columns up front so the
     # user does not have to horizontal-scroll across the raw scout table.
@@ -92,7 +92,7 @@ FD_SUPER_COLUMNS_FOCUSED = (
     "proj_super_beam_scale", "proj_super_beam_width", "proj_super_beam_speed",
     "proj_super_beam_force", "proj_super_hit_radius", "proj_super_beam_visual",
     "proj_final_damage", "proj_final_lifetime", "proj_final_particle_fx", "proj_final_spawn_bone",
-    "startup", "active", "hitstun", "blockstun", "hitstop",
+    "startup", "active", "hitstun", "invuln", "blockstun", "hitstop",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
     "speed_mod", "attack_property", "hit_reaction", "superbg",
@@ -515,14 +515,9 @@ def build_top_bar(win) -> None:
     win._sort_status_var = tk.StringVar(master=win.root, value="Sort: profile order")
     ttk.Label(command, textvariable=win._sort_status_var, style="SortBadge.TLabel").pack(side="left", padx=(8, 0))
 
-    profile_btn = ttk.Menubutton(command, text="Build profile", style="ToolbarPrimary.TMenubutton")
-    profile_menu = tk.Menu(profile_btn, tearoff=False)
-    profile_menu.add_command(label="Build missing passes", command=win._build_full_profile)
-    profile_menu.add_command(label="Projectile pass", command=lambda: win._start_projectile_scan(auto=False))
-    profile_menu.add_command(label="Specials pass", command=lambda: win._start_super_scan(auto=False))
-    profile_btn["menu"] = profile_menu
-    profile_btn.pack(side="right", padx=(8, 0))
-    win._profile_menu = profile_menu
+    # Profiles build automatically after the frame list has painted. Keeping
+    # this toolbar clear also prevents stale/manual profile workflows.
+    win._profile_menu = None
 
     ttk.Button(command, text="Save patch", style="ToolbarPrimary.TButton", command=win._save_fd_patch_config).pack(side="right")
     reset_layout = ttk.Button(command, text="Reset view", style="Toolbar.TButton", command=win._reset_workbench_layout)
@@ -699,7 +694,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             return
         if col == "invuln":
             try:
-                win._status_var.set("Invuln is a display-only startup-protection probe. It is not editable yet.")
+                win._status_var.set("Invuln is the proven +0x1218 startup-phase signature. It is display-only.")
             except Exception:
                 pass
             return
@@ -817,7 +812,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     win._headline_stat_widgets = {}
     stats = ttk.Frame(inner, style="InspectorSection.TFrame")
     stats.pack(fill="x", pady=(0, 10))
-    for label, key in (("Startup", "startup"), ("Active", "active"), ("Hitstop", "hitstop"), ("Blockstun", "blockstun")):
+    for label, key in (("Startup", "startup"), ("Active", "active"), ("Hitstop", "hitstop"), ("Invuln", "invuln"), ("Blockstun", "blockstun")):
         cell = ttk.Frame(stats, style="InspectorSection.TFrame")
         cell.pack(side="left", fill="x", expand=True, padx=(0 if label == "Startup" else 5, 0))
         ttk.Label(cell, text=label, style="InspectorField.TLabel").pack(anchor="w")
@@ -842,7 +837,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     # Do not reuse the outer inspector Canvas variable here.  The inspector
     # scroll callbacks close over it; rebinding that name to the timeline Canvas
     # made scrollregion updates target the timeline instead of the sidebar.
-    timeline_canvas = tk.Canvas(timeline, height=42, bg="#0F1724", highlightthickness=0, bd=0)
+    timeline_canvas = tk.Canvas(timeline, height=62, bg="#0F1724", highlightthickness=0, bd=0)
     timeline_canvas.pack(fill="x")
     win._timeline_canvas = timeline_canvas
     timeline_canvas.bind("<Configure>", lambda _e: win._refresh_frame_timeline())
@@ -860,7 +855,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     delta_row = ttk.Frame(compare, style="CompareDelta.TFrame")
     delta_row.pack(fill="x")
     win._compare_delta_vars = {}
-    for _label in ("Damage", "Startup", "Active", "Hitstop", "Blockstun"):
+    for _label in ("Damage", "Startup", "Active", "Hitstop", "Invuln", "Blockstun"):
         key = _label.lower().replace(" ", "_")
         chip = ttk.Frame(delta_row, style="CompareDeltaChip.TFrame", padding=(7, 5))
         chip.pack(side="left", fill="x", expand=True, padx=(0 if not delta_row.winfo_children() else 5, 0))
@@ -873,11 +868,11 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         ("Move link", ["link"]),
         ("Impact", ["hits", "damage", "meter", "hitstop"]),
         ("Timing", ["startup", "active", "active2", "speed_mod"]),
-        ("Stun and pressure", ["hitstun", "blockstun", "attack_property", "hit_reaction", "hit_result_flags"]),
+        ("Stun and pressure", ["hitstun", "invuln", "blockstun", "attack_property", "hit_reaction", "hit_result_flags"]),
         ("Launch and knockback controls", ["kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb"]),
         ("Hit FX and reach", ["hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time"]),
         ("Dangerous script links", ["post_link"]),
-        ("Flags and lookup", ["invuln", "superbg", "kind", "abs"]),
+        ("Flags and lookup", ["superbg", "kind", "abs"]),
         ("Super dispatch", ["dispatch_group", "dispatch_selector", "dispatch_variant", "dispatch_phase", "dispatch_child_link", "dispatch_child_target"]),
         ("Projectile emitter", ["proj_emit_count", "damage", "kb_x", "air_kb", "proj_ps_lifetime", "proj_ps_hit_count", "proj_ps_emit_count", "proj_ps_interval", "proj_radius", "proj_speed", "proj_accel", "proj_spawn_origin", "proj_ps_scale", "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone"]),
         ("Projectile data", ["proj_fmt", "proj_id", "proj_type", "proj_radius", "proj_fx", "proj_life", "proj_spawn_origin", "proj_speed", "proj_accel", "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2"]),
@@ -897,7 +892,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         "proj_emit_count": "Display-only number of physical projectile cards in this emitter group.",
         "dispatch_group": "Display-only group of adjacent 00/23 dispatch rows.",
         "dispatch_child_target": "Display-only resolved child script target.",
-        "invuln": "Display-only startup-protection probe.",
+        "invuln": "Display-only +0x1218 startup-phase signature.",
     }
 
     for section_title, fields in sections:
@@ -1166,6 +1161,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "active": "Active",
         "active2": "Active2",
         "hitstun": "HS",
+        "invuln": "Invuln",
         "blockstun": "BS",
         "hitstop": "Stop",
         "hit_spark": "Spark",
@@ -1355,6 +1351,7 @@ def build_tree_widget(win) -> ttk.Frame:
         ("active", "Active"),
         ("active2", "Active 2"),
         ("hitstun", "HS"),
+        ("invuln", "Invuln"),
         ("blockstun", "BS"),
         ("hitstop", "Stop"),
         ("hit_spark", "Hit Spark"),
@@ -1447,6 +1444,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("active", width=88, anchor="center")
     win.tree.column("active2", width=88, anchor="center")
     win.tree.column("hitstun", width=58, anchor="center")
+    win.tree.column("invuln", width=78, anchor="center")
     win.tree.column("blockstun", width=58, anchor="center")
     win.tree.column("hitstop", width=58, anchor="center")
     win.tree.column("hit_spark", width=86, anchor="center")
@@ -2057,6 +2055,7 @@ def _populate_tree_sync(win) -> None:
                 active_txt,
                 active2_txt,
                 U.fmt_stun(mv.get("hitstun")),
+                invuln_txt,
                 U.fmt_stun(mv.get("blockstun")),
                 hitstop_txt,
                 hit_spark_txt,
@@ -2072,7 +2071,6 @@ def _populate_tree_sync(win) -> None:
                 kb_x_txt,
                 air_kb_txt,
                 speed_txt,
-                invuln_txt,
                 attack_property_txt,
                 hr_txt,
                 hit_result_txt,

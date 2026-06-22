@@ -370,7 +370,7 @@ FIELD_HELP = {
     "kb_x": "Grounded or standing horizontal knockback. Larger positive values push/launch farther; zero removes most horizontal push.",
     "air_kb": "Airborne or vertical arc value. Higher values usually give a higher/longer relaunch arc; negative values can drive downward arcs.",
     "speed_mod": "Move speed byte. 100 / 0x64 is the normal baseline; lower/higher values can slow down or speed up the move behavior.",
-    "invuln": "Display-only startup-protection probe. This flags 0x70-family packets seen on Shoryuken-style startup and Jun 6B; it is not editable yet.",
+    "invuln": "Display-only startup phase signature: 04 01 60 -> +0x1218 with payload 00 00 NN 00. Values 0-2f are ordinary phase housekeeping and are not shown.",
     "attack_property": "Attack property byte. Use the known-value dropdown for confirmed properties; manual entry is for testing unknown bytes.",
     "hit_reaction": "The reaction state/animation chosen on hit, such as standing hitstun, low hitstun, overhead hitstun, knockdown, crumple, or special reactions.",
     "hit_result_flags": "OTG toggle written to fighter +0x240 after the 0x80042F00 clear mask. User-verified: 0x00000000 = OTG off, 0x00004000 = OTG on. Values 0x00004100 and above enter reaction/knockdown families and are kept as manual/custom testing values.",
