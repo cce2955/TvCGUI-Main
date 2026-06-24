@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 import tkinter as tk
 import traceback
 from dataclasses import dataclass
@@ -30,8 +31,16 @@ _TK_READY = threading.Event()
 # Task queue to run on Tk thread.
 _TK_QUEUE: "queue.Queue[_Task]" = queue.Queue()
 
-# How often the pump runs (ms). 16ms ~= 60fps.
+# How often an idle host checks for new background->Tk work.
+#
+# The queue used to be drained "until empty" in one Tk callback.  Frame-data
+# background scans can enqueue hundreds of progress updates, which kept that
+# callback alive long enough to starve ButtonPress/TreeviewSelect handling.
+# Native scrolling may still appear to work in that state, making it look like
+# only clicks are broken.  Bound each pass and yield to Tk between slices.
 _PUMP_MS = 16
+_PUMP_MAX_TASKS = 24
+_PUMP_BUDGET_SECONDS = 0.004
 
 
 @dataclass
@@ -53,8 +62,12 @@ def _tk_thread_main() -> None:
     _TK_READY.set()
 
     def pump() -> None:
-        # Drain queue fully each tick.
-        while True:
+        # Never drain an unbounded producer queue in one Tk callback.  The
+        # host must return to mainloop regularly so Windows can dispatch real
+        # pointer/button events to the Toplevel.
+        processed = 0
+        deadline = time.perf_counter() + _PUMP_BUDGET_SECONDS
+        while processed < _PUMP_MAX_TASKS and time.perf_counter() < deadline:
             try:
                 task = _TK_QUEUE.get_nowait()
             except queue.Empty:
@@ -71,9 +84,15 @@ def _tk_thread_main() -> None:
             finally:
                 if task.done is not None:
                     task.done.set()
+            processed += 1
 
-        # Keep pumping.
-        root.after(_PUMP_MS, pump)
+        # If work remains, continue promptly but still as a *new* callback so
+        # input, redraw, and selection events run between slices.
+        try:
+            has_backlog = not _TK_QUEUE.empty()
+        except Exception:
+            has_backlog = False
+        root.after(1 if has_backlog else _PUMP_MS, pump)
 
     pump()
     root.mainloop()

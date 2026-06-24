@@ -11,6 +11,15 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from dolphin_io import hook, rbytes, rd32
 from constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 from move_id_map import lookup_move_name
+try:
+    from runtime_stun_profiler import apply_runtime_stun_observations
+except Exception:
+    apply_runtime_stun_observations = None
+try:
+    from animation_frames import apply_animation_metadata
+except Exception:
+    def apply_animation_metadata(_moves, _char_name, _char_id=None):
+        return None
 
 
 # ============================================================
@@ -134,16 +143,28 @@ HITREACTION_HDR = [
 HITREACTION_TOTAL_LEN = len(HITREACTION_HDR)
 HITREACTION_CODE_OFF  = 28
 
-# KB/launch packet immediately after the hit-reaction block.
+# Launch packet immediately after the hit-reaction block.
 # Confirmed on Ryu:
 #   +0x00 = 35 07/09 00 20 packet header
 #   +0x04 = launch/trajectory profile (u32)
-#   +0x08 = unused/unknown u32, usually 0
-#   +0x0C = KB X (f32) for grounded/standing hits
-#   +0x10 = Air KB / relaunch arc (f32)
+#   +0x08 = launch adjustment word (u32)
+#   +0x0C = Air KB X scalar (f32)
+#   +0x10 = Air KB Y / vertical displacement scalar (f32)
 #
-# Do not accept the old loose 35 ?? ?? 20 family here; 35 0D packets tested as
-# hitbox/collision-ish and did not affect knockback.
+# Optional 35 0C 00 20 hit-spacing packet. It is NOT the universal base
+# launch path: many attacks omit it.
+#   +0x04 = packet mode (u32)
+#   +0x08 = signed Hit Push/Pull X (f32) -- confirmed from Ryu Tatsu Super:
+#           negative pushes the victim away; positive pulls/vacuums inward.
+#   +0x0C = Hit Push/Pull Aux (f32) -- exposed for testing; semantics unknown.
+#
+# This scanner only attaches a 35/0C packet when it belongs to the same
+# post-hit bundle as a 35/07 or 35/09 launch packet and terminates in a valid
+# stun packet.  That makes the finder dynamic without treating FD 35/0D data
+# or unrelated script blobs as hit spacing.
+#
+# Do not accept the old loose 35 ?? ?? 20 family here; 35 0D belongs to the
+# FD/hitbox-scaling family and does not affect knockback.
 KNOCKBACK_TOTAL_LEN = 20
 KNOCKBACK_VALID_TYPES = {0x07, 0x09}
 KNOCKBACK_TYPE_OFF = 1
@@ -151,6 +172,14 @@ KNOCKBACK_PROFILE_OFF = 4
 KNOCKBACK_UNKNOWN_OFF = 8
 KNOCKBACK_X_OFF = 12
 KNOCKBACK_AIR_OFF = 16
+
+# Optional grounded/standing-push packet. Keep it separate from the 35 07/09
+# base launch packet: the old scanner mislabeled 35 07/09 +0x0C as grounded pushback.
+GROUND_KB_TOTAL_LEN = 16
+GROUND_KB_TYPE = 0x0C
+GROUND_KB_MODE_OFF = 4
+GROUND_KB_VALUE_OFF = 8
+GROUND_KB_AUX_OFF = 12
 
 STUN_HDR = [
     0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x54,
@@ -162,22 +191,69 @@ STUN_HDR = [
 ]
 STUN_TOTAL_LEN = 43
 
+# ``+0x254/+0x258 == -2`` is the engine-default stun sentinel.  It is not
+# a literal "-2 frames" value: the hit resolver selects the normal hit-level
+# defaults from the damage packet unless a later direct pair overrides them.
+#
+# The three values are established by the normal hit resolver and are only
+# used when the owning action explicitly arms the -2/-2 sentinel.  Never use
+# this as a generic fallback for specials, supers, or rows with no sentinel.
+DEFAULT_NORMAL_STUN_BY_DAMAGE_FLAG = {
+    0x04: (12, 9),
+    0x08: (17, 12),
+    0x0C: (21, 15),
+}
+
 PAIR_RANGE = 0x600
 
-# Proven static startup-invulnerability phase signature.
+# Display-only +0x1218 phase/timer probe.
 #
-#   04 01 60 00 00 00 12 18 3F 00 00 00 00 00 NN 00
+# This field is still not independently proven to be an invulnerability flag,
+# but real startup phases use many durations, including 1f and 2f values. Do
+# not hard-code a 3-120f whitelist. Keep every finite duration and reject it
+# only when a trustworthy owner action has a known startup+active window that
+# ends before the proposed duration. 999 is the known held-state sentinel used
+# by KO/reaction/assist scripts, never a literal 999f duration.
+INVULN_PROBE_HDR = bytes([0x04, 0x01, 0x60, 0x00])
+INVULN_PROBE_FIELD = 0x1218
+INVULN_PROBE_MARKER = 0x3F000000
+INVULN_FIRST_HIT_RANGE = 0x380
+INVULN_SCAN_RANGE = 0x700
+# chr_tbl pointers commonly land just after the startup setup packet.  The
+# preceding bytes belong to that same table-owned action, not the prior row.
+INVULN_TABLE_PREAMBLE = 0x80
+INVULN_HOLD_SENTINEL_FRAMES = 999
+
+# A broad +0x1218 write is only a phase timer.  The normal-entry template
+# explicitly clears the field and arms it for 2f before handing off to the
+# next action; that is common bookkeeping, not invulnerability.  Protected
+# phases such as Hurricane C and Ryu Shoryu pair the timer with a nearby +0x58
+# state write whose low bit is set and use the dedicated 04 01 02 3F phase
+# setup opcode.  That is strong structural evidence, but it is still not the
+# same thing as an in-game collision test.
 #
-# The signature is action-owned: Ryu Shoryu L/M/H use 6/10/13 and Jun 6B
-# uses 20. Values 0-2 are ordinary phase housekeeping and are suppressed.
-INVULN_SIGNATURE_HDR = bytes([
-    0x04, 0x01, 0x60, 0x00,
-    0x00, 0x00, 0x12, 0x18,
-    0x3F, 0x00, 0x00, 0x00,
-])
-INVULN_SIGNATURE_MIN_FRAMES = 3
-INVULN_SIGNATURE_ROOT_BACKTRACK = 8
-INVULN_SIGNATURE_PROFILE_REVISION = 1
+# Keep explicitly runtime-verified moves separate from structurally similar
+# candidates.  [C] is used only for these known references; [H] means a
+# different row has the same topology, not that it has already been proven.
+INVULN_PHASE_STATE_FIELD = 0x0058
+INVULN_ACTION_FIELD = 0x01E8
+INVULN_BOOTSTRAP_CLEAR_TYPE = 0x02
+INVULN_CONTEXT_LOOKBACK = 0x180
+INVULN_BOOTSTRAP_LOOKBACK = 0x60
+INVULN_BOOTSTRAP_LOOKAHEAD = 0x80
+INVULN_PHASE_SETUP_HDR = bytes([0x04, 0x01, 0x02, 0x3F])
+
+# Runtime-confirmed reference rows.  This is deliberately tiny: do not let a
+# name match or a broad move family promote untested rows to "confirmed".
+# Tuple = (character ID, action/animation ID).
+# - Polimar 6C: user-tested as genuinely invulnerable.
+# - Ryu Shoryu L/M/H: user-confirmed invulnerable startup references.
+CONFIRMED_INVULN_ACTIONS = {
+    (4, 0x0106),
+    (12, 0x0136),
+    (12, 0x0137),
+    (12, 0x0138),
+}
 
 HITBOX_OFF_X = 0x40
 HITBOX_OFF_Y = 0x48
@@ -197,8 +273,16 @@ SLOT_REGION_PAD = 0x2000
 # read only the exact packets/fields the editor needs.  Delete
 # frame_data_profiles.json or set TVC_FD_PROFILE_CACHE=0 to force the legacy
 # dynamic path.
-PROFILE_CACHE_VERSION = 1
-PROFILE_SCANNER_BUILD = "fd-profile-v2-invuln1218"
+PROFILE_CACHE_VERSION = 7
+PROFILE_SCANNER_BUILD = "fd-profile-v8-animation-mot-recovery"
+# Kept separate from the global profile format version so existing projectile
+# and super profiles remain intact.  A normal move profile simply refreshes
+# once when this resolver changes.
+STUN_RESOLVER_REVISION = 1
+# Bump whenever the active-frame packet parser changes. Cached rows retain the
+# old block address, so a rescan is required to remove a previously accepted
+# false-positive packet instead of merely refreshing the scalar bytes.
+ACTIVE_RESOLVER_REVISION = 2
 PROFILE_CACHE_FILENAME = "frame_data_profiles.json"
 PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PROFILE_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
@@ -423,7 +507,15 @@ def resolve_chr_tbl_from_live_memory(fighter_base_abs: int) -> Optional[int]:
     return None
 
 
-def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
+def parse_chr_tbl_entries(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[Tuple[int, int]]:
+    """Return ``(action_id, absolute_root)`` pairs from ``chr_tbl``.
+
+    The table index is the action ID.  That distinction matters for specials:
+    a table entry for 0x0136 can contain internal 0x0135/0x0136/0x0137/0x0138
+    animation commands, so inferring ownership from the first nested command
+    causes adjacent strength branches to donate timing values to one another.
+    The table entry itself is the gameplay action owner.
+    """
     tbl_off = abs_to_file_off(chr_tbl_abs, mem_base)
     if tbl_off < 0 or tbl_off + 4 > len(buf):
         return []
@@ -433,67 +525,36 @@ def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
         # Safe fallback: bounded scan. Do not assume the old 705-entry size.
         act_rel = min(CHR_TBL_SCAN_MAX_BYTES, len(buf) - tbl_off)
 
-    moves: List[int] = []
-    seen_moves: set = set()
+    entries: List[Tuple[int, int]] = []
+    seen_moves: set[int] = set()
     entry_count = max(0, act_rel // 4)
 
-    for i in range(entry_count):
-        off = tbl_off + i * 4
+    for action_id in range(entry_count):
+        off = tbl_off + action_id * 4
         if off + 4 > len(buf):
             break
 
         entry = rd_u32_be(buf, off)
-
         if entry == 0xFFFFFFFF:
             break
         if entry == 0:
             continue
         if entry % 4 != 0:
             continue
-        if entry < MOVE_DATA_START_OFF:
-            continue
-        if entry > CHR_TBL_MAX_MOVE_OFFSET:
+        if entry < MOVE_DATA_START_OFF or entry > CHR_TBL_MAX_MOVE_OFFSET:
             continue
 
         move_abs = chr_tbl_abs + entry
         if is_mem2_addr(move_abs) and move_abs not in seen_moves:
             seen_moves.add(move_abs)
-            moves.append(move_abs)
+            entries.append((action_id, move_abs))
 
-    return moves
-
-
-def parse_chr_tbl_action_entries(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[Tuple[int, int]]:
-    """Return canonical ``(action_id, script_root)`` pairs from chr_tbl.
-
-    The normal move scanner deliberately deduplicates roots. The invuln
-    signature needs the original table index as well, because Shoryu begins
-    eight bytes before its action root and 6B carries the packet later in the
-    action interval.
-    """
-    tbl_off = abs_to_file_off(chr_tbl_abs, mem_base)
-    if tbl_off < 0 or tbl_off + 4 > len(buf):
-        return []
-    act_rel = _find_chr_act_rel(buf, tbl_off)
-    if act_rel is None:
-        act_rel = min(CHR_TBL_SCAN_MAX_BYTES, len(buf) - tbl_off)
-
-    entries: List[Tuple[int, int]] = []
-    for action_id in range(max(0, act_rel // 4)):
-        off = tbl_off + action_id * 4
-        if off + 4 > len(buf):
-            break
-        entry = rd_u32_be(buf, off)
-        if entry == 0xFFFFFFFF:
-            break
-        if entry == 0 or entry % 4 != 0:
-            continue
-        if entry < MOVE_DATA_START_OFF or entry > CHR_TBL_MAX_MOVE_OFFSET:
-            continue
-        root = chr_tbl_abs + entry
-        if is_mem2_addr(root):
-            entries.append((int(action_id), int(root)))
     return entries
+
+
+def parse_chr_tbl(buf: bytes, mem_base: int, chr_tbl_abs: int) -> List[int]:
+    """Compatibility wrapper returning only absolute action roots."""
+    return [addr for _, addr in parse_chr_tbl_entries(buf, mem_base, chr_tbl_abs)]
 
 # ============================================================
 # Slot model
@@ -589,9 +650,24 @@ def looks_like_real_move_anchor(buf: bytes, pos: int) -> bool:
 # ============================================================
 
 def parse_active_frames(buf: bytes, pos: int) -> Optional[Tuple[int, int]]:
+    """Parse a finite active-frame packet.
+
+    The command header alone is not enough.  A held/loop state can begin with
+    the same ``20 35 01 20 3F`` bytes but store ``0x000003E7`` (999) in the
+    end operand.  The old byte-only parser read its low byte (``0xE7``) and
+    invented an active window of frames 1--232; Blade 4C exposed that exact
+    false positive.  Normal finite frame operands are byte-sized values encoded
+    as ``3F 00 00 XX`` for both start and end.
+    """
     if pos + ACTIVE_TOTAL_LEN > len(buf):
         return None
     if not match_bytes(buf, pos, ACTIVE_HDR):
+        return None
+    # Both values must be byte-sized script literals.  This rejects held/999
+    # control states while preserving every normal finite active packet.
+    if buf[pos + 9:pos + 12] != b"\x00\x00\x00":
+        return None
+    if buf[pos + 13:pos + 16] != b"\x00\x00\x00":
         return None
     return (buf[pos + 8] + 1, buf[pos + 16] + 1)
 
@@ -649,7 +725,7 @@ def parse_knockback(buf: bytes, pos: int) -> Optional[Dict[str, Any]]:
         return None
 
     # The profile/unknown words can be non-zero on launcher-style packets.
-    # KB X and Air KB are big-endian floats.
+    # Air KB X and Air KB Y are big-endian floats.
     try:
         return {
             "kb_type": int(buf[pos + KNOCKBACK_TYPE_OFF]),
@@ -657,6 +733,37 @@ def parse_knockback(buf: bytes, pos: int) -> Optional[Dict[str, Any]]:
             "kb_unknown": rd_u32_be(buf, pos + KNOCKBACK_UNKNOWN_OFF),
             "kb_x": rd_f32_be(buf, pos + KNOCKBACK_X_OFF),
             "air_kb": rd_f32_be(buf, pos + KNOCKBACK_AIR_OFF),
+        }
+    except Exception:
+        return None
+
+
+def parse_ground_knockback(buf: bytes, pos: int) -> Optional[Dict[str, Any]]:
+    """Parse the optional 35 0C hit Push/Pull packet.
+
+    Layout: ``35 0C 00 20 [mode u32] [Push/Pull X f32] [Push/Pull Aux f32]``.
+    ``+0x08`` is confirmed as signed horizontal hit spacing: Ryu Tatsu Super
+    uses negative values to push its first hit away and positive values to
+    vacuum later hits inward.  ``+0x0C`` is intentionally exposed as Aux until
+    its engine role is independently proven.  Legacy ``ground_kb`` field keys
+    stay in place for cache/patch compatibility.
+    """
+    if pos + GROUND_KB_TOTAL_LEN > len(buf):
+        return None
+    if (
+        buf[pos] != 0x35
+        or buf[pos + 1] != GROUND_KB_TYPE
+        or buf[pos + 2] != 0x00
+        or buf[pos + 3] != 0x20
+    ):
+        return None
+    try:
+        return {
+            "ground_kb_mode": rd_u32_be(buf, pos + GROUND_KB_MODE_OFF),
+            "ground_kb": rd_f32_be(buf, pos + GROUND_KB_VALUE_OFF),
+            "ground_kb_y": rd_f32_be(buf, pos + GROUND_KB_AUX_OFF),
+            # Compatibility only: older cached/profile code may still inspect it.
+            "ground_kb_aux": rd_f32_be(buf, pos + GROUND_KB_AUX_OFF),
         }
     except Exception:
         return None
@@ -682,118 +789,461 @@ def parse_stun(buf: bytes, pos: int) -> Optional[Tuple[int, int, int]]:
     return (buf[pos + 15], buf[pos + 31], buf[pos + 38])
 
 
-def _invuln_signature_frames(raw_value: int) -> Optional[int]:
-    """Decode the exact +0x1218 payload: ``00 00 NN 00``."""
+def _invuln_frames_from_value(raw_value: int) -> int:
     try:
         raw = int(raw_value) & 0xFFFFFFFF
     except Exception:
-        return None
-    if raw & 0xFFFF00FF:
-        return None
-    frames = (raw >> 8) & 0xFF
-    return frames if frames >= INVULN_SIGNATURE_MIN_FRAMES else None
+        return 0
+    if raw == 0:
+        return 0
+    # Signature values are stored like 0x00000D00 for 13f.
+    if (raw & 0xFF) == 0:
+        return (raw >> 8) & 0xFFFF
+    return raw & 0xFFFF
 
 
-def collect_invuln_signature_map(
+def _raw_invuln_frames(raw_frames: Any) -> int:
+    """Return the decoded duration without deciding whether it is protection."""
+    try:
+        return max(0, int(raw_frames or 0))
+    except Exception:
+        return 0
+
+
+def _field_write_at(buf: bytes, pos: int) -> Optional[Dict[str, int]]:
+    """Decode one ``04 xx 60 00 +field = value`` script operation."""
+    if pos < 0 or pos + 16 > len(buf):
+        return None
+    if buf[pos] != 0x04 or buf[pos + 2:pos + 4] != b"\x60\x00":
+        return None
+    if rd_u32_be(buf, pos + 8) != INVULN_PROBE_MARKER:
+        return None
+    return {
+        "addr_rel": pos,
+        "op": int(buf[pos + 1]),
+        "field": int(rd_u32_be(buf, pos + 4)),
+        "value": int(rd_u32_be(buf, pos + 12)),
+    }
+
+
+def _last_field_write(
+    buf: bytes,
+    *,
+    start: int,
+    end: int,
+    field: int,
+) -> Optional[Dict[str, int]]:
+    """Return the nearest matching field write before ``end`` in a local phase."""
+    begin = max(0, int(start))
+    finish = min(len(buf), int(end))
+    last: Optional[Dict[str, int]] = None
+    for pos in range(begin, max(begin, finish - 15)):
+        op = _field_write_at(buf, pos)
+        if op and int(op.get("field", -1)) == int(field):
+            last = op
+    return last
+
+
+def _has_field_write(
+    buf: bytes,
+    *,
+    start: int,
+    end: int,
+    field: int,
+    value: Optional[int] = None,
+    op_type: Optional[int] = None,
+) -> bool:
+    """Check a narrow script window for a specific field operation."""
+    begin = max(0, int(start))
+    finish = min(len(buf), int(end))
+    for pos in range(begin, max(begin, finish - 15)):
+        op = _field_write_at(buf, pos)
+        if not op or int(op.get("field", -1)) != int(field):
+            continue
+        if value is not None and int(op.get("value", -1)) != int(value):
+            continue
+        if op_type is not None and int(op.get("op", -1)) != int(op_type):
+            continue
+        return True
+    return False
+
+
+def _invuln_confidence_score(name: str) -> int:
+    # "confirmed" is an external/runtime proof tier, intentionally above
+    # every static-script confidence class.
+    return {"confirmed": 4, "high": 3, "medium": 2, "low": 1, "bootstrap": 0, "none": 0}.get(str(name or "none"), 0)
+
+
+def _is_runtime_confirmed_invuln_action(mv: Dict[str, Any], char_id: Optional[int]) -> bool:
+    """Return true only for a specifically recorded in-game proof row."""
+    try:
+        key = (int(char_id), int(mv.get("id")))
+    except Exception:
+        return False
+    return key in CONFIRMED_INVULN_ACTIONS
+
+
+def _mark_runtime_confirmed_invuln(
+    mv: Dict[str, Any],
+    probes: List[Dict[str, Any]],
+    *,
+    char_id: Optional[int],
+) -> None:
+    """Promote the matching, structurally strong probe on a proven reference.
+
+    A move-level runtime test confirms that its startup protection exists, but
+    it should not blindly certify unrelated low-confidence helper packets in
+    the same section.  Promote only the same high-topology finite/held phase
+    that the scanner would otherwise render as [H].
+    """
+    if not _is_runtime_confirmed_invuln_action(mv, char_id):
+        return
+    for probe in probes or []:
+        if str(probe.get("invuln_confidence") or "") != "high":
+            continue
+        label = str(probe.get("display_label") or "").strip()
+        if not label:
+            continue
+        probe["invuln_confidence"] = "confirmed"
+        probe["runtime_confirmed"] = True
+        if str(probe.get("invuln_kind") or "") == "event_hold":
+            # Held states remain raw/debug evidence only; never label them as a
+            # confirmed number of invulnerable frames.
+            probe["display_label"] = ""
+        else:
+            frames = int(probe.get("display_frames") or 0)
+            probe["display_label"] = f"{frames}f [C]" if frames > 0 else ""
+
+
+def _annotate_invuln_probe_context(
     buf: bytes,
     base_abs: int,
-    action_entries: Sequence[Tuple[int, int]],
-) -> Tuple[Dict[int, List[Dict[str, Any]]], Dict[int, List[Dict[str, Any]]]]:
-    """Scan each canonical action interval for the exact +0x1218 signature.
-
-    The interval ends at the next distinct chr_tbl root. This prevents a row
-    from inheriting a neighbor's terminal phase timer. Eight bytes of backtrack
-    catch Shoryu's root-leading packet.
-    """
-    valid: List[Tuple[int, int]] = []
-    for action_id, root in action_entries or ():
-        try:
-            aid, addr = int(action_id), int(root)
-        except Exception:
-            continue
-        rel = addr - int(base_abs)
-        if 0 <= rel < len(buf):
-            valid.append((aid, addr))
-    if not valid:
-        return {}, {}
-
-    roots = sorted({root for _aid, root in valid})
-    by_root: Dict[int, List[Dict[str, Any]]] = {}
-    for index, root in enumerate(roots):
-        next_root = roots[index + 1] if index + 1 < len(roots) else int(base_abs) + len(buf)
-        start_abs = max(int(base_abs), int(root) - INVULN_SIGNATURE_ROOT_BACKTRACK)
-        end_abs = min(int(base_abs) + len(buf), max(start_abs, int(next_root)))
-        start_rel = start_abs - int(base_abs)
-        end_rel = end_abs - int(base_abs)
-        hits: List[Dict[str, Any]] = []
-        pos = start_rel
-        while True:
-            idx = buf.find(INVULN_SIGNATURE_HDR, pos, end_rel)
-            if idx < 0:
-                break
-            pos = idx + 1
-            if idx + 16 > end_rel:
-                continue
-            raw = rd_u32_be(buf, idx + 12)
-            frames = _invuln_signature_frames(raw)
-            if frames is None:
-                continue
-            hits.append({
-                "packet_addr": int(base_abs) + idx,
-                "value_addr": int(base_abs) + idx + 12,
-                "raw_value": int(raw),
-                "frames": int(frames),
-                "action_root": int(root),
-            })
-        if hits:
-            by_root[int(root)] = hits
-
-    by_action: Dict[int, List[Dict[str, Any]]] = {}
-    for action_id, root in valid:
-        hits = by_root.get(int(root))
-        if hits:
-            by_action[int(action_id)] = [dict(hit, action_id=int(action_id)) for hit in hits]
-    return by_action, by_root
-
-
-def summarize_invuln_signatures(signatures: Sequence[Dict[str, Any]]) -> str:
-    values: List[int] = []
-    for signature in signatures or ():
-        try:
-            frames = int(signature.get("frames"))
-        except Exception:
-            continue
-        if frames >= INVULN_SIGNATURE_MIN_FRAMES and frames not in values:
-            values.append(frames)
-    return " / ".join(f"{frames}f" for frames in values)
-
-
-def apply_invuln_signatures_to_moves(
-    moves: Sequence[Dict[str, Any]],
-    by_action: Dict[int, List[Dict[str, Any]]],
-    by_root: Dict[int, List[Dict[str, Any]]],
+    mv: Dict[str, Any],
+    probe: Dict[str, Any],
+    *,
+    timing_limit: Optional[int],
 ) -> None:
-    """Attach action-owned signature hits without changing move discovery."""
-    for mv in moves or ():
-        hits: List[Dict[str, Any]] = []
-        try:
-            root_hits = by_root.get(int(mv.get("abs") or 0))
-        except Exception:
-            root_hits = None
-        if root_hits:
-            hits = [dict(hit) for hit in root_hits]
-        if not hits:
-            try:
-                action_hits = by_action.get(int(mv.get("id")))
-            except Exception:
-                action_hits = None
-            if action_hits:
-                hits = [dict(hit) for hit in action_hits]
+    """Classify one phase timer without pretending the timer alone is invuln.
 
-        mv["invuln_signatures"] = hits
-        mv["invuln_signature_count"] = len(hits)
-        mv["invuln"] = summarize_invuln_signatures(hits)
-        mv["invuln_addr"] = int(hits[0]["value_addr"]) if hits else None
+    The important anti-noise rule is structural, not duration-based:
+      clear +0x1218 -> arm 2f -> +0x1E8 action handoff
+    is the generic normal bootstrap and is never displayed as invulnerability.
+
+    A strong candidate has the same local phase shape as the protected
+    reference scripts: an active phase setup instruction plus a preceding
+    +0x58 write with bit 0 set.  This remains a confidence signal; exact
+    collision semantics still need runtime validation unless the row is in
+    the explicit runtime-confirmed reference table.
+    """
+    try:
+        addr = int(probe.get("addr") or 0)
+        pos = addr - int(base_abs)
+    except Exception:
+        pos = -1
+    frames = _raw_invuln_frames(probe.get("frames"))
+    if pos < 0 or pos >= len(buf):
+        probe.update({
+            "candidate_frames": 0,
+            "display_frames": 0,
+            "invuln_confidence": "none",
+            "invuln_kind": "invalid",
+            "display_label": "",
+        })
+        return
+
+    local_start = max(0, pos - INVULN_CONTEXT_LOOKBACK)
+    state58 = _last_field_write(
+        buf, start=local_start, end=pos,
+        field=INVULN_PHASE_STATE_FIELD,
+    )
+    state_value = int((state58 or {}).get("value") or 0)
+    state_bit0 = bool(state58 and (state_value & 0x1))
+    phase_setup_addr = buf.rfind(INVULN_PHASE_SETUP_HDR, local_start, pos)
+    has_phase_setup = phase_setup_addr >= 0
+
+    # Exact generic normal-entry shape.  A real 2f invul phase will not be
+    # discarded just for being 2f; it must match this clear->arm->handoff chain.
+    bootstrap_clear = _has_field_write(
+        buf,
+        start=max(0, pos - INVULN_BOOTSTRAP_LOOKBACK),
+        end=pos,
+        field=INVULN_PROBE_FIELD,
+        value=0,
+        op_type=INVULN_BOOTSTRAP_CLEAR_TYPE,
+    )
+    bootstrap_handoff = _has_field_write(
+        buf,
+        start=pos + 16,
+        end=min(len(buf), pos + INVULN_BOOTSTRAP_LOOKAHEAD),
+        field=INVULN_ACTION_FIELD,
+        op_type=0x01,
+    )
+    is_bootstrap = bool(frames == 2 and bootstrap_clear and bootstrap_handoff)
+    is_hold = bool(frames >= INVULN_HOLD_SENTINEL_FRAMES)
+    timing_overrun = bool(
+        not is_hold
+        and timing_limit is not None
+        and frames > int(timing_limit)
+    )
+
+    if is_bootstrap:
+        confidence = "bootstrap"
+        kind = "normal_entry_timer"
+        display_frames = 0
+        label = ""
+    else:
+        # The finite/held timer itself is retained.  The phase-state/topology
+        # evidence determines confidence; it does not impose a magic 6/10/13f
+        # whitelist and therefore preserves legitimate 1f/2f cases.
+        if state_bit0 and has_phase_setup:
+            confidence = "high"
+        elif has_phase_setup or state_bit0:
+            confidence = "medium"
+        elif frames > 0:
+            confidence = "low"
+        else:
+            confidence = "none"
+
+        # A timer that outlasts a concrete action's active endpoint is weaker,
+        # but not silently deleted: phase timing can belong to a parent/helper.
+        if timing_overrun and confidence == "high":
+            confidence = "medium"
+        elif timing_overrun and confidence == "medium":
+            confidence = "low"
+
+        if is_hold:
+            # 0x3E7 is an event-held state, not a frame count.  Keep the raw
+            # probe for the inspector/debug path, but never promote it into
+            # the public Invuln column as though it were evidence of a finite
+            # startup duration.  This removes KO/reaction/throw noise while
+            # preserving all finite candidate values.
+            kind = "event_hold"
+            display_frames = 0
+            label = ""
+        elif frames > 0:
+            kind = "timed_phase"
+            display_frames = frames
+            label = f"{frames}f [{confidence[:1].upper()}]" if confidence != "none" else ""
+        else:
+            kind = "zero"
+            display_frames = 0
+            label = ""
+
+    probe.update({
+        "candidate_frames": display_frames,
+        "display_frames": display_frames,
+        "display_label": label,
+        "invuln_confidence": confidence,
+        "invuln_kind": kind,
+        "candidate_limit": timing_limit,
+        "timing_overrun": timing_overrun,
+        "bootstrap": is_bootstrap,
+        "phase_setup_addr": (base_abs + phase_setup_addr) if phase_setup_addr >= 0 else None,
+        "phase_state58_addr": (base_abs + int(state58.get("addr_rel"))) if state58 else None,
+        "phase_state58_value": state_value if state58 else None,
+        "phase_state58_bit0": state_bit0,
+    })
+
+
+def _invuln_startup_active_limit(mv: Dict[str, Any]) -> Optional[int]:
+    """Return a reliable startup+active endpoint for a concrete action root."""
+    if str(mv.get("source") or "") not in {"anim_hdr", "air_hdr", "cmd_hdr"}:
+        return None
+
+    ends: List[int] = []
+
+    def _add_range(start_value: Any, end_value: Any) -> None:
+        try:
+            start_frame = int(start_value)
+            end_frame = int(end_value)
+        except Exception:
+            return
+        if start_frame >= 1 and end_frame >= start_frame:
+            ends.append(end_frame)
+
+    _add_range(mv.get("active_start"), mv.get("active_end"))
+    _add_range(mv.get("active2_start"), mv.get("active2_end"))
+    for seg in mv.get("hit_segments") or []:
+        if isinstance(seg, dict):
+            _add_range(seg.get("active_start"), seg.get("active_end"))
+
+    return max(ends) if ends else None
+
+
+def apply_invuln_startup_active_gate(
+    mv: Dict[str, Any],
+    probes: List[Dict[str, Any]],
+    *,
+    buf: Optional[bytes] = None,
+    base_abs: Optional[int] = None,
+    char_id: Optional[int] = None,
+) -> Optional[int]:
+    """Attach phase-context confidence and a soft timing sanity penalty.
+
+    The old hard timing cutoff erased valid helper/held phases.  Keep it as a
+    confidence penalty only; the exact bootstrap pattern is what removes the
+    ubiquitous normal 2f entries.
+    """
+    limit = _invuln_startup_active_limit(mv)
+    for probe in probes or []:
+        if buf is not None and base_abs is not None:
+            _annotate_invuln_probe_context(
+                buf, int(base_abs), mv, probe, timing_limit=limit,
+            )
+        else:
+            frames = _raw_invuln_frames(probe.get("frames"))
+            probe["candidate_frames"] = frames if 0 < frames < INVULN_HOLD_SENTINEL_FRAMES else 0
+            probe["display_frames"] = probe["candidate_frames"]
+            probe["invuln_confidence"] = "low" if probe["candidate_frames"] else "none"
+            probe["display_label"] = f"{probe['candidate_frames']}f [L]" if probe["candidate_frames"] else ""
+
+    _mark_runtime_confirmed_invuln(mv, probes, char_id=char_id)
+    return limit
+
+
+def _next_anim_boundary(buf: bytes, root_rel: int, scan_end: int) -> int:
+    """Find the next ANIM command after this root as a safe local fallback.
+
+    Dynamic scans can provide a stronger next-root boundary from the complete
+    action list.  Profile refreshes do not always have that list, so this keeps
+    a fixed-size probe from wandering into the next script and lending its
+    phase packet to the previous move (Polimar 2C -> 6C was the proof case).
+    """
+    try:
+        root_rel = int(root_rel)
+    except Exception:
+        return scan_end
+    begin = max(0, root_rel + 1)
+    nxt = buf.find(bytes(ANIM_HDR), begin, scan_end)
+    return nxt if nxt >= 0 else scan_end
+
+
+def collect_invuln_probes(
+    buf: bytes,
+    base_abs: int,
+    mv_abs: int,
+    *,
+    first_range: int = INVULN_FIRST_HIT_RANGE,
+    scan_range: int = INVULN_SCAN_RANGE,
+    owner_start_abs: Optional[int] = None,
+    owner_end_abs: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Return raw ``+0x1218`` phase/timer packets for one action section.
+
+    The packet is retained as evidence because finite values can correlate with
+    startup invulnerability. It is not proof by itself: 999 is a held-state
+    sentinel used in KO, crumple, throw, and assist scripts. The caller applies
+    the action-aware startup+active timing sanity check after normal frame
+    fields have been attached.
+
+    Scan is limited to the resolved owner window.  Table pointers may land a
+    few bytes after their setup packet, so table rows receive a bounded prefix
+    owned by *that* row.  The previous row's end is trimmed by the same prefix,
+    which prevents Polimar 2C from borrowing 6C's pre-root timer.
+    """
+    rel = mv_abs - base_abs
+    if rel < 0 or rel >= len(buf):
+        return []
+
+    try:
+        owner_start_rel = int(owner_start_abs or 0) - int(base_abs)
+    except Exception:
+        owner_start_rel = 0
+    start = max(0, owner_start_rel) if owner_start_rel > 0 else max(0, rel - 8)
+
+    # The range is measured forward from the visible action root; the optional
+    # table preamble is extra ownership context, not a reduction in the scan.
+    scan_end = min(len(buf), rel + int(scan_range or INVULN_SCAN_RANGE))
+    try:
+        owner_end_rel = int(owner_end_abs or 0) - int(base_abs)
+    except Exception:
+        owner_end_rel = 0
+    if owner_end_rel > start:
+        scan_end = min(scan_end, owner_end_rel)
+    else:
+        scan_end = _next_anim_boundary(buf, rel, scan_end)
+
+    # Keep the historical early-window safety check, but make it respect the
+    # actual section boundary rather than a neighboring script.
+    first_end = min(scan_end, start + int(first_range or INVULN_FIRST_HIT_RANGE))
+    first = buf.find(INVULN_PROBE_HDR, start, first_end)
+    if first < 0:
+        return []
+
+    probes: List[Dict[str, Any]] = []
+    pos = start
+    while True:
+        idx = buf.find(INVULN_PROBE_HDR, pos, scan_end)
+        if idx < 0:
+            break
+        pos = idx + 1
+        if idx + 16 > len(buf):
+            continue
+        field = rd_u32_be(buf, idx + 4)
+        marker = rd_u32_be(buf, idx + 8)
+        value = rd_u32_be(buf, idx + 12)
+        if marker != INVULN_PROBE_MARKER or field != INVULN_PROBE_FIELD:
+            continue
+        frames = _invuln_frames_from_value(value)
+        probes.append({
+            "addr": base_abs + idx,
+            "field": field,
+            "value": value,
+            "frames": frames,
+            "candidate_frames": _raw_invuln_frames(frames),
+        })
+    return probes
+
+
+def summarize_invuln_probes(probes: List[Dict[str, Any]]) -> str:
+    """Render non-bootstrap phases with concise confidence labels."""
+    shown: List[Tuple[int, int, str]] = []
+    seen: set[str] = set()
+    for probe in probes or []:
+        label = str(probe.get("display_label") or "").strip()
+        if not label or label in seen:
+            continue
+        confidence = _invuln_confidence_score(str(probe.get("invuln_confidence") or "none"))
+        try:
+            frames = int(probe.get("display_frames") or 0)
+        except Exception:
+            frames = 0
+        shown.append((confidence, frames, label))
+        seen.add(label)
+    if not shown:
+        return ""
+    shown.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return " / ".join(label for _, _, label in shown[:4])
+
+
+def best_candidate_invuln_probe(probes: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Return the strongest displayed phase, preferring confidence over length."""
+    best: Optional[Dict[str, Any]] = None
+    best_key = (-1, -1)
+    for probe in probes or []:
+        if not str(probe.get("display_label") or "").strip():
+            continue
+        score = _invuln_confidence_score(str(probe.get("invuln_confidence") or "none"))
+        try:
+            frames = int(probe.get("display_frames") or 0)
+        except Exception:
+            frames = 0
+        key = (score, frames)
+        if key > best_key:
+            best = probe
+            best_key = key
+    return best
+
+
+def should_probe_invuln(mv: Dict[str, Any], char_id: Optional[int] = None) -> bool:
+    """Probe every move for the +0x1218 startup-protection signature.
+
+    This signature is specific enough that broad probing is more useful than the
+    older hand-picked whitelist. Exact clear->2f->handoff normal bootstraps
+    are suppressed, while all other finite durations and held phases receive
+    an evidence-based confidence label.
+    """
+    return True
 
 
 def pick_best_block(mv_abs: int, blocks: List[Tuple[int, Any]],
@@ -886,6 +1336,165 @@ def first_block_forward(blocks: List[Tuple[int, Any]],
     return None
 
 
+def _clear_push_pull_fields(row: Dict[str, Any]) -> None:
+    """Clear the optional 35/0C hit-spacing fields without deleting legacy keys."""
+    for key in (
+        "ground_kb", "ground_kb_addr", "ground_kb_y", "ground_kb_y_addr",
+        "ground_kb_packet_addr", "ground_kb_mode", "ground_kb_aux",
+        "push_pull_packets",
+    ):
+        row[key] = None if key != "push_pull_packets" else []
+
+
+def _push_pull_chain_reaches_stun(packet_addr: int,
+                                   ground_kb_blocks: List[Tuple[int, Dict[str, Any]]],
+                                   stun_blocks: List[Tuple[int, Any]],
+                                   end_addr: int) -> bool:
+    """Return True when a 35/0C chain ends in an owned stun packet.
+
+    Some hit bundles place a mode-0 35/0C immediately before a mode-1 35/0C.
+    The stun begins after the second packet, not directly after the first.  Walk
+    only contiguous 16-byte 35/0C packets, then require a nearby stun packet.
+    """
+    g_addrs = {int(addr) for addr, _data in ground_kb_blocks}
+    cursor = int(packet_addr)
+    for _ in range(4):
+        nxt = cursor + GROUND_KB_TOTAL_LEN
+        if nxt in g_addrs and nxt < int(end_addr):
+            cursor = nxt
+            continue
+        break
+
+    lo = cursor + GROUND_KB_TOTAL_LEN
+    hi = min(int(end_addr), lo + 0x40)
+    return any(lo <= int(addr) < hi for addr, _data in stun_blocks)
+
+
+def _owned_push_pull_blocks(ground_kb_blocks: List[Tuple[int, Dict[str, Any]]],
+                            stun_blocks: List[Tuple[int, Any]],
+                            *,
+                            start_addr: int,
+                            end_addr: int,
+                            kb_addr: Optional[int] = None,
+                            max_gap: int = 0x900) -> List[Tuple[int, Dict[str, Any]]]:
+    """Find valid 35/0C hit Push/Pull packets inside one hit bundle.
+
+    A packet must be after the bundle's base KB packet (when known), close to
+    the hit bundle, and lead through its own contiguous 35/0C chain to a valid
+    stun packet.  The result is sorted with mode 0 first: that is the tested
+    Ryu Tatsu push/vacuum form.  Other modes are retained in metadata so they
+    can be surfaced later without guessing their semantics.
+    """
+    start = int(start_addr)
+    end = int(end_addr)
+    if end <= start:
+        return []
+    if kb_addr is not None:
+        start = max(start, int(kb_addr) + KNOCKBACK_TOTAL_LEN)
+    limit = min(end, start + max(0, int(max_gap)))
+
+    found: List[Tuple[int, Dict[str, Any]]] = []
+    for addr, data in ground_kb_blocks:
+        a = int(addr)
+        if not (start <= a < limit):
+            continue
+        if not _push_pull_chain_reaches_stun(a, ground_kb_blocks, stun_blocks, end):
+            continue
+        found.append((a, data))
+
+    found.sort(key=lambda item: (0 if int(item[1].get("ground_kb_mode") or 0) == 0 else 1, item[0]))
+    return found
+
+
+def _attach_push_pull(row: Dict[str, Any],
+                      candidates: List[Tuple[int, Dict[str, Any]]]) -> None:
+    """Attach the tested primary 35/0C packet and retain the full local chain."""
+    _clear_push_pull_fields(row)
+    if not candidates:
+        return
+
+    packet_addr, data = candidates[0]
+    row["ground_kb_packet_addr"] = int(packet_addr)
+    row["ground_kb_addr"] = int(packet_addr) + GROUND_KB_VALUE_OFF
+    row["ground_kb_y_addr"] = int(packet_addr) + GROUND_KB_AUX_OFF
+    row["ground_kb"] = data.get("ground_kb")
+    row["ground_kb_y"] = data.get("ground_kb_y")
+    row["ground_kb_mode"] = data.get("ground_kb_mode")
+    row["ground_kb_aux"] = data.get("ground_kb_aux")
+    row["push_pull_packets"] = [
+        {
+            "packet_addr": int(addr),
+            "mode": data_item.get("ground_kb_mode"),
+            "x": data_item.get("ground_kb"),
+            "aux": data_item.get("ground_kb_y"),
+        }
+        for addr, data_item in candidates
+    ]
+
+
+def pair_explicit_ground_push_for_move(mv: Dict[str, Any],
+                                        moves: List[Dict[str, Any]],
+                                        blocks: Dict[str, Any]) -> None:
+    """Attach the move-owned 35/0C hit Push/Pull packet dynamically.
+
+    Prefer the first concrete hit segment, because multi-hit specials can have
+    a different push/pull setting per hit.  When a row has no segment overlay,
+    fall back to a bounded search from its own base KB packet.  The old version
+    only accepted the immediately-adjacent 35/0C packet and could miss a
+    valid mode chain or borrow a nearby action's packet.
+    """
+    _clear_push_pull_fields(mv)
+
+    segments = mv.get("hit_segments") or []
+    if isinstance(segments, list):
+        for seg in segments:
+            if not isinstance(seg, dict):
+                continue
+            packet = seg.get("ground_kb_packet_addr")
+            if packet is None:
+                continue
+            _attach_push_pull(mv, [
+                (int(packet), {
+                    "ground_kb_mode": seg.get("ground_kb_mode"),
+                    "ground_kb": seg.get("ground_kb"),
+                    "ground_kb_y": seg.get("ground_kb_y"),
+                    "ground_kb_aux": seg.get("ground_kb_aux"),
+                })
+            ])
+            # Preserve the segment's complete local candidate list when present.
+            if isinstance(seg.get("push_pull_packets"), list):
+                mv["push_pull_packets"] = list(seg.get("push_pull_packets") or [])
+            return
+
+    try:
+        mv_abs = int(mv.get("abs") or 0)
+    except Exception:
+        mv_abs = 0
+    if not mv_abs:
+        return
+
+    source = str(mv.get("source") or "")
+    boundary = _next_invuln_action_boundary(moves, mv_abs, mv_source=source)
+    if not boundary or boundary <= mv_abs:
+        boundary = mv_abs + HIT_SEGMENT_MAX_GAP
+
+    kb_blocks = sorted(blocks.get("kb_blocks") or [], key=lambda x: x[0])
+    g_blocks = sorted(blocks.get("ground_kb_blocks") or [], key=lambda x: x[0])
+    stuns = sorted(blocks.get("stun_blocks") or [], key=lambda x: x[0])
+    kbblk = first_block_forward(kb_blocks, mv_abs, int(boundary), max_gap=HIT_SEGMENT_MAX_GAP)
+    if not kbblk:
+        return
+
+    candidates = _owned_push_pull_blocks(
+        g_blocks, stuns,
+        start_addr=int(kbblk[0]),
+        end_addr=int(boundary),
+        kb_addr=int(kbblk[0]),
+        max_gap=0x180,
+    )
+    _attach_push_pull(mv, candidates)
+
+
 def pair_forward_hit_fields_for_move(mv: Dict[str, Any],
                                      moves: List[Dict[str, Any]],
                                      blocks: Dict[str, Any]) -> None:
@@ -915,6 +1524,7 @@ def pair_forward_hit_fields_for_move(mv: Dict[str, Any],
     atkprop_blocks = sorted(blocks.get("atkprop_blocks") or [], key=lambda x: x[0])
     hitreact_blocks = sorted(blocks.get("hitreact_blocks") or [], key=lambda x: x[0])
     kb_blocks = sorted(blocks.get("kb_blocks") or [], key=lambda x: x[0])
+    ground_kb_blocks = sorted(blocks.get("ground_kb_blocks") or [], key=lambda x: x[0])
     stun_blocks = sorted(blocks.get("stun_blocks") or [], key=lambda x: x[0])
 
     ablk = first_block_forward(active_blocks, mv_abs, boundary, max_gap=PAIR_RANGE)
@@ -938,6 +1548,8 @@ def pair_forward_hit_fields_for_move(mv: Dict[str, Any],
         mv["kb0"] = mv["kb1"] = mv["kb_traj"] = None
         mv["kb_type"] = mv["launch_profile"] = mv["kb_unknown"] = None
         mv["kb_x"] = mv["air_kb"] = mv["knockback_addr"] = None
+        mv["ground_kb"] = mv["ground_kb_addr"] = mv["ground_kb_y"] = mv["ground_kb_y_addr"] = mv["ground_kb_packet_addr"] = None
+        mv["ground_kb_mode"] = mv["ground_kb_aux"] = None
         mv["hitstun"] = mv["blockstun"] = mv["hitstop"] = mv["stun_addr"] = None
         return
 
@@ -974,7 +1586,17 @@ def pair_forward_hit_fields_for_move(mv: Dict[str, Any],
         mv["kb_type"] = mv["launch_profile"] = mv["kb_unknown"] = None
         mv["kb_x"] = mv["air_kb"] = mv["knockback_addr"] = None
 
-    stun_start = kbblk[0] if kbblk else kb_start
+    ground_start = kbblk[0] if kbblk else kb_start
+    push_candidates = _owned_push_pull_blocks(
+        ground_kb_blocks, stun_blocks,
+        start_addr=ground_start,
+        end_addr=boundary,
+        kb_addr=(kbblk[0] if kbblk else None),
+    )
+    _attach_push_pull(mv, push_candidates)
+    gblk = push_candidates[0] if push_candidates else None
+
+    stun_start = gblk[0] if gblk else ground_start
     sblk = first_block_forward(stun_blocks, stun_start, boundary, max_gap=HIT_SEGMENT_MAX_GAP)
     if sblk:
         mv["hitstun"], mv["blockstun"], mv["hitstop"] = sblk[1]
@@ -1004,6 +1626,182 @@ def _first_block_after(blocks: List[Tuple[int, Any]],
     return None
 
 
+def _signed_u32(raw: Any) -> int:
+    try:
+        value = int(raw) & 0xFFFFFFFF
+    except Exception:
+        return 0
+    return value - 0x100000000 if value & 0x80000000 else value
+
+
+def _find_owned_late_stun_pair(
+    buf: bytes,
+    base_abs: int,
+    *,
+    start_abs: int,
+    end_abs: int,
+) -> Optional[Dict[str, int]]:
+    """Find a direct +0x254/+0x258 override inside one action owner.
+
+    Some normal scripts first arm ``-2/-2`` and only write their true stun
+    values after helper/control commands.  Morrigan j.B and j.C are concrete
+    examples.  The ordinary STUN_HDR matcher intentionally stays strict, so
+    resolve this alternate two-write form here without reclassifying arbitrary
+    nearby field writes as editable standard packets.
+    """
+    try:
+        first = max(0, int(start_abs) - int(base_abs))
+        last = min(len(buf), int(end_abs) - int(base_abs))
+    except Exception:
+        return None
+    if last - first < 32:
+        return None
+
+    for pos in range(first, last - 31):
+        first_op = _field_write_at(buf, pos)
+        if not first_op:
+            continue
+        if int(first_op.get("op", -1)) != 0x01 or int(first_op.get("field", -1)) != 0x0254:
+            continue
+        second_op = _field_write_at(buf, pos + 16)
+        if not second_op:
+            continue
+        if int(second_op.get("op", -1)) != 0x01 or int(second_op.get("field", -1)) != 0x0258:
+            continue
+
+        hitstun = _signed_u32(first_op.get("value"))
+        blockstun = _signed_u32(second_op.get("value"))
+        # -2/-2 is the default sentinel and must be handled separately.
+        # Frame counts are bytes in every confirmed direct packet.
+        if hitstun < 0 or blockstun < 0 or hitstun > 0xFF or blockstun > 0xFF:
+            continue
+        return {
+            "addr": int(base_abs) + pos,
+            "hitstun": int(hitstun),
+            "blockstun": int(blockstun),
+        }
+    return None
+
+
+def _has_owned_default_stun_sentinel(
+    buf: bytes,
+    base_abs: int,
+    *,
+    start_abs: int,
+    end_abs: int,
+) -> bool:
+    """Return true for an action-owned direct ``-2/-2`` initialization.
+
+    The scan is bounded to the action and stops at the concrete hit packet, so
+    a neighboring action's initialization cannot donate defaults to this row.
+    """
+    try:
+        first = max(0, int(start_abs) - int(base_abs))
+        last = min(len(buf), int(end_abs) - int(base_abs))
+    except Exception:
+        return False
+    if last - first < 32:
+        return False
+
+    for pos in range(first, last - 31):
+        first_op = _field_write_at(buf, pos)
+        if not first_op or int(first_op.get("op", -1)) != 0x01 or int(first_op.get("field", -1)) != 0x0254:
+            continue
+        second_op = _field_write_at(buf, pos + 16)
+        if not second_op or int(second_op.get("op", -1)) != 0x01 or int(second_op.get("field", -1)) != 0x0258:
+            continue
+        if _signed_u32(first_op.get("value")) == -2 and _signed_u32(second_op.get("value")) == -2:
+            return True
+    return False
+
+
+def resolve_engine_default_stun(
+    mv: Dict[str, Any],
+    moves: List[Dict[str, Any]],
+    buf: bytes,
+    base_abs: int,
+) -> None:
+    """Resolve normal stun values that are delegated to the engine.
+
+    Existing parsed STUN_HDR packets are left untouched.  This only fills a
+    blank normal row when its *own* script contains the -2/-2 default sentinel:
+
+      1. Prefer a later direct override in the same action.
+      2. Otherwise map the normal damage hit-level (4/8/12) to the resolver's
+         12/9, 17/12, or 21/15 default.
+
+    The resolved defaults intentionally have no ``stun_addr`` because there is
+    no standard packet to edit; this keeps the existing writer from patching a
+    neighbor or a nonstandard field pair.
+    """
+    if mv.get("hitstun") is not None or mv.get("blockstun") is not None:
+        return
+    if str(mv.get("kind") or "") != "normal":
+        return
+
+    try:
+        mv_abs = int(mv.get("abs") or 0)
+    except Exception:
+        return
+    if not mv_abs:
+        return
+
+    # chr_tbl roots are gameplay-action owners.  The same owner boundary that
+    # fixed Shoryu L/M/H prevents late values from the next normal leaking in.
+    boundary = _next_invuln_action_boundary(moves, mv_abs, mv_source=mv.get("source"))
+    if not boundary or boundary <= mv_abs:
+        return
+    boundary = min(int(boundary), mv_abs + HIT_SEGMENT_SCAN_MAX)
+
+    try:
+        damage_addr = int(mv.get("damage_addr") or 0)
+    except Exception:
+        damage_addr = 0
+    if not damage_addr or damage_addr < mv_abs or damage_addr >= boundary:
+        return
+
+    # Nonstandard direct overrides can occur anywhere inside the owning action
+    # after its initial data declarations.  They take precedence over the
+    # generic engine default.  Do not start at the damage record: some scripts
+    # declare damage before they arm the -2/-2 default sentinel.
+    override = _find_owned_late_stun_pair(
+        buf, base_abs, start_abs=mv_abs, end_abs=boundary,
+    )
+    if override is not None:
+        mv["hitstun"] = int(override["hitstun"])
+        mv["blockstun"] = int(override["blockstun"])
+        mv["hitstop"] = None
+        mv["stun_addr"] = None
+        mv["stun_source"] = "owned_direct_override"
+        mv["stun_source_addr"] = int(override["addr"])
+        return
+
+    # The -2/-2 sentinel can be declared before or after the initial damage
+    # record, depending on the action layout, so keep this scan action-owned
+    # rather than relying on textual packet order.
+    if not _has_owned_default_stun_sentinel(
+        buf, base_abs, start_abs=mv_abs, end_abs=boundary,
+    ):
+        return
+
+    try:
+        flag = int(mv.get("damage_flag") or 0) & 0x0F
+    except Exception:
+        flag = 0
+    resolved = DEFAULT_NORMAL_STUN_BY_DAMAGE_FLAG.get(flag)
+    if resolved is None:
+        return
+
+    mv["hitstun"], mv["blockstun"] = int(resolved[0]), int(resolved[1])
+    mv["hitstop"] = None
+    mv["stun_addr"] = None
+    mv["stun_source"] = "engine_default_hit_level"
+    # Runtime reverse profiling is opt-in only for this exact -2/-2 resolver
+    # family. Direct/static signature rows never receive this marker.
+    mv["runtime_profile_eligible"] = True
+    mv["stun_default_level"] = int(flag)
+
+
 def _next_real_boundary_for_move(moves: List[Dict[str, Any]], mv_abs: int) -> int:
     """Return the next real move boundary, ignoring interior table/legacy probes.
 
@@ -1022,6 +1820,83 @@ def _next_real_boundary_for_move(moves: List[Dict[str, Any]], mv_abs: int) -> in
     if candidates:
         return min(candidates)
     return mv_abs + HIT_SEGMENT_SCAN_MAX
+
+
+def _next_invuln_action_boundary(
+    moves: List[Dict[str, Any]],
+    mv_abs: int,
+    mv_source: Optional[str] = None,
+) -> int:
+    """Return the end of the action that owns a ``+0x1218`` phase.
+
+    A chr_tbl root is authoritative: the next chr_tbl root is the next gameplay
+    action, even when the current script contains nested 0x0135/6/7/8 animation
+    commands.  That is what separates Ryu's Shoryu L/M/H 6/10/13f startup
+    phases.  Non-table roots use the next explicit internal root as a local
+    boundary so helper scripts cannot scan into the next branch.
+    """
+    try:
+        here = int(mv_abs)
+    except Exception:
+        return 0
+
+    rows: List[Tuple[int, str]] = []
+    for row in moves or []:
+        try:
+            addr = int(row.get("abs") or 0)
+        except Exception:
+            continue
+        if addr > here + 0x10:
+            rows.append((addr, str(row.get("source") or "")))
+
+    if str(mv_source or "") == "table":
+        table_roots = [addr for addr, source in rows if source == "table"]
+        if table_roots:
+            return min(table_roots)
+        # A stale/cache-only profile can lack neighboring table rows.  The
+        # generic root fallback is still bounded and safer than a blind 0x700.
+
+    root_sources = {"table", "anim_hdr", "air_hdr", "cmd_hdr", "strict", "legacy_special"}
+    candidates = [addr for addr, source in rows if source in root_sources]
+    return min(candidates) if candidates else here + INVULN_SCAN_RANGE
+
+
+def _invuln_owner_window(
+    moves: List[Dict[str, Any]],
+    mv_abs: int,
+    mv_source: Optional[str] = None,
+) -> Tuple[Optional[int], Optional[int]]:
+    """Return a bounded ownership window for phase packets.
+
+    chr_tbl entries can point after the action's setup packet.  Give the current
+    table row its small preamble, then reserve the same preamble before the next
+    table row for that next action.  This makes the assignment exclusive.
+    """
+    try:
+        here = int(mv_abs)
+    except Exception:
+        return (None, None)
+    if str(mv_source or "") != "table":
+        return (None, _next_invuln_action_boundary(moves, here, mv_source=mv_source))
+
+    table_roots = sorted({
+        int(row.get("abs") or 0)
+        for row in (moves or [])
+        if str(row.get("source") or "") == "table" and int(row.get("abs") or 0) > 0
+    })
+    if here not in table_roots:
+        return (here - 8, _next_invuln_action_boundary(moves, here, mv_source="table"))
+    idx = table_roots.index(here)
+    prev_root = table_roots[idx - 1] if idx > 0 else None
+    next_root = table_roots[idx + 1] if idx + 1 < len(table_roots) else None
+    start = here - INVULN_TABLE_PREAMBLE
+    if prev_root is not None:
+        start = max(start, prev_root)
+    end = here + INVULN_SCAN_RANGE
+    if next_root is not None:
+        reserved = next_root - INVULN_TABLE_PREAMBLE
+        end = reserved if reserved > here else next_root
+    return (start, end)
 
 
 def collect_hit_segments_for_move(mv_abs: int,
@@ -1043,6 +1918,7 @@ def collect_hit_segments_for_move(mv_abs: int,
     atkprop_blocks = sorted(blocks.get("atkprop_blocks") or [], key=lambda x: x[0])
     hitreact_blocks = sorted(blocks.get("hitreact_blocks") or [], key=lambda x: x[0])
     kb_blocks = sorted(blocks.get("kb_blocks") or [], key=lambda x: x[0])
+    ground_kb_blocks = sorted(blocks.get("ground_kb_blocks") or [], key=lambda x: x[0])
     stun_blocks = sorted(blocks.get("stun_blocks") or [], key=lambda x: x[0])
 
     actives = [(addr, data) for addr, data in active_blocks if mv_abs <= addr < scan_end]
@@ -1066,7 +1942,15 @@ def collect_hit_segments_for_move(mv_abs: int,
         hrblk = _first_block_after(hitreact_blocks, damage_addr, seg_end)
         kb_start = (hrblk[0] if hrblk else damage_addr)
         kbblk = _first_block_after(kb_blocks, kb_start, seg_end)
-        stun_start = (kbblk[0] if kbblk else kb_start)
+        ground_start = (kbblk[0] if kbblk else kb_start)
+        push_candidates = _owned_push_pull_blocks(
+            ground_kb_blocks, stun_blocks,
+            start_addr=ground_start,
+            end_addr=seg_end,
+            kb_addr=(kbblk[0] if kbblk else None),
+        )
+        gblk = push_candidates[0] if push_candidates else None
+        stun_start = (gblk[0] if gblk else ground_start)
         sblk = _first_block_after(stun_blocks, stun_start, seg_end)
 
         seg: dict[str, Any] = {
@@ -1099,6 +1983,8 @@ def collect_hit_segments_for_move(mv_abs: int,
             seg["kb0"] = seg.get("launch_profile")
             seg["kb1"] = seg.get("kb_type")
             seg["kb_traj"] = None
+        if push_candidates:
+            _attach_push_pull(seg, push_candidates)
         if sblk:
             seg["stun_addr"] = sblk[0]
             seg["hitstun"] = sblk[1][0]
@@ -1119,6 +2005,7 @@ def apply_hit_segment_to_move(mv: Dict[str, Any], seg: Dict[str, Any]) -> None:
         "hit_reaction", "hit_reaction_addr",
         "kb0", "kb1", "kb_traj", "kb_type", "launch_profile", "kb_unknown",
         "kb_x", "air_kb", "knockback_addr",
+        "ground_kb", "ground_kb_addr", "ground_kb_y", "ground_kb_y_addr", "ground_kb_packet_addr", "ground_kb_mode", "ground_kb_aux", "push_pull_packets",
         "hitstun", "blockstun", "hitstop", "stun_addr",
     ):
         if key in seg:
@@ -1127,8 +2014,13 @@ def apply_hit_segment_to_move(mv: Dict[str, Any], seg: Dict[str, Any]) -> None:
 # Move anchor collection
 # ============================================================
 
-def collect_move_anchors(buf: bytes, base_abs: int,
-                         tbl_move_addrs: Optional[List[int]] = None) -> List[Dict[str, Any]]:
+def collect_move_anchors(
+    buf: bytes,
+    base_abs: int,
+    tbl_move_addrs: Optional[List[int]] = None,
+    *,
+    tbl_move_entries: Optional[List[Tuple[int, int]]] = None,
+) -> List[Dict[str, Any]]:
     moves: List[Dict[str, Any]] = []
     seen_abs: set = set()
     seen_normal_key: Dict[int, int] = {}
@@ -1155,6 +2047,17 @@ def collect_move_anchors(buf: bytes, base_abs: int,
 
     def add_mv(kind: str, abs_addr: int, aid: Optional[int], source: str = "unknown") -> None:
         nkey = normal_key(kind, aid)
+
+        # Table rows are the canonical gameplay-action owners.  Several games
+        # intentionally expose both a base animation (0x0006) and a concrete
+        # action variant (0x0106) with the same low byte.  Keep both here; the
+        # post-parse quality collapse chooses the populated owner later.
+        if source == "table":
+            if abs_addr in seen_abs:
+                return
+            seen_abs.add(abs_addr)
+            moves.append({"kind": kind, "abs": abs_addr, "id": aid, "source": source})
+            return
 
         if nkey is not None:
             existing_idx = seen_normal_key.get(nkey)
@@ -1189,22 +2092,22 @@ def collect_move_anchors(buf: bytes, base_abs: int,
         seen_abs.add(abs_addr)
         moves.append({"kind": kind, "abs": abs_addr, "id": aid, "source": source})
 
-    if tbl_move_addrs:
+    # chr_tbl index is the action ID.  Do not infer a table row's identity from
+    # the first nested animation command: special wrappers commonly contain a
+    # shared 0x0135 startup and 0x0136/7/8 child animations.  That old shortcut
+    # made every strength borrow a neighbor's timing packet.
+    if tbl_move_entries:
+        for action_id, mv_abs in tbl_move_entries:
+            aid = int(action_id)
+            kind = "normal" if ((aid & 0xFF) in NORMAL_IDS) else "special"
+            add_mv(kind, int(mv_abs), aid, "table")
+    elif tbl_move_addrs:
+        # Compatibility for callers that only have addresses.  Keep the old
+        # best-effort fallback, but all live scans now pass tbl_move_entries.
         for mv_abs in tbl_move_addrs:
             off = mv_abs - base_abs
             if 0 <= off < len(buf) - 4:
                 aid = get_anim_id_after_hdr_strict(buf, off)
-                if aid is None:
-                    window = min(off + LOOKAHEAD_AFTER_HDR, len(buf))
-                    for p in range(off, window - 4 + 1):
-                        op  = buf[p + 2]
-                        fps = buf[p + 3]
-                        if fps == 0x3C and op in (0x01, 0x04):
-                            hi, lo = buf[p], buf[p + 1]
-                            candidate = (hi << 8) | lo
-                            if 1 <= candidate <= 0x0500:
-                                aid = candidate
-                                break
                 kind = "normal" if (aid and (aid & 0xFF) in NORMAL_IDS) else "special"
                 add_mv(kind, mv_abs, aid, "table")
             else:
@@ -1303,6 +2206,7 @@ def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
     atkprop_blocks: List[Tuple[int, int]] = []
     hitreact_blocks: List[Tuple[int, int]] = []
     kb_blocks: List[Tuple[int, Dict[str, Any]]] = []
+    ground_kb_blocks: List[Tuple[int, Dict[str, Any]]] = []
     stun_blocks: List[Tuple[int, Tuple[int, int, int]]] = []
 
     p = 0
@@ -1374,6 +2278,15 @@ def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
 
     p = 0
     while p < len(buf):
+        d = parse_ground_knockback(buf, p)
+        if d:
+            ground_kb_blocks.append((base_abs + p, d))
+            p += GROUND_KB_TOTAL_LEN
+            continue
+        p += 1
+
+    p = 0
+    while p < len(buf):
         d = parse_stun(buf, p)
         if d:
             stun_blocks.append((base_abs + p, d))
@@ -1389,6 +2302,7 @@ def collect_blocks(buf: bytes, base_abs: int) -> Dict[str, Any]:
         "atkprop_blocks": atkprop_blocks,
         "hitreact_blocks": hitreact_blocks,
         "kb_blocks": kb_blocks,
+        "ground_kb_blocks": ground_kb_blocks,
         "stun_blocks": stun_blocks,
     }
 # ============================================================
@@ -1406,6 +2320,7 @@ def attach_move_fields(moves: List[Dict[str, Any]],
     atkprop_blocks       = sorted(blocks["atkprop_blocks"], key=lambda x: x[0])
     hitreact_blocks      = sorted(blocks["hitreact_blocks"], key=lambda x: x[0])
     kb_blocks            = sorted(blocks["kb_blocks"], key=lambda x: x[0])
+    ground_kb_blocks     = sorted(blocks.get("ground_kb_blocks") or [], key=lambda x: x[0])
     stun_blocks          = sorted(blocks["stun_blocks"], key=lambda x: x[0])
 
     meter_idx = 0
@@ -1415,6 +2330,7 @@ def attach_move_fields(moves: List[Dict[str, Any]],
     atkprop_idx = 0
     hitreact_idx = 0
     kb_idx = 0
+    ground_kb_idx = 0
     stun_idx = 0
 
     moves.sort(key=lambda m: m.get("abs") or 0)
@@ -1474,6 +2390,8 @@ def attach_move_fields(moves: List[Dict[str, Any]],
         mv["kb0"] = mv["kb1"] = mv["kb_traj"] = None
         mv["kb_type"] = mv["launch_profile"] = mv["kb_unknown"] = None
         mv["kb_x"] = mv["air_kb"] = mv["knockback_addr"] = None
+        mv["ground_kb"] = mv["ground_kb_addr"] = mv["ground_kb_y"] = mv["ground_kb_y_addr"] = mv["ground_kb_packet_addr"] = None
+        mv["ground_kb_mode"] = mv["ground_kb_aux"] = None
         kbblk, kb_idx = pick_best_block_from_idx(mv_abs, kb_blocks, kb_idx)
         if kbblk:
             kb = kbblk[1]
@@ -1488,6 +2406,17 @@ def attach_move_fields(moves: List[Dict[str, Any]],
             mv["kb0"] = mv["launch_profile"]
             mv["kb1"] = mv["kb_type"]
             mv["kb_traj"] = None
+
+        gblk, ground_kb_idx = pick_best_block_from_idx(mv_abs, ground_kb_blocks, ground_kb_idx)
+        if gblk:
+            gkb = gblk[1]
+            mv["ground_kb_packet_addr"] = gblk[0]
+            mv["ground_kb_addr"] = gblk[0] + GROUND_KB_VALUE_OFF
+            mv["ground_kb_y_addr"] = gblk[0] + GROUND_KB_AUX_OFF
+            mv["ground_kb"] = gkb.get("ground_kb")
+            mv["ground_kb_y"] = gkb.get("ground_kb_y")
+            mv["ground_kb_mode"] = gkb.get("ground_kb_mode")
+            mv["ground_kb_aux"] = gkb.get("ground_kb_aux")
 
         mv["hitstun"] = mv["blockstun"] = mv["hitstop"] = mv["stun_addr"] = None
         sblk, stun_idx = pick_best_block_from_idx(mv_abs, stun_blocks, stun_idx)
@@ -1518,7 +2447,11 @@ def attach_move_fields(moves: List[Dict[str, Any]],
         mv["invuln_probes"] = []
         mv["invuln_probe_count"] = 0
         mv["invuln"] = ""
+        mv["invuln_frames"] = 0
         mv["invuln_addr"] = None
+        mv["invuln_startup_active_limit"] = None
+        mv["invuln_confidence"] = "none"
+        mv["invuln_kind"] = ""
 
         mv["hit_segments"] = []
         mv["multi_hit_count"] = 0
@@ -1526,7 +2459,12 @@ def attach_move_fields(moves: List[Dict[str, Any]],
         # hit-script helper rows.  Do not attach them to generic system states
         # such as landing/KO/knockdown just because those scripts happen to use
         # the same active/damage packet format.
-        collect_segments_for_row = mv.get("source") in {"anim_hdr", "air_hdr", "cmd_hdr", "super_end"}
+        # Table, strict, and legacy-special roots are real gameplay owners too.
+        # Let their concrete active/damage bundles create hit children; the
+        # bundle parser already rejects helper records without a real hit.
+        collect_segments_for_row = mv.get("source") in {
+            "table", "anim_hdr", "air_hdr", "cmd_hdr", "super_end", "strict", "legacy_special",
+        }
         if aid is not None:
             try:
                 collect_segments_for_row = collect_segments_for_row and int(aid) >= 0x100
@@ -1542,6 +2480,17 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                 mv["hit_segments"] = hit_segments
                 mv["multi_hit_count"] = len(hit_segments)
                 apply_hit_segment_to_move(mv, hit_segments[0])
+
+        # 35/0C is optional and must never borrow a neighboring move's packet.
+        # Re-pair it from the move's own 35/07-or-09 bundle after all segment
+        # overlays have finished.
+        pair_explicit_ground_push_for_move(mv, moves, blocks)
+
+        # Some characters deliberately leave the regular stun packet at -2/-2
+        # and use the engine's normal hit-level resolver instead.  Resolve that
+        # only after every ordinary/segment packet pairing attempt has had a
+        # chance to populate the row.
+        resolve_engine_default_stun(mv, moves, buf, base_abs)
 
         total_frames = mv.get("speed") or 0x3C
         a_end = mv.get("active_end")
@@ -1591,12 +2540,27 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                     and str(mv.get("move_name") or "").strip().lower().replace(" ", "") == "6b"
                 )
 
-        # The exact +0x1218 startup signature is action-interval-owned and is
-        # attached after the full chr_tbl map is available in scan_once().
-        mv["invuln_signatures"] = []
-        mv["invuln_signature_count"] = 0
-        mv["invuln"] = ""
-        mv["invuln_addr"] = None
+        if should_probe_invuln(mv, char_id):
+            owner_start, owner_end = _invuln_owner_window(
+                moves, mv_abs, mv_source=mv.get("source"),
+            )
+            invuln_probes = collect_invuln_probes(
+                buf, base_abs, mv_abs,
+                owner_start_abs=owner_start,
+                owner_end_abs=owner_end,
+            )
+            mv["invuln_probes"] = invuln_probes
+            mv["invuln_probe_count"] = len(invuln_probes)
+            mv["invuln_startup_active_limit"] = apply_invuln_startup_active_gate(mv, invuln_probes, buf=buf, base_abs=base_abs, char_id=char_id)
+            mv["invuln"] = summarize_invuln_probes(invuln_probes)
+            best_invuln = best_candidate_invuln_probe(invuln_probes)
+            mv["invuln_frames"] = int((best_invuln or {}).get("candidate_frames") or 0)
+            try:
+                mv["invuln_addr"] = int((best_invuln or {}).get("addr") or 0) or None
+            except Exception:
+                mv["invuln_addr"] = None
+            mv["invuln_confidence"] = str((best_invuln or {}).get("invuln_confidence") or "none")
+            mv["invuln_kind"] = str((best_invuln or {}).get("invuln_kind") or "")
 
 
 def move_quality_score(mv: Dict[str, Any]) -> Tuple[int, int, int, int, int, int]:
@@ -2072,7 +3036,10 @@ def _read_profile_window(chr_tbl_abs: int, moves: List[Dict[str, Any]]) -> Tuple
         try:
             a = int(mv.get("abs") or 0)
             if a:
-                max_addr = max(max_addr, a + max(HITBOX_OFF_X, HITBOX_OFF_Y) + 4)
+                # Include the full static startup-signature window.  Existing
+                # profiles often predate invuln metadata, so their only stable
+                # anchor is the canonical action root in ``abs``.
+                max_addr = max(max_addr, a + max(HITBOX_OFF_X, HITBOX_OFF_Y, INVULN_SCAN_RANGE) + 0x20)
         except Exception:
             pass
         for addr in _collect_profile_addresses(mv):
@@ -2100,12 +3067,11 @@ def _profile_read_u8(buf: bytes, base_abs: int, addr: Any) -> Optional[int]:
 
 
 def _profile_read_u32(buf: bytes, base_abs: int, addr: Any) -> Optional[int]:
-    """Read a cached profile's rebased big-endian u32 safely."""
     off = _profile_off(buf, base_abs, addr, 4)
     if off is None:
         return None
     try:
-        return int(rd_u32_be(buf, off))
+        return rd_u32_be(buf, off)
     except Exception:
         return None
 
@@ -2174,6 +3140,18 @@ def _profile_refresh_hit_segment(seg: Dict[str, Any], buf: bytes, base_abs: int)
             seg["kb0"] = seg["launch_profile"]
             seg["kb1"] = seg["kb_type"]
             seg["kb_traj"] = None
+
+    addr = seg.get("ground_kb_packet_addr")
+    off = _profile_off(buf, base_abs, addr, GROUND_KB_TOTAL_LEN) if addr else None
+    if off is not None:
+        gkb = parse_ground_knockback(buf, off)
+        if gkb:
+            seg["ground_kb_addr"] = int(addr) + GROUND_KB_VALUE_OFF
+            seg["ground_kb_y_addr"] = int(addr) + GROUND_KB_AUX_OFF
+            seg["ground_kb"] = gkb.get("ground_kb")
+            seg["ground_kb_y"] = gkb.get("ground_kb_y")
+            seg["ground_kb_mode"] = gkb.get("ground_kb_mode")
+            seg["ground_kb_aux"] = gkb.get("ground_kb_aux")
 
     addr = seg.get("stun_addr")
     off = _profile_off(buf, base_abs, addr, 39) if addr else None
@@ -2252,6 +3230,18 @@ def _profile_refresh_move(mv: Dict[str, Any], buf: bytes, base_abs: int, char_id
             mv["kb1"] = mv["kb_type"]
             mv["kb_traj"] = None
 
+    addr = mv.get("ground_kb_packet_addr")
+    off = _profile_off(buf, base_abs, addr, GROUND_KB_TOTAL_LEN) if addr else None
+    if off is not None:
+        gkb = parse_ground_knockback(buf, off)
+        if gkb:
+            mv["ground_kb_addr"] = int(addr) + GROUND_KB_VALUE_OFF
+            mv["ground_kb_y_addr"] = int(addr) + GROUND_KB_AUX_OFF
+            mv["ground_kb"] = gkb.get("ground_kb")
+            mv["ground_kb_y"] = gkb.get("ground_kb_y")
+            mv["ground_kb_mode"] = gkb.get("ground_kb_mode")
+            mv["ground_kb_aux"] = gkb.get("ground_kb_aux")
+
     addr = mv.get("stun_addr")
     off = _profile_off(buf, base_abs, addr, 39) if addr else None
     if off is not None:
@@ -2283,25 +3273,42 @@ def _profile_refresh_move(mv: Dict[str, Any], buf: bytes, base_abs: int, char_id
             except Exception:
                 pass
 
-    signatures = mv.get("invuln_signatures")
-    if isinstance(signatures, list):
-        refreshed: List[Dict[str, Any]] = []
-        for signature in signatures:
-            if not isinstance(signature, dict):
-                continue
-            value_addr = signature.get("value_addr")
-            raw = _profile_read_u32(buf, base_abs, value_addr) if value_addr else None
-            frames = _invuln_signature_frames(raw) if raw is not None else None
-            if frames is None:
-                continue
-            updated = dict(signature)
-            updated["raw_value"] = int(raw)
-            updated["frames"] = int(frames)
-            refreshed.append(updated)
-        mv["invuln_signatures"] = refreshed
-        mv["invuln_signature_count"] = len(refreshed)
-        mv["invuln"] = summarize_invuln_signatures(refreshed)
-        mv["invuln_addr"] = int(refreshed[0]["value_addr"]) if refreshed else None
+    # Recompute the signature directly from the live static script window.
+    # Do not depend on cached probes: older profile rows never stored them.
+    try:
+        mv_abs = int(mv.get("abs") or 0)
+    except Exception:
+        mv_abs = 0
+    if mv_abs:
+        try:
+            probes = collect_invuln_probes(
+                buf, base_abs, mv_abs,
+                owner_start_abs=mv.get("_invuln_owner_start_abs"),
+                owner_end_abs=mv.get("_invuln_owner_end_abs"),
+            )
+        except Exception:
+            probes = []
+        mv["invuln_probes"] = probes
+        mv["invuln_probe_count"] = len(probes)
+        mv["invuln_startup_active_limit"] = apply_invuln_startup_active_gate(mv, probes, buf=buf, base_abs=base_abs, char_id=char_id)
+        mv["invuln"] = summarize_invuln_probes(probes)
+        best_invuln = best_candidate_invuln_probe(probes)
+        mv["invuln_frames"] = int((best_invuln or {}).get("candidate_frames") or 0)
+        try:
+            mv["invuln_addr"] = int((best_invuln or {}).get("addr") or 0) or None
+        except Exception:
+            mv["invuln_addr"] = None
+        mv["invuln_confidence"] = str((best_invuln or {}).get("invuln_confidence") or "none")
+        mv["invuln_kind"] = str((best_invuln or {}).get("invuln_kind") or "")
+    else:
+        mv["invuln_probes"] = []
+        mv["invuln_probe_count"] = 0
+        mv["invuln"] = ""
+        mv["invuln_frames"] = 0
+        mv["invuln_addr"] = None
+        mv["invuln_startup_active_limit"] = None
+        mv["invuln_confidence"] = "none"
+        mv["invuln_kind"] = ""
 
     total_frames = mv.get("speed") or 0x3C
     a_end = mv.get("active_end")
@@ -2345,6 +3352,8 @@ def _load_profile_moves(
     char_name: str,
     chr_tbl_abs: int,
     tbl_move_addrs: List[int],
+    *,
+    tbl_move_entries: Optional[List[Tuple[int, int]]] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     if not PROFILE_CACHE_ENABLED:
         return None
@@ -2361,11 +3370,23 @@ def _load_profile_moves(
         return None
     if int(prof.get("version") or 0) != PROFILE_CACHE_VERSION:
         return None
+    if int(prof.get("stun_resolver_revision") or 0) != STUN_RESOLVER_REVISION:
+        return None
+    if int(prof.get("active_resolver_revision") or 0) != ACTIVE_RESOLVER_REVISION:
+        return None
     if str(prof.get("table_signature") or "") != sig:
         return None
     rows = prof.get("moves")
     if not isinstance(rows, list) or not rows:
         return None
+
+    # Existing profile files may have stored a table root with ``id=None``
+    # because older code guessed from a nested animation command. Repair those
+    # rows from the live chr_tbl before refreshing their phase packets.
+    live_table_ids: Dict[int, int] = {
+        int(addr): int(action_id)
+        for action_id, addr in (tbl_move_entries or [])
+    }
 
     moves: List[Dict[str, Any]] = []
     for row in rows:
@@ -2373,6 +3394,14 @@ def _load_profile_moves(
             continue
         rebased = _rebase_profile_obj(copy.deepcopy(row), chr_tbl_abs)
         if isinstance(rebased, dict):
+            try:
+                root_abs = int(rebased.get("abs") or 0)
+            except Exception:
+                root_abs = 0
+            if str(rebased.get("source") or "") == "table" and root_abs in live_table_ids:
+                action_id = live_table_ids[root_abs]
+                rebased["id"] = action_id
+                rebased["kind"] = "normal" if ((action_id & 0xFF) in NORMAL_IDS) else "special"
             rebased["_profile_fast_path"] = True
             moves.append(rebased)
     if not moves:
@@ -2383,7 +3412,19 @@ def _load_profile_moves(
         if not buf:
             return None
         for mv in moves:
+            try:
+                _owner_start, _owner_end = _invuln_owner_window(
+                    moves, int(mv.get("abs") or 0),
+                    mv_source=mv.get("source"),
+                )
+                mv["_invuln_owner_start_abs"] = _owner_start
+                mv["_invuln_owner_end_abs"] = _owner_end
+            except Exception:
+                mv["_invuln_owner_end_abs"] = None
             _profile_refresh_move(mv, buf, base_abs, char_id)
+            # This is a transient scan aid, not profile data.
+            mv.pop("_invuln_owner_start_abs", None)
+            mv.pop("_invuln_owner_end_abs", None)
     except Exception as e:
         print(f"[fd profile] fast path failed for {char_name}: {e!r}")
         return None
@@ -2417,6 +3458,8 @@ def _save_profile_moves(
         profile = {
             "version": PROFILE_CACHE_VERSION,
             "scanner_build": PROFILE_SCANNER_BUILD,
+            "stun_resolver_revision": STUN_RESOLVER_REVISION,
+            "active_resolver_revision": ACTIVE_RESOLVER_REVISION,
             "char_id": char_id,
             "char_name": char_name,
             "key": key,
@@ -2424,7 +3467,6 @@ def _save_profile_moves(
             "table_move_count": len(tbl_move_addrs or []),
             "created_from": "dynamic_scan_once",
             "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime()),
-            "invuln_signature_revision": INVULN_SIGNATURE_PROFILE_REVISION,
             "moves": rows,
         }
         if keep_extras:
@@ -2587,51 +3629,24 @@ def save_profile_extras(
         return False
 
 
-def _profile_needs_invuln_signature_upgrade(
-    char_id: Optional[int], char_name: str, table_signature: str,
-) -> bool:
-    if not PROFILE_CACHE_ENABLED:
-        return False
-    try:
-        profile = (_load_profile_doc().get("profiles") or {}).get(_profile_key(char_id, char_name))
-        if not isinstance(profile, dict):
-            return False
-        if str(profile.get("table_signature") or "") != str(table_signature or ""):
-            return False
-        return int(profile.get("invuln_signature_revision") or 0) < INVULN_SIGNATURE_PROFILE_REVISION
-    except Exception:
-        return False
+# ============================================================
+# Runtime resolved-stun overlay
+# ============================================================
 
+def _apply_runtime_stun_overlay(moves: List[Dict[str, Any]], char_id: Optional[int]) -> None:
+    """Overlay only evidence captured from the live victim resolver.
 
-def _auto_upgrade_profile_invuln(
-    moves: List[Dict[str, Any]],
-    *,
-    char_id: Optional[int],
-    char_name: str,
-    chr_tbl_abs: int,
-    tbl_move_addrs: List[int],
-    tbl_buf: bytes,
-    tbl_base_abs: int,
-    action_entries: Sequence[Tuple[int, int]],
-) -> bool:
-    """One-time lightweight profile upgrade for the +0x1218 signature.
-
-    This does not rebuild move discovery, grouping, projectiles, or supers. It
-    reads the loaded character script span once, adds the known values to the
-    already-saved rows, then persists them so the next open is cache-only.
+    This is deliberately post-scan and non-persistent with respect to the
+    static frame-data cache.  A failed/empty runtime cache therefore cannot
+    alter the normal static parser, and a good runtime observation never gains
+    a fake static packet address.
     """
+    if apply_runtime_stun_observations is None or not moves or char_id is None:
+        return
     try:
-        region_start, region_end = slot_scan_region_from_tbl(tbl_buf, tbl_base_abs, chr_tbl_abs)
-        region_buf = safe_rbytes(region_start, region_end - region_start)
-        if not region_buf:
-            return False
-        by_action, by_root = collect_invuln_signature_map(region_buf, region_start, action_entries)
-        apply_invuln_signatures_to_moves(moves, by_action, by_root)
-        _save_profile_moves(char_id, char_name, chr_tbl_abs, tbl_move_addrs, moves)
-        return True
-    except Exception as exc:
-        _profile_warn_once(f"invuln-upgrade-failed:{_profile_key(char_id, char_name)}", f"[fd profile] invuln upgrade skipped for {char_name}: {exc!r}")
-        return False
+        apply_runtime_stun_observations(moves, char_id)
+    except Exception as e:
+        _profile_warn_once("runtime-stun-overlay", f"[fd runtime stun] overlay skipped: {e!r}")
 
 
 # ============================================================
@@ -2679,24 +3694,21 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
         if not validate_chr_tbl(tbl_buf, tbl_start, chr_tbl_abs):
             continue
 
-        tbl_move_addrs = parse_chr_tbl(tbl_buf, tbl_start, chr_tbl_abs)
-        tbl_action_entries = parse_chr_tbl_action_entries(tbl_buf, tbl_start, chr_tbl_abs)
+        tbl_move_entries = parse_chr_tbl_entries(tbl_buf, tbl_start, chr_tbl_abs)
+        tbl_move_addrs = [addr for _, addr in tbl_move_entries]
 
         table_signature = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
         if _profile_cache_allowed(force_dynamic):
-            profiled_moves = _load_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs)
+            profiled_moves = _load_profile_moves(
+                cid, cname, chr_tbl_abs, tbl_move_addrs,
+                tbl_move_entries=tbl_move_entries,
+            )
             if profiled_moves is not None:
-                if _profile_needs_invuln_signature_upgrade(cid, cname, table_signature):
-                    _auto_upgrade_profile_invuln(
-                        profiled_moves,
-                        char_id=cid,
-                        char_name=cname,
-                        chr_tbl_abs=chr_tbl_abs,
-                        tbl_move_addrs=tbl_move_addrs,
-                        tbl_buf=tbl_buf,
-                        tbl_base_abs=tbl_start,
-                        action_entries=tbl_action_entries,
-                    )
+                # MOT total frames are static FPK data, so layer them onto both
+                # cached and fresh SEQ rows after the live active window has
+                # been refreshed. This keeps Recovery deterministic per action.
+                apply_animation_metadata(profiled_moves, cname, cid)
+                _apply_runtime_stun_overlay(profiled_moves, cid)
                 extras = load_profile_extras(
                     cid, cname, chr_tbl_abs, tbl_move_addrs,
                     table_signature=table_signature,
@@ -2747,16 +3759,24 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
 
         in_slice = [a for a in tbl_move_addrs if region_start <= a < region_end]
 
-        moves = collect_move_anchors(region_buf, region_start, tbl_move_addrs=in_slice)
+        in_entries = [
+            (action_id, addr) for action_id, addr in tbl_move_entries
+            if region_start <= addr < region_end
+        ]
+        moves = collect_move_anchors(
+            region_buf, region_start,
+            tbl_move_addrs=in_slice,
+            tbl_move_entries=in_entries,
+        )
         blocks = collect_blocks(region_buf, region_start)
         attach_move_fields(moves, region_buf, region_start, blocks, char_id=cid)
-        invuln_by_action, invuln_by_root = collect_invuln_signature_map(
-            region_buf, region_start, tbl_action_entries,
-        )
-        apply_invuln_signatures_to_moves(moves, invuln_by_action, invuln_by_root)
+        # Join the SEQ action ID to chr/<character>/0000.mot.
+        # Recovery = MOT total animation frames - final active frame.
+        apply_animation_metadata(moves, cname, cid)
         moves = collapse_duplicate_normals_by_quality(moves)
         sorted_moves = sorted(moves, key=sort_key)
         _save_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs, sorted_moves)
+        _apply_runtime_stun_overlay(sorted_moves, cid)
 
         extras = load_profile_extras(
             cid, cname, chr_tbl_abs, tbl_move_addrs,

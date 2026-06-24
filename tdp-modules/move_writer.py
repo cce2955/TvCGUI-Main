@@ -146,6 +146,36 @@ def write_hitstop(mv: dict, new_hitstop: int) -> bool:
         return False
 
 
+def write_ground_knockback(mv: dict, new_ground_kb: float) -> bool:
+    """Write the 35 0C +0x08 signed hit Push/Pull X float directly."""
+    if not _has(mv, "ground_kb_addr"):
+        return False
+    addr = mv["ground_kb_addr"]
+    try:
+        ok = wdf32(addr, float(new_ground_kb))
+        if ok:
+            print(f"[move_writer] wrote Hit Push/Pull X {float(new_ground_kb):g} @ {addr:08X}")
+        return ok
+    except Exception as e:
+        print("[move_writer] write_ground_knockback failed:", e)
+        return False
+
+
+def write_ground_knockback_y(mv: dict, new_ground_kb_y: float) -> bool:
+    """Write the 35 0C +0x0C hit Push/Pull Aux float directly."""
+    if not _has(mv, "ground_kb_y_addr"):
+        return False
+    addr = mv["ground_kb_y_addr"]
+    try:
+        ok = wdf32(addr, float(new_ground_kb_y))
+        if ok:
+            print(f"[move_writer] wrote Hit Push/Pull Aux {float(new_ground_kb_y):g} @ {addr:08X}")
+        return ok
+    except Exception as e:
+        print("[move_writer] write_ground_knockback_y failed:", e)
+        return False
+
+
 def write_knockback(
     mv: dict,
     launch_profile=None,
@@ -160,8 +190,8 @@ def write_knockback(
       +0x01 u8  = packet type (normally 0x07 or 0x09)
       +0x04 u32 = recovery/fall profile after the hit reaction
       +0x08 u32 = unknown/unused word
-      +0x0C f32 = KB X for grounded/standing hits
-      +0x10 f32 = arc / Air KB / relaunch behavior
+      +0x0C f32 = Air KB X / horizontal airborne carry
+      +0x10 f32 = Air KB Y / vertical airborne displacement
     """
     if not _has(mv, "knockback_addr"):
         return False

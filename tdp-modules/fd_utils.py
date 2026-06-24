@@ -39,6 +39,8 @@ try:
         write_blockstun,
         write_hitstop,
         write_knockback,
+        write_ground_knockback,
+        write_ground_knockback_y,
         write_hitbox_radius,
         write_attack_property,
     )
@@ -377,9 +379,9 @@ def fmt_knockback_packet_ui(mv: dict | None) -> str:
         if unk:
             parts.append(f"Mod {unk}")
     if mv.get("kb_x") is not None:
-        parts.append(f"X{_fmt_float_trim(mv.get('kb_x'))}")
+        parts.append(f"AirKBX{_fmt_float_trim(mv.get('kb_x'))}")
     if mv.get("air_kb") is not None:
-        parts.append(f"Air{_fmt_float_trim(mv.get('air_kb'))}")
+        parts.append(f"AirKBY{_fmt_float_trim(mv.get('air_kb'))}")
     return " ".join(parts)
 
 
@@ -418,6 +420,20 @@ def fmt_kb_unknown_ui(mv: dict | None) -> str:
         return str(int(unk) & 0xFFFFFFFF)
     except Exception:
         return str(unk)
+
+
+def fmt_ground_kb_ui(mv: dict | None) -> str:
+    """Format 35/0C +0x08, the confirmed signed hit Push/Pull X scalar."""
+    if not mv or mv.get("ground_kb_addr") is None:
+        return ""
+    return _fmt_float_trim(mv.get("ground_kb"))
+
+
+def fmt_ground_kb_y_ui(mv: dict | None) -> str:
+    """Format 35/0C +0x0C, the unclassified Push/Pull Aux scalar."""
+    if not mv or mv.get("ground_kb_y_addr") is None:
+        return ""
+    return _fmt_float_trim(mv.get("ground_kb_y"))
 
 
 def fmt_kb_x_ui(mv: dict | None) -> str:

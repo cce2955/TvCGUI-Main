@@ -32,12 +32,11 @@ import fd_super_integration as FSI
 
 FD_COLUMNS = (
     "move", "kind", "hits", "link", "context",
-    "damage",
-    "meter",
-    "startup", "active", "active2",
+    "damage", "meter",
+    "startup", "active", "anim_total", "recovery", "adv_hit", "adv_block", "active2",
     "hitstun", "invuln", "blockstun", "hitstop",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
-    "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
+    "kb_type", "launch_profile", "kb_unknown", "ground_kb", "ground_kb_y", "kb_x", "air_kb",
     "speed_mod", "attack_property", "hit_reaction", "hit_result_flags",
     "superbg",
     # Projectile columns are hidden from the simplest frame-data view but live
@@ -47,28 +46,45 @@ FD_COLUMNS = (
     "abs",
 )
 
+# One-screen answer to "what does this move do?"  Everything else lives in
+# focused workbench views instead of forcing a raw-data spreadsheet on screen.
 FD_CORE_COLUMNS = (
-    "move", "hits", "link",
-    "damage", "meter",
-    "startup", "active",
-    "hitstun", "invuln", "blockstun", "hitstop",
-    "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
-    "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
-    "speed_mod", "attack_property", "hit_reaction", "hit_result_flags",
-    # Keep only the compact projectile basics in the frame view. Dedicated
-    # projectile/super views move the heavy projectile columns up front so the
-    # user does not have to horizontal-scroll across the raw scout table.
-    "proj_speed", "proj_radius", "proj_life", "proj_fmt",
-    "dispatch_selector", "dispatch_phase", "dispatch_child_link",
-    "abs",
+    "move", "hits", "damage",
+    "startup", "active", "anim_total", "recovery",
+    "adv_hit", "adv_block", "invuln",
+)
+
+FD_TIMING_COLUMNS = (
+    "move", "hits", "startup", "active", "active2", "anim_total", "recovery",
+    "invuln", "speed_mod", "link", "abs",
+)
+
+FD_IMPACT_COLUMNS = (
+    "move", "hits", "damage", "meter",
+    "hitstun", "blockstun", "hitstop", "adv_hit", "adv_block",
+    "attack_property", "hit_reaction", "hit_result_flags",
+)
+
+FD_PHYSICS_COLUMNS = (
+    "move", "hits", "kb_type", "launch_profile", "kb_unknown",
+    "kb_x", "air_kb", "ground_kb", "ground_kb_y", "speed_mod",
+    "hit_reaction", "attack_property",
+)
+
+FD_EFFECT_COLUMNS = (
+    "move", "hits", "hit_spark",
+    "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time",
+    "post_link", "superbg", "link", "abs",
 )
 
 FD_PROJECTILE_COLUMNS_FOCUSED = (
-    "move", "link", "proj_emit_count",
-    "damage", "kb_x", "air_kb",
+    "move", "kind", "hits", "link",
+    "startup", "active", "anim_total", "recovery",
+    "damage", "meter",
+    "proj_emit_count",
     "proj_fmt", "proj_id", "proj_type",
     "proj_radius", "proj_fx", "proj_life", "proj_spawn_origin", "proj_speed", "proj_accel",
-    "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2",
+    "kb_x", "air_kb", "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2",
     "proj_ps_lifetime", "proj_ps_hit_count", "proj_ps_emit_count",
     "proj_ps_interval", "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone",
     "proj_super_lifetime", "proj_super_hit_count", "proj_super_hit_interval",
@@ -79,37 +95,38 @@ FD_PROJECTILE_COLUMNS_FOCUSED = (
 
 FD_SUPER_COLUMNS_FOCUSED = (
     "move", "kind", "hits", "link",
+    "startup", "active", "anim_total", "recovery",
+    "damage", "meter",
     "dispatch_group", "dispatch_confidence", "dispatch_super_proof", "dispatch_owner_proof",
     "dispatch_selector", "dispatch_variant", "dispatch_phase", "dispatch_child_link", "dispatch_child_target",
     "proj_emit_count",
-    "damage",
     "proj_ps_card_type", "proj_ps_lifetime", "proj_ps_hit_count",
     "proj_ps_mode", "proj_ps_emit_count", "proj_ps_interval",
     "proj_ps_offset_x", "proj_ps_offset_y", "proj_ps_scale",
     "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone",
     "proj_super_lifetime", "proj_super_hit_count", "proj_super_hit_interval",
-    "proj_super_particle_fx", "proj_super_spawn_bone", "proj_super_hit_source",
-    "proj_super_beam_scale", "proj_super_beam_width", "proj_super_beam_speed",
+    "proj_super_particle_fx", "proj_super_spawn_bone",
+    "proj_super_hit_source", "proj_super_beam_scale", "proj_super_beam_width", "proj_super_beam_speed",
     "proj_super_beam_force", "proj_super_hit_radius", "proj_super_beam_visual",
     "proj_final_damage", "proj_final_lifetime", "proj_final_particle_fx", "proj_final_spawn_bone",
-    "startup", "active", "hitstun", "invuln", "blockstun", "hitstop",
-    "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
-    "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
-    "speed_mod", "attack_property", "hit_reaction", "superbg",
     "abs",
 )
 
 FD_LABELS = {
     "move": "Move",
     "kind": "Kind",
-    "hits": "Hits",
+    "hits": "Hit Count",
     "link": "Link",
     "context": "Details",
     "damage": "Damage",
-    "meter": "Meter",
+    "meter": "Meter Gain",
     "startup": "Startup",
-    "active": "Active",
-    "active2": "Active 2",
+    "active": "Active Frames",
+    "anim_total": "Total Frames",
+    "recovery": "Recovery Frames",
+    "adv_hit": "On Hit",
+    "adv_block": "On Block",
+    "active2": "Secondary Active",
     "hitstun": "Hitstun",
     "blockstun": "Blockstun",
     "hitstop": "Hitstop",
@@ -120,21 +137,31 @@ FD_LABELS = {
     "stretch_height": "Reach Height",
     "stretch_time": "Stretch Timing",
     "post_link": "Post Link",
-    "kb_type": "KB Style",
+    "kb_type": "Knockback Style",
     "launch_profile": "Extra Launch",
-    "kb_unknown": "Launch Adjust",
-    "kb_x": "KB X",
-    "air_kb": "Arc",
-    "speed_mod": "Speed Mod",
+    "kb_unknown": "Launch Adjustment",
+    "ground_kb": "Hit Push/Pull X",
+    "ground_kb_y": "Hit Push/Pull Aux",
+    "kb_x": "Air Knockback X",
+    "air_kb": "Air Knockback Y",
+    "speed_mod": "Speed Modifier",
     "invuln": "Invuln",
     "attack_property": "Attack Property",
     "hit_reaction": "Hit Reaction",
     "hit_result_flags": "Hit Result",
-    "superbg": "SuperBG",
+    "superbg": "Super Background",
     **FPI.PROJECTILE_LABELS,
     "abs": "Address",
     **FSI.SUPER_DISPATCH_LABELS,
 }
+
+
+def _fmt_stun_cell(mv: dict, field: str) -> str:
+    """Render a runtime-resolved stun value distinctly and readably."""
+    txt = U.fmt_stun(mv.get(field))
+    if txt and str(mv.get(f"{field}_source") or "") == "runtime_observed":
+        return f"{txt} [R]"
+    return txt
 
 
 def _display_columns(tree: ttk.Treeview) -> list[str]:
@@ -276,28 +303,36 @@ def configure_styles(root: tk.Toplevel) -> None:
     style.configure("Status.TLabel", background=bg_header, foreground=txt_main, font=("Segoe UI", 9))
     style.configure("FilterLabel.TLabel", background=bg_card, foreground=txt_muted, font=("Segoe UI", 8))
 
+    try:
+        style.theme_use("clam")
+    except Exception:
+        pass
+
     style.configure(
         "Treeview",
-        background="#121C2B",
-        fieldbackground="#121C2B",
+        background="#101A29",
+        fieldbackground="#101A29",
         foreground=txt_main,
-        bordercolor=border,
-        lightcolor=border,
-        darkcolor=border,
-        rowheight=24,
-        font=("Segoe UI", 9),
+        bordercolor="#22354D",
+        lightcolor="#22354D",
+        darkcolor="#22354D",
+        relief="flat",
+        borderwidth=0,
+        rowheight=28,
+        font=("Segoe UI", 10),
     )
-    style.map("Treeview", background=[("selected", "#355F95")], foreground=[("selected", "#FFFFFF")])
+    style.map("Treeview", background=[("selected", "#3E6798")], foreground=[("selected", "#FFFFFF")])
 
     style.configure(
         "Treeview.Heading",
-        background=bg_header,
-        foreground=txt_main,
-        relief="solid",
-        borderwidth=1,
-        font=("Segoe UI Semibold", 9),
+        background="#213750",
+        foreground="#F3F8FF",
+        relief="flat",
+        borderwidth=0,
+        padding=(12, 8),
+        font=("Segoe UI Semibold", 10),
     )
-    style.map("Treeview.Heading", background=[("active", "#2A3F5C")])
+    style.map("Treeview.Heading", background=[("active", "#2E4B6D")])
 
     style.configure(
         "TButton",
@@ -378,6 +413,65 @@ def configure_styles(root: tk.Toplevel) -> None:
     style.map("Toolbar.TMenubutton", background=[("active", "#2D476A"), ("pressed", "#385778")])
     style.configure("ToolbarPrimary.TMenubutton", background="#34679A", foreground="#FFFFFF", bordercolor="#5F8FC2", lightcolor="#76A4D6", darkcolor="#1F3C5D", font=("Segoe UI Semibold", 8), padding=(10, 5))
     style.map("ToolbarPrimary.TMenubutton", background=[("active", "#3971AA"), ("pressed", "#24547F")])
+
+    style.configure("WorkspaceStrip.TFrame", background="#16263A", borderwidth=1, relief="solid")
+    style.configure("WorkspaceLabel.TLabel", background="#16263A", foreground="#AFC6E4", font=("Segoe UI Semibold", 8))
+    style.configure(
+        "Workspace.TButton",
+        background="#274261",
+        foreground="#F4F8FF",
+        bordercolor="#456A92",
+        lightcolor="#5E87B5",
+        darkcolor="#1A2C44",
+        focusthickness=1,
+        focuscolor="#89B5E3",
+        font=("Segoe UI Semibold", 9),
+        padding=(14, 7),
+    )
+    style.map(
+        "Workspace.TButton",
+        background=[("active", "#34577F"), ("pressed", "#213C5D")],
+        foreground=[("active", "#FFFFFF")],
+    )
+    style.configure(
+        "WorkspaceActive.TButton",
+        background="#4B82BF",
+        foreground="#FFFFFF",
+        bordercolor="#9FCCFF",
+        lightcolor="#B7DDFF",
+        darkcolor="#294B73",
+        focusthickness=1,
+        focuscolor="#D7ECFF",
+        font=("Segoe UI Semibold", 9),
+        padding=(14, 7),
+    )
+    style.map(
+        "WorkspaceActive.TButton",
+        background=[("active", "#5792D4"), ("pressed", "#34679A")],
+        foreground=[("active", "#FFFFFF")],
+    )
+    style.configure(
+        "Workspace.TMenubutton",
+        background="#274261",
+        foreground="#F4F8FF",
+        bordercolor="#456A92",
+        lightcolor="#5E87B5",
+        darkcolor="#1A2C44",
+        font=("Segoe UI Semibold", 9),
+        padding=(14, 7),
+    )
+    style.map("Workspace.TMenubutton", background=[("active", "#34577F"), ("pressed", "#213C5D")])
+    style.configure(
+        "WorkspaceActive.TMenubutton",
+        background="#4B82BF",
+        foreground="#FFFFFF",
+        bordercolor="#9FCCFF",
+        lightcolor="#B7DDFF",
+        darkcolor="#294B73",
+        font=("Segoe UI Semibold", 9),
+        padding=(14, 7),
+    )
+    style.map("WorkspaceActive.TMenubutton", background=[("active", "#5792D4"), ("pressed", "#34679A")])
     style.configure("InspectorHero.TFrame", background="#17263B", borderwidth=1, relief="solid")
     style.configure("InspectorHeroTitle.TLabel", background="#17263B", foreground="#F5FAFF", font=("Segoe UI Semibold", 15))
     style.configure("InspectorHeroSub.TLabel", background="#17263B", foreground="#9FB4CC", font=("Segoe UI", 8))
@@ -473,11 +567,39 @@ def build_top_bar(win) -> None:
     divider.pack(side="left", fill="y", padx=10)
 
     win._filter_panel_btn_var = tk.StringVar(master=win.root, value="Filters")
-    nav = ttk.Frame(command, style="CommandBar.TFrame")
+    nav_wrap = ttk.Frame(command, style="WorkspaceStrip.TFrame", padding=(8, 6))
+    nav_wrap.pack(side="left")
+    ttk.Label(nav_wrap, text="WORKSPACES", style="WorkspaceLabel.TLabel").pack(side="left", padx=(2, 10))
+    nav = ttk.Frame(nav_wrap, style="WorkspaceStrip.TFrame")
     nav.pack(side="left")
-    for label, mode in (("Frame", "frame"), ("Projectiles", "projectile"), ("Supers", "super"), ("All", "all")):
-        ttk.Button(nav, text=label, style="Toolbar.TButton", command=lambda m=mode: win._set_fd_view_mode(m)).pack(side="left", padx=(0 if label == "Frame" else 4, 0))
-    ttk.Button(nav, textvariable=win._filter_panel_btn_var, style="Toolbar.TButton", command=lambda: getattr(win, "_toggle_advanced_filters", lambda: None)()).pack(side="left", padx=(6, 0))
+    win._fd_workspace_buttons = {}
+
+    # These are real workspaces: selecting one changes both the visible
+    # schema and the rows in the tree. Moves never carries projectile/super
+    # graph rows just because they happen to share the same Treeview.
+    for label, mode in (
+        ("Moves", "overview"),
+        ("Projectiles", "projectile"),
+        ("Super Graph", "super"),
+        ("Raw Data", "all"),
+    ):
+        btn = ttk.Button(nav, text=label, style="Workspace.TButton", command=lambda m=mode: win._set_fd_view_mode(m))
+        btn.pack(side="left", padx=(0 if label == "Moves" else 6, 0))
+        win._fd_workspace_buttons[mode] = btn
+
+    analysis_btn = ttk.Menubutton(nav, text="Analysis ▾", style="Workspace.TMenubutton")
+    analysis_menu = tk.Menu(analysis_btn, tearoff=False)
+    analysis_menu.add_command(label="Timing", command=lambda: win._set_fd_view_mode("timing"))
+    analysis_menu.add_command(label="Hit & Stun", command=lambda: win._set_fd_view_mode("impact"))
+    analysis_menu.add_command(label="Knockback", command=lambda: win._set_fd_view_mode("physics"))
+    analysis_menu.add_command(label="Effects", command=lambda: win._set_fd_view_mode("effects"))
+    analysis_menu.add_separator()
+    analysis_menu.add_command(label="Raw Data", command=lambda: win._set_fd_view_mode("all"))
+    analysis_btn.configure(menu=analysis_menu)
+    analysis_btn.pack(side="left", padx=(6, 0))
+    win._fd_workspace_buttons["analysis"] = analysis_btn
+
+    ttk.Button(nav, textvariable=win._filter_panel_btn_var, style="Workspace.TButton", command=lambda: getattr(win, "_toggle_advanced_filters", lambda: None)()).pack(side="left", padx=(10, 0))
 
     divider2 = ttk.Separator(command, orient="vertical")
     divider2.pack(side="left", fill="y", padx=10)
@@ -694,7 +816,19 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             return
         if col == "invuln":
             try:
-                win._status_var.set("Invuln is the proven +0x1218 startup-phase signature. It is display-only.")
+                win._status_var.set("Invuln: [C] is runtime-confirmed on this exact action; [H] matches the confirmed phase topology but is not yet gameplay-tested; [M]/[L] are weaker. Generic clear->2f->handoff bootstraps are suppressed. 999 is an event-held raw probe and is not displayed as a frame count. Display-only.")
+            except Exception:
+                pass
+            return
+        if col == "anim_total":
+            try:
+                win._status_var.set("Anim Total comes from the action-matched 0000.mot clip duration at 60 Hz. It is read-only.")
+            except Exception:
+                pass
+            return
+        if col == "recovery":
+            try:
+                win._status_var.set("Recovery is MOT-derived: total animation frames minus the final active frame. It is read-only and has no static edit address.")
             except Exception:
                 pass
             return
@@ -716,7 +850,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         win._edit_selected_column(col)
 
     def _make_chip(parent_widget, col: str, var: tk.StringVar):
-        editable = col not in {"kind", "hits", "link", "invuln"}
+        editable = col not in {"kind", "hits", "link", "invuln", "anim_total", "recovery"}
         style = "InspectorValue.TLabel" if editable else "InspectorReadOnly.TLabel"
         chip = ttk.Label(parent_widget, textvariable=var, style=style, anchor="w")
         chip.pack(side="left", fill="x", expand=True, padx=(4, 0))
@@ -867,9 +1001,9 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     sections = [
         ("Move link", ["link"]),
         ("Impact", ["hits", "damage", "meter", "hitstop"]),
-        ("Timing", ["startup", "active", "active2", "speed_mod"]),
+        ("Timing", ["startup", "active", "anim_total", "recovery", "active2", "speed_mod"]),
         ("Stun and pressure", ["hitstun", "invuln", "blockstun", "attack_property", "hit_reaction", "hit_result_flags"]),
-        ("Launch and knockback controls", ["kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb"]),
+        ("Knockback vectors", ["kb_type", "launch_profile", "kb_unknown", "ground_kb", "ground_kb_y", "kb_x", "air_kb"]),
         ("Hit FX and reach", ["hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time"]),
         ("Dangerous script links", ["post_link"]),
         ("Flags and lookup", ["superbg", "kind", "abs"]),
@@ -892,7 +1026,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         "proj_emit_count": "Display-only number of physical projectile cards in this emitter group.",
         "dispatch_group": "Display-only group of adjacent 00/23 dispatch rows.",
         "dispatch_child_target": "Display-only resolved child script target.",
-        "invuln": "Display-only +0x1218 startup-phase signature.",
+        "invuln": "Display-only +0x1218 protection-phase candidate. [C] = runtime-confirmed on this exact action. [H] = same confirmed topology but still needs gameplay validation; [M]/[L] are weaker. Generic normal 2f bootstraps are suppressed. 999 is retained as raw event-held data and is not displayed as a frame count.",
     }
 
     for section_title, fields in sections:
@@ -1089,6 +1223,8 @@ def build_tree_widget(win) -> ttk.Frame:
         "meter": 8,
         "startup": 8,
         "active": 10,
+        "anim_total": 10,
+        "recovery": 10,
         "active2": 10,
         "hitstun": 8,
         "blockstun": 8,
@@ -1103,7 +1239,9 @@ def build_tree_widget(win) -> ttk.Frame:
         "kb_type": 8,
         "launch_profile": 12,
         "kb_unknown": 12,
-        "kb_x": 8,
+        "ground_kb": 10,
+        "ground_kb_y": 10,
+        "kb_x": 10,
         "air_kb": 8,
         "speed_mod": 10,
         "attack_property": 14,
@@ -1152,13 +1290,15 @@ def build_tree_widget(win) -> ttk.Frame:
     filter_labels = {
         "move": "Move",
         "kind": "Kind",
-        "hits": "Hits",
+        "hits": "Hit Count",
         "link": "Link",
         "context": "Details",
         "damage": "Dmg",
-        "meter": "Meter",
+        "meter": "Meter Gain",
         "startup": "Start",
-        "active": "Active",
+        "active": "Active Frames",
+        "anim_total": "Anim",
+        "recovery": "Recovery Frames",
         "active2": "Active2",
         "hitstun": "HS",
         "invuln": "Invuln",
@@ -1174,13 +1314,15 @@ def build_tree_widget(win) -> ttk.Frame:
         "kb_type": "Type",
         "launch_profile": "Extra",
         "kb_unknown": "Adjust",
-        "kb_x": "KB X",
-        "air_kb": "Arc",
+        "ground_kb": "P/P X",
+        "ground_kb_y": "P/P Aux",
+        "kb_x": "Air Knockback X",
+        "air_kb": "Air Knockback Y",
         "speed_mod": "Speed",
         "attack_property": "Property",
         "hit_reaction": "HitReact",
         "hit_result_flags": "HitResult",
-        "superbg": "SuperBG",
+        "superbg": "Super Background",
         "proj_cluster": "ProjGroup",
         "proj_fmt": "ProjFmt",
         "proj_id": "ProjID",
@@ -1337,23 +1479,27 @@ def build_tree_widget(win) -> ttk.Frame:
     tree_wrap.columnconfigure(0, weight=1)
 
     win.tree.heading("#0", text="")
-    win.tree.column("#0", width=34, stretch=False, anchor="center")
+    win.tree.column("#0", width=28, stretch=False, anchor="center")
 
     headers = [
         ("move", "Move"),
         ("kind", "Kind"),
-        ("hits", "Hits"),
+        ("hits", "Hit Count"),
         ("link", "Link"),
         ("context", "Details"),
-        ("damage", "Dmg"),
-        ("meter", "Meter"),
-        ("startup", "Start"),
-        ("active", "Active"),
-        ("active2", "Active 2"),
-        ("hitstun", "HS"),
+        ("damage", "Damage"),
+        ("meter", "Meter Gain"),
+        ("startup", "Startup"),
+        ("active", "Active Frames"),
+        ("anim_total", "Total Frames"),
+        ("recovery", "Recovery Frames"),
+        ("adv_hit", "On Hit"),
+        ("adv_block", "On Block"),
+        ("active2", "Secondary Active"),
+        ("hitstun", "Hitstun"),
         ("invuln", "Invuln"),
-        ("blockstun", "BS"),
-        ("hitstop", "Stop"),
+        ("blockstun", "Blockstun"),
+        ("hitstop", "Hitstop"),
         ("hit_spark", "Hit Spark"),
         ("stretch_part", "Stretch Part"),
         ("stretch_len", "Reach Length"),
@@ -1361,16 +1507,18 @@ def build_tree_widget(win) -> ttk.Frame:
         ("stretch_height", "Reach Height"),
         ("stretch_time", "Stretch Timing"),
         ("post_link", "Post Link"),
-        ("kb_type", "KB Style"),
+        ("kb_type", "Knockback Style"),
         ("launch_profile", "Extra Launch"),
-        ("kb_unknown", "Launch Adjust"),
-        ("kb_x", "KB X"),
-        ("air_kb", "Arc"),
-        ("speed_mod", "Speed"),
+        ("kb_unknown", "Launch Adjustment"),
+        ("ground_kb", "Hit Push/Pull X"),
+        ("ground_kb_y", "Hit Push/Pull Aux"),
+        ("kb_x", "Air Knockback X"),
+        ("air_kb", "Air Knockback Y"),
+        ("speed_mod", "Speed Modifier"),
         ("attack_property", "Attack Property"),
         ("hit_reaction", "Hit Reaction"),
         ("hit_result_flags", "Hit Result"),
-        ("superbg", "SuperBG"),
+        ("superbg", "Super Background"),
         ("proj_cluster", "Proj Group"),
         ("proj_fmt", "Proj Fmt"),
         ("proj_id", "Proj ID"),
@@ -1433,37 +1581,43 @@ def build_tree_widget(win) -> ttk.Frame:
     for c, txt in headers:
         win.tree.heading(c, text=txt, command=lambda col=c: win._on_sort_column(col))
 
-    win.tree.column("move", width=320, anchor="w")
-    win.tree.column("kind", width=80, anchor="w")
-    win.tree.column("hits", width=62, anchor="center")
-    win.tree.column("link", width=210, anchor="w")
-    win.tree.column("context", width=320, anchor="w")
-    win.tree.column("damage", width=76, anchor="center")
-    win.tree.column("meter", width=70, anchor="center")
-    win.tree.column("startup", width=70, anchor="center")
-    win.tree.column("active", width=88, anchor="center")
-    win.tree.column("active2", width=88, anchor="center")
-    win.tree.column("hitstun", width=58, anchor="center")
-    win.tree.column("invuln", width=78, anchor="center")
-    win.tree.column("blockstun", width=58, anchor="center")
-    win.tree.column("hitstop", width=58, anchor="center")
-    win.tree.column("hit_spark", width=86, anchor="center")
-    win.tree.column("stretch_part", width=92, anchor="center")
-    win.tree.column("stretch_len", width=96, anchor="center")
-    win.tree.column("stretch_width", width=96, anchor="center")
-    win.tree.column("stretch_height", width=96, anchor="center")
-    win.tree.column("stretch_time", width=100, anchor="center")
-    win.tree.column("post_link", width=100, anchor="center")
-    win.tree.column("kb_type", width=72, anchor="center")
-    win.tree.column("launch_profile", width=82, anchor="center")
-    win.tree.column("kb_unknown", width=92, anchor="center")
-    win.tree.column("kb_x", width=72, anchor="center")
-    win.tree.column("air_kb", width=72, anchor="center")
-    win.tree.column("speed_mod", width=116, anchor="center")
-    win.tree.column("attack_property", width=178, anchor="w")
+    win.tree.column("move", width=250, anchor="w")
+    win.tree.column("kind", width=104, anchor="w")
+    win.tree.column("hits", width=70, anchor="center")
+    win.tree.column("link", width=240, anchor="w")
+    win.tree.column("context", width=360, anchor="w")
+    win.tree.column("damage", width=82, anchor="center")
+    win.tree.column("meter", width=104, anchor="center")
+    win.tree.column("startup", width=78, anchor="center")
+    win.tree.column("active", width=104, anchor="center")
+    win.tree.column("anim_total", width=108, anchor="center")
+    win.tree.column("recovery", width=118, anchor="center")
+    win.tree.column("adv_hit", width=82, anchor="center")
+    win.tree.column("adv_block", width=90, anchor="center")
+    win.tree.column("active2", width=124, anchor="center")
+    win.tree.column("hitstun", width=96, anchor="center")
+    win.tree.column("invuln", width=112, anchor="center")
+    win.tree.column("blockstun", width=100, anchor="center")
+    win.tree.column("hitstop", width=92, anchor="center")
+    win.tree.column("hit_spark", width=112, anchor="center")
+    win.tree.column("stretch_part", width=126, anchor="center")
+    win.tree.column("stretch_len", width=124, anchor="center")
+    win.tree.column("stretch_width", width=124, anchor="center")
+    win.tree.column("stretch_height", width=124, anchor="center")
+    win.tree.column("stretch_time", width=132, anchor="center")
+    win.tree.column("post_link", width=126, anchor="center")
+    win.tree.column("kb_type", width=132, anchor="center")
+    win.tree.column("launch_profile", width=112, anchor="center")
+    win.tree.column("kb_unknown", width=136, anchor="center")
+    win.tree.column("ground_kb", width=140, anchor="center")
+    win.tree.column("ground_kb_y", width=148, anchor="center")
+    win.tree.column("kb_x", width=132, anchor="center")
+    win.tree.column("air_kb", width=132, anchor="center")
+    win.tree.column("speed_mod", width=132, anchor="center")
+    win.tree.column("attack_property", width=220, anchor="w")
     win.tree.column("hit_reaction", width=260, anchor="w")
-    win.tree.column("hit_result_flags", width=128, anchor="w")
-    win.tree.column("superbg", width=78, anchor="center")
+    win.tree.column("hit_result_flags", width=170, anchor="w")
+    win.tree.column("superbg", width=136, anchor="center")
     win.tree.column("proj_cluster", width=170, anchor="w")
     win.tree.column("proj_fmt", width=110, anchor="w")
     win.tree.column("proj_id", width=78, anchor="center")
@@ -1522,7 +1676,25 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("dispatch_phase", width=86, anchor="center")
     win.tree.column("dispatch_child_link", width=112, anchor="center")
     win.tree.column("dispatch_child_target", width=120, anchor="center")
-    win.tree.column("abs", width=124, anchor="w")
+    win.tree.column("abs", width=142, anchor="w")
+
+    # Purpose-built widths for the three primary views.  Every column still
+    # has a default, but these are the ones normally shown together.
+    for _col, _width in {
+        "proj_fmt": 108, "proj_type": 96, "proj_id": 78,
+        "proj_speed": 96, "proj_accel": 108, "proj_life": 92,
+        "proj_radius": 96, "proj_hitbox": 104, "proj_kb_y": 108,
+        "proj_fx": 96,
+        "dispatch_group": 138, "dispatch_selector": 94,
+        "dispatch_variant": 88, "dispatch_phase": 96,
+        "dispatch_child_link": 126, "dispatch_child_target": 136,
+        "proj_final_damage": 112, "proj_ps_lifetime": 104,
+        "proj_ps_hit_count": 98, "proj_ps_interval": 98,
+        "proj_super_beam_speed": 116, "proj_super_hit_radius": 112,
+        "proj_super_hit_source": 126,
+    }.items():
+        if _col in cols:
+            win.tree.column(_col, width=_width, anchor="center")
 
     # Save the current built-in widths before applying persisted user choices.
     # Reset layout uses this for a true first-load restoration.
@@ -1531,54 +1703,162 @@ def build_tree_widget(win) -> ttk.Frame:
     except Exception:
         win._fd_builtin_column_widths = {}
 
-    # Restore a user-resized table layout after default column definitions are
-    # in place. Unknown/deleted columns are ignored safely.
+    # The layout changed from a raw wide sheet into focused workbench views.
+    # Old saved widths intentionally do not carry forward once, otherwise
+    # headings are compressed back to single letters even after this redesign.
+    _layout_schema = "frame-workbench-v3"
     try:
-        for _col, _width in ((getattr(win, "_ui_prefs", {}) or {}).get("column_widths") or {}).items():
+        _prefs = getattr(win, "_ui_prefs", {}) or {}
+        if _prefs.get("frame_layout_schema") != _layout_schema:
+            _prefs["frame_layout_schema"] = _layout_schema
+            _prefs.pop("column_widths", None)
+            win._ui_prefs = _prefs
+        for _col, _width in (_prefs.get("column_widths") or {}).items():
             if _col in cols:
-                win.tree.column(_col, width=max(32, int(_width)))
+                win.tree.column(_col, width=max(48, int(_width)))
     except Exception:
         pass
 
     win._fd_all_columns = tuple(cols)
-    win._fd_core_columns = tuple(FD_CORE_COLUMNS)
+    win._fd_core_columns = tuple(c for c in FD_CORE_COLUMNS if c in cols)
+    win._fd_timing_columns = tuple(c for c in FD_TIMING_COLUMNS if c in cols)
+    win._fd_impact_columns = tuple(c for c in FD_IMPACT_COLUMNS if c in cols)
+    win._fd_physics_columns = tuple(c for c in FD_PHYSICS_COLUMNS if c in cols)
+    win._fd_effect_columns = tuple(c for c in FD_EFFECT_COLUMNS if c in cols)
     win._fd_projectile_columns = tuple(c for c in FD_PROJECTILE_COLUMNS_FOCUSED if c in cols)
     win._fd_super_columns = tuple(c for c in FD_SUPER_COLUMNS_FOCUSED if c in cols)
     win._fd_view_presets = {
-        "frame": win._fd_core_columns,
+        "overview": win._fd_core_columns,
+        "frame": win._fd_core_columns,  # Backward-compatible saved preference.
+        "timing": win._fd_timing_columns,
+        "impact": win._fd_impact_columns,
+        "physics": win._fd_physics_columns,
+        "effects": win._fd_effect_columns,
         "projectile": win._fd_projectile_columns,
         "super": win._fd_super_columns,
         "all": win._fd_all_columns,
     }
-    win._fd_view_mode = "frame"
+    win._fd_view_mode = "overview"
 
-    def _set_fd_view_mode(mode="frame"):
-        mode = str(mode or "frame").lower()
+    def _scope_bucket(item_id: str) -> str:
+        """Classify a top-level row for the workspace switcher."""
+        try:
+            tags = set(win.tree.item(item_id, "tags") or ())
+        except Exception:
+            return "moves"
+        if "projectile_header" in tags:
+            return "projectile"
+        if "super_header" in tags:
+            return "super"
+        return "moves"
+
+    def _capture_workspace_roots() -> list[str]:
+        """Remember roots even while another workspace has detached them."""
+        known = list(getattr(win, "_fd_workspace_roots", ()) or ())
+        try:
+            attached = list(win.tree.get_children(""))
+        except Exception:
+            attached = []
+        for iid in attached:
+            if iid not in known:
+                known.append(iid)
+        live = []
+        for iid in known:
+            try:
+                if win.tree.exists(iid):
+                    live.append(iid)
+            except Exception:
+                if iid in attached:
+                    live.append(iid)
+        win._fd_workspace_roots = live
+        return live
+
+    def _apply_fd_row_scope(mode: str | None = None) -> None:
+        """Switch both schema and row family; workspaces are not column presets."""
+        mode = str(mode or getattr(win, "_fd_view_mode", "overview") or "overview").lower()
+        if mode == "frame":
+            mode = "overview"
+        wanted = {
+            "overview": {"moves"}, "timing": {"moves"}, "impact": {"moves"},
+            "physics": {"moves"}, "effects": {"moves"},
+            "projectile": {"projectile"}, "super": {"super"},
+            "all": {"moves", "projectile", "super"},
+        }.get(mode, {"moves"})
+        roots = _capture_workspace_roots()
+        # fd_window filters use this set. Scope must never revive a row a live
+        # text/column filter intentionally detached.
+        filter_detached = set(getattr(win, "_detached", set()) or set())
+        for iid in roots:
+            if _scope_bucket(iid) not in wanted:
+                try:
+                    win.tree.detach(iid)
+                except Exception:
+                    pass
+        for iid in roots:
+            if _scope_bucket(iid) in wanted and iid not in filter_detached:
+                try:
+                    win.tree.move(iid, "", "end")
+                except Exception:
+                    pass
+
+    win._apply_fd_row_scope = _apply_fd_row_scope
+
+    def _set_fd_view_mode(mode="overview"):
+        mode = str(mode or "overview").lower()
+        if mode == "frame":
+            mode = "overview"
         if mode not in getattr(win, "_fd_view_presets", {}):
-            mode = "frame"
+            mode = "overview"
         columns = tuple(c for c in win._fd_view_presets.get(mode, win._fd_core_columns) if c in cols)
         if not columns:
             columns = win._fd_core_columns
-            mode = "frame"
+            mode = "overview"
         win.tree.configure(displaycolumns=columns)
         win._fd_view_mode = mode
+        _apply_fd_row_scope(mode)
+        try:
+            win.tree.selection_set(())
+            win.tree.focus("")
+        except Exception:
+            pass
         try:
             win._ui_prefs["view_mode"] = mode
         except Exception:
             pass
         label_map = {
-            "frame": "View: Frame",
-            "projectile": "View: Projectiles",
-            "super": "View: Supers",
-            "all": "View: All",
+            "overview": "View: Moves",
+            "timing": "View: Timing",
+            "impact": "View: Hit & Stun",
+            "physics": "View: Knockback",
+            "effects": "View: Effects",
+            "projectile": "Workspace: Projectiles",
+            "super": "Workspace: Super Graph",
+            "all": "Workspace: Raw Data",
         }
         if getattr(win, "_fd_view_var", None) is not None:
             win._fd_view_var.set(label_map.get(mode, "View: Frame"))
+        try:
+            btns = dict(getattr(win, "_fd_workspace_buttons", {}) or {})
+            for _mode, _btn in btns.items():
+                try:
+                    if _mode == "analysis":
+                        active = mode in {"timing", "impact", "physics", "effects"}
+                        _btn.configure(style="WorkspaceActive.TMenubutton" if active else "Workspace.TMenubutton")
+                    else:
+                        _btn.configure(style="WorkspaceActive.TButton" if _mode == mode else "Workspace.TButton")
+                except Exception:
+                    pass
+        except Exception:
+            pass
         messages = {
-            "frame": "Frame view: normal frame-data columns are prioritized.",
-            "projectile": "Projectile view: projectile damage, ID/type, speed, life, hitbox, and probe fields are moved next to the move name.",
-            "super": "Super view: 00/23 dispatch rows, child links, beam cards, and projectile-super payloads are moved into the readable left side.",
-            "all": "All columns visible for raw scouting data.",
+            "overview": "Moves: startup, active frames, animation total, recovery, advantage, and invulnerability.",
+            "timing": "Timing: startup, active windows, animation length, recovery, and invulnerability.",
+            "impact": "Hit & Stun: damage, meter, stun, hitstop, advantage, and result behavior.",
+            "physics": "Knockback: launch, air displacement, and hit push/pull values.",
+            "effects": "Effects: sparks, stretch, post-animation links, and technical details.",
+            "projectile": "Projectiles workspace: only projectile definitions are shown, with damage, type, speed, life, hitbox, knockback, and FX together.",
+            "super": "Super Graph workspace: only dispatch/call/child-script rows are shown, with their owned payload fields and links.",
+            "all": "Raw Data workspace: moves, projectile definitions, and super graph rows with every available column.",
         }
         try:
             win.tree.xview_moveto(0.0)
@@ -1594,9 +1874,9 @@ def build_tree_widget(win) -> ttk.Frame:
         # scanner here just because the user changed columns.
 
     def _toggle_core_columns():
-        # Legacy shortcut kept for old callers: Frame <-> All.
-        if getattr(win, "_fd_view_mode", "frame") == "all":
-            _set_fd_view_mode("frame")
+        # Legacy shortcut kept for old callers: Overview <-> All Columns.
+        if getattr(win, "_fd_view_mode", "overview") == "all":
+            _set_fd_view_mode("overview")
         else:
             _set_fd_view_mode("all")
 
@@ -1635,7 +1915,7 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win._set_table_density = _set_table_density
     _set_table_density((getattr(win, "_ui_prefs", {}) or {}).get("density", "standard"))
-    _set_fd_view_mode((getattr(win, "_ui_prefs", {}) or {}).get("view_mode", "frame"))
+    _set_fd_view_mode((getattr(win, "_ui_prefs", {}) or {}).get("view_mode", "overview"))
 
     def _update_hover_help(event):
         try:
@@ -1665,8 +1945,8 @@ def build_tree_widget(win) -> ttk.Frame:
 
     win.tree.bind("<Motion>", _update_hover_help, add=True)
 
-    win.tree.tag_configure("row_even", background="#132034")
-    win.tree.tag_configure("row_odd", background="#101A2C")
+    win.tree.tag_configure("row_even", background="#122034")
+    win.tree.tag_configure("row_odd", background="#0E1828")
 
     # Section/header colors are deliberately brighter than normal rows. Tk's
     # Treeview does not support a true per-row gradient, so these use a
@@ -1695,7 +1975,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("missing_addr", foreground="#FF9A9A")
     win.tree.tag_configure("group_parent", foreground="#FFE3A3")
     win.tree.tag_configure("family_linked", foreground="#C9E2FF")
-    win.tree.tag_configure("edited_row", background="#2A3E5D")
+    win.tree.tag_configure("edited_row", background="#294667")
 
     _build_inspector(win, right)
 
@@ -1772,6 +2052,15 @@ def _populate_tree_sync(win) -> None:
     def _fmt(v):
         return "" if v is None else str(v)
 
+    def _fmt_advantage(v):
+        """Render frame advantage with an explicit sign; blank when unavailable."""
+        if v is None or v == "":
+            return ""
+        try:
+            return f"{int(v):+d}"
+        except Exception:
+            return str(v)
+
     # Opening the workbench used to issue several separate Dolphin reads per
     # row while resolving optional fields such as speed, SuperBG, hit spark,
     # stretch, and post-link.  Cache reads for the duration of this population
@@ -1816,7 +2105,7 @@ def _populate_tree_sync(win) -> None:
             count = int(count or 0)
         except Exception:
             count = 0
-        return f"{count} hits" if count > 1 else ("1" if count == 1 else "")
+        return f"{count} Hits" if count > 1 else ("1" if count == 1 else "")
 
     def _segment_to_row(parent_mv, seg):
         child = dict(parent_mv)
@@ -1892,16 +2181,32 @@ def _populate_tree_sync(win) -> None:
         startup_txt = _fmt(a_s)
         active_txt = f"{a_s}-{a_e}" if a_s is not None and a_e is not None else ""
 
+        try:
+            anim_total_txt = str(int(mv.get("animation_total_frames"))) if mv.get("animation_total_frames") is not None else ""
+        except Exception:
+            anim_total_txt = ""
+        try:
+            _recovery_val = mv.get("recovery")
+            recovery_txt = str(int(_recovery_val)) if _recovery_val is not None else ""
+        except Exception:
+            recovery_txt = ""
+
         a2_s = mv.get("active2_start")
         a2_e = mv.get("active2_end")
         if a2_s is not None and a2_e is not None:
             active2_txt = f"{a2_s}-{a2_e}"
         else:
             active2_txt = _fmt(a2_s or a2_e)
+        # Overview gets one readable active-window cell. Timing keeps the
+        # secondary window separate for editing and exact inspection.
+        if active_txt and active2_txt:
+            active_txt = f"{active_txt} · {active2_txt}"
 
         kb_type_txt = U.fmt_kb_type_ui(mv)
         launch_profile_txt = U.fmt_launch_profile_ui(mv)
         kb_unknown_txt = U.fmt_kb_unknown_ui(mv)
+        ground_kb_txt = U.fmt_ground_kb_ui(mv)
+        ground_kb_y_txt = U.fmt_ground_kb_y_ui(mv)
         kb_x_txt = U.fmt_kb_x_ui(mv)
         air_kb_txt = U.fmt_air_kb_ui(mv)
         hitstop_txt = U.fmt_stun(mv.get("hitstop"))
@@ -2016,6 +2321,23 @@ def _populate_tree_sync(win) -> None:
                 pass
         hit_result_txt = U.fmt_hit_result_flags_ui(mv)
 
+        # Parent rows summarize repeated hits rather than pretending they are
+        # a single-hit move. Expanded child rows retain the exact per-hit data.
+        damage_txt = _fmt(mv.get("damage"))
+        if mv.get("_hit_segment_index") is None:
+            _segments = mv.get("hit_segments") or []
+            if len(_segments) > 1:
+                _damages = [seg.get("damage") for seg in _segments if seg.get("damage") is not None]
+                try:
+                    if _damages and len(_damages) == len(_segments) and len({int(v) for v in _damages}) == 1:
+                        damage_txt = f"{int(_damages[0])} × {len(_damages)}"
+                    elif _damages:
+                        damage_txt = f"{sum(int(v) for v in _damages)} total"
+                except Exception:
+                    pass
+        adv_hit_txt = _fmt_advantage(mv.get("adv_hit"))
+        adv_block_txt = _fmt_advantage(mv.get("adv_block"))
+
         # -------------------------
         # Insert row
         # -------------------------
@@ -2049,15 +2371,19 @@ def _populate_tree_sync(win) -> None:
                 _hit_count_text(mv),
                 _fmt(mv.get("family_link_label") or mv.get("link_label")),
                 _fmt(_compact_row_context(mv, attack_property_txt=attack_property_txt, hr_txt=hr_txt, invuln_txt=invuln_txt)),
-                _fmt(mv.get("damage")),
+                damage_txt,
                 _fmt(mv.get("meter")),
                 startup_txt,
                 active_txt,
+                anim_total_txt,
+                recovery_txt,
+                adv_hit_txt,
+                adv_block_txt,
                 active2_txt,
-                U.fmt_stun(mv.get("hitstun")),
+                _fmt_stun_cell(mv, "hitstun"),
                 invuln_txt,
-                U.fmt_stun(mv.get("blockstun")),
-                hitstop_txt,
+                _fmt_stun_cell(mv, "blockstun"),
+                _fmt_stun_cell(mv, "hitstop"),
                 hit_spark_txt,
                 stretch_part_txt,
                 stretch_len_txt,
@@ -2068,6 +2394,8 @@ def _populate_tree_sync(win) -> None:
                 kb_type_txt,
                 launch_profile_txt,
                 kb_unknown_txt,
+                ground_kb_txt,
+                ground_kb_y_txt,
                 kb_x_txt,
                 air_kb_txt,
                 speed_txt,
@@ -2677,6 +3005,51 @@ def _projectile_root_insert_index(win):
     return "end"
 
 
+def _normalized_owner_label(text: str) -> str:
+    low = str(text or "").strip().lower()
+    low = re.sub(r"\s*\[0x[0-9a-f]+\]$", "", low)
+    low = re.sub(r"\s*\(tier\d+\)$", "", low)
+    low = re.sub(r"\s+", " ", low).strip()
+    return low
+
+
+def _build_owner_move_index(win):
+    idx = {}
+    for mv in list(getattr(win, 'moves', []) or []):
+        if not isinstance(mv, dict):
+            continue
+        pretty = str(mv.get('pretty_name') or '')
+        raw = str(mv.get('move_name') or '')
+        for key in (_normalized_owner_label(pretty), _normalized_owner_label(raw)):
+            if key and key not in idx:
+                idx[key] = mv
+    return idx
+
+
+def _fill_owner_timing_fields(row: dict, owner_mv: dict | None) -> None:
+    if not isinstance(owner_mv, dict):
+        return
+    a_s = owner_mv.get('startup')
+    if a_s is None:
+        a_s = owner_mv.get('active_start')
+    row['startup'] = '' if a_s is None else str(a_s)
+    a1s = owner_mv.get('active_start')
+    a1e = owner_mv.get('active_end')
+    row['active'] = f"{a1s}-{a1e}" if a1s is not None and a1e is not None else ''
+    try:
+        row['anim_total'] = '' if owner_mv.get('animation_total_frames') is None else str(int(owner_mv.get('animation_total_frames')))
+    except Exception:
+        row['anim_total'] = ''
+    try:
+        row['recovery'] = '' if owner_mv.get('recovery') is None else str(int(owner_mv.get('recovery')))
+    except Exception:
+        row['recovery'] = ''
+    for fld in ('damage','meter'):
+        val = owner_mv.get(fld)
+        if val not in (None, ''):
+            row[fld] = str(val)
+
+
 def populate_projectile_rows(win, replace: bool = True) -> None:
     """Insert current-character projectile records into the same FD Treeview."""
     if not getattr(win, "tree", None):
@@ -2777,37 +3150,86 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
         role_rank = 1 if str(h.get("proj_role") or "") == "copy/alt" else 0
         return (unknown, fmt_rank, family, strength_rank, role_rank, addr)
 
-    for row_i, h in enumerate(sorted(hits, key=_proj_sort_key)):
-        mv = FPI.projectile_row_from_hit(h, row_i)
-        row = {c: "" for c in FD_COLUMNS}
-        row["move"] = _indent_move_text(win.tree, header, f"{mv.get('move_name') or 'Projectile'}")
-        row["kind"] = mv.get("kind") or "projectile"
-        row["hits"] = "emit" if FPI.is_projectile_emitter_row(mv) else "proj"
-        row["link"] = FPI.format_projectile_value(mv, "proj_cluster") or FPI.format_projectile_value(mv, "proj_fmt")
-        row["context"] = FPI.projectile_quick_summary(mv)
-        row["damage"] = FPI.format_projectile_value(mv, "damage")
-        row["kb_x"] = FPI.format_projectile_value(mv, "kb_x")
-        row["air_kb"] = FPI.format_projectile_value(mv, "air_kb")
-        for c in FPI.PROJECTILE_COLUMNS:
-            row[c] = FPI.format_projectile_value(mv, c)
-        addr = mv.get("abs")
-        row["abs"] = f"0x{int(addr):08X}" if addr else ""
-        iid = win.tree.insert(
+    owner_index = _build_owner_move_index(win)
+    grouped_hits = {}
+    owner_order = []
+    for h in sorted(hits, key=_proj_sort_key):
+        owner_name = str(h.get('move') or h.get('move_name') or 'Projectile').strip() or 'Projectile'
+        owner_key = _normalized_owner_label(owner_name)
+        if owner_key not in grouped_hits:
+            grouped_hits[owner_key] = {'name': owner_name, 'items': []}
+            owner_order.append(owner_key)
+        grouped_hits[owner_key]['items'].append(h)
+
+    row_i = 0
+    for owner_key in owner_order:
+        group = grouped_hits.get(owner_key) or {}
+        owner_name = str(group.get('name') or 'Projectile')
+        owner_mv = owner_index.get(owner_key)
+        owner_row = {c: '' for c in FD_COLUMNS}
+        owner_row['move'] = _indent_move_text(win.tree, header, owner_name)
+        owner_row['kind'] = 'owner move'
+        owner_row['hits'] = str(len(group.get('items') or []))
+        owner_row['link'] = f"{len(group.get('items') or [])} projectile row(s)"
+        _fill_owner_timing_fields(owner_row, owner_mv)
+        owner_iid = win.tree.insert(
             header,
-            "end",
-            text="",
-            tags=("row_even" if (row_i % 2 == 0) else "row_odd", "child_row", "projectile_row"),
-            values=tuple(row.get(c, "") for c in FD_COLUMNS),
+            'end',
+            text='',
+            tags=('group_parent', 'child_row', 'projectile_owner_row'),
+            values=tuple(owner_row.get(c, '') for c in FD_COLUMNS),
         )
-        win.move_to_tree_item[iid] = mv
         try:
-            win._all_item_ids.append(iid)
+            win._all_item_ids.append(owner_iid)
         except Exception:
             pass
+        for h in group.get('items') or []:
+            mv = FPI.projectile_row_from_hit(h, row_i)
+            row_i += 1
+            row = {c: "" for c in FD_COLUMNS}
+            row["move"] = _indent_move_text(win.tree, owner_iid, f"{mv.get('move_name') or 'Projectile'}")
+            row["kind"] = mv.get("kind") or "projectile"
+            row["hits"] = "emit" if FPI.is_projectile_emitter_row(mv) else "proj"
+            row["link"] = FPI.format_projectile_value(mv, "proj_cluster") or FPI.format_projectile_value(mv, "proj_fmt")
+            row["context"] = FPI.projectile_quick_summary(mv)
+            row["damage"] = FPI.format_projectile_value(mv, "damage")
+            row["kb_x"] = FPI.format_projectile_value(mv, "kb_x")
+            row["air_kb"] = FPI.format_projectile_value(mv, "air_kb")
+            _fill_owner_timing_fields(row, owner_mv)
+            for c in FPI.PROJECTILE_COLUMNS:
+                row[c] = FPI.format_projectile_value(mv, c)
+            addr = mv.get("abs")
+            row["abs"] = f"0x{int(addr):08X}" if addr else ""
+            iid = win.tree.insert(
+                owner_iid,
+                "end",
+                text="",
+                tags=("row_even" if (row_i % 2 == 0) else "row_odd", "child_row", "projectile_row"),
+                values=tuple(row.get(c, "") for c in FD_COLUMNS),
+            )
+            win.move_to_tree_item[iid] = mv
+            try:
+                win._all_item_ids.append(iid)
+            except Exception:
+                pass
+            try:
+                win._apply_row_tags(iid, mv)
+            except Exception:
+                pass
         try:
-            win._apply_row_tags(iid, mv)
+            win.tree.item(owner_iid, open=True)
         except Exception:
             pass
+    try:
+        win.tree.item(header, open=True)
+    except Exception:
+        pass
+
+    try:
+        if hasattr(win, "_apply_fd_row_scope"):
+            win._apply_fd_row_scope(getattr(win, "_fd_view_mode", "overview"))
+    except Exception:
+        pass
 
 def populate_super_rows(win, replace: bool = True) -> None:
     """Insert generic 00/23 super dispatch rows into the same FD Treeview."""
@@ -2869,28 +3291,63 @@ def populate_super_rows(win, replace: bool = True) -> None:
     def _sort_key(h):
         return (str(h.get("dispatch_group") or ""), int(h.get("addr") or 0xFFFFFFFF))
 
-    for row_i, h in enumerate(sorted(hits, key=_sort_key)):
-        mv = FSI.super_row_from_hit(h, row_i)
-        row = {c: "" for c in FD_COLUMNS}
-        row["move"] = _indent_move_text(win.tree, header, f"{mv.get('move_name') or 'Super Dispatch'}")
-        row["kind"] = mv.get("kind") or "super dispatch"
-        row["hits"] = "call"
-        row["link"] = FSI.super_quick_summary(mv)
-        row["context"] = FSI.super_context_summary(mv)
-        for c in FSI.SUPER_DISPATCH_COLUMNS:
-            row[c] = FSI.format_super_value(mv, c)
-        for c in getattr(FSI, "SUPER_OWNED_COLUMNS", ()):
-            row[c] = FSI.format_super_value(mv, c)
-        addr = mv.get("abs")
-        row["abs"] = f"0x{int(addr):08X}" if addr else ""
-        iid = win.tree.insert(
+    owner_index = _build_owner_move_index(win)
+    grouped_hits = {}
+    owner_order = []
+    for h in sorted(hits, key=_sort_key):
+        owner_name = str(h.get('move') or h.get('move_name') or h.get('dispatch_group') or 'Super Dispatch').strip() or 'Super Dispatch'
+        owner_key = _normalized_owner_label(owner_name)
+        if owner_key not in grouped_hits:
+            grouped_hits[owner_key] = {'name': owner_name, 'items': []}
+            owner_order.append(owner_key)
+        grouped_hits[owner_key]['items'].append(h)
+
+    row_i = 0
+    for owner_key in owner_order:
+        group = grouped_hits.get(owner_key) or {}
+        owner_name = str(group.get('name') or 'Super Dispatch')
+        owner_mv = owner_index.get(owner_key)
+        owner_row = {c: '' for c in FD_COLUMNS}
+        owner_row['move'] = _indent_move_text(win.tree, header, owner_name)
+        owner_row['kind'] = 'owner move'
+        owner_row['hits'] = str(len(group.get('items') or []))
+        owner_row['link'] = f"{len(group.get('items') or [])} dispatch row(s)"
+        _fill_owner_timing_fields(owner_row, owner_mv)
+        owner_iid = win.tree.insert(
             header,
-            "end",
-            text="",
-            tags=("row_even" if (row_i % 2 == 0) else "row_odd", "child_row", "super_row"),
-            values=tuple(row.get(c, "") for c in FD_COLUMNS),
+            'end',
+            text='',
+            tags=('group_parent', 'child_row', 'super_owner_row'),
+            values=tuple(owner_row.get(c, '') for c in FD_COLUMNS),
         )
-        win.move_to_tree_item[iid] = mv
+        try:
+            win._all_item_ids.append(owner_iid)
+        except Exception:
+            pass
+        for h in group.get('items') or []:
+            mv = FSI.super_row_from_hit(h, row_i)
+            row_i += 1
+            row = {c: "" for c in FD_COLUMNS}
+            row["move"] = _indent_move_text(win.tree, owner_iid, f"{mv.get('move_name') or 'Super Dispatch'}")
+            row["kind"] = mv.get("kind") or "super dispatch"
+            row["hits"] = "call"
+            row["link"] = FSI.super_quick_summary(mv)
+            row["context"] = FSI.super_context_summary(mv)
+            _fill_owner_timing_fields(row, owner_mv)
+            for c in FSI.SUPER_DISPATCH_COLUMNS:
+                row[c] = FSI.format_super_value(mv, c)
+            for c in getattr(FSI, "SUPER_OWNED_COLUMNS", ()):
+                row[c] = FSI.format_super_value(mv, c)
+            addr = mv.get("abs")
+            row["abs"] = f"0x{int(addr):08X}" if addr else ""
+            iid = win.tree.insert(
+                owner_iid,
+                "end",
+                text="",
+                tags=("row_even" if (row_i % 2 == 0) else "row_odd", "child_row", "super_row"),
+                values=tuple(row.get(c, "") for c in FD_COLUMNS),
+            )
+            win.move_to_tree_item[iid] = mv
         try:
             win._all_item_ids.append(iid)
         except Exception:
@@ -3073,3 +3530,19 @@ def populate_super_rows(win, replace: bool = True) -> None:
                 pass
         except Exception:
             pass
+        try:
+            win.tree.item(owner_iid, open=True)
+        except Exception:
+            pass
+    try:
+        win.tree.item(header, open=True)
+    except Exception:
+        pass
+
+    # A super scan may finish while another workspace is active. Keep the new
+    # graph root in its own workspace instead of leaking it into Moves.
+    try:
+        if hasattr(win, "_apply_fd_row_scope"):
+            win._apply_fd_row_scope(getattr(win, "_fd_view_mode", "overview"))
+    except Exception:
+        pass

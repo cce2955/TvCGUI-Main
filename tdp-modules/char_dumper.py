@@ -84,6 +84,7 @@ MOVE_SUMMARY_KEYS = (
     "hitstun", "hitstun_addr", "blockstun", "blockstun_addr", "hitstop", "hitstop_addr",
     "attack_property", "attack_property_addr", "hit_reaction", "hit_reaction_addr",
     "kb_type", "kb_type_addr", "launch_profile", "launch_profile_addr", "kb_unknown", "kb_unknown_addr",
+    "ground_kb", "ground_kb_addr", "ground_kb_y", "ground_kb_y_addr", "ground_kb_packet_addr", "ground_kb_mode", "ground_kb_aux", "push_pull_packets",
     "kb_x", "kb_x_addr", "air_kb", "air_kb_addr", "knockback_addr",
     "speed_mod", "speed_addr", "superbg_val", "superbg_addr",
     "hit_spark", "hit_spark_addr",

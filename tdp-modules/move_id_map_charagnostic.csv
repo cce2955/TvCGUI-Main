@@ -941,7 +941,7 @@
 64,0x1,Standing Hitstun,Standing Hitstun,Standing Hitstun,yes,100
 65,0x1,Overhead Hitstun,Overhead Hitstun,Overhead Hitstun,yes,100
 66,0x1,Hit Low,Hit Low,Hit Low,yes,100
-67,0x1,Crouching hitstun,Hit Low,Hit Low,yes,100
+67,0x1,Hit that air t pose,Hit Low,Hit Low,yes,100
 69,0x1,Airborne KO,Hit Low,Hit Low,yes,100
 70,0x1,Wall Bounce Interim?,knocked down (face up),knocked down (face up),yes,100
 73,0x1,knocked down (face up),knocked down (face up),knocked down (face up),yes,100

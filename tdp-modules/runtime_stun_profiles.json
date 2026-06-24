@@ -1,0 +1,215 @@
+{
+  "moves": {
+    "15:256": {
+      "action_id": 256,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "freeze_samples": {
+          "0": 3,
+          "6": 3
+        },
+        "last_frame": 996,
+        "last_freeze": 0,
+        "last_value": 12,
+        "samples": {
+          "12": 6
+        }
+      },
+      "last_frame": 996,
+      "last_freeze": 0,
+      "last_recovery": 13,
+      "move_label": "5A",
+      "recovery": {
+        "last_frame": 104,
+        "last_value": 13,
+        "samples": {
+          "13": 1,
+          "7": 1
+        }
+      }
+    },
+    "15:257": {
+      "action_id": 257,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "freeze_samples": {
+          "0": 1,
+          "9": 1
+        },
+        "last_frame": 509,
+        "last_freeze": 0,
+        "last_value": 17,
+        "samples": {
+          "17": 2
+        }
+      },
+      "last_frame": 509,
+      "last_freeze": 0,
+      "move_label": "5B",
+      "recovery": {
+        "samples": {}
+      }
+    },
+    "15:258": {
+      "action_id": 258,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "freeze_samples": {
+          "0": 2,
+          "12": 2
+        },
+        "last_frame": 957,
+        "last_freeze": 0,
+        "last_value": 21,
+        "samples": {
+          "21": 4
+        }
+      },
+      "last_frame": 957,
+      "last_freeze": 0,
+      "move_label": "5C",
+      "recovery": {
+        "samples": {}
+      }
+    },
+    "15:259": {
+      "action_id": 259,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "freeze_samples": {
+          "0": 2
+        },
+        "last_frame": 987,
+        "last_freeze": 0,
+        "last_value": 12,
+        "samples": {
+          "12": 2
+        }
+      },
+      "last_frame": 837,
+      "last_freeze": 0,
+      "last_recovery": 14,
+      "move_label": "2A",
+      "recovery": {
+        "last_frame": 837,
+        "last_value": 14,
+        "samples": {
+          "14": 1
+        }
+      }
+    },
+    "15:260": {
+      "action_id": 260,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "freeze_samples": {
+          "0": 3,
+          "9": 2
+        },
+        "last_frame": 932,
+        "last_freeze": 0,
+        "last_value": 17,
+        "samples": {
+          "17": 5
+        }
+      },
+      "last_frame": 932,
+      "last_freeze": 0,
+      "move_label": "2B",
+      "recovery": {
+        "samples": {}
+      }
+    },
+    "15:261": {
+      "action_id": 261,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 514,
+      "last_recovery": 25,
+      "move_label": "2C",
+      "recovery": {
+        "last_frame": 514,
+        "last_value": 25,
+        "samples": {
+          "23": 1,
+          "25": 2
+        }
+      }
+    },
+    "15:262": {
+      "action_id": 262,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "freeze_samples": {
+          "0": 1
+        },
+        "last_frame": 429,
+        "last_freeze": 0,
+        "last_value": 21,
+        "samples": {
+          "21": 1
+        }
+      },
+      "last_frame": 429,
+      "last_freeze": 0,
+      "move_label": "6C"
+    },
+    "15:270": {
+      "action_id": 270,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "freeze_samples": {
+          "9": 1
+        },
+        "last_frame": 933,
+        "last_freeze": 9,
+        "last_value": 17,
+        "samples": {
+          "17": 1
+        }
+      },
+      "last_frame": 933,
+      "last_freeze": 9,
+      "move_label": "6B",
+      "recovery": {
+        "samples": {}
+      }
+    }
+  },
+  "updated_utc": "2026-06-24T12:03:54Z",
+  "version": 2
+}

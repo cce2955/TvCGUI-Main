@@ -74,6 +74,14 @@ FLAG_063      = 0x063
 FLAG_064      = 0x064
 FLAG_072      = 0x072        # appears tied to airborne/ground state
 
+# Victim-side counters populated by the hit/block resolver at runtime.
+# They are observation targets for the reverse profiler, not write targets.
+# +0x1210 receives the resolved stun amount; +0x1228 is the live countdown;
+# +0x2120 is the impact-freeze countdown observed on contact.
+RUNTIME_RESOLVED_STUN_OFF  = 0x1210
+RUNTIME_STUN_REMAINING_OFF = 0x1228
+RUNTIME_IMPACT_FREEZE_OFF  = 0x2120
+
 
 # ------------------------------------------------------------
 # Valid memory ranges (Wii guest address space under Dolphin)

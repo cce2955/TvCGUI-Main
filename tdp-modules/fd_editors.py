@@ -302,6 +302,16 @@ class FDCellEditorsMixin:
             self._notify_fd_cell_changed(item, mv, "meter")
 
     def _edit_hitstop(self, item, mv, current: str):
+        if str(mv.get("hitstop_source") or "") == "runtime_observed":
+            try:
+                messagebox.showinfo(
+                    "Runtime-observed hitstop",
+                    "This value was captured from the live contact. It has no verified move-table address yet, so it is intentionally read-only.",
+                    parent=self.root,
+                )
+            except Exception:
+                pass
+            return
         cur = U.ensure_int(current, 0)
         new_val = ask_integer_with_help(
             self.root,
@@ -395,6 +405,17 @@ class FDCellEditorsMixin:
     # ----- Stun fields -----
 
     def _edit_hitstun(self, item, mv, current: str):
+        if str(mv.get("hitstun_source") or "") == "runtime_observed":
+            try:
+                messagebox.showinfo(
+                    "Runtime-observed hitstun",
+                    "This value was captured from the victim's live resolver. "
+                    "It has no verified move-table address yet, so it is intentionally read-only.",
+                    parent=self.root,
+                )
+            except Exception:
+                pass
+            return
         cur = U.unfmt_stun(current) if current else 0
         new_val = ask_integer_with_help(
             self.root,
@@ -412,6 +433,17 @@ class FDCellEditorsMixin:
             self._notify_fd_cell_changed(item, mv, "hitstun")
 
     def _edit_blockstun(self, item, mv, current: str):
+        if str(mv.get("blockstun_source") or "") == "runtime_observed":
+            try:
+                messagebox.showinfo(
+                    "Runtime-observed blockstun",
+                    "This value was captured from the victim's live resolver. "
+                    "It has no verified move-table address yet, so it is intentionally read-only.",
+                    parent=self.root,
+                )
+            except Exception:
+                pass
+            return
         cur = U.unfmt_stun(current) if current else 0
         new_val = ask_integer_with_help(
             self.root,
@@ -443,6 +475,8 @@ class FDCellEditorsMixin:
             "kb_type": U.fmt_kb_type_ui(mv),
             "launch_profile": U.fmt_launch_profile_ui(mv),
             "kb_unknown": U.fmt_kb_unknown_ui(mv),
+            "ground_kb": U.fmt_ground_kb_ui(mv),
+            "ground_kb_y": U.fmt_ground_kb_y_ui(mv),
             "kb_x": U.fmt_kb_x_ui(mv),
             "air_kb": U.fmt_air_kb_ui(mv),
             "kb": U.fmt_knockback_packet_ui(mv),
@@ -600,12 +634,57 @@ class FDCellEditorsMixin:
             current_text=current_text,
             help_text=(
                 "Mostly ignored when Extra Launch is 0. When Extra Launch is above 0, "
-                "this changes launch speed, direction, curve, or how KB X / Arc are interpreted."
+                "this changes launch speed, direction, or how the air KB and hit push/pull packets are interpreted."
             ),
             suggestions=[("0", 0), ("1", 1), ("2", 2), ("3", 3), ("10", 10)],
             parser=lambda txt: self._parse_int_for_fd(txt) & 0xFFFFFFFF,
             formatter=lambda v: str(int(v) & 0xFFFFFFFF),
         )
+
+    def _edit_ground_kb(self, item, mv, current: str):
+        """Edit the confirmed signed 35 0C +0x08 hit Push/Pull X scalar."""
+        addr = mv.get("ground_kb_addr")
+        if addr is None:
+            messagebox.showerror("Edit Hit Push/Pull X", "35 0C Hit Push/Pull X packet not found for this row.")
+            return
+        cur = mv.get("ground_kb")
+        new_val = ask_float_with_help(
+            self.root,
+            title="Edit Hit Push/Pull X",
+            prompt="Hit Push/Pull X (35/0C +8):",
+            help_text=(
+                "35 0C packet, signed float at +0x08. Confirmed hit spacing control: Ryu Tatsu Super uses negative values "
+                "to push its first hit away and positive values to pull/vacuum later hits inward. The scanner shows this only "
+                "when the packet belongs to the row's own post-hit bundle."
+            ),
+            initialvalue=float(cur or 0.0),
+        )
+        if new_val is not None and U.WRITER_AVAILABLE and U.write_ground_knockback(mv, float(new_val)):
+            mv["ground_kb"] = float(new_val)
+            self.tree.set(item, "ground_kb", U.fmt_ground_kb_ui(mv))
+            self._notify_fd_cell_changed(item, mv, "ground_kb")
+
+    def _edit_ground_kb_y(self, item, mv, current: str):
+        """Edit the unclassified 35 0C +0x0C Push/Pull Aux scalar."""
+        addr = mv.get("ground_kb_y_addr")
+        if addr is None:
+            messagebox.showerror("Edit Hit Push/Pull Aux", "35 0C Hit Push/Pull Aux packet not found for this row.")
+            return
+        cur = mv.get("ground_kb_y")
+        new_val = ask_float_with_help(
+            self.root,
+            title="Edit Hit Push/Pull Aux",
+            prompt="Hit Push/Pull Aux (35/0C +C):",
+            help_text=(
+                "35 0C packet, float at +0x0C. This changes with the same local hit-spacing packet as Push/Pull X, but its "
+                "semantic role is not confirmed yet. It is exposed separately so we can test it without calling it a Y vector."
+            ),
+            initialvalue=float(cur or 0.0),
+        )
+        if new_val is not None and U.WRITER_AVAILABLE and U.write_ground_knockback_y(mv, float(new_val)):
+            mv["ground_kb_y"] = float(new_val)
+            self.tree.set(item, "ground_kb_y", U.fmt_ground_kb_y_ui(mv))
+            self._notify_fd_cell_changed(item, mv, "ground_kb_y")
 
     def _edit_kb_x(self, item, mv, current: str):
         cur = mv.get("kb_x")
@@ -613,17 +692,16 @@ class FDCellEditorsMixin:
         self._edit_single_kb_field(
             item,
             mv,
-            title="Edit KB X",
-            label="Ground KB X",
+            title="Edit Air KB X",
+            label="Air KB X",
             column="kb_x",
             mv_key="kb_x",
             writer_key="kb_x",
             current_text=current_text,
             help_text=(
-                "Grounded or standing horizontal knockback. Larger positive values push or launch farther. "
-                "Zero removes most horizontal push. This can also affect how fast the victim falls during launch-style reactions."
+                "35 07/09 airborne knockback X scalar. It controls horizontal carry while the opponent is airborne and is separate from the optional per-hit 35/0C Push/Pull packet."
             ),
-            suggestions=[("-0.08", -0.08), ("-0.04", -0.04), ("0", 0.0), ("6", 6.0), ("10", 10.0)],
+            suggestions=[("0", 0.0), ("6", 6.0), ("10", 10.0)],
             parser=lambda txt: float((txt or "0").strip()),
             formatter=lambda v: U._fmt_float_trim(v),
         )
@@ -634,15 +712,14 @@ class FDCellEditorsMixin:
         self._edit_single_kb_field(
             item,
             mv,
-            title="Edit Arc",
-            label="Arc / air KB",
+            title="Edit Air KB Y",
+            label="Air KB Y",
             column="air_kb",
             mv_key="air_kb",
             writer_key="air_kb",
             current_text=current_text,
             help_text=(
-                "Airborne or relaunch arc value. Higher positive values usually give a higher or longer arc. "
-                "This appears to control the lower relaunch behavior when an airborne opponent is hit."
+                "35 07/09 vertical airborne displacement / launch component. Your Ryu 6C tests: values above default pop the target up and let them fall during the normal hitstun; values below default leave them near the hit height longer. It is not the hitstun timer."
             ),
             suggestions=[("0.05", 0.05), ("0.08", 0.08), ("17", 17.0), ("50", 50.0), ("-0.16", -0.16)],
             parser=lambda txt: float((txt or "0").strip()),
@@ -816,6 +893,8 @@ class FDCellEditorsMixin:
         cur_type = mv.get("kb_type")
         cur_profile = mv.get("launch_profile")
         cur_unknown = mv.get("kb_unknown")
+        cur_ground = mv.get("ground_kb")
+        cur_ground_y = mv.get("ground_kb_y")
         cur_x = mv.get("kb_x")
         cur_air = mv.get("air_kb")
         cur_hs = mv.get("hitstun")
@@ -838,6 +917,8 @@ class FDCellEditorsMixin:
         tk.Label(dlg, text="Hit Physics Fields", font=("Arial", 12, "bold")).pack(pady=5)
 
         addr = mv.get("knockback_addr")
+        ground_kb_addr = mv.get("ground_kb_addr")
+        ground_kb_y_addr = mv.get("ground_kb_y_addr")
         stun_addr = mv.get("stun_addr")
         spark_addr = mv.get("hit_spark_addr")
         stretch_addr = mv.get("stretch_packet_addr")
@@ -845,10 +926,26 @@ class FDCellEditorsMixin:
         info_lines = []
         if addr:
             info_lines.append(
-                f"KB data: 0x{addr:08X} | Style +1 | Extra Launch +4 | Launch Adjust +8 | KB X +C | Arc +10"
+                f"Launch data: 0x{addr:08X} | Style +1 | Extra Launch +4 | Launch Adjust +8 | Air KB X +C | Air KB Y +10"
             )
         else:
-            info_lines.append("KB data: not found for this row")
+            info_lines.append("Launch data: not found for this row")
+        if ground_kb_addr:
+            mode = mv.get("ground_kb_mode")
+            mode_text = "?" if mode is None else str(int(mode))
+            x_text = f"Hit Push/Pull X: 0x{int(ground_kb_addr):08X} | 35/0C +8 | mode {mode_text}"
+            aux_text = f"Push/Pull Aux: 0x{int(ground_kb_y_addr):08X} | 35/0C +C" if ground_kb_y_addr else "Push/Pull Aux: address not found"
+            info_lines.append(f"{x_text} | {aux_text}")
+            variants = mv.get("push_pull_packets") or []
+            if isinstance(variants, list) and len(variants) > 1:
+                extra = ", ".join(
+                    f"0x{int(v.get('packet_addr') or 0):08X} (mode {v.get('mode')})"
+                    for v in variants[1:] if isinstance(v, dict)
+                )
+                if extra:
+                    info_lines.append(f"Additional local 35/0C packet(s): {extra}")
+        else:
+            info_lines.append("Hit Push/Pull (35/0C): not found for this row")
         if stun_addr:
             info_lines.append(
                 f"Stun packet: 0x{stun_addr:08X} | Hitstun +F | Blockstun +1F | Hitstop +26"
@@ -930,21 +1027,39 @@ class FDCellEditorsMixin:
             [("0", 0), ("1", 1), ("2", 2), ("3", 3), ("10", 10)],
             parser_kind="int",
         )
-        x_v = _entry_row(
+        ground_v = _entry_row(
             kb_box,
             3,
-            "Ground KB X",
+            "Hit Push/Pull X",
+            "" if cur_ground is None else f"{float(cur_ground):.6g}",
+            "Confirmed signed 35/0C +8 hit-spacing control. Ryu Tatsu Super uses negative values to push away and positive values to pull/vacuum inward.",
+            [("0", 0.0), ("0.38", 0.38), ("0.7", 0.7), ("1.0", 1.0)],
+            parser_kind="float",
+        )
+        ground_y_v = _entry_row(
+            kb_box,
+            4,
+            "Hit Push/Pull Aux",
+            "" if cur_ground_y is None else f"{float(cur_ground_y):.6g}",
+            "35/0C +C companion scalar in the same local hit Push/Pull packet. Exposed for testing; semantic role is not yet confirmed.",
+            [("0", 0.0), ("0.38", 0.38), ("0.7", 0.7), ("1.0", 1.0)],
+            parser_kind="float",
+        )
+        x_v = _entry_row(
+            kb_box,
+            5,
+            "Air KB X",
             "" if cur_x is None else f"{float(cur_x):.6g}",
-            "Grounded/standing horizontal knockback. Larger positive values push/launch farther; zero removes most X push.",
-            [("-0.08", -0.08), ("-0.04", -0.04), ("0", 0.0), ("6", 6.0), ("10", 10.0)],
+            "35/07 or 35/09 airborne knockback X scalar. It controls horizontal carry while the opponent is airborne and is separate from the optional local 35/0C Hit Push/Pull packet.",
+            [("0", 0.0), ("6", 6.0), ("10", 10.0)],
             parser_kind="float",
         )
         air_v = _entry_row(
             kb_box,
-            4,
-            "Arc",
+            6,
+            "Air KB Y",
             "" if cur_air is None else f"{float(cur_air):.6g}",
-            "Airborne/relaunch arc value. Higher positive values give a higher/longer relaunch arc; negative values drive downward arcs.",
+            "35/07 or 35/09 vertical airborne displacement / launch scalar. Higher values pop the target up and let them fall during the normal hitstun; lower values keep the target closer to hit height longer. This is not the hitstun timer.",
             [("0.05", 0.05), ("0.08", 0.08), ("17", 17.0), ("50", 50.0), ("-0.16", -0.16)],
             parser_kind="float",
         )
@@ -1051,7 +1166,7 @@ class FDCellEditorsMixin:
             dlg,
             text=(
                 "Each suggestion only fills that one field. Manual decimal, hex, and float values still work. "
-                "Hit Reaction is separate. Normal knockback is usually Extra Launch 0 plus KB X and Arc. Use Extra Launch and Launch Adjust for experimental speed/direction behavior."
+                "Hit Reaction is separate. 35/0C is an optional local Hit Push/Pull packet: +8 is confirmed signed horizontal spacing, while +C remains an exposed Aux scalar. Air KB X/Y belong to 35/07 or 35/09 packets."
             ),
             fg="gray",
             wraplength=720,
@@ -1063,6 +1178,8 @@ class FDCellEditorsMixin:
                 kt = _parse_int(type_v.get()) & 0xFF
                 prof = _parse_int(prof_v.get()) & 0xFFFFFFFF
                 unk = _parse_int(unk_v.get()) & 0xFFFFFFFF
+                ground = _parse_float(ground_v.get(), cur_ground if cur_ground is not None else 0.0)
+                ground_y = _parse_float(ground_y_v.get(), cur_ground_y if cur_ground_y is not None else 0.0)
                 kx = _parse_float(x_v.get(), cur_x or 0.0)
                 air = _parse_float(air_v.get(), cur_air or 0.0)
                 hs = _parse_int(hs_v.get()) & 0xFF if hs_v.get().strip() else cur_hs
@@ -1100,6 +1217,17 @@ class FDCellEditorsMixin:
                     mv["air_kb"] = air
                     mv["kb0"] = prof
                     mv["kb_traj"] = None
+
+            if mv.get("ground_kb_addr") is not None:
+                wrote_any = True
+                ok = ok and U.write_ground_knockback(mv, ground)
+                if ok:
+                    mv["ground_kb"] = ground
+            if mv.get("ground_kb_y_addr") is not None:
+                wrote_any = True
+                ok = ok and U.write_ground_knockback_y(mv, ground_y)
+                if ok:
+                    mv["ground_kb_y"] = ground_y
 
             if mv.get("stun_addr") is not None:
                 wrote_any = True
@@ -1145,6 +1273,8 @@ class FDCellEditorsMixin:
             self._notify_fd_cell_changed(item, mv, "kb_type")
             self._notify_fd_cell_changed(item, mv, "launch_profile")
             self._notify_fd_cell_changed(item, mv, "kb_unknown")
+            self._notify_fd_cell_changed(item, mv, "ground_kb")
+            self._notify_fd_cell_changed(item, mv, "ground_kb_y")
             self._notify_fd_cell_changed(item, mv, "kb_x")
             self._notify_fd_cell_changed(item, mv, "air_kb")
             self._notify_fd_cell_changed(item, mv, "hitstun")

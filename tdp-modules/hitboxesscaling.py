@@ -8,6 +8,8 @@ import struct
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple, Optional
 import os
+import re
+import threading
 import pygame
 import win32con
 import win32gui
@@ -28,8 +30,16 @@ from dolphin_io import hook, rd32, rbytes
 import json as _json
 
 WORLD_Y_OFFSET = -0.7
-HURTBOX_BUILD_TAG = "TAKEWHEEL_V23_NOHOTKEYS"
+GIANT_FALLBACK_REF_CAM_Z = 7.260000228881836
+GIANT_CAMERA_Z_THRESHOLD = 10.0
+GIANT_X_SCALE = 0.42
+GIANT_Y_SCALE = 0.76
+GIANT_Y_SCREEN_OFFSET = 38.0
+HURTBOX_BUILD_TAG = "TAKEWHEEL_V24_STABLE_HITS"
 _last_hurt_debug_text = "hurt=not-run"
+_legend_window_started = False
+_legend_visible_requested = False
+_legend_manual_hidden = False
 PROJECTILE_Y_OFFSET: float = 0
 PROJECTILE_RADIUS_SCALE: float = 0.5
 PROJECTILE_DESPAWN_FRAMES: int = 6
@@ -39,6 +49,7 @@ _last_filter_mtime = 0.0
 _slot_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
 _hurtbox_filter = {"P1": True, "P2": True, "P3": True, "P4": True}
 _show_hurtboxes = True
+_hurtbox_view_mode = "clean"
 
 MOTION_THRESHOLD: float = 0.003
 STILL_FRAME_LIMIT: int = 4
@@ -189,7 +200,12 @@ PROJ_PTR_CANDIDATES = (
 )
 
 OFF_CHAR_ID = 0x14
-OFF_STATE_ID = 0x1EA  # replace with the real current anim/state offset if 0x18 is not correct
+# Per-slot activity marker: active/on-stage fighter is 0; standby teammate is 1
+# in all supplied team, jump, and giant dumps.  The body descriptors remain
+# allocated while standby, so use this before rendering them.
+OFF_SLOT_ACTIVITY = 0x04
+OFF_STATE_ID = 0x1EA  # current action/state id
+OFF_CHR_TBL = 0x1E0   # live character action-table pointer
 
 # Slot-local action-frame counter.
 # User observed slot 1 base 0x9246B9C0 and counter addr 0x9246BB98.
@@ -277,8 +293,46 @@ def _slots_from_payload(value, fallback):
     return out
 
 
+def _normalize_hurtbox_view_mode(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"clean", "simple", "minimal"}:
+        return "clean"
+    if raw in {"detailed", "detail", "full"}:
+        return "detailed"
+    if raw in {"debug", "raw", "labels"}:
+        return "debug"
+    return "clean"
+
+
+def set_hurtbox_view_mode(value: Any) -> str:
+    """Set and persist the legend-selected hurtbox presentation mode.
+
+    The main overlay polls hitbox_filter.json, so persisting here keeps the
+    selection through a relaunch without touching any existing hitbox filters.
+    """
+    global _hurtbox_view_mode, _last_filter_mtime
+    mode = _normalize_hurtbox_view_mode(value)
+    _hurtbox_view_mode = mode
+    try:
+        payload = {}
+        if os.path.exists(HITBOX_FILTER_FILE):
+            with open(HITBOX_FILTER_FILE, "r", encoding="utf-8") as f:
+                existing = _json.load(f)
+            if isinstance(existing, dict):
+                payload = existing
+        payload["hurtbox_view_mode"] = mode
+        temp_path = HITBOX_FILTER_FILE + ".tmp"
+        with open(temp_path, "w", encoding="utf-8") as f:
+            _json.dump(payload, f, indent=2, sort_keys=True)
+        os.replace(temp_path, HITBOX_FILTER_FILE)
+        _last_filter_mtime = 0.0
+    except Exception as exc:
+        print(f"[HitboxView] could not save mode {mode!r}: {exc!r}")
+    return mode
+
+
 def _read_filter_payload() -> None:
-    global _last_filter_mtime, _slot_filter, _hurtbox_filter, _show_hurtboxes
+    global _last_filter_mtime, _slot_filter, _hurtbox_filter, _show_hurtboxes, _hurtbox_view_mode
     try:
         mt = os.path.getmtime(HITBOX_FILTER_FILE)
         if mt == _last_filter_mtime:
@@ -290,11 +344,10 @@ def _read_filter_payload() -> None:
         if not isinstance(data, dict):
             return
 
-        # Backward compatible: old files are {"P1": true, ...}.
-        # New files keep those top-level attack filters and add hurtbox_slots.
         _slot_filter = _slots_from_payload(data.get("hitbox_slots", data), _slot_filter)
         _hurtbox_filter = _slots_from_payload(data.get("hurtbox_slots", data.get("_hurtbox_slots", _hurtbox_filter)), _hurtbox_filter)
         _show_hurtboxes = bool(data.get("show_hurtboxes", any(_hurtbox_filter.values())))
+        _hurtbox_view_mode = _normalize_hurtbox_view_mode(data.get("hurtbox_view_mode", _hurtbox_view_mode))
     except Exception:
         pass
 
@@ -312,6 +365,15 @@ def _read_hurtbox_filter() -> dict:
 def _hurtbox_layer_requested() -> bool:
     _read_filter_payload()
     return bool(_show_hurtboxes and any(_hurtbox_filter.values()))
+
+
+def _read_hurtbox_view_mode(control=None) -> str:
+    _read_filter_payload()
+    if control is not None and bool(getattr(control, "show_debug", False)):
+        return "debug"
+    return _hurtbox_view_mode
+
+
 def dump_state18(slot_name: str, slot_base: int) -> None:
     raw = rd32(slot_base + OFF_STATE_ID)
     raw = 0 if raw is None else raw
@@ -387,11 +449,19 @@ class MoveFrameData:
     move_id: int
     move_name: str
     active_windows: Tuple[Tuple[int, int], ...]
+    invuln_frames: int = 0
 
     def active_text(self) -> str:
         if not self.active_windows:
             return "?"
         return ",".join(f"{s}-{e}" if s != e else str(s) for s, e in self.active_windows)
+
+    def invuln_text(self) -> str:
+        try:
+            frames = int(self.invuln_frames or 0)
+        except Exception:
+            frames = 0
+        return f"{frames}f" if frames > 0 else ""
 
 
 def _valid_active_window(start: Any, end: Any) -> Optional[Tuple[int, int]]:
@@ -420,12 +490,53 @@ def _state_lookup_keys(state_id: int) -> Tuple[int, ...]:
     return tuple(keys)
 
 
+def _parse_invuln_frames(raw: Any) -> int:
+    if raw is None:
+        return 0
+    if isinstance(raw, (int, float)):
+        try:
+            return max(0, int(raw))
+        except Exception:
+            return 0
+    txt = str(raw or "").strip().lower()
+    if not txt:
+        return 0
+    vals = []
+    for m in re.finditer(r"(\d+)\s*f", txt):
+        try:
+            vals.append(int(m.group(1)))
+        except Exception:
+            pass
+    if vals:
+        return max(vals)
+    return 0
+
+
+def is_frame_data_invuln(fd: Optional[MoveFrameData], action_frame: Optional[int]) -> bool:
+    if fd is None or action_frame is None:
+        return False
+    try:
+        frames = int(fd.invuln_frames or 0)
+    except Exception:
+        return False
+    return frames > 0 and 1 <= int(action_frame) <= frames
+
+
 def _dim_hitbox_color(color: Tuple[int, int, int]) -> Tuple[int, int, int]:
     r, g, b = color[:3]
     return (
         max(35, int(r * 0.45)),
         max(35, int(g * 0.45)),
         max(35, int(b * 0.45)),
+    )
+
+
+def _soften_hurt_color(color: Tuple[int, int, int], factor: float = 0.58, floor: int = 36) -> Tuple[int, int, int]:
+    r, g, b = color[:3]
+    return (
+        max(floor, int(r * factor)),
+        max(floor, int(g * factor)),
+        max(floor, int(b * factor)),
     )
 
 
@@ -534,7 +645,8 @@ def build_frame_data_cache() -> Dict[str, Dict[int, MoveFrameData]]:
                 if win is not None and win not in windows:
                     windows.append(win)
 
-            if not windows:
+            invuln_frames = _parse_invuln_frames(mv.get("invuln_frames") or mv.get("invuln"))
+            if not windows and invuln_frames <= 0:
                 continue
 
             try:
@@ -546,10 +658,15 @@ def build_frame_data_cache() -> Dict[str, Dict[int, MoveFrameData]]:
                 move_id=mid,
                 move_name=str(mv.get("move_name") or f"anim_{mid:04X}"),
                 active_windows=tuple(windows),
+                invuln_frames=invuln_frames,
             )
 
             for key in _state_lookup_keys(mid):
-                if key not in slot_map:
+                previous = slot_map.get(key)
+                # Prefer the canonical full action ID over a low-byte/internal
+                # script alias.  This matters for Shoryu 0x0136/7/8, whose
+                # live state must not be shadowed by an unrelated 0x0036 row.
+                if previous is None or ((mid & 0xFF00) and not (int(previous.move_id) & 0xFF00)):
                     slot_map[key] = fd
 
         fd_by_slot[slot_name] = slot_map
@@ -581,6 +698,15 @@ HURTBOX_DESC_COUNT = 24
 HURTBOX_MIN_RADIUS = 0.025
 HURTBOX_MAX_RADIUS = 0.85
 HURTBOX_CONTACT_PAD = 0.03
+# Standby teammates keep descriptor pointers, but many of those matrices are
+# zero/degenerate/stale.  Reject bad transforms before drawing and require a
+# coherent body rig before a whole slot is considered renderable.
+HURTBOX_MATRIX_MIN_ROW_NORM = 0.18
+HURTBOX_MATRIX_MAX_ROW_NORM = 4.00
+HURTBOX_MATRIX_MAX_TRANSLATION = 45.0
+HURTBOX_MIN_COHERENT_DESCRIPTORS = 5
+HURTBOX_COHERENT_XY_RANGE = 6.0
+HURTBOX_COHERENT_Z_RANGE = 5.0
 # Reaction/hitstun states from move_id_map_charagnostic.csv.  The first
 # hurtbox probe only drew when a transient hit-contact record was found,
 # which often disappears by the time the overlay frame paints.  Keep the
@@ -617,6 +743,15 @@ DISPLAY = DisplayConfig(
 )
 
 USE_LIVE_CAMERA = True
+# TvC camera's Y/Z view affine is kept beside the camera position.  The
+# overlay used to ignore this tilt transform, which is why bone hurtboxes
+# gradually drifted during camera follow / super-jump pans.
+CAMERA_VIEW_COS_OFF = 0x20
+CAMERA_VIEW_SIN_OFF = 0x24
+CAMERA_VIEW_Y_TRANSLATE_OFF = 0x28
+CAMERA_DEPTH_Y_COEFF_OFF = 0x30
+CAMERA_DEPTH_Z_COEFF_OFF = 0x34
+CAMERA_DEPTH_TRANSLATE_OFF = 0x38
 
 COLORS: Dict[str, List[Tuple[int, int, int]]] = {
     "P1": [(255, 60, 60), (255, 140, 0), (255, 220, 0)],
@@ -630,6 +765,17 @@ PROJ_COLORS: Dict[str, Tuple[int, int, int]] = {
     "P2": (180, 140, 255),
     "P3": (255, 160, 210),
     "P4": (160, 255, 200),
+}
+
+HURT_REGION_COLORS: Dict[str, Tuple[int, int, int]] = {
+    "head": (165, 245, 255),
+    "torso": (88, 210, 255),
+    "pelvis": (88, 160, 255),
+    "arm_l": (90, 250, 205),
+    "arm_r": (90, 250, 205),
+    "leg_l": (135, 210, 255),
+    "leg_r": (135, 210, 255),
+    "other": (95, 235, 255),
 }
 
 COL_CROSS = (255, 255, 255)
@@ -654,14 +800,14 @@ _surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
 # Cached hurtbox sprites.  Always-on hurtboxes need to be readable, but creating
 # a translucent Surface per box per frame tanks FPS.  Cache by screen radius,
 # color, and highlight state so the draw path is a cheap blit.
-_hurt_surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool], pygame.Surface] = {}
+_hurt_surface_cache: Dict[Tuple[int, Tuple[int,int,int], bool, bool, bool], pygame.Surface] = {}
 
-def _get_cached_hurtbox_surface(rpx: int, color: Tuple[int,int,int], highlight: bool, detail: bool = True) -> pygame.Surface:
+def _get_cached_hurtbox_surface(rpx: int, color: Tuple[int,int,int], highlight: bool, detail: bool = True, invuln: bool = False) -> pygame.Surface:
     """Cached bright-outline hurtbox sprite.
 
-    All hurtboxes stay transparent/unfilled, but every circle is intentionally
-    bright and eye-catching. Contact/collision gets a stronger yellow-white
-    highlight. Geometry is unchanged; this is only paint style.
+    Cyan = normal hurtbox, yellow = contacted/highlighted, green = startup
+    invulnerability currently active for the owning move. Geometry is unchanged;
+    this is only paint style.
     """
     rpx = max(2, int(rpx))
     rpx = max(2, int(round(rpx / 2.0) * 2))
@@ -670,12 +816,17 @@ def _get_cached_hurtbox_surface(rpx: int, color: Tuple[int,int,int], highlight: 
         rim = (255, 232, 100)
         halo = (255, 247, 180)
         inner = (255, 255, 255)
-        key = (rpx, rim, True, True)
+        key = (rpx, rim, True, bool(detail), False)
+    elif invuln:
+        rim = (88, 255, 130)
+        halo = (170, 255, 190)
+        inner = (240, 255, 244)
+        key = (rpx, rim, False, bool(detail), True)
     else:
-        rim = (95, 235, 255)
-        halo = (120, 248, 255)
-        inner = (225, 252, 255)
-        key = (rpx, rim, False, True)
+        rim = color[:3] if color else (95, 235, 255)
+        halo = tuple(min(255, c + 25) for c in rim)
+        inner = tuple(min(255, c + 120) for c in rim)
+        key = (rpx, rim, False, bool(detail), False)
 
     surf = _hurt_surface_cache.get(key)
     if surf is not None:
@@ -693,14 +844,17 @@ def _get_cached_hurtbox_surface(rpx: int, color: Tuple[int,int,int], highlight: 
         pygame.draw.circle(hi, (*rim, 255), (cx, cy), rr, 3 * scale)
         pygame.draw.circle(hi, (*inner, 210), (cx, cy), max(2, rr - 4 * scale), 1 * scale)
     else:
-        # Same bright treatment for all hurtboxes so no circle fades into the background.
-        pygame.draw.circle(hi, (*halo, 30), (cx, cy), rr + 3 * scale, 2 * scale)
-        pygame.draw.circle(hi, (*rim, 220), (cx, cy), rr, 2 * scale)
-        pygame.draw.circle(hi, (*inner, 92), (cx, cy), max(2, rr - 4 * scale), 1 * scale)
+        outline_w = 2 * scale if detail else 1 * scale
+        halo_alpha = 30 if detail else 12
+        rim_alpha = 220 if detail else 108
+        inner_alpha = 92 if detail else 44
+        pygame.draw.circle(hi, (*halo, halo_alpha), (cx, cy), rr + 3 * scale, outline_w)
+        pygame.draw.circle(hi, (*rim, rim_alpha), (cx, cy), rr, outline_w)
+        pygame.draw.circle(hi, (*inner, inner_alpha), (cx, cy), max(2, rr - 4 * scale), 1 * scale)
 
     # Minimal center reticle.
-    c = (4 if highlight else 3) * scale
-    a = 225 if highlight else 125
+    c = (4 if highlight else (3 if detail else 2)) * scale
+    a = 225 if highlight else (125 if detail else 68)
     pygame.draw.line(hi, (255, 255, 255, a), (cx - c, cy), (cx + c, cy), 1 * scale)
     pygame.draw.line(hi, (255, 255, 255, a), (cx, cy - c), (cx, cy + c), 1 * scale)
 
@@ -1134,6 +1288,52 @@ def _valid_matrix_ptr(ptr: int) -> bool:
     return 0x80000000 <= ptr < 0x81800000 and (ptr & 3) == 0
 
 
+def _read_matrix_3x4(matrix_ptr: int) -> Optional[Tuple[float, ...]]:
+    vals: List[float] = []
+    for off in range(0, 0x30, 4):
+        raw = rd32(matrix_ptr + off)
+        if raw is None:
+            return None
+        try:
+            value = struct.unpack(">f", struct.pack(">I", int(raw) & 0xFFFFFFFF))[0]
+        except Exception:
+            return None
+        if not math.isfinite(value):
+            return None
+        vals.append(value)
+    return tuple(vals)
+
+
+def _valid_bone_matrix(matrix_ptr: int) -> bool:
+    """Reject uninitialized/stale bone matrices without rejecting large fighters.
+
+    PTX's live giant-body matrices still have normal-sized orthonormal rows.
+    A parked teammate in the supplied dump instead has zero rows, a 59.0 row,
+    and an absurd translation.  Those are descriptor leftovers, not renderable
+    body geometry.
+    """
+    values = _read_matrix_3x4(matrix_ptr)
+    if values is None:
+        return False
+    rows = ((values[0], values[1], values[2]),
+            (values[4], values[5], values[6]),
+            (values[8], values[9], values[10]))
+    for row in rows:
+        norm = math.sqrt(sum(component * component for component in row))
+        if not (HURTBOX_MATRIX_MIN_ROW_NORM <= norm <= HURTBOX_MATRIX_MAX_ROW_NORM):
+            return False
+    if any(abs(values[idx]) > HURTBOX_MATRIX_MAX_TRANSLATION for idx in (3, 7, 11)):
+        return False
+    # A body matrix must span 3D space.  This rejects all-zero / collapsed rows
+    # while allowing normal mirrored bones.
+    det = (
+        values[0] * ((values[5] * values[10]) - (values[6] * values[9]))
+        - values[1] * ((values[4] * values[10]) - (values[6] * values[8]))
+        + values[2] * ((values[4] * values[9]) - (values[5] * values[8]))
+    )
+    return 0.015 <= abs(det) <= 16.0
+
+
 def _matrix_transform_point(matrix_ptr: int, lx: float, ly: float, lz: float) -> Tuple[float, float, float]:
     # Live bone matrices are row-major 3x4:
     #   [r00 r01 r02 tx]
@@ -1165,6 +1365,8 @@ def read_hurtboxes(slot_name: str, slot_base: int) -> List[HurtboxState]:
             break
         if not _valid_matrix_ptr(matrix_ptr):
             continue
+        if not _valid_bone_matrix(matrix_ptr):
+            continue
 
         lx = _rf(desc + 0x08)
         ly = _rf(desc + 0x0C)
@@ -1190,6 +1392,43 @@ def read_hurtboxes(slot_name: str, slot_base: int) -> List[HurtboxState]:
             raw_type=raw_type,
         ))
     return out
+
+
+def _slot_has_coherent_hurt_rig(slot_base: int, hlist: List[HurtboxState]) -> bool:
+    """Return whether a slot currently owns a renderable on-stage body rig.
+
+    This is intentionally geometry-based rather than move-ID based: assist
+    standby can use the same idle action ID as the active fighter, but its bone
+    list is partial/stale.  A real body has several sane descriptors clustered
+    around the fighter root.
+    """
+    min_required = max(4, min(HURTBOX_MIN_COHERENT_DESCRIPTORS, len(hlist)))
+    if len(hlist) < min_required:
+        return False
+    try:
+        char_id = int(rd32(slot_base + OFF_CHAR_ID) or 0)
+        if char_id <= 0 or char_id == 0xFFFFFFFF:
+            return False
+        # Do not hard-reject by +0x04 activity here.
+        # Giant/solo layouts can place the visible opponent in a non-zero slot,
+        # while true standby/parked partners are already rejected by the root
+        # sentinel/offscreen tests below.
+        root_x, root_y, root_z = read_fighter_root(slot_base)
+    except Exception:
+        return False
+    if not all(math.isfinite(v) for v in (root_x, root_y, root_z)):
+        return False
+    # The common parked/off-stage sentinel is 90,90.
+    if abs(root_y) >= 70.0 or abs(root_z) >= 70.0:
+        return False
+
+    coherent = 0
+    for hb in hlist:
+        if (abs(hb.x - root_x) <= HURTBOX_COHERENT_XY_RANGE
+                and abs(hb.y - root_y) <= HURTBOX_COHERENT_XY_RANGE
+                and abs(hb.z - root_z) <= HURTBOX_COHERENT_Z_RANGE):
+            coherent += 1
+    return coherent >= min_required
 
 
 def _slot_name_from_base(ptr: int) -> Optional[str]:
@@ -1245,6 +1484,104 @@ def hurtbox_contains_contact(hurtbox: HurtboxState, contact: HitContactState) ->
     return math.hypot(hurtbox.x - contact.x, hurtbox.y - contact.y) <= (hurtbox.radius + HURTBOX_CONTACT_PAD)
 
 
+def classify_hurtbox_regions(hlist: List[HurtboxState]) -> Dict[str, Any]:
+    """Pick a compact body-region subset from the live skeletal circles.
+
+    The descriptor order is not a stable semantic order, so this works from
+    screen/world position: highest = head, central large zones = torso/pelvis,
+    outer upper zones = arms, outer lower zones = legs. It is a display grouping
+    only; it does not alter the actual collision geometry.
+    """
+    if not hlist:
+        return {"region_by_index": {}, "major_indices": set(), "label_by_index": {}}
+
+    weight = sum(max(0.05, float(hb.radius)) for hb in hlist)
+    center_x = (
+        sum(float(hb.x) * max(0.05, float(hb.radius)) for hb in hlist) / weight
+        if weight > 0.0 else sum(float(hb.x) for hb in hlist) / float(len(hlist))
+    )
+    ys = [float(hb.y) for hb in hlist]
+    top_y, bottom_y = max(ys), min(ys)
+    span = max(0.25, top_y - bottom_y)
+    arm_threshold = max(0.14, max(abs(float(hb.x) - center_x) for hb in hlist) * 0.50)
+
+    used: set[int] = set()
+
+    def choose(candidates: List[HurtboxState], score):
+        best = None
+        best_value = None
+        for hb in candidates:
+            if hb.index in used:
+                continue
+            value = score(hb)
+            if best is None or value > best_value:
+                best, best_value = hb, value
+        if best is not None:
+            used.add(best.index)
+        return best
+
+    head = choose(list(hlist), lambda hb: float(hb.y) + float(hb.radius) * 0.25)
+    torso_band = [hb for hb in hlist if bottom_y + span * 0.48 <= float(hb.y) <= bottom_y + span * 0.84]
+    torso = choose(torso_band or list(hlist), lambda hb: float(hb.radius) * 2.0 - abs(float(hb.x) - center_x))
+    pelvis_band = [hb for hb in hlist if bottom_y + span * 0.25 <= float(hb.y) <= bottom_y + span * 0.60]
+    pelvis = choose(pelvis_band or list(hlist), lambda hb: float(hb.radius) * 2.0 - abs(float(hb.x) - center_x))
+
+    left_arm_pool = [hb for hb in hlist if float(hb.x) < center_x - arm_threshold and float(hb.y) > bottom_y + span * 0.36]
+    right_arm_pool = [hb for hb in hlist if float(hb.x) > center_x + arm_threshold and float(hb.y) > bottom_y + span * 0.36]
+    left_arm = choose(left_arm_pool or [hb for hb in hlist if float(hb.x) < center_x], lambda hb: abs(float(hb.x) - center_x) + float(hb.radius) * 0.15)
+    right_arm = choose(right_arm_pool or [hb for hb in hlist if float(hb.x) > center_x], lambda hb: abs(float(hb.x) - center_x) + float(hb.radius) * 0.15)
+
+    left_leg_pool = [hb for hb in hlist if float(hb.x) < center_x - arm_threshold * 0.35 and float(hb.y) < bottom_y + span * 0.48]
+    right_leg_pool = [hb for hb in hlist if float(hb.x) > center_x + arm_threshold * 0.35 and float(hb.y) < bottom_y + span * 0.48]
+    left_leg = choose(left_leg_pool or [hb for hb in hlist if float(hb.x) < center_x], lambda hb: (bottom_y + span * 0.52 - float(hb.y)) + float(hb.radius) * 0.10)
+    right_leg = choose(right_leg_pool or [hb for hb in hlist if float(hb.x) > center_x], lambda hb: (bottom_y + span * 0.52 - float(hb.y)) + float(hb.radius) * 0.10)
+
+    chosen = {
+        "head": head,
+        "torso": torso,
+        "pelvis": pelvis,
+        "arm_l": left_arm,
+        "arm_r": right_arm,
+        "leg_l": left_leg,
+        "leg_r": right_leg,
+    }
+    pretty = {
+        "head": "HEAD", "torso": "TORSO", "pelvis": "PELVIS",
+        "arm_l": "ARM", "arm_r": "ARM", "leg_l": "LEG", "leg_r": "LEG",
+    }
+    region_by_index: Dict[int, str] = {}
+    label_by_index: Dict[int, str] = {}
+    for region, hb in chosen.items():
+        if hb is None:
+            continue
+        region_by_index[hb.index] = region
+        label_by_index[hb.index] = pretty[region]
+
+    # Give the detailed/debug modes a section tint for every remaining circle.
+    for hb in hlist:
+        if hb.index in region_by_index:
+            continue
+        y_norm = (float(hb.y) - bottom_y) / span
+        dx = float(hb.x) - center_x
+        if y_norm >= 0.84:
+            region = "head"
+        elif y_norm <= 0.34:
+            region = "leg_l" if dx < 0.0 else "leg_r"
+        elif abs(dx) >= arm_threshold and y_norm >= 0.35:
+            region = "arm_l" if dx < 0.0 else "arm_r"
+        elif y_norm <= 0.54:
+            region = "pelvis"
+        else:
+            region = "torso"
+        region_by_index[hb.index] = region
+
+    return {
+        "region_by_index": region_by_index,
+        "major_indices": set(label_by_index),
+        "label_by_index": label_by_index,
+    }
+
+
 def should_draw_reaction_hurtboxes(slot_base: int) -> bool:
     state_id = read_state_id(slot_base)
     return state_id in HURTBOX_REACTION_STATE_IDS
@@ -1276,6 +1613,23 @@ def read_camera_pos(layout: CameraLayout):
         _rf(layout.base + layout.off_y),
         _rf(layout.base + layout.off_z),
         _rf(layout.base + layout.off_w),
+    )
+
+
+def read_camera_view_affine(layout: CameraLayout) -> Tuple[float, float, float, float, float, float]:
+    """Read the live Y/Z camera rows.
+
+    The first row maps world Y/Z into screen Y. The second row maps world Y/Z
+    into camera-space depth. Giant bodies have much larger Z spread, so their
+    hurtboxes drift unless the per-point depth row is applied too.
+    """
+    return (
+        _rf(layout.base + CAMERA_VIEW_COS_OFF),
+        _rf(layout.base + CAMERA_VIEW_SIN_OFF),
+        _rf(layout.base + CAMERA_VIEW_Y_TRANSLATE_OFF),
+        _rf(layout.base + CAMERA_DEPTH_Y_COEFF_OFF),
+        _rf(layout.base + CAMERA_DEPTH_Z_COEFF_OFF),
+        _rf(layout.base + CAMERA_DEPTH_TRANSLATE_OFF),
     )
 
 
@@ -1357,7 +1711,14 @@ def apply_overlay_style(hwnd: int) -> None:
     win32gui.SetWindowLong(hwnd, win32con.GWL_STYLE, style)
 
     ex = win32gui.GetWindowLong(hwnd, win32con.GWL_EXSTYLE)
-    ex |= win32con.WS_EX_LAYERED
+    # Overlay must never intercept clicks intended for Dolphin or the main GUI.
+    # It is a visual layer only; all control stays in the existing application.
+    ex |= (
+        win32con.WS_EX_LAYERED
+        | win32con.WS_EX_TRANSPARENT
+        | win32con.WS_EX_NOACTIVATE
+        | win32con.WS_EX_TOOLWINDOW
+    )
     ex &= ~win32con.WS_EX_TOPMOST
     win32gui.SetWindowLong(hwnd, win32con.GWL_EXSTYLE, ex)
 
@@ -1390,6 +1751,176 @@ def sync_overlay_to_dolphin(dolphin_hwnd: int, overlay_hwnd: int):
     return w, h
 
 
+def _legend_window_worker() -> None:
+    try:
+        import tkinter as tk
+    except Exception:
+        return
+
+    root = tk.Tk()
+    root.title("TvC Hitbox Legend")
+    root.configure(bg="#101820")
+    root.resizable(False, False)
+    try:
+        root.attributes("-topmost", False)
+    except Exception:
+        pass
+
+    items = [
+        ("#ff7a38", "HIT", "player attack hitbox"),
+        ("#79efff", "HURT", "normal hurtbox (body-section colors in clean mode)"),
+        ("#6dff8c", "INVUL", "hurtbox while startup invulnerability is active"),
+        ("#ffffff", "CONTACT", "resolver contact marker / impact focus"),
+        ("#ffb478", "PROJECTILE", "projectile hitbox or sweep"),
+    ]
+
+    tk.Label(root, text="Overlay legend", fg="#e8f4ff", bg="#101820", font=("Consolas", 12, "bold")).pack(anchor="w", padx=10, pady=(10, 6))
+    tk.Label(root, text="Hurtbox view", fg="#b8d8f0", bg="#101820", font=("Consolas", 10, "bold")).pack(anchor="w", padx=10)
+
+    mode_row = tk.Frame(root, bg="#101820")
+    mode_row.pack(anchor="w", padx=10, pady=(4, 8))
+    mode_buttons = {}
+
+    def _refresh_mode_buttons() -> None:
+        current = _read_hurtbox_view_mode()
+        for mode, button in mode_buttons.items():
+            selected = (mode == current)
+            button.configure(
+                bg="#2f6f8c" if selected else "#1a2a38",
+                fg="#ffffff" if selected else "#b8d8f0",
+                activebackground="#3a83a3" if selected else "#253b4d",
+                activeforeground="#ffffff",
+                relief="sunken" if selected else "raised",
+            )
+
+    def _choose_mode(mode: str) -> None:
+        set_hurtbox_view_mode(mode)
+        _refresh_mode_buttons()
+
+    for _mode, _label in (("clean", "Clean"), ("detailed", "Detailed"), ("debug", "Debug")):
+        btn = tk.Button(
+            mode_row,
+            text=_label,
+            command=lambda m=_mode: _choose_mode(m),
+            font=("Consolas", 10, "bold"),
+            bd=1,
+            padx=10,
+            pady=3,
+            cursor="hand2",
+        )
+        btn.pack(side="left", padx=(0, 5))
+        mode_buttons[_mode] = btn
+    _refresh_mode_buttons()
+
+    tk.Label(root, text="Clean = core sections  •  Detailed = all boxes, helpers dim  •  Debug = all labels", fg="#b8d8f0", bg="#101820", font=("Consolas", 9)).pack(anchor="w", padx=10, pady=(0, 8))
+
+    body = tk.Frame(root, bg="#101820")
+    body.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+    for color, name, desc in items:
+        row = tk.Frame(body, bg="#101820")
+        row.pack(anchor="w", fill="x", pady=2)
+        sw = tk.Canvas(row, width=18, height=18, bg="#101820", highlightthickness=0, bd=0)
+        sw.create_oval(2, 2, 16, 16, outline=color, width=3)
+        sw.pack(side="left")
+        tk.Label(row, text=name, fg="#f4fbff", bg="#101820", font=("Consolas", 10, "bold"), width=10, anchor="w").pack(side="left", padx=(8, 0))
+        tk.Label(row, text=desc, fg="#d6e5ef", bg="#101820", font=("Consolas", 10), anchor="w").pack(side="left", padx=(6, 0))
+
+    shown = False
+
+    def _manual_hide() -> None:
+        global _legend_manual_hidden
+        _legend_manual_hidden = True
+        root.withdraw()
+
+    def _sync_visibility() -> None:
+        nonlocal shown
+        effective = bool(_legend_visible_requested and not _legend_manual_hidden)
+        # Only change visibility when the overlay toggle changes.  Never call
+        # lift(), never force-focus, and never resurrect a manually hidden or
+        # minimized legend every frame.
+        if effective != shown:
+            try:
+                if effective:
+                    root.deiconify()
+                else:
+                    root.withdraw()
+            except Exception:
+                pass
+            shown = effective
+        try:
+            _refresh_mode_buttons()
+        except Exception:
+            pass
+        root.after(200, _sync_visibility)
+
+    root.withdraw()
+    root.protocol("WM_DELETE_WINDOW", _manual_hide)
+    root.after(0, _sync_visibility)
+    root.mainloop()
+
+
+def set_legend_window_visible(visible: bool) -> None:
+    global _legend_window_started, _legend_visible_requested, _legend_manual_hidden
+    was_visible = bool(_legend_visible_requested)
+    _legend_visible_requested = bool(visible)
+    # Turning the overlay off resets a manual hide.  The next explicit overlay
+    # enable can show the legend again, but it never reappears while still on.
+    if not _legend_visible_requested:
+        _legend_manual_hidden = False
+        return
+    if not was_visible:
+        _legend_manual_hidden = False
+    if _legend_window_started:
+        return
+    _legend_window_started = True
+    try:
+        threading.Thread(target=_legend_window_worker, name="hitbox_legend_window", daemon=True).start()
+    except Exception:
+        _legend_window_started = False
+
+
+def _read_live_invuln_frames(slot_base: int) -> int:
+    """Read the active action's +0x1218 invul signature without profile cache.
+
+    This is intentionally a small direct read so the hitbox layer stays correct
+    even while Frame Data's optional profile work is still running.
+    """
+    try:
+        chr_tbl = rd32(slot_base + OFF_CHR_TBL) or 0
+        action_id = decode_state_id(read_state_raw(slot_base))
+        if not (0x90000000 <= chr_tbl <= 0x94000000) or action_id <= 0 or action_id > 0x1FFF:
+            return 0
+        rel = rd32(chr_tbl + (int(action_id) * 4)) or 0
+        if rel <= 0 or rel > 0x00400000:
+            return 0
+        root = chr_tbl + rel
+        # Shoryu stores the header 8 bytes before its action root; Jun 6B has
+        # it inside the action section.  Scan both layouts in one compact read.
+        block = rbytes(max(0, root - 8), 0x900)
+        if not block:
+            return 0
+        sig = b"\x04\x01\x60\x00\x00\x00\x12\x18\x3F\x00\x00\x00"
+        best = 0
+        pos = 0
+        while True:
+            idx = block.find(sig, pos)
+            if idx < 0:
+                break
+            pos = idx + 1
+            if idx + 16 > len(block):
+                continue
+            raw = int.from_bytes(block[idx + 12:idx + 16], "big", signed=False)
+            frames = (raw >> 8) & 0xFFFF if (raw & 0xFF) == 0 else (raw & 0xFFFF)
+            if 3 <= frames <= 120:
+                best = max(best, frames)
+        return best
+    except Exception:
+        return 0
+
+
+
+
+
 # ----------------------------
 # Overlay
 # ----------------------------
@@ -1401,6 +1932,15 @@ class Overlay:
         self.cam_y = 0.0
         self.cam_z = 0.0
         self.ref_cam_z = None
+        self.cam_view_cos = 1.0
+        self.cam_view_sin = 0.0
+        self.cam_view_y_translate = 0.0
+        self.cam_depth_y_coeff = 0.0
+        self.cam_depth_z_coeff = 1.0
+        self.cam_depth_translate = 0.0
+        self.cam_view_affine_valid = False
+        self.cam_depth_affine_valid = False
+        self.giant_x_anchor: Optional[float] = None
         self.ppu = cfg.baseline_ppu
         self.zoom = cfg.zoom
         self.w = cfg.baseline_w
@@ -1456,17 +1996,95 @@ class Overlay:
         self.window_aspect = w / float(h)
         self.stretch_factor = self.window_aspect / self.base_aspect
 
+    def set_camera_view_affine(
+        self,
+        cos_yz: float,
+        sin_yz: float,
+        translate_y: float,
+        depth_y_coeff: float = 0.0,
+        depth_z_coeff: float = 1.0,
+        depth_translate: float = 0.0,
+    ) -> None:
+        try:
+            valid = (
+                math.isfinite(cos_yz) and math.isfinite(sin_yz) and math.isfinite(translate_y)
+                and 0.75 <= abs(cos_yz) <= 1.25
+                and abs(sin_yz) <= 0.60
+            )
+        except Exception:
+            valid = False
+        if valid:
+            self.cam_view_cos = float(cos_yz)
+            self.cam_view_sin = float(sin_yz)
+            self.cam_view_y_translate = float(translate_y)
+            self.cam_view_affine_valid = True
+        else:
+            self.cam_view_cos = 1.0
+            self.cam_view_sin = 0.0
+            self.cam_view_y_translate = 0.0
+            self.cam_view_affine_valid = False
+
+        try:
+            depth_valid = (
+                math.isfinite(depth_y_coeff) and math.isfinite(depth_z_coeff) and math.isfinite(depth_translate)
+                and abs(depth_z_coeff) >= 0.75 and abs(depth_z_coeff) <= 1.25
+                and abs(depth_y_coeff) <= 0.60
+            )
+        except Exception:
+            depth_valid = False
+        if depth_valid:
+            self.cam_depth_y_coeff = float(depth_y_coeff)
+            self.cam_depth_z_coeff = float(depth_z_coeff)
+            self.cam_depth_translate = float(depth_translate)
+            self.cam_depth_affine_valid = True
+        else:
+            self.cam_depth_y_coeff = 0.0
+            self.cam_depth_z_coeff = 1.0
+            self.cam_depth_translate = 0.0
+            self.cam_depth_affine_valid = False
+
+    def set_giant_x_anchor(self, anchor_x: Optional[float]) -> None:
+        # Compatibility only.  Giant mode now uses the real camera X just like
+        # the normal projection path; no synthetic midpoint anchor is applied.
+        self.giant_x_anchor = None
+
     def world_to_screen(self, world_x: float, world_y: float, world_z: float):
+        """Single camera projection for normal and giant fighters.
+
+        Giant mode is not given a fabricated midpoint, X/Y multiplier, or screen
+        offset.  It uses the same camera X/Y transform as ordinary fighters;
+        the only difference is the live camera distance (Z), exactly as the
+        game camera reports it.
+        """
         if self.ref_cam_z is None and abs(self.cam_z) > 0.0001:
             self.ref_cam_z = self.cam_z
+
+        effective_ref_cam_z = self.ref_cam_z
+        # When launched directly in giant mode, seed from the ordinary camera
+        # distance rather than from the already-zoomed-out giant distance.
+        if abs(self.cam_z) > 0.0001 and self.cam_z >= GIANT_CAMERA_Z_THRESHOLD:
+            if effective_ref_cam_z is None or effective_ref_cam_z >= GIANT_CAMERA_Z_THRESHOLD:
+                effective_ref_cam_z = GIANT_FALLBACK_REF_CAM_Z
+
         camera_scale = (
-            self.ref_cam_z / self.cam_z
-            if (self.ref_cam_z is not None and abs(self.cam_z) > 0.0001)
+            effective_ref_cam_z / self.cam_z
+            if (effective_ref_cam_z is not None and abs(self.cam_z) > 0.0001)
             else 1.0
         )
         zoom_scale = self.cfg.baseline_ppu * self.viewport_scale * camera_scale
         sx = self.cx + (world_x - self.cam_x) * zoom_scale * self.stretch_factor
-        sy = self.cy - ((world_y - self.cam_y) + WORLD_Y_OFFSET) * zoom_scale
+
+        if self.cam_view_affine_valid:
+            center_world_y = self.cam_y - WORLD_Y_OFFSET
+            view_y = (self.cam_view_cos * world_y) + (self.cam_view_sin * world_z) + self.cam_view_y_translate
+            center_view_y = (self.cam_view_cos * center_world_y) + self.cam_view_y_translate
+            projected_y = view_y - center_view_y
+        else:
+            projected_y = (world_y - self.cam_y) + WORLD_Y_OFFSET
+
+        sy = self.cy - (projected_y * zoom_scale)
+        if abs(self.cam_z) >= GIANT_CAMERA_Z_THRESHOLD:
+            sy += GIANT_Y_SCREEN_OFFSET
         return int(sx), int(sy), 1.0, zoom_scale
 
     def clear(self):
@@ -1501,9 +2119,15 @@ class Overlay:
         rpx = max(2, int((r / depth) * focal))
         if rpx <= 0 or rpx > 5000:
             return None
+        # Do not build/blit a surface for off-stage pools or stale descriptors.
+        # This also removes partial circles that were being clipped at screen edges
+        # for fighters parked at ±30 in assist standby.
+        margin = max(72, rpx + 28)
+        if (sx + rpx) < -margin or (sx - rpx) > (self.w + margin) or (sy + rpx) < -margin or (sy - rpx) > (self.h + margin):
+            return None
         return sx, sy, rpx
 
-    def draw_hitbox(self, x, y, z, r, color, label, is_active=False):
+    def draw_hitbox(self, x, y, z, r, color, label, is_active=False, invuln=False):
         result = self._project_hitbox(x, y, z, r)
         if result is None:
             return
@@ -1538,6 +2162,13 @@ class Overlay:
 
         halo_alpha = int((42 if is_active else 28) + 26 * pulse_t)
         pygame.draw.circle(surf, (*core_fill, halo_alpha), (cx, cy), draw_rpx + 7)
+
+        # Invulnerable startup stays obvious even when the attacker already has
+        # orange active hitboxes: preserve the danger core, add a neon-green
+        # outer ring that matches the defender's green hurtbox outlines.
+        if invuln:
+            pygame.draw.circle(surf, (88, 255, 130, 235), (cx, cy), draw_rpx + 10, 3)
+            pygame.draw.circle(surf, (178, 255, 196, 120), (cx, cy), draw_rpx + 14, 1)
 
         # Dark punch-out ring so the hitbox remains visible over dense hurtbox lines.
         pygame.draw.circle(surf, (*dark_rim, 190), (cx, cy), draw_rpx + 4, 5)
@@ -1575,7 +2206,7 @@ class Overlay:
             badge.blit(txt, (4, 2))
             self.screen.blit(badge, (bx, by))
 
-    def draw_hurtbox(self, x, y, z, r, color, label, highlight=False, detail=True):
+    def draw_hurtbox(self, x, y, z, r, color, label, highlight=False, detail=True, invuln=False, show_label=False):
         """Polished cached hurtbox draw.
 
         Same data and same geometry as V13.  The difference is visual language:
@@ -1587,15 +2218,20 @@ class Overlay:
         sx, sy, rpx = result
         rpx = max(2, int(rpx))
 
-        surf = _get_cached_hurtbox_surface(rpx, color[:3], bool(highlight), bool(detail))
+        surf = _get_cached_hurtbox_surface(rpx, color[:3], bool(highlight), bool(detail), bool(invuln))
         cx = surf.get_width() // 2
         cy = surf.get_height() // 2
         self.screen.blit(surf, (sx - cx, sy - cy))
 
-        # Only contacted/highlighted hurtboxes get text, so normal play stays clean.
-        if highlight and self.font_small is not None:
+        if (highlight or show_label) and self.font_small is not None:
+            if highlight:
+                fg = (255, 245, 130)
+            elif invuln:
+                fg = (115, 255, 155)
+            else:
+                fg = (228, 246, 255)
             shadow = self.font_small.render(label, True, (0, 0, 0))
-            txt = self.font_small.render(label, True, (255, 245, 130))
+            txt = self.font_small.render(label, True, fg)
             self.screen.blit(shadow, (sx + rpx + 7, sy - 7))
             self.screen.blit(txt, (sx + rpx + 6, sy - 8))
 
@@ -1724,35 +2360,59 @@ class Overlay:
 
 
     def draw_hud(self, counts, motion_filter: MotionFilter, node_tracker: ProjectileNodeTracker, hurt_counts=None):
-        if self.font_hud is None:
-            return
-        base = HURTBOX_BUILD_TAG + " | " + " | ".join([f"{k}={v}" for k, v in counts.items()])
-        ref_str = f"{self.ref_cam_z:.4f}" if self.ref_cam_z is not None else "none"
-        debug = f"  |  cam_z={self.cam_z:.4f}  ref_z={ref_str}"
-        suppressed_total = sum(1 for s in motion_filter._states.values() if s.suppressed)
-        supp_str = f"  |  suppressed={suppressed_total}"
-        active_prj = len(node_tracker.visible_nodes())
-        prj_str = f"  |  prj_active={active_prj}"
-        hurt_str = "  |  hurt=NONE"
-        if hurt_counts is not None:
-            hurt_str = "  |  hurt=" + ",".join([f"{k}:{v}" for k, v in hurt_counts.items()])
-        hud = self.font_hud.render(base + debug + supp_str + prj_str, True, (210, 230, 255))
-        self.screen.blit(hud, (8, 8))
-
-        # Put hurtbox counts on their own line so they do not get clipped off the
-        # right edge of the Dolphin window.
-        try:
-            hurt_line = self.font_hud.render(hurt_str.strip(), True, (255, 255, 120))
-            self.screen.blit(hurt_line, (8, 24))
-            legend = self.font_hud.render("KEY: HIT = danger core   |   HURT = cyan outlines (focus on contact)", True, (180, 245, 255))
-            self.screen.blit(legend, (8, 40))
-            # Keep the player HUD clean.  Full per-slot sample coords were only
-            # for bring-up debugging and make the overlay harder to read.
-        except Exception:
-            pass
+        # The old multi-field debug header was useful during bring-up, but it
+        # obscures the playfield in normal use.  The legend now lives in a
+        # separate helper window instead of the top-left overlay area.
+        return
 
     def present(self):
         pygame.display.flip()
+
+
+def _derive_giant_x_anchor() -> Optional[float]:
+    """Return the live on-stage fighter midpoint for giant camera framing.
+
+    In giant matches the camera object keeps X at a neutral scene origin even
+    though the visible fight is framed around the giant/opponent pair.  Using
+    that stale zero makes the error grow as either fighter walks away from
+    center.  Root X midpoint is live, cheap, and follows the real framing.
+    """
+    xs: List[float] = []
+    for slot_base in SLOT_BASES.values():
+        try:
+            char_id = int(rd32(slot_base + OFF_CHAR_ID) or 0)
+            if char_id <= 0 or char_id == 0xFFFFFFFF:
+                continue
+            x, y, z = read_fighter_root(slot_base)
+            if not all(math.isfinite(v) for v in (x, y, z)):
+                continue
+            if abs(y) >= 70.0 or abs(z) >= 70.0:
+                continue
+            xs.append(float(x))
+        except Exception:
+            continue
+    if len(xs) >= 2:
+        return (min(xs) + max(xs)) * 0.5
+    if len(xs) == 1:
+        return xs[0]
+    return None
+
+
+def _slot_root_is_on_screen(overlay: Overlay, slot_base: int) -> bool:
+    """Cull an entire parked/off-stage fighter before stale box descriptors draw."""
+    try:
+        x, y, z = read_fighter_root(slot_base)
+        if not all(math.isfinite(v) for v in (x, y, z)):
+            return False
+        sx, sy, _d, _f = overlay.world_to_screen(x, y, z)
+        # Giant framing can place a valid opponent near/just beyond the edge
+        # before their own circles re-enter view. Keep this broad; individual
+        # geometry still clips naturally at the pygame surface.
+        margin = 700
+        return (-margin <= sx <= overlay.w + margin) and (-margin <= sy <= overlay.h + margin)
+    except Exception:
+        return False
+
 
 class HitboxRenderer:
     def __init__(self) -> None:
@@ -1766,12 +2426,14 @@ class HitboxRenderer:
         self.cached_hurtboxes: Dict[str, List[HurtboxState]] = {}
         self.cached_hit_contacts: List[HitContactState] = []
         self.hurt_counts: Dict[str, int] = {}
+        self.slot_renderable: Dict[str, bool] = {slot: False for slot in SLOT_BASES}
         self._last_hurt_update_ms: int = 0
         self._last_contact_update_ms: int = 0
         self.last_char_ids: Dict[str, int] = {}
         self.last_counts: Dict[str, int] = {}
         self.fd_by_slot: Dict[str, Dict[int, MoveFrameData]] = {}
         self._fd_scan_done = False
+        self._last_camera_mode_key: Optional[str] = None
 
         self.w = DISPLAY.baseline_w
         self.h = DISPLAY.baseline_h
@@ -1798,8 +2460,12 @@ class HitboxRenderer:
         self.cached_hurtboxes.clear()
         self.cached_hit_contacts.clear()
         self.hurt_counts = {}
+        self.slot_renderable = {slot: False for slot in SLOT_BASES}
         self.last_counts = {}
         self.motion_filter._states.clear()
+        # Keep the camera zoom anchor across character/giant switches.
+        # Giant mode uses a farther live cam_z, and the normal ref_cam_z anchor
+        # is what shrinks projection back into the correct screen scale.
         for node in getattr(self.node_tracker, "_nodes", {}).values():
             node.active = False
             node.inactive_frames = PROJECTILE_DESPAWN_FRAMES
@@ -1826,16 +2492,41 @@ class HitboxRenderer:
         slot_base: int,
         state_id: int,
         hitbox_flag: int,
-    ) -> Tuple[bool, Optional[int], Optional[MoveFrameData]]:
+    ) -> Tuple[bool, bool, Optional[int], Optional[MoveFrameData]]:
+        """Return (draw_now, is_active, action_frame, frame_data).
+
+        Frame-data lookup is also the source of the on-screen move label.  For
+        a labelled action, keep its currently allocated attack geometry visible
+        for the *entire lifetime of that state*: startup and recovery are dim;
+        only the resolved active window gets the bright/pulsing treatment.
+        The geometry disappears as soon as the labelled action/state ends.
+
+        This deliberately does not use ``active_end`` as a visibility cutoff.
+        In TvC, the live hitbox descriptors remain useful through recovery,
+        even after their collision flag has turned off.  Restricting rendering
+        to startup + active was what made them blink for only a frame.
+
+        Unknown/unlabelled states retain the exact live-flag fallback so helper
+        states, assists, and idle do not fabricate persistent hitboxes.
+        """
         fd = lookup_frame_data(self.fd_by_slot, slot_name, state_id)
         action_frame = read_action_frame(slot_base)
-        if fd is not None and action_frame is not None:
-            return is_frame_data_active(fd, action_frame), action_frame, fd
-        return (hitbox_flag == 0x53), action_frame, fd
+
+        # A profiled action is the same condition the move-label layer uses.
+        # Keep the box visible for as long as that action remains current,
+        # regardless of whether action-counter data is temporarily unavailable.
+        if fd is not None and fd.active_windows:
+            is_active = is_frame_data_active(fd, action_frame)
+            return True, is_active, action_frame, fd
+
+        # No labelled action: retain the old exact live-box signal.
+        is_active = (hitbox_flag == 0x53)
+        return is_active, is_active, action_frame, fd
 
     def update(self, dt: float, control=None) -> None:
         hitboxes_on = self._hitboxes_enabled(control)
         hurtboxes_on = self._hurtboxes_enabled(control)
+        set_legend_window_visible(hitboxes_on or hurtboxes_on)
         if not (hitboxes_on or hurtboxes_on):
             self._clear_runtime_hitbox_state()
             return
@@ -1847,6 +2538,20 @@ class HitboxRenderer:
                 print(f"[CharChange] {name} char_id {self.last_char_ids.get(name)} -> {cid}")
                 self.last_char_ids[name] = cid
                 char_changed = True
+
+        try:
+            _camx, _camy, _camz, _camw = read_camera_pos(CAMERA)
+            camera_mode_key = "giant" if float(_camz or 0.0) >= 10.0 else "normal"
+        except Exception:
+            camera_mode_key = self._last_camera_mode_key or "normal"
+
+        if self._last_camera_mode_key != camera_mode_key:
+            print(f"[CameraMode] {self._last_camera_mode_key} -> {camera_mode_key}")
+            self._last_camera_mode_key = camera_mode_key
+            char_changed = True
+
+        if char_changed:
+            self._clear_runtime_hitbox_state()
 
         if char_changed or not self._fd_scan_done:
             self._refresh_frame_data_cache()
@@ -1897,28 +2602,32 @@ class HitboxRenderer:
 
         now_ms = pygame.time.get_ticks()
 
-        # Cache skeletal hurtboxes in update(), not draw().  Drawing should only
-        # paint already-read data; repeated live matrix reads inside draw() were
-        # the main FPS killer once hurtboxes were always-on.
-        if hurtboxes_on and now_ms - self._last_hurt_update_ms >= 16:
+        # Cache skeletal hurtboxes in update(), not draw().  The same tiny
+        # geometry pass also tells us whether a partner slot is actually on-stage
+        # so stale standby hitboxes can be culled even when hurtbox display is off.
+        if (hitboxes_on or hurtboxes_on) and now_ms - self._last_hurt_update_ms >= 16:
             hurt_filter = _read_hurtbox_filter()
             hurt_counts: Dict[str, int] = {}
             sample_bits = []
             cached: Dict[str, List[HurtboxState]] = {}
+            renderable: Dict[str, bool] = {}
             for hurt_slot, hurt_base in SLOT_BASES.items():
-                if not hurt_filter.get(hurt_slot, True):
+                raw_hlist = read_hurtboxes(hurt_slot, hurt_base)
+                live_rig = _slot_has_coherent_hurt_rig(hurt_base, raw_hlist)
+                renderable[hurt_slot] = live_rig
+                if not hurt_filter.get(hurt_slot, True) or not live_rig:
                     cached[hurt_slot] = []
                     hurt_counts[hurt_slot] = 0
-                    sample_bits.append(f"{hurt_slot}[0]=OFF")
+                    sample_bits.append(f"{hurt_slot}[0]={'STANDBY' if raw_hlist and not live_rig else 'OFF'}")
                     continue
-                hlist = read_hurtboxes(hurt_slot, hurt_base)
-                cached[hurt_slot] = hlist
-                hurt_counts[hurt_slot] = len(hlist)
-                if hlist:
-                    h0 = hlist[0]
+                cached[hurt_slot] = raw_hlist if hurtboxes_on else []
+                hurt_counts[hurt_slot] = len(raw_hlist) if hurtboxes_on else 0
+                if raw_hlist:
+                    h0 = raw_hlist[0]
                     sample_bits.append(f"{hurt_slot}[0]={h0.x:.2f},{h0.y:.2f} r={h0.radius:.2f}")
                 else:
                     sample_bits.append(f"{hurt_slot}[0]=NONE")
+            self.slot_renderable = renderable
             self.cached_hurtboxes = cached
             self.hurt_counts = hurt_counts
             globals()["_last_hurt_debug_text"] = " | ".join(sample_bits)
@@ -1929,26 +2638,15 @@ class HitboxRenderer:
             self.cached_hit_contacts = []
             globals()["_last_hurt_debug_text"] = "hurt=off"
 
-        # Contact-record scan is the expensive part.  Do NOT run it merely
-        # because an active hitbox exists; that tanks whiff/neutral frames exactly
-        # when normals appear.  Hurtboxes themselves stay always-on/accurate.
-        # Only scan for the resolver contact point once a defender is already in
-        # a reaction state, where the highlight can actually be useful.
-        reaction_present = False
-        for _hb_slot, _hb_base in SLOT_BASES.items():
-            try:
-                if read_state_id(_hb_base) in HURTBOX_REACTION_STATE_IDS:
-                    reaction_present = True
-                    break
-            except Exception:
-                pass
-
-        want_contact_scan = hurtboxes_on and reaction_present
-        if want_contact_scan and (now_ms - self._last_contact_update_ms >= 50):
-            self.cached_hit_contacts = read_hit_contacts()
-            self._last_contact_update_ms = now_ms
-        elif not want_contact_scan:
-            self.cached_hit_contacts = []
+        # Never scan the broad resolver/contact pool during normal overlay play.
+        #
+        # That old path scanned 0x91970000..0x91978000 at 4-byte stride every
+        # 50 ms once a fighter entered hitstun.  It performs thousands of live
+        # Dolphin reads exactly on hit, which is why the overlay looked frozen
+        # until both players returned to idle.  Hitboxes and skeletal hurtboxes
+        # remain live without this speculative contact marker; only the optional
+        # yellow CONTACT marker/focus mode is disabled.
+        self.cached_hit_contacts = []
 
         if pygame.time.get_ticks() % 300 == 0:
             self.motion_filter.cleanup()
@@ -1962,12 +2660,15 @@ class HitboxRenderer:
             return
 
         camx, camy, camz, camw = read_camera_pos(CAMERA)
+        cam_cos, cam_sin, cam_translate_y, cam_depth_y, cam_depth_z, cam_depth_translate = read_camera_view_affine(CAMERA)
 
         ov = self.overlay
         ov.screen = screen
         ov.cam_x = camx
         ov.cam_y = camy
         ov.cam_z = camz
+        ov.set_camera_view_affine(cam_cos, cam_sin, cam_translate_y, cam_depth_y, cam_depth_z, cam_depth_translate)
+        ov.set_giant_x_anchor(_derive_giant_x_anchor() if abs(float(camz or 0.0)) >= GIANT_CAMERA_Z_THRESHOLD else None)
         ov.on_resize(screen.get_width(), screen.get_height())
 
         slot_filter = _read_slot_filter()
@@ -1994,48 +2695,109 @@ class HitboxRenderer:
         HIT_FOCUS_PAD = 2.4
         PROJ_FOCUS_PAD = 2.8
 
+        slot_invuln: Dict[str, bool] = {}
+        slot_invuln_text: Dict[str, str] = {}
+        for _slot_name, _slot_base in SLOT_BASES.items():
+            try:
+                _raw_state = read_state_raw(_slot_base)
+                _state_id = decode_state_id(_raw_state)
+                _fd = lookup_frame_data(self.fd_by_slot, _slot_name, _state_id)
+                _action_frame = read_action_frame(_slot_base)
+                # Prefer the direct current-action signature.  It avoids any
+                # cache/listing mismatch for special wrappers and guarantees the
+                # visual changes on the exact live move that owns the timer.
+                _live_frames = _read_live_invuln_frames(_slot_base)
+                _fd_frames = int(_fd.invuln_frames or 0) if _fd is not None else 0
+                _invuln_frames = _live_frames or _fd_frames
+                slot_invuln[_slot_name] = bool(_invuln_frames and _action_frame is not None and 1 <= int(_action_frame) <= _invuln_frames)
+                slot_invuln_text[_slot_name] = f"{_invuln_frames}f" if slot_invuln[_slot_name] else ""
+            except Exception:
+                slot_invuln[_slot_name] = False
+                slot_invuln_text[_slot_name] = ""
+
         if hurtboxes_on:
+            hurt_view_mode = _read_hurtbox_view_mode(control)
             for hurt_slot, hlist in self.cached_hurtboxes.items():
                 if not hurt_filter.get(hurt_slot, True):
+                    continue
+                if not self.slot_renderable.get(hurt_slot, False):
+                    continue
+                if not _slot_root_is_on_screen(ov, SLOT_BASES[hurt_slot]):
                     continue
 
                 if focus_mode and hurt_slot not in focus_targets:
                     continue
 
-                hurt_palette = COLORS.get(hurt_slot, [(120, 220, 255)])
                 contacts = contacts_by_target.get(hurt_slot, [])
+                invuln_active = bool(slot_invuln.get(hurt_slot, False))
+                layout = classify_hurtbox_regions(hlist)
+                region_by_index = layout.get("region_by_index", {})
+                major_indices = set(layout.get("major_indices", set()))
+                label_by_index = dict(layout.get("label_by_index", {}))
 
-                priority_indices = set()
-                if len(hlist) <= 8:
-                    priority_indices = {h.index for h in hlist}
-                else:
-                    priority_indices = {h.index for h in sorted(hlist, key=lambda hb: hb.radius, reverse=True)[:6]}
-
+                extra_indices = set()
                 for hurt in hlist:
+                    if any(hurtbox_contains_contact(hurt, contact) for contact in contacts):
+                        extra_indices.add(hurt.index)
+                if focus_mode:
+                    for hurt in hlist:
+                        for fx, fy, fz, _c in focus_points:
+                            if math.hypot(hurt.x - fx, hurt.y - fy) <= (hurt.radius + HURT_FOCUS_MARGIN):
+                                extra_indices.add(hurt.index)
+                                break
+
+                visible_indices = set(h.index for h in hlist)
+                if hurt_view_mode == "clean":
+                    visible_indices = set(major_indices) | set(extra_indices)
+
+                first_label_drawn = False
+                for hurt in hlist:
+                    if hurt.index not in visible_indices:
+                        continue
                     highlight = any(hurtbox_contains_contact(hurt, contact) for contact in contacts)
-                    if focus_mode:
-                        near_focus = highlight
-                        if not near_focus:
-                            for fx, fy, fz, _c in focus_points:
-                                if math.hypot(hurt.x - fx, hurt.y - fy) <= (hurt.radius + HURT_FOCUS_MARGIN):
-                                    near_focus = True
-                                    break
-                        if not near_focus:
-                            continue
-                    color = hurt_palette[hurt.index % len(hurt_palette)]
-                    if not highlight:
-                        color = _dim_hitbox_color(color)
-                    detail = highlight or (hurt.index in priority_indices) or focus_mode
+                    if focus_mode and not (highlight or (hurt.index in extra_indices)):
+                        continue
+
+                    region = region_by_index.get(hurt.index, "other")
+                    base_color = HURT_REGION_COLORS.get(region, HURT_REGION_COLORS["other"])
+
+                    if hurt_view_mode == "clean":
+                        detail = True
+                        show_label = (hurt.index in label_by_index)
+                        label = label_by_index.get(hurt.index, hurt.label())
+                        color = base_color
+                    elif hurt_view_mode == "detailed":
+                        detail = highlight or (hurt.index in major_indices) or (hurt.index in extra_indices)
+                        show_label = (hurt.index in label_by_index and detail)
+                        label = label_by_index.get(hurt.index, hurt.label())
+                        color = base_color if detail else _soften_hurt_color(base_color, 0.52, 34)
+                    else:
+                        detail = True
+                        show_label = True
+                        short_region = region.split("_")[0].upper()
+                        label = f"{short_region}[{hurt.index}]"
+                        color = base_color
+
                     ov.draw_hurtbox(
                         hurt.x,
                         hurt.y,
                         hurt.z,
                         hurt.radius,
                         color,
-                        hurt.label(),
+                        label,
                         highlight=highlight,
                         detail=detail,
+                        invuln=invuln_active and not highlight,
+                        show_label=show_label,
                     )
+                    if invuln_active and not first_label_drawn and ov.font_hud is not None:
+                        try:
+                            _sx, _sy, _d, _f = ov.world_to_screen(hurt.x, hurt.y, hurt.z)
+                            _txt = ov.font_hud.render(f"INVUL {slot_invuln_text.get(hurt_slot, '')}", True, (105, 255, 145))
+                            ov.screen.blit(_txt, (_sx + 12, _sy - 24))
+                            first_label_drawn = True
+                        except Exception:
+                            pass
 
             for contact in self.cached_hit_contacts:
                 if hurt_filter.get(contact.target_slot, True):
@@ -2044,6 +2806,10 @@ class HitboxRenderer:
         if hitboxes_on:
             for name, base in SLOT_BASES.items():
                 if not slot_filter.get(name, True):
+                    continue
+                if not self.slot_renderable.get(name, False):
+                    continue
+                if not _slot_root_is_on_screen(ov, base):
                     continue
                 if focus_mode and name not in focus_sources:
                     continue
@@ -2061,8 +2827,13 @@ class HitboxRenderer:
                         continue
 
                     base_color = palette[i % len(palette)]
-                    is_active, action_frame, fd = self._frame_gate_for_slot(name, base, state_id, flag)
+                    draw_now, is_active, action_frame, fd = self._frame_gate_for_slot(name, base, state_id, flag)
                     if state_id in MEGACRASH_STATE_IDS and not is_active:
+                        continue
+                    # Show the assigned attack geometry throughout startup as a
+                    # dim preview, then let the existing active pulse make the
+                    # actual hit frames unmistakable.  Recovery/idle stay hidden.
+                    if not draw_now:
                         continue
 
                     if focus_mode:
@@ -2081,7 +2852,11 @@ class HitboxRenderer:
                     label = f"{name}[{i}]"
                     if debug_labels and fd is not None and action_frame is not None:
                         label = f"{name}[{i}] f={action_frame}/{fd.active_text()}"
-                    ov.draw_hitbox(x, y, 0, r, draw_color, label, is_active=is_active)
+                    ov.draw_hitbox(
+                        x, y, 0, r, draw_color, label,
+                        is_active=is_active,
+                        invuln=bool(slot_invuln.get(name, False)),
+                    )
 
             for proj in self.cached_projectiles:
                 if not slot_filter.get(proj.owner_slot, True):
@@ -2520,10 +3295,13 @@ def main():
                 fd_by_slot = build_frame_data_cache()
 
             camx, camy, camz, camw = read_camera_pos(CAMERA)
+            cam_cos, cam_sin, cam_translate_y, cam_depth_y, cam_depth_z, cam_depth_translate = read_camera_view_affine(CAMERA)
             if USE_LIVE_CAMERA:
                 overlay.cam_x = camx
                 overlay.cam_y = camy
                 overlay.cam_z = camz
+                overlay.set_camera_view_affine(cam_cos, cam_sin, cam_translate_y, cam_depth_y, cam_depth_z, cam_depth_translate)
+                overlay.set_giant_x_anchor(_derive_giant_x_anchor() if abs(float(camz or 0.0)) >= GIANT_CAMERA_Z_THRESHOLD else None)
 
             slot_filter = _read_slot_filter()
 
@@ -2605,17 +3383,10 @@ def main():
                     running = False
                     break
                 
-            # Always draw skeletal hurtboxes for every real slot, independent of
-            # the attack-hitbox slot filter. The P1/P2/P3/P4 toggles can hide
-            # normal attack boxes, but hurtboxes need to be visible before a hit
-            # connects so we can see what the active hitbox is actually touching.
-            # Live hit-contact records only add a CONTACT marker/highlight.
-            hit_contacts = read_hit_contacts()
+            # Keep standalone rendering responsive during hits as well.  The
+            # broad resolver-pool contact scan is intentionally disabled here;
+            # it caused thousands of Dolphin reads per hit frame.
             contacts_by_target: Dict[str, List[HitContactState]] = {}
-            if hit_contacts:
-                for contact in hit_contacts:
-                    contacts_by_target.setdefault(contact.target_slot, []).append(contact)
-                    overlay.draw_hit_contact(contact)
 
             hurt_counts: Dict[str, int] = {}
             for hurt_slot, hurt_base in SLOT_BASES.items():

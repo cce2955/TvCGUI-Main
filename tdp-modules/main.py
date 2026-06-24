@@ -131,6 +131,12 @@ from debug_panel import read_debug_flags, draw_debug_overlay
 
 from dolphin_io import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes, prime_mem2_latch
 
+try:
+    from runtime_stun_profiler import RuntimeStunProfiler
+except Exception as _runtime_stun_profiler_import_error:
+    RuntimeStunProfiler = None
+
+
 # KO lab: base-relative packet that forces a fighter object back to the
 # idle-ish action cluster observed before KO.  This is intentionally a
 # live poke/test helper, not a permanent patch: use the per-panel
@@ -5444,6 +5450,62 @@ def legacy_main():
     pending_hits     = []
     frame_idx        = 0
 
+    # Reverse profile resolved stun from live victim counters.  This is
+    # observation-only and fails closed when the optional module is absent.
+    runtime_stun_profiler = None
+    if RuntimeStunProfiler is not None:
+        try:
+            runtime_stun_profiler = RuntimeStunProfiler()
+        except Exception as _runtime_stun_profiler_error:
+            print(f"[runtime stun] unavailable: {_runtime_stun_profiler_error!r}", flush=True)
+
+    def _sync_runtime_engine_profile_targets(scan_rows) -> None:
+        """Give the reverse profiler only scanner-proven engine-default normals.
+
+        This is the hard gate: direct signature rows never enter the runtime
+        candidate pool, even when they happen to share an action ID with stale
+        evidence in runtime_stun_profiles.json.
+        """
+        if runtime_stun_profiler is None:
+            return
+        targets = {}
+        for slot_data in list(scan_rows or []):
+            if not isinstance(slot_data, dict):
+                continue
+            try:
+                char_id = int(slot_data.get("char_id") or 0)
+            except Exception:
+                char_id = 0
+            if char_id <= 0:
+                continue
+            for mv in list(slot_data.get("moves") or []):
+                if not isinstance(mv, dict):
+                    continue
+                if str(mv.get("kind") or "").lower() != "normal":
+                    continue
+                source = str(mv.get("stun_source") or "")
+                if not bool(mv.get("runtime_profile_eligible")) and source != "engine_default_hit_level":
+                    continue
+                try:
+                    action_id = int(mv.get("id"))
+                except Exception:
+                    continue
+                if action_id < 0x0100:
+                    continue
+                try:
+                    active_end = int(mv.get("active_end") or 0)
+                except Exception:
+                    active_end = 0
+                targets[(char_id, action_id)] = {
+                    "active_end": active_end if active_end > 0 else None,
+                    "move_label": str(mv.get("pretty_name") or mv.get("move_name") or ""),
+                }
+        try:
+            runtime_stun_profiler.set_engine_move_targets(targets)
+        except Exception as _runtime_profile_target_error:
+            if frame_idx % 300 == 0:
+                print(f"[runtime stun] target sync failed: {_runtime_profile_target_error!r}", flush=True)
+
     # ------------------------------------------------------------------
     # Master overlay subprocess
     # ------------------------------------------------------------------
@@ -5788,6 +5850,7 @@ def legacy_main():
                             fd_patch_runtime.overlay_scan_data(last_scan_normals)
                     except Exception as e:
                         print(f"[fd patch] scan overlay/apply failed: {e!r}")
+                _sync_runtime_engine_profile_targets(last_scan_normals)
                 last_scan_time    = ts
                 scan_anim = {"start": now, "dur": SCAN_SLIDE_DURATION}
                 try:
@@ -5989,6 +6052,18 @@ def legacy_main():
         p1_giant_solo, p2_giant_solo = compute_team_giant_solo(snaps)
         if p1_giant_solo or p2_giant_solo:
             snaps = reassign_slots_for_giants(snaps)
+
+        # Runtime stun profiler: after a live target counter is armed, keep the
+        # actual resolver result tied to the recent opposing move.  This has no
+        # write path and only schedules a light cache refresh when new evidence
+        # lands, so existing static profiles remain untouched.
+        if runtime_stun_profiler is not None:
+            try:
+                if runtime_stun_profiler.update(snaps, frame=frame_idx, now=now):
+                    need_rescan_normals = True
+            except Exception as _runtime_stun_tick_error:
+                if frame_idx % 300 == 0:
+                    print(f"[runtime stun] tick failed: {_runtime_stun_tick_error!r}", flush=True)
 
         # Assist selector runtime hook. The assist scanner stores per-fighter
         # desired assists; main.py owns the reliable current move label/id, so
@@ -7250,6 +7325,7 @@ def legacy_main():
                                 fd_patch_runtime.overlay_scan_data(last_scan_normals)
                         except Exception as e:
                             print(f"[fd patch] manual scan overlay/apply failed: {e!r}")
+                    _sync_runtime_engine_profile_targets(last_scan_normals)
                     last_scan_time    = time.time()
                 except Exception as e:
                     print("manual scan failed:", e)
@@ -7288,6 +7364,12 @@ def legacy_main():
             master_overlay_proc.terminate()
         except Exception:
             pass
+
+    try:
+        if runtime_stun_profiler is not None:
+            runtime_stun_profiler.flush()
+    except Exception:
+        pass
 
     pygame.quit()
 
