@@ -53,16 +53,7 @@ TOOLTIP_TITLE_OVERRIDES = {
 
 
 def read_debug_flags():
-    """
-    Collect a list of (label, addr, value) entries for the debug overlay.
-
-    DEBUG_FLAG_ADDRS comes from config.py and is a list of (label, addr).
-    We also append a few individually mapped flags discovered during
-    reverse-engineering.
-
-    Returns:
-        A list of tuples: (label, address, byte_value or None)
-    """
+    '\n    Collect a list of (label, addr, value) entries for the debug overlay.\n\n    DEBUG_FLAG_ADDRS comes from config.py and is a list of (label, addr).\n    The module also append a few individually mapped flags discovered during\n    reverse-engineering.\n\n    Returns:\n        A list of tuples: (label, address, byte_value or None)\n    '
     out = []
 
     # Main debug flags defined in config.py
@@ -78,7 +69,7 @@ def read_debug_flags():
 
     # Individually mapped flags discovered during reverse-engineering.
 
-    # 1) P2 pause flag (independent of P1 on our side)
+    # 1) P2 pause flag (independent of P1 on the side)
     p2pause_addr = 0x803F563B
     try:
         p2pause_val = rd8(p2pause_addr)
@@ -145,18 +136,7 @@ def _format_value(v):
 
 
 def _state_label(name: str, v):
-    """
-    Human-friendly ON/OFF state for a given flag.
-
-    For most flags we treat 0 as OFF and non-zero as ON.
-
-    For the three momentary debug flags we special-case the values
-    that we actively write from main.py:
-
-        - HypeTrigger / ComboAnnouncer: 0x40 = ON, anything else = OFF
-        - ComboStore[1] / Last Combo + dmg: 0x41 = ON, anything else = OFF
-        - SpecialPopup: 0x40 = ON, anything else = OFF
-    """
+    '\n    Human-friendly ON/OFF state for a given flag.\n\n    For most flags the module treat 0 as OFF and non-zero as ON.\n\n    For the three momentary debug flags the module special-case the values\n    that the module actively write from main.py:\n\n        - HypeTrigger / ComboAnnouncer: 0x40 = ON, anything else = OFF\n        - ComboStore[1] / Last Combo + dmg: 0x41 = ON, anything else = OFF\n        - SpecialPopup: 0x40 = ON, anything else = OFF\n    '
     if v is None:
         return "--"
 
@@ -269,18 +249,7 @@ def _draw_floating_tooltip(surface, panel_rect, font_small, anchor_pos, title, b
 
 
 def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
-    """
-    Draw a scrollable list of debug / training flags.
-
-    dbg_values is a list of tuples (name, addr, value). We only rely on:
-        name = entry[0]
-        addr = entry[1]
-        val  = entry[2]
-
-    Returns:
-        click_areas: dict[name] = (rect, addr)
-        max_scroll:  maximum scroll offset based on rows.
-    """
+    '\n    Draw a scrollable list of debug / training flags.\n\n    dbg_values is a list of tuples (name, addr, value). Only rely on:\n        name = entry[0]\n        addr = entry[1]\n        val  = entry[2]\n\n    Returns:\n        click_areas: dict[name] = (rect, addr)\n        max_scroll:  maximum scroll offset based on rows.\n    '
     pygame.draw.rect(surface, COL_PANEL, rect, border_radius=4)
     pygame.draw.rect(surface, COL_BORDER, rect, 1, border_radius=4)
 
@@ -297,7 +266,7 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
     hint_h = font_small.get_height() + 2
 
     # If the panel is short, reclaim space by hiding the hint line.
-    # Threshold: if we can't fit at least ~4 rows comfortably, hide hint.
+    # Threshold: if the module can't fit at least ~4 rows comfortably, hide hint.
     row_h = font_small.get_height() + 4
     min_rows_target = 4
     projected_list_h = (rect.bottom - 4) - y0
@@ -417,7 +386,7 @@ def draw_debug_overlay(surface, rect, font_small, dbg_values, scroll_offset):
             DISPLAY_LABEL_OVERRIDES.get(hovered_name, hovered_name)
         )
 
-        # Anchor tooltip near mouse, but if you prefer "attached to row", anchor to row top-right.
+        # Anchor tooltip near mouse, but if the operator prefer "attached to row", anchor to row top-right.
         anchor = mouse_pos
         # Alternative row anchor (feels less jumpy):
         # if hovered_row_rect:

@@ -117,7 +117,41 @@ YAMI_CLONE_SLOTS: tuple[tuple[int, int, str], ...] = (
 
 YAMI_CLONE_COUNT = 0x1E
 
-EXTRA_CLONE10_SLOTS: tuple[tuple[int, int, str], ...] = ROSTER_SLOT_TABLE  # stock roster plus ONLY 3 inserted Yami entries
+EXTRA_CLONE10_SLOTS: tuple[tuple[int, int, str], ...] = ROSTER_SLOT_TABLE  # inserted roster layout
+
+# Native character-select roster. This is the 27-entry table used when Extra
+# Characters is disabled. The three hidden Yami IDs occupy appended rows only
+# in the extended layout; they do not replace native roster entries.
+STOCK_ROSTER_SLOT_TABLE: tuple[tuple[int, int, str], ...] = (
+    (0x00, 0x01, "Ken the Eagle"),
+    (0x01, 0x08, "Jun the Swan"),
+    (0x02, 0x02, "Casshan"),
+    (0x03, 0x03, "Tekkaman"),
+    (0x04, 0x04, "Polimar"),
+    (0x05, 0x05, "Yatterman-1"),
+    (0x06, 0x0A, "Karas"),
+    (0x07, 0x06, "Doronjo"),
+    (0x08, 0x07, "Ippatsuman"),
+    (0x09, 0x0B, "Gold Lightan"),
+    (0x0A, 0x1A, "Tekkaman Blade"),
+    (0x0B, 0x1B, "Joe the Condor"),
+    (0x0C, 0x1C, "Yatterman-2"),
+    (0x0D, 0x63, "Random"),
+    (0x0E, 0x1D, "Zero"),
+    (0x0F, 0x1E, "Frank West"),
+    (0x10, 0x16, "PTX-40A"),
+    (0x11, 0x11, "Viewtiful Joe"),
+    (0x12, 0x14, "Saki"),
+    (0x13, 0x13, "Roll"),
+    (0x14, 0x15, "Soki"),
+    (0x15, 0x12, "Volnutt"),
+    (0x16, 0x0E, "Batsu"),
+    (0x17, 0x10, "Alex"),
+    (0x18, 0x0F, "Morrigan"),
+    (0x19, 0x0D, "Chun-Li"),
+    (0x1A, 0x0C, "Ryu"),
+)
+STOCK_ROSTER_SLOT_IDS: dict[int, int] = {slot: cid for slot, cid, _name in STOCK_ROSTER_SLOT_TABLE}
 
 # Experimental visual/icon-shell aliases. The hidden Yami shell appears to
 # resolve through the loaded silhouette labels. The roster table still supplies
@@ -125,7 +159,7 @@ EXTRA_CLONE10_SLOTS: tuple[tuple[int, int, str], ...] = ROSTER_SLOT_TABLE  # sto
 # label/icon label used by the hidden slot.
 #
 # The select/name string table uses compact 0x10-byte entries here where the
-# last byte is the string length. We write full entry-sized records and restore
+# last byte is the string length. Write full entry-sized records and restore
 # the originals.
 VISUAL_ALIAS_ENTRY_SIZE = 0x10
 VISUAL_ALIAS_SELECT_ADDR = 0x930DEF50
@@ -167,7 +201,7 @@ VISUAL_ALIAS_PRESETS: dict[str, tuple[str, tuple[tuple[int, bytes, bytes, str], 
 # Wheel thumbnail icon source probes. The previous visual alias writes changed the
 # select/name shell labels, but the wheel thumbnail is a separate icon/material
 # binding. These probes patch actual icon string-table entries. They are still
-# reversible and intentionally scoped so we can tell whether the new Yami shell
+# reversible and intentionally scoped so the module can tell whether the new Yami shell
 # is using the hidden Yami icon entries or stealing the nearest neighbor icon.
 ICON_ALIAS_ENTRY_SIZE = 0x10
 ICON_TABLE_ENTRY_ADDRS: dict[str, tuple[int, ...]] = {
@@ -423,7 +457,7 @@ BORROWED_YAMI_ICON_PLAN: tuple[dict[str, Any], ...] = (
 
 # Best-effort groups of live hidden-shell select fallback records seen in the
 # 20260603 select-screen dumps. These are not the character source; they are only
-# visual fallback strings for the select plate. We patch them in groups so future
+# visual fallback strings for the select plate. The module patch them in groups so future
 # Yami shells can use different borrowed select plates instead of all borrowing
 # the same neighbor/last icon.
 ACTIVE_SHELL_SELECT_GROUPS: tuple[tuple[int, ...], ...] = (
@@ -454,7 +488,7 @@ FACE_RESOURCE_DONORS: dict[str, tuple[str, tuple[bytes, bytes, bytes, bytes, byt
     "chu": ("Chun-Li loaded face", (b"face_chu.brlyt", b"face_chu.tpl", b"face_chu_r.tpl", b"face_sita_chu.tpl", b"face_sita_chu_r.tpl", b"Name_chu.tpl")),
     "jun": ("Jun loaded face", (b"face_jun.brlyt", b"face_jun.tpl", b"face_jun_r.tpl", b"face_sita_jun.tpl", b"face_sita_jun_r.tpl", b"Name_jun.tpl")),
     # Requested/unloaded donor names. These are useful probes, but if the resource
-    # was not loaded yet, the draw layer may keep using Ryu until we hook earlier.
+    # was not loaded yet, the draw layer may keep using Ryu until the module hook earlier.
     "fra": ("Frank West face names", (b"face_fra.brlyt", b"face_fra.tpl", b"face_fra_r.tpl", b"face_sita_fra.tpl", b"face_sita_fra_r.tpl", b"Name_fra.tpl")),
     "tkb": ("Tekkaman Blade face names", (b"face_tkb.brlyt", b"face_tkb.tpl", b"face_tkb_r.tpl", b"face_sita_tkb.tpl", b"face_sita_tkb_r.tpl", b"Name_tkb.tpl")),
     "ya2": ("Yatterman-2 face names", (b"face_ya2.brlyt", b"face_ya2.tpl", b"face_ya2_r.tpl", b"face_sita_ya2.tpl", b"face_sita_ya2_r.tpl", b"Name_ya2.tpl")),
@@ -600,7 +634,7 @@ FAR_DONOR_TARGETS: dict[str, dict[str, Any]] = {
 }
 
 # Frank face-lock owner/pane probe.
-# User goal: Yami IDs stay 0x17/0x18/0x19, but the close-up/wheel face should
+# Design constraint: preserve Yami IDs 0x17/0x18/0x19 while assigning distinct close-up/wheel faces.
 # stop resolving to the neighbor Ryu/Ken pane and instead point at one obvious
 # donor face. The unsafe test wrote into 0x90818460/0x90818470 and froze cursor
 # motion. This version does NOT overwrite that live output bank. It rewires the
@@ -680,6 +714,8 @@ _ROSTER_STATE: dict[str, Any] = {
     "_extra_active_since": 0.0,
     "_extra_last_active": False,
     "_extra_quiet_until": 0.0,
+    "_off_cleanup_done": False,
+    "_off_cleanup_count": 0,
 }
 
 # Extra Characters should behave like a one-shot guarded install, not a 60 FPS
@@ -707,7 +743,7 @@ SELECT_SCREEN_PATCHED_COUNT = 0x1E
 EXTRA_CLONE10_COUNT = SELECT_SCREEN_STOCK_COUNT + 4  # 0x1F; 3 Yamis + one null test slot
 
 # Solo Team compatibility for the old “one real character + blank partner” path.
-# With Extra Characters ON we do not overwrite the inserted 3-Yami + null-test roster.
+# With Extra Characters ON do not overwrite the inserted 3-Yami + null-test roster.
 # Instead, Solo Team temporarily appends the old hidden/Yami tail entries *after*
 # the new 0x1F-entry roster and bumps the count to 0x22.
 SOLO_TEAM_EXTRA_SLOTS: tuple[tuple[int, int, str], ...] = tuple(
@@ -769,15 +805,15 @@ EXTRA_THUMBNAIL_ALIAS_ROWS: tuple[tuple[int, bytes, bytes, str], ...] = (
 
 
 # Live bottom-wheel object pointer aliases. These are the actual wheel/pane-side
-# objects we found in the dumps: each object is a 0xD0-ish pane/material record,
+# objects the module found in the dumps: each object is a 0xD0-ish pane/material record,
 # and +0x64 is the pointer to the thumbnail material/string name. Renaming the
 # source strings was too late; this patches the wheel object pointer itself.
 #
 #   B27/B28/B29 are the three appended physical thumbnail rows.
 #   B15 = Frank West, B10 = Tekkaman Blade, B12 = Yatterman-2.
 #
-# There are two live banks, so patch both. The write is guarded: we only write
-# if the current value is still the known B27/B28/B29 pointer or already our
+# There are two live banks, so patch both. The write is guarded: only write
+# if the current value is still the known B27/B28/B29 pointer or already the
 # target.
 EXTRA_THUMBNAIL_OBJECT_PTR_ROWS: tuple[tuple[int, int, int, str], ...] = (
     (0x80C1DEE4, 0x92D38A28, 0x92D38908, "wheel object A B27 -> B15 Frank"),
@@ -879,7 +915,7 @@ EXTRA_THUMBNAIL_MDL0_TEXPTR_ROWS: tuple[tuple[int, int, int, int, str], ...] = (
 
 # DUMP-CORRECTED 2026-06-06:
 # The +0x420 material-header pointer above is real, but it was not enough on
-# the user's test. The MDL0 material dictionary also leads to a smaller
+# the live test sequence. The MDL0 material dictionary also leads to a smaller
 # per-material texture-binding record. These pointer addresses were mapped by
 # dictionary name from tvc_memdump_20260605_225943:
 #   1015 entry 28 = thumbnail_0622_B27, TEX0 pointer at binding +0x2C
@@ -1050,7 +1086,7 @@ def _install_extra_thumbnail_alias_rows() -> tuple[int, int]:
         cur = _safe_read(addr, EXTRA_THUMBNAIL_ALIAS_FIELD_SIZE)
         if cur and cur.startswith(bytes(target)):
             continue
-        # Only patch known original rows or our previous target. This avoids
+        # Only patch known original rows or the previous target. This avoids
         # touching reused memory if the guard ever misfires.
         if not cur or not (cur.startswith(bytes(expected)) or cur.startswith(bytes(target))):
             failed += 1
@@ -1366,7 +1402,7 @@ def _install_extra_thumbnail_mdl0_texptrs() -> tuple[int, int]:
             continue
         ptr_addr = mat_addr + EXTRA_THUMBNAIL_MDL0_TEXPTR_FIELD_OFF
         cur = _safe_read_u32be(ptr_addr)
-        # Guard hard. Only write the exact stock value or our already-patched value.
+        # Guard hard. Only write the exact stock value or the already-patched value.
         # If another experiment has touched this field, do not stack writes on top of it.
         if cur == target_tex0:
             continue
@@ -1588,9 +1624,14 @@ def _select_screen_status() -> dict[str, Any]:
     # the count is 0x1E and the shifted 30-entry roster table is written.
     # Do not require the old Yami visual/profile rows.
     patch_present = bool(clone_rows_present or solo_extra_rows_present)
+    extended_layout_present = bool(
+        extra_base_rows_present
+        and any(v != SELECT_SCREEN_STOCK_COUNT for v in counts.values())
+    )
     return {
         "active": active,
         "patch_present": patch_present,
+        "extended_layout_present": extended_layout_present,
         "extra_base_rows_present": extra_base_rows_present,
         "clone_rows_present": clone_rows_present,
         "solo_extra_rows_present": solo_extra_rows_present,
@@ -1610,6 +1651,14 @@ def _select_screen_status() -> dict[str, Any]:
         "visual_char_expected": [f"0x{x:08X}" for x in VISUAL_TABLE_YAMI_CHAR_APPEND],
         "visual_char_actual": _read_u32_list(VISUAL_TABLE_APPEND_CHAR_ADDR, len(VISUAL_TABLE_YAMI_CHAR_APPEND)),
     }
+
+
+def is_character_select_active() -> bool:
+    """Return the guarded character-select residency result without writing memory."""
+    try:
+        return bool(_select_screen_status().get("active"))
+    except Exception:
+        return False
 
 
 def _update_extra_guard_state(status: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1691,7 +1740,7 @@ def _tick_extra_characters_request() -> None:
         return
 
     if not requested:
-        # OFF means do not apply. If the user toggles off outside character
+        # OFF disables application. When toggled off outside character
         # select, do not try to restore stale select-screen addresses.
         with _LOCK:
             if not active:
@@ -1721,7 +1770,7 @@ def _tick_extra_characters_request() -> None:
         return
 
     if now < quiet_until:
-        # We just applied/restored around a select-screen load. Do not fight the
+        # The module just applied/restored around a select-screen load. Do not fight the
         # renderer every frame; let the menu settle, then re-check normally.
         with _LOCK:
             _ROSTER_STATE["last_action"] = "Extra characters quiet after apply; skipping re-write"
@@ -1802,8 +1851,8 @@ def _tick_solo_team_request() -> None:
 
 
 # Owned scratch visual-bank experiment.
-# This is the user's "stop hijacking strings, make our own stuff and point to it" path.
-# We allocate a private MEM2 bank, clone the live select visual text bank into it,
+# This is the selected "stop hijacking strings, make the own stuff and point to it" path.
+# The module allocate a private MEM2 bank, clone the live select visual text bank into it,
 # rewrite the clone to Frank, then redirect the owner pointer pairs to the clone.
 OWNED_VISUAL_BANK_ADDR = 0x93600000
 OWNED_VISUAL_BANK_SOURCE_ADDR = 0x90818400
@@ -1978,6 +2027,7 @@ def queue_yami_visual_table_three_donor_append() -> dict[str, Any]:
 def queue_extra_characters_on() -> dict[str, Any]:
     status = _update_extra_guard_state()
     with _LOCK:
+        _ROSTER_STATE["_off_cleanup_done"] = False
         _ROSTER_STATE["extra_characters_requested"] = True
         _ROSTER_STATE["last_action"] = (
             "Extra characters ON armed; will apply on character select"
@@ -1991,6 +2041,7 @@ def queue_extra_characters_on() -> dict[str, Any]:
 def queue_extra_characters_off() -> dict[str, Any]:
     status = _update_extra_guard_state()
     with _LOCK:
+        _ROSTER_STATE["_off_cleanup_done"] = False
         _ROSTER_STATE["extra_characters_requested"] = False
         _ROSTER_STATE["last_error"] = ""
         if not status.get("active"):
@@ -2136,23 +2187,46 @@ def _restore_extra_profile_rows_only() -> tuple[int, int]:
 
 
 def _restore_extra_roster_rows_only() -> tuple[int, int]:
+    """Restore the exact native roster table and clear only appended rows."""
     wrote = 0
     failed = 0
+
     for addr, _label in ROSTER_COUNT_ADDRS:
-        if _write_saved(addr, SELECT_SCREEN_STOCK_COUNT):
-            wrote += 1
-        else:
-            failed += 1
-    seen_slots: set[int] = set()
-    for slot, _cid, _name in tuple(YAMI_CLONE_SLOTS) + tuple(EXTRA_CLONE10_SLOTS) + tuple(SOLO_TEAM_EXTRA_SLOTS):
-        if slot in seen_slots:
+        current = _safe_read_u32be(addr)
+        if current == SELECT_SCREEN_STOCK_COUNT:
             continue
-        seen_slots.add(slot)
-        if _write_saved(_roster_addr_for_slot(slot), 0):
+        if _safe_write_u32be(addr, SELECT_SCREEN_STOCK_COUNT):
             wrote += 1
         else:
             failed += 1
+
+    for slot, cid, _name in STOCK_ROSTER_SLOT_TABLE:
+        addr = _roster_addr_for_slot(slot)
+        current = _safe_read_u32be(addr)
+        if current == cid:
+            continue
+        if _safe_write_u32be(addr, cid):
+            wrote += 1
+        else:
+            failed += 1
+
+    clear_from = SELECT_SCREEN_STOCK_COUNT
+    clear_to = SOLO_TEAM_EXTRA_COUNT
+    for slot in range(clear_from, clear_to):
+        addr = _roster_addr_for_slot(slot)
+        current = _safe_read_u32be(addr)
+        if current in (None, 0):
+            continue
+        if _safe_write_u32be(addr, 0):
+            wrote += 1
+        else:
+            failed += 1
+
     with _LOCK:
+        for addr, _label in ROSTER_COUNT_ADDRS:
+            _ROSTER_ORIGINALS.pop(addr, None)
+        for slot in range(0, SOLO_TEAM_EXTRA_COUNT):
+            _ROSTER_ORIGINALS.pop(_roster_addr_for_slot(slot), None)
         if failed == 0:
             _ROSTER_STATE["clone_table_installed"] = False
             _ROSTER_STATE["clone_count_installed"] = False
@@ -2824,7 +2898,7 @@ def _install_yami_ken_dupe_soft_frank() -> tuple[int, int]:
 
     # Optional static icon table test: if the visible duplicate is really using
     # the Ken icon table entry, this should flip all Ken icons to Frank. If it
-    # does not, we know the visible face is deeper than icon_* strings.
+    # does not, the known state is the visible face is deeper than icon_* strings.
     icon_payload = _make_string_table_entry(KEN_DUP_FRANK_ICON, ICON_ALIAS_ENTRY_SIZE)
     icon_expected = _make_string_table_entry(KEN_DUP_EXPECT_ICON, ICON_ALIAS_ENTRY_SIZE)
     for addr in KEN_DUP_STATIC_ICON_FIELDS:
@@ -3407,7 +3481,7 @@ def _install_yami_borrowed_icons() -> tuple[int, int]:
 
     # 2) Patch live hidden-shell select fallback groups to differing borrowed
     # select plates. If only one hidden shell is currently active, this may only
-    # affect that one; once we expose/clone more shells, the mapping is ready.
+    # affect that one; once expose/clone more shells, the mapping is ready.
     for group_i, group in enumerate(ACTIVE_SHELL_SELECT_GROUPS):
         plan = BORROWED_YAMI_ICON_PLAN[group_i % len(BORROWED_YAMI_ICON_PLAN)]
         try:
@@ -3630,11 +3704,39 @@ def _do_restore() -> dict[str, int]:
 
 def _tick_roster_actions() -> None:
     with _LOCK:
-        _extra_req_for_rescue = bool(_ROSTER_STATE.get("extra_characters_requested"))
-    if not _extra_req_for_rescue:
-        _rescue_chrsel_source_rows()
-    _tick_extra_characters_request()
-    _tick_solo_team_request()
+        extra_requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+        solo_requested = bool(_ROSTER_STATE.get("solo_team_requested"))
+        has_actions = bool(_ROSTER_QUEUE)
+
+    # Disabled mode does not poll-repair roster memory. A single cleanup is
+    # permitted only when the exact extended-layout signature is still present.
+    # This removes stale Extra Characters rows without introducing a write loop.
+    if not extra_requested and not solo_requested and not has_actions:
+        status = _select_screen_status()
+        if not bool(status.get("active")):
+            return
+        if not bool(status.get("patch_present") or status.get("extended_layout_present")):
+            return
+        with _LOCK:
+            if bool(_ROSTER_STATE.get("_off_cleanup_done")):
+                return
+        wrote, failed = _restore_extra_roster_rows_only()
+        if bool(status.get("visual_rows_present")):
+            w, f = _restore_extra_profile_rows_only()
+            wrote += w
+            failed += f
+        with _LOCK:
+            _ROSTER_STATE["_off_cleanup_done"] = True
+            _ROSTER_STATE["_off_cleanup_count"] = int(_ROSTER_STATE.get("_off_cleanup_count", 0) or 0) + 1
+            _ROSTER_STATE["last_action"] = f"Disabled-mode roster cleanup wrote={wrote} failed={failed}"
+            _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Disabled-mode cleanup failed writes={failed}"
+        return
+
+    if extra_requested:
+        _tick_extra_characters_request()
+    if solo_requested:
+        _tick_solo_team_request()
+
     with _LOCK:
         actions = list(_ROSTER_QUEUE)
         _ROSTER_QUEUE.clear()
@@ -3977,7 +4079,18 @@ def get_roster_patch_state() -> dict[str, Any]:
     return state
 
 
+def char_test_needs_service() -> bool:
+    with _LOCK:
+        return bool(
+            _ROSTER_QUEUE
+            or _ROSTER_STATE.get("extra_characters_requested")
+            or _ROSTER_STATE.get("solo_team_requested")
+        )
+
+
 def tick_char_test() -> None:
+    if not char_test_needs_service():
+        return
     _tick_roster_actions()
 
 

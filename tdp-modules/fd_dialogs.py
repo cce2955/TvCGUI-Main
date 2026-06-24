@@ -49,7 +49,7 @@ class ReplaceMoveDialog(tk.Toplevel):
 
         ttk.Radiobutton(
             mode_frame,
-            text="Replace animation only (prefers 04 01 02 3F record; falls back to 01 ?? 01 3C)",
+            text="Replace animation only (rewires the loaded 0000.mot clip table)",
             variable=self.mode_var,
             value="anim",
         ).pack(anchor="w", padx=4, pady=2)

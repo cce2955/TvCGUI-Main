@@ -289,7 +289,7 @@ def open_overseer_window(
         dashboard_var = tk.StringVar(value=_initial_dashboard_text())
 
         # Use a scrollable canvas+label body. A plain Label rendered reliably on the
-        # user's Windows/Tk setup, so keep the Label for content but place it
+        # current Windows/Tk setup, so keep the Label for content but place it
         # inside a Canvas with a real vertical scrollbar.
         body_shell = tk.Frame(win, bg=_BORDER, padx=1, pady=1)
         body_shell.pack(side="top", fill="both", expand=True, padx=12, pady=(0, 8))
@@ -484,7 +484,7 @@ def open_overseer_window(
 
         # Do one direct refresh now. The previous builds showed placeholder text
         # forever on some setups because delayed after/idle refreshes did not run
-        # before the user looked at the window. This makes the behavior obvious.
+        # before the window is opened. This makes the behavior explicit.
         refresh()
         win.after(2000, periodic)
 

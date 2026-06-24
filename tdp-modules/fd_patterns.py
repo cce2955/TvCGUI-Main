@@ -157,7 +157,7 @@ def parse_attack_property(text: str) -> int | None:
     try:
         if token.lower().startswith("0x"):
             return int(token, 16) & 0xFF
-        # Most users will type the guide values as hex, e.g. 21/22/24.
+        # Guide values use hexadecimal notation, e.g. 21/22/24.
         # Treat two hex-looking chars containing A-F as hex, otherwise decimal.
         if any(ch in token.lower() for ch in "abcdef"):
             return int(token, 16) & 0xFF
@@ -171,7 +171,7 @@ def parse_attack_property(text: str) -> int | None:
 
 def _score_speed_candidate(buf: bytes, i: int, value_off: int, move_abs: int) -> int:
     score = 0
-    # Your known 5A case is move_abs + 0x57; prefer this when it validates.
+    # Known 5A case is move_abs + 0x57; prefer this when it validates.
     if value_off == 0x57:
         score += 100
     # Values around normal speed are more likely than random script values.
@@ -357,6 +357,104 @@ def _find_legacy_anim_hdr_offset(buf: bytes) -> int | None:
     return None
 
 
+
+
+def find_legacy_anim_u16_addr(
+    move_abs: int,
+    rbytes: Callable[[int, int], bytes],
+    *,
+    lookahead: int = 0x1000,
+    preferred_values: tuple[int, ...] = (),
+) -> tuple[int | None, int | None, str]:
+    """Resolve the writable animation command inside one action block.
+
+    Animation commands use the four-byte layout ``01 XX 01 3C`` and store a
+    big-endian u16 at the first two bytes.  Actions may contain a direct
+    command and a phase-bound command.  A phase-bound command begins six
+    bytes after ``04 01 02 3F`` and is the executable animation binding.
+
+    The phase-bound command is preferred because its bytes are consumed by
+    the action phase record.  The first matching phase command remains the
+    stable target after its animation value has been edited.
+
+    Returns ``(address, current_value, kind)`` where kind is ``phase_anim``,
+    ``legacy_anim``, or ``none``.
+    """
+    if not move_abs:
+        return None, None, "none"
+
+    try:
+        span = max(LEGACY_ANIM_HDR_LEN, int(lookahead))
+    except Exception:
+        span = 0x1000
+    span = min(span, 0x4000)
+
+    try:
+        buf = rbytes(int(move_abs), span)
+    except Exception:
+        return None, None, "none"
+
+    if not buf or len(buf) < LEGACY_ANIM_HDR_LEN:
+        return None, None, "none"
+
+    preferred_list = tuple(int(v) & 0xFFFF for v in (preferred_values or ()))
+    preferred = set(preferred_list)
+    first: tuple[int, int] | None = None
+    phase_candidates: list[tuple[int, int]] = []
+
+    for i in range(0, len(buf) - LEGACY_ANIM_HDR_LEN + 1):
+        if (
+            buf[i] != LEGACY_ANIM_HDR_B0
+            or buf[i + 2] != LEGACY_ANIM_HDR_B2
+            or buf[i + 3] != LEGACY_ANIM_HDR_B3
+        ):
+            continue
+
+        cur = (buf[i] << 8) | buf[i + 1]
+        if first is None:
+            first = (i, cur)
+
+        # Structured record: 04 01 02 3F 00 00 [anim_hi anim_lo] 01 3C.
+        # The legacy animation word overlaps the low two bytes of the phase
+        # value, so the command begins six bytes after the phase header.
+        phase_start = i - PHASE_REC_HDR_LEN - 2
+        if (
+            phase_start >= 0
+            and buf[phase_start:phase_start + PHASE_REC_HDR_LEN] == PHASE_REC_HDR
+        ):
+            phase_candidates.append((i, cur))
+
+    # On an untouched action, the phase command usually still equals the
+    # action-derived preferred value.  Use that exact match when available.
+    for preferred_id in preferred_list:
+        for off, cur in phase_candidates:
+            if cur == preferred_id:
+                return int(move_abs) + off, cur, "phase_anim"
+
+    # After an edit the phase command holds the replacement animation ID,
+    # while the move-table action ID remains unchanged.  The first phase
+    # command after the selected root is the stable continuation target.
+    if phase_candidates:
+        off, cur = phase_candidates[0]
+        return int(move_abs) + off, cur, "phase_anim"
+
+    # Fallback for actions that expose only a direct legacy command.
+    for i in range(0, len(buf) - LEGACY_ANIM_HDR_LEN + 1):
+        if (
+            buf[i] == LEGACY_ANIM_HDR_B0
+            and buf[i + 2] == LEGACY_ANIM_HDR_B2
+            and buf[i + 3] == LEGACY_ANIM_HDR_B3
+        ):
+            cur = (buf[i] << 8) | buf[i + 1]
+            if cur in preferred:
+                return int(move_abs) + i, cur, "legacy_anim"
+
+    if first is not None:
+        off, cur = first
+        return int(move_abs) + off, cur, "legacy_anim"
+
+    return None, None, "none"
+
 def _find_phase_record_offset(buf: bytes) -> int | None:
     """
     Find first occurrence of the structured "phase record" header:
@@ -372,7 +470,7 @@ def _find_phase_record_offset(buf: bytes) -> int | None:
         i = buf.find(PHASE_REC_HDR, start)
         if i < 0:
             return None
-        # Ensure we can read phase+anim.
+        # Ensure the module can read phase+anim.
         if i + PHASE_REC_TOTAL_LEN <= len(buf):
             return i
         start = i + 1
@@ -446,18 +544,7 @@ def find_projectile_radius_addr(
 
     return None, None
 def find_move_anim_anchor(buf: bytes) -> tuple[int | None, int, str]:
-    """
-    Return a best-effort anchor inside a move block that we can treat as the
-    "start" of the move's definitional record.
-
-    Preference order:
-      1) Structured phase-record header: 04 01 02 3F ...
-      2) Legacy anim header:            01 ?? 01 3C
-
-    Returns:
-      (anchor_offset, anchor_length, kind)
-        - kind is one of: "phase_record", "legacy_anim", "none"
-    """
+    '\n    Return a best-effort anchor inside a move block that the module can treat as the\n    "start" of the move\'s definitional record.\n\n    Preference order:\n      1) Structured phase-record header: 04 01 02 3F ...\n      2) Legacy anim header:            01 ?? 01 3C\n\n    Returns:\n      (anchor_offset, anchor_length, kind)\n        - kind is one of: "phase_record", "legacy_anim", "none"\n    '
     off = _find_phase_record_offset(buf)
     if off is not None:
         return off, PHASE_REC_TOTAL_LEN, "phase_record"
@@ -473,53 +560,20 @@ def find_anim_u16_addr(
     move_abs: int,
     rbytes: Callable[[int, int], bytes],
     *,
-    lookahead: int = 0x80,
+    lookahead: int = 0x1000,
+    preferred_values: tuple[int, ...] = (),
 ) -> tuple[int | None, int | None, str]:
+    """Compatibility wrapper for writable animation-binding lookup.
+
+    The structured phase record includes an ``01 3C`` opcode tail and is not
+    used as a write target.  The legacy binding is the writable command.
     """
-    Resolve the absolute address of the move's animation ID (u16 big-endian).
-
-    If a phase-record header is present, the anim ID lives at:
-        move_abs + off + 8
-    (after: 04 01 02 3F + u32 phase)
-
-    If only the legacy header is present, the anim ID lives at:
-        move_abs + off + 1
-    (the ?? in 01 ?? ?? 3C is the u16 anim)
-
-    Returns:
-      (absolute_addr, current_anim_id, kind)
-    """
-    if not move_abs:
-        return None, None, "none"
-
-    try:
-        buf = rbytes(move_abs, lookahead)
-    except Exception:
-        return None, None, "none"
-
-    if not buf:
-        return None, None, "none"
-
-    off, _, kind = find_move_anim_anchor(buf)
-    if off is None:
-        return None, None, "none"
-
-    if kind == "phase_record":
-        addr = move_abs + off + (PHASE_REC_HDR_LEN + PHASE_REC_PHASE_LEN)
-    else:
-        addr = move_abs + off + 1
-
-    try:
-        # Read current anim id from the captured buffer when possible.
-        if kind == "phase_record":
-            rel = off + (PHASE_REC_HDR_LEN + PHASE_REC_PHASE_LEN)
-        else:
-            rel = off + 1
-        cur = (buf[rel] << 8) | buf[rel + 1]
-    except Exception:
-        cur = None
-
-    return addr, cur, kind
+    return find_legacy_anim_u16_addr(
+        move_abs,
+        rbytes,
+        lookahead=max(0x1000, int(lookahead or 0)),
+        preferred_values=preferred_values,
+    )
 
 
 def find_combo_kb_mod_addr(move_abs: int, rbytes_func) -> tuple[int | None, int | None, int | None]:
@@ -560,20 +614,7 @@ def find_combo_kb_mod_addr(move_abs: int, rbytes_func) -> tuple[int | None, int 
 
 
 def find_superbg_addr(move_abs: int, rbytes_func, rd8_func) -> tuple[int | None, int | None]:
-    """
-    Find per-move SuperBG toggle.
-
-    Pattern (based on user-verified bytes):
-      ... (anchor) ... then later: 04 XX 60
-      - 0x04 is a fixed marker
-      - XX is the toggled value (commonly 0x01 or 0x04)
-      - 0x60 is a trailing marker
-
-    We return the address of XX (the middle byte).
-
-    Anchor selection:
-      prefers 04 01 02 3F record; falls back to 01 ?? 01 3C.
-    """
+    '\n    Find per-move SuperBG toggle.\n\n    Pattern (based on validated bytes):\n      ... (anchor) ... then later: 04 XX 60\n      - 0x04 is a fixed marker\n      - XX is the toggled value (commonly 0x01 or 0x04)\n      - 0x60 is a trailing marker\n\n    Return the address of XX (the middle byte).\n\n    Anchor selection:\n      prefers 04 01 02 3F record; falls back to 01 ?? 01 3C.\n    '
     if not move_abs:
         return None, None
 
@@ -604,7 +645,7 @@ def find_superbg_addr(move_abs: int, rbytes_func, rd8_func) -> tuple[int | None,
 
     return None, None
 
-# ---- User-verified hit FX / limb stretch / post-animation link patterns ----
+# ---- Validated hit FX / limb stretch / post-animation link patterns ----
 # These are Dolphin-memory command stream patterns, not DOL/static addresses.
 # Ryu 5A examples:
 #   35/05 packet at 0x908AF0AC; second payload word at +0x08 controls hit spark/anchor.
@@ -616,7 +657,7 @@ import math as _math
 
 HIT_SPARK_SCAN_MAX = 0x800
 HIT_SPARK_SIG = b"\x35\x05\x00\x20"
-HIT_SPARK_VALUE_OFFSET = 0x08  # second payload word; low byte was user-verified at +0x0B
+HIT_SPARK_VALUE_OFFSET = 0x08  # second payload word; low byte was validated at +0x0B
 
 LIMB_STRETCH_SCAN_MAX = 0x900
 LIMB_STRETCH_SIG = b"\x34\x40\x00\x20"
@@ -652,18 +693,7 @@ def find_hit_spark_addr(
     *,
     scan_len: int = HIT_SPARK_SCAN_MAX,
 ) -> tuple[int | None, int | None, int | None, bytes | None]:
-    """
-    Find the user-verified 35/05 hit-spark/effect packet.
-
-    Packet shape:
-        35 05 00 20  [word0] [word1] [word2]
-
-    User poke result:
-        low byte of word1 changed hit spark and sometimes spark location.
-
-    Returns:
-        (packet_addr, value_addr_for_word1, word1_value, context_bytes)
-    """
+    '\n    Find the validated 35/05 hit-spark/effect packet.\n\n    Packet shape:\n        35 05 00 20  [word0] [word1] [word2]\n\n    Validation result:\n        low byte of word1 changed hit spark and sometimes spark location.\n\n    Returns:\n        (packet_addr, value_addr_for_word1, word1_value, context_bytes)\n    '
     if not move_abs:
         return None, None, None, None
     try:
@@ -687,7 +717,7 @@ def find_hit_spark_addr(
         return None, None, None, None
 
     # Prefer the first 35/05 in the move definition.
-    # Ryu 5A: first 35/05 at 0x908AF0AC; the low byte at +0x0B was user-verified as hit spark/location.
+    # Ryu 5A: first 35/05 at 0x908AF0AC; the low byte at +0x0B was validated as hit spark/location.
     i = hits[0]
     val_off = i + HIT_SPARK_VALUE_OFFSET
     val = _u32be(buf, val_off)
@@ -701,16 +731,7 @@ def find_limb_stretch_packet(
     *,
     scan_len: int = LIMB_STRETCH_SCAN_MAX,
 ) -> dict | None:
-    """
-    Find the user-verified 34/40 limb stretch / reach-scaling packet.
-
-    Packet shape:
-        34 40 00 20 [part] [scale1] [scale2] [scale3] [timing]
-
-    Ryu 5A late packet at 0x908AF0C8 gives stretch/Dhalsim-limb behavior.
-    If more than one 34/40 exists, prefer the one after a 35/05 packet; otherwise
-    use the last sane candidate in the move block.
-    """
+    '\n    Find the validated 34/40 limb stretch / reach-scaling packet.\n\n    Packet shape:\n        34 40 00 20 [part] [scale1] [scale2] [scale3] [timing]\n\n    Ryu 5A late packet at 0x908AF0C8 gives stretch/Dhalsim-limb behavior.\n    If more than one 34/40 exists, prefer the one after a 35/05 packet; otherwise\n    use the last sane candidate in the move block.\n    '
     if not move_abs:
         return None
     try:
@@ -772,15 +793,7 @@ def find_post_animation_link_addr(
     *,
     scan_len: int = POST_ANIM_LINK_SCAN_MAX,
 ) -> tuple[int | None, int | None, int | None, bytes | None]:
-    """
-    Find the 01/33 post-animation continuation/link packet.
-
-    User poke result: changing the value freezes Ryu after the animation.
-    Treat as dangerous, but expose it for full control.
-
-    Returns:
-        (packet_addr, value_addr, u32_value, context_bytes)
-    """
+    '\n    Find the 01/33 post-animation continuation/link packet.\n\n    Validation result: changing the value freezes Ryu after the animation.\n    Treat as dangerous, but expose it for full control.\n\n    Returns:\n        (packet_addr, value_addr, u32_value, context_bytes)\n    '
     if not move_abs:
         return None, None, None, None
     try:
@@ -810,7 +823,7 @@ def find_post_animation_link_addr(
 
 
 # ---- Hit-result / OTG toggle flag pattern ----
-# User-verified on Alex normals after the 0x80042F00 clear mask:
+# Validated on Alex normals after the 0x80042F00 clear mask:
 #   0x00000000 = OTG off
 #   0x00004000 = OTG on
 #   0x00004100+ = reaction/knockdown families. These remain manually editable,

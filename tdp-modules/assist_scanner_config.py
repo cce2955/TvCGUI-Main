@@ -24,7 +24,7 @@ _CHR_TBL_BASES = [
 
 # Confirmed Chun assist selector graft.
 #
-# User-confirmed live patch:
+# Validated live patch:
 #   Graft this 0x2C-byte Ryu-style selector setup over the active Chun assist
 #   block that begins 0x48 bytes before the live Tensho state wrapper.
 #
@@ -276,7 +276,7 @@ CHAR_ID_TO_KEY = {
 
 # Confirmed live Ryu selector chain:
 #   0x908C7680: 00 03 11 0C 00 03 14 6C 00 03 1C DC 37 32 20 3F
-# User-confirmed effects:
+# Validated effects:
 #   0003110C = Hadouken
 #   0003146C = Shoryu
 #   00031CDC = Tatsu

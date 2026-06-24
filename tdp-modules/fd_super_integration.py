@@ -39,7 +39,7 @@ SUPER_DISPATCH_LABELS = {
     "dispatch_child_target": "Child Target",
 }
 
-# col_name -> (hit-key, user label, type)
+# col_name -> (hit-key, display label, type)
 SUPER_DISPATCH_FIELD_INFO = {
     "dispatch_selector": ("selector", "Action Selector", "u32"),
     "dispatch_variant": ("variant", "Variant / Branch", "u32"),
@@ -49,7 +49,7 @@ SUPER_DISPATCH_FIELD_INFO = {
 
 # Owned script/payload fields are displayed on the parent super dispatch row
 # after the graph proves ownership.  These reuse the normal FD columns so the
-# user can see/edit the important hit fields without opening a separate child
+# important hit fields remain visible/editable without opening a separate child
 # row.  The backing address comes from the resolved child script, not from the
 # 00/23 parent itself.
 SUPER_OWNED_FIELD_INFO = {
@@ -522,7 +522,7 @@ def _primary_super_entry(entries: list[dict[str, Any]] | None) -> dict[str, Any]
 # ---------------------------------------------------------------------------
 # The graph scanner is not only for 0x160+ supers.  The real dynamic route is:
 #   00/23 parent -> child offset -> scan forward -> match known field packets.
-# projectilemap.json is the user-maintained truth table for expected move damage,
+# projectilemap.json is the project-maintained reference table for expected move damage,
 # so the child sniffer uses it as a whitelist/label source for every special.
 # Addresses are never stored; only damage/name signatures are used.
 
@@ -561,17 +561,7 @@ def _projectilemap_damage_lookup(key: str | None) -> dict[int, list[dict[str, An
 
 
 def _projectilemap_damage_forward_matches(data: bytes, scan_start: int, dmg_lookup: dict[int, list[dict[str, Any]]] | None) -> list[dict[str, Any]]:
-    """Return projectilemap damage occurrences in child-forward order.
-
-    This is intentionally close to the user's manual workflow:
-      parent -> child target -> search forward for the known damage.
-
-    Scan the child window once instead of running ``bytes.find`` once per
-    projectilemap entry.  That keeps Rescan specials usable on large character
-    maps while still checking both TvC widths:
-      - u32: 00 00 05 50
-      - u16: 05 50
-    """
+    'Return projectilemap damage occurrences in child-forward order.\n\n    This is intentionally close to the selected manual workflow:\n      parent -> child target -> search forward for the known damage.\n\n    Scan the child window once instead of running ``bytes.find`` once per\n    projectilemap entry.  That keeps Rescan specials usable on large character\n    maps while still checking both TvC widths:\n      - u32: 00 00 05 50\n      - u16: 05 50\n    '
     if not data or not dmg_lookup:
         return []
     wanted = {int(k) for k in (dmg_lookup or {}).keys() if 1 <= int(k) <= 50000}
@@ -1003,12 +993,7 @@ def _payload_damage_addr(hit: dict | None) -> int | None:
 
 
 def _payload_in_child_forward_window(payload: dict, scan_start: int, scan_end: int) -> bool:
-    """True when the child forward scan owns the payload row/address.
-
-    Prefer the payload record base, but also accept the exact damage write addr
-    because some scanner formats report the record base just before the child
-    entry while the field itself is what the user searched forward to.
-    """
+    'True when the child forward scan owns the payload row/address.\n\n    Prefer the payload record base, but also accept the exact damage write addr\n    because some scanner formats report the record base just before the child\n    entry while the field itself is what the operator searched forward to.\n    '
     addrs = []
     for k in ("addr", "damage_addr", "dmg_write_addr"):
         val = _to_intish(payload.get(k), None)
@@ -1186,7 +1171,7 @@ def _scan_owned_script_fields(row: dict[str, Any], super_name: str, super_proofs
         return {}, []
 
     # Simple owner sniff: start exactly at the child target and scan forward.
-    # The user-verified workflow is: parent row -> child offset -> go to that
+    # Validated workflow: parent row -> child offset -> target offset.
     # offset -> search forward for the hit field.  Do not broad-backscan here;
     # it pulls unrelated earlier hit packets into the parent and produced bogus
     # values like 65360.
@@ -1366,14 +1351,7 @@ def _owned_field_summary(field_map: dict[str, dict[str, Any]], max_items: int = 
 
 
 def _merge_payload_fields_into_owned_map(field_map: dict[str, dict[str, Any]], payloads: list[dict[str, Any]]) -> None:
-    """Promote graph-owned payload field addresses into visible owned fields.
-
-    The child packet sniffer catches explicit 35/10-style script commands.  Some
-    scanner-owned hit payloads are discovered through the move scanner instead;
-    those arrive as payload candidates with a damage address but no entry in
-    owned_field_map.  Without this merge the tree shows only the child script row
-    and hides the useful Damage value the user actually wants.
-    """
+    'Promote graph-owned payload field addresses into visible owned fields.\n\n    The child packet sniffer catches explicit 35/10-style script commands.  Some\n    scanner-owned hit payloads are discovered through the move scanner instead;\n    those arrive as payload candidates with a damage address but no entry in\n    owned_field_map.  Without this merge the tree shows only the child script row\n    and hides the useful Damage value the operator actually wants.\n    '
     for h in list(payloads or []):
         if str(h.get("owner") or "") not in {"super_graph", "action_graph"}:
             continue
@@ -1392,7 +1370,7 @@ def _merge_payload_fields_into_owned_map(field_map: dict[str, dict[str, Any]], p
                     "u32",
                 ),
             )
-        # Keep payload scalar values visible in summaries even when we do not
+        # Keep payload scalar values visible in summaries even when do not
         # have proven write addresses for them yet.  They remain payload rows in
         # the tree, while address-backed values above become editable fields.
 

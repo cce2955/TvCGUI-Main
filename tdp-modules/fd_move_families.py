@@ -23,7 +23,7 @@ def _safe_key(text: str) -> str:
 def _clean_label(text: str) -> str:
     s = _text(text).strip()
     s = re.sub(r"\s+", " ", s)
-    # User-facing family/link labels should not inherit scouting uncertainty
+    # Display family/link labels should not inherit scouting uncertainty
     # punctuation from the map.  The raw Move column can still show the original
     # name; the Link column is the organized view.
     s = s.replace("?", "")
@@ -184,13 +184,7 @@ def _named_strengths(members: Iterable[Dict[str, Any]]) -> List[str]:
 
 
 def _strength_order_for_family(label: str, members: Iterable[Dict[str, Any]] = ()) -> Tuple[str, ...]:
-    """Pick the strength language for a family.
-
-    TvC's map is mixed: Ryu style specials are usually L/M/H, but a lot of the
-    cast is named A/B/C.  Use explicit names when we have them.  When an
-    internal chain is unnamed, fall back to L/M/H because that matches the
-    command-strength mental model the frame editor is trying to expose.
-    """
+    "Pick the strength language for a family.\n\n    TvC's map is mixed: Ryu style specials are usually L/M/H, but a lot of the\n    cast is named A/B/C.  Use explicit names when the module has them.  When an\n    internal chain is unnamed, fall back to L/M/H because that matches the\n    command-strength mental model the frame editor is trying to expose.\n    "
     strengths = _named_strengths(members)
     has_lmh = any(st in _STRENGTH_ORDER_LMH for st in strengths)
     has_abc = any(st in _STRENGTH_ORDER_ABC for st in strengths)
@@ -541,12 +535,7 @@ def _looks_like_noise_name(name: str, mv: Dict[str, Any]) -> bool:
 
 
 def _derive_generic_family(name: str, mv: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Infer a cross-character family from the move name.
-
-    This is intentionally name-driven and display-only.  It lets the workbench
-    organize non-Ryu characters without claiming that we know every command
-    route.  Exact writes still use the original row addresses.
-    """
+    'Infer a cross-character family from the move name.\n\n    This is intentionally name-driven and display-only.  It lets the workbench\n    organize non-Ryu characters without claiming that the known state is every command\n    route.  Exact writes still use the original row addresses.\n    '
     original = _clean_label(name)
     if _looks_like_noise_name(original, mv):
         return None

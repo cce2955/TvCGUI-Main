@@ -47,7 +47,7 @@ ATTACK_HISTORY_FRAMES = 12
 PENDING_RESULT_FRAMES = 6
 
 # These are ordinary public player actions in the live move field. System
-# states such as idle/block/pushblock are below this range in our captures.
+# states such as idle/block/pushblock are below this range in the captures.
 MIN_PLAYER_ACTION_ID = 0x0100
 
 # Same counter used by the hitbox overlay. It is a big-endian float where 2.0
@@ -237,7 +237,7 @@ def apply_runtime_stun_observations(moves: Iterable[dict], char_id: Any, *, path
             mv["recovery_source"] = "runtime_observed"
             mv["recovery_addr"] = None
 
-        # Recompute only if we now have a measured whiff recovery. This is the
+        # Recompute only if the module now have a measured whiff recovery. This is the
         # usual frame-data convention: post-last-active attacker frames.
         if recovery_value is not None:
             try:

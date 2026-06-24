@@ -1,8 +1,8 @@
 # redscan.py
 # Local fighter-struct scanner.
 #
-# Goal:
-#   Capture a history of bytes around a fighter's base pointer so we can see
+# Purpose:
+#   Capture a history of bytes around a fighter's base pointer so the module can see
 #   which offsets behave like HP / pooled HP / mystery state.
 #
 # Usage pattern in main loop:
@@ -10,13 +10,13 @@
 #   - Press F2 to analyze all collected snapshots
 #
 # This is "close range" around a single fighter struct, not full RAM.
-# We currently scan offsets 0x000..0x0FF from that fighter base.
+# Currently scan offsets 0x000..0x0FF from that fighter base.
 
 import time
 from dolphin_io import rd8
 
-# How wide around the fighter struct we sample each time.
-# You can widen this to 0x200/0x400 later if you want.
+# How wide around the fighter struct the module sample each time.
+# The configuration can widen this to 0x200/0x400 later if the target behavior requires.
 SCAN_START = 0x000
 SCAN_END   = 0x100  # not inclusive; grabs [0x000 .. 0x0FF]
 
@@ -41,13 +41,7 @@ class RedHealthScanner:
         self.samples = []
 
     def snapshot(self, fighter_snap):
-        """
-        fighter_snap is the dict from read_fighter() for a slot (usually P1-C1).
-        We expect:
-          fighter_snap["base"] == base address of fighter struct
-          fighter_snap["cur"]  == current HP int
-          fighter_snap["max"]  == max HP int
-        """
+        '\n        fighter_snap is the dict from read_fighter() for a slot (usually P1-C1).\n        Expect:\n          fighter_snap["base"] == base address of fighter struct\n          fighter_snap["cur"]  == current HP int\n          fighter_snap["max"]  == max HP int\n        '
         base = fighter_snap.get("base")
         hp   = fighter_snap.get("cur")
         mx   = fighter_snap.get("max")

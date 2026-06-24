@@ -208,7 +208,7 @@ OFF_STATE_ID = 0x1EA  # current action/state id
 OFF_CHR_TBL = 0x1E0   # live character action-table pointer
 
 # Slot-local action-frame counter.
-# User observed slot 1 base 0x9246B9C0 and counter addr 0x9246BB98.
+# Captured slot-1 base 0x9246B9C0 and counter address 0x9246BB98.
 # 0x9246BB98 - 0x9246B9C0 = 0x1D8.
 # Values are big-endian floats: 0x40000000=2.0, 0x40400000=3.0,
 # 0x40800000=4.0, etc. The -1 bias maps 2.0 to action frame 1.
@@ -2930,14 +2930,7 @@ def _valid_projectile_actor_candidate(actor: int, require_link_or_table: bool = 
 
 
 def get_projectile_actors():
-    """Return unique raw projectile actor pointers.
-
-    ACTOR_TABLE is reliable for simple projectiles, but Morrigan-style missile
-    showers can have many actor structs in the projectile actor pool while only
-    exposing a small subset through ACTOR_TABLE.  We seed from ACTOR_TABLE, then
-    scan the small stride-based actor pool and include candidates with valid
-    owner/id/root and either a valid linked hit record or table presence.
-    """
+    'Return unique raw projectile actor pointers.\n\n    ACTOR_TABLE is reliable for simple projectiles, but Morrigan-style missile\n    showers can have many actor structs in the projectile actor pool while only\n    exposing a small subset through ACTOR_TABLE.  The module seed from ACTOR_TABLE, then\n    scan the small stride-based actor pool and include candidates with valid\n    owner/id/root and either a valid linked hit record or table presence.\n    '
     actors: List[int] = []
     seen = set()
     table_seen = set()

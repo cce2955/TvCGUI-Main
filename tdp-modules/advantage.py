@@ -3,58 +3,33 @@
 # Lightweight frame advantage tracker.
 #
 # The idea is:
-#   - When a hit/block is detected, we record both players' current move IDs.
-#   - On each subsequent frame, we watch for those move IDs to change.
+#   - When a hit/block is detected, the module record both players' current move IDs.
+#   - On each subsequent frame, the module watch for those move IDs to change.
 #   - The first change for each side is treated as "recovery".
 #   - Frame advantage = victim_recover_frame - attacker_recover_frame.
 #
 # Positive values mean the victim recovers first (attacker is negative),
 # negative values mean the attacker recovers first (attacker is plus).
 
-# How many frames we keep watching an interaction before giving up.
+# How many frames keep watching an interaction before giving up.
 CONTACT_TIMEOUT_FRAMES = 60  # ~1 second at 60 FPS
 
 
 class AdvantageTracker:
     def __init__(self):
-        """
-        Track frame advantage by watching move_id transitions for pairs
-        of characters, keyed by their base addresses.
-
-        self.pairs[(atk_base, vic_base)] = {
-            "active": bool,              # currently tracking this contact?
-            "contact_frame": int,        # frame when the hit/block happened
-            "last_update_frame": int,    # last frame we saw this pair
-
-            "atk_move_id": int,          # attacker's move_id at contact
-            "vic_move_id": int,          # victim's move_id at contact
-
-            "atk_recover_frame": None,   # when attacker left that move_id
-            "vic_recover_frame": None,   # when victim left that move_id
-
-            "done": bool,                # calculation completed?
-            "plus_frames": None,         # victim_recover - attacker_recover
-            "finalized_frame": None,     # frame index when we finished
-            "reported": bool,            # has this result already been shown?
-        }
-        """
+        '\n        Track frame advantage by watching move_id transitions for pairs\n        of characters, keyed by their base addresses.\n\n        self.pairs[(atk_base, vic_base)] = {\n            "active": bool,              # currently tracking this contact?\n            "contact_frame": int,        # frame when the hit/block happened\n            "last_update_frame": int,    # last frame the module saw this pair\n\n            "atk_move_id": int,          # attacker\'s move_id at contact\n            "vic_move_id": int,          # victim\'s move_id at contact\n\n            "atk_recover_frame": None,   # when attacker left that move_id\n            "vic_recover_frame": None,   # when victim left that move_id\n\n            "done": bool,                # calculation completed?\n            "plus_frames": None,         # victim_recover - attacker_recover\n            "finalized_frame": None,     # frame index when the module finished\n            "reported": bool,            # has this result already been shown?\n        }\n        '
         # (atk_base, vic_base) -> state dict (see above)
         self.pairs = {}
 
     def start_contact(self, atk_base, vic_base, frame_idx, atk_move_id, vic_move_id):
-        """
-        Begin tracking an interaction between attacker and victim.
-
-        Called at the moment we detect a hit or block. We record the current
-        move IDs for both parties and treat any subsequent change as "recovery".
-        """
+        '\n        Begin tracking an interaction between attacker and victim.\n\n        Called at the moment the module detect a hit or block. The module record the current\n        move IDs for both parties and treat any subsequent change as "recovery".\n        '
         if atk_move_id is None or vic_move_id is None:
-            # If we don't know the move IDs, we have nothing meaningful to track.
+            # If do not know the move IDs, the module has nothing meaningful to track.
             return
 
         key = (atk_base, vic_base)
 
-        # If we're already watching this exact pair and it's active, don't reset.
+        # If the module is already watching this exact pair and it's active, don't reset.
         # This avoids constantly restarting during multi-hit strings.
         if key in self.pairs and self.pairs[key]["active"]:
             return
@@ -79,13 +54,7 @@ class AdvantageTracker:
         # print(f"[ADV] Start @ {frame_idx}: atk_move={atk_move_id}, vic_move={vic_move_id}")
 
     def update_pair(self, atk_base, vic_base, frame_idx, atk_move_id, vic_move_id):
-        """
-        Advance the state machine for a given attacker/victim pair.
-
-        This should be called every frame while both characters are on-screen.
-        We look for the first time each side's move_id changes from the value
-        captured at contact, and treat those moments as recovery.
-        """
+        "\n        Advance the state machine for a given attacker/victim pair.\n\n        This should be called every frame while both characters are on-screen.\n        Look for the first time each side's move_id changes from the value\n        captured at contact, and treat those moments as recovery.\n        "
         key = (atk_base, vic_base)
 
         if key not in self.pairs:
@@ -93,7 +62,7 @@ class AdvantageTracker:
 
         state = self.pairs[key]
 
-        # Nothing to do once we've finished computing plus_frames.
+        # Nothing to do once the module has finished computing plus_frames.
         if state["done"]:
             return
 
@@ -116,7 +85,7 @@ class AdvantageTracker:
                 state["vic_recover_frame"] = frame_idx
                 # print(f"[ADV] Victim recovered @ {frame_idx}: {state['vic_move_id']} -> {vic_move_id}")
 
-        # Once both sides have recovered, we can compute the actual advantage.
+        # Once both sides have recovered, the module can compute the actual advantage.
         if state["atk_recover_frame"] is not None and state["vic_recover_frame"] is not None:
             state["plus_frames"] = state["vic_recover_frame"] - state["atk_recover_frame"]
             state["done"] = True
@@ -143,7 +112,7 @@ class AdvantageTracker:
         newest_key = None
 
         for (atk_b, vic_b), state in self.pairs.items():
-            # Skip entries we've already emitted to the HUD/log.
+            # Skip entries the module has already emitted to the HUD/log.
             if state.get("reported"):
                 continue
 
@@ -157,7 +126,7 @@ class AdvantageTracker:
                     newest = (atk_b, vic_b, state["plus_frames"], fin_frame)
                     newest_key = (atk_b, vic_b)
 
-        # Mark the chosen entry as reported so we don't repeat it.
+        # Mark the chosen entry as reported so do not repeat it.
         if newest_key:
             self.pairs[newest_key]["reported"] = True
 

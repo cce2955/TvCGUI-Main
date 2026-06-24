@@ -120,7 +120,7 @@ def configure_light_dialog(dlg, parent=None, *, width: int | None = None, height
     except Exception:
         pass
     # Do not force a fixed geometry before the dialog's widgets exist; that can
-    # clip OK/Cancel rows on systems with different DPI/text metrics.  We keep
+    # clip OK/Cancel rows on systems with different DPI/text metrics.  Keep
     # the desired size as a minimum and finalize after layout instead.
     try:
         if width or height:
@@ -351,7 +351,7 @@ FIELD_HELP = {
         "UNVERIFIED LABEL: this field is currently called Hitstop, but that has not been confirmed in-game yet. "
         "It may control impact freeze/pause frames or another hit-timing behavior. Treat it as experimental: change one value at a time and verify the result in-game."
     ),
-    "hit_spark": "Hit spark/effect number. User-tested on Ryu 5A: changing this can change the spark type and sometimes the spark location.",
+    "hit_spark": "Hit spark/effect number. Validated on Ryu 5A: changing this can alter spark type and, in some cases, spark location.",
     "stretch_part": "Which body/limb slot the reach stretch packet targets. Change this to test what part gets stretched.",
     "stretch_len": "Reach length scale. Higher values can create longer Dhalsim-style limb reach when the stretch packet is active.",
     "stretch_width": "Reach width/side scale for the stretch packet. Use this to test the second stretch axis.",
@@ -373,7 +373,7 @@ FIELD_HELP = {
     "invuln": "Protection-phase candidates. [C] = this exact action is runtime-confirmed invulnerable; [H] = same +0x58-bit-0 plus phase-setup topology as the confirmed references, but untested; [M]/[L] are weaker evidence. The scanner suppresses only the exact normal bootstrap (clear +0x1218 -> 2f -> action handoff). 999 is retained as raw event-held data and is not displayed as a frame count.",
     "attack_property": "Attack property byte. Use the known-value dropdown for confirmed properties; manual entry is for testing unknown bytes.",
     "hit_reaction": "The reaction state/animation chosen on hit, such as standing hitstun, low hitstun, overhead hitstun, knockdown, crumple, or special reactions.",
-    "hit_result_flags": "OTG toggle written to fighter +0x240 after the 0x80042F00 clear mask. User-verified: 0x00000000 = OTG off, 0x00004000 = OTG on. Values 0x00004100 and above enter reaction/knockdown families and are kept as manual/custom testing values.",
+    "hit_result_flags": "OTG toggle written to fighter +0x240 after the 0x80042F00 clear mask. Validated values: 0x00000000 = OTG off, 0x00004000 = OTG on. Values 0x00004100 and above enter reaction/knockdown families and remain available for manual/custom testing.",
     "superbg": "Super background flag. Toggles whether the super-style background effect is enabled for this move when the signature is found.",
     "abs": "Absolute move-table address for this row. This is for lookup/debugging and address tools; it is not directly edited as frame data.",
     "combo_kb_mod": "Combo knockback modifier byte when the signature is found. Useful for testing combo scaling/knockback behavior.",

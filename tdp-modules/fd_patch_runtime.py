@@ -25,14 +25,7 @@ _LIVE_ENTRIES_BY_CHAR: dict[str, list[dict]] = {}
 
 
 def app_base_dir() -> str:
-    """Persistent app folder for user-editable files.
-
-    In source runs this is the tdp-modules folder. In a PyInstaller one-file
-    build, __file__ points into the temporary _MEIPASS extraction directory,
-    which is deleted after exit. Patch configs must live beside TvCGUI.exe
-    instead so saved/shared balance patches survive restarts and can be dropped
-    into dist\fd_patches.
-    """
+    'Persistent app folder for configurable files.\n\n    In source runs this is the tdp-modules folder. In a PyInstaller one-file\n    build, __file__ points into the temporary _MEIPASS extraction directory,\n    which is deleted after exit. Patch configs must live beside TvCGUI.exe\n    instead so saved/shared balance patches survive restarts and can be dropped\n    into dist\x0cd_patches.\n    '
     if getattr(sys, "frozen", False):
         return os.path.dirname(os.path.abspath(sys.executable))
     return os.path.dirname(os.path.abspath(__file__))
@@ -438,41 +431,31 @@ def _write_anim_id_runtime(mv: dict, new_anim_id: int) -> bool:
         import fd_utils as U
         if not U.WRITER_AVAILABLE:
             return False
-    except Exception:
-        return False
-    base = mv.get("abs")
-    if not base:
-        return False
-    try:
-        from dolphin_io import rbytes, wd8
+        from dolphin_io import rbytes, wd32
+        from mot_runtime import write_animation_only
     except Exception:
         return False
 
     try:
-        buf = rbytes(base, 0x80)
-    except Exception as e:
-        print(f"[fd patch] anim-id read failed @0x{int(base):08X}: {e}")
+        ok, info = write_animation_only(
+            mv,
+            int(new_anim_id),
+            char_name=mv.get("char_name") or mv.get("animation_char_key"),
+            char_id=mv.get("char_id"),
+            rbytes=rbytes,
+            wd32=wd32,
+        )
+    except Exception as exc:
+        print(f"[fd patch] animation-only MOT write failed: {exc}")
         return False
-
-    target_off = None
-    for i in range(0, len(buf) - 4):
-        b0, _b1, b2, b3 = buf[i], buf[i + 1], buf[i + 2], buf[i + 3]
-        if b0 == 0x01 and b2 == 0x01 and b3 == 0x3C:
-            target_off = i
-            break
-    if target_off is None:
-        print(f"[fd patch] anim-id pattern not found @0x{int(base):08X}")
+    if not ok:
+        print(f"[fd patch] animation-only MOT write failed: {info.get('reason', 'unknown')}")
         return False
-
-    addr = int(base) + target_off
-    new_hi = (int(new_anim_id) >> 8) & 0xFF
-    new_lo = int(new_anim_id) & 0xFF
-    try:
-        return bool(wd8(addr, new_hi) and wd8(addr + 1, new_lo))
-    except Exception as e:
-        print(f"[fd patch] anim-id write failed @0x{addr:08X}: {e}")
-        return False
-
+    print(
+        f"[fd patch] MOT slot @0x{int(info['table_slot']):08X} "
+        f"action 0x{int(info['source_action']):04X} -> clip 0x{int(info['target_action']):04X}"
+    )
+    return True
 
 def apply_patch_change_to_move(mv: dict, entry: dict, *, write_to_dolphin: bool = True) -> tuple[bool, str]:
     if not isinstance(mv, dict) or not isinstance(entry, dict):
@@ -511,7 +494,7 @@ def apply_patch_change_to_move(mv: dict, entry: dict, *, write_to_dolphin: bool 
             new_val = int(value)
             if not _write_anim_id_runtime(mv, new_val):
                 return False, "write failed"
-            mv["id"] = new_val
+            mv["animation_id"] = new_val & 0xFFFF
 
         elif group == "damage":
             new_val = int(value)
@@ -690,7 +673,7 @@ def apply_patch_value_to_move(mv: dict, entry: dict) -> None:
     value = entry.get("value")
     try:
         if group == "move":
-            mv["id"] = int(value)
+            mv["animation_id"] = int(value) & 0xFFFF
         elif group == "damage":
             mv["damage"] = int(value)
         elif group == "meter":

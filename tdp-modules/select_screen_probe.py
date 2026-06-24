@@ -27,7 +27,7 @@ def _z(label: str, addr: int, text: str, group: str, note: str = "") -> SelectPr
 
 
 # Character-select probe buckets from the 2026-06-01 select-screen MEM dump.
-# These are RAM-only test writes.  The popup lets the user zero/restore single
+# These are RAM-only test writes.  The popup lets the operator zero/restore single
 # candidates or a full bucket while watching the select screen.
 SELECT_PROBE_TARGETS: tuple[SelectProbeTarget, ...] = (
     # The first confirmed bucket: this affects the large back panels/signage.
@@ -694,12 +694,7 @@ def build_trace_targets_for(
     selected: SelectProbeTarget,
     read_fn: Callable[[int, int], bytes],
 ) -> dict[str, Any]:
-    """Generate focused trace probes from a known visual/resource hit.
-
-    This intentionally runs only when the user presses Trace Selected. It reads a
-    small set of known character-select ranges, finds sibling resource copies,
-    pointer-like references, and uppercase character-tag records such as POL.
-    """
+    'Generate focused trace probes from a known visual/resource hit.\n\n    This intentionally runs only when the operator presses Trace Selected. It reads a\n    small set of known character-select ranges, finds sibling resource copies,\n    pointer-like references, and uppercase character-tag records such as POL.\n    '
     state = _ensure_state(state)
     token, short_tag = _trace_token_for(selected)
     if not token and not short_tag:
@@ -709,7 +704,7 @@ def build_trace_targets_for(
     seen: set[tuple[int, int]] = set()
     ptr_needles = [int(selected.addr).to_bytes(4, "big", signed=False)]
 
-    # First row: the thing the user actually traced. This prevents the trace
+    # First row: the directly traced resource. This prevents the trace
     # list from feeling detached from the visual hit that started it.
     _add_unique_trace_target(
         new_targets,
@@ -722,7 +717,7 @@ def build_trace_targets_for(
 
     # Strongest current dump lead: 0x80563CE0 is the master char_id -> tag
     # table. For select_pol, this adds POL char_id 04 immediately instead of
-    # drowning the user in old partial 0x1C roster rows.
+    # from being cluttered by old partial 0x1C roster rows.
     if short_tag and short_tag in CHAR_ID_BY_TAG:
         char_id = CHAR_ID_BY_TAG[short_tag]
         _add_unique_trace_target(

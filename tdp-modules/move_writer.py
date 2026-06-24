@@ -6,7 +6,7 @@
 
 from dolphin_io import wd8, wdf32
 
-# standard offsets we already know
+# standard offsets the module already know
 # meter_addr is now stored as the direct editable value byte by scan_normals_all.collect_blocks.
 METER_VALUE_OFFSET = 0
 ACTIVE_START_OFFSET = 8
@@ -219,7 +219,7 @@ def write_knockback(
 def write_hitbox_radius(mv: dict, radius: float) -> bool:
     if not _has(mv, "abs"):
         return False
-    # per-move offset if we discovered it in the GUI
+    # per-move offset if the module discovered it in the GUI
     off = mv.get("hb_off", FALLBACK_HB_OFFSET)
     addr = mv["abs"] + off
     try:

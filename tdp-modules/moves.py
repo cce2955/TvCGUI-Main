@@ -32,7 +32,7 @@ CHAR_ID_CORRECTION = {
     "Frank West":        30,
 
     # If the HUD ever prints slightly different names (like "Frank" or "ZERO"),
-    # you MUST add those spellings here mapped to the same number.
+    # the operator MUST add those spellings here mapped to the same number.
     # e.g. "ZERO": 29,
     #      "Frank": 30,
 }
@@ -51,16 +51,7 @@ def _pick_label_from_row(row):
 
 
 def load_move_map(big_csv_path, override_csv_path=None):
-    """
-    Build TWO maps:
-
-      move_map[char_id][atk_id]  = "Move Name"
-      global_map[atk_id]         = "Move Name"   (for char_id == 100)
-
-    We parse both CSVs:
-    - move_id_map_charagnostic.csv  (main "big" file)
-    - move_id_map_charpair.csv      (override / refinement)
-    """
+    '\n    Build TWO maps:\n\n      move_map[char_id][atk_id]  = "Move Name"\n      global_map[atk_id]         = "Move Name"   (for char_id == 100)\n\n    The module parse both CSVs:\n    - move_id_map_charagnostic.csv  (main "big" file)\n    - move_id_map_charpair.csv      (override / refinement)\n    '
     move_map   = {}  # dict[int -> dict[int -> str]]
     global_map = {}  # dict[int -> str]
 
@@ -99,7 +90,7 @@ def load_move_map(big_csv_path, override_csv_path=None):
                     label = f"FLAG_{atk_id}"
 
                 if char_id == 100:
-                    # This is your global/system/assist/etc bucket.
+                    # This is the global/system/assist/etc bucket.
                     global_map[atk_id] = label
                 else:
                     bucket = move_map.setdefault(char_id, {})
@@ -108,7 +99,7 @@ def load_move_map(big_csv_path, override_csv_path=None):
         print(f"(load_move_map) WARNING: {big_csv_path} not found")
 
     # PASS 2: overrides file (pair csv)
-    # This lets you hand-fix specific (char_id, atk_id) names or add new ones.
+    # This lets the operator hand-fix specific (char_id, atk_id) names or add new ones.
     if override_csv_path and os.path.exists(override_csv_path):
         with open(override_csv_path, newline="", encoding="utf-8") as fh:
             rdr = csv.DictReader(fh)
@@ -146,12 +137,7 @@ def load_move_map(big_csv_path, override_csv_path=None):
 
 
 def move_label_for(aid, cid, move_map, global_map):
-    """
-    Priority:
-      1. If we know cid (the character), try that character's table: move_map[cid][aid]
-      2. Else try global_map[aid] (shared/system flags / throws / movement states)
-      3. Else fall back to FLAG_<aid>
-    """
+    "\n    Priority:\n      1. If the known state is cid (the character), try that character's table: move_map[cid][aid]\n      2. Else try global_map[aid] (shared/system flags / throws / movement states)\n      3. Else fall back to FLAG_<aid>\n    "
     if aid is None:
         return "FLAG_NONE"
 

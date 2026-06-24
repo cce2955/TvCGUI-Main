@@ -28,7 +28,7 @@ except Exception as e:
 # ------------------------------------------------------------------
 TABLE_DIR = os.path.join(os.path.dirname(__file__), "tables")
 
-# all tables we capture start 0x10 before tail
+# all tables the module capture start 0x10 before tail
 SAMPLE_TAIL_REL = 0x10
 SCAN_MATCH_LEN = 0x40
 
@@ -48,7 +48,7 @@ HEX_PAIR_RE = re.compile(r"^[0-9A-Fa-f]{2}$")
 def read_mem2() -> bytes:
     if not HAVE_DOLPHIN:
         return b""
-    # reads whole MEM2 (0x40_00000 on Wii, ~64MB) , we will try to do this sparingly
+    # reads whole MEM2 (0x40_00000 on Wii, ~64MB) , the module will try to do this sparingly
     return rbytes(MEM2_LO, MEM2_HI - MEM2_LO)
 
 
@@ -227,7 +227,7 @@ class App(tk.Tk):
         return samples
 
     # ------------------------------------------------------
-    # rebuild move rows (when we switch character)
+    # rebuild move rows (when the module switch character)
     # ------------------------------------------------------
     def rebuild_rows(self, moves: list[tuple[str, int]]):
         # clear
@@ -316,18 +316,18 @@ class App(tk.Tk):
     # periodic tick
     # ------------------------------------------------------
     def tick(self):
-        # if we don't have a latch OR we lost the anchor -> rescan = read full MEM2
+        # if do not have a latch OR the module lost the anchor -> rescan = read full MEM2
         need_full_read = False
         if self.latched_tail is None:
             need_full_read = True
 
-        # if we do have a latch, check anchor using current cache
+        # if the module do have a latch, check anchor using current cache
         if self.latched_tail is not None:
             if self.mem_cache is None:
                 need_full_read = True
             else:
                 if not self.anchor_ok():
-                    # table moved (tag) -> we need to rescan
+                    # table moved (tag) -> require to rescan
                     print("[gui] anchor moved -> rescanning")
                     self.latched_tail = None
                     self.current_char = None
@@ -338,13 +338,13 @@ class App(tk.Tk):
         if need_full_read:
             self.mem_cache = read_mem2() if HAVE_DOLPHIN else None
 
-        # if we refreshed mem, also rebuild tail list
+        # if the module refreshed mem, also rebuild tail list
         if self.mem_cache is not None and need_full_read:
             tails = find_all_tails(self.mem_cache, TAIL_PATTERN)
             tails.sort()
             self.tail_list = tails
 
-        # if we still have no latch, try every table sample
+        # if the module still have no latch, try every table sample
         if self.latched_tail is None and self.mem_cache is not None:
             for base, sample in self.table_samples:
                 off = find_sample_in_mem(self.mem_cache, sample, SCAN_MATCH_LEN)

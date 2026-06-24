@@ -208,8 +208,65 @@
       "recovery": {
         "samples": {}
       }
+    },
+    "26:264": {
+      "action_id": 264,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 26,
+      "char_name": "Tekkaman Blade",
+      "hit": {
+        "freeze_samples": {
+          "0": 1
+        },
+        "last_frame": 2291,
+        "last_freeze": 0,
+        "last_value": 21,
+        "samples": {
+          "21": 1
+        }
+      },
+      "last_frame": 3541,
+      "last_freeze": 0,
+      "last_recovery": 25,
+      "move_label": "3C",
+      "recovery": {
+        "last_frame": 3541,
+        "last_value": 25,
+        "samples": {
+          "23": 1,
+          "25": 1
+        }
+      }
+    },
+    "26:266": {
+      "action_id": 266,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 26,
+      "char_name": "Tekkaman Blade",
+      "hit": {
+        "freeze_samples": {
+          "0": 3
+        },
+        "last_frame": 2300,
+        "last_freeze": 0,
+        "last_value": 21,
+        "samples": {
+          "17": 2,
+          "21": 1
+        }
+      },
+      "last_frame": 2300,
+      "last_freeze": 0,
+      "move_label": "j.B",
+      "recovery": {
+        "samples": {}
+      }
     }
   },
-  "updated_utc": "2026-06-24T12:03:54Z",
+  "updated_utc": "2026-06-24T17:02:14Z",
   "version": 2
 }

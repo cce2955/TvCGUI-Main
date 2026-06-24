@@ -22,10 +22,7 @@ _LOADED = False
 
 
 def _find_csv_path():
-    """
-    Try a couple of sane default locations.
-    Adjust this if you want it somewhere else.
-    """
+    '\n    Try a couple of sane default locations.\n    Adjust this if the target behavior requires it somewhere else.\n    '
     here = os.path.dirname(os.path.abspath(__file__))
     candidates = [
         os.path.join(here, "move_id_map_charagnostic.csv"),

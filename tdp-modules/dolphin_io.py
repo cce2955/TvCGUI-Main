@@ -1,11 +1,11 @@
 # dolphin_io.py
 #
-# Thin wrapper around dolphin_memory_engine so we can safely
+# Thin wrapper around dolphin_memory_engine so the module can safely
 # read AND WRITE Dolphin's emulated Wii memory (MEM1 + MEM2).
 #
 # CHANGE (MEM2 latch):
 #   Dolphin can have multiple MEM2-sized committed regions. DME can
-#   attach to the wrong one. We "latch" the correct MEM2 host base.
+#   attach to the wrong one. The module "latch" the correct MEM2 host base.
 #
 #   IMPORTANT: the latch used to depend on a fixed fighter-base sentinel
 #   (0x9246B9C0). That only exists during certain already-started matches,
@@ -30,11 +30,82 @@ import math
 import struct
 import os
 import sys
+import json
+import threading
 import ctypes
 from ctypes import wintypes
 
 import dolphin_memory_engine as dme
 from constants import MEM1_LO, MEM1_HI, MEM2_LO, MEM2_HI
+
+# Character-select write quarantine is controlled by main.py. It blocks tool-side
+# emulated-memory writes while the select scene is active and records attempts.
+_WRITE_QUARANTINE_LOCK = threading.RLock()
+_WRITE_QUARANTINE_ACTIVE = False
+_WRITE_QUARANTINE_REASON = ""
+_WRITE_QUARANTINE_TRACE_PATH = os.path.join(os.getcwd(), "chrsel_write_trace.jsonl")
+_WRITE_QUARANTINE_LAST: dict[tuple[int, bytes, str], float] = {}
+_WRITE_QUARANTINE_TRACE_INTERVAL_SEC = 0.50
+
+
+def set_emulated_write_quarantine(active: bool, *, reason: str = "", trace_path: str | None = None) -> None:
+    """Enable or disable the select-scene emulated-memory write barrier."""
+    global _WRITE_QUARANTINE_ACTIVE, _WRITE_QUARANTINE_REASON, _WRITE_QUARANTINE_TRACE_PATH
+    with _WRITE_QUARANTINE_LOCK:
+        _WRITE_QUARANTINE_ACTIVE = bool(active)
+        _WRITE_QUARANTINE_REASON = str(reason or "")
+        if trace_path:
+            _WRITE_QUARANTINE_TRACE_PATH = str(trace_path)
+
+
+def get_emulated_write_quarantine_state() -> dict:
+    with _WRITE_QUARANTINE_LOCK:
+        return {
+            "active": bool(_WRITE_QUARANTINE_ACTIVE),
+            "reason": str(_WRITE_QUARANTINE_REASON),
+            "trace_path": str(_WRITE_QUARANTINE_TRACE_PATH),
+        }
+
+
+def _quarantine_caller() -> str:
+    try:
+        frame = sys._getframe(2)
+    except Exception:
+        return "unknown"
+    for _ in range(10):
+        if frame is None:
+            break
+        filename = os.path.basename(str(frame.f_code.co_filename))
+        if filename not in {"dolphin_io.py", "runtime_patch_manager.py"}:
+            return f"{filename}:{frame.f_code.co_name}"
+        frame = frame.f_back
+    return "unknown"
+
+
+def _trace_quarantined_write(addr: int, payload: bytes) -> None:
+    now = time.monotonic()
+    caller = _quarantine_caller()
+    with _WRITE_QUARANTINE_LOCK:
+        reason = str(_WRITE_QUARANTINE_REASON)
+        path = str(_WRITE_QUARANTINE_TRACE_PATH)
+        key = (int(addr), bytes(payload), caller)
+        prior = float(_WRITE_QUARANTINE_LAST.get(key, 0.0) or 0.0)
+        if now - prior < _WRITE_QUARANTINE_TRACE_INTERVAL_SEC:
+            return
+        _WRITE_QUARANTINE_LAST[key] = now
+    record = {
+        "monotonic": round(now, 6),
+        "addr": f"0x{int(addr):08X}",
+        "size": len(payload),
+        "data_hex": bytes(payload).hex(),
+        "caller": caller,
+        "reason": reason,
+    }
+    try:
+        with open(path, "a", encoding="utf-8") as trace_file:
+            trace_file.write(json.dumps(record, sort_keys=True) + "\n")
+    except Exception:
+        pass
 
 # ============================================================
 # MEM2 LATCH CONFIG
@@ -58,8 +129,8 @@ EXPECT_BYTES = bytes.fromhex(
     "00 00 00 00 00 00 00 0C 00 00 00 00 00 00 00 00"
 )
 
-# Accept the observed toggle variant if you want (0x80 -> 0x00 at byte[2]).
-# If you don't want this tolerance, set EXPECT_BYTES_ALT = None.
+# Accept the observed toggle variant if the target behavior requires (0x80 -> 0x00 at byte[2]).
+# If the operator don't want this tolerance, set EXPECT_BYTES_ALT = None.
 EXPECT_BYTES_ALT = bytearray(EXPECT_BYTES)
 EXPECT_BYTES_ALT[2] = 0x00
 EXPECT_BYTES_ALT = bytes(EXPECT_BYTES_ALT)
@@ -69,7 +140,7 @@ MEM2_SIZE = MEM2_HI - MEM2_LO  # usually 0x04000000 (64MB)
 # Process name to target
 DOLPHIN_EXE = "Dolphin.exe"
 
-# How often we retry latching if we can't find it yet. This is also the
+# How often the module retry latching if the module can't find it yet. This is also the
 # non-blocking throttle used by rbytes/wbytes while no match is active.
 LATCH_RETRY_SLEEP = 0.25
 
@@ -365,14 +436,7 @@ def _dynamic_slot_pointer_candidates():
 
 
 def _fighter_block_score(buf: bytes) -> int:
-    """
-    Score a candidate fighter struct block read from a possible MEM2 host map.
-
-    This intentionally stays permissive enough for load/round transitions, but
-    strict enough to reject random committed regions. The candidate EA already
-    came from one of the game's live fighter pointer slots, so we only need to
-    prove the host base is the right MEM2 mirror.
-    """
+    "\n    Score a candidate fighter struct block read from a possible MEM2 host map.\n\n    This intentionally stays permissive enough for load/round transitions, but\n    strict enough to reject random committed regions. The candidate EA already\n    came from one of the game's live fighter pointer slots, so only need to\n    prove the host base is the right MEM2 mirror.\n    "
     if not buf or len(buf) < 0x130:
         return 0
 
@@ -570,7 +634,7 @@ def _latch_mem2():
         _mem2_proc_handle = h
         _mem2_pid = pid
 
-    # Do not clear a good latch unless we're actively replacing process handles.
+    # Do not clear a good latch unless the module is actively replacing process handles.
     _mem2_host_base = None
     _mem2_host_size = None
 
@@ -753,6 +817,13 @@ def wbytes(addr, data):
     if not addr_in_ram(addr):
         return False
     if not data:
+        return False
+
+    payload = bytes(data)
+    with _WRITE_QUARANTINE_LOCK:
+        quarantined = bool(_WRITE_QUARANTINE_ACTIVE)
+    if quarantined:
+        _trace_quarantined_write(int(addr), payload)
         return False
 
     # MEM2: latched write if possible

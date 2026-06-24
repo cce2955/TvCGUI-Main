@@ -30,14 +30,14 @@ _SUPER_EX_OFFSETS = {
 _SUPER_FIELD_OFFSETS = {
     "super_hit_react":    (0x00A, "u16"),  # CONFIRMED: hit reaction
     "super_life":         (0x00E, "u16"),  # likely timer/lifetime
-    "super_air_kb_y":     (0x038, "f32"),  # user-tested: super scale behaves like air KB Y
-    "super_speed":        (0x090, "f32"),  # user-tested: speed on several supers
-    "super_accel":        (0x094, "f32"),  # user-tested: secondary accel / release behavior
-    "super_speed_2":      (0x09C, "f32"),  # user-tested: additional speed value
+    "super_air_kb_y":     (0x038, "f32"),  # validated: super scale behaves like air KB Y
+    "super_speed":        (0x090, "f32"),  # validated: speed on several supers
+    "super_accel":        (0x094, "f32"),  # validated: secondary accel / release behavior
+    "super_speed_2":      (0x09C, "f32"),  # validated: additional speed value
     "super_accel_b":      (0x0B0, "f32"),  # Ryu has 32 here; secondary motion/offset candidate
     "super_accel_c":      (0x0D4, "f32"),  # Ryu has 60 here; secondary motion/decel candidate
     # Legacy experimental fields from the first probe pass. Keep these for old rows,
-    # but the user-facing workbench now uses the friendlier super_beam_* names below.
+    # but the display workbench uses the friendlier super_beam_* names below.
     "super_multihit_cap": (0x0D8, "u32"),  # old probe slot, not the Shinkuu hit-count field
     "super_radius":       (0x0E4, "f32"),  # CONFIRMED: super radius / hit radius
 
@@ -84,9 +84,9 @@ _PROJECTILE_SUPER_FIELD_OFFSETS = {
 # ---------------------------------------------------------------------------
 # Scan parameters
 # ---------------------------------------------------------------------------
-# The suffix we search for in the template/template2 path.
+# The suffix the module search for in the template/template2 path.
 # Full 12-byte signature:  00 00 XX YY  00 00 00 0C  <discriminator>
-# We find _SUFFIX, then look 4 bytes back for the damage word.
+# Find _SUFFIX, then look 4 bytes back for the damage word.
 _SUFFIX    = b"\x00\x00\x00\x0C"
 SCAN_START = 0x90000000
 SCAN_END   = 0x94000000
@@ -97,7 +97,7 @@ PROJ_IDS_FILE = "projectile_ids.json"
 # ---------------------------------------------------------------------------
 # Field offsets — corrected against MEM2 analysis notes
 # ---------------------------------------------------------------------------
-# All offsets are relative to the record base (the 00 00 XX YY word, i.e.
+# All offsets are relative to the record base (the 00 00 XX YY word; that is,
 # 4 bytes before _SUFFIX).
 #
 # Notes-confirmed corrections vs. previous version:
@@ -600,7 +600,7 @@ def _build_char_damage_map(proj_map):
     return out
 
 
-# Fill this with your live roster IDs.
+# Fill this with the live roster IDs.
 # Example: FRANK is already known to be 30.
 # Live roster char_id -> projectile-map key
 CHAR_ID_TO_KEY = {
@@ -1338,14 +1338,7 @@ def _scan_zombie_blocks(data: bytes, base_addr: int, hits: list,
     """
     return
 def _looks_like_super_dispatch_0023(data: bytes, idx: int) -> bool:
-    """Return True when a 00/23 match is a super/action dispatch row.
-
-    Compact projectile-super cards and super dispatch rows both begin with
-    00 23 00 00.  Dispatch rows are not projectile payloads: at +0x02 they
-    hold the action selector u32, at +0x06 variant, at +0x0A phase length, and
-    at +0x16 a child script link.  If we let the projectile scanner own these,
-    rows like Morrigan selector 0x60 become fake "damage 96" bullets.
-    """
+    'Return True when a 00/23 match is a super/action dispatch row.\n\n    Compact projectile-super cards and super dispatch rows both begin with\n    00 23 00 00.  Dispatch rows are not projectile payloads: at +0x02 they\n    hold the action selector u32, at +0x06 variant, at +0x0A phase length, and\n    at +0x16 a child script link.  If the module let the projectile scanner own these,\n    rows like Morrigan selector 0x60 become fake "damage 96" bullets.\n    '
     try:
         if idx < 0 or idx + 0x1A > len(data):
             return False
@@ -1828,21 +1821,7 @@ def _scan_morrigan_finishing_shower_missile(data: bytes,
                                             active_keys,
                                             slot_char_ids: dict[int, int] | None,
                                             seen_fs_missiles: set[int]) -> None:
-    """Find Morrigan Finishing Shower's live missile template.
-
-    This block is not the normal 00 00 dmg / 00 00 00 0C projectile-template
-    layout, and it is not the later 00/23 card-list table.  User pokes
-    confirmed this live record shape:
-
-      base + 0x06 = u16 damage, 0x0320 / 800
-      base + 0x30 = f32 radius
-      base + 0x34 = u32 FX / hit effect ID
-      base + 0x5F = u8 spawn origin / bone-ish selector
-      base + 0x90 = f32 travel speed
-      base + 0xD8 = f32 secondary radius / hitbox radius
-
-    Canonical example: base 0x908E2900, damage 0x908E2906, speed 0x908E2990, secondary radius 0x908E29D8.
-    """
+    "Find Morrigan Finishing Shower's live missile template.\n\n    This block is not the normal 00 00 dmg / 00 00 00 0C projectile-template\n    layout, and it is not the later 00/23 card-list table.  Operator pokes\n    confirmed this live record shape:\n\n      base + 0x06 = u16 damage, 0x0320 / 800\n      base + 0x30 = f32 radius\n      base + 0x34 = u32 FX / hit effect ID\n      base + 0x5F = u8 spawn origin / bone-ish selector\n      base + 0x90 = f32 travel speed\n      base + 0xD8 = f32 secondary radius / hitbox radius\n\n    Canonical example: base 0x908E2900, damage 0x908E2906, speed 0x908E2990, secondary radius 0x908E29D8.\n    "
     try:
         if "MORRIGAN" not in {str(k).upper() for k in (active_keys or [])}:
             return
@@ -1852,7 +1831,7 @@ def _scan_morrigan_finishing_shower_missile(data: bytes,
         return
 
     # Damage lives inside this record, so do not include 0x0320 in the
-    # signature.  Otherwise the row disappears after the user edits damage.
+    # signature.  Otherwise the row disappears after the operator edits damage.
     sig = b"\x00\x00\x01\x03"
     start = 0
     while True:

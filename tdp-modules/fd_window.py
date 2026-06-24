@@ -182,7 +182,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             if bool(current.winfo_viewable()):
                 return
         except Exception:
-            # A destroyed Tcl widget is exactly the stale case we are fixing.
+            # A destroyed Tcl widget is exactly the stale case the module is fixing.
             pass
         try:
             current.grab_release()
@@ -213,7 +213,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._assist_table_count = ""
 
         # Preserve the raw scan order for optional view sorting.
-        # Tag each move dict with a stable scan index so we can return to the scanner order.
+        # Tag each move dict with a stable scan index so the module can return to the scanner order.
         moves_scanned = list(target_slot.get("moves", []) or [])
         for i, mv in enumerate(moves_scanned):
             try:
@@ -482,13 +482,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         return " ".join(parts).lower()
 
     def _row_name_candidates(self, mv):
-        """Names worth using for user-facing ordering.
-
-        The scanner can see the same numeric animation ID through different
-        lookup tables.  For ordering, prefer the label carried by the scanned row
-        before family/link text, otherwise a reused special ID can drag j.B/j.C
-        rows down into a special family.
-        """
+        'Names worth using for display ordering.\n\n        The scanner can see the same numeric animation ID through different\n        lookup tables.  For ordering, prefer the label carried by the scanned row\n        before family/link text, otherwise a reused special ID can drag j.B/j.C\n        rows down into a special family.\n        '
         out = []
         for key in ("move_name", "pretty_name", "name", "label", "_hit_parent_label"):
             val = mv.get(key)
@@ -759,12 +753,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         return min(ranks) if ranks else (9, 0xFFFFFFFF)
 
     def _explicit_notation(self, mv):
-        """Initial workbench order.
-
-        User-facing order is not raw address order.  Keep core normals first in
-        the requested fighting-game notation order, then specials, supers,
-        taunt, and finally scouting/unknown rows.
-        """
+        'Initial workbench order.\n\n        Display order is not raw address order.  Keep core normals first in\n        the requested fighting-game notation order, then specials, supers,\n        taunt, and finally scouting/unknown rows.\n        '
         normal_idx = self._normal_order_index(mv)
         aid = mv.get("id")
         try:
@@ -1213,7 +1202,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 src = "profile cache" if self._profile_fast_path else "scanner snapshot"
                 self._status_var.set(f"Staging saved frame profile from {src}... no scan is running")
             self._reset_optional_probe_session()
-            # A completed profile is already all the data we need.  Stage the
+            # A completed profile is already all the data require.  Stage the
             # hierarchy in memory, then insert it in short Tk batches so the
             # window stays interactive while rows roll in.
             queued = fd_tree.populate_tree(
@@ -2223,7 +2212,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # Any of these blank addresses means the row has not had the loose
         # pattern pass yet.  Missing packets are normal for many moves, so the
         # worker marks the row done after one pass to avoid re-probing it every
-        # time the user clicks the row.  Hit-result/OTG lookup lives here too,
+        # time a row is selected. Hit-result/OTG lookup lives here too,
         # rather than in first-open tree construction.
         return any(mv.get(k) is None for k in (
             "hit_spark_addr", "stretch_packet_addr", "post_link_addr",
@@ -2672,13 +2661,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._queue_lazy_link_probe()
 
     def _refresh_inspector(self, item_id: str | None = None, mv: dict | None = None):
-        """Render cached selected-row values with minimal Tcl churn.
-
-        This is deliberately a pure profile-view operation.  It does *not*
-        kick off an optional Dolphin scan just because the user clicked a row;
-        the Refresh button and a direct edit remain the explicit ways to probe
-        missing loose script fields.
-        """
+        'Render cached selected-row values with minimal Tcl churn.\n\n        This is deliberately a pure profile-view operation.  It does *not*\n        kick off an optional Dolphin scan just because the operator clicked a row;\n        the Refresh button and a direct edit remain the explicit ways to probe\n        missing loose script fields.\n        '
         if not getattr(self, "_inspector_value_vars", None):
             return
 
@@ -2999,7 +2982,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if self._compare_title_var is not None:
             self._compare_title_var.set("No pinned move")
         if self._compare_summary_var is not None:
-            self._compare_summary_var.set("Pin a move to compare damage, timing, and stun as you browse.")
+            self._compare_summary_var.set("Pin a move to compare damage, timing, and stun.")
         for _var in (getattr(self, "_compare_delta_vars", {}) or {}).values():
             try:
                 _var.set("—")
@@ -3040,7 +3023,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         if not pinned:
             title_var.set("No pinned move")
-            summary_var.set("Pin a move to compare damage, timing, and stun as you browse.")
+            summary_var.set("Pin a move to compare damage, timing, and stun.")
             for key in ("damage", "startup", "active", "hitstop", "blockstun"):
                 _set_delta(key, "—")
             return
@@ -3209,7 +3192,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     # ---------- Edit tracking / friendly reset helpers ----------
 
     def _dirty_group_for_col(self, col_name: str | None):
-        """Return (group_key, tree columns) for a user-editable field."""
+        'Return (group_key, tree columns) for a configurable field.'
         if not col_name:
             return (None, ())
         groups = {
@@ -3892,7 +3875,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             col_q = {}
 
-        # Make it visually obvious we're doing work (and flush UI)
+        # Make it visually obvious the module is doing work (and flush UI)
         try:
             if self.root:
                 self.root.config(cursor="watch")
@@ -3921,7 +3904,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._reset_optional_probe_session()
         fd_tree.populate_tree(self)
 
-        # Force top so you SEE the reorder immediately
+        # Force top so the operator SEE the reorder immediately
         try:
             self.tree.yview_moveto(0.0)
         except Exception:
@@ -5065,7 +5048,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 new_id = int(value)
                 if not self._write_anim_id(mv, new_id):
                     return False, "write failed"
-                mv["id"] = new_id
+                mv["animation_id"] = new_id & 0xFFFF
 
             elif group == "damage":
                 new_val = int(value)
@@ -5373,17 +5356,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         ok = True
 
                 elif group == "move":
-                    old_id = old.get("id")
+                    old_id = old.get("animation_id", old.get("id"))
                     if old_id is not None and self._write_anim_id(mv, int(old_id)):
-                        mv["id"] = int(old_id)
-                        if "move_name" in old:
-                            mv["move_name"] = old.get("move_name")
-                        cname = self.target_slot.get("char_name", "-")
-                        pretty = U.pretty_move_name(int(old_id), cname)
-                        dup_idx = mv.get("dup_index")
-                        if dup_idx is not None:
-                            pretty = f"{pretty} (Tier{dup_idx + 1})"
-                        self.tree.set(item_id, "move", f"{pretty} [0x{int(old_id):04X}]")
+                        mv["animation_id"] = int(old_id) & 0xFFFF
                         ok = True
 
                 elif group == "damage":
@@ -5782,7 +5757,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         FPI.apply_projectile_tree_value(self.tree, item, mv, col_name)
 
         # Emitter rows bulk-write child projectile cards. Keep the physical rows
-        # visually in sync so the user does not see stale bullet/card values
+        # visually synchronized to prevent stale bullet/card values
         # underneath the emitter after a successful edit.
         if FPI.is_projectile_emitter_row(mv):
             try:

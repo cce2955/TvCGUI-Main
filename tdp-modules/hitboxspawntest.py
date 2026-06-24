@@ -702,7 +702,7 @@ def main():
                 "rb(le)=", hex(facing_le),
             )
 
-            # choose one after you see which matches the memory viewer
+            # choose one after the display shows which matches the memory viewer
             facing = facing_be  # or facing_le
             projectile_dir = -1.0 if facing == 0x01 else 1.0
         if timer > 0.0 and projectile_spawn_x is not None:

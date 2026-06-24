@@ -42,7 +42,7 @@ _CHR_TBL_BASES = [
 
 # Confirmed Chun assist selector graft.
 #
-# User-confirmed live patch:
+# Validated live patch:
 #   Graft this 0x2C-byte Ryu-style selector setup over the active Chun assist
 #   block that begins 0x48 bytes before the live Tensho state wrapper.
 #
@@ -179,9 +179,9 @@ _QUICK_ROUTE_MAX_INFLIGHT = 4
 #
 # HUD button clicks must not run route resolution, chr_tbl reads, or memory
 # writes on the pygame/main UI lane.  The public apply_quick_assist_from_main()
-# now only validates/queues the user's intent and returns immediately.  This
+# now only validates/queues the selected route and returns immediately. This
 # worker serializes the real resolver/write work off the UI lane and coalesces
-# repeated clicks per slot so a fast user click sequence does not build a
+# repeated clicks per slot so a fast click sequence does not build a
 # backlog of stale assist writes.
 _QUICK_ASSIST_LANE_LOCK = threading.RLock()
 _QUICK_ASSIST_LANE_EVENT = threading.Event()
@@ -330,7 +330,7 @@ CHAR_ID_TO_KEY = {
 
 # Confirmed live Ryu selector chain:
 #   0x908C7680: 00 03 11 0C 00 03 14 6C 00 03 1C DC 37 32 20 3F
-# User-confirmed effects:
+# Validated effects:
 #   0003110C = Hadouken
 #   0003146C = Shoryu
 #   00031CDC = Tatsu
@@ -419,7 +419,7 @@ MOVE_PRESET_SLOT_SIZE = 0x90000
 # on P2-C2, can place the active chr_tbl before the nominal broad owner
 # base. A 0x12000 back-scan misses Blade in observed dumps
 # (owner 0x9099D9C0, live chr_tbl 0x90986000, delta 0x179C0).
-# Keep this below the inter-slot gap so we do not walk into the previous
+# Keep this below the inter-slot gap so do not walk into the previous
 # loaded character window.
 CHR_TBL_PRE_START_BACK = 0x24000
 MOVE_PRESET_LOOKAHEAD = 0x80
@@ -2347,7 +2347,7 @@ def _vjoe_find_active_selector_graft_off(wrapper_data: bytes) -> int | None:
         if b"\x00\x00\x01\xA8" in wrapper_data[idx:min(len(wrapper_data), idx + 0x300)]:
             score += 35
         # Confirmed VJoe grafts are close to +0x154 / +0x170 depending on
-        # whether we are measuring block start or tail address.
+        # whether the module is measuring block start or tail address.
         score -= abs(idx - 0x154) // 4
         candidates.append((score, idx, source))
 
@@ -2560,13 +2560,7 @@ def _vjoe_animation_state_writes(
     raw_val: int | None,
     info: dict[str, int] | None = None,
 ) -> dict[int, bytes]:
-    """Patch VJoe's confirmed visible attack animation state field.
-
-    The semi-working direct/generic paths can affect the object/spawn side,
-    but they leave Joe's baked Shocking Pink pose alone. This companion write
-    updates the state wrapper we already resolved inside the original 426
-    assist route.
-    """
+    "Patch VJoe's confirmed visible attack animation state field.\n\n    The semi-working direct/generic paths can affect the object/spawn side,\n    but they leave Joe's baked Shocking Pink pose alone. This companion write\n    updates the state wrapper the module already resolved inside the original 426\n    assist route.\n    "
     if owner_base is None:
         return {}
 
@@ -3076,7 +3070,7 @@ def _is_preset_worthy_table_index(table_index: int, aid: int | None, char_id: in
     if _is_filtered_assist_preset_name(name):
         return False
 
-    # User-facing assist preset bands. Keep these even if the pretty-name map
+    # Display assist preset bands. Keep these even if the pretty-name map
     # is missing or wrong, because these are the actual special/assist ranges.
     if 304 <= table_index <= 368:
         return True
@@ -3919,7 +3913,7 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
                 changed = True
             elif owner_base is not None and char_id and char_id not in CHAR_ID_TO_KEY:
                 # Transitional garbage IDs are a strong signal that the match /
-                # character memory is being rebuilt. Clear this owner even if we
+                # character memory is being rebuilt. Clear this owner even if the module
                 # did not have a previous valid signature in this process.
                 _assist_clear_slot_caches(slot_label, owner_base, fighter_base, char_id)
                 changed = True
@@ -4157,12 +4151,7 @@ def _quick_char_keys_from_snap(snap: dict | None) -> list[str]:
 
 
 def get_quick_assists_for_slot(slot_label: str, snap: dict | None = None) -> list[dict]:
-    """Return up to four user-defined quick assists for a HUD slot.
-
-    main.py can call this to draw buttons. It returns display data only; assist
-    route resolution stays inside this module when apply_quick_assist_from_main
-    is called.
-    """
+    'Return up to four configured quick assists for a HUD slot.\n\n    main.py can call this to draw buttons. It returns display data only; assist\n    route resolution stays inside this module when apply_quick_assist_from_main\n    is called.\n    '
     data = _load_quick_assists()
     if not data:
         return []
@@ -4385,7 +4374,7 @@ def _volnutt_find_wildcard_offsets(data: bytes, head: bytes, tail: bytes) -> lis
         if tail_start + len(tail) <= len(data) and data[tail_start:tail_start + len(tail)] == tail:
             current = data[wildcard_off]
             # This byte is the observed weapon selector: 00 Arm, 01 Drill,
-            # 02 Gun, 03 Shield. Reject anything else so we do not patch random
+            # 02 Gun, 03 Shield. Reject anything else so do not patch random
             # matching script bytes.
             if current in (0, 1, 2, 3):
                 out.append(wildcard_off)
@@ -4542,7 +4531,7 @@ def _volnutt_weapon_writes(owner_base: int | None, weapon_value: int | None, row
             pass
         return writes
 
-    # Last-resort diagnostic fallback only. If this prints zero, we know the
+    # Last-resort diagnostic fallback only. If this prints zero, the known state is the
     # latch is not stored in the observed script-literal shapes.
     try:
         print(f"[assist quick] Volnutt weapon {weapon} writes=0")
@@ -4737,7 +4726,7 @@ def _queue_quick_assist_job(slot_label: str, quick_index: int, snap: dict | None
     label = str(preset.get("label") or preset.get("name") or preset.get("move") or f"quick {quick_index}")
     clean_snap = dict(snap) if isinstance(snap, dict) else None
 
-    # If the user clicks during or right before an assist-entry window, do not
+    # During or immediately before an assist-entry window, do not
     # let the old edge latch suppress the first real graft after the worker
     # resolves the route.  This was the source of the "loaded, but grafts on the
     # next assist 8 seconds later" feel.
@@ -5368,7 +5357,7 @@ class AssistScannerWindow:
         self._build()
         # Do not auto-scan on open. The scanner window is now a debug/control UI;
         # main.py feeds live slot context every frame, and quick assists resolve
-        # routes on demand. Press Rescan only when you actually want a targeted
+        # routes on demand. Press Rescan only when a targeted operation requires a targeted
         # diagnostic refresh.
         self._status.set("Ready - using main.py live slot context. Press Rescan for a targeted assist scan.")
         # Show already-resolved routes from main's live context instead of
@@ -5830,7 +5819,7 @@ class AssistScannerWindow:
                 return
 
             # Fixed raw window per character-table slot. This intentionally captures
-            # more than the currently known selector area so you can search it elsewhere.
+            # more than the currently known selector area so the configuration can search it elsewhere.
             slot_size = 0x90000
 
             stamp = time.strftime("%Y%m%d_%H%M%S")

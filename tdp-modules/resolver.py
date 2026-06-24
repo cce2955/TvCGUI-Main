@@ -12,15 +12,7 @@ from constants import (
 
 # looks_like_hp is used by resolver and fighter
 def looks_like_hp(maxhp, curhp, auxhp):
-    """
-    Very forgiving sanity check for HP.
-
-    We only reject obviously junk data:
-      - maxhp is None, <= 0, or absurdly huge.
-    curhp/auxhp are *not* used to gate the struct anymore, because
-    they can flap during loads or special states and cause our resolver
-    to drop otherwise valid fighter bases.
-    """
+    '\n    Very forgiving sanity check for HP.\n\n    Only reject obviously junk data:\n      - maxhp is None, <= 0, or absurdly huge.\n    curhp/auxhp are *not* used to gate the struct anymore, because\n    they can flap during loads or special states and cause the resolver\n    to drop otherwise valid fighter bases.\n    '
     if maxhp is None:
         return False
     if maxhp <= 0 or maxhp > 80_000:
@@ -110,10 +102,7 @@ class SlotResolver:
         return None
 
     def resolve_base(self, slot_addr):
-        """
-        Returns (base_addr or None, changed_this_frame: bool).
-        changed_this_frame is True if we found a new base vs last_known.
-        """
+        '\n        Returns (base_addr or None, changed_this_frame: bool).\n        changed_this_frame is True if the module found a new base vs last_known.\n        '
         now = time.time()
         s = rd32(slot_addr)
 
@@ -138,7 +127,7 @@ class SlotResolver:
             self.last_good[slot_addr] = (a, now + LAST_GOOD_TTL)
             return a, True
 
-        # Fall back on cache ttl if we can't confirm new
+        # Fall back on cache ttl if the module can't confirm new
         lg = self.last_good.get(slot_addr)
         if lg and now < lg[1]:
             return lg[0], False

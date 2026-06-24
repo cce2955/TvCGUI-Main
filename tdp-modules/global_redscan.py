@@ -6,14 +6,14 @@
 #   F4 -> analyze()
 #
 # How this version works:
-#   - We track per-region "previous raw bytes".
+#   - Track per-region "previous raw bytes".
 #   - On each snapshot:
 #       * Read each region in chunks.
 #       * If it's the first time seeing that region, just store the raw bytes.
-#         (No per-address series yet; we can't diff yet.)
+#         (No per-address series yet; the module can't diff yet.)
 #       * Otherwise, compare new bytes against previous bytes and ONLY record
 #         addresses where the byte changed.
-#   - We associate those changed-byte values with the current HP value.
+#   - Associate those changed-byte values with the current HP value.
 #
 # Effect:
 #   - The first snapshot mostly just seeds baselines.
@@ -21,7 +21,7 @@
 #     frame-to-frame / health-step-to-health-step (HUD, meters, etc.)
 #
 # Analysis:
-#   - For each address that ever changed, we build its byte history over all
+#   - For each address that ever changed, the module build its byte history over all
 #     snapshots and correlate it to HP (same_dir / inv_dir).
 #
 # This reduces memory from tens of millions of addresses per snapshot
@@ -42,25 +42,21 @@ CHUNK_SIZE = 64 * 1024  # 64KB chunks
 
 class GlobalRedScanner:
     def __init__(self):
-        # For each region we remember the last raw dump so we can diff.
+        # For each region the module remember the last raw dump so the module can diff.
         # prev_raw[ (start,end) ] = b"...full_region_bytes..."
         self.prev_raw = {}
 
         # timeseries for addresses that actually move:
         # addr_hist[addr] = [ (hp_val_at_snapshot, byte_val_at_snapshot), ... ]
         #
-        # We don't store HP separately per snapshot anymore; we attach HP to each addr sample.
+        # Do not store HP separately per snapshot anymore; the module attach HP to each addr sample.
         self.addr_hist = {}
 
         # just for logging
         self.snap_count = 0
 
     def _read_region_full(self, start_addr, end_addr):
-        """
-        Read an entire region [start_addr, end_addr) and return a single bytes object.
-        We'll stitch per-chunk reads together.
-        Returns b"" if we can't read anything.
-        """
+        '\n        Read an entire region [start_addr, end_addr) and return a single bytes object.\n        The module will stitch per-chunk reads together.\n        Returns b"" if the module can\'t read anything.\n        '
         parts = []
         addr = start_addr
         while addr < end_addr:
@@ -105,7 +101,7 @@ class GlobalRedScanner:
 
             prev_blob = self.prev_raw.get((start_addr, end_addr))
 
-            # First time we've seen this region: just store baseline.
+            # First time the module has seen this region: just store baseline.
             if prev_blob is None:
                 self.prev_raw[(start_addr, end_addr)] = new_blob
                 continue
@@ -135,13 +131,9 @@ class GlobalRedScanner:
         )
 
     def analyze(self, top_n=40):
-        """
-        Build per-address byte series and correlate with HP.
-        We're looking for addresses whose byte values track HP
-        (same_dir) or track "missing HP" (inv_dir).
-        """
+        '\n        Build per-address byte series and correlate with HP.\n        The module is looking for addresses whose byte values track HP\n        (same_dir) or track "missing HP" (inv_dir).\n        '
         # addr_hist[addr] = [(hp,val), (hp,val), ...]
-        # We need >=2 samples per addr to talk about direction.
+        # Require >=2 samples per addr to talk about direction.
         scored = []
 
         for addr, pairs in self.addr_hist.items():
@@ -205,4 +197,4 @@ class GlobalRedScanner:
         print("Heuristic:")
         print("- High inv_dir  -> rises when HP drops (red/white life style)")
         print("- High same_dir -> falls when HP drops (pooled/real life mirror)")
-        print("- We only kept bytes that actually changed between snapshots")
+        print("- Retained bytes changed between snapshots only")

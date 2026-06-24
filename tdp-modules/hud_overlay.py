@@ -62,6 +62,9 @@ COL_BAROQUE_BG   = (100,  60,   8)
 
 BG_ALPHA         = 200
 
+# Overlay layout: compact is the default match presentation; detail preserves the legacy per-slot rows.
+HUD_LAYOUT_MODE = "compact"
+
 ASSIST_STANDBY_IDS = {430, 432, 433}
 ASSIST_ATTACK_IDS  = {420, 426, 427, 428}
 ASSIST_OFF_IDS     = ASSIST_STANDBY_IDS 
@@ -127,7 +130,7 @@ def _get_active_slot(team: str) -> str | None:
 def _push_adv(slot_label: str, value: int) -> None:
     sa = _get_slot_anim(slot_label)
     events = sa["adv_events"]
-    events.insert(0, {"value": value, "life": 1.0, "x_offset": 20})
+    events.insert(0, {"value": value, "life": 1.0, "age": 0.0, "x_offset": 20})
     if len(events) > 3:
         events.pop()
 
@@ -199,7 +202,7 @@ def _update_adv() -> None:
 
             # Attacker went idle for a frame but victim still stuck — they're in a
             # blockstring gap. Don't resolve yet; if they start attacking again,
-            # state 1 above will catch it. If victim recovers first we resolve below.
+            # state 1 above will catch it. If victim recovers first the module resolve below.
             if st["first_slot"] == "A" and _is_stuck(v_mv) and not _is_attacking(a_mv):
                 # attacker is in gap — wait, don't commit yet
                 continue
@@ -226,6 +229,7 @@ PIP_SPEED  = 12.0
 _anim_state = {
     "overlay_alpha": 0.0,
     "slots": {},
+    "teams": {},
 }
 
 def _approach(current: float, target: float, speed: float, dt: float) -> float:
@@ -256,7 +260,34 @@ def _get_slot_anim(slot_label: str):
         "move_scroll_px": 0.0,
         "prev_baroque_pct": None,
         "baroque_events": [],
+        "hp_display_frac": None,
+        "partner_hp_display_frac": None,
+        "meter_display_value": None,
+        "baroque_alpha": 0.0,
+        "event_history": [],
+        "prev_compact_move_key": "",
     })
+
+
+def _get_team_anim(team: str):
+    return _anim_state["teams"].setdefault(team, {
+        "alpha": 0.0,
+        "slide_x": 0.0,
+        "slide_y": -34.0,
+        "present": False,
+        "current_point_label": None,
+        "swap_progress": 0.0,
+        "move_history_signature": (),
+        "move_history_prev": [],
+        "move_history_slide": 0.0,
+    })
+
+
+def _push_event_history(slot_anim: dict, label: str, value: str, color: tuple[int, int, int]) -> None:
+    items = slot_anim["event_history"]
+    items.insert(0, {"label": label, "value": value, "color": color, "life": 1.0})
+    del items[6:]
+
 
 
 # ---------------------------------------------------------------------------
@@ -535,6 +566,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         delta = cur_baroque_pct - prev_baroque_pct
         events = slot_anim["baroque_events"]
         events.insert(0, {"value": delta, "life": 1.0, "x_offset": 20})
+        _push_event_history(slot_anim, "BBQ", f"{delta:+.0f}%", (255, 180, 92) if delta < 0 else (172, 112, 255))
         if len(events) > 5:
             events.pop()
     slot_anim["prev_baroque_pct"] = cur_baroque_pct
@@ -572,8 +604,8 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         and not is_dead
     ):
         move_events = slot_anim["move_events"]
-        move_events.insert(0, {"text": mv_label, "life": 1.0})
-        if len(move_events) > 5:
+        move_events.insert(0, {"text": mv_label, "life": 1.0, "frame": _frame})
+        if len(move_events) > 6:
             move_events.pop()
         slot_anim["move_scroll_px"] = max(int(28 * scale), 14)
     slot_anim["prev_move_label"] = mv_label
@@ -996,7 +1028,7 @@ def _compute_active_slots(slots: dict) -> set[str]:
     return active
 
 
-def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
+def _draw_overlay_detail(screen, font, font_sm, slots, scale, dt) -> None:
     _anim_state["overlay_alpha"] = _approach(_anim_state["overlay_alpha"], 1.0, FADE_SPEED, dt)
     overlay_alpha = _anim_state["overlay_alpha"]
     row_h   = max(14, int(BASE_ROW_H * scale))
@@ -1036,6 +1068,843 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
         _draw_slot_row(screen, font, font_sm, slot_label, snap,
                        anchor_x, scaled_y, row_h, scale, slot_label in active,
                        slot_anim, overlay_alpha, dt)
+
+
+# ---------------------------------------------------------------------------
+# Compact team overlay
+# ---------------------------------------------------------------------------
+
+def _compact_meter_level(meter_value) -> int:
+    try:
+        meter = float(meter_value or 0.0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(5, int(meter // 10000.0)))
+
+
+def _compact_meter_text(meter_value) -> str:
+    try:
+        meter_i = max(0, int(meter_value or 0))
+    except (TypeError, ValueError):
+        meter_i = 0
+    return f"{meter_i}/50000"
+
+
+def _lerp_color(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[int, int, int]:
+    t = max(0.0, min(1.0, float(t)))
+    return tuple(int(a + (b - a) * t) for a, b in zip(c1, c2))
+
+
+def _compact_meter_color(meter_value) -> tuple[int, int, int]:
+    try:
+        meter = max(0.0, min(50000.0, float(meter_value or 0.0)))
+    except (TypeError, ValueError):
+        meter = 0.0
+    stops = [
+        (0.0, (82, 156, 255)),
+        (10000.0, (82, 156, 255)),
+        (20000.0, (72, 194, 255)),
+        (30000.0, (72, 224, 164)),
+        (40000.0, (242, 198, 88)),
+        (50000.0, (255, 116, 116)),
+    ]
+    for (m1, c1), (m2, c2) in zip(stops, stops[1:]):
+        if meter <= m2:
+            span = max(1.0, m2 - m1)
+            return _lerp_color(c1, c2, (meter - m1) / span)
+    return stops[-1][1]
+
+
+def _compact_hp_text(cur, maximum) -> str:
+    try:
+        cur_i = max(0, int(cur or 0))
+        max_i = max(1, int(maximum or 1))
+    except (TypeError, ValueError):
+        return "--"
+
+    def _short(value: int) -> str:
+        if value >= 10000:
+            whole = value / 1000.0
+            return f"{whole:.1f}K" if value % 1000 else f"{int(whole)}K"
+        return str(value)
+
+    return f"{_short(cur_i)}/{_short(max_i)}"
+
+
+def _compact_trim(text: str, max_chars: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[:max(1, max_chars - 1)].rstrip() + "…"
+
+
+def _compact_move_label(snap: dict) -> str:
+    move_id = snap.get("mv_id_display")
+    label = (snap.get("mv_label") or "").strip()
+    if not label and move_id is not None:
+        label = f"0x{int(move_id):04X}"
+    if not label:
+        return ""
+
+    lowered = label.lower()
+    is_baroque = move_id is not None and int(move_id) in BAROQUE_CANCEL_IDS
+    if lowered in PASSIVE_LABELS and not is_baroque:
+        return ""
+    return label
+
+
+def _compact_partner_state(snap: dict) -> str:
+    current = int(snap.get("mv_id_display") or 0)
+    label = (snap.get("mv_label") or "").lower()
+    hp = int(snap.get("cur") or 0)
+    if hp <= 0:
+        return "KO"
+    if current in ASSIST_ATTACK_IDS or "assist attack" in label:
+        return "ACTIVE"
+    if "assist leave" in label or "tag out" in label:
+        return "RETURN"
+    if current in ASSIST_STANDBY_IDS or "standby" in label:
+        return "READY"
+    return "READY"
+
+
+def _compact_track_slot(slot_label: str, snap: dict) -> None:
+    """Update compact-overlay event state from the latest slot snapshot."""
+    slot_anim = _get_slot_anim(slot_label)
+    try:
+        hp_cur = int(snap.get("cur") or 0)
+    except (TypeError, ValueError):
+        hp_cur = 0
+
+    prev_hp = slot_anim.get("prev_hp")
+    if prev_hp is not None and hp_cur != prev_hp:
+        hp_delta = hp_cur - prev_hp
+        if abs(hp_delta) > 1:
+            events = slot_anim["damage_events"]
+            if hp_delta < 0:
+                damage = -hp_delta
+                events.insert(0, {"value": damage, "life": 1.0, "age": 0.0, "x_offset": 0, "type": "self"})
+                _push_event_history(slot_anim, "DMG IN", _compact_short_number(damage), (255, 110, 110))
+                opponent = _get_active_slot("P2" if slot_label.startswith("P1") else "P1")
+                if opponent:
+                    opp_anim = _get_slot_anim(opponent)
+                    other = opp_anim["damage_events"]
+                    other.insert(0, {"value": damage, "life": 1.0, "age": 0.0, "x_offset": 0, "type": "opponent"})
+                    _push_event_history(opp_anim, "DMG OUT", _compact_short_number(damage), (255, 110, 110))
+                    del other[3:]
+            else:
+                events.insert(0, {"value": hp_delta, "life": 1.0, "age": 0.0, "x_offset": 0, "type": "heal"})
+                _push_event_history(slot_anim, "HP +", _compact_short_number(hp_delta), (92, 232, 146))
+            del events[3:]
+    slot_anim["prev_hp"] = hp_cur
+
+    try:
+        meter_cur = int(snap.get("meter") or 0)
+    except (TypeError, ValueError):
+        meter_cur = 0
+    prev_meter = slot_anim.get("prev_meter")
+    if prev_meter is not None and meter_cur != prev_meter:
+        meter_delta = meter_cur - prev_meter
+        if abs(meter_delta) > 10:
+            meter_events = slot_anim["meter_events"]
+            meter_events.insert(0, {
+                "value": abs(meter_delta),
+                "direction": "gain" if meter_delta > 0 else "loss",
+                "life": 1.0,
+                "age": 0.0,
+                "x_offset": 0,
+            })
+            _push_event_history(slot_anim, "MTR", f"{'+' if meter_delta > 0 else '-'}{_compact_short_number(abs(meter_delta))}", (96, 182, 255) if meter_delta > 0 else (255, 164, 92))
+            del meter_events[3:]
+    slot_anim["prev_meter"] = meter_cur
+
+    move_id = snap.get("mv_id_display")
+    move_label = _compact_move_label(snap)
+    try:
+        move_id_key = int(move_id) if move_id is not None else -1
+    except (TypeError, ValueError):
+        move_id_key = -1
+    move_key = f"{move_id_key}:{move_label.lower()}" if move_label else ""
+    previous_key = str(slot_anim.get("prev_compact_move_key") or "")
+    if move_key and move_key != previous_key:
+        events = slot_anim["move_events"]
+        events.insert(0, {"text": move_label, "life": 1.0, "frame": _frame})
+        del events[5:]
+    slot_anim["prev_compact_move_key"] = move_key
+
+    if slot_anim.get("damage_timer", 0) > 0:
+        slot_anim["damage_timer"] -= 1
+
+
+def _draw_compact_meter(screen, x: int, y: int, width: int, meter_value_visual, scale: float, is_dead: bool) -> int:
+    level = _compact_meter_level(meter_value_visual)
+    height = max(8, int(10 * scale))
+    rect = pygame.Rect(x, y, max(30, width), height)
+    radius = max(2, int(3 * scale))
+    pygame.draw.rect(screen, (30, 36, 46), rect, border_radius=radius)
+    pygame.draw.rect(screen, (96, 118, 150), rect, 1, border_radius=radius)
+
+    inner = rect.inflate(-2, -2)
+    gap = max(1, int(2 * scale))
+    cell_w = max(3, (inner.width - gap * 4) // 5)
+    pulse = 0.86 + 0.14 * ((math.sin(time.time() * 1.9) + 1.0) * 0.5)
+    current_color = _compact_meter_color(meter_value_visual)
+    for index in range(5):
+        cell_x = inner.x + index * (cell_w + gap)
+        cell = pygame.Rect(cell_x, inner.y, cell_w, inner.height)
+        pygame.draw.rect(screen, (42, 50, 64), cell, border_radius=max(1, radius - 1))
+        if index < level:
+            base = current_color
+            if index == level - 1:
+                base = tuple(min(255, int(component * pulse)) for component in base)
+            pygame.draw.rect(screen, base, cell, border_radius=max(1, radius - 1))
+            pygame.draw.line(screen, (242, 248, 255), (cell.x + 1, cell.y + 1), (cell.right - 2, cell.y + 1), 1)
+    return rect.width
+
+
+def _draw_compact_health(screen, x: int, y: int, width: int, height: int, cur, maximum, is_dead: bool, display_fraction=None) -> None:
+    rect = pygame.Rect(x, y, width, height)
+    pygame.draw.rect(screen, (24, 29, 38), rect, border_radius=max(2, height // 2))
+    inner = rect.inflate(-2, -2)
+    try:
+        target_fraction = max(0.0, min(1.0, float(cur or 0) / max(1.0, float(maximum or 1))))
+    except (TypeError, ValueError):
+        target_fraction = 0.0
+    fraction = target_fraction if display_fraction is None else max(0.0, min(1.0, float(display_fraction)))
+    if inner.width > 0 and inner.height > 0 and fraction > 0.0:
+        fill = max(1, int(inner.width * fraction))
+        color = COL_HP_DEAD if is_dead else (COL_HP_LOW if target_fraction <= 0.30 else COL_HP_HIGH)
+        pygame.draw.rect(screen, color, (inner.x, inner.y, fill, inner.height), border_radius=max(1, inner.height // 2))
+    for ratio in (0.25, 0.50, 0.75):
+        tick_x = inner.x + int(inner.width * ratio)
+        pygame.draw.line(screen, (10, 13, 18), (tick_x, inner.y + 1), (tick_x, inner.bottom - 2), 1)
+
+
+def _compact_short_number(value) -> str:
+    try:
+        value_i = abs(int(value))
+    except (TypeError, ValueError):
+        return "0"
+    if value_i >= 10000:
+        scaled = value_i / 1000.0
+        return f"{scaled:.1f}K" if value_i % 1000 else f"{int(scaled)}K"
+    return str(value_i)
+
+
+def _compact_action_chip(label: str) -> tuple[str, tuple[int, int, int], str]:
+    raw = (label or "").strip()
+    low = raw.lower()
+    if not raw:
+        return "", COL_TEXT_DIM, ""
+    if "blockstun" in low:
+        return "BLOCK", (255, 190, 88), "STATE"
+    if "hitstun" in low:
+        return "HITSTUN", (255, 110, 110), "STATE"
+    if "knockdown" in low or "down" in low:
+        return "DOWN", (255, 110, 110), "STATE"
+    return raw.upper(), COL_TEXT, "MOVE"
+
+
+def _compact_fit_text(font, text: str, max_width: int) -> str:
+    text = (text or "").strip()
+    if max_width <= 0 or not text:
+        return ""
+    if font.size(text)[0] <= max_width:
+        return text
+    suffix = "…"
+    suffix_w = font.size(suffix)[0]
+    low, high = 0, len(text)
+    best = ""
+    while low <= high:
+        mid = (low + high) // 2
+        candidate = text[:mid].rstrip() + suffix
+        if font.size(candidate)[0] <= max_width:
+            best = candidate
+            low = mid + 1
+        else:
+            high = mid - 1
+    return best or suffix
+
+
+def _compact_rainbow_color(position: float, speed: float = 1.0) -> tuple[int, int, int]:
+    phase = time.time() * (speed * 0.58) + position
+    return (
+        int(166 + 84 * math.sin(phase * 2.05)),
+        int(166 + 84 * math.sin(phase * 2.05 + 2.10)),
+        int(166 + 84 * math.sin(phase * 2.05 + 4.20)),
+    )
+
+
+def _render_compact_rainbow_text(font, text: str, phase_offset: float = 0.0) -> pygame.Surface:
+    base = font.render(text, True, (255, 255, 255))
+    gradient = pygame.Surface(base.get_size(), pygame.SRCALPHA)
+    width = max(1, base.get_width())
+    for px in range(width):
+        color = _compact_rainbow_color((px / width) * 3.2 + phase_offset, 1.1)
+        pygame.draw.line(gradient, (*color, 255), (px, 0), (px, max(0, base.get_height() - 1)))
+    base.blit(gradient, (0, 0), special_flags=pygame.BLEND_MULT)
+    return base
+
+
+def _draw_compact_baroque_badge(screen, font_sm, rect: pygame.Rect, percent: float, scale: float, is_left: bool, alpha: float = 1.0) -> None:
+    rainbow = _render_compact_rainbow_text(font_sm, f"BBQ {max(0.0, percent):.0f}%", 0.18)
+    rainbow.set_alpha(max(0, min(255, int(255 * alpha))))
+    text_x = rect.x + max(0, (rect.width - rainbow.get_width()) // 2)
+    text_y = rect.y + max(0, (rect.height - rainbow.get_height()) // 2)
+    screen.blit(rainbow, (text_x, text_y))
+
+
+def _compact_chip_color(color: tuple[int, int, int], life: float) -> tuple[int, int, int]:
+    weight = max(0.30, min(1.0, float(life)))
+    return tuple(int(28 + (component - 28) * weight) for component in color)
+
+
+def _compact_smoothstep(value: float) -> float:
+    value = max(0.0, min(1.0, float(value)))
+    return value * value * (3.0 - 2.0 * value)
+
+
+def _compact_event_fade(event: dict | None) -> float:
+    if not event:
+        return 1.0
+    age = float(event.get("age", 1.0))
+    life = float(event.get("life", 1.0))
+    fade_in = _compact_smoothstep(age / 0.15)
+    fade_out = _compact_smoothstep(life / 0.28)
+    return min(fade_in, fade_out)
+
+
+def _draw_compact_stat_chip(
+    screen,
+    font_sm,
+    x: int,
+    y: int,
+    label: str,
+    value: str,
+    color: tuple[int, int, int],
+    scale: float,
+    life: float = 1.0,
+    event: dict | None = None,
+) -> int:
+    label_surface = font_sm.render(label, True, (142, 151, 169))
+    value_surface = font_sm.render(value, True, _compact_chip_color(color, life))
+    pad_x = max(4, int(5 * scale))
+    gap = max(3, int(4 * scale))
+    height = max(int(15 * scale), label_surface.get_height() + int(4 * scale))
+    width = label_surface.get_width() + gap + value_surface.get_width() + pad_x * 2
+    fade = _compact_event_fade(event)
+    if fade <= 0.01:
+        return width
+
+    rise = int((1.0 - fade) * max(1, int(3 * scale)))
+    chip = pygame.Surface((width, height), pygame.SRCALPHA)
+    radius = max(2, int(2 * scale))
+    border = _compact_chip_color(color, life)
+    pygame.draw.rect(chip, (16, 21, 31, int(222 * fade)), chip.get_rect(), border_radius=radius)
+    pygame.draw.rect(chip, (*border, int(235 * fade)), chip.get_rect(), 1, border_radius=radius)
+    label_surface.set_alpha(int(235 * fade))
+    value_surface.set_alpha(int(255 * fade))
+    text_y = chip.get_height() // 2 - label_surface.get_height() // 2
+    chip.blit(label_surface, (pad_x, text_y))
+    chip.blit(value_surface, (pad_x + label_surface.get_width() + gap, chip.get_height() // 2 - value_surface.get_height() // 2))
+    screen.blit(chip, (x, y - rise))
+    return width
+
+
+def _compact_tick_event_queue(events: list[dict]) -> dict | None:
+    if not events:
+        return None
+    event = events[0]
+    event["age"] = float(event.get("age", 0.0)) + 0.014
+    event["life"] = float(event.get("life", 0.0)) - 0.014
+    active = event if event.get("life", 0.0) > 0.0 else None
+    events[:] = [entry for entry in events if entry.get("life", 0.0) > 0.0]
+    return active
+
+
+def _compact_consume_panel_events(slot_anim: dict) -> tuple[dict | None, dict | None, dict | None]:
+    damage_event = _compact_tick_event_queue(slot_anim.get("damage_events", []))
+    meter_event = _compact_tick_event_queue(slot_anim.get("meter_events", []))
+    advantage_event = _compact_tick_event_queue(slot_anim.get("adv_events", []))
+    return damage_event, meter_event, advantage_event
+
+
+def _draw_compact_info_strip(
+    screen,
+    font_sm,
+    slot_anim: dict,
+    x: int,
+    y: int,
+    right: int,
+    action_label: str,
+    scale: float,
+) -> None:
+    damage_event, meter_event, advantage_event = _compact_consume_panel_events(slot_anim)
+    chips: list[tuple[str, str, tuple[int, int, int], float, dict | None]] = []
+
+    if damage_event is not None:
+        event_type = str(damage_event.get("type") or "")
+        if event_type == "opponent":
+            label, color = "DMG OUT", (255, 110, 110)
+        elif event_type == "heal":
+            label, color = "HP +", (92, 232, 146)
+        else:
+            label, color = "DMG IN", (255, 110, 110)
+        chips.append((label, _compact_short_number(damage_event.get("value", 0)), color, float(damage_event.get("life", 1.0)), damage_event))
+
+    if meter_event is not None:
+        direction = str(meter_event.get("direction") or "gain")
+        gain = direction != "loss"
+        chips.append(("MTR", f"{'+' if gain else '-'}{_compact_short_number(meter_event.get('value', 0))}", (96, 182, 255) if gain else (255, 164, 92), float(meter_event.get("life", 1.0)), meter_event))
+
+    if advantage_event is not None:
+        value = int(advantage_event.get("value", 0))
+        value_text = f"{value:+d}" if value else "0"
+        color = (92, 232, 146) if value > 0 else ((255, 112, 112) if value < 0 else (196, 205, 220))
+        chips.append(("FRAME", value_text, color, float(advantage_event.get("life", 1.0)), advantage_event))
+
+    action_text, action_color, action_kind = _compact_action_chip(action_label)
+    draw_x = x
+    gap = max(4, int(5 * scale))
+    for label, value, color, life, event in chips:
+        label_surface = font_sm.render(label, True, (142, 151, 169))
+        value_surface = font_sm.render(value, True, color)
+        width = label_surface.get_width() + value_surface.get_width() + max(3, int(4 * scale)) + max(8, int(10 * scale))
+        if draw_x + width > right:
+            continue
+        used = _draw_compact_stat_chip(screen, font_sm, draw_x, y, label, value, color, scale, life, event)
+        draw_x += used + gap
+
+    if action_text and draw_x < right:
+        label_surface = font_sm.render(action_kind, True, (142, 151, 169))
+        pad_x = max(4, int(5 * scale))
+        text_gap = max(3, int(4 * scale))
+        available = right - draw_x - label_surface.get_width() - pad_x * 2 - text_gap
+        value = _compact_fit_text(font_sm, action_text, available)
+        if value:
+            _draw_compact_stat_chip(screen, font_sm, draw_x, y, action_kind, value, action_color, scale, 1.0)
+
+
+def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x: int, y: int, right: int, scale: float) -> None:
+    title_surface = font_sm.render(title, True, (110, 122, 142))
+    screen.blit(title_surface, (x, y))
+    draw_x = x + title_surface.get_width() + max(6, int(7 * scale))
+    gap = max(6, int(7 * scale))
+    for item in items[:4]:
+        label = str(item.get("label") or "")
+        value = str(item.get("value") or "")
+        color = item.get("color") or (196, 205, 220)
+        life = float(item.get("life", 1.0))
+        alpha = max(0.35, min(1.0, life))
+        text = f"{label} {value}".strip()
+        surf = font_sm.render(text, True, color)
+        surf.set_alpha(int(255 * alpha))
+        if draw_x + surf.get_width() > right:
+            break
+        screen.blit(surf, (draw_x, y))
+        draw_x += surf.get_width() + gap
+        if draw_x < right:
+            dot = font_sm.render("•", True, (86, 96, 114))
+            dot.set_alpha(int(180 * alpha))
+            screen.blit(dot, (draw_x, y))
+            draw_x += dot.get_width() + gap
+
+
+def _merge_move_history(*lists: list[dict]) -> list[dict]:
+    merged: list[dict] = []
+    for seq in lists:
+        for item in seq or []:
+            if item and item.get("text"):
+                merged.append(item)
+    merged.sort(key=lambda item: int(item.get("frame", 0)), reverse=True)
+    # remove immediate duplicates while preserving order
+    filtered: list[dict] = []
+    last_text = None
+    for item in merged:
+        text = str(item.get("text") or "")
+        if text == last_text:
+            continue
+        filtered.append(item)
+        last_text = text
+        if len(filtered) >= 5:
+            break
+    return filtered
+
+
+def _draw_compact_move_history(screen, font_sm, items: list[dict], x: int, y: int, right: int, scale: float, prev_texts: list[str] | None = None, slide_progress: float = 0.0) -> None:
+    title_surface = font_sm.render("MOVES", True, (110, 122, 142))
+    screen.blit(title_surface, (x, y))
+    draw_x = x + title_surface.get_width() + max(6, int(7 * scale))
+    gap = max(5, int(6 * scale))
+    clip_rect = pygame.Rect(draw_x, y - 1, max(1, right - draw_x), font_sm.get_height() + int(4 * scale))
+
+    recency_colors = [
+        (92, 232, 146),
+        (132, 204, 255),
+        (232, 236, 244),
+        (178, 188, 204),
+        (122, 134, 153),
+    ]
+
+    def _normalize_texts(source) -> list[str]:
+        out = []
+        for item in source or []:
+            if isinstance(item, dict):
+                txt = str(item.get("text") or "").strip()
+            else:
+                txt = str(item or "").strip()
+            if txt:
+                out.append(txt)
+            if len(out) >= 5:
+                break
+        return out
+
+    def _build_parts(texts: list[str], alpha: float):
+        rendered = []
+        for idx, txt in enumerate(texts[:5]):
+            color = recency_colors[min(idx, len(recency_colors) - 1)]
+            surf = font_sm.render(txt.upper(), True, color)
+            if alpha < 0.999:
+                surf.set_alpha(max(0, min(255, int(255 * alpha))))
+            rendered.append(surf)
+            if idx < len(texts[:5]) - 1:
+                sep = font_sm.render(">", True, (82, 92, 108))
+                if alpha < 0.999:
+                    sep.set_alpha(max(0, min(255, int(255 * alpha))))
+                rendered.append(sep)
+        return rendered
+
+    def _line_width(parts) -> int:
+        total = 0
+        move_index = 0
+        for part in parts:
+            total += part.get_width()
+            if part != parts[-1]:
+                total += gap if move_index % 2 == 0 else gap
+            move_index += 1
+        return total
+
+    def _draw_parts(parts, base_x: int, alpha: float):
+        dx = base_x
+        for idx, surf in enumerate(parts):
+            if dx > right:
+                break
+            screen.blit(surf, (dx, y))
+            dx += surf.get_width()
+            if idx < len(parts) - 1:
+                dx += gap
+
+    current_texts = _normalize_texts(items)
+    previous_texts = _normalize_texts(prev_texts)
+
+    if not current_texts and not previous_texts:
+        empty = font_sm.render("—", True, (86, 96, 114))
+        screen.blit(empty, (draw_x, y))
+        return
+
+    current_parts = _build_parts(current_texts, 1.0)
+    previous_parts = _build_parts(previous_texts, max(0.0, min(1.0, slide_progress))) if previous_texts else []
+
+    inserted_shift = 0
+    if current_texts:
+        newest = font_sm.render(current_texts[0].upper(), True, recency_colors[0])
+        inserted_shift = newest.get_width() + gap
+        if len(current_texts) > 1:
+            inserted_shift += font_sm.render(">", True, (82, 92, 108)).get_width() + gap
+        inserted_shift = max(inserted_shift, int(24 * scale))
+
+    old_clip = screen.get_clip()
+    screen.set_clip(clip_rect)
+    if slide_progress > 0.001 and previous_parts:
+        old_alpha = max(0.0, min(1.0, slide_progress))
+        old_x = draw_x + int(inserted_shift * (1.0 - slide_progress))
+        _draw_parts(previous_parts, old_x, old_alpha)
+        new_x = draw_x - int(inserted_shift * slide_progress)
+        _draw_parts(current_parts, new_x, 1.0)
+    else:
+        _draw_parts(current_parts, draw_x, 1.0)
+    screen.set_clip(old_clip)
+
+
+def _draw_compact_ko_badge(screen, font_sm, rect: pygame.Rect, scale: float) -> None:
+    radius = max(2, int(3 * scale))
+    pygame.draw.rect(screen, (54, 16, 22), rect, border_radius=radius)
+    pygame.draw.rect(screen, (255, 92, 104), rect, 1, border_radius=radius)
+    label = font_sm.render("KO", True, (255, 224, 228))
+    screen.blit(label, (rect.centerx - label.get_width() // 2, rect.centery - label.get_height() // 2))
+
+
+def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scale: float, overlay_alpha: float, dt: float) -> None:
+    first_label, second_label = f"{team}-C1", f"{team}-C2"
+    point_label = _get_active_slot(team) or first_label
+    partner_label = second_label if point_label == first_label else first_label
+    point = slots.get(point_label) or slots.get(first_label) or slots.get(second_label)
+    partner = slots.get(partner_label) or {}
+    if not point:
+        return
+
+    point_anim = _get_slot_anim(point_label)
+    partner_anim = _get_slot_anim(partner_label)
+    point_anim["meter_display"] = _approach(
+        point_anim["meter_display"], _compact_meter_level(point.get("meter")), PIP_SPEED, dt
+    )
+    partner_anim["meter_display"] = _approach(
+        partner_anim["meter_display"], _compact_meter_level(partner.get("meter")), PIP_SPEED, dt
+    )
+
+    try:
+        point_cur = max(0, int(point.get("cur") or 0))
+        point_max = max(1, int(point.get("max") or 1))
+    except (TypeError, ValueError):
+        point_cur, point_max = 0, 1
+    point_hp_target = max(0.0, min(1.0, point_cur / point_max))
+    if point_anim.get("hp_display_frac") is None:
+        point_anim["hp_display_frac"] = point_hp_target
+    point_anim["hp_display_frac"] = _approach(point_anim["hp_display_frac"], point_hp_target, 2.4, dt)
+
+    try:
+        partner_cur = max(0, int(partner.get("cur") or 0))
+        partner_max = max(1, int(partner.get("max") or 1))
+    except (TypeError, ValueError):
+        partner_cur, partner_max = 0, 1
+    partner_hp_target = max(0.0, min(1.0, partner_cur / partner_max))
+    if partner_anim.get("hp_display_frac") is None:
+        partner_anim["hp_display_frac"] = partner_hp_target
+    partner_anim["hp_display_frac"] = _approach(partner_anim["hp_display_frac"], partner_hp_target, 2.6, dt)
+
+    try:
+        point_meter_target = max(0.0, float(point.get("meter") or 0.0))
+    except (TypeError, ValueError):
+        point_meter_target = 0.0
+    if point_anim.get("meter_display_value") is None:
+        point_anim["meter_display_value"] = point_meter_target
+    point_anim["meter_display_value"] = _approach(point_anim["meter_display_value"], point_meter_target, 32000.0, dt)
+
+    width = max(430, int(470 * scale))
+    height = max(102, int(110 * scale))
+    margin_x = int(12 * scale)
+    base_y = int(148 * scale)
+    is_left = team == "P1"
+    base_x = margin_x if is_left else screen.get_width() - margin_x - width
+    accent = SLOT_COLORS.get(point_label, SLOT_COLORS[f"{team}-C1"])
+    point_dead = int(point.get("cur") or 0) <= 0
+
+    team_anim = _get_team_anim(team)
+    team_present = bool(_get_slot_anim(first_label).get("present") or _get_slot_anim(second_label).get("present"))
+    if team_present and not team_anim.get("present"):
+        team_anim["slide_y"] = -34.0
+        team_anim["slide_x"] = 0.0
+        team_anim["alpha"] = min(team_anim.get("alpha", 0.0), 0.20)
+    if team_present:
+        prior_point = team_anim.get("current_point_label")
+        if prior_point is None:
+            team_anim["current_point_label"] = point_label
+        elif prior_point != point_label:
+            team_anim["current_point_label"] = point_label
+            team_anim["swap_progress"] = 1.0
+    team_anim["present"] = team_present
+    if team_present:
+        team_anim["slide_y"] = _approach(float(team_anim.get("slide_y", -34.0)), 0.0, 160.0, dt)
+        team_anim["slide_x"] = _approach(float(team_anim.get("slide_x", 0.0)), 0.0, 1800.0, dt)
+        team_anim["alpha"] = _approach(float(team_anim.get("alpha", 0.0)), 1.0, 4.8, dt)
+        team_anim["swap_progress"] = _approach(float(team_anim.get("swap_progress", 0.0)), 0.0, 4.0, dt)
+    else:
+        off_target = -float(width + margin_x + 18) if is_left else float(width + margin_x + 18)
+        team_anim["slide_x"] = _approach(float(team_anim.get("slide_x", 0.0)), off_target, 1700.0, dt)
+        team_anim["alpha"] = _approach(float(team_anim.get("alpha", 0.0)), 0.0, 3.2, dt)
+
+    panel_alpha = overlay_alpha * float(team_anim.get("alpha", 0.0))
+    if panel_alpha <= 0.01:
+        return
+    x = int(base_x + float(team_anim.get("slide_x", 0.0)))
+    y = int(base_y + float(team_anim.get("slide_y", 0.0)))
+
+    panel = pygame.Surface((width, height), pygame.SRCALPHA)
+    base_alpha = int(228 * panel_alpha)
+    notch = max(8, int(10 * scale))
+    if is_left:
+        points = [(notch, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1), (0, notch)]
+    else:
+        points = [(0, 0), (width - notch - 1, 0), (width - 1, notch), (width - 1, height - 1), (0, height - 1)]
+    pygame.draw.polygon(panel, (33, 38, 46, base_alpha), points)
+    for py in range(height):
+        blend = py / max(1, height - 1)
+        c1 = (66, 72, 82)
+        c2 = (28, 32, 39)
+        line_color = _lerp_color(c1, c2, blend)
+        pygame.draw.line(panel, (*line_color, int(172 * panel_alpha)), (1, py), (width - 2, py))
+    sheen_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+    pygame.draw.polygon(sheen_surface, (255, 255, 255, int(18 * panel_alpha)), [
+        (int(width * 0.08), 0),
+        (int(width * 0.36), 0),
+        (int(width * 0.24), height - 1),
+        (0, height - 1),
+    ])
+    pygame.draw.line(sheen_surface, (250, 252, 255, int(26 * panel_alpha)), (int(width * 0.08), 1), (int(width * 0.36), 1), 1)
+    panel.blit(sheen_surface, (0, 0))
+    pygame.draw.polygon(panel, (*accent, int(155 * panel_alpha)), points, 1)
+    pygame.draw.line(panel, (250, 252, 255, int(42 * panel_alpha)), (notch if is_left else 0, 0), (width - 1 if is_left else width - notch - 1, 0))
+    pygame.draw.line(panel, (8, 10, 14, int(178 * panel_alpha)), (0, height - 1), (width - 1, height - 1))
+    pygame.draw.line(panel, (*accent, int(42 * panel_alpha)), (int(8 * scale), int(35 * scale)), (width - int(8 * scale), int(35 * scale)))
+    rail_w = max(3, int(4 * scale))
+    rail_x = 0 if is_left else width - rail_w
+    pygame.draw.rect(panel, (*accent, int(238 * overlay_alpha)), (rail_x, 0, rail_w, height))
+    screen.blit(panel, (x, y))
+
+    outer_pad = int(10 * scale)
+    left = x + outer_pad
+    right = x + width - outer_pad
+    primary_y = y + int(7 * scale)
+    hp_y = primary_y + max(16, int(18 * scale)) + int(4 * scale)
+    strip_y = hp_y + max(7, int(8 * scale)) + int(6 * scale)
+    history_y = strip_y + max(17, int(18 * scale)) + int(3 * scale)
+    move_history_y = history_y + max(12, int(13 * scale)) + int(2 * scale)
+    secondary_y = move_history_y + max(12, int(13 * scale)) + int(4 * scale)
+    swap_progress = float(team_anim.get("swap_progress", 0.0))
+    top_row_y = int(primary_y + (secondary_y - primary_y) * swap_progress)
+    top_hp_y = int(hp_y + (secondary_y - primary_y) * swap_progress)
+    bottom_row_y = int(secondary_y - (secondary_y - primary_y) * swap_progress)
+    top_row_alpha = max(0.55, 1.0 - 0.18 * swap_progress)
+    bottom_row_alpha = max(0.55, 1.0 - 0.18 * swap_progress)
+
+    point_badge = "C1" if point_label.endswith("C1") else "C2"
+    badge_w = max(22, int(25 * scale))
+    badge_h = max(16, int(18 * scale))
+    badge_rect = pygame.Rect(left, primary_y, badge_w, badge_h)
+    pygame.draw.rect(screen, accent, badge_rect, border_radius=max(2, int(2 * scale)))
+    badge = font_sm.render(point_badge, True, (250, 250, 252))
+    screen.blit(badge, (badge_rect.centerx - badge.get_width() // 2, badge_rect.centery - badge.get_height() // 2))
+
+    name_x = badge_rect.right + int(7 * scale)
+    name = _compact_trim(str(point.get("name") or "???"), 13)
+    name_surface = font.render(name, True, COL_DEAD if point_dead else (235, 238, 245))
+    screen.blit(name_surface, (name_x, primary_y - max(0, int(1 * scale))))
+
+    baroque = bool(point.get("baroque_ready_local", False)) and not point_dead
+    if baroque:
+        point_anim["baroque_last_pct"] = float(point.get("baroque_red_pct_max") or 0.0)
+        point_anim["baroque_display_pct"] = _approach(float(point_anim.get("baroque_display_pct", 0.0)), point_anim["baroque_last_pct"], 80.0, dt)
+        point_anim["baroque_alpha"] = _approach(float(point_anim.get("baroque_alpha", 0.0)), 1.0, 5.5, dt)
+    else:
+        point_anim["baroque_alpha"] = _approach(float(point_anim.get("baroque_alpha", 0.0)), 0.0, 2.1, dt)
+    show_baroque_badge = float(point_anim.get("baroque_alpha", 0.0)) > 0.03
+    power_w = max(int(76 * scale), font_sm.size("METER 5")[0] + int(12 * scale))
+    power_left = right - power_w
+    separator_x = power_left - int(6 * scale)
+    pygame.draw.line(screen, (48, 65, 94), (separator_x, primary_y), (separator_x, move_history_y + max(12, int(13 * scale))), 1)
+
+    meter_level = int(round(point_anim["meter_display"]))
+    meter_color = _compact_meter_color(point.get("meter"))
+    meter_caption = font_sm.render("METER", True, (122, 144, 184))
+    meter_value = font_sm.render(str(meter_level), True, meter_color if not point_dead else COL_DEAD)
+    meter_exact = font_sm.render(_compact_meter_text(point.get("meter")), True, COL_DEAD if point_dead else (188, 198, 214))
+    meter_label_y = primary_y - max(0, int(1 * scale))
+    screen.blit(meter_caption, (power_left, meter_label_y))
+    screen.blit(meter_value, (right - meter_value.get_width(), meter_label_y))
+    meter_y = primary_y + meter_caption.get_height() + max(1, int(1 * scale))
+    _draw_compact_meter(screen, power_left, meter_y, power_w, point_anim.get("meter_display_value", point.get("meter")), scale, point_dead)
+    meter_exact_x = right - meter_exact.get_width()
+    meter_exact_y = meter_y + max(9, int(11 * scale))
+    screen.blit(meter_exact, (meter_exact_x, meter_exact_y))
+
+    if show_baroque_badge:
+        bq_h = max(14, int(16 * scale))
+        bq_rect = pygame.Rect(power_left, strip_y + int(1 * scale), power_w, bq_h)
+        _draw_compact_baroque_badge(screen, font_sm, bq_rect, float(point_anim.get("baroque_display_pct", point.get("baroque_red_pct_max") or 0.0)), scale, is_left, float(point_anim.get("baroque_alpha", 0.0)))
+
+    hp_h = max(6, int(7 * scale))
+    hp_text = font_sm.render(_compact_hp_text(point.get("cur"), point.get("max")), True, COL_DEAD if point_dead else (182, 192, 208))
+    hp_gap = int(5 * scale)
+    ko_gap = int(7 * scale)
+    ko_w = max(22, font_sm.size("KO")[0] + int(10 * scale)) if point_dead else 0
+    ko_h = max(14, int(16 * scale)) if point_dead else 0
+    reserve_w = hp_text.get_width() + hp_gap + (ko_w + ko_gap if point_dead else 0)
+    hp_w = max(84, min(max(140, int(164 * scale)), power_left - name_x - reserve_w - int(4 * scale)))
+    _draw_compact_health(screen, name_x, top_hp_y, hp_w, hp_h, point.get("cur"), point.get("max"), point_dead, point_anim.get("hp_display_frac"))
+    hp_text_x = name_x + hp_w + hp_gap
+    hp_text.set_alpha(int(255 * top_row_alpha)); screen.blit(hp_text, (hp_text_x, top_hp_y - max(1, int(2 * scale))))
+    if point_dead:
+        ko_x = hp_text_x + hp_text.get_width() + ko_gap
+        ko_x = min(ko_x, power_left - ko_w - int(4 * scale))
+        _draw_compact_ko_badge(screen, font_sm, pygame.Rect(ko_x, top_hp_y - int(4 * scale), ko_w, ko_h), scale)
+
+    for entry in point_anim.get("event_history", []):
+        entry["life"] = max(0.30, float(entry.get("life", 1.0)) - 0.003)
+    point_anim["event_history"] = point_anim.get("event_history", [])[:6]
+
+    action_label = _compact_move_label(point)
+    info_right = power_left - int(12 * scale)
+    _draw_compact_info_strip(screen, font_sm, point_anim, left, strip_y, info_right, action_label, scale)
+    _draw_compact_history_line(screen, font_sm, "LOG", point_anim.get("event_history", []), left, history_y, right, scale)
+    merged_moves = _merge_move_history(point_anim.get("move_events", []), partner_anim.get("move_events", []))
+    move_signature = tuple(str(item.get("text") or "").strip() for item in merged_moves[:5] if str(item.get("text") or "").strip())
+    previous_signature = tuple(team_anim.get("move_history_signature", ()))
+    if move_signature != previous_signature:
+        if previous_signature:
+            team_anim["move_history_prev"] = list(previous_signature)
+            team_anim["move_history_slide"] = 1.0
+        team_anim["move_history_signature"] = move_signature
+    team_anim["move_history_slide"] = _approach(float(team_anim.get("move_history_slide", 0.0)), 0.0, 6.0, dt)
+    _draw_compact_move_history(
+        screen,
+        font_sm,
+        merged_moves,
+        left,
+        move_history_y,
+        right,
+        scale,
+        team_anim.get("move_history_prev", []),
+        float(team_anim.get("move_history_slide", 0.0)),
+    )
+
+    partner_badge = "C1" if partner_label.endswith("C1") else "C2"
+    partner_dead = int(partner.get("cur") or 0) <= 0
+    partner_color = SLOT_COLORS.get(partner_label, accent)
+    partner_badge_text = font_sm.render(partner_badge, True, (165, 175, 190))
+    partner_badge_text.set_alpha(int(255 * bottom_row_alpha)); screen.blit(partner_badge_text, (left, bottom_row_y))
+    partner_name = _compact_trim(str(partner.get("name") or "---"), 15)
+    partner_name_surface = font_sm.render(partner_name, True, COL_DEAD if partner_dead else (168, 177, 194))
+    partner_name_x = left + badge_w + int(7 * scale)
+    partner_name_surface.set_alpha(int(255 * bottom_row_alpha)); screen.blit(partner_name_surface, (partner_name_x, bottom_row_y))
+    name_end_x = partner_name_x + min(partner_name_surface.get_width(), int(86 * scale))
+    partner_bar_x = name_end_x + int(8 * scale)
+    if partner_dead:
+        ko_w = max(22, font_sm.size("KO")[0] + int(10 * scale))
+        ko_h = max(13, int(15 * scale))
+        ko_x = partner_bar_x
+        _draw_compact_ko_badge(screen, font_sm, pygame.Rect(ko_x, bottom_row_y - int(2 * scale), ko_w, ko_h), scale)
+        partner_bar_x = ko_x + ko_w + int(8 * scale)
+    partner_bar_w = max(54, int(63 * scale))
+    _draw_compact_health(screen, partner_bar_x, bottom_row_y + int(4 * scale), partner_bar_w, max(4, int(5 * scale)), partner.get("cur"), partner.get("max"), partner_dead, partner_anim.get("hp_display_frac"))
+
+    partner_state = _compact_partner_state(partner)
+    state_color = (255, 112, 120) if partner_dead else (partner_color if partner_state == "ACTIVE" else (132, 144, 164))
+    state_surface = font_sm.render(partner_state, True, state_color)
+    partner_bq_pct = float(partner.get("baroque_red_pct_max") or 0.0)
+    bq_surface = _render_compact_rainbow_text(font_sm, f"BBQ {partner_bq_pct:.0f}%", 0.18) if (partner_bq_pct > 0.0 and not partner_dead) else None
+    if bq_surface is not None:
+        bq_x = right - bq_surface.get_width()
+        bq_surface.set_alpha(int(255 * bottom_row_alpha)); screen.blit(bq_surface, (bq_x, bottom_row_y))
+        state_x = min(partner_bar_x + partner_bar_w + int(7 * scale), bq_x - int(8 * scale) - state_surface.get_width())
+    else:
+        state_x = min(partner_bar_x + partner_bar_w + int(7 * scale), right - state_surface.get_width())
+    state_surface.set_alpha(int(255 * bottom_row_alpha)); screen.blit(state_surface, (state_x, bottom_row_y))
+
+def draw_overlay(screen, font, font_sm, slots, scale, dt) -> None:
+    if HUD_LAYOUT_MODE != "compact":
+        _draw_overlay_detail(screen, font, font_sm, slots, scale, dt)
+        return
+
+    _anim_state["overlay_alpha"] = _approach(_anim_state["overlay_alpha"], 1.0, FADE_SPEED, dt)
+    overlay_alpha = _anim_state["overlay_alpha"]
+
+    for slot_label, snap in slots.items():
+        if isinstance(snap, dict):
+            _compact_track_slot(slot_label, snap)
+
+    _draw_compact_team_panel(screen, font, font_sm, "P1", slots, scale, overlay_alpha, dt)
+    _draw_compact_team_panel(screen, font, font_sm, "P2", slots, scale, overlay_alpha, dt)
+
 
 # ---------------------------------------------------------------------------
 # Renderer class for master_overlay.py

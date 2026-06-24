@@ -14,7 +14,7 @@ def _normalize_char_key(s: str) -> str:
     return s
 
 
-# If  asset filenames don't match CHAR_NAMES exactly, you can map
+# If  asset filenames don't match CHAR_NAMES exactly, the configuration can map
 # normalized name -> normalized alias here, e.g.:
 #
 #   "viewtifuljoe" -> "joe"

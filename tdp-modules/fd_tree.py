@@ -3,7 +3,7 @@
 # This file owns tree column definitions + row population wiring.
 # The current layout keeps the dense grid for power editing, but adds a
 # cleaner workbench shell, optional advanced filters, core/all column views,
-# and a right-side selected-move inspector so users do not have to parse a
+# and a right-side selected-move inspector to avoid manual parsing of a
 # giant spreadsheet for normal edits.
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ FD_COLUMNS = (
     "speed_mod", "attack_property", "hit_reaction", "hit_result_flags",
     "superbg",
     # Projectile columns are hidden from the simplest frame-data view but live
-    # in the same Treeview so users no longer need a separate projectile table.
+    # in the same Treeview to avoid a separate projectile table.
     *FPI.PROJECTILE_COLUMNS,
     *FSI.SUPER_DISPATCH_COLUMNS,
     "abs",
@@ -871,7 +871,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     win._inspector_subtitle_var = tk.StringVar(master=win.root, value="Choose a move to inspect cached data. Selection never triggers a scan.")
     win._inspector_hint_var = tk.StringVar(master=win.root, value="Click a highlighted value to edit it. Read-only fields stay flat.")
     win._inspector_action_help_default = (
-        "Pin Compare keeps this move as a read-only reference while you browse. "
+        "Pin Compare keeps this move as a read-only reference. "
         "Copy Address places this row's move-table anchor on the clipboard."
     )
     win._inspector_action_help_var = tk.StringVar(master=win.root, value=win._inspector_action_help_default)
@@ -909,7 +909,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             command=command,
         )
         button.pack(side="left", padx=(0 if not hero_actions.winfo_children() else 5, 0))
-        # The helper panel should hold the last action the user inspected.
+        # The helper panel retains the last selected action.
         # Resetting on <Leave>/<FocusOut> made it jump back to the initial
         # Pin Compare text, which is both misleading and visually twitchy.
         button.bind("<Enter>", lambda _e, t=help_text: _set_action_help(t), add=True)
@@ -983,7 +983,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     ttk.Label(compare_head, text="COMPARE", style="CompareTitle.TLabel").pack(side="left")
     ttk.Button(compare_head, text="Clear", style="Small.TButton", command=lambda: win._clear_pinned_move()).pack(side="right")
     win._compare_title_var = tk.StringVar(master=win.root, value="No pinned move")
-    win._compare_summary_var = tk.StringVar(master=win.root, value="Pin a move to compare damage, timing, and stun as you browse.")
+    win._compare_summary_var = tk.StringVar(master=win.root, value="Pin a move to compare damage, timing, and stun.")
     ttk.Label(compare, textvariable=win._compare_title_var, style="CompareSub.TLabel").pack(anchor="w", pady=(4, 0))
     ttk.Label(compare, textvariable=win._compare_summary_var, style="CompareSub.TLabel", wraplength=390).pack(anchor="w", pady=(2, 6))
     delta_row = ttk.Frame(compare, style="CompareDelta.TFrame")
@@ -1085,7 +1085,7 @@ def build_tree_widget(win) -> ttk.Frame:
 
     # Give the inspector a real starting width. ttk's default sash math can
     # collapse the right pane on first open, which makes the value chips look
-    # broken until the user drags it by hand.
+    # broken until manual resizing occurs.
     try:
         body.paneconfigure(right, minsize=420)
     except Exception:
@@ -1377,7 +1377,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win._filter_panel_built = False
 
     def _ensure_filter_panel_built():
-        # Build the large advanced-filter widget set only when the user opens it.
+        # Build the advanced-filter widget set only when opened.
         # The normal frame view no longer pays the startup cost for 50+ entries
         # and tooltips that may never be used.
         if getattr(win, "_filter_panel_built", False) and getattr(win, "_filter_panel", None) is not None:
@@ -1696,7 +1696,7 @@ def build_tree_widget(win) -> ttk.Frame:
         if _col in cols:
             win.tree.column(_col, width=_width, anchor="center")
 
-    # Save the current built-in widths before applying persisted user choices.
+    # Save built-in widths before applying persisted column choices.
     # Reset layout uses this for a true first-load restoration.
     try:
         win._fd_builtin_column_widths = {c: int(win.tree.column(c, "width")) for c in cols}
@@ -1871,7 +1871,7 @@ def build_tree_widget(win) -> ttk.Frame:
 
         # Views are display-only. Projectile/special discovery is an explicit
         # saved profile pass from the Character profile toolbar; do not start a
-        # scanner here just because the user changed columns.
+        # scanner here when columns change.
 
     def _toggle_core_columns():
         # Legacy shortcut kept for old callers: Overview <-> All Columns.
@@ -2124,7 +2124,7 @@ def _populate_tree_sync(win) -> None:
         child["hit_segments"] = []
         child["multi_hit_count"] = 0
         # Hit rows are for per-hit data only. Keep whole-move-only fields off
-        # the child so users do not accidentally edit meter/speed/super flags
+        # the child to prevent accidental edits to meter/speed/super flags
         # from a segment row.
         for key in (
             "meter", "meter_addr", "active2_start", "active2_end", "active2_addr",
@@ -3357,7 +3357,7 @@ def populate_super_rows(win, replace: bool = True) -> None:
         except Exception:
             pass
 
-        # Make the graph visible without forcing the user to scroll into hidden
+        # Keep the graph visible without scrolling into hidden
         # columns/sidebar: show the resolved child target and every sniffed
         # super-owned field as nested rows under the parent dispatch row.
         try:

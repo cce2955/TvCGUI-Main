@@ -246,8 +246,8 @@ INVULN_PHASE_SETUP_HDR = bytes([0x04, 0x01, 0x02, 0x3F])
 # Runtime-confirmed reference rows.  This is deliberately tiny: do not let a
 # name match or a broad move family promote untested rows to "confirmed".
 # Tuple = (character ID, action/animation ID).
-# - Polimar 6C: user-tested as genuinely invulnerable.
-# - Ryu Shoryu L/M/H: user-confirmed invulnerable startup references.
+# - Polimar 6C: validated invulnerability reference.
+# - Ryu Shoryu L/M/H: validated startup-invulnerability references.
 CONFIRMED_INVULN_ACTIONS = {
     (4, 0x0106),
     (12, 0x0136),
@@ -310,7 +310,7 @@ def _profile_bundle_dir() -> Optional[str]:
 
 def _profile_default_cache_file() -> str:
     # Source/dev runs keep the cache next to scan_normals_all.py so the build
-    # script can bundle the profiles you already generated.  PyInstaller onefile
+    # script can bundle the profiles the operator already generated.  PyInstaller onefile
     # runs use a writable cache next to TvCGUI.exe, while still reading the
     # bundled read-only seed profile from sys._MEIPASS.
     return os.path.join(_profile_exe_dir(), PROFILE_CACHE_FILENAME)
@@ -3365,7 +3365,7 @@ def _load_profile_moves(
         return None
     # Reject experimental Morrigan inherited-stun profiles from v28/v29.
     # Those builds resolved FF FF FF FE default markers into guessed HS/BS values,
-    # but we are intentionally returning Morrigan to the old blank behavior.
+    # but the module is intentionally returning Morrigan to the old blank behavior.
     if "morrigan" in key.lower() and "morrigan-stun" in str(prof.get("scanner_build") or "").lower():
         return None
     if int(prof.get("version") or 0) != PROFILE_CACHE_VERSION:
@@ -3453,7 +3453,7 @@ def _save_profile_moves(
         profiles = doc.setdefault("profiles", {})
         previous = profiles.get(key) if isinstance(profiles.get(key), dict) else {}
         # A normal-only rebuild must not throw away a projectile/special pass
-        # that the user already profiled for this exact character table.
+        # that is already profiled for this exact character table.
         keep_extras = str(previous.get("table_signature") or "") == sig
         profile = {
             "version": PROFILE_CACHE_VERSION,
@@ -3502,12 +3502,7 @@ def _profile_extra_bundle(
     chr_tbl_abs: int,
     table_signature: str,
 ) -> Dict[str, Any]:
-    """Return cached projectile/special scan rows rebased to the live table.
-
-    These rows are deliberately *not* rescanned here.  The one-time discovery
-    pass is user-triggered from the Frame Data workbench; subsequent openings
-    only deserialize and rebase the proven records for the loaded character.
-    """
+    'Return cached projectile/special scan rows rebased to the live table.\n\n    These rows are deliberately *not* rescanned here.  The one-time discovery\n    pass is operator-triggered from the Frame Data workbench; subsequent openings\n    only deserialize and rebase the proven records for the loaded character.\n    '
     empty = {
         "projectiles": [],
         "specials": [],

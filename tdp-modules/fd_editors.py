@@ -33,14 +33,7 @@ from fd_widgets import ManualAnimIDDialog, get_field_help, ask_integer_with_help
 
 
 class FDCellEditorsMixin:
-    """
-    Requires the host class to define:
-      - self.root, self.tree
-      - self.moves, self.target_slot
-      - self._apply_row_tags(item, mv), self._set_status_for_item(item, mv)
-      - self._show_move_edit_menu(event, item, mv) (or use provided)
-      - self._clone_move_block_y2(new_mv, mv) if you use full replace mode
-    """
+    '\n    Requires the host class to define:\n      - self.root, self.tree\n      - self.moves, self.target_slot\n      - self._apply_row_tags(item, mv), self._set_status_for_item(item, mv)\n      - self._show_move_edit_menu(event, item, mv) (or use provided)\n      - self._clone_move_block_y2(new_mv, mv) if the operator use full replace mode\n    '
 
     def _notify_fd_cell_changed(self, item, mv, col_name: str) -> None:
         cb = getattr(self, "_after_cell_write", None)
@@ -238,7 +231,7 @@ class FDCellEditorsMixin:
             mv["damage"] = new_val
             self._notify_fd_cell_changed(item, mv, "damage")
     def _edit_proj_dmg(self, item, mv, current: str):
-        # make sure we have proj_tpl/proj_dmg populated
+        # make sure the module has proj_tpl/proj_dmg populated
         if mv.get("proj_tpl") is None:
             try:
                 import fd_utils as U
@@ -677,7 +670,7 @@ class FDCellEditorsMixin:
             prompt="Hit Push/Pull Aux (35/0C +C):",
             help_text=(
                 "35 0C packet, float at +0x0C. This changes with the same local hit-spacing packet as Push/Pull X, but its "
-                "semantic role is not confirmed yet. It is exposed separately so we can test it without calling it a Y vector."
+                "semantic role is not confirmed. It is exposed separately for isolated testing without classifying it as a Y vector."
             ),
             initialvalue=float(cur or 0.0),
         )
@@ -719,7 +712,7 @@ class FDCellEditorsMixin:
             writer_key="air_kb",
             current_text=current_text,
             help_text=(
-                "35 07/09 vertical airborne displacement / launch component. Your Ryu 6C tests: values above default pop the target up and let them fall during the normal hitstun; values below default leave them near the hit height longer. It is not the hitstun timer."
+                "35 07/09 vertical airborne displacement / launch component. Ryu 6C validation results: values above default pop the target up and allow descent during normal hitstun; values below default retain the target near hit height longer. This is not the hitstun timer."
             ),
             suggestions=[("0.05", 0.05), ("0.08", 0.08), ("17", 17.0), ("50", 50.0), ("-0.16", -0.16)],
             parser=lambda txt: float((txt or "0").strip()),
@@ -874,11 +867,7 @@ class FDCellEditorsMixin:
         )
 
     def _edit_knockback(self, item, mv, _current: str):
-        """Edit each hit physics field independently.
-
-        This intentionally does not use whole-move presets. Each suggested button only
-        fills one value, so the user can mix/piece-meal fields without copying a move.
-        """
+        'Edit each hit physics field independently.\n\n        This intentionally does not use whole-move presets. Each suggested button only\n        fills one value, so the operator can mix/piece-meal fields without copying a move.\n        '
         # The legacy combined editor can touch several fields at once. Capture
         # their pre-edit values so Reset changed can restore only the fields
         # this dialog actually changed.
@@ -1103,7 +1092,7 @@ class FDCellEditorsMixin:
             0,
             "Hit Spark",
             "" if cur_spark is None else str(int(cur_spark) & 0xFFFFFFFF),
-            "Changes the impact spark/effect. User-tested: can also move the spark location.",
+            "Changes the impact spark/effect. Validated: can also move the spark location.",
             [("0", 0), ("1", 1), ("2", 2), ("3", 3), ("10", 10)],
             parser_kind="int",
         )
@@ -1607,111 +1596,76 @@ class FDCellEditorsMixin:
             messagebox.showerror("Error", "Failed to write replacement to Dolphin.\nCheck console for details.")
             return
 
-        mv["id"] = int(new_id)
-        mv["move_name"] = new_mv.get("move_name") or mv.get("move_name")
-
-        cname = self.target_slot.get("char_name", "-")
-        pretty = U.pretty_move_name(int(new_id), cname)
-        dup_idx = mv.get("dup_index")
-        if dup_idx is not None:
-            pretty = f"{pretty} (Tier{dup_idx + 1})"
-        pretty = f"{pretty} [0x{int(new_id):04X}]"
-        self.tree.set(item, "move", pretty)
+        mv["animation_id"] = int(new_id) & 0xFFFF
+        mv["animation_label"] = new_mv.get("move_name") or U.pretty_move_name(int(new_id), self.target_slot.get("char_name", "-"))
         self._notify_fd_cell_changed(item, mv, "move")
 
     # ----- Anim ID write/read helpers (deduped: only one _edit_anim_manual) -----
 
-    def _read_anim_id_hi_lo(self, mv):
-        base = mv.get("abs")
-        if not base:
-            return (None, None)
+    def _animation_context(self, mv):
+        slot = self.target_slot if isinstance(getattr(self, "target_slot", None), dict) else {}
+        return (
+            slot.get("char_name") or (mv or {}).get("char_name") or (mv or {}).get("animation_char_key"),
+            slot.get("char_id") or (mv or {}).get("char_id"),
+        )
+
+    def _resolve_anim_binding(self, mv):
         try:
             from dolphin_io import rbytes
+            from mot_runtime import get_current_animation_id, locate_loaded_mot
         except ImportError:
-            return (None, None)
-
-        LOOKAHEAD = 0x80
+            return None, None, "none"
+        char_name, char_id = self._animation_context(mv)
+        current, reason = get_current_animation_id(
+            mv, char_name=char_name, char_id=char_id, rbytes=rbytes,
+        )
+        if current is None:
+            return None, None, reason
+        loaded, _source = locate_loaded_mot(
+            char_name, char_id, mv, rbytes=rbytes,
+        )
+        if loaded is None:
+            return None, None, "none"
         try:
-            buf = rbytes(base, LOOKAHEAD)
+            source_action = int(mv.get("id")) & 0xFFFF
         except Exception:
-            return (None, None)
+            return None, None, "none"
+        return loaded.table_addr + source_action * 4, int(current), "mot_table"
 
-        for i in range(0, len(buf) - 4):
-            if buf[i + 2] == 0x01 and buf[i + 3] == 0x3C:
-                return (buf[i], buf[i + 1])
-        return (None, None)
+    def _read_anim_id_hi_lo(self, mv):
+        _addr, current, _kind = self._resolve_anim_binding(mv)
+        if current is None:
+            return (None, None)
+        return ((int(current) >> 8) & 0xFF, int(current) & 0xFF)
 
     def _write_anim_id_manual(self, mv, hi: int, lo: int) -> bool:
-        if not U.WRITER_AVAILABLE:
-            return False
-        base = mv.get("abs")
-        if not base:
-            return False
-        try:
-            from dolphin_io import rbytes, wd8
-        except ImportError:
-            return False
-
-        LOOKAHEAD = 0x80
-        try:
-            buf = rbytes(base, LOOKAHEAD)
-        except Exception as e:
-            print(f"_write_anim_id_manual read failed @0x{base:08X}: {e}")
-            return False
-
-        target_off = None
-        for i in range(0, len(buf) - 4):
-            if buf[i + 2] == 0x01 and buf[i + 3] == 0x3C:
-                target_off = i
-                break
-        if target_off is None:
-            print("_write_anim_id_manual: pattern ?? ?? 01 3C not found")
-            return False
-
-        addr = base + target_off
-        try:
-            ok = bool(wd8(addr, hi) and wd8(addr + 1, lo))
-            return ok
-        except Exception as e:
-            print(f"_write_anim_id_manual write failed: {e}")
-            return False
+        return self._write_anim_id(mv, ((int(hi) & 0xFF) << 8) | (int(lo) & 0xFF))
 
     def _write_anim_id(self, mv, new_anim_id: int) -> bool:
         if not U.WRITER_AVAILABLE:
             return False
-        base = mv.get("abs")
-        if not base:
-            return False
         try:
-            from dolphin_io import rbytes, wd8
+            from dolphin_io import rbytes, wd32
+            from mot_runtime import write_animation_only
         except ImportError:
             return False
-
-        LOOKAHEAD = 0x80
-        try:
-            buf = rbytes(base, LOOKAHEAD)
-        except Exception as e:
-            print(f"_write_anim_id read failed @0x{base:08X}: {e}")
-            return False
-
-        target_off = None
-        for i in range(0, len(buf) - 4):
-            b0, b1, b2, b3 = buf[i], buf[i + 1], buf[i + 2], buf[i + 3]
-            if b0 == 0x01 and b3 == 0x3C and b2 == 0x01:
-                target_off = i
-                break
-        if target_off is None:
-            print(f"_write_anim_id: pattern 01 ?? 01 3C not found for move @0x{base:08X}")
-            return False
-
-        addr = base + target_off
-        new_hi = (new_anim_id >> 8) & 0xFF
-        new_lo = new_anim_id & 0xFF
-        try:
-            return bool(wd8(addr, new_hi) and wd8(addr + 1, new_lo))
-        except Exception as e:
-            print(f"_write_anim_id write failed: {e}")
-            return False
+        char_name, char_id = self._animation_context(mv)
+        ok, info = write_animation_only(
+            mv,
+            int(new_anim_id),
+            char_name=char_name,
+            char_id=char_id,
+            rbytes=rbytes,
+            wd32=wd32,
+        )
+        if ok:
+            print(
+                f"_write_anim_id: MOT slot @0x{int(info['table_slot']):08X} "
+                f"action 0x{int(info['source_action']):04X} -> clip 0x{int(info['target_action']):04X}"
+            )
+            return True
+        print(f"_write_anim_id: animation-only MOT write failed: {info.get('reason', 'unknown')}")
+        return False
 
     def _edit_anim_manual(self, item, mv):
         if not U.WRITER_AVAILABLE:
@@ -1721,7 +1675,7 @@ class FDCellEditorsMixin:
         cur_hi, cur_lo = self._read_anim_id_hi_lo(mv)
 
         # If ManualAnimIDDialog subclasses simpledialog.Dialog, it likely blocks
-        # (and may destroy itself) during __init__. So we must not blindly wait again.
+        # (and may destroy itself) during __init__. So the module must not blindly wait again.
         dlg = ManualAnimIDDialog(self.root, cur_hi=cur_hi, cur_lo=cur_lo)
 
         # Only wait if the widget still exists (covers both Dialog-style and Toplevel-style impls).
@@ -1742,15 +1696,8 @@ class FDCellEditorsMixin:
             return
 
         new_id = ((hi & 0xFF) << 8) | (lo & 0xFF)
-        mv["id"] = new_id
-
-        cname = self.target_slot.get("char_name", "-")
-        pretty = U.pretty_move_name(new_id, cname)
-        dup_idx = mv.get("dup_index")
-        if dup_idx is not None:
-            pretty = f"{pretty} (Tier{dup_idx + 1})"
-        pretty = f"{pretty} [0x{new_id:04X}]"
-        self.tree.set(item, "move", pretty)
+        mv["animation_id"] = new_id
+        mv["animation_label"] = U.pretty_move_name(new_id, self.target_slot.get("char_name", "-"))
         self._notify_fd_cell_changed(item, mv, "move")
     def _show_move_edit_menu(self, event, item, mv):
         if not U.WRITER_AVAILABLE:

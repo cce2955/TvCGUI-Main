@@ -48,12 +48,7 @@ def scan_special_anims():
 
 
 def get_special_anims(force_rescan: bool = False):
-    """
-    Cached accessor for the specials scan.
-
-    force_rescan=True will rescan MEM2; otherwise we reuse the
-    previous result to avoid heavy work every frame.
-    """
+    '\n    Cached accessor for the specials scan.\n\n    force_rescan=True will rescan MEM2; otherwise the module reuse the\n    previous result to avoid heavy work every frame.\n    '
     global _SPECIAL_CACHE
     if _SPECIAL_CACHE is None or force_rescan:
         _SPECIAL_CACHE = scan_special_anims()

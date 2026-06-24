@@ -65,7 +65,10 @@
     "yatterman2": "ya2",
     "yuk": "yuk",
     "zer": "zer",
-    "zero": "zer"
+    "zero": "zer",
+    "ken": "gac",
+    "kentheeagle": "gac",
+    "soki": "yuk"
   },
   "characters": {
     "alx": {
@@ -9901,7 +9904,10 @@
           "uncompressed_size": 1086320,
           "valid_motion_count": 112
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "krs": {
       "motions": {
@@ -10602,7 +10608,10 @@
           "uncompressed_size": 348208,
           "valid_motion_count": 84
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "lst": {
       "motions": {
@@ -11273,7 +11282,10 @@
           "uncompressed_size": 745744,
           "valid_motion_count": 80
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "mor": {
       "motions": {
@@ -12152,7 +12164,10 @@
           "uncompressed_size": 737216,
           "valid_motion_count": 106
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "pol": {
       "motions": {
@@ -12830,7 +12845,10 @@
           "uncompressed_size": 846720,
           "valid_motion_count": 81
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "ptx": {
       "motions": {
@@ -14149,7 +14167,10 @@
           "uncompressed_size": 685200,
           "valid_motion_count": 161
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "roc": {
       "motions": {
@@ -15068,7 +15089,10 @@
           "uncompressed_size": 655328,
           "valid_motion_count": 111
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "rol": {
       "motions": {
@@ -15699,7 +15723,10 @@
           "uncompressed_size": 776352,
           "valid_motion_count": 75
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "ryu": {
       "motions": {
@@ -16370,7 +16397,10 @@
           "uncompressed_size": 745744,
           "valid_motion_count": 80
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "sak": {
       "motions": {
@@ -17049,7 +17079,10 @@
           "uncompressed_size": 876112,
           "valid_motion_count": 81
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "tek": {
       "motions": {
@@ -18008,7 +18041,10 @@
           "uncompressed_size": 681152,
           "valid_motion_count": 116
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "tk1": {
       "motions": {
@@ -18327,7 +18363,10 @@
           "uncompressed_size": 135088,
           "valid_motion_count": 36
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "tk2": {
       "motions": {
@@ -18591,7 +18630,10 @@
           "uncompressed_size": 271344,
           "valid_motion_count": 30
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "tk3": {
       "motions": {
@@ -18869,7 +18911,10 @@
           "uncompressed_size": 231488,
           "valid_motion_count": 31
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "tkb": {
       "motions": {
@@ -19859,7 +19904,10 @@
           "uncompressed_size": 631760,
           "valid_motion_count": 120
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "ts2": {
       "motions": {
@@ -20730,7 +20778,10 @@
           "uncompressed_size": 752384,
           "valid_motion_count": 105
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "tst": {
       "motions": {
@@ -21401,7 +21452,10 @@
           "uncompressed_size": 745744,
           "valid_motion_count": 80
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "vjo": {
       "motions": {
@@ -22504,7 +22558,10 @@
           "uncompressed_size": 844080,
           "valid_motion_count": 134
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "ya2": {
       "motions": {
@@ -23239,7 +23296,10 @@
           "uncompressed_size": 579008,
           "valid_motion_count": 88
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "yat": {
       "motions": {
@@ -24054,7 +24114,10 @@
           "uncompressed_size": 791056,
           "valid_motion_count": 98
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "yuk": {
       "motions": {
@@ -24693,7 +24756,10 @@
           "uncompressed_size": 888112,
           "valid_motion_count": 76
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     },
     "zer": {
       "motions": {
@@ -25364,10 +25430,1410 @@
           "uncompressed_size": 321984,
           "valid_motion_count": 80
         }
-      }
+      },
+      "shared_motion_banks": [
+        "common_mot"
+      ]
     }
   },
   "fps": 60,
-  "schema_version": 2,
-  "skipped_files": []
+  "schema_version": "2.1",
+  "skipped_files": [],
+  "common_mot": {
+    "id": "cmn",
+    "display_name": "Common / System",
+    "scope": "global_shared",
+    "verification": {
+      "verified_fpk_count": 113,
+      "verified_characters": [
+        "jun",
+        "krs",
+        "lst",
+        "mor",
+        "pol",
+        "ptx",
+        "roc",
+        "rol",
+        "ryu",
+        "sak",
+        "tek",
+        "tk1",
+        "tk2",
+        "tk3",
+        "tkb",
+        "ts2",
+        "tst",
+        "vjo",
+        "ya2",
+        "yat",
+        "yuk",
+        "zer"
+      ],
+      "unverified_dataset_characters": [
+        "alx",
+        "bat",
+        "cas",
+        "chu",
+        "dro",
+        "fra",
+        "gac",
+        "gld",
+        "ipa",
+        "joe"
+      ],
+      "verification_method": "byte-identical compressed chr/cmn/0000.mot payload",
+      "compressed_sha256": "a953cd3bd7c6a2ae798d21e0addd5dbb868db9b544f217e8051874d081917fa2",
+      "compressed_size": 221142,
+      "uncompressed_sha256": "5100739d8e059ac02f9047373d9eaa75bcb2ec8f11af8f04bf7603d6215d1841",
+      "uncompressed_size": 480672
+    },
+    "motions": {
+      "0000.mot": {
+        "actions": {
+          "0x0000": {
+            "action_id": 0,
+            "clip_offset": "0x00075320",
+            "clip_table_value": "0x00075320",
+            "duration_field_offset": "0x0007532C",
+            "duration_raw_be": "0x0000AAAB",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0001": {
+            "action_id": 1,
+            "clip_offset": "0x000750A0",
+            "clip_table_value": "0x000750A0",
+            "duration_field_offset": "0x000750AC",
+            "duration_raw_be": "0x0000AAAB",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0002": {
+            "action_id": 2,
+            "clip_offset": "0x00074E20",
+            "clip_table_value": "0x00074E20",
+            "duration_field_offset": "0x00074E2C",
+            "duration_raw_be": "0x0000AAAB",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0003": {
+            "action_id": 3,
+            "clip_offset": "0x00074BA0",
+            "clip_table_value": "0x00074BA0",
+            "duration_field_offset": "0x00074BAC",
+            "duration_raw_be": "0x0000AAAB",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0004": {
+            "action_id": 4,
+            "clip_offset": "0x00074920",
+            "clip_table_value": "0x00074920",
+            "duration_field_offset": "0x0007492C",
+            "duration_raw_be": "0x0000AAAB",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0005": {
+            "action_id": 5,
+            "clip_offset": "0x000746A0",
+            "clip_table_value": "0x000746A0",
+            "duration_field_offset": "0x000746AC",
+            "duration_raw_be": "0x0000AAAB",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0006": {
+            "action_id": 6,
+            "clip_offset": "0x00074420",
+            "clip_table_value": "0x00074420",
+            "duration_field_offset": "0x0007442C",
+            "duration_raw_be": "0x0000AAAB",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0007": {
+            "action_id": 7,
+            "clip_offset": "0x000741A0",
+            "clip_table_value": "0x000741A0",
+            "duration_field_offset": "0x000741AC",
+            "duration_raw_be": "0x0000AAAB",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0008": {
+            "action_id": 8,
+            "clip_offset": "0x00073510",
+            "clip_table_value": "0x00073510",
+            "duration_field_offset": "0x0007351C",
+            "duration_raw_be": "0x3E19999A",
+            "duration_seconds": 0.15,
+            "total_frames": 9,
+            "duration_status": "known"
+          },
+          "0x0009": {
+            "action_id": 9,
+            "clip_offset": "0x00072EC0",
+            "clip_table_value": "0x00072EC0",
+            "duration_field_offset": "0x00072ECC",
+            "duration_raw_be": "0x0099999A",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x000A": {
+            "action_id": 10,
+            "clip_offset": "0x00072570",
+            "clip_table_value": "0x00072570",
+            "duration_field_offset": "0x0007257C",
+            "duration_raw_be": "0x006EEEEF",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x000B": {
+            "action_id": 11,
+            "clip_offset": "0x00071AE0",
+            "clip_table_value": "0x00071AE0",
+            "duration_field_offset": "0x00071AEC",
+            "duration_raw_be": "0x3E19999A",
+            "duration_seconds": 0.15,
+            "total_frames": 9,
+            "duration_status": "known"
+          },
+          "0x000C": {
+            "action_id": 12,
+            "clip_offset": "0x00071160",
+            "clip_table_value": "0x00071160",
+            "duration_field_offset": "0x0007116C",
+            "duration_raw_be": "0x00911111",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x000D": {
+            "action_id": 13,
+            "clip_offset": "0x00070830",
+            "clip_table_value": "0x00070830",
+            "duration_field_offset": "0x0007083C",
+            "duration_raw_be": "0x006EEEEF",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x000E": {
+            "action_id": 14,
+            "clip_offset": "0x0006FDF0",
+            "clip_table_value": "0x0006FDF0",
+            "duration_field_offset": "0x0006FDFC",
+            "duration_raw_be": "0x00088889",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x000F": {
+            "action_id": 15,
+            "clip_offset": "0x0006F420",
+            "clip_table_value": "0x0006F420",
+            "duration_field_offset": "0x0006F42C",
+            "duration_raw_be": "0x00088889",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0010": {
+            "action_id": 16,
+            "clip_offset": "0x0006ECE0",
+            "clip_table_value": "0x0006ECE0",
+            "duration_field_offset": "0x0006ECEC",
+            "duration_raw_be": "0x3DAAAAAB",
+            "duration_seconds": 0.083,
+            "total_frames": 5,
+            "duration_status": "known"
+          },
+          "0x0011": {
+            "action_id": 17,
+            "clip_offset": "0x0006E5A0",
+            "clip_table_value": "0x0006E5A0",
+            "duration_field_offset": "0x0006E5AC",
+            "duration_raw_be": "0x00911111",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0012": {
+            "action_id": 18,
+            "clip_offset": "0x0006DA90",
+            "clip_table_value": "0x0006DA90",
+            "duration_field_offset": "0x0006DA9C",
+            "duration_raw_be": "0x3ECCCCCD",
+            "duration_seconds": 0.4,
+            "total_frames": 24,
+            "duration_status": "known"
+          },
+          "0x0013": {
+            "action_id": 19,
+            "clip_offset": "0x0006D3A0",
+            "clip_table_value": "0x0006D3A0",
+            "duration_field_offset": "0x0006D3AC",
+            "duration_raw_be": "0x3D888889",
+            "duration_seconds": 0.067,
+            "total_frames": 4,
+            "duration_status": "known"
+          },
+          "0x0014": {
+            "action_id": 20,
+            "clip_offset": "0x0006CC60",
+            "clip_table_value": "0x0006CC60",
+            "duration_field_offset": "0x0006CC6C",
+            "duration_raw_be": "0x3DAAAAAB",
+            "duration_seconds": 0.083,
+            "total_frames": 5,
+            "duration_status": "known"
+          },
+          "0x0015": {
+            "action_id": 21,
+            "clip_offset": "0x0006BD80",
+            "clip_table_value": "0x0006BD80",
+            "duration_field_offset": "0x0006BD8C",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x0016": {
+            "action_id": 22,
+            "clip_offset": "0x0006B3B0",
+            "clip_table_value": "0x0006B3B0",
+            "duration_field_offset": "0x0006B3BC",
+            "duration_raw_be": "0x3F2AAAAB",
+            "duration_seconds": 0.667,
+            "total_frames": 40,
+            "duration_status": "known"
+          },
+          "0x0017": {
+            "action_id": 23,
+            "clip_offset": "0x0006AC90",
+            "clip_table_value": "0x0006AC90",
+            "duration_field_offset": "0x0006AC9C",
+            "duration_raw_be": "0x3DAAAAAB",
+            "duration_seconds": 0.083,
+            "total_frames": 5,
+            "duration_status": "known"
+          },
+          "0x0018": {
+            "action_id": 24,
+            "clip_offset": "0x0006AA10",
+            "clip_table_value": "0x0006AA10",
+            "duration_field_offset": "0x0006AA1C",
+            "duration_raw_be": "0x3F6AAAAB",
+            "duration_seconds": 0.917,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x0019": {
+            "action_id": 25,
+            "clip_offset": "0x0006A790",
+            "clip_table_value": "0x0006A790",
+            "duration_field_offset": "0x0006A79C",
+            "duration_raw_be": "0x3F6AAAAB",
+            "duration_seconds": 0.917,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x001A": {
+            "action_id": 26,
+            "clip_offset": "0x0006A510",
+            "clip_table_value": "0x0006A510",
+            "duration_field_offset": "0x0006A51C",
+            "duration_raw_be": "0x3F6AAAAB",
+            "duration_seconds": 0.917,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x001B": {
+            "action_id": 27,
+            "clip_offset": "0x0006A290",
+            "clip_table_value": "0x0006A290",
+            "duration_field_offset": "0x0006A29C",
+            "duration_raw_be": "0x3F6AAAAB",
+            "duration_seconds": 0.917,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x001C": {
+            "action_id": 28,
+            "clip_offset": "0x00069980",
+            "clip_table_value": "0x00069980",
+            "duration_field_offset": "0x0006998C",
+            "duration_raw_be": "0x3E2AAAAB",
+            "duration_seconds": 0.167,
+            "total_frames": 10,
+            "duration_status": "known"
+          },
+          "0x001D": {
+            "action_id": 29,
+            "clip_offset": "0x00069280",
+            "clip_table_value": "0x00069280",
+            "duration_field_offset": "0x0006928C",
+            "duration_raw_be": "0x3E2AAAAB",
+            "duration_seconds": 0.167,
+            "total_frames": 10,
+            "duration_status": "known"
+          },
+          "0x001E": {
+            "action_id": 30,
+            "clip_offset": "0x00068B40",
+            "clip_table_value": "0x00068B40",
+            "duration_field_offset": "0x00068B4C",
+            "duration_raw_be": "0x3E2AAAAB",
+            "duration_seconds": 0.167,
+            "total_frames": 10,
+            "duration_status": "known"
+          },
+          "0x001F": {
+            "action_id": 31,
+            "clip_offset": "0x00068230",
+            "clip_table_value": "0x00068230",
+            "duration_field_offset": "0x0006823C",
+            "duration_raw_be": "0x3EBBBBBC",
+            "duration_seconds": 0.367,
+            "total_frames": 22,
+            "duration_status": "known"
+          },
+          "0x0020": {
+            "action_id": 32,
+            "clip_offset": "0x00067870",
+            "clip_table_value": "0x00067870",
+            "duration_field_offset": "0x0006787C",
+            "duration_raw_be": "0x3F111111",
+            "duration_seconds": 0.567,
+            "total_frames": 34,
+            "duration_status": "known"
+          },
+          "0x0021": {
+            "action_id": 33,
+            "clip_offset": "0x00066F40",
+            "clip_table_value": "0x00066F40",
+            "duration_field_offset": "0x00066F4C",
+            "duration_raw_be": "0x3F111111",
+            "duration_seconds": 0.567,
+            "total_frames": 34,
+            "duration_status": "known"
+          },
+          "0x0022": {
+            "action_id": 34,
+            "clip_offset": "0x00066420",
+            "clip_table_value": "0x00066420",
+            "duration_field_offset": "0x0006642C",
+            "duration_raw_be": "0x3F111111",
+            "duration_seconds": 0.567,
+            "total_frames": 34,
+            "duration_status": "known"
+          },
+          "0x0023": {
+            "action_id": 35,
+            "clip_offset": "0x00065A60",
+            "clip_table_value": "0x00065A60",
+            "duration_field_offset": "0x00065A6C",
+            "duration_raw_be": "0x00088889",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0025": {
+            "action_id": 37,
+            "clip_offset": "0x00064350",
+            "clip_table_value": "0x00064350",
+            "duration_field_offset": "0x0006435C",
+            "duration_raw_be": "0x00888889",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0027": {
+            "action_id": 39,
+            "clip_offset": "0x00063C10",
+            "clip_table_value": "0x00063C10",
+            "duration_field_offset": "0x00063C1C",
+            "duration_raw_be": "0x00911111",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0028": {
+            "action_id": 40,
+            "clip_offset": "0x00063100",
+            "clip_table_value": "0x00063100",
+            "duration_field_offset": "0x0006310C",
+            "duration_raw_be": "0x3ECCCCCD",
+            "duration_seconds": 0.4,
+            "total_frames": 24,
+            "duration_status": "known"
+          },
+          "0x002A": {
+            "action_id": 42,
+            "clip_offset": "0x00062900",
+            "clip_table_value": "0x00062900",
+            "duration_field_offset": "0x0006290C",
+            "duration_raw_be": "0x2089277B",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x002B": {
+            "action_id": 43,
+            "clip_offset": "0x00061EB0",
+            "clip_table_value": "0x00061EB0",
+            "duration_field_offset": "0x00061EBC",
+            "duration_raw_be": "0x3ECCCCCD",
+            "duration_seconds": 0.4,
+            "total_frames": 24,
+            "duration_status": "known"
+          },
+          "0x002C": {
+            "action_id": 44,
+            "clip_offset": "0x000617B0",
+            "clip_table_value": "0x000617B0",
+            "duration_field_offset": "0x000617BC",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x002D": {
+            "action_id": 45,
+            "clip_offset": "0x000610D0",
+            "clip_table_value": "0x000610D0",
+            "duration_field_offset": "0x000610DC",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x002E": {
+            "action_id": 46,
+            "clip_offset": "0x00060950",
+            "clip_table_value": "0x00060950",
+            "duration_field_offset": "0x0006095C",
+            "duration_raw_be": "0x3E000000",
+            "duration_seconds": 0.125,
+            "total_frames": 8,
+            "duration_status": "known"
+          },
+          "0x002F": {
+            "action_id": 47,
+            "clip_offset": "0x0005F370",
+            "clip_table_value": "0x0005F370",
+            "duration_field_offset": "0x0005F37C",
+            "duration_raw_be": "0x3F555555",
+            "duration_seconds": 0.833,
+            "total_frames": 50,
+            "duration_status": "known"
+          },
+          "0x0032": {
+            "action_id": 50,
+            "clip_offset": "0x0005C2D0",
+            "clip_table_value": "0x0005C2D0",
+            "duration_field_offset": "0x0005C2DC",
+            "duration_raw_be": "0x3F111111",
+            "duration_seconds": 0.567,
+            "total_frames": 34,
+            "duration_status": "known"
+          },
+          "0x0033": {
+            "action_id": 51,
+            "clip_offset": "0x0005B470",
+            "clip_table_value": "0x0005B470",
+            "duration_field_offset": "0x0005B47C",
+            "duration_raw_be": "0x00888889",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0035": {
+            "action_id": 53,
+            "clip_offset": "0x00059090",
+            "clip_table_value": "0x00059090",
+            "duration_field_offset": "0x0005909C",
+            "duration_raw_be": "0x3F111111",
+            "duration_seconds": 0.567,
+            "total_frames": 34,
+            "duration_status": "known"
+          },
+          "0x0036": {
+            "action_id": 54,
+            "clip_offset": "0x00058000",
+            "clip_table_value": "0x00058000",
+            "duration_field_offset": "0x0005800C",
+            "duration_raw_be": "0x3ED8412C",
+            "duration_seconds": 0.422,
+            "total_frames": 25,
+            "duration_status": "known"
+          },
+          "0x0038": {
+            "action_id": 56,
+            "clip_offset": "0x000559B0",
+            "clip_table_value": "0x000559B0",
+            "duration_field_offset": "0x000559BC",
+            "duration_raw_be": "0x3F111111",
+            "duration_seconds": 0.567,
+            "total_frames": 34,
+            "duration_status": "known"
+          },
+          "0x003A": {
+            "action_id": 58,
+            "clip_offset": "0x00053C10",
+            "clip_table_value": "0x00053C10",
+            "duration_field_offset": "0x00053C1C",
+            "duration_raw_be": "0x3E000000",
+            "duration_seconds": 0.125,
+            "total_frames": 8,
+            "duration_status": "known"
+          },
+          "0x003B": {
+            "action_id": 59,
+            "clip_offset": "0x00052240",
+            "clip_table_value": "0x00052240",
+            "duration_field_offset": "0x0005224C",
+            "duration_raw_be": "0x3EDDDDDE",
+            "duration_seconds": 0.433,
+            "total_frames": 26,
+            "duration_status": "known"
+          },
+          "0x003D": {
+            "action_id": 61,
+            "clip_offset": "0x00050580",
+            "clip_table_value": "0x00050580",
+            "duration_field_offset": "0x0005058C",
+            "duration_raw_be": "0x3E000000",
+            "duration_seconds": 0.125,
+            "total_frames": 8,
+            "duration_status": "known"
+          },
+          "0x003E": {
+            "action_id": 62,
+            "clip_offset": "0x0004EF80",
+            "clip_table_value": "0x0004EF80",
+            "duration_field_offset": "0x0004EF8C",
+            "duration_raw_be": "0x3EDDDDDE",
+            "duration_seconds": 0.433,
+            "total_frames": 26,
+            "duration_status": "known"
+          },
+          "0x0041": {
+            "action_id": 65,
+            "clip_offset": "0x0004CAB0",
+            "clip_table_value": "0x0004CAB0",
+            "duration_field_offset": "0x0004CABC",
+            "duration_raw_be": "0x3F6AAAAB",
+            "duration_seconds": 0.917,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x0042": {
+            "action_id": 66,
+            "clip_offset": "0x0004C830",
+            "clip_table_value": "0x0004C830",
+            "duration_field_offset": "0x0004C83C",
+            "duration_raw_be": "0x3F6AAAAB",
+            "duration_seconds": 0.917,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x0043": {
+            "action_id": 67,
+            "clip_offset": "0x0004C5B0",
+            "clip_table_value": "0x0004C5B0",
+            "duration_field_offset": "0x0004C5BC",
+            "duration_raw_be": "0x3F6AAAAB",
+            "duration_seconds": 0.917,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x0044": {
+            "action_id": 68,
+            "clip_offset": "0x0004C330",
+            "clip_table_value": "0x0004C330",
+            "duration_field_offset": "0x0004C33C",
+            "duration_raw_be": "0x3F6AAAAB",
+            "duration_seconds": 0.917,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x0045": {
+            "action_id": 69,
+            "clip_offset": "0x0004B910",
+            "clip_table_value": "0x0004B910",
+            "duration_field_offset": "0x0004B91C",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x0046": {
+            "action_id": 70,
+            "clip_offset": "0x0004AA00",
+            "clip_table_value": "0x0004AA00",
+            "duration_field_offset": "0x0004AA0C",
+            "duration_raw_be": "0x3E3C419E",
+            "duration_seconds": 0.184,
+            "total_frames": 11,
+            "duration_status": "known"
+          },
+          "0x0047": {
+            "action_id": 71,
+            "clip_offset": "0x0004A100",
+            "clip_table_value": "0x0004A100",
+            "duration_field_offset": "0x0004A10C",
+            "duration_raw_be": "0x3E51B7A7",
+            "duration_seconds": 0.205,
+            "total_frames": 12,
+            "duration_status": "known"
+          },
+          "0x0049": {
+            "action_id": 73,
+            "clip_offset": "0x00048600",
+            "clip_table_value": "0x00048600",
+            "duration_field_offset": "0x0004860C",
+            "duration_raw_be": "0x0000A60F",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x004A": {
+            "action_id": 74,
+            "clip_offset": "0x00047A60",
+            "clip_table_value": "0x00047A60",
+            "duration_field_offset": "0x00047A6C",
+            "duration_raw_be": "0x3F4CCCCD",
+            "duration_seconds": 0.8,
+            "total_frames": 48,
+            "duration_status": "known"
+          },
+          "0x004B": {
+            "action_id": 75,
+            "clip_offset": "0x00047050",
+            "clip_table_value": "0x00047050",
+            "duration_field_offset": "0x0004705C",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x004D": {
+            "action_id": 77,
+            "clip_offset": "0x000441D0",
+            "clip_table_value": "0x000441D0",
+            "duration_field_offset": "0x000441DC",
+            "duration_raw_be": "0x3F0CCCCD",
+            "duration_seconds": 0.55,
+            "total_frames": 33,
+            "duration_status": "known"
+          },
+          "0x004E": {
+            "action_id": 78,
+            "clip_offset": "0x00042440",
+            "clip_table_value": "0x00042440",
+            "duration_field_offset": "0x0004244C",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x004F": {
+            "action_id": 79,
+            "clip_offset": "0x000408B0",
+            "clip_table_value": "0x000408B0",
+            "duration_field_offset": "0x000408BC",
+            "duration_raw_be": "0x3E000000",
+            "duration_seconds": 0.125,
+            "total_frames": 8,
+            "duration_status": "known"
+          },
+          "0x0050": {
+            "action_id": 80,
+            "clip_offset": "0x0003FAB0",
+            "clip_table_value": "0x0003FAB0",
+            "duration_field_offset": "0x0003FABC",
+            "duration_raw_be": "0x3F0CCCCD",
+            "duration_seconds": 0.55,
+            "total_frames": 33,
+            "duration_status": "known"
+          },
+          "0x0051": {
+            "action_id": 81,
+            "clip_offset": "0x0003ED10",
+            "clip_table_value": "0x0003ED10",
+            "duration_field_offset": "0x0003ED1C",
+            "duration_raw_be": "0x3E000000",
+            "duration_seconds": 0.125,
+            "total_frames": 8,
+            "duration_status": "known"
+          },
+          "0x0052": {
+            "action_id": 82,
+            "clip_offset": "0x0003DE30",
+            "clip_table_value": "0x0003DE30",
+            "duration_field_offset": "0x0003DE3C",
+            "duration_raw_be": "0x3EAAAAAB",
+            "duration_seconds": 0.333,
+            "total_frames": 20,
+            "duration_status": "known"
+          },
+          "0x0053": {
+            "action_id": 83,
+            "clip_offset": "0x0003C200",
+            "clip_table_value": "0x0003C200",
+            "duration_field_offset": "0x0003C20C",
+            "duration_raw_be": "0x3F000011",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x0054": {
+            "action_id": 84,
+            "clip_offset": "0x0003B330",
+            "clip_table_value": "0x0003B330",
+            "duration_field_offset": "0x0003B33C",
+            "duration_raw_be": "0x00888889",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0056": {
+            "action_id": 86,
+            "clip_offset": "0x00038C80",
+            "clip_table_value": "0x00038C80",
+            "duration_field_offset": "0x00038C8C",
+            "duration_raw_be": "0x3F000011",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x0057": {
+            "action_id": 87,
+            "clip_offset": "0x00037C00",
+            "clip_table_value": "0x00037C00",
+            "duration_field_offset": "0x00037C0C",
+            "duration_raw_be": "0x3DAAAAAB",
+            "duration_seconds": 0.083,
+            "total_frames": 5,
+            "duration_status": "known"
+          },
+          "0x0059": {
+            "action_id": 89,
+            "clip_offset": "0x00035900",
+            "clip_table_value": "0x00035900",
+            "duration_field_offset": "0x0003590C",
+            "duration_raw_be": "0x3E2AAAAB",
+            "duration_seconds": 0.167,
+            "total_frames": 10,
+            "duration_status": "known"
+          },
+          "0x005B": {
+            "action_id": 91,
+            "clip_offset": "0x00033A00",
+            "clip_table_value": "0x00033A00",
+            "duration_field_offset": "0x00033A0C",
+            "duration_raw_be": "0x3E000000",
+            "duration_seconds": 0.125,
+            "total_frames": 8,
+            "duration_status": "known"
+          },
+          "0x005E": {
+            "action_id": 94,
+            "clip_offset": "0x00030880",
+            "clip_table_value": "0x00030880",
+            "duration_field_offset": "0x0003088C",
+            "duration_raw_be": "0x3EB33333",
+            "duration_seconds": 0.35,
+            "total_frames": 21,
+            "duration_status": "known"
+          },
+          "0x005F": {
+            "action_id": 95,
+            "clip_offset": "0x0002FA60",
+            "clip_table_value": "0x0002FA60",
+            "duration_field_offset": "0x0002FA6C",
+            "duration_raw_be": "0x3EDDDDDE",
+            "duration_seconds": 0.433,
+            "total_frames": 26,
+            "duration_status": "known"
+          },
+          "0x0060": {
+            "action_id": 96,
+            "clip_offset": "0x0002EE30",
+            "clip_table_value": "0x0002EE30",
+            "duration_field_offset": "0x0002EE3C",
+            "duration_raw_be": "0x3F5DDDDE",
+            "duration_seconds": 0.867,
+            "total_frames": 52,
+            "duration_status": "known"
+          },
+          "0x0061": {
+            "action_id": 97,
+            "clip_offset": "0x0002E040",
+            "clip_table_value": "0x0002E040",
+            "duration_field_offset": "0x0002E04C",
+            "duration_raw_be": "0x3F555555",
+            "duration_seconds": 0.833,
+            "total_frames": 50,
+            "duration_status": "known"
+          },
+          "0x0062": {
+            "action_id": 98,
+            "clip_offset": "0x0002D900",
+            "clip_table_value": "0x0002D900",
+            "duration_field_offset": "0x0002D90C",
+            "duration_raw_be": "0x3CFC41DC",
+            "duration_seconds": 0.031,
+            "total_frames": 2,
+            "duration_status": "known"
+          },
+          "0x0065": {
+            "action_id": 101,
+            "clip_offset": "0x0002BD80",
+            "clip_table_value": "0x0002BD80",
+            "duration_field_offset": "0x0002BD8C",
+            "duration_raw_be": "0x40522222",
+            "duration_seconds": 3.283,
+            "total_frames": 197,
+            "duration_status": "known"
+          },
+          "0x0067": {
+            "action_id": 103,
+            "clip_offset": "0x0002AE40",
+            "clip_table_value": "0x0002AE40",
+            "duration_field_offset": "0x0002AE4C",
+            "duration_raw_be": "0x3F6A0000",
+            "duration_seconds": 0.914,
+            "total_frames": 55,
+            "duration_status": "known"
+          },
+          "0x0068": {
+            "action_id": 104,
+            "clip_offset": "0x00028D00",
+            "clip_table_value": "0x00028D00",
+            "duration_field_offset": "0x00028D0C",
+            "duration_raw_be": "0x3E193600",
+            "duration_seconds": 0.15,
+            "total_frames": 9,
+            "duration_status": "known"
+          },
+          "0x0069": {
+            "action_id": 105,
+            "clip_offset": "0x00028740",
+            "clip_table_value": "0x00028740",
+            "duration_field_offset": "0x0002874C",
+            "duration_raw_be": "0x0000999A",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x006D": {
+            "action_id": 109,
+            "clip_offset": "0x00026E40",
+            "clip_table_value": "0x00026E40",
+            "duration_field_offset": "0x00026E4C",
+            "duration_raw_be": "0x3EDDDDDE",
+            "duration_seconds": 0.433,
+            "total_frames": 26,
+            "duration_status": "known"
+          },
+          "0x006F": {
+            "action_id": 111,
+            "clip_offset": "0x00026B00",
+            "clip_table_value": "0x00026B00",
+            "duration_field_offset": "0x00026B0C",
+            "duration_raw_be": "0x00D55555",
+            "duration_seconds": 0.0,
+            "total_frames": 0,
+            "duration_status": "unresolved"
+          },
+          "0x0071": {
+            "action_id": 113,
+            "clip_offset": "0x00024F00",
+            "clip_table_value": "0x00024F00",
+            "duration_field_offset": "0x00024F0C",
+            "duration_raw_be": "0x40055555",
+            "duration_seconds": 2.083,
+            "total_frames": 125,
+            "duration_status": "known"
+          },
+          "0x0075": {
+            "action_id": 117,
+            "clip_offset": "0x00022500",
+            "clip_table_value": "0x00022500",
+            "duration_field_offset": "0x0002250C",
+            "duration_raw_be": "0x3CFC41DC",
+            "duration_seconds": 0.031,
+            "total_frames": 2,
+            "duration_status": "known"
+          },
+          "0x0076": {
+            "action_id": 118,
+            "clip_offset": "0x00022200",
+            "clip_table_value": "0x00022200",
+            "duration_field_offset": "0x0002220C",
+            "duration_raw_be": "0x3DAC41D4",
+            "duration_seconds": 0.084,
+            "total_frames": 5,
+            "duration_status": "known"
+          },
+          "0x0079": {
+            "action_id": 121,
+            "clip_offset": "0x00021560",
+            "clip_table_value": "0x00021560",
+            "duration_field_offset": "0x0002156C",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x007A": {
+            "action_id": 122,
+            "clip_offset": "0x00020A40",
+            "clip_table_value": "0x00020A40",
+            "duration_field_offset": "0x00020A4C",
+            "duration_raw_be": "0x3ED55555",
+            "duration_seconds": 0.417,
+            "total_frames": 25,
+            "duration_status": "known"
+          },
+          "0x007B": {
+            "action_id": 123,
+            "clip_offset": "0x0001FC80",
+            "clip_table_value": "0x0001FC80",
+            "duration_field_offset": "0x0001FC8C",
+            "duration_raw_be": "0x3ED55555",
+            "duration_seconds": 0.417,
+            "total_frames": 25,
+            "duration_status": "known"
+          },
+          "0x007C": {
+            "action_id": 124,
+            "clip_offset": "0x0001EA00",
+            "clip_table_value": "0x0001EA00",
+            "duration_field_offset": "0x0001EA0C",
+            "duration_raw_be": "0x3E24C1B2",
+            "duration_seconds": 0.161,
+            "total_frames": 10,
+            "duration_status": "known"
+          },
+          "0x007D": {
+            "action_id": 125,
+            "clip_offset": "0x0001C930",
+            "clip_table_value": "0x0001C930",
+            "duration_field_offset": "0x0001C93C",
+            "duration_raw_be": "0x3F733333",
+            "duration_seconds": 0.95,
+            "total_frames": 57,
+            "duration_status": "known"
+          },
+          "0x007E": {
+            "action_id": 126,
+            "clip_offset": "0x0001BC80",
+            "clip_table_value": "0x0001BC80",
+            "duration_field_offset": "0x0001BC8C",
+            "duration_raw_be": "0x3FAEEEEF",
+            "duration_seconds": 1.367,
+            "total_frames": 82,
+            "duration_status": "known"
+          },
+          "0x007F": {
+            "action_id": 127,
+            "clip_offset": "0x00019F00",
+            "clip_table_value": "0x00019F00",
+            "duration_field_offset": "0x00019F0C",
+            "duration_raw_be": "0x3E911111",
+            "duration_seconds": 0.283,
+            "total_frames": 17,
+            "duration_status": "known"
+          },
+          "0x0080": {
+            "action_id": 128,
+            "clip_offset": "0x00019200",
+            "clip_table_value": "0x00019200",
+            "duration_field_offset": "0x0001920C",
+            "duration_raw_be": "0x3E14C17B",
+            "duration_seconds": 0.145,
+            "total_frames": 9,
+            "duration_status": "known"
+          },
+          "0x0082": {
+            "action_id": 130,
+            "clip_offset": "0x00015D30",
+            "clip_table_value": "0x00015D30",
+            "duration_field_offset": "0x00015D3C",
+            "duration_raw_be": "0x3F111111",
+            "duration_seconds": 0.567,
+            "total_frames": 34,
+            "duration_status": "known"
+          },
+          "0x0083": {
+            "action_id": 131,
+            "clip_offset": "0x00014E00",
+            "clip_table_value": "0x00014E00",
+            "duration_field_offset": "0x00014E0C",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x0084": {
+            "action_id": 132,
+            "clip_offset": "0x00013560",
+            "clip_table_value": "0x00013560",
+            "duration_field_offset": "0x0001356C",
+            "duration_raw_be": "0x3F111111",
+            "duration_seconds": 0.567,
+            "total_frames": 34,
+            "duration_status": "known"
+          },
+          "0x0085": {
+            "action_id": 133,
+            "clip_offset": "0x00011B00",
+            "clip_table_value": "0x00011B00",
+            "duration_field_offset": "0x00011B0C",
+            "duration_raw_be": "0x3DAC40FB",
+            "duration_seconds": 0.084,
+            "total_frames": 5,
+            "duration_status": "known"
+          },
+          "0x0093": {
+            "action_id": 147,
+            "clip_offset": "0x0000E610",
+            "clip_table_value": "0x0000E610",
+            "duration_field_offset": "0x0000E61C",
+            "duration_raw_be": "0x3F2AAAAB",
+            "duration_seconds": 0.667,
+            "total_frames": 40,
+            "duration_status": "known"
+          },
+          "0x0094": {
+            "action_id": 148,
+            "clip_offset": "0x0000DB00",
+            "clip_table_value": "0x0000DB00",
+            "duration_field_offset": "0x0000DB0C",
+            "duration_raw_be": "0x3DDB3710",
+            "duration_seconds": 0.107,
+            "total_frames": 6,
+            "duration_status": "known"
+          },
+          "0x0098": {
+            "action_id": 152,
+            "clip_offset": "0x0000D300",
+            "clip_table_value": "0x0000D300",
+            "duration_field_offset": "0x0000D30C",
+            "duration_raw_be": "0x3F000055",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x0099": {
+            "action_id": 153,
+            "clip_offset": "0x0000CD80",
+            "clip_table_value": "0x0000CD80",
+            "duration_field_offset": "0x0000CD8C",
+            "duration_raw_be": "0x3F000055",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x00A1": {
+            "action_id": 161,
+            "clip_offset": "0x0000B700",
+            "clip_table_value": "0x0000B700",
+            "duration_field_offset": "0x0000B70C",
+            "duration_raw_be": "0x3E000000",
+            "duration_seconds": 0.125,
+            "total_frames": 8,
+            "duration_status": "known"
+          },
+          "0x00A3": {
+            "action_id": 163,
+            "clip_offset": "0x0000AA00",
+            "clip_table_value": "0x0000AA00",
+            "duration_field_offset": "0x0000AA0C",
+            "duration_raw_be": "0x3E3BBBBC",
+            "duration_seconds": 0.183,
+            "total_frames": 11,
+            "duration_status": "known"
+          },
+          "0x00A6": {
+            "action_id": 166,
+            "clip_offset": "0x00009600",
+            "clip_table_value": "0x00009600",
+            "duration_field_offset": "0x0000960C",
+            "duration_raw_be": "0x3E00C031",
+            "duration_seconds": 0.126,
+            "total_frames": 8,
+            "duration_status": "known"
+          },
+          "0x00A7": {
+            "action_id": 167,
+            "clip_offset": "0x00008CF0",
+            "clip_table_value": "0x00008CF0",
+            "duration_field_offset": "0x00008CFC",
+            "duration_raw_be": "0x3DAAAAAB",
+            "duration_seconds": 0.083,
+            "total_frames": 5,
+            "duration_status": "known"
+          },
+          "0x00A9": {
+            "action_id": 169,
+            "clip_offset": "0x00007340",
+            "clip_table_value": "0x00007340",
+            "duration_field_offset": "0x0000734C",
+            "duration_raw_be": "0x3F000055",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x0200": {
+            "action_id": 512,
+            "clip_offset": "0x00004D00",
+            "clip_table_value": "0x00004D00",
+            "duration_field_offset": "0x00004D0C",
+            "duration_raw_be": "0x3F000000",
+            "duration_seconds": 0.5,
+            "total_frames": 30,
+            "duration_status": "known"
+          },
+          "0x0201": {
+            "action_id": 513,
+            "clip_offset": "0x00003750",
+            "clip_table_value": "0x00003750",
+            "duration_field_offset": "0x0000375C",
+            "duration_raw_be": "0x3F8EEEEF",
+            "duration_seconds": 1.117,
+            "total_frames": 67,
+            "duration_status": "known"
+          }
+        },
+        "fps": 60,
+        "motion_table_count": 516,
+        "motion_table_offset": "0x00000010",
+        "motion_table_value": "0x00000010",
+        "pointer_layout": "relative_extracted_mot",
+        "source_entry": "chr/cmn/0000.mot",
+        "source_fpk": "shared/character-fpks",
+        "source_name": "chr/cmn/0000.mot",
+        "recognized_motion_count": 113,
+        "known_duration_count": 89,
+        "unresolved_duration_count": 24,
+        "raw_nonzero_table_count": 146,
+        "unresolved_table_entries": [
+          {
+            "action_id": 36,
+            "clip_table_value": "0x000650D0",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 48,
+            "clip_table_value": "0x0005E880",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 49,
+            "clip_table_value": "0x0005DB60",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 52,
+            "clip_table_value": "0x0005A630",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 55,
+            "clip_table_value": "0x00057240",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 57,
+            "clip_table_value": "0x00054C00",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 60,
+            "clip_table_value": "0x00051300",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 63,
+            "clip_table_value": "0x0004DE00",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 64,
+            "clip_table_value": "0x0004CD30",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 72,
+            "clip_table_value": "0x00049200",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 76,
+            "clip_table_value": "0x000454D0",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 85,
+            "clip_table_value": "0x0003A4D0",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 88,
+            "clip_table_value": "0x00036E30",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 90,
+            "clip_table_value": "0x00034C00",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 92,
+            "clip_table_value": "0x00032100",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 93,
+            "clip_table_value": "0x00031600",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 99,
+            "clip_table_value": "0x0002D600",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 102,
+            "clip_table_value": "0x0002B000",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 108,
+            "clip_table_value": "0x00027A00",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 112,
+            "clip_table_value": "0x00025D00",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 114,
+            "clip_table_value": "0x00024600",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 115,
+            "clip_table_value": "0x00023600",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 116,
+            "clip_table_value": "0x00022700",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 129,
+            "clip_table_value": "0x00017700",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 134,
+            "clip_table_value": "0x00011100",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 135,
+            "clip_table_value": "0x0000FB00",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 136,
+            "clip_table_value": "0x0000F200",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 160,
+            "clip_table_value": "0x0000C200",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 162,
+            "clip_table_value": "0x0000AC00",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 164,
+            "clip_table_value": "0x0000A700",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 165,
+            "clip_table_value": "0x0000A500",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 168,
+            "clip_table_value": "0x00008200",
+            "status": "unresolved",
+            "reason": "not_emitted_by_existing_mot_parser"
+          },
+          {
+            "action_id": 514,
+            "clip_table_value": "0x00000800",
+            "status": "unresolved",
+            "reason": "pointer_targets_motion_table_region"
+          }
+        ]
+      }
+    }
+  }
 }

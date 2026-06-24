@@ -149,5 +149,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,  # swap for a .ico if you have one
+    icon=None,  # swap for a .ico if the operator have one
 )

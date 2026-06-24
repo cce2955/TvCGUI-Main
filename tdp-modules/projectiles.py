@@ -6,7 +6,7 @@
 #   - Live projectile instances often do NOT keep a direct pointer back to the per-character
 #     template block (e.g. Ryu hadou template at 0x908D08F0).
 #   - Instance headers may contain pointers to other actor-definition structs or pool memory.
-#   - We therefore:
+#   - Therefore:
 #       1) validate instances harder (avoid "HEAD", random pointers, etc.)
 #       2) for each pointer candidate, attempt to locate a nearby template block by scanning
 #          for: segment header 00 00 00 04, delimiter markers, slice repetition, physics cluster
@@ -218,14 +218,7 @@ def ptr_candidates_from_instance(inst_ea: int, header_size: int = 0x200) -> List
     return out
 
 def is_valid_instance(inst_ea: int, owner_ea: int) -> bool:
-    """
-    scan was picking up garbage. This filters it.
-    We don't know the full instance struct, so use conservative checks:
-      - inst aligned
-      - inst in MEM2
-      - owner pointer appears somewhere early in header
-      - life field looks like a small integer in common cases OR at least not ASCII/magic
-    """
+    '\n    scan was picking up garbage. This filters it.\n    Do not know the full instance struct, so use conservative checks:\n      - inst aligned\n      - inst in MEM2\n      - owner pointer appears somewhere early in header\n      - life field looks like a small integer in common cases OR at least not ASCII/magic\n    '
     if (inst_ea & 0x3) != 0:
         return False
     if not is_mem2_ptr(inst_ea):
@@ -267,7 +260,7 @@ def find_instances_owned_by(owner_ea: int, max_results: int = 32) -> List[int]:
             if j < 0:
                 break
             # Guess an instance base somewhere before this field.
-            # We'll try a few common back offsets and keep those that validate.
+            # The module will try a few common back offsets and keep those that validate.
             field_ea = ea + j
             for back in (0x10, 0x20, 0x40, 0x80, 0x100):
                 inst_ea = field_ea - back

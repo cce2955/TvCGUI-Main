@@ -85,16 +85,7 @@ def quad_pattern_hits(
     require_plausible_in_quad: int = 0,  # 0 = purely structural, >0 = also require plausible floats in quad
     plausible_abs_max: float = 16.0,
 ) -> int:
-    """
-    Structural pattern score for "quad-ish layouts with padding zeros".
-
-    We add points when:
-      - a quad (4 words) contains 1+ zeros (common padding/ununsed slots)
-      - a quad contains 2+ zeros (stronger padding signal)
-    Optional:
-      - require_plausible_in_quad: if >0, count the quad only if at least that many floats in the quad are plausible.
-        (kept off by default, because you want to find the same regions the CLI found, including static-ish blocks)
-    """
+    '\n    Structural pattern score for "quad-ish layouts with padding zeros".\n\n    Add points when:\n      - a quad (4 words) contains 1+ zeros (common padding/ununsed slots)\n      - a quad contains 2+ zeros (stronger padding signal)\n    Optional:\n      - require_plausible_in_quad: if >0, count the quad only if at least that many floats in the quad are plausible.\n        (kept off by default, because the target behavior requires to find the regions reported by the CLI, including static-ish blocks)\n    '
     hits = 0
     if not data:
         return 0
@@ -342,10 +333,7 @@ class BoneScanner:
     # --------------------------------------------------------
 
     def run_full(self, *, passes: int = 1) -> List[BoneResult]:
-        """
-        One-shot scan across the full range.
-        passes>1 lets you accumulate change_count across multiple sweeps.
-        """
+        '\n        One-shot scan across the full range.\n        passes>1 lets the operator accumulate change_count across multiple sweeps.\n        '
         p = max(1, int(passes))
         for _ in range(p):
             self._cursor = self.start

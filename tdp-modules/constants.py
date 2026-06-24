@@ -111,7 +111,7 @@ LAST_GOOD_TTL = 1.0
 # ------------------------------------------------------------
 # Character ID → Name lookup
 # ------------------------------------------------------------
-# The game uses numeric IDs internally. We maintain an explicit map so HUD
+# The game uses numeric IDs internally. The module maintain an explicit map so HUD
 # code never relies on CSV files just to display a name.
 
 CHAR_NAMES = {

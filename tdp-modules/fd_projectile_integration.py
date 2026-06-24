@@ -88,7 +88,7 @@ PROJECTILE_LABELS = {
     "proj_final_spawn_bone": "Final Bone",
 }
 
-# col_name -> (hit-key, user label, type)
+# col_name -> (hit-key, display label, type)
 # type: f32, u8, u16, u32, dmg, static
 PROJECTILE_FIELD_INFO = {
     "damage": ("dmg", "Projectile Damage", "dmg"),
@@ -162,7 +162,7 @@ def projectile_key_for_char(char_name: str | None) -> str | None:
 # Projectile-super emitter grouping
 # ---------------------------------------------------------------------------
 # Compact 00/23 cards are individual bullets/hit cards.  For barrage supers
-# like Finishing Shower, users usually want the emitter/barrage first, then
+# like Finishing Shower, display the emitter/barrage first, then
 # the per-bullet cards later.  Emitter rows are synthetic UI rows: edits are
 # bulk-applied to the child projectile cards they summarize.
 
@@ -232,15 +232,7 @@ def _is_morrigan_finishing_shower_real_template(hit: dict | None) -> bool:
 
 
 def _is_morrigan_finishing_shower_false_0023(hit: dict | None) -> bool:
-    """Old scanner false-positive guard.
-
-    The user confirmed the live per-missile damage is at 0x908E2906, which is
-    a normal projectile-template damage word at base+0x02.  The earlier
-    0x908E2B72 00/23 rows are bytes embedded later in that same local region;
-    direct pokes there did not affect Finishing Shower.  Once the real 800-dmg
-    template row is present, suppress those bogus compact-card rows so the
-    emitter does not bulk-write dead/noisy addresses.
-    """
+    'Old scanner false-positive guard.\n\n    The validated the live per-missile damage is at 0x908E2906, which is\n    a normal projectile-template damage word at base+0x02.  The earlier\n    0x908E2B72 00/23 rows are bytes embedded later in that same local region;\n    direct pokes there did not affect Finishing Shower.  Once the real 800-dmg\n    template row is present, suppress those bogus compact-card rows so the\n    emitter does not bulk-write dead/noisy addresses.\n    '
     if not isinstance(hit, dict):
         return False
     if str(hit.get("key") or "").upper() != "MORRIGAN":
@@ -481,7 +473,7 @@ def _annotate_template_roles(hits: list[dict[str, Any]]) -> list[dict[str, Any]]
         # Damage for a visible projectile row may have more than one physical
         # backing address: the template/card bytes themselves, an authoritative
         # param-table copy, and sometimes a copy/alt projectile record.  Keep the
-        # peer set on every row so one user edit can update the bytes the game is
+        # peer set on every row so one edit can update the bytes the game is
         # most likely to read without forcing duplicate rows into the UI.
         peers = []
         for p in rows:
@@ -1032,7 +1024,7 @@ def projectile_field_addr(mv: dict, col_name: str | None) -> int | None:
         return int(hit.get("dmg_write_addr") or mv.get("damage_addr") or (addr + P._dmg_write_offset(fmt)))
 
     if _is_morrigan_finishing_shower_missile_hit(hit):
-        # User-confirmed live Morrigan Finishing Shower missile block.
+        # Validated live Morrigan Finishing Shower missile block.
         # Record base is the 0x00000103 word; damage is the u16 at +0x06.
         # Generic template offsets were four bytes off and mislabeled lifetime.
         fs_offsets = {
@@ -1042,7 +1034,7 @@ def projectile_field_addr(mv: dict, col_name: str | None) -> int | None:
             "fx": 0x34,
             "spawn_origin": 0x5F,
             "speed": 0x90,
-            # User-confirmed second radius/hitbox-like field.  Keep it on
+            # Validated second radius/hitbox-like field.  Keep it on
             # proj_hitbox instead of pretending it is another emitter control.
             "hitbox": 0xD8,
         }
@@ -1136,7 +1128,7 @@ def _write_projectile_emitter_value(mv: dict, col_name: str, value) -> bool:
         temp = projectile_row_from_hit(dict(peer), 0)
         write_col = col_name
         # Compact 00/23 cards do not have normal-template Speed/Accel/Hitbox
-        # fields, but those are the words users expect on an emitter row.
+        # fields, but those are the expected fields on an emitter row.
         if _fmt_for_mv(temp) in getattr(P, "PROJECTILE_SUPER_FMTS", set()):
             write_col = emitter_col_alias.get(col_name, col_name)
         # Do not let a nested synthetic row recurse; peers are physical cards.

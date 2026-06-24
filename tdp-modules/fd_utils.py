@@ -1,6 +1,6 @@
 # fd_utils.py
 #
-# Small, pure helpers and a few thin I/O wrappers used by the FD editor UI.
+# Small, pure helpers and thin The implementation/O wrappers for the FD editor UI.
 # Keep this file UI-free.
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ KB_TRAJ_MAP = {
 # Minimal heuristic:
 #   00 00 XX YY 00 00 00 0C FF FF FF FF
 #
-# We scan a region for the suffix:
+# Scan a region for the suffix:
 #   00 00 00 0C FF FF FF FF
 # then take the 4 bytes immediately before it as the candidate u32.
 # The low halfword (XXYY) is treated as damage (big-endian).
@@ -157,16 +157,7 @@ def resolve_projectile_fields_for_move(
 
 
 def _try_lookup_move_name(char_name: str | None, anim_id: int) -> str | None:
-    """
-    This helper tries the safe variants without ever throwing.
-
-    Prefer the character-specific table before the generic/global table.  The
-    CSV intentionally reuses IDs across characters, and also reuses low IDs such
-    as 0x010C for both global air-normal helpers and character specials.  If we
-    fall back to generic first, Ryu's internal Hado row becomes j.B (Second),
-    Chun rows can become unrelated global normals, and family sorting gets
-    pulled out of order.
-    """
+    "\n    This helper tries the safe variants without ever throwing.\n\n    Prefer the character-specific table before the generic/global table.  The\n    CSV intentionally reuses IDs across characters, and also reuses low IDs such\n    as 0x010C for both global air-normal helpers and character specials.  If the module\n    fall back to generic first, Ryu's internal Hado row becomes j.B (Second),\n    Chun rows can become unrelated global normals, and family sorting gets\n    pulled out of order.\n    "
     if char_name:
         char_id = None
         try:
@@ -515,7 +506,7 @@ def fmt_hit_reaction_ui(val: int | None) -> str:
 #   slice[1] -> M
 #   slice[2] -> H/C
 #
-# We store:
+# Store:
 #   mv["proj_slices"] = [abs_addr0, abs_addr1, ...]
 #   mv["proj_slice"]  = selected abs addr for this row's strength
 # ============================================================
@@ -535,7 +526,7 @@ def infer_strength_index_from_name(move_name: str) -> int | None:
     s = move_name.lower()
 
     # Strongest match: explicit token at end or surrounded by punctuation.
-    # We keep this intentionally simple.
+    # Keep this intentionally simple.
     if " hado" in s or "kiko" in s or "hado" in s or "kiko" in s or "kik" in s:
         pass  # allow parsing suffix below
     else:
@@ -621,7 +612,7 @@ def resolve_projectile_strength_slices_for_move(
         if 0 <= idx < len(slices):
             mv["proj_slice"] = slices[idx]
         else:
-            # If we don't have enough slices, clamp to last.
+            # If do not have enough slices, clamp to last.
             mv["proj_slice"] = slices[-1]
     else:
         # No strength requested: leave mv["proj_slice"] unset, but keep list.

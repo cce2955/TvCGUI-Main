@@ -553,12 +553,7 @@ def open_megacrash_trainer_window(
             _apply(reset_counts=True)
 
         def _arm_targeted_for_trigger_change() -> None:
-            """A new trigger source is an intentional deterministic setup.
-
-            Source changes should never leave the trainer silently using the
-            random-roll mode from a prior experiment. Random mode remains
-            available whenever the user explicitly clicks its radio/preset.
-            """
+            'A new trigger source is an intentional deterministic setup.\n\n            Source changes should never leave the trainer silently using the\n            random-roll mode from a prior experiment. Random mode remains\n            available whenever the operator explicitly clicks its radio/preset.\n            '
             mode_var.set(_MODE_TARGETED)
             _apply(reset_counts=True)
 

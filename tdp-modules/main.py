@@ -26,7 +26,7 @@ def resource_path(*parts):
 # with PyEval_RestoreThread before Python can raise/catch an exception.
 # Default to a mouse-state input path, but still read *window lifecycle* events
 # so the title-bar X / Alt+F4 can actually close the app.
-# Set TVC_USE_PYGAME_EVENT_GET=1 only if you specifically need full SDL events.
+# Set TVC_USE_PYGAME_EVENT_GET=1 only if the operator specifically need full SDL events.
 _PYGAME_EVENT_GET_ENABLED = str(os.environ.get("TVC_USE_PYGAME_EVENT_GET", "0")).strip().lower() in {"1", "true", "yes", "on"}
 _PYGAME_EVENT_WARNED = False
 
@@ -129,7 +129,7 @@ from scan_worker import ScanNormalsWorker
 from training_flags import read_training_flags
 from debug_panel import read_debug_flags, draw_debug_overlay
 
-from dolphin_io import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes, prime_mem2_latch
+from dolphin_io import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes, prime_mem2_latch, set_emulated_write_quarantine
 
 try:
     from runtime_stun_profiler import RuntimeStunProfiler
@@ -576,7 +576,7 @@ def _compact_token_to_current_mask(tok: int) -> int:
     if t & 0x02:
         cur |= 0x00400002
     # These are guesses for the other directions so the injector is not useless
-    # outside the exact down/back cases we captured.  They are intentionally low
+    # outside the exact down/back cases the module captured.  They are intentionally low
     # risk: they only set extra bits while the held compact token contains them.
     if t & 0x04:
         cur |= 0x00100004
@@ -1053,13 +1053,7 @@ def _ko_ctrl_slot_is_dead(snap: dict) -> bool:
 
 
 def ko_ctrl_team_ko_state(snaps: dict) -> dict:
-    """Return whether either loaded team is fully KO'd.
-
-    The top-dock KO Ctrl toggle is now an *auto arm*, not a permanent DOL
-    patch.  We only want the Control+Full DOL packet while a whole team is KO'd;
-    otherwise the same input-feed patches can leak into normal arcade gameplay
-    and let P1 drive the CPU side in the next match.
-    """
+    "Return whether either loaded team is fully KO'd.\n\n    The top-dock KO Ctrl toggle is now an *auto arm*, not a permanent DOL\n    patch.  Only want the Control+Full DOL packet while a whole team is KO'd;\n    otherwise the same input-feed patches can leak into normal arcade gameplay\n    and let P1 drive the CPU side in the next match.\n    "
     team_slots = {"P1": [], "P2": []}
     seen_by_team = {"P1": set(), "P2": set()}
     for slot in ("P1-C1", "P1-C2", "P2-C1", "P2-C2"):
@@ -1121,7 +1115,7 @@ def tick_ko_control_auto(enabled: bool, live_active: bool, snaps: dict, now: flo
     last_apply = float(last_apply or 0.0)
 
     # live_active now means FULL packet is active. SAFE can be armed while this
-    # is False.  Store a small latch in the function so we can linger through
+    # is False.  Store a small latch in the function so the module can linger through
     # pointer unload/result transitions without adding more globals to the app.
     full_until = float(getattr(tick_ko_control_auto, "full_until", 0.0) or 0.0)
     safe_last = float(getattr(tick_ko_control_auto, "safe_last", 0.0) or 0.0)
@@ -1256,6 +1250,11 @@ except Exception as e:
     reset_hud_editor_runtime_state = None
     print(f"WARNING: HUD editor window not available ({e!r})")
 try:
+    from win_counter_runtime_gate import set_win_counter_runtime_active
+except Exception as e:
+    set_win_counter_runtime_active = None
+    print(f"WARNING: Win Counter runtime gate not available ({e!r})")
+try:
     from overseer_window import open_overseer_window
 except Exception as e:
     open_overseer_window = None
@@ -1266,6 +1265,8 @@ try:
         stop_char_test,
         restore_char_test,
         tick_char_test,
+        char_test_needs_service,
+        is_character_select_active,
         toggle_extra_characters,
         toggle_solo_team,
     )
@@ -1274,6 +1275,8 @@ except Exception as e:
     stop_char_test = None
     restore_char_test = None
     tick_char_test = None
+    char_test_needs_service = None
+    is_character_select_active = None
     toggle_extra_characters = None
     toggle_solo_team = None
     print(f"WARNING: Extra characters toggle not available ({e!r})")
@@ -1866,7 +1869,7 @@ def _megacrash_mode_summary(state: dict) -> str:
 def _load_megacrash_trainer_config() -> dict:
     cfg = {
         # Safety rule: Megacrash never auto-enables on app startup.
-        # Persist the user's trainer settings, but require an explicit ON click
+        # Persist trainer settings, but require an explicit ON click
         # every run so an exported build or stale JSON cannot force bursts by
         # surprise.
         "enabled": False,
@@ -1910,7 +1913,7 @@ def _save_megacrash_trainer_config(state: dict) -> None:
         payload = {
             # Do not persist an enabled state. Megacrash must default OFF on
             # every launch, while the rest of the trainer settings persist.
-            # Mission-scoped overrides are also not persisted; save the user's
+            # Mission-scoped overrides are not persisted; save the selected
             # pre-mission settings if the trainer window is opened mid-trial.
             "enabled": False,
             "mode": _normalize_megacrash_mode(save_src.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
@@ -1970,13 +1973,7 @@ def _clear_megacrash_runtime_state(state: dict) -> None:
 
 
 def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
-    """Apply mission-scoped Megacrash Trainer setup, then restore user settings.
-
-    Mission JSON can provide setup_megacrash_trainer.  This lets trials that
-    need a controlled burst turn the trainer on only while that mission is the
-    active mission.  It never persists enabled=True and it restores the user's
-    normal Megacrash settings when the mission changes or mission mode is off.
-    """
+    'Apply mission-scoped Megacrash Trainer setup, then restore operator settings.\n\n    Mission JSON can provide setup_megacrash_trainer.  This lets trials that\n    need a controlled burst turn the trainer on only while that mission is the\n    active mission.  It never persists enabled=True and it restores the selected\n    normal Megacrash settings when the mission changes or mission mode is off.\n    '
     if not isinstance(state, dict):
         state = _load_megacrash_trainer_config()
 
@@ -2000,7 +1997,7 @@ def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
             state.pop("mission_override_name", None)
             state["mission_override_active"] = False
             _clear_megacrash_runtime_state(state)
-            print("[megacrash trainer] mission override restored user settings")
+            print("[megacrash trainer] mission override restored saved settings")
         return state
 
     if current_key != mission_key:
@@ -2598,7 +2595,7 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
 
     # Read once per tick. The returned event belongs to the next valid
     # point-vs-point pair below; it is deliberately consumed even if the hit's
-    # label is not the user-selected one, so a later matching label receives
+    # label is not the selected one, so a later matching label receives
     # only its own hits rather than an accumulated jump from unrelated labels.
     global_combo_event = _megacrash_read_global_combo_counter(state)
     global_combo_event_used = False
@@ -3752,6 +3749,47 @@ def _normal_int(mv: dict, *keys: str) -> int | None:
     return None
 
 
+def _normal_recovery(mv: dict) -> int | None:
+    """Return the MOT-derived/static recovery stored on a normal row."""
+    return _normal_int(mv, "recovery", "recover", "recovery_frames")
+
+def _normal_advantage(mv: dict, kind: str) -> int | None:
+    """Return stored calculated advantage, or reproduce the local fallback.
+
+    The scanner/profile pass stores ``adv_hit`` and ``adv_block`` once MOT
+    recovery is known.  Keeping the small fallback here lets the preview still
+    show the same estimate for a freshly scanned row that has raw stun and
+    recovery but has not yet been profile-saved.
+    """
+    if str(kind).lower().startswith("b"):
+        stored = _normal_int(mv, "adv_block", "on_block", "block_adv", "plus_block")
+        stun = _normal_int(mv, "blockstun", "block", "b")
+    else:
+        stored = _normal_int(mv, "adv_hit", "on_hit", "hit_adv", "plus_hit")
+        stun = _normal_int(mv, "hitstun", "hit", "h")
+    if stored is not None:
+        return stored
+    recovery = _normal_recovery(mv)
+    if stun is None or recovery is None:
+        return None
+    return int(stun) - int(recovery)
+
+def _normal_damage(mv: dict) -> int | None:
+    """Return the decoded primary-hit damage without summing multihits."""
+    direct = _normal_int(mv, "damage", "dmg", "base_damage")
+    if direct is not None:
+        return direct
+    segments = mv.get("hit_segments")
+    if isinstance(segments, list):
+        for seg in segments:
+            if isinstance(seg, dict):
+                damage = _normal_int(seg, "damage", "dmg", "base_damage")
+                if damage is not None:
+                    return damage
+    return None
+
+
+
 
 _NORMAL_PREVIEW_ORDER = (
     "5A", "2A",
@@ -3896,6 +3934,284 @@ def _normal_visible_moves(moves: list) -> list:
     return out
 
 
+
+_NORMAL_PREVIEW_MODE_META = {
+    "fast": {"label": "Fast", "color": (112, 182, 245)},
+    "damage": {"label": "Damage", "color": (232, 190, 96)},
+    "adv_hit": {"label": "+Hit", "color": (108, 214, 158)},
+    "adv_block": {"label": "+Block", "color": (177, 145, 244)},
+    "punish": {"label": "Punish", "color": (236, 136, 112)},
+    "live_punish": {"label": "Live", "color": (100, 209, 223)},
+}
+
+
+def _normal_preview_move_id(mv: dict) -> int | None:
+    """Return the most specific available move identifier for a preview row."""
+    if not isinstance(mv, dict):
+        return None
+    for key in ("id", "anim", "move_id", "table_index"):
+        value = mv.get(key)
+        if value is None or value == "":
+            continue
+        try:
+            return int(value)
+        except Exception:
+            continue
+    return None
+
+
+def _normal_preview_key(mv: dict) -> str:
+    """Build a stable local key for preview selection and highlighting."""
+    label = _normal_canonical_label(_normal_move_label(mv)) or _normal_canon_label(_normal_move_label(mv)) or "?"
+    move_id = _normal_preview_move_id(mv)
+    return f"{label}|{'' if move_id is None else move_id}"
+
+
+def _normal_preview_selection_matches(selection: dict | None, slot_label: str, mv: dict) -> bool:
+    """Check whether a preview row matches the retained selection."""
+    if not isinstance(selection, dict):
+        return False
+    if str(selection.get("slot_label") or "") != str(slot_label or ""):
+        return False
+    return str(selection.get("key") or "") == _normal_preview_key(mv)
+
+
+def _normal_preview_selected_move(slots: list[dict], selection: dict | None) -> tuple[str, dict] | tuple[None, None]:
+    """Resolve the selected preview row from the current slot dataset."""
+    if not isinstance(selection, dict):
+        return None, None
+    wanted_slot = str(selection.get("slot_label") or "")
+    for slot in slots:
+        if not isinstance(slot, dict):
+            continue
+        slot_label = str(slot.get("slot_label") or slot.get("slot") or "")
+        if slot_label != wanted_slot:
+            continue
+        for mv in _normal_visible_moves(slot.get("moves") or []):
+            if _normal_preview_selection_matches(selection, slot_label, mv):
+                return slot_label, mv
+    return None, None
+
+
+def _normal_preview_is_air_move(mv: dict) -> bool:
+    """Return whether a preview normal is an aerial attack."""
+    label = _normal_canonical_label(_normal_move_label(mv)) or _normal_canon_label(_normal_move_label(mv)) or ""
+    return str(label).lower().startswith("j.")
+
+
+def _normal_preview_current_move(slot: dict) -> dict | None:
+    """Resolve the currently executing visible normal for one slot."""
+    if not isinstance(slot, dict):
+        return None
+    visible = _normal_visible_moves(slot.get("moves") or [])
+    if not visible:
+        return None
+
+    cur_id = slot.get("cur_anim") or slot.get("current_anim") or slot.get("mv_id_display") or slot.get("move_id")
+    try:
+        cur_id = int(cur_id) if cur_id is not None else None
+    except Exception:
+        cur_id = None
+    cur_label = str(slot.get("cur_label") or slot.get("current_move") or slot.get("mv_label") or "").strip()
+    cur_label_canon = _normal_canon_label(cur_label)
+
+    if cur_label_canon:
+        for mv in visible:
+            if _normal_canon_label(_normal_move_label(mv)) == cur_label_canon:
+                return mv
+    if cur_id is not None:
+        for mv in visible:
+            if _normal_preview_move_id(mv) == cur_id:
+                return mv
+    return None
+
+
+def _normal_preview_assist_standby(slot: dict) -> bool:
+    """Identify the inactive partner state used by the character slots."""
+    if not isinstance(slot, dict):
+        return False
+    text = " ".join(str(slot.get(key) or "") for key in ("cur_label", "current_move", "mv_label")).lower()
+    if "assist standby" in text:
+        return True
+    current_id = slot.get("cur_anim") or slot.get("current_anim") or slot.get("mv_id_display") or slot.get("move_id")
+    try:
+        return int(current_id) == 430
+    except Exception:
+        return False
+
+
+def _normal_preview_active_slot(slots: list[dict], team: str) -> tuple[str, dict] | tuple[None, None]:
+    """Resolve the point slot for a team from the current two-character state."""
+    team = str(team or "").upper()
+    candidates: list[tuple[str, dict]] = []
+    for slot in slots:
+        if not isinstance(slot, dict):
+            continue
+        label = str(slot.get("slot_label") or slot.get("slot") or "")
+        if label.startswith(f"{team}-"):
+            candidates.append((label, slot))
+    if not candidates:
+        return None, None
+    if len(candidates) == 1:
+        return candidates[0]
+
+    active = [(label, slot) for label, slot in candidates if not _normal_preview_assist_standby(slot)]
+    if len(active) == 1:
+        return active[0]
+    for label, slot in candidates:
+        if label.endswith("C1"):
+            return label, slot
+    return candidates[0]
+
+
+def _normal_preview_live_source(slots: list[dict]) -> tuple[str, dict] | tuple[None, None]:
+    """Resolve a single current point-normal as the live punish source."""
+    found: list[tuple[str, dict]] = []
+    for team in ("P1", "P2"):
+        slot_label, slot = _normal_preview_active_slot(slots, team)
+        if not slot_label or not isinstance(slot, dict):
+            continue
+        move = _normal_preview_current_move(slot)
+        if isinstance(move, dict):
+            found.append((slot_label, move))
+    if len(found) != 1:
+        return None, None
+    return found[0]
+
+
+def _normal_preview_best_keys(moves: list[dict], mode: str) -> set[str]:
+    """Return the best metric rows for one character card."""
+    ranked: list[tuple[int, str]] = []
+    for mv in moves:
+        if not isinstance(mv, dict):
+            continue
+        if mode == "fast":
+            value = _normal_int(mv, "startup", "start", "active_start")
+            if value is not None:
+                ranked.append((-int(value), _normal_preview_key(mv)))
+        elif mode == "damage":
+            value = _normal_damage(mv)
+            if value is not None:
+                ranked.append((int(value), _normal_preview_key(mv)))
+        elif mode == "adv_hit":
+            value = _normal_advantage(mv, "hit")
+            if value is not None:
+                ranked.append((int(value), _normal_preview_key(mv)))
+        elif mode == "adv_block":
+            value = _normal_advantage(mv, "block")
+            if value is not None:
+                ranked.append((int(value), _normal_preview_key(mv)))
+    if not ranked:
+        return set()
+    best_value = max(value for value, _key in ranked)
+    return {key for value, key in ranked if value == best_value}
+
+
+def _normal_preview_punish_candidate(slot: dict, source_mv: dict, window: int) -> str | None:
+    """Return the best legal normal response for a block-punish window."""
+    source_is_air = _normal_preview_is_air_move(source_mv)
+    candidates: list[tuple[int, int, str]] = []
+    for mv in _normal_visible_moves(slot.get("moves") or []):
+        if _normal_preview_is_air_move(mv) != source_is_air:
+            continue
+        startup = _normal_int(mv, "startup", "start", "active_start")
+        if startup is None or int(startup) > int(window):
+            continue
+        damage = _normal_damage(mv)
+        candidates.append((int(damage) if damage is not None else -1, -int(startup), _normal_preview_key(mv)))
+    return max(candidates)[2] if candidates else None
+
+
+def _normal_preview_punish_from_source(
+    slots: list[dict],
+    source_slot: str,
+    source_mv: dict,
+) -> tuple[dict[str, set[str]], int | None, str | None]:
+    """Return the active opposing point-normal that punishes a source move."""
+    adv_block = _normal_advantage(source_mv, "block")
+    if adv_block is None or adv_block >= 0:
+        return {}, adv_block, source_slot
+
+    source_team = "P1" if str(source_slot).startswith("P1") else "P2" if str(source_slot).startswith("P2") else ""
+    target_team = "P2" if source_team == "P1" else "P1" if source_team == "P2" else ""
+    if not target_team:
+        return {}, adv_block, source_slot
+
+    target_slot, target = _normal_preview_active_slot(slots, target_team)
+    if not target_slot or not isinstance(target, dict):
+        return {}, adv_block, source_slot
+
+    key = _normal_preview_punish_candidate(target, source_mv, -int(adv_block))
+    return ({target_slot: {key}} if key else {}), adv_block, source_slot
+
+
+def _normal_preview_punish_keys(slots: list[dict], selection: dict | None) -> tuple[dict[str, set[str]], int | None, str | None]:
+    """Resolve a selected normal into an active point punish response."""
+    source_slot, source_mv = _normal_preview_selected_move(slots, selection)
+    if not source_slot or not isinstance(source_mv, dict):
+        return {}, None, None
+    return _normal_preview_punish_from_source(slots, source_slot, source_mv)
+
+
+def _normal_preview_live_punish_keys(slots: list[dict]) -> tuple[dict[str, set[str]], int | None, str | None]:
+    """Resolve the current live normal into an active point punish response."""
+    source_slot, source_mv = _normal_preview_live_source(slots)
+    if not source_slot or not isinstance(source_mv, dict):
+        return {}, None, None
+    return _normal_preview_punish_from_source(slots, source_slot, source_mv)
+
+
+def _normal_preview_highlight_keys(slots: list[dict], mode: str, selection: dict | None) -> tuple[dict[str, set[str]], int | None, str | None]:
+    """Return highlight keys for the active preview mode."""
+    mode = str(mode or "none")
+    if mode == "punish":
+        return _normal_preview_punish_keys(slots, selection)
+    if mode == "live_punish":
+        return _normal_preview_live_punish_keys(slots)
+    if mode not in {"fast", "damage", "adv_hit", "adv_block"}:
+        return {}, None, None
+    out: dict[str, set[str]] = {}
+    for slot in slots:
+        if not isinstance(slot, dict):
+            continue
+        slot_label = str(slot.get("slot_label") or slot.get("slot") or "")
+        keys = _normal_preview_best_keys(_normal_visible_moves(slot.get("moves") or []), mode)
+        if keys:
+            out[slot_label] = keys
+    return out, None, None
+
+
+def _normal_preview_status(slots: list[dict], mode: str, selection: dict | None) -> str:
+    """Build the compact status label beside the preview controls."""
+    mode = str(mode or "none")
+    if mode not in {"punish", "live_punish"}:
+        return "Click active filter to clear"
+
+    if mode == "live_punish":
+        source_slot, source_mv = _normal_preview_live_source(slots)
+        if not source_slot or not isinstance(source_mv, dict):
+            return "Waiting for one live normal"
+    else:
+        source_slot, source_mv = _normal_preview_selected_move(slots, selection)
+        if not source_slot or not isinstance(source_mv, dict):
+            return "Select a move to test"
+
+    label = _normal_move_label(source_mv)
+    adv_block = _normal_advantage(source_mv, "block")
+    prefix = "Live " if mode == "live_punish" else ""
+    if adv_block is None:
+        return f"{prefix}{source_slot} {label}: block value unavailable"
+    if adv_block >= 0:
+        return f"{prefix}{source_slot} {label}: safe on block ({adv_block:+d})"
+
+    highlighted, _adv, _source = _normal_preview_punish_from_source(slots, source_slot, source_mv)
+    response_kind = "air-to-air" if _normal_preview_is_air_move(source_mv) else "ground"
+    window = -int(adv_block)
+    if not highlighted:
+        return f"{prefix}{source_slot} {label}: no {response_kind} punish in {window}f"
+    target_slot = next(iter(highlighted))
+    return f"{prefix}{source_slot} {label}: {target_slot} punish window {window}f"
+
 def _draw_scan_metric_chip(
     surf: pygame.Surface,
     rect: pygame.Rect,
@@ -3953,22 +4269,28 @@ def draw_scan_normals_polished(
     *,
     t_ms: int = 0,
     scan_fx_by_slot: dict | None = None,
-) -> None:
-    """Draw the normals preview as polished grid cards with lightweight live FX."""
+    highlight_mode: str = "none",
+    selection: dict | None = None,
+    mouse_pos: tuple[int, int] | None = None,
+) -> dict:
+    """Draw the normals preview and return local click targets."""
+    interaction = {"controls": {}, "rows": []}
     if rect.width <= 0 or rect.height <= 0:
-        return
+        return interaction
 
     scan_fx_by_slot = scan_fx_by_slot or {}
+    highlight_mode = str(highlight_mode or "none")
+    mouse_pos = mouse_pos or (-10000, -10000)
 
     panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
     _draw_vertical_gradient(panel, panel.get_rect(), (14, 17, 26), (10, 12, 18), 255)
     surf.blit(panel, rect.topleft)
 
     title = smallfont.render("Scan: Normals Preview", True, GUI_TEXT)
-    legend = smallfont.render("S startup | A active | H hitstun | B blockstun | blue = patched", True, GUI_TEXT_DIM)
-    surf.blit(title, (rect.x + 10, rect.y + 8))
-    surf.blit(legend, (rect.right - legend.get_width() - 10, rect.y + 8))
-    pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 28), (rect.right - 8, rect.y + 28))
+    legend = smallfont.render("S startup | A active | R recovery | +H on hit | +B on block | D damage | blue = patched", True, GUI_TEXT_DIM)
+    surf.blit(title, (rect.x + 10, rect.y + 7))
+    surf.blit(legend, (rect.right - legend.get_width() - 10, rect.y + 7))
+    pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 24), (rect.right - 8, rect.y + 24))
 
     try:
         slots = list(scan_data or [])
@@ -3983,9 +4305,73 @@ def draw_scan_normals_polished(
             slot_map[_lbl] = _s
     slots = [slot_map.get(lbl, {"slot_label": lbl, "char_name": "No character", "moves": []}) for lbl in ordered_labels]
 
+    highlight_keys, _punish_adv, _punish_source_slot = _normal_preview_highlight_keys(slots, highlight_mode, selection)
+    status_text = _normal_preview_status(slots, highlight_mode, selection)
+
+    control_y = rect.y + 28
+    control_h = 17
+    label_s = smallfont.render("Highlight", True, GUI_TEXT_DIM)
+    surf.blit(label_s, (rect.x + 10, control_y + (control_h - label_s.get_height()) // 2))
+    control_x = rect.x + 10 + label_s.get_width() + 7
+    for control_key in ("fast", "damage", "adv_hit", "adv_block"):
+        meta = _NORMAL_PREVIEW_MODE_META[control_key]
+        control_w = max(38, smallfont.size(meta["label"])[0] + 14)
+        control_rect = pygame.Rect(control_x, control_y, control_w, control_h)
+        draw_glass_button(
+            surf,
+            control_rect,
+            meta["label"],
+            smallfont,
+            active=(highlight_mode == control_key),
+            hover=control_rect.collidepoint(mouse_pos),
+            accent=meta["color"],
+            fill=(24, 29, 41),
+        )
+        interaction["controls"][control_key] = control_rect.copy()
+        control_x += control_w + 4
+
+    divider_x = control_x + 2
+    pygame.draw.line(surf, (62, 73, 99), (divider_x, control_y + 2), (divider_x, control_y + control_h - 2))
+    control_x = divider_x + 6
+    punish_meta = _NORMAL_PREVIEW_MODE_META["punish"]
+    punish_rect = pygame.Rect(control_x, control_y, max(48, smallfont.size(punish_meta["label"])[0] + 14), control_h)
+    draw_glass_button(
+        surf,
+        punish_rect,
+        punish_meta["label"],
+        smallfont,
+        active=(highlight_mode == "punish"),
+        hover=punish_rect.collidepoint(mouse_pos),
+        accent=punish_meta["color"],
+        fill=(24, 29, 41),
+    )
+    interaction["controls"]["punish"] = punish_rect.copy()
+    control_x = punish_rect.right + 4
+
+    live_meta = _NORMAL_PREVIEW_MODE_META["live_punish"]
+    live_rect = pygame.Rect(control_x, control_y, max(38, smallfont.size(live_meta["label"])[0] + 14), control_h)
+    draw_glass_button(
+        surf,
+        live_rect,
+        live_meta["label"],
+        smallfont,
+        active=(highlight_mode == "live_punish"),
+        hover=live_rect.collidepoint(mouse_pos),
+        accent=live_meta["color"],
+        fill=(24, 29, 41),
+    )
+    interaction["controls"]["live_punish"] = live_rect.copy()
+    control_x = live_rect.right + 9
+    status_w = max(0, rect.right - control_x - 10)
+    if status_w >= 48:
+        status_s = _fit_text(smallfont, status_text, GUI_TEXT_MUTED, status_w)
+        surf.blit(status_s, (control_x, control_y + (control_h - status_s.get_height()) // 2))
+
+    pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 49), (rect.right - 8, rect.y + 49))
+
     pad, gap = 8, 10
-    top = rect.y + 36
-    card_h = max(44, rect.height - 44)
+    top = rect.y + 54
+    card_h = max(44, rect.height - 62)
     count = 4
     card_w = max(140, (rect.width - pad * 2 - gap * (count - 1)) // count)
     dense = rect.height < 260 or rect.width < 930
@@ -4043,28 +4429,33 @@ def draw_scan_normals_polished(
         table_y = card.y + header_h + 4
         table_w = card.width - 12
         table_h = card.height - header_h - 8
-        move_col_w = 54 if card.width >= 220 else 48
-        metric_col_w = max(24, (table_w - move_col_w) // 4)
+        metric_headers = ("S", "A", "R", "+H", "+B", "D")
+        metric_count = len(metric_headers)
+        # The preview prioritizes startup, active, recovery, advantage, and
+        # damage. Raw hitstun/blockstun remain available in the Frame Data view.
+        preferred_move_col_w = 48 if card.width >= 260 else 42
+        metric_col_w = max(1, (table_w - preferred_move_col_w) // metric_count)
+        move_col_w = table_w - metric_col_w * metric_count
         grid_x, grid_y = table_x, table_y
-        grid_w, grid_h = move_col_w + metric_col_w * 4, table_h
+        grid_w, grid_h = table_w, table_h
 
         table_bg = pygame.Rect(grid_x, grid_y, grid_w, grid_h)
         pygame.draw.rect(surf, (13, 16, 24), table_bg, border_radius=4)
-        pygame.draw.rect(surf, (34, 42, 58), table_bg, 1, border_radius=4)
-
-        for i in range(4):
-            col_left = grid_x + move_col_w + i * metric_col_w
-            band = pygame.Surface((metric_col_w, grid_h - 2), pygame.SRCALPHA)
-            band.fill((18, 22, 31, 80) if i % 2 == 0 else (15, 18, 27, 55))
-            surf.blit(band, (col_left, grid_y + 1))
+        pygame.draw.rect(surf, (49, 59, 82), table_bg, 1, border_radius=4)
 
         hdr = pygame.Rect(grid_x, grid_y, grid_w, table_header_h)
         pygame.draw.rect(surf, (18, 22, 31), hdr, border_radius=4)
-        pygame.draw.line(surf, (48, 56, 76), (hdr.x + 1, hdr.bottom), (hdr.right - 1, hdr.bottom))
-        for i, txt in enumerate(("S", "A", "H", "B")):
-            col_left = grid_x + move_col_w + i * metric_col_w
+        header_labels = ("Move",) + metric_headers
+        header_widths = (move_col_w,) + (metric_col_w,) * metric_count
+        cell_x = grid_x
+        for i, (txt, cell_w) in enumerate(zip(header_labels, header_widths)):
+            header_cell = pygame.Rect(cell_x, grid_y, cell_w, table_header_h)
+            header_fill = (29, 35, 49) if i % 2 == 0 else (23, 28, 40)
+            pygame.draw.rect(surf, header_fill, header_cell)
+            pygame.draw.rect(surf, (57, 68, 94), header_cell, 1)
             hdr_s = smallfont.render(txt, True, GUI_TEXT_DIM)
-            surf.blit(hdr_s, (col_left + (metric_col_w - hdr_s.get_width()) // 2, hdr.y + (hdr.height - hdr_s.get_height()) // 2))
+            surf.blit(hdr_s, (header_cell.x + (header_cell.width - hdr_s.get_width()) // 2, header_cell.y + (header_cell.height - hdr_s.get_height()) // 2))
+            cell_x += cell_w
 
         if is_empty_card:
             empty_body = pygame.Rect(grid_x + 1, grid_y + table_header_h + 1, grid_w - 2, grid_h - table_header_h - 2)
@@ -4074,26 +4465,45 @@ def draw_scan_normals_polished(
                 empty_msg = "No character loaded"
                 sub_msg = "This slot is currently empty"
             elif bool(slot.get("profile_cache_miss")):
-                empty_msg = "Building profile"
-                sub_msg = "No cached normals yet; dynamic profile build is queued"
+                empty_msg = "Initial scan in progress"
+                sub_msg = "Later scans use saved data."
             elif had_scan_entry:
                 empty_msg = "No normals returned"
                 sub_msg = "The scan completed, but this slot returned no normal data"
             else:
                 empty_msg = "Waiting for scan"
                 sub_msg = "Normals will appear here when data is available"
-            msg1 = _render_outlined_text(font, empty_msg, GUI_TEXT_DIM, (0, 0, 0), empty_body.width - 16, 1)
-            msg2 = _fit_text(smallfont, sub_msg, GUI_TEXT_DIM, empty_body.width - 16)
-            surf.blit(msg1, (empty_body.x + (empty_body.width - msg1.get_width()) // 2, empty_body.y + max(10, empty_body.height // 2 - 14)))
-            surf.blit(msg2, (empty_body.x + (empty_body.width - msg2.get_width()) // 2, empty_body.y + max(28, empty_body.height // 2 + 4)))
+            def _wrap_preview_message(text, text_font, max_width):
+                words = str(text or "").split()
+                if not words:
+                    return [""]
+                lines = []
+                current = ""
+                for word in words:
+                    candidate = word if not current else f"{current} {word}"
+                    if current and text_font.size(candidate)[0] > max_width:
+                        lines.append(current)
+                        current = word
+                    else:
+                        current = candidate
+                if current:
+                    lines.append(current)
+                return lines
+
+            title_lines = _wrap_preview_message(empty_msg, font, empty_body.width - 16)
+            detail_lines = _wrap_preview_message(sub_msg, smallfont, empty_body.width - 16)
+            line_items = [(line, font) for line in title_lines] + [(line, smallfont) for line in detail_lines]
+            total_h = sum(text_font.get_height() + 2 for _, text_font in line_items)
+            text_y = empty_body.y + max(8, (empty_body.height - total_h) // 2)
+            for line, text_font in line_items:
+                line_s = _render_outlined_text(text_font, line, GUI_TEXT_DIM, (0, 0, 0), empty_body.width - 16, 1)
+                surf.blit(line_s, (empty_body.x + (empty_body.width - line_s.get_width()) // 2, text_y))
+                text_y += text_font.get_height() + 2
             continue
 
         row_count = max(1, len(visible_moves))
         available_h = max(1, grid_h - table_header_h)
         row_h = max(13, min(18, available_h // row_count))
-
-        for vx in (grid_x + move_col_w, grid_x + move_col_w + metric_col_w, grid_x + move_col_w + metric_col_w * 2, grid_x + move_col_w + metric_col_w * 3, grid_x + move_col_w + metric_col_w * 4):
-            pygame.draw.line(surf, (38, 46, 64), (vx, grid_y + 1), (vx, grid_y + grid_h - 2))
 
         y = grid_y + table_header_h
         last_section = None
@@ -4116,6 +4526,9 @@ def draw_scan_normals_polished(
             except Exception:
                 mv_id = None
             row_label_canon = _normal_canon_label(label)
+            row_key = _normal_preview_key(mv)
+            is_selected = _normal_preview_selection_matches(selection, slot_label, mv)
+            is_highlighted = row_key in highlight_keys.get(slot_label, set())
             cur_label_canon = _normal_canon_label(cur_label)
             if cur_label_canon:
                 is_current = (row_label_canon == cur_label_canon)
@@ -4138,13 +4551,29 @@ def draw_scan_normals_polished(
                 pygame.draw.rect(surf, (34, 41, 58), row, 1)
             pygame.draw.line(surf, (28, 34, 48), (row.x + 1, row.bottom), (row.right - 1, row.bottom))
 
-            label_col = GUI_TEXT if is_current else (218, 224, 234)
+            if is_highlighted:
+                highlight_col = _NORMAL_PREVIEW_MODE_META.get(highlight_mode, {}).get("color", GUI_ACCENT_BLUE)
+                highlight_fill = pygame.Surface((row.width, row.height), pygame.SRCALPHA)
+                highlight_fill.fill((*highlight_col, 28))
+                surf.blit(highlight_fill, row.topleft)
+                pygame.draw.rect(surf, (*highlight_col, 178), pygame.Rect(row.x + 1, row.y + 1, 3, max(1, row.height - 2)), border_radius=1)
+                pygame.draw.line(surf, (*highlight_col, 108), (row.x + 5, row.bottom - 2), (row.right - 3, row.bottom - 2))
+
+            if is_selected:
+                selection_col = (244, 180, 92)
+                pygame.draw.rect(surf, (*selection_col, 205), row.inflate(-2, -2), 1, border_radius=2)
+                pygame.draw.rect(surf, (*selection_col, 190), pygame.Rect(row.right - 4, row.y + 2, 2, max(1, row.height - 4)), border_radius=1)
+
+            interaction["rows"].append({"rect": row.copy(), "slot_label": slot_label, "key": row_key})
+
+            label_col = GUI_TEXT if (is_current or is_selected) else (218, 224, 234)
             label_s = _render_outlined_text(smallfont, label, label_col, (0, 0, 0), move_col_w - 8, outline_px=1)
             surf.blit(label_s, (row.x + 6, row.y + (row.height - label_s.get_height()) // 2))
 
             startup = _normal_int(mv, "startup", "start", "active_start")
             a1 = _normal_int(mv, "active_start", "a_start")
             a2 = _normal_int(mv, "active_end", "a_end")
+            recovery = _normal_recovery(mv)
             hit = _normal_int(mv, "hitstun", "hit", "h")
             block = _normal_int(mv, "blockstun", "block", "b")
             active_txt = "-"
@@ -4172,7 +4601,26 @@ def draw_scan_normals_polished(
                 active_txt = f"{a1}-{a2}"
             elif a1 is not None:
                 active_txt = str(a1)
-            values = ["-" if startup is None else str(startup), active_txt, "-" if hit is None else str(hit), "-" if block is None else str(block)]
+
+            # Stored advantage is preferred. For freshly scanned rows that do
+            # not have it yet, use the same local stun-minus-recovery estimate.
+            adv_hit = _normal_advantage(mv, "hit")
+            adv_block = _normal_advantage(mv, "block")
+            if adv_hit is None and hit is not None and recovery is not None:
+                adv_hit = int(hit) - int(recovery)
+            if adv_block is None and block is not None and recovery is not None:
+                adv_block = int(block) - int(recovery)
+            damage = _normal_damage(mv)
+
+            values = [
+                "-" if startup is None else str(startup),
+                active_txt,
+                "-" if recovery is None else str(recovery),
+                "-" if adv_hit is None else f"{adv_hit:+d}",
+                "-" if adv_block is None else f"{adv_block:+d}",
+                "-" if damage is None else str(damage),
+            ]
+            values = [str(value).replace(",", "") for value in values]
             patch_fields = mv.get("_fd_patch_fields") or set()
             try:
                 patch_fields = set(patch_fields)
@@ -4186,7 +4634,7 @@ def draw_scan_normals_polished(
                         patch_fields.update(set(seg.get("_fd_patch_fields") or []))
                     except Exception:
                         pass
-            metric_groups = ("active", "active", "hitstun", "blockstun")
+            metric_groups = ("active", "active", "recovery", "adv_hit", "adv_block", "damage")
             value_col = GUI_TEXT if is_current else (205, 211, 224)
             patched_col = _brighten(accent, 52) if is_current else (145, 194, 255)
             for i, value in enumerate(values):
@@ -4202,6 +4650,15 @@ def draw_scan_normals_polished(
                 val_s = _render_outlined_text(smallfont, value, draw_col, (0, 0, 0), metric_col_w - 6, outline_px=1)
                 surf.blit(val_s, (col_left + (metric_col_w - val_s.get_width()) // 2, row.y + (row.height - val_s.get_height()) // 2))
             y += row_h
+
+        # Full-height separators are drawn after the row fills so each column
+        # remains visible across the complete data grid.
+        for i in range(metric_count + 1):
+            vx = grid_x + move_col_w + metric_col_w * i
+            pygame.draw.line(surf, (62, 73, 99), (vx, grid_y + 1), (vx, grid_y + grid_h - 2))
+        pygame.draw.line(surf, (62, 73, 99), (grid_x, grid_y + table_header_h), (grid_x + grid_w, grid_y + table_header_h))
+
+    return interaction
 
 
 _QUICK_ASSIST_STRENGTH_MARKS = ("α", "β", "γ")
@@ -4782,7 +5239,7 @@ def resolve_bases(last_base_by_ptr: dict, y_off_by_base: dict) -> list:
         if base:
             # Non-blocking MEM2 primer. This keeps the tool armed when it was
             # launched from menus: as soon as any live fighter pointer appears,
-            # dolphin_io can latch the correct MEM2 host map before we read
+            # dolphin_io can latch the correct MEM2 host map before read
             # fighter/y-position data.
             try:
                 prime_mem2_latch()
@@ -5250,7 +5707,7 @@ def legacy_main():
         scan_worker = None
 
     # Saved frame-data patches can be shared as JSON configs. Detect them at
-    # launch and let the user choose one of three friendly modes: skip, ask per
+    # launch and expose three modes: skip, ask per
     # character, or auto-load every matching character section. The actual write
     # path still uses the same low-level handlers as the frame-data workbench.
     fd_patch_controller = None
@@ -5326,7 +5783,7 @@ def legacy_main():
     idle_restore_status = {"text": "", "until": 0.0}
     ko_rewind_baseline_by_slot = {}
     ko_dol_patch_index = -1
-    ko_control_full_enabled = False  # user armed auto-mode; starts OFF
+    ko_control_full_enabled = False  # operator armed auto-mode; starts OFF
     ko_control_live_active = False    # whether the DOL Control+Full packet is currently applied
     ko_control_last_apply = 0.0
     ko_control_auto_state = {"any_team_dead": False, "summary": ""}
@@ -5353,14 +5810,7 @@ def legacy_main():
         return 0
 
     def _tick_persistent_quick_assists(_snaps: dict, _frame_idx: int) -> None:
-        """Cheap quick-assist state maintenance.
-
-        The selected assist is already stored in assist_scanner_backend when the
-        user clicks a quick-assist button.  The backend now patches that stored
-        slot profile on assist standby/jump-in/attack, so this main-loop helper
-        must not re-apply the full assist route at idle.  Re-applying here was
-        the remaining 25-35 ms assist_persist spike.
-        """
+        'Cheap quick-assist state maintenance.\n\n        The selected assist is already stored in assist_scanner_backend when the\n        operator clicks a quick-assist button.  The backend now patches that stored\n        slot profile on assist standby/jump-in/attack, so this main-loop helper\n        must not re-apply the full assist route at idle.  Re-applying here was\n        the remaining 25-35 ms assist_persist spike.\n        '
         if not active_quick_assist_by_slot or not isinstance(_snaps, dict):
             return
 
@@ -5604,6 +6054,10 @@ def legacy_main():
     # tabs without stealing vertical room.
     active_bottom_tab = "scan"
     bottom_tab_rects: dict[str, pygame.Rect] = {}
+    normal_preview_mode = "none"
+    normal_preview_selection: dict | None = None
+    normal_preview_ui = {"controls": {}, "rows": []}
+    normal_preview_offset = (0, 0)
 
     # Momentary write restore
     hype_restore_addr  = None
@@ -5774,9 +6228,12 @@ def legacy_main():
     # process is re-reading/re-applying guarded roster rows, which shows up as
     # select-screen flicker on some machines.  The runtime itself is guarded,
     # but the main HUD now services it at a low cadence and wakes it immediately
-    # only after the user toggles the button.
+    # only after the button is toggled.
     char_test_next_tick = 0.0
     CHAR_TEST_TICK_INTERVAL = 0.25
+    chrsel_quarantine_next_tick = 0.0
+    chrsel_quarantine_active = False
+    CHRSEL_QUARANTINE_TICK_INTERVAL = 0.20
 
     # ------------------------------------------------------------------
     # Main loop
@@ -6053,6 +6510,34 @@ def legacy_main():
         if p1_giant_solo or p2_giant_solo:
             snaps = reassign_slots_for_giants(snaps)
 
+        # Character-select write quarantine blocks battle-only tool writes while
+        # Extra Characters and Solo Team are inactive. The barrier is global so
+        # direct and managed memory writers share the same scene gate.
+        if now >= chrsel_quarantine_next_tick:
+            try:
+                _chrsel_active = bool(is_character_select_active()) if is_character_select_active is not None else False
+            except Exception:
+                _chrsel_active = False
+            _extras_armed = False
+            try:
+                if get_char_test_state is not None:
+                    _chrsel_state = get_char_test_state() or {}
+                    _extras_armed = bool(
+                        _chrsel_state.get("extra_characters_requested")
+                        or _chrsel_state.get("solo_team_requested")
+                    )
+            except Exception:
+                _extras_armed = False
+            chrsel_quarantine_active = bool(_chrsel_active and not _extras_armed)
+            try:
+                set_emulated_write_quarantine(
+                    chrsel_quarantine_active,
+                    reason="character_select_extra_off" if chrsel_quarantine_active else "",
+                )
+            except Exception:
+                pass
+            chrsel_quarantine_next_tick = now + CHRSEL_QUARANTINE_TICK_INTERVAL
+
         # Runtime stun profiler: after a live target counter is armed, keep the
         # actual resolver result tied to the recent opposing move.  This has no
         # write path and only schedules a light cache refresh when new evidence
@@ -6168,9 +6653,42 @@ def legacy_main():
                 _result = apply_ko_rescue_packet(_slot_label, _bases_by_slot, verify=False, baseline_by_slot=ko_rewind_baseline_by_slot)
             idle_restore_status = {"text": idle_restore_status_text(_result, held=True), "until": now + 1.25}
 
-        # HUD Editor persistent state tick.  Hold Visible Wins must keep writing
-        # even when the editor window is closed, so the main loop owns the
-        # runtime tick and the Tk window is only a control panel.
+        _win_counter_chrsel_active = False
+        try:
+            _win_counter_chrsel_active = bool(is_character_select_active()) if is_character_select_active is not None else False
+        except Exception:
+            _win_counter_chrsel_active = False
+
+        _win_counter_teams = {"P1": False, "P2": False}
+        for _win_counter_snap in (snaps or {}).values():
+            if not isinstance(_win_counter_snap, dict):
+                continue
+            _win_counter_team = str(_win_counter_snap.get("teamtag") or "").upper()
+            if _win_counter_team not in _win_counter_teams:
+                continue
+            try:
+                _win_counter_base = int(_win_counter_snap.get("base") or 0)
+                _win_counter_hp_max = int(_win_counter_snap.get("max") or 0)
+            except Exception:
+                continue
+            if _win_counter_base and _win_counter_hp_max > 0:
+                _win_counter_teams[_win_counter_team] = True
+
+        _win_counter_match_active = bool(
+            not _win_counter_chrsel_active
+            and _win_counter_teams["P1"]
+            and _win_counter_teams["P2"]
+        )
+        if set_win_counter_runtime_active is not None:
+            try:
+                set_win_counter_runtime_active(
+                    _win_counter_match_active,
+                    reason="active_match" if _win_counter_match_active else "outside_match",
+                )
+            except Exception:
+                pass
+
+        # HUD Editor persistent state owns only live match HUD values.
         if tick_hud_editor_state is not None:
             _perf_section_start = time.perf_counter()
             try:
@@ -6180,10 +6698,15 @@ def legacy_main():
                     print(f"[hud editor] persistent tick failed: {e!r}")
             _perf_warn("hud_editor_tick", _perf_section_start)
 
-        # Char test runtime tick. Current Char test only services queued
-        # roster-table patch/restore actions on the main HUD thread.  Keep this
-        # debounced so Extra Chars does not fight the character-select renderer.
-        if tick_char_test is not None and now >= char_test_next_tick:
+        # Character-select runtime service is enabled only while a request
+        # or queued action is present. The disabled state does not access
+        # character-select memory.
+        if (
+            tick_char_test is not None
+            and char_test_needs_service is not None
+            and char_test_needs_service()
+            and now >= char_test_next_tick
+        ):
             _perf_section_start = time.perf_counter()
             try:
                 tick_char_test()
@@ -6671,7 +7194,6 @@ def legacy_main():
                     except Exception:
                         pass
 
-            draw_scan_normals_polished(scan_surf, scan_surf.get_rect(), font, smallfont, scan_display, t_ms=t_ms, scan_fx_by_slot=scan_fx)
             if scan_anim is not None:
                 t    = now - scan_anim["start"]
                 dur  = scan_anim.get("dur", SCAN_SLIDE_DURATION)
@@ -6681,10 +7203,26 @@ def legacy_main():
                     scan_anim = None
             else:
                 y = scan_rect.y
+            local_mouse = (pygame.mouse.get_pos()[0] - scan_rect.x, pygame.mouse.get_pos()[1] - int(y))
+            normal_preview_ui = draw_scan_normals_polished(
+                scan_surf,
+                scan_surf.get_rect(),
+                font,
+                smallfont,
+                scan_display,
+                t_ms=t_ms,
+                scan_fx_by_slot=scan_fx,
+                highlight_mode=normal_preview_mode,
+                selection=normal_preview_selection,
+                mouse_pos=local_mouse,
+            )
+            normal_preview_offset = (scan_rect.x, int(y))
             scan_surf.set_alpha(255)
-            screen.blit(scan_surf, (scan_rect.x, int(y)))
+            screen.blit(scan_surf, normal_preview_offset)
 
         elif active_bottom_tab == "events":
+            normal_preview_ui = {"controls": {}, "rows": []}
+
             draw_event_log(screen, bottom_content_rect, font, smallfont)
 
         elif active_bottom_tab == "debug":
@@ -6844,7 +7382,7 @@ def legacy_main():
                 if toggle_extra_characters is not None:
                     result = toggle_extra_characters()
                     # Wake the debounced char-test tick immediately for the
-                    # user's click, then let it fall back to the safe cadence.
+                    # click event, then fall back to the safe cadence.
                     char_test_next_tick = 0.0
                     print(f"[extra chars] toggle queued: {result}", flush=True)
                 else:
@@ -6916,6 +7454,33 @@ def legacy_main():
                         bottom_tab_fade = {"start": now, "dur": 0.18}
                     mouse_clicked_pos = None
                     break
+
+            if mouse_clicked_pos is not None and active_bottom_tab == "scan":
+                _preview_controls = normal_preview_ui.get("controls") if isinstance(normal_preview_ui, dict) else {}
+                _preview_rows = normal_preview_ui.get("rows") if isinstance(normal_preview_ui, dict) else []
+                _off_x, _off_y = normal_preview_offset
+                _handled_preview_click = False
+                if isinstance(_preview_controls, dict):
+                    for _mode_key, _local_rect in list(_preview_controls.items()):
+                        if isinstance(_local_rect, pygame.Rect) and _local_rect.move(_off_x, _off_y).collidepoint(mx, my):
+                            normal_preview_mode = "none" if normal_preview_mode == _mode_key else str(_mode_key)
+                            _handled_preview_click = True
+                            break
+                if not _handled_preview_click:
+                    for _row_meta in list(_preview_rows or []):
+                        if not isinstance(_row_meta, dict):
+                            continue
+                        _local_rect = _row_meta.get("rect")
+                        if isinstance(_local_rect, pygame.Rect) and _local_rect.move(_off_x, _off_y).collidepoint(mx, my):
+                            normal_preview_selection = {
+                                "slot_label": str(_row_meta.get("slot_label") or ""),
+                                "key": str(_row_meta.get("key") or ""),
+                            }
+                            _handled_preview_click = True
+                            break
+                if _handled_preview_click:
+                    mouse_clicked_pos = None
+
             if mouse_clicked_pos is None:
                 continue
 
@@ -7371,6 +7936,10 @@ def legacy_main():
     except Exception:
         pass
 
+    try:
+        set_emulated_write_quarantine(False)
+    except Exception:
+        pass
     pygame.quit()
 
 

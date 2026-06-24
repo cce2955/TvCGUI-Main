@@ -1,9 +1,4 @@
-"""Read-only scout for static move-script signals the Frame Data editor does not decode yet.
-
-This deliberately does *not* name a signal "invulnerability", "armor", or any other
-mechanic.  It inventories structured field-operation packets and lets the user compare
-where they appear before a decoder exists.
-"""
+'Read-only scout for static move-script signals the Frame Data editor does not decode yet.\n\nThis deliberately does *not* name a signal "invulnerability", "armor", or any other\nmechanic.  It inventories structured field-operation packets and lets the operator compare\nwhere they appear before a decoder exists.\n'
 from __future__ import annotations
 
 import struct
@@ -26,7 +21,7 @@ except Exception:  # pragma: no cover - optional cosmetic integration
 
 # The packet shape is empirically stable in the loaded chr_tbl move blocks:
 #   04 <sub-op> 60|67 00 <u32 target offset> <type/format u32> <u32 value>
-# We recognize the *structure* only.  The sub-op and target semantics remain
+# Recognize the *structure* only.  The sub-op and target semantics remain
 # intentionally unmapped until live/static evidence confirms them.
 _FIELD_MARKERS = {0x60, 0x67}
 _PACKET_SIZE = 16

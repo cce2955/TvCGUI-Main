@@ -28,14 +28,7 @@ def _hp_color(cur_hp, max_hp):
     pct = (cur_hp / max_hp) * 100.0
     return _pct_color(pct)
 def draw_special_anim_calls(surface, font_small, base_x, base_y, max_rows=12, max_sites_per_id=2):
-    """
-    Draws a simple list of 01–1E animation calls and their addresses.
-
-    base_x, base_y: top-left coordinates where this block should start.
-    max_rows: maximum number of distinct IDs to show.
-    max_sites_per_id: limit how many addresses per ID we print so it
-                      does not flood the HUD.
-    """
+    '\n    Draws a simple list of 01–1E animation calls and their addresses.\n\n    base_x, base_y: top-left coordinates where this block should start.\n    max_rows: maximum number of distinct IDs to show.\n    max_sites_per_id: limit how many addresses per ID the module print so it\n                      does not flood the HUD.\n    '
     specials = get_special_anims()
 
     if not specials:
@@ -260,7 +253,7 @@ def draw_event_log(surface, rect, font, smallfont):
 # ------------------------------------------------------------
 # REFACTORED: scan normals preview
 # ------------------------------------------------------------
-# moves we actually care about in the crowded bottom box
+# moves the module actually care about in the crowded bottom box
 PREVIEW_MOVES_ORDERED = [
     "5A", "5B", "5C",
     "2A", "2B", "2C",
@@ -349,7 +342,7 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
         for wanted in PREVIEW_MOVES_ORDERED:
             mv = name_to_mv.get(wanted)
             if not mv:
-                # sometimes you have "jA" or "j.A" mismatch, so try a tiny fallback
+                # sometimes the operator have "jA" or "j.A" mismatch, so try a tiny fallback
                 if wanted.startswith("j.") and wanted[2:] in name_to_mv:
                     mv = name_to_mv[wanted[2:]]
                 elif wanted.startswith("j") and ("j." + wanted[1:]) in name_to_mv:
@@ -358,7 +351,7 @@ def draw_scan_normals(surface, rect, font, smallfont, scan_data):
                 continue
 
             aid = mv.get("id")
-            name = wanted  # we already know what we asked for
+            name = wanted  # the module already know what the module asked for
 
             s = mv.get("active_start") or mv.get("startup")  # some scans store it differently
             a0 = mv.get("active_start")

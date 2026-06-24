@@ -104,7 +104,7 @@ def hp_color(pct):
 # ------------------------------
 #
 # These offsets are relative to each fighter’s resolved base pointer. They
-# represent the small “wire” slice we display in the inspector panel to help
+# represent the small “wire” slice the module display in the inspector panel to help
 # with reverse-engineering and debugging. Offsets were identified through
 # pattern scanning and comparing across characters.
 
@@ -146,7 +146,7 @@ WIRE_OFFSETS = [
 #   If byte at 0x9246CB9D == 0x00 → Baroque not ready
 #   Else → Baroque ready.
 #
-# We read both the primary “gate” byte and its adjacent buddy byte for clarity.
+# Read both the primary “gate” byte and its adjacent buddy byte for clarity.
 
 BAROQUE_STATUS_ADDR_MAIN  = 0x9246CBAB  # authoritative readiness byte
 BAROQUE_STATUS_ADDR_BUDDY = 0x9246CB9C  # secondary neighbor byte
@@ -156,7 +156,7 @@ BAROQUE_FLAG_ADDR_1 = 0x9246CC50
 
 # P1 input monitor:
 # These regions pulse with specific action bytes (attacks, assists, taunt).
-# We expose them directly so the inspector can mirror physical controller input.
+# Expose them directly so the inspector can mirror physical controller input.
 
 INPUT_MONITOR_ADDRS = {
     "A0": 0x9246CC40,
@@ -173,12 +173,12 @@ BAROQUE_MONITOR_SIZE = 0x80  # covers CC40 → CCBF
 # Advantage tracking
 # ------------------------------
 #
-# When computing frame advantage, we locate the “attacker closest to victim”
+# When computing frame advantage, the module locate the “attacker closest to victim”
 # using squared distance. These constants determine when a pair is considered
 # close enough to be related to the same interaction.
 
 MAX_CONTACT_DIST = 250.0
 MAX_DIST2 = MAX_CONTACT_DIST * MAX_CONTACT_DIST
 
-# How long we keep a hit/block interaction alive before discarding it.
+# How long keep a hit/block interaction alive before discarding it.
 ADV_FORGET_FRAMES = 120

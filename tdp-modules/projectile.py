@@ -121,10 +121,7 @@ def fighter_base_sanity(base: int) -> bool:
 
 
 def resolve_fighter_base_from_manager(manager_ptr_addr: int) -> Optional[int]:
-    """
-    Given a static manager pointer address (e.g., 0x803C9FCC),
-    brute-walk 1–2 pointer layers and sanity-check until we hit fighter_base.
-    """
+    '\n    Given a static manager pointer address (e.g., 0x803C9FCC),\n    brute-walk 1–2 pointer layers and sanity-check until the module hit fighter_base.\n    '
     mgr = _safe_u32(manager_ptr_addr)
     if mgr is None:
         return None
@@ -178,17 +175,13 @@ def find_behavior_triple(buf: bytes, family: int, variant: int) -> List[int]:
     hits: List[int] = []
     for i in range(0, len(buf) - 3):
         if buf[i + 1] == fam and buf[i + 2] == var:
-            # buf[i] is mode byte (wildcard)
+            # Current buffer byte is the mode byte (wildcard)
             hits.append(i)
     return hits
 
 
 def find_hitbox_markers(buf: bytes) -> List[int]:
-    """
-    Look for known hitbox delimiters.
-    confirmed 35 0D 20 3F. Projectiles may reuse it, but some actors use other tags.
-    We search a small set.
-    """
+    '\n    Look for known hitbox delimiters.\n    confirmed 35 0D 20 3F. Projectiles may reuse it, but some actors use other tags.\n    The module search a small set.\n    '
     patterns = [
         bytes([0x35, 0x0D, 0x20, 0x3F]),
         bytes([0x33, 0x0D, 0x20, 0x3F]),

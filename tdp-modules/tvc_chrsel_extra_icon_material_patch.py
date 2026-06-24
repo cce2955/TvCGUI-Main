@@ -33,16 +33,16 @@ try:
     from dolphin_io import hook, rbytes, wbytes
 except Exception as e:  # pragma: no cover - runtime environment only
     print(f"[fatal] Failed to import dolphin_io hook/rbytes/wbytes: {e!r}")
-    print("        Run from your TvCGUI-Main environment/.venv where dolphin_io exists.")
+    print("        Run from the TvCGUI-Main environment/.venv where dolphin_io exists.")
     sys.exit(1)
 
 
-# Your confirmed live wheel-row table.
+# Validated live wheel-row table.
 ROW_BASE_DEFAULT = 0x9083B3A8
 ROW_SIZE_DEFAULT = 0x60
 
 # Known second resource pools / string names. These are not directly rewritten
-# by the default patch; they are logged/audited so you can verify the expected
+# by the default patch; they are logged/audited so the configuration can verify the expected
 # resource set is live.
 KNOWN_STRINGS = {
     0x92D379BE: "1015.thumbnail_0622_B00",
@@ -231,12 +231,12 @@ def apply_copy_patch(
         if len(sraw) != row_size or is_bad_row(sraw):
             msg = f"source B{cp.source_b_suffix:02d} at {hx(saddr)} is unreadable/empty"
             if not force:
-                raise RuntimeError(msg + "; use --force only if you know the row is valid")
+                raise RuntimeError(msg + "; use --force only for a validated row")
             print(f"[warn] {msg}")
         if len(traw) != row_size or is_bad_row(traw):
             msg = f"target B{cp.target_b_suffix:02d} at {hx(taddr)} is unreadable/empty"
             if not force:
-                raise RuntimeError(msg + "; use --force only if you know the row is valid")
+                raise RuntimeError(msg + "; use --force only for a validated row")
             print(f"[warn] {msg}")
 
     backup_dir = make_backup_dir(backup_root)

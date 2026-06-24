@@ -5,7 +5,7 @@
 #
 # Guarantees:
 # - Exactly one tk.Tk() instance (the hidden host root)
-# - User windows are tk.Toplevel(root)
+# - Application windows are tk.Toplevel(root)
 # - tk_call() is safe to use immediately after ensure_tk_host(); it waits for root readiness
 #
 # Optional:
@@ -25,7 +25,7 @@ from typing import Any, Callable, Optional
 _TK_THREAD: Optional[threading.Thread] = None
 _TK_ROOT: Optional[tk.Tk] = None
 
-# We signal when _TK_ROOT is created and the pump loop is active.
+# The module signal when _TK_ROOT is created and the pump loop is active.
 _TK_READY = threading.Event()
 
 # Task queue to run on Tk thread.
@@ -113,10 +113,7 @@ def ensure_tk_host() -> None:
 
 
 def tk_call(fn: Callable[[tk.Tk], Any]) -> None:
-    """
-    Fire-and-forget: schedule fn(root) on Tk thread.
-    Exceptions are swallowed (but printed to stderr) unless you use tk_call_sync().
-    """
+    '\n    Fire-and-forget: schedule fn(root) on Tk thread.\n    Exceptions are swallowed (but printed to stderr) unless the operator use tk_call_sync().\n    '
     ensure_tk_host()
     task = _Task(fn=fn, done=None)
     _TK_QUEUE.put(task)

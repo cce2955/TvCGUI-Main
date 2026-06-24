@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""
-scan_structured_blocks.py
-
-Purpose:
-  Scan a memory range and print addresses that look like
-  structured float slabs with padding (the block you showed).
-
-No UI. No animation logic. No heuristics beyond structure.
-"""
+'\nscan_structured_blocks.py\n\nPurpose:\n  Scan a memory range and print addresses that look like\n  structured float slabs with padding (the block the operator showed).\n\nNo UI. No animation logic. No heuristics beyond structure.\n'
 
 from __future__ import annotations
 import struct

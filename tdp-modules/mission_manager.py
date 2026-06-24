@@ -236,7 +236,7 @@ class MissionManager:
 
         # Last overlay payload built by write_overlay_data().  main.py uses this
         # to sync mission-scoped helpers such as Megacrash Trainer without
-        # rereading the JSON file we just wrote.
+        # rereading the JSON file the module just wrote.
         self._last_overlay_payload: dict = self._build_empty_overlay_payload()
 
     # ------------------------------------------------------------------
@@ -435,7 +435,7 @@ class MissionManager:
             pass
 
     def restore_debug_overrides(self) -> None:
-        """Call at shutdown to restore any debug flags we overwrote."""
+        'Call at shutdown to restore any debug flags the module overwrote.'
         self._restore_debug_overrides()
 
     # ------------------------------------------------------------------

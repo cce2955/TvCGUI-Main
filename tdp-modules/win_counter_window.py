@@ -14,6 +14,12 @@ except Exception:  # pragma: no cover
     rd32 = None
     wd32 = None
 
+try:
+    from win_counter_runtime_gate import is_win_counter_runtime_active
+except Exception:  # pragma: no cover
+    def is_win_counter_runtime_active() -> bool:
+        return False
+
 _OPEN_WINDOW: tk.Toplevel | None = None
 
 _BG = "#0d1018"
@@ -123,6 +129,8 @@ def _write_pair(addr_a: int, addr_b: int, digit: int) -> bool:
 
 
 def apply_win_count(player: str, value: Any, *, use_vs: bool = True, use_hud: bool = True, use_svm: bool = True) -> bool:
+    if not is_win_counter_runtime_active():
+        return False
     player = str(player or "P1").upper()
     if player not in WIN_DIGIT_BANKS:
         player = "P1"
@@ -382,9 +390,11 @@ def open_win_counter_window() -> None:
 
         def freeze_tick() -> None:
             try:
-                if freeze_var.get():
+                if freeze_var.get() and is_win_counter_runtime_active():
                     apply_win_count("P1", last_applied.get("P1", _clamp_count(p1_var.get())), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
                     apply_win_count("P2", last_applied.get("P2", _clamp_count(p2_var.get())), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
+                elif freeze_var.get():
+                    status_var.set("Freeze paused outside active match.")
             except Exception as e:
                 status_var.set(f"Freeze write failed: {e!r}")
             try:

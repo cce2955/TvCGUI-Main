@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from fd_patterns import SUPERBG_ON, SUPERBG_OFF, find_anim_u16_addr
+from fd_patterns import SUPERBG_ON, SUPERBG_OFF
 
 from typing import Optional
 
@@ -87,28 +87,23 @@ def write_active2_frames_inline(mv: dict, start: int, end: int, WRITER_AVAILABLE
 def write_anim_id_inline(mv: dict, new_anim_id: int, WRITER_AVAILABLE: bool) -> bool:
     if not WRITER_AVAILABLE:
         return False
-
-    base = mv.get("abs")
-    if not base:
-        return False
-
     try:
-        from dolphin_io import rbytes, wd8
+        from dolphin_io import rbytes, wd32
+        from mot_runtime import write_animation_only
     except ImportError:
         return False
-
-    addr, _cur, _kind = find_anim_u16_addr(base, rbytes, lookahead=0x80)
-    if addr is None:
-        return False
-
-    new_hi = (new_anim_id >> 8) & 0xFF
-    new_lo = new_anim_id & 0xFF
-
     try:
-        return bool(wd8(addr, new_hi) and wd8(addr + 1, new_lo))
+        ok, _info = write_animation_only(
+            mv,
+            int(new_anim_id),
+            char_name=mv.get("char_name") or mv.get("animation_char_key"),
+            char_id=mv.get("char_id"),
+            rbytes=rbytes,
+            wd32=wd32,
+        )
+        return bool(ok)
     except Exception:
         return False
-
 
 def write_combo_kb_mod_inline(mv: dict, new_val: int, WRITER_AVAILABLE: bool) -> bool:
     if not WRITER_AVAILABLE:
@@ -134,7 +129,7 @@ def write_superbg_inline(mv: dict, enabled: bool, WRITER_AVAILABLE: bool) -> boo
     if not addr:
         return False
 
-    # User-verified toggle values are 0x01 <-> 0x04
+    # Validated toggle values are 0x01 <-> 0x04
     val = 0x04 if enabled else 0x01
 
     try:
@@ -148,10 +143,7 @@ def write_superbg_inline(mv: dict, enabled: bool, WRITER_AVAILABLE: bool) -> boo
 
 
 def write_proj_dmg_inline(mv: dict, new_val: int, writer_available: bool) -> bool:
-    """
-    Writes projectile damage at mv["proj_tpl"] which points to the u32 word: 00 00 XX YY (big-endian).
-    We keep the top halfword 0 and write XX YY from new_val (0..65535).
-    """
+    '\n    Writes projectile damage at mv["proj_tpl"] which points to the u32 word: 00 00 XX YY (big-endian).\n    Keep the top halfword 0 and write XX YY from new_val (0..65535).\n    '
     if not writer_available:
         return False
 

@@ -1,7 +1,7 @@
 # scan_worker.py
 #
 # Background worker so big MEM2 scans don't lag pygame.
-# Generic: you pass in a scan function that returns the scan result.
+# Generic: the operator pass in a scan function that returns the scan result.
 
 import threading
 import time
@@ -35,7 +35,7 @@ class ScanNormalsWorker(threading.Thread):
             self._want.wait()
             self._want.clear()
 
-            # If we have no scan function, just idle
+            # If the module has no scan function, just idle
             if self._scan_func is None:
                 continue
 
