@@ -39,6 +39,10 @@ datas += _data_dir('assets', 'assets')
 datas += _data_glob('*.csv', '.')
 datas += _data_file('fd_region_hits.txt', '.')
 datas += _data_file('frame_data_profiles.json', '.')
+datas += _data_file('frame_data_preview_profiles.json', '.')
+# Seed only: hitboxesscaling.py copies this beside TvCGUI.exe on first run
+# and writes all auto-learned profile data to that persistent copy.
+datas += _data_file('hitbox_range_profiles.json', '.')
 datas += _data_file('quick_assists.json', '.')
 datas += _data_file('projectilemap.json', '.')
 datas += _data_file('projectile_ids.json', '.')

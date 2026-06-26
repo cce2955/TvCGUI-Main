@@ -1438,14 +1438,15 @@ _PERF_LAST_ELAPSED_MS: dict[str, float] = {}
 # scanner when needed, but the main HUD loop must not keep launching dynamic
 # scans during character changes or round reloads.
 FD_AUTOSCAN_ENABLED = os.environ.get("TVC_FD_AUTOSCAN", "1").strip().lower() not in {"0", "false", "off", "no"}
-FD_AUTOSCAN_DEBOUNCE_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_DEBOUNCE_SEC", "1.0") or "1.0")
+FD_AUTOSCAN_DEBOUNCE_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_DEBOUNCE_SEC", "0.35") or "0.35")
 FD_AUTOSCAN_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_MIN_INTERVAL_SEC", "3.0") or "3.0")
 
-# Cache-only auto refresh keeps gameplay smooth, but a never-seen character needs
-# one full dynamic profile build or it will sit forever as an empty normals card.
-# This only fires for cache misses, is debounced, and can be disabled.
+# A newly seen fighter with no compact frame-data profile gets one background
+# dynamic scan after the roster settles.  Known entries stay on the compact
+# fast path.  This is deliberately roster/profile driven, not a scan on every
+# move or every character refresh.
 FD_BUILD_MISSING_PROFILES = os.environ.get("TVC_FD_BUILD_MISSING_PROFILES", "1").strip().lower() not in {"0", "false", "off", "no"}
-FD_MISSING_PROFILE_BUILD_DELAY_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_DELAY_SEC", "2.0") or "2.0")
+FD_MISSING_PROFILE_BUILD_DELAY_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_DELAY_SEC", "0.75") or "0.75")
 FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC", "20.0") or "20.0")
 
 
@@ -3151,6 +3152,7 @@ def draw_slot_chip(
     enabled: bool,
     accent: tuple[int, int, int],
     hover: bool,
+    compact: bool = False,
 ) -> None:
     fill = (28, 31, 42) if enabled else (22, 24, 31)
     border = accent if enabled else (62, 68, 84)
@@ -3175,7 +3177,7 @@ def draw_slot_chip(
         pygame.draw.rect(surf, accent, pygame.Rect(rect.x + 2, rect.y + 3, 2, rect.height - 6), border_radius=1)
 
     state = "ON" if enabled else "OFF"
-    text = f"{label} {state}"
+    text = str(label) if compact else f"{label} {state}"
 
     label_surf = _render_outlined_text(
         font,
@@ -3201,7 +3203,13 @@ def draw_top_command_dock(
     *,
     hitbox_slots: dict,
     hurtbox_slots: dict,
+    ruler_slots: dict,
+    ruler_enabled: bool,
+    ruler_dynamic: bool,
     overlay_enabled: bool,
+    show_interaction_card: bool,
+    show_combo_card: bool,
+    show_tag_card: bool,
     megacrash_trainer_enabled: bool = False,
     megacrash_trainer_chance: int = MEGACRASH_TRAINER_DEFAULT_CHANCE,
     megacrash_trainer_mode: str = MEGACRASH_TRAINER_DEFAULT_MODE,
@@ -3215,267 +3223,306 @@ def draw_top_command_dock(
     ko_control_enabled: bool = False,
     ko_control_live_active: bool = False,
     solo_team_active: bool = False,
+    tools_open: bool = False,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
-) -> tuple[pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, pygame.Rect, dict, dict]:
-    """Draw the compact two-row main command dock.
+) -> tuple:
+    """Draw the compact command dock with routine visuals up front and lab tools in a drawer.
 
-    The old dock placed every command in one long row and kept a permanent tip
-    string on the right.  This version keeps frequently-toggled state controls
-    on the first row, tools on the second row, and replaces the permanent tip
-    string with a hover-sensitive help box.  Runtime behavior and returned rects
-    stay the same.
+    The dock is intentionally split into two layers:
+      * always-visible: overlay/cards and collision visualization controls;
+      * optional drawer: tooling that is used occasionally rather than every match.
+
+    This keeps the in-match strip readable without removing an existing tool.
     """
     mx, my = mouse_pos
     w, _h = screen.get_size()
 
     dock_rect = pygame.Rect(0, 0, w, TOP_UI_RESERVED - 4)
-    _draw_vertical_gradient(
-        screen,
-        dock_rect,
-        (12, 13, 19),
-        (8, 9, 13),
-        255,
-    )
+    _draw_vertical_gradient(screen, dock_rect, (12, 13, 19), (8, 9, 13), 255)
     pygame.draw.line(screen, (58, 64, 82), (0, dock_rect.bottom - 1), (w, dock_rect.bottom - 1))
 
     gap = 8
     y_top = 7
     y_tools = 35
     btn_h = 22
+
+    # Dummy rect kept for the older projectile-scanner click path.
+    ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    solo_team_btn_rect = pygame.Rect(-10000, -10000, 0, 0)
+
+    def draw_group(rect: pygame.Rect) -> None:
+        _draw_vertical_gradient(screen, rect, (22, 26, 37), (15, 18, 27), 235)
+        pygame.draw.rect(screen, (55, 66, 88), rect, 1, border_radius=5)
+
+    # ------------------------------------------------------------------
+    # Row 1: things worth seeing/changing in the middle of a match.
+    # ------------------------------------------------------------------
     x = 8
 
-    # Projectile editing lives inside each slot's Frame Data Workbench.  Keep a
-    # dummy rect for older click handling and return tuple compatibility.
-    ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    # Overlay/card cluster.  It is outlined as one block so card switches no
+    # longer look like unrelated free-floating buttons.
+    hud_group_rect = pygame.Rect(x, y_top - 2, 336, btn_h + 4)
+    draw_group(hud_group_rect)
 
-    # First row: live toggles/status. Win Score is first because it defaults
-    # on at 0, while keeping NEW HERO as the normal zero display.
-    win_counter_btn_rect = pygame.Rect(x, y_top, 126, btn_h)
+    hud_btn_rect = pygame.Rect(hud_group_rect.x + 4, y_top, 100, btn_h)
     draw_glass_button(
-        screen,
-        win_counter_btn_rect,
-        "Win Score: ON" if win_score_enabled else "Win Score: OFF",
-        smallfont,
-        active=bool(win_score_enabled),
-        hover=win_counter_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(44, 56, 82) if win_score_enabled else (31, 33, 42),
-        align="center",
-    )
-
-    x = win_counter_btn_rect.right + gap
-    hud_btn_rect = pygame.Rect(x, y_top, 132, btn_h)
-    draw_glass_button(
-        screen,
-        hud_btn_rect,
+        screen, hud_btn_rect,
         "Overlay: ON" if overlay_enabled else "Overlay: OFF",
-        smallfont,
-        active=overlay_enabled,
-        hover=hud_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        align="center",
+        smallfont, active=overlay_enabled,
+        hover=hud_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
+        fill=(44, 56, 82) if overlay_enabled else (31, 33, 42), align="center",
     )
 
-    x = hud_btn_rect.right + gap
-    hb_btn_rect = pygame.Rect(x, y_top, 134, btn_h)
-    hb_on = any(hitbox_slots.values())
+    interaction_card_btn_rect = pygame.Rect(hud_btn_rect.right + 4, y_top, 58, btn_h)
     draw_glass_button(
-        screen,
-        hb_btn_rect,
-        "Hitboxes: ON" if hb_on else "Hitboxes: OFF",
-        smallfont,
-        active=hb_on,
-        hover=hb_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
+        screen, interaction_card_btn_rect, "Hit/Blk", smallfont,
+        active=bool(show_interaction_card),
+        hover=interaction_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
+        fill=(44, 56, 82) if show_interaction_card else (31, 33, 42), align="center",
+    )
+
+    combo_card_btn_rect = pygame.Rect(interaction_card_btn_rect.right + 4, y_top, 55, btn_h)
+    draw_glass_button(
+        screen, combo_card_btn_rect, "Combo", smallfont,
+        active=bool(show_combo_card),
+        hover=combo_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
+        fill=(44, 56, 82) if show_combo_card else (31, 33, 42), align="center",
+    )
+
+    tag_card_btn_rect = pygame.Rect(combo_card_btn_rect.right + 4, y_top, 43, btn_h)
+    draw_glass_button(
+        screen, tag_card_btn_rect, "Tag", smallfont,
+        active=bool(show_tag_card),
+        hover=tag_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
+        fill=(44, 56, 82) if show_tag_card else (31, 33, 42), align="center",
+    )
+
+    # This clears the three optional live cards without shutting down the
+    # master HUD itself.  That lets the player declutter instantly while
+    # keeping name/health/meter information visible.
+    cards_active = bool(show_interaction_card or show_combo_card or show_tag_card)
+    clear_card_btn_rect = pygame.Rect(tag_card_btn_rect.right + 4, y_top, 52, btn_h)
+    draw_glass_button(
+        screen, clear_card_btn_rect, "Clear", smallfont,
+        active=cards_active,
+        hover=clear_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_RED,
+        fill=(59, 38, 43) if cards_active else (31, 33, 42), align="center",
+    )
+
+    # Collision cluster.  Master buttons say what each row controls; the slot
+    # chips are compact raw-slot numbers because the parent label supplies the
+    # context.  A small divider preserves the P1/P2 vs P3/P4 pairing at a
+    # glance without treating P1/P3 as a team.
+    x = hud_group_rect.right + gap
+    visual_group_rect = pygame.Rect(x, y_top - 2, 496, btn_h + 4)
+    draw_group(visual_group_rect)
+
+    hb_on = any(hitbox_slots.values())
+    hb_btn_rect = pygame.Rect(visual_group_rect.x + 4, y_top, 126, btn_h)
+    draw_glass_button(
+        screen, hb_btn_rect, "Hitboxes: ON" if hb_on else "Hitboxes: OFF", smallfont,
+        active=hb_on, hover=hb_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
         align="center",
     )
 
     chip_y = y_top + 2
-    chip_x = hb_btn_rect.right + 8
-    chip_w = 50
+    chip_w = 22
     chip_h = 18
-    chip_gap = 5
+    chip_gap = 2
+    pair_gap = 6
+    chip_x = hb_btn_rect.right + 5
     slot_colors = dict(GUI_SLOT_MUTED)
     hb_filter_rects = {}
-
-    for slot_name in ("P1", "P2", "P3", "P4"):
+    for index, slot_name in enumerate(("P1", "P2", "P3", "P4")):
+        if index == 2:
+            chip_x += pair_gap
         chip_rect = pygame.Rect(chip_x, chip_y, chip_w, chip_h)
         draw_slot_chip(
-            screen,
-            chip_rect,
-            slot_name,
-            smallfont,
+            screen, chip_rect, slot_name[-1], smallfont,
             enabled=bool(hitbox_slots.get(slot_name, False)),
             accent=slot_colors.get(slot_name, GUI_ACCENT_BLUE),
-            hover=chip_rect.collidepoint(mx, my),
+            hover=chip_rect.collidepoint(mx, my), compact=True,
         )
         hb_filter_rects[slot_name] = chip_rect.inflate(4, 4)
         chip_x += chip_w + chip_gap
 
-    x = chip_x + 4
-    hurt_btn_rect = pygame.Rect(x, y_top, 136, btn_h)
     hurt_on = any(hurtbox_slots.values())
+    hurt_btn_rect = pygame.Rect(chip_x + 8, y_top, 136, btn_h)
     draw_glass_button(
-        screen,
-        hurt_btn_rect,
-        "Hurtboxes: ON" if hurt_on else "Hurtboxes: OFF",
-        smallfont,
-        active=hurt_on,
-        hover=hurt_btn_rect.collidepoint(mx, my),
-        accent=GUI_ACCENT_GREEN,
+        screen, hurt_btn_rect, "Hurtboxes: ON" if hurt_on else "Hurtboxes: OFF", smallfont,
+        active=hurt_on, hover=hurt_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN,
         align="center",
     )
 
-    hurt_chip_y = y_top + 2
-    hurt_chip_x = hurt_btn_rect.right + 8
+    hurt_chip_x = hurt_btn_rect.right + 5
     hurt_filter_rects = {}
-    for slot_name in ("P1", "P2", "P3", "P4"):
-        chip_rect = pygame.Rect(hurt_chip_x, hurt_chip_y, chip_w, chip_h)
+    for index, slot_name in enumerate(("P1", "P2", "P3", "P4")):
+        if index == 2:
+            hurt_chip_x += pair_gap
+        chip_rect = pygame.Rect(hurt_chip_x, chip_y, chip_w, chip_h)
         draw_slot_chip(
-            screen,
-            chip_rect,
-            slot_name,
-            smallfont,
+            screen, chip_rect, slot_name[-1], smallfont,
             enabled=bool(hurtbox_slots.get(slot_name, False)),
             accent=slot_colors.get(slot_name, GUI_ACCENT_GREEN),
-            hover=chip_rect.collidepoint(mx, my),
+            hover=chip_rect.collidepoint(mx, my), compact=True,
         )
         hurt_filter_rects[slot_name] = chip_rect.inflate(4, 4)
         hurt_chip_x += chip_w + chip_gap
 
-    x = hurt_chip_x + 4
-    megacrash_btn_rect = pygame.Rect(x, y_top, 144, btn_h)
-    mega_label = f"Megacrash: {'ON' if megacrash_trainer_enabled else 'OFF'}"
+    # Ruler sources deliberately live in their own cluster.  Hitbox chips
+    # filter only live attack-box drawings; they no longer decide which of the
+    # four saved-profile rulers can appear.
+    x = visual_group_rect.right + gap
+    ruler_group_rect = pygame.Rect(x, y_top - 2, 306, btn_h + 4)
+    draw_group(ruler_group_rect)
+
+    ruler_btn_rect = pygame.Rect(ruler_group_rect.x + 4, y_top, 94, btn_h)
     draw_glass_button(
-        screen,
-        megacrash_btn_rect,
-        mega_label,
-        smallfont,
-        active=bool(megacrash_trainer_enabled),
-        hover=megacrash_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(44, 56, 82) if megacrash_trainer_enabled else (31, 33, 42),
-        align="center",
+        screen, ruler_btn_rect, "Ruler: ON" if ruler_enabled else "Ruler: OFF", smallfont,
+        active=bool(ruler_enabled), hover=ruler_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+        fill=(44, 48, 76) if ruler_enabled else (31, 33, 42), align="center",
     )
 
-    # Second row: tools that open helper windows or one-shot actions.
-    x = 8
-    as_btn_rect = pygame.Rect(x, y_tools, 132, btn_h)
-    draw_glass_button(
-        screen,
-        as_btn_rect,
-        "Assist Scanner",
-        smallfont,
-        active=False,
-        hover=as_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        align="center",
-    )
-
-    x = as_btn_rect.right + gap
-    overseer_btn_rect = pygame.Rect(x, y_tools, 108, btn_h)
-    draw_glass_button(
-        screen,
-        overseer_btn_rect,
-        "Tool State",
-        smallfont,
-        active=False,
-        hover=overseer_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(31, 33, 42),
-        align="center",
-    )
-
-    x = overseer_btn_rect.right + gap
-    memdump_btn_rect = pygame.Rect(x, y_tools, 110, btn_h)
-    dump_label = mem_dump_label if mem_dump_active and mem_dump_label else "Dump MEM"
-    draw_glass_button(
-        screen,
-        memdump_btn_rect,
-        dump_label,
-        smallfont,
-        active=bool(mem_dump_active),
-        hover=memdump_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(44, 56, 82) if mem_dump_active else (31, 33, 42),
-        align="center",
-    )
-
-    x = memdump_btn_rect.right + gap
-    select_probe_btn_rect = pygame.Rect(x, y_tools, 136, btn_h)
-    draw_glass_button(
-        screen,
-        select_probe_btn_rect,
-        "Extra chars: ON" if char_test_active else "Extra chars: OFF",
-        smallfont,
-        active=bool(char_test_active),
-        hover=select_probe_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT,
-        fill=(44, 56, 82) if char_test_active else (31, 33, 42),
-        align="center",
-    )
-
-    x = select_probe_btn_rect.right + gap
-    ko_control_btn_rect = pygame.Rect(x, y_tools, 126, btn_h)
-    draw_glass_button(
-        screen,
-        ko_control_btn_rect,
-        ("KO Ctrl: ACTIVE" if ko_control_live_active else ("KO Ctrl: AUTO" if ko_control_enabled else "KO Ctrl: OFF")),
-        smallfont,
-        active=bool(ko_control_enabled),
-        hover=ko_control_btn_rect.collidepoint(mx, my),
-        accent=GUI_ACCENT_GREEN,
-        fill=((37, 64, 42) if ko_control_live_active else ((31, 42, 36) if ko_control_enabled else (31, 33, 42))),
-        align="center",
-    )
-
-    # Solo Team button removed for now.  Keep a zero-size offscreen rect so the
-    # existing dock return shape and mouse-handler unpacking stay compatible.
-    solo_team_btn_rect = pygame.Rect(-10000, -10000, 0, 0)
-
-    help_tip = "Hover a command for help. Right click panels/debug rows to copy."
-    help_accent = GUI_APP_ACCENT
-    if hb_btn_rect.collidepoint(mx, my):
-        help_tip = "Hitboxes: master toggle for attack/projectile collision boxes."
-    elif any(rect.collidepoint(mx, my) for rect in hb_filter_rects.values()):
-        help_tip = "P1-P4 chips beside Hitboxes: show or hide attack/projectile boxes for that raw slot."
-    elif hurt_btn_rect.collidepoint(mx, my):
-        help_tip = "Hurtboxes: master toggle for defender/body collision bubbles."
-        help_accent = GUI_ACCENT_GREEN
-    elif any(rect.collidepoint(mx, my) for rect in hurt_filter_rects.values()):
-        help_tip = "P1-P4 chips beside Hurtboxes: show or hide hurtboxes for that raw slot."
-        help_accent = GUI_ACCENT_GREEN
-    elif hud_btn_rect.collidepoint(mx, my):
-        help_tip = "Overlay: starts or stops the master overlay process."
-    elif megacrash_btn_rect.collidepoint(mx, my):
-        help_tip = "Megacrash: opens trainer settings. It starts OFF and 0 percent by default."
-    elif as_btn_rect.collidepoint(mx, my):
-        help_tip = "Assist Scanner: inspect routes and choose quick assists."
-    elif win_counter_btn_rect.collidepoint(mx, my):
-        help_tip = "Win Score: visible win count controls. Defaults ON at 0, with NEW HERO kept for zero."
-    elif overseer_btn_rect.collidepoint(mx, my):
-        help_tip = "Tool State: live state, safe restore, hard reset, and debug dumps."
-    elif memdump_btn_rect.collidepoint(mx, my):
-        help_tip = "Dump MEM: save a memory dump for route/profile analysis."
-    elif select_probe_btn_rect.collidepoint(mx, my):
-        help_tip = "Extra chars: toggles the guarded Yami 1/2/3 roster/profile patch."
-    elif ko_control_btn_rect.collidepoint(mx, my):
-        help_tip = "KO Ctrl: arms SAFE mode now, escalates to FULL only after full-team KO, then drops back before the next match."
-        help_accent = GUI_ACCENT_GREEN
-
-    help_x = ko_control_btn_rect.right + 12
-    help_w = max(160, w - help_x - 10)
-    if help_w >= 180:
-        help_rect = pygame.Rect(help_x, y_tools, help_w, btn_h)
-        _draw_vertical_gradient(
-            screen,
-            help_rect,
-            (23, 25, 35),
-            (16, 18, 26),
-            235,
+    ruler_chip_x = ruler_btn_rect.right + 5
+    ruler_filter_rects = {}
+    for index, slot_name in enumerate(("P1", "P2", "P3", "P4")):
+        if index == 2:
+            ruler_chip_x += pair_gap
+        chip_rect = pygame.Rect(ruler_chip_x, chip_y, chip_w, chip_h)
+        draw_slot_chip(
+            screen, chip_rect, slot_name[-1], smallfont,
+            enabled=bool(ruler_slots.get(slot_name, True)),
+            accent=slot_colors.get(slot_name, GUI_ACCENT_PURPLE),
+            hover=chip_rect.collidepoint(mx, my), compact=True,
         )
-        pygame.draw.rect(screen, (52, 58, 76), help_rect, 1, border_radius=4)
+        ruler_filter_rects[slot_name] = chip_rect.inflate(4, 4)
+        ruler_chip_x += chip_w + chip_gap
+
+    ruler_dynamic_btn_rect = pygame.Rect(ruler_chip_x + 5, y_top, 92, btn_h)
+    draw_glass_button(
+        screen, ruler_dynamic_btn_rect, "Dynamic: ON" if ruler_dynamic else "Dynamic: OFF", smallfont,
+        active=bool(ruler_dynamic), hover=ruler_dynamic_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+        fill=(52, 42, 76) if ruler_dynamic else (31, 33, 42), align="center",
+    )
+
+    x = ruler_group_rect.right + gap
+    tools_btn_rect = pygame.Rect(x, y_top, 94, btn_h)
+    draw_glass_button(
+        screen, tools_btn_rect, "Lab  ▾" if not tools_open else "Lab  ▴", smallfont,
+        active=bool(tools_open), hover=tools_btn_rect.collidepoint(mx, my),
+        accent=GUI_APP_ACCENT, fill=(38, 49, 70) if tools_open else (31, 33, 42), align="center",
+    )
+
+    # ------------------------------------------------------------------
+    # Row 2: explicit lab drawer or a quiet single-line contextual hint.
+    # ------------------------------------------------------------------
+    as_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    memdump_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    win_counter_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    select_probe_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    ko_control_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    megacrash_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    overseer_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+
+    if tools_open:
+        drawer_rect = pygame.Rect(8, y_tools - 2, min(w - 16, 804), btn_h + 4)
+        draw_group(drawer_rect)
+        x = drawer_rect.x + 4
+
+        win_counter_btn_rect = pygame.Rect(x, y_tools, 106, btn_h)
+        draw_glass_button(
+            screen, win_counter_btn_rect,
+            "Win Score: ON" if win_score_enabled else "Win Score: OFF",
+            smallfont, active=bool(win_score_enabled), hover=win_counter_btn_rect.collidepoint(mx, my),
+            accent=GUI_APP_ACCENT, fill=(44, 56, 82) if win_score_enabled else (31, 33, 42), align="center",
+        )
+
+        x = win_counter_btn_rect.right + 4
+        as_btn_rect = pygame.Rect(x, y_tools, 100, btn_h)
+        draw_glass_button(screen, as_btn_rect, "Assist", smallfont, active=False,
+                          hover=as_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
+
+        x = as_btn_rect.right + 4
+        memdump_btn_rect = pygame.Rect(x, y_tools, 96, btn_h)
+        dump_label = mem_dump_label if mem_dump_active and mem_dump_label else "Dump MEM"
+        draw_glass_button(
+            screen, memdump_btn_rect, dump_label, smallfont, active=bool(mem_dump_active),
+            hover=memdump_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
+            fill=(44, 56, 82) if mem_dump_active else (31, 33, 42), align="center",
+        )
+
+        x = memdump_btn_rect.right + 4
+        select_probe_btn_rect = pygame.Rect(x, y_tools, 110, btn_h)
+        draw_glass_button(
+            screen, select_probe_btn_rect,
+            "Extra: ON" if char_test_active else "Extra: OFF", smallfont,
+            active=bool(char_test_active), hover=select_probe_btn_rect.collidepoint(mx, my),
+            accent=GUI_APP_ACCENT, fill=(44, 56, 82) if char_test_active else (31, 33, 42), align="center",
+        )
+
+        x = select_probe_btn_rect.right + 4
+        ko_control_btn_rect = pygame.Rect(x, y_tools, 112, btn_h)
+        ko_label = "KO: ACTIVE" if ko_control_live_active else ("KO: ARMED" if ko_control_enabled else "KO: OFF")
+        draw_glass_button(
+            screen, ko_control_btn_rect, ko_label, smallfont, active=bool(ko_control_enabled),
+            hover=ko_control_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN,
+            fill=((37, 64, 42) if ko_control_live_active else ((31, 42, 36) if ko_control_enabled else (31, 33, 42))),
+            align="center",
+        )
+
+        x = ko_control_btn_rect.right + 4
+        megacrash_btn_rect = pygame.Rect(x, y_tools, 108, btn_h)
+        draw_glass_button(
+            screen, megacrash_btn_rect,
+            "Megacrash: ON" if megacrash_trainer_enabled else "Megacrash",
+            smallfont, active=bool(megacrash_trainer_enabled), hover=megacrash_btn_rect.collidepoint(mx, my),
+            accent=GUI_APP_ACCENT, fill=(44, 56, 82) if megacrash_trainer_enabled else (31, 33, 42), align="center",
+        )
+
+        x = megacrash_btn_rect.right + 4
+        overseer_btn_rect = pygame.Rect(x, y_tools, 100, btn_h)
+        draw_glass_button(screen, overseer_btn_rect, "Tool State", smallfont, active=False,
+                          hover=overseer_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
+    else:
+        help_tip = "Visual controls stay here. Lab holds dumps, assists, extra characters, KO control, Megacrash, and tool state."
+        help_accent = GUI_APP_ACCENT
+        if hb_btn_rect.collidepoint(mx, my):
+            help_tip = "Hitboxes: master attack/projectile boxes. Turning them on also turns on the ground-normal range ruler."
+        elif any(rect.collidepoint(mx, my) for rect in hb_filter_rects.values()):
+            help_tip = "Hit slots: raw P1 / P2 / P3 / P4 visibility. The gap separates Team 1 (1/2) from Team 2 (3/4)."
+        elif hurt_btn_rect.collidepoint(mx, my):
+            help_tip = "Hurtboxes: master defender/body bubbles. The profile ruler uses these to determine whether its saved reach touches."
+            help_accent = GUI_ACCENT_GREEN
+        elif any(rect.collidepoint(mx, my) for rect in hurt_filter_rects.values()):
+            help_tip = "Hurt slots: raw P1 / P2 / P3 / P4 visibility. The gap separates Team 1 (1/2) from Team 2 (3/4)."
+            help_accent = GUI_ACCENT_GREEN
+        elif ruler_btn_rect.collidepoint(mx, my):
+            help_tip = "Ruler: saved ground-normal reach guides. Known moves use their saved entry without scanning. A missing grounded normal is sampled once, saved to hitbox_range_profiles.json, then becomes instant on later uses. Chips only filter eligible sources. It needs Hurtboxes ON for live reach checks."
+            help_accent = GUI_ACCENT_PURPLE
+        elif ruler_dynamic_btn_rect.collidepoint(mx, my):
+            help_tip = "Dynamic: add the recorded active-frame sweep beside the single maximum-reach ruler. It captures a one-time root-path + multi-hit supplement only for moves that do not have one yet; static reach remains unchanged."
+            help_accent = GUI_ACCENT_PURPLE
+        elif any(rect.collidepoint(mx, my) for rect in ruler_filter_rects.values()):
+            help_tip = "Ruler slots: choose which raw fighters can show a saved-profile ruler. Independent from Hitboxes. Off-stage partners are naturally hidden."
+            help_accent = GUI_ACCENT_PURPLE
+        elif hud_btn_rect.collidepoint(mx, my):
+            help_tip = "Overlay: starts or stops the master HUD process."
+        elif clear_card_btn_rect.collidepoint(mx, my):
+            help_tip = "Clear: turn off Hit/Blk, Combo, and Tag together while leaving the main HUD on."
+            help_accent = GUI_ACCENT_RED
+        elif interaction_card_btn_rect.collidepoint(mx, my):
+            help_tip = "Hit/Blk: show or hide the live hit/block interaction ribbon."
+        elif combo_card_btn_rect.collidepoint(mx, my):
+            help_tip = "Combo: show or hide the live combo ledger."
+        elif tag_card_btn_rect.collidepoint(mx, my):
+            help_tip = "Tag: show or hide the incoming tag resource card."
+        elif tools_btn_rect.collidepoint(mx, my):
+            help_tip = "Lab: open occasional tools without keeping them in the match-time strip."
+
+        help_rect = pygame.Rect(8, y_tools, max(120, w - 16), btn_h)
+        _draw_vertical_gradient(screen, help_rect, (21, 24, 34), (15, 17, 25), 230)
+        pygame.draw.rect(screen, (49, 57, 75), help_rect, 1, border_radius=4)
         pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 4.0)
         dot_col = _brighten(help_accent, int(35 * pulse))
         dot = pygame.Surface((8, 8), pygame.SRCALPHA)
@@ -3484,8 +3531,14 @@ def draw_top_command_dock(
         help_surf = _fit_text(smallfont, help_tip, GUI_TEXT_DIM, help_rect.width - 28)
         screen.blit(help_surf, (help_rect.x + 22, help_rect.y + (help_rect.height - help_surf.get_height()) // 2))
 
-    return hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, hb_filter_rects, hurt_filter_rects
-
+    return (
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect,
+        megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect,
+        overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect,
+        solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect,
+        tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects,
+        ruler_btn_rect, ruler_dynamic_btn_rect, ruler_filter_rects,
+    )
 
 def _char_test_active_for_dock() -> bool:
     """Return whether Char test is currently running."""
@@ -3938,8 +3991,10 @@ def _normal_visible_moves(moves: list) -> list:
 _NORMAL_PREVIEW_MODE_META = {
     "fast": {"label": "Fast", "color": (112, 182, 245)},
     "damage": {"label": "Damage", "color": (232, 190, 96)},
-    "adv_hit": {"label": "+Hit", "color": (108, 214, 158)},
     "adv_block": {"label": "+Block", "color": (177, 145, 244)},
+    "matchup": {"label": "Match", "color": (104, 211, 227)},
+    "safe": {"label": "Safe", "color": (108, 214, 158)},
+    "unsafe": {"label": "Unsafe", "color": (232, 124, 124)},
     "punish": {"label": "Punish", "color": (236, 136, 112)},
     "live_punish": {"label": "Live", "color": (100, 209, 223)},
 }
@@ -4080,37 +4135,64 @@ def _normal_preview_live_source(slots: list[dict]) -> tuple[str, dict] | tuple[N
 
 
 def _normal_preview_best_keys(moves: list[dict], mode: str) -> set[str]:
-    """Return the best metric rows for one character card."""
-    ranked: list[tuple[int, str]] = []
+    """Return the best metric rows for one character card.
+
+    Fast/damage/+block highlights are split into grounded and aerial groups so
+    each card can show one best standing normal and one best jumping normal.
+    Fast ignores 1f/2f startup values to avoid false positives.
+    """
+    mode = str(mode or "")
+    if mode == "adv_hit":
+        mode = "adv_block"
+
+    grouped: dict[bool, list[tuple[int, str]]] = {False: [], True: []}
     for mv in moves:
         if not isinstance(mv, dict):
             continue
+        is_air = _normal_preview_is_air_move(mv)
         if mode == "fast":
             value = _normal_int(mv, "startup", "start", "active_start")
-            if value is not None:
-                ranked.append((-int(value), _normal_preview_key(mv)))
+            if value is None:
+                continue
+            value = int(value)
+            if value < 3:
+                continue
+            grouped[is_air].append((-value, _normal_preview_key(mv)))
         elif mode == "damage":
             value = _normal_damage(mv)
-            if value is not None:
-                ranked.append((int(value), _normal_preview_key(mv)))
-        elif mode == "adv_hit":
-            value = _normal_advantage(mv, "hit")
-            if value is not None:
-                ranked.append((int(value), _normal_preview_key(mv)))
+            if value is None:
+                continue
+            grouped[is_air].append((int(value), _normal_preview_key(mv)))
         elif mode == "adv_block":
             value = _normal_advantage(mv, "block")
-            if value is not None:
-                ranked.append((int(value), _normal_preview_key(mv)))
-    if not ranked:
-        return set()
-    best_value = max(value for value, _key in ranked)
-    return {key for value, key in ranked if value == best_value}
+            if value is None:
+                continue
+            grouped[is_air].append((int(value), _normal_preview_key(mv)))
+        elif mode == "safe":
+            value = _normal_advantage(mv, "block")
+            if value is None or int(value) < 0:
+                continue
+            grouped[is_air].append((int(value), _normal_preview_key(mv)))
+        elif mode == "unsafe":
+            value = _normal_advantage(mv, "block")
+            if value is None:
+                continue
+            grouped[is_air].append((-int(value), _normal_preview_key(mv)))
+
+    out: set[str] = set()
+    for is_air in (False, True):
+        ranked = grouped[is_air]
+        if not ranked:
+            continue
+        best_value = max(value for value, _key in ranked)
+        out.update(key for value, key in ranked if value == best_value)
+    return out
 
 
-def _normal_preview_punish_candidate(slot: dict, source_mv: dict, window: int) -> str | None:
-    """Return the best legal normal response for a block-punish window."""
+def _normal_preview_punish_ladder(slot: dict, source_mv: dict, window: int) -> dict[str, object] | None:
+    """Return fastest and highest-damage legal normal punish options for one slot."""
     source_is_air = _normal_preview_is_air_move(source_mv)
-    candidates: list[tuple[int, int, str]] = []
+    candidates: list[dict[str, object]] = []
     for mv in _normal_visible_moves(slot.get("moves") or []):
         if _normal_preview_is_air_move(mv) != source_is_air:
             continue
@@ -4118,58 +4200,135 @@ def _normal_preview_punish_candidate(slot: dict, source_mv: dict, window: int) -
         if startup is None or int(startup) > int(window):
             continue
         damage = _normal_damage(mv)
-        candidates.append((int(damage) if damage is not None else -1, -int(startup), _normal_preview_key(mv)))
-    return max(candidates)[2] if candidates else None
+        candidates.append({
+            "key": _normal_preview_key(mv),
+            "label": _normal_move_label(mv),
+            "startup": int(startup),
+            "damage": int(damage) if damage is not None else 0,
+        })
+    if not candidates:
+        return None
+
+    fastest = min(candidates, key=lambda item: (int(item["startup"]), -int(item["damage"]), str(item["key"])))
+    strongest = max(candidates, key=lambda item: (int(item["damage"]), -int(item["startup"]), str(item["key"])))
+    return {"fast": fastest, "damage": strongest}
+
+
+def _normal_preview_punish_candidate(slot: dict, source_mv: dict, window: int) -> str | None:
+    """Compatibility helper: return the highest-damage valid punish key."""
+    ladder = _normal_preview_punish_ladder(slot, source_mv, window)
+    if not ladder:
+        return None
+    best = ladder.get("damage")
+    return str(best.get("key")) if isinstance(best, dict) else None
 
 
 def _normal_preview_punish_from_source(
     slots: list[dict],
     source_slot: str,
     source_mv: dict,
-) -> tuple[dict[str, set[str]], int | None, str | None]:
-    """Return the active opposing point-normal that punishes a source move."""
+) -> tuple[dict[str, set[str]], dict[str, dict[str, str]], int | None, str | None]:
+    """Return a fastest/highest-damage punish ladder for both opposing slots."""
     adv_block = _normal_advantage(source_mv, "block")
     if adv_block is None or adv_block >= 0:
-        return {}, adv_block, source_slot
+        return {}, {}, adv_block, source_slot
 
     source_team = "P1" if str(source_slot).startswith("P1") else "P2" if str(source_slot).startswith("P2") else ""
     target_team = "P2" if source_team == "P1" else "P1" if source_team == "P2" else ""
     if not target_team:
-        return {}, adv_block, source_slot
+        return {}, {}, adv_block, source_slot
 
-    target_slot, target = _normal_preview_active_slot(slots, target_team)
-    if not target_slot or not isinstance(target, dict):
-        return {}, adv_block, source_slot
+    keys_by_slot: dict[str, set[str]] = {}
+    roles_by_slot: dict[str, dict[str, str]] = {}
+    for slot in slots:
+        if not isinstance(slot, dict):
+            continue
+        slot_label = str(slot.get("slot_label") or slot.get("slot") or "")
+        if not slot_label.startswith(target_team):
+            continue
+        ladder = _normal_preview_punish_ladder(slot, source_mv, -int(adv_block))
+        if not ladder:
+            continue
+        role_keys: dict[str, str] = {}
+        for role in ("fast", "damage"):
+            entry = ladder.get(role)
+            if isinstance(entry, dict) and entry.get("key"):
+                role_keys[role] = str(entry["key"])
+        if role_keys:
+            roles_by_slot[slot_label] = role_keys
+            keys_by_slot[slot_label] = set(role_keys.values())
+    return keys_by_slot, roles_by_slot, adv_block, source_slot
 
-    key = _normal_preview_punish_candidate(target, source_mv, -int(adv_block))
-    return ({target_slot: {key}} if key else {}), adv_block, source_slot
+
+def _normal_preview_matchup_from_source(
+    slots: list[dict],
+    source_slot: str,
+    source_mv: dict,
+) -> tuple[dict[str, set[str]], dict[str, dict[str, str]], str | None]:
+    """Match a selected normal's notation against both opposing character cards."""
+    source_team = "P1" if str(source_slot).startswith("P1") else "P2" if str(source_slot).startswith("P2") else ""
+    target_team = "P2" if source_team == "P1" else "P1" if source_team == "P2" else ""
+    wanted = _normal_canonical_label(_normal_move_label(source_mv)) or _normal_canon_label(_normal_move_label(source_mv))
+    if not target_team or not wanted:
+        return {}, {}, source_slot
+
+    keys_by_slot: dict[str, set[str]] = {}
+    roles_by_slot: dict[str, dict[str, str]] = {}
+    for slot in slots:
+        if not isinstance(slot, dict):
+            continue
+        slot_label = str(slot.get("slot_label") or slot.get("slot") or "")
+        if not slot_label.startswith(target_team):
+            continue
+        for mv in _normal_visible_moves(slot.get("moves") or []):
+            canon = _normal_canonical_label(_normal_move_label(mv)) or _normal_canon_label(_normal_move_label(mv))
+            if canon != wanted:
+                continue
+            key = _normal_preview_key(mv)
+            keys_by_slot.setdefault(slot_label, set()).add(key)
+            roles_by_slot.setdefault(slot_label, {})["match"] = key
+            break
+    return keys_by_slot, roles_by_slot, source_slot
 
 
-def _normal_preview_punish_keys(slots: list[dict], selection: dict | None) -> tuple[dict[str, set[str]], int | None, str | None]:
-    """Resolve a selected normal into an active point punish response."""
+def _normal_preview_punish_keys(slots: list[dict], selection: dict | None) -> tuple[dict[str, set[str]], dict[str, dict[str, str]], int | None, str | None]:
+    """Resolve a selected normal into both opponents' punish ladders."""
     source_slot, source_mv = _normal_preview_selected_move(slots, selection)
     if not source_slot or not isinstance(source_mv, dict):
-        return {}, None, None
+        return {}, {}, None, None
     return _normal_preview_punish_from_source(slots, source_slot, source_mv)
 
 
-def _normal_preview_live_punish_keys(slots: list[dict]) -> tuple[dict[str, set[str]], int | None, str | None]:
-    """Resolve the current live normal into an active point punish response."""
+def _normal_preview_live_punish_keys(slots: list[dict]) -> tuple[dict[str, set[str]], dict[str, dict[str, str]], int | None, str | None]:
+    """Resolve the one currently executing point normal into a punish ladder."""
     source_slot, source_mv = _normal_preview_live_source(slots)
     if not source_slot or not isinstance(source_mv, dict):
-        return {}, None, None
+        return {}, {}, None, None
     return _normal_preview_punish_from_source(slots, source_slot, source_mv)
 
 
-def _normal_preview_highlight_keys(slots: list[dict], mode: str, selection: dict | None) -> tuple[dict[str, set[str]], int | None, str | None]:
-    """Return highlight keys for the active preview mode."""
+def _normal_preview_matchup_keys(slots: list[dict], selection: dict | None) -> tuple[dict[str, set[str]], dict[str, dict[str, str]], int | None, str | None]:
+    """Resolve the selected row to equivalent notation on the opposing team."""
+    source_slot, source_mv = _normal_preview_selected_move(slots, selection)
+    if not source_slot or not isinstance(source_mv, dict):
+        return {}, {}, None, None
+    keys, roles, source = _normal_preview_matchup_from_source(slots, source_slot, source_mv)
+    return keys, roles, None, source
+
+
+def _normal_preview_highlight_keys(slots: list[dict], mode: str, selection: dict | None) -> tuple[dict[str, set[str]], dict[str, dict[str, str]], int | None, str | None]:
+    """Return highlighted rows plus role details for the active preview tool."""
     mode = str(mode or "none")
+    if mode == "adv_hit":
+        mode = "adv_block"
     if mode == "punish":
         return _normal_preview_punish_keys(slots, selection)
     if mode == "live_punish":
         return _normal_preview_live_punish_keys(slots)
-    if mode not in {"fast", "damage", "adv_hit", "adv_block"}:
-        return {}, None, None
+    if mode == "matchup":
+        return _normal_preview_matchup_keys(slots, selection)
+    if mode not in {"fast", "damage", "adv_block", "safe", "unsafe"}:
+        return {}, {}, None, None
     out: dict[str, set[str]] = {}
     for slot in slots:
         if not isinstance(slot, dict):
@@ -4178,13 +4337,15 @@ def _normal_preview_highlight_keys(slots: list[dict], mode: str, selection: dict
         keys = _normal_preview_best_keys(_normal_visible_moves(slot.get("moves") or []), mode)
         if keys:
             out[slot_label] = keys
-    return out, None, None
+    return out, {}, None, None
 
 
 def _normal_preview_status(slots: list[dict], mode: str, selection: dict | None) -> str:
     """Build the compact status label beside the preview controls."""
     mode = str(mode or "none")
-    if mode not in {"punish", "live_punish"}:
+    if mode == "adv_hit":
+        mode = "adv_block"
+    if mode not in {"punish", "live_punish", "matchup"}:
         return "Click active filter to clear"
 
     if mode == "live_punish":
@@ -4197,6 +4358,12 @@ def _normal_preview_status(slots: list[dict], mode: str, selection: dict | None)
             return "Select a move to test"
 
     label = _normal_move_label(source_mv)
+    if mode == "matchup":
+        highlighted, _roles, _source = _normal_preview_matchup_from_source(slots, source_slot, source_mv)
+        if not highlighted:
+            return f"{source_slot} {label}: no matching normal on the opposing team"
+        return f"{source_slot} {label}: matched on {', '.join(sorted(highlighted))}"
+
     adv_block = _normal_advantage(source_mv, "block")
     prefix = "Live " if mode == "live_punish" else ""
     if adv_block is None:
@@ -4204,13 +4371,24 @@ def _normal_preview_status(slots: list[dict], mode: str, selection: dict | None)
     if adv_block >= 0:
         return f"{prefix}{source_slot} {label}: safe on block ({adv_block:+d})"
 
-    highlighted, _adv, _source = _normal_preview_punish_from_source(slots, source_slot, source_mv)
+    highlighted, ladders, _adv, _source = _normal_preview_punish_from_source(slots, source_slot, source_mv)
     response_kind = "air-to-air" if _normal_preview_is_air_move(source_mv) else "ground"
     window = -int(adv_block)
     if not highlighted:
         return f"{prefix}{source_slot} {label}: no {response_kind} punish in {window}f"
-    target_slot = next(iter(highlighted))
-    return f"{prefix}{source_slot} {label}: {target_slot} punish window {window}f"
+
+    bits = []
+    for target in sorted(ladders):
+        slot = next((item for item in slots if str(item.get("slot_label") or item.get("slot") or "") == target), {})
+        ladder = _normal_preview_punish_ladder(slot, source_mv, window) if isinstance(slot, dict) else None
+        fast = ladder.get("fast") if isinstance(ladder, dict) else None
+        damage = ladder.get("damage") if isinstance(ladder, dict) else None
+        if isinstance(fast, dict) and isinstance(damage, dict):
+            bits.append(f"{target} F:{fast.get('label')} {fast.get('startup')}f D:{damage.get('label')} {damage.get('damage')}")
+        elif isinstance(fast, dict):
+            bits.append(f"{target} F:{fast.get('label')} {fast.get('startup')}f")
+    return f"{prefix}{source_slot} {label} {adv_block:+d}: " + " | ".join(bits)
+
 
 def _draw_scan_metric_chip(
     surf: pygame.Surface,
@@ -4272,6 +4450,7 @@ def draw_scan_normals_polished(
     highlight_mode: str = "none",
     selection: dict | None = None,
     mouse_pos: tuple[int, int] | None = None,
+    advanced_open: bool = False,
 ) -> dict:
     """Draw the normals preview and return local click targets."""
     interaction = {"controls": {}, "rows": []}
@@ -4305,15 +4484,18 @@ def draw_scan_normals_polished(
             slot_map[_lbl] = _s
     slots = [slot_map.get(lbl, {"slot_label": lbl, "char_name": "No character", "moves": []}) for lbl in ordered_labels]
 
-    highlight_keys, _punish_adv, _punish_source_slot = _normal_preview_highlight_keys(slots, highlight_mode, selection)
+    highlight_keys, highlight_roles, _punish_adv, _punish_source_slot = _normal_preview_highlight_keys(slots, highlight_mode, selection)
     status_text = _normal_preview_status(slots, highlight_mode, selection)
 
     control_y = rect.y + 28
     control_h = 17
+    control_row_gap = 20
+    advanced_modes = {"safe", "unsafe"}
+    highlight_more_active = highlight_mode in advanced_modes
     label_s = smallfont.render("Highlight", True, GUI_TEXT_DIM)
     surf.blit(label_s, (rect.x + 10, control_y + (control_h - label_s.get_height()) // 2))
     control_x = rect.x + 10 + label_s.get_width() + 7
-    for control_key in ("fast", "damage", "adv_hit", "adv_block"):
+    for control_key in ("fast", "damage", "adv_block", "matchup"):
         meta = _NORMAL_PREVIEW_MODE_META[control_key]
         control_w = max(38, smallfont.size(meta["label"])[0] + 14)
         control_rect = pygame.Rect(control_x, control_y, control_w, control_h)
@@ -4329,6 +4511,45 @@ def draw_scan_normals_polished(
         )
         interaction["controls"][control_key] = control_rect.copy()
         control_x += control_w + 4
+
+    more_label = "More ▴" if advanced_open else "More ▾"
+    more_w = max(44, smallfont.size(more_label)[0] + 14)
+    more_rect = pygame.Rect(control_x, control_y, more_w, control_h)
+    draw_glass_button(
+        surf,
+        more_rect,
+        more_label,
+        smallfont,
+        active=(advanced_open or highlight_more_active),
+        hover=more_rect.collidepoint(mouse_pos),
+        accent=(146, 162, 192),
+        fill=(24, 29, 41),
+    )
+    interaction["controls"]["__more__"] = more_rect.copy()
+    control_x = more_rect.right + 4
+
+    if advanced_open:
+        adv_x = rect.x + 10 + label_s.get_width() + 7
+        adv_y = control_y + control_row_gap
+        adv_hint = smallfont.render("Advanced", True, GUI_TEXT_DIM)
+        surf.blit(adv_hint, (rect.x + 10, adv_y + (control_h - adv_hint.get_height()) // 2))
+        adv_x = rect.x + 10 + adv_hint.get_width() + 7
+        for control_key in ("safe", "unsafe"):
+            meta = _NORMAL_PREVIEW_MODE_META[control_key]
+            control_w = max(42, smallfont.size(meta["label"])[0] + 14)
+            control_rect = pygame.Rect(adv_x, adv_y, control_w, control_h)
+            draw_glass_button(
+                surf,
+                control_rect,
+                meta["label"],
+                smallfont,
+                active=(highlight_mode == control_key),
+                hover=control_rect.collidepoint(mouse_pos),
+                accent=meta["color"],
+                fill=(24, 29, 41),
+            )
+            interaction["controls"][control_key] = control_rect.copy()
+            adv_x += control_w + 4
 
     divider_x = control_x + 2
     pygame.draw.line(surf, (62, 73, 99), (divider_x, control_y + 2), (divider_x, control_y + control_h - 2))
@@ -4367,11 +4588,12 @@ def draw_scan_normals_polished(
         status_s = _fit_text(smallfont, status_text, GUI_TEXT_MUTED, status_w)
         surf.blit(status_s, (control_x, control_y + (control_h - status_s.get_height()) // 2))
 
-    pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 49), (rect.right - 8, rect.y + 49))
+    controls_bottom_y = rect.y + (69 if advanced_open else 49)
+    pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, controls_bottom_y), (rect.right - 8, controls_bottom_y))
 
     pad, gap = 8, 10
-    top = rect.y + 54
-    card_h = max(44, rect.height - 62)
+    top = controls_bottom_y + 5
+    card_h = max(44, rect.bottom - top - 8)
     count = 4
     card_w = max(140, (rect.width - pad * 2 - gap * (count - 1)) // count)
     dense = rect.height < 260 or rect.width < 930
@@ -4429,6 +4651,10 @@ def draw_scan_normals_polished(
         table_y = card.y + header_h + 4
         table_w = card.width - 12
         table_h = card.height - header_h - 8
+        # Keep a small breathing gap beneath the metric header.  Without it,
+        # the top stroke of the first normal row can visually merge with the
+        # header separator on compact cards.
+        first_row_gap = 3
         metric_headers = ("S", "A", "R", "+H", "+B", "D")
         metric_count = len(metric_headers)
         # The preview prioritizes startup, active, recovery, advantage, and
@@ -4445,7 +4671,7 @@ def draw_scan_normals_polished(
 
         hdr = pygame.Rect(grid_x, grid_y, grid_w, table_header_h)
         pygame.draw.rect(surf, (18, 22, 31), hdr, border_radius=4)
-        header_labels = ("Move",) + metric_headers
+        header_labels = ("GND",) + metric_headers
         header_widths = (move_col_w,) + (metric_col_w,) * metric_count
         cell_x = grid_x
         for i, (txt, cell_w) in enumerate(zip(header_labels, header_widths)):
@@ -4458,15 +4684,20 @@ def draw_scan_normals_polished(
             cell_x += cell_w
 
         if is_empty_card:
-            empty_body = pygame.Rect(grid_x + 1, grid_y + table_header_h + 1, grid_w - 2, grid_h - table_header_h - 2)
+            empty_body = pygame.Rect(
+                grid_x + 1,
+                grid_y + table_header_h + first_row_gap + 1,
+                grid_w - 2,
+                max(1, grid_h - table_header_h - first_row_gap - 2),
+            )
             pygame.draw.rect(surf, (11, 14, 21), empty_body, border_radius=4)
             had_scan_entry = bool(slot.get("_had_scan_entry"))
             if char_name == "No character":
                 empty_msg = "No character loaded"
                 sub_msg = "This slot is currently empty"
             elif bool(slot.get("profile_cache_miss")):
-                empty_msg = "Initial scan in progress"
-                sub_msg = "Later scans use saved data."
+                empty_msg = "No saved normal profile"
+                sub_msg = "Open Frame Data to run an explicit scan."
             elif had_scan_entry:
                 empty_msg = "No normals returned"
                 sub_msg = "The scan completed, but this slot returned no normal data"
@@ -4502,24 +4733,51 @@ def draw_scan_normals_polished(
             continue
 
         row_count = max(1, len(visible_moves))
-        available_h = max(1, grid_h - table_header_h)
-        row_h = max(13, min(18, available_h // row_count))
+        available_h = max(1, grid_h - table_header_h - first_row_gap)
 
-        y = grid_y + table_header_h
-        last_section = None
+        # Reserve a real section band before the first aerial normal instead of
+        # painting the AIR badge on top of the preceding ground row.
+        air_start_indexes: set[int] = set()
+        previous_air = None
+        for _index, _move in enumerate(visible_moves):
+            if not isinstance(_move, dict):
+                continue
+            _is_air = _normal_preview_is_air_move(_move)
+            if _index > 0 and _is_air and previous_air is False:
+                air_start_indexes.add(_index)
+            previous_air = _is_air
+        divider_count = len(air_start_indexes)
+        desired_divider_h = 10 if divider_count else 0
+        row_h = max(9, min(18, (available_h - desired_divider_h * divider_count) // row_count))
+        divider_h = 0
+        if divider_count:
+            divider_h = max(5, min(10, (available_h - row_h * row_count) // divider_count))
+        # The last line remains inside the grid even on compact layouts.
+        while divider_count and row_h * row_count + divider_h * divider_count > available_h and row_h > 8:
+            row_h -= 1
+            divider_h = max(5, min(10, (available_h - row_h * row_count) // divider_count))
+
+        y = grid_y + table_header_h + first_row_gap
         sweep_frac = float(slot_fx.get("row_sweep", 0.0) or 0.0)
         for mi, mv in enumerate(visible_moves):
             if not isinstance(mv, dict):
                 continue
             label = _normal_move_label(mv)
-            section = _section_for_label(label)
-            if last_section is not None and section != last_section:
-                pygame.draw.line(surf, (66, 75, 98), (grid_x + 2, y), (grid_x + grid_w - 3, y))
-                pygame.draw.line(surf, (*accent, 45), (grid_x + 2, y + 1), (grid_x + 30, y + 1))
-            last_section = section
+            is_air_row = _normal_preview_is_air_move(mv)
+            if mi in air_start_indexes and divider_h > 0:
+                band = pygame.Rect(grid_x + 2, y, max(1, grid_w - 4), divider_h)
+                pygame.draw.rect(surf, (15, 28, 44), band)
+                pygame.draw.line(surf, (86, 132, 185), (band.x, band.y), (band.right, band.y))
+                pygame.draw.line(surf, (41, 69, 103), (band.x, band.bottom - 1), (band.right, band.bottom - 1))
+                air_tag = _render_outlined_text(smallfont, "AIR", (144, 202, 255), (0, 0, 0), band.width - 14, outline_px=1)
+                surf.blit(air_tag, (band.x + 7, band.y + (band.height - air_tag.get_height()) // 2))
+                y += divider_h
 
             row = pygame.Rect(grid_x, y, grid_w, row_h)
-            row_fill = (16, 19, 28) if mi % 2 == 0 else (13, 16, 24)
+            if is_air_row:
+                row_fill = (14, 20, 31) if mi % 2 == 0 else (12, 18, 28)
+            else:
+                row_fill = (16, 19, 28) if mi % 2 == 0 else (13, 16, 24)
             mv_id = mv.get("id") or mv.get("anim") or mv.get("move_id")
             try:
                 mv_id = int(mv_id) if mv_id is not None else None
@@ -4529,6 +4787,10 @@ def draw_scan_normals_polished(
             row_key = _normal_preview_key(mv)
             is_selected = _normal_preview_selection_matches(selection, slot_label, mv)
             is_highlighted = row_key in highlight_keys.get(slot_label, set())
+            row_roles = highlight_roles.get(slot_label, {}) if isinstance(highlight_roles, dict) else {}
+            is_ladder_fast = row_key == row_roles.get("fast")
+            is_ladder_damage = row_key == row_roles.get("damage")
+            is_matchup = row_key == row_roles.get("match")
             cur_label_canon = _normal_canon_label(cur_label)
             if cur_label_canon:
                 is_current = (row_label_canon == cur_label_canon)
@@ -4559,6 +4821,13 @@ def draw_scan_normals_polished(
                 pygame.draw.rect(surf, (*highlight_col, 178), pygame.Rect(row.x + 1, row.y + 1, 3, max(1, row.height - 2)), border_radius=1)
                 pygame.draw.line(surf, (*highlight_col, 108), (row.x + 5, row.bottom - 2), (row.right - 3, row.bottom - 2))
 
+            if is_ladder_fast:
+                pygame.draw.line(surf, (102, 218, 255), (row.x + 5, row.y + 2), (row.right - 5, row.y + 2), 1)
+            if is_ladder_damage:
+                pygame.draw.line(surf, (244, 194, 98), (row.x + 5, row.bottom - 3), (row.right - 5, row.bottom - 3), 1)
+            if is_matchup:
+                pygame.draw.rect(surf, (104, 211, 227, 180), row.inflate(-4, -4), 1, border_radius=2)
+
             if is_selected:
                 selection_col = (244, 180, 92)
                 pygame.draw.rect(surf, (*selection_col, 205), row.inflate(-2, -2), 1, border_radius=2)
@@ -4567,8 +4836,21 @@ def draw_scan_normals_polished(
             interaction["rows"].append({"rect": row.copy(), "slot_label": slot_label, "key": row_key})
 
             label_col = GUI_TEXT if (is_current or is_selected) else (218, 224, 234)
-            label_s = _render_outlined_text(smallfont, label, label_col, (0, 0, 0), move_col_w - 8, outline_px=1)
+            label_s = _render_outlined_text(smallfont, label, label_col, (0, 0, 0), move_col_w - 20, outline_px=1)
             surf.blit(label_s, (row.x + 6, row.y + (row.height - label_s.get_height()) // 2))
+            role_tag = ""
+            role_col = None
+            if is_ladder_fast and is_ladder_damage:
+                role_tag, role_col = "F/D", (208, 228, 255)
+            elif is_ladder_fast:
+                role_tag, role_col = "F", (102, 218, 255)
+            elif is_ladder_damage:
+                role_tag, role_col = "D", (244, 194, 98)
+            elif is_matchup:
+                role_tag, role_col = "=", (104, 211, 227)
+            if role_tag:
+                tag_s = smallfont.render(role_tag, True, role_col)
+                surf.blit(tag_s, (row.x + move_col_w - tag_s.get_width() - 4, row.y + (row.height - tag_s.get_height()) // 2))
 
             startup = _normal_int(mv, "startup", "start", "active_start")
             a1 = _normal_int(mv, "active_start", "a_start")
@@ -5694,13 +5976,17 @@ def legacy_main():
     print(f"HUD: loaded {len(portraits)} portraits.")
 
     if HAVE_SCAN_NORMALS and scan_normals_all is not None:
-        # Auto refresh must stay lightweight.  Cache-only avoids the full dynamic
-        # MEM2 scanner from running in the background during gameplay.  Manual
-        # scans still call scan_normals_all.scan_once() directly and can create
-        # new profiles when needed.
+        # Normal gameplay reads a compact, immutable normals-preview snapshot.
+        # Do not load/rebase the 90+ MB workbench cache and do not fall through
+        # into a dynamic MEM2 scan when a character changes. The full scanner is
+        # reserved for an explicit Frame Data request.
         scan_worker = ScanNormalsWorker(
-            lambda: scan_normals_all.scan_once(cache_only=True),
-            full_scan_func=lambda: scan_normals_all.scan_once(force_dynamic=True, cache_only=False),
+            lambda: scan_normals_all.scan_once(cache_only=True, preview_only=True),
+            full_scan_func=lambda dynamic_char_ids=None: scan_normals_all.scan_once(
+                force_dynamic=True,
+                cache_only=False,
+                dynamic_char_ids=dynamic_char_ids,
+            ),
         )
         scan_worker.start()
     else:
@@ -5896,6 +6182,28 @@ def legacy_main():
                 parts.append((_slot_label, _base, _cid, _name))
         return tuple(parts)
 
+
+    def _missing_preview_profile_signature(scan_rows) -> tuple:
+        """Return only active roster entries that missed the compact snapshot.
+
+        A miss means the one-file EXE needs a single full profile build before
+        the range-ruler auto-learner can identify active windows for that
+        fighter.  Existing preview entries never reach this path.
+        """
+        missing = []
+        for _row in list(scan_rows or []):
+            if not isinstance(_row, dict) or not bool(_row.get("profile_cache_miss")):
+                continue
+            try:
+                _cid = int(_row.get("char_id") or 0)
+            except Exception:
+                _cid = 0
+            _sig = str(_row.get("profile_table_signature") or "").strip()
+            _slot = str(_row.get("slot_label") or "")
+            if _cid > 0 and _sig:
+                missing.append((_cid, _sig, _slot))
+        return tuple(sorted(set(missing)))
+
     last_adv_display = ""
     pending_hits     = []
     frame_idx        = 0
@@ -5962,6 +6270,9 @@ def legacy_main():
     master_overlay_proc   = None
     master_overlay_active = False
     overlay_enabled       = True
+    show_interaction_card = True
+    show_combo_card       = True
+    show_tag_card         = True
 
     def _launch_master_overlay():
         nonlocal master_overlay_proc, master_overlay_active
@@ -5999,12 +6310,55 @@ def legacy_main():
     HITBOX_FILTER_FILE = "hitbox_filter.json"
     hitbox_slots = {"P1": False, "P2": False, "P3": False, "P4": False}
     hurtbox_slots = {"P1": False, "P2": False, "P3": False, "P4": False}
+    # Defaults are all four sources enabled. They stay independent from the
+    # hitbox chips so a clean visual view never removes a character's ruler.
+    ruler_slots = {"P1": True, "P2": True, "P3": True, "P4": True}
+    ruler_enabled = False
+    ruler_dynamic = False
 
-    def _write_hitbox_filter():
+    try:
+        if os.path.exists(HITBOX_FILTER_FILE):
+            with open(HITBOX_FILTER_FILE, "r", encoding="utf-8") as f:
+                _existing_filter = json.load(f)
+            if isinstance(_existing_filter, dict):
+                _stored_ruler_slots = _existing_filter.get("ruler_slots")
+                if isinstance(_stored_ruler_slots, dict):
+                    for _slot_name in ruler_slots:
+                        if _slot_name in _stored_ruler_slots:
+                            ruler_slots[_slot_name] = bool(_stored_ruler_slots[_slot_name])
+                ruler_enabled = bool(_existing_filter.get("show_range_ruler", ruler_enabled))
+                ruler_dynamic = bool(_existing_filter.get("show_range_dynamic", ruler_dynamic))
+    except Exception:
+        pass
+
+    def _write_hitbox_filter(*, enable_range_ruler: bool = False):
+        nonlocal ruler_enabled, ruler_dynamic
         # Keep P1/P2/P3/P4 at top-level for older overlay builds, and add
-        # separate hurtbox controls for the new split layer.
+        # separate hurtbox controls for the new split layer.  The saved range
+        # profiles are read-only; this only controls whether the existing
+        # ground-normal ruler is visible.
         payload = dict(hitbox_slots)
+        try:
+            if os.path.exists(HITBOX_FILTER_FILE):
+                with open(HITBOX_FILTER_FILE, "r", encoding="utf-8") as f:
+                    previous = json.load(f)
+                if isinstance(previous, dict):
+                    # Preserve view modes owned by the overlay itself. Ruler
+                    # visibility/source slots are owned by this dock and are
+                    # written explicitly below.
+                    for _key in ("hitbox_view_mode", "hurtbox_view_mode"):
+                        if _key in previous:
+                            payload[_key] = previous[_key]
+        except Exception:
+            pass
         payload["show_hitboxes"] = any(hitbox_slots.values())
+        if enable_range_ruler:
+            # A fresh Hitboxes ON action begins with saved-profile rulers on.
+            # Later writes respect Ruler OFF and the separate source chips.
+            ruler_enabled = True
+        payload["show_range_ruler"] = bool(ruler_enabled)
+        payload["show_range_dynamic"] = bool(ruler_dynamic)
+        payload["ruler_slots"] = dict(ruler_slots)
         payload["hurtbox_slots"] = dict(hurtbox_slots)
         payload["show_hurtboxes"] = any(hurtbox_slots.values())
         try:
@@ -6019,6 +6373,9 @@ def legacy_main():
             "show_hitboxes":  any(hitbox_slots.values()),
             "show_hurtboxes": any(hurtbox_slots.values()),
             "show_debug":     False,
+            "show_interaction_card": bool(show_interaction_card),
+            "show_combo_card": bool(show_combo_card),
+            "show_tag_card": bool(show_tag_card),
         }
         try:
             with open(MASTER_CONTROL_FILE, "w", encoding="utf-8") as f:
@@ -6034,6 +6391,17 @@ def legacy_main():
             _launch_master_overlay()
         elif not want_process and master_overlay_active:
             _stop_master_overlay()
+
+    try:
+        if os.path.exists(MASTER_CONTROL_FILE):
+            with open(MASTER_CONTROL_FILE, "r", encoding="utf-8") as f:
+                _existing_master = json.load(f)
+            overlay_enabled = bool(_existing_master.get("show_hud", overlay_enabled))
+            show_interaction_card = bool(_existing_master.get("show_interaction_card", show_interaction_card))
+            show_combo_card = bool(_existing_master.get("show_combo_card", show_combo_card))
+            show_tag_card = bool(_existing_master.get("show_tag_card", show_tag_card))
+    except Exception:
+        pass
 
     _write_hitbox_filter()
     _write_master_control()
@@ -6058,6 +6426,7 @@ def legacy_main():
     normal_preview_selection: dict | None = None
     normal_preview_ui = {"controls": {}, "rows": []}
     normal_preview_offset = (0, 0)
+    normal_preview_advanced_open = False
 
     # Momentary write restore
     hype_restore_addr  = None
@@ -6222,6 +6591,9 @@ def legacy_main():
     running = True
     _last_mouse_buttons = (False, False, False)
     _mouse_input_warned = False
+    # Occasional tooling stays tucked behind the compact Lab drawer so the
+    # top strip remains focused on live overlay/collision controls.
+    dock_tools_open = False
 
     # Extra Characters used to tick every HUD frame.  That is too aggressive
     # for character select: the game can render the wheel while the external
@@ -6910,12 +7282,18 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, hb_filter_rects, hurt_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_dynamic_btn_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
             hurtbox_slots=hurtbox_slots,
+            ruler_slots=ruler_slots,
+            ruler_enabled=bool(ruler_enabled),
+            ruler_dynamic=bool(ruler_dynamic),
             overlay_enabled=overlay_enabled,
+            show_interaction_card=show_interaction_card,
+            show_combo_card=show_combo_card,
+            show_tag_card=show_tag_card,
             megacrash_trainer_enabled=bool(megacrash_trainer_state.get("enabled", False)),
             megacrash_trainer_chance=int(megacrash_trainer_state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
             megacrash_trainer_mode=str(megacrash_trainer_state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
@@ -6927,6 +7305,7 @@ def legacy_main():
             ko_control_enabled=bool(ko_control_full_enabled),
             ko_control_live_active=bool(ko_control_live_active),
             solo_team_active=_solo_team_active_for_dock(),
+            tools_open=bool(dock_tools_open),
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
         )
@@ -7215,6 +7594,7 @@ def legacy_main():
                 highlight_mode=normal_preview_mode,
                 selection=normal_preview_selection,
                 mouse_pos=local_mouse,
+                advanced_open=bool(normal_preview_advanced_open),
             )
             normal_preview_offset = (scan_rect.x, int(y))
             scan_surf.set_alpha(255)
@@ -7265,6 +7645,13 @@ def legacy_main():
             status_parts.append(f"Hurtboxes {active_hurtbox_slots}")
         else:
             status_parts.append("Hurtboxes OFF")
+        if ruler_enabled:
+            active_ruler_slots = ", ".join(k for k, v in ruler_slots.items() if v)
+            status_parts.append(f"Ruler {active_ruler_slots or 'OFF'}")
+            if ruler_dynamic:
+                status_parts.append("Ruler Dynamic")
+        else:
+            status_parts.append("Ruler OFF")
         if mission_mgr.active_slot:
             status_parts.append(f"Mission {mission_mgr.active_slot}")
         if bool(megacrash_trainer_state.get("enabled", False)):
@@ -7321,11 +7708,17 @@ def legacy_main():
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
 
+            if tools_btn_rect.collidepoint(mx, my):
+                dock_tools_open = not bool(dock_tools_open)
+                mouse_clicked_pos = None
+                continue
+
             if hb_btn_rect.collidepoint(mx, my):
-                new_state = not any(hitbox_slots.values())
+                had_hitboxes = any(hitbox_slots.values())
+                new_state = not had_hitboxes
                 for k in hitbox_slots:
                     hitbox_slots[k] = new_state
-                _write_hitbox_filter()
+                _write_hitbox_filter(enable_range_ruler=(new_state and not had_hitboxes))
                 _write_master_control()
                 _sync_master_overlay_state()
                 mouse_clicked_pos = None
@@ -7335,6 +7728,22 @@ def legacy_main():
                 new_state = not any(hurtbox_slots.values())
                 for k in hurtbox_slots:
                     hurtbox_slots[k] = new_state
+                _write_hitbox_filter()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif ruler_btn_rect.collidepoint(mx, my):
+                ruler_enabled = not bool(ruler_enabled)
+                _write_hitbox_filter()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif ruler_dynamic_btn_rect.collidepoint(mx, my):
+                ruler_dynamic = not bool(ruler_dynamic)
                 _write_hitbox_filter()
                 _write_master_control()
                 _sync_master_overlay_state()
@@ -7357,6 +7766,38 @@ def legacy_main():
 
             elif hud_btn_rect.collidepoint(mx, my):
                 overlay_enabled = not overlay_enabled
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif clear_card_btn_rect.collidepoint(mx, my):
+                # Keep the core HUD alive; this is a one-click declutter for
+                # the three optional live cards only.
+                show_interaction_card = False
+                show_combo_card = False
+                show_tag_card = False
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif interaction_card_btn_rect.collidepoint(mx, my):
+                show_interaction_card = not show_interaction_card
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif combo_card_btn_rect.collidepoint(mx, my):
+                show_combo_card = not show_combo_card
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif tag_card_btn_rect.collidepoint(mx, my):
+                show_tag_card = not show_tag_card
                 _write_master_control()
                 _sync_master_overlay_state()
                 mouse_clicked_pos = None
@@ -7431,8 +7872,9 @@ def legacy_main():
                 clicked_filter = False
                 for slot_name, cb_rect in hb_filter_rects.items():
                     if cb_rect.collidepoint(mx, my):
+                        had_hitboxes = any(hitbox_slots.values())
                         hitbox_slots[slot_name] = not hitbox_slots[slot_name]
-                        _write_hitbox_filter()
+                        _write_hitbox_filter(enable_range_ruler=(any(hitbox_slots.values()) and not had_hitboxes))
                         _write_master_control()
                         _sync_master_overlay_state()
                         clicked_filter = True
@@ -7441,6 +7883,15 @@ def legacy_main():
                     for slot_name, cb_rect in hurt_filter_rects.items():
                         if cb_rect.collidepoint(mx, my):
                             hurtbox_slots[slot_name] = not hurtbox_slots[slot_name]
+                            _write_hitbox_filter()
+                            _write_master_control()
+                            _sync_master_overlay_state()
+                            clicked_filter = True
+                            break
+                if not clicked_filter:
+                    for slot_name, cb_rect in ruler_filter_rects.items():
+                        if cb_rect.collidepoint(mx, my):
+                            ruler_slots[slot_name] = not bool(ruler_slots.get(slot_name, True))
                             _write_hitbox_filter()
                             _write_master_control()
                             _sync_master_overlay_state()
@@ -7463,7 +7914,14 @@ def legacy_main():
                 if isinstance(_preview_controls, dict):
                     for _mode_key, _local_rect in list(_preview_controls.items()):
                         if isinstance(_local_rect, pygame.Rect) and _local_rect.move(_off_x, _off_y).collidepoint(mx, my):
-                            normal_preview_mode = "none" if normal_preview_mode == _mode_key else str(_mode_key)
+                            if _mode_key == "__more__":
+                                normal_preview_advanced_open = not bool(normal_preview_advanced_open)
+                            else:
+                                normal_preview_mode = "none" if normal_preview_mode == _mode_key else str(_mode_key)
+                                if _mode_key in {"fast", "damage", "adv_block", "safe", "unsafe"}:
+                                    normal_preview_selection = None
+                                if _mode_key in {"safe", "unsafe"}:
+                                    normal_preview_advanced_open = True
                             _handled_preview_click = True
                             break
                 if not _handled_preview_click:
@@ -7472,10 +7930,20 @@ def legacy_main():
                             continue
                         _local_rect = _row_meta.get("rect")
                         if isinstance(_local_rect, pygame.Rect) and _local_rect.move(_off_x, _off_y).collidepoint(mx, my):
-                            normal_preview_selection = {
+                            _new_selection = {
                                 "slot_label": str(_row_meta.get("slot_label") or ""),
                                 "key": str(_row_meta.get("key") or ""),
                             }
+                            if (
+                                isinstance(normal_preview_selection, dict)
+                                and str(normal_preview_selection.get("slot_label") or "") == _new_selection["slot_label"]
+                                and str(normal_preview_selection.get("key") or "") == _new_selection["key"]
+                            ):
+                                normal_preview_selection = None
+                                if normal_preview_mode == "punish":
+                                    normal_preview_mode = "none"
+                            else:
+                                normal_preview_selection = _new_selection
                             _handled_preview_click = True
                             break
                 if _handled_preview_click:
@@ -7841,12 +8309,13 @@ def legacy_main():
         elif HAVE_SCAN_NORMALS and need_rescan_normals and not FD_AUTOSCAN_ENABLED:
             need_rescan_normals = False
 
-        # Cache-only scans intentionally do not build brand-new profiles. If a
-        # loaded slot reports profile_cache_miss, run one debounced full dynamic
-        # scan in the background so characters like Ippatsuman do not remain
-        # permanently blank. Existing cached-profile characters stay fast.
-        if HAVE_SCAN_NORMALS and FD_BUILD_MISSING_PROFILES and scan_worker and last_scan_normals:
-            _missing_sig = _fd_missing_profile_signature(last_scan_normals)
+        # A compact-preview cache miss is different from ordinary live ruler
+        # sampling: without normal frame data, a brand-new fighter cannot tell
+        # us which frames are active.  Bootstrap exactly one background dynamic
+        # scan for that stable roster signature, persist the normal profile plus
+        # compact preview, then return to cache-only play.
+        if HAVE_SCAN_NORMALS and FD_BUILD_MISSING_PROFILES and scan_worker:
+            _missing_sig = _missing_preview_profile_signature(last_scan_normals)
             if _missing_sig:
                 if pending_missing_profile_signature != _missing_sig:
                     pending_missing_profile_signature = _missing_sig
@@ -7856,22 +8325,26 @@ def legacy_main():
                     _worker_busy = bool(scan_worker.is_busy())
                 except Exception:
                     _worker_busy = False
+                _new_or_retry = (
+                    _missing_sig != last_missing_profile_build_signature
+                    or (now - last_missing_profile_build_time) >= FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC
+                )
                 if (
-                    not _worker_busy
+                    _new_or_retry
+                    and not _worker_busy
                     and (now - pending_missing_profile_since) >= FD_MISSING_PROFILE_BUILD_DELAY_SEC
-                    and (now - last_missing_profile_build_time) >= FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC
-                    and _missing_sig != last_missing_profile_build_signature
                 ):
-                    try:
-                        scan_worker.request(force_dynamic=True)
-                    except TypeError:
-                        scan_worker.request()
+                    labels = ", ".join(f"id={_cid} {_slot}" for _cid, _sig, _slot in _missing_sig)
+                    target_ids = tuple(sorted({_cid for _cid, _sig, _slot in _missing_sig}))
+                    print(f"[fd profile] auto-build missing preview: {labels}", flush=True)
+                    scan_worker.request(force_dynamic=True, dynamic_char_ids=target_ids)
                     last_missing_profile_build_time = now
                     last_missing_profile_build_signature = _missing_sig
-                    names = ", ".join(f"{slot}:{key}" for slot, key in _missing_sig)
-                    print(f"[fd profile] queued one-time full profile build for missing cached normals: {names}")
+                    pending_missing_profile_signature = None
             else:
                 pending_missing_profile_signature = None
+        else:
+            pending_missing_profile_signature = None
 
         if HAVE_SCAN_NORMALS and manual_scan_requested:
             if scan_worker:

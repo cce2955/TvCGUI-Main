@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "purpose": "Raw FPK tag to roster identity registry for the animation-frame database.",
+  "confirmed_roster_fpk_tags": [
+    {
+      "id": 1,
+      "name": "Ken the Eagle",
+      "fpk_tag": "gac"
+    },
+    {
+      "id": 2,
+      "name": "Casshan",
+      "fpk_tag": "cas"
+    },
+    {
+      "id": 3,
+      "name": "Tekkaman",
+      "fpk_tag": "tek"
+    },
+    {
+      "id": 4,
+      "name": "Polimar",
+      "fpk_tag": "pol"
+    },
+    {
+      "id": 5,
+      "name": "Yatterman-1",
+      "fpk_tag": "yat"
+    },
+    {
+      "id": 6,
+      "name": "Doronjo",
+      "fpk_tag": "dro"
+    },
+    {
+      "id": 7,
+      "name": "Ippatsuman",
+      "fpk_tag": "ipa"
+    },
+    {
+      "id": 8,
+      "name": "Jun the Swan",
+      "fpk_tag": "jun"
+    },
+    {
+      "id": 10,
+      "name": "Karas",
+      "fpk_tag": "krs"
+    },
+    {
+      "id": 11,
+      "name": "Gold Lightan",
+      "fpk_tag": "gld"
+    },
+    {
+      "id": 12,
+      "name": "Ryu",
+      "fpk_tag": "ryu"
+    },
+    {
+      "id": 13,
+      "name": "Chun-Li",
+      "fpk_tag": "chu"
+    },
+    {
+      "id": 14,
+      "name": "Batsu",
+      "fpk_tag": "bat"
+    },
+    {
+      "id": 15,
+      "name": "Morrigan",
+      "fpk_tag": "mor"
+    },
+    {
+      "id": 16,
+      "name": "Alex",
+      "fpk_tag": "alx"
+    },
+    {
+      "id": 17,
+      "name": "Viewtiful Joe",
+      "fpk_tag": "vjo"
+    },
+    {
+      "id": 18,
+      "name": "Volnutt",
+      "fpk_tag": "roc"
+    },
+    {
+      "id": 19,
+      "name": "Roll",
+      "fpk_tag": "rol"
+    },
+    {
+      "id": 20,
+      "name": "Saki",
+      "fpk_tag": "sak"
+    },
+    {
+      "id": 21,
+      "name": "Soki",
+      "fpk_tag": "yuk"
+    },
+    {
+      "id": 22,
+      "name": "PTX-40A",
+      "fpk_tag": "ptx"
+    },
+    {
+      "id": 26,
+      "name": "Tekkaman Blade",
+      "fpk_tag": "tkb"
+    },
+    {
+      "id": 27,
+      "name": "Joe the Condor",
+      "fpk_tag": "joe"
+    },
+    {
+      "id": 28,
+      "name": "Yatterman-2",
+      "fpk_tag": "ya2"
+    },
+    {
+      "id": 29,
+      "name": "Zero",
+      "fpk_tag": "zer"
+    },
+    {
+      "id": 30,
+      "name": "Frank West",
+      "fpk_tag": "fra"
+    }
+  ],
+  "present_but_not_assigned_to_a_roster_identity_in_this_registry": [
+    "lst",
+    "tk1",
+    "tk2",
+    "tk3",
+    "ts2",
+    "tst"
+  ],
+  "notes": [
+    "roc is the FPK whose internal paths are chr/roc/..., i.e. Rock/Volnutt.",
+    "joe is the FPK whose internal paths are chr/joe/..., i.e. Joe the Condor.",
+    "vjo remains reserved for Viewtiful Joe and is intentionally separate from joe."
+  ]
+}

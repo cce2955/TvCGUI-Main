@@ -286,6 +286,13 @@ ACTIVE_RESOLVER_REVISION = 2
 PROFILE_CACHE_FILENAME = "frame_data_profiles.json"
 PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PROFILE_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
+# Tiny read-only snapshot used by the always-on HUD and hitbox renderer. The
+# workbench cache can be ~100 MB / thousands of rows per fighter; loading and
+# refreshing that cache in the overlay is what made character changes stall.
+PREVIEW_PROFILE_CACHE_VERSION = 1
+PREVIEW_PROFILE_CACHE_FILENAME = "frame_data_preview_profiles.json"
+PREVIEW_PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PREVIEW_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
+
 
 def _profile_module_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
@@ -326,6 +333,36 @@ def _profile_default_bundled_file() -> Optional[str]:
 
 PROFILE_CACHE_FILE = os.environ.get("TVC_FD_PROFILE_CACHE_FILE", _profile_default_cache_file())
 PROFILE_BUNDLED_CACHE_FILE = os.environ.get("TVC_FD_PROFILE_BUNDLED_FILE", _profile_default_bundled_file() or "")
+
+
+def _preview_profile_default_file() -> str:
+    # Source runs read beside this module; frozen builds prefer an external copy
+    # beside the executable, mirroring the workbench cache behavior.
+    return os.path.join(_profile_exe_dir(), PREVIEW_PROFILE_CACHE_FILENAME)
+
+
+PREVIEW_PROFILE_CACHE_FILE = os.environ.get("TVC_FD_PREVIEW_PROFILE_FILE", _preview_profile_default_file())
+
+
+def _preview_profile_bundled_file() -> str:
+    """Return the packaged compact-preview seed, when one is available.
+
+    One-file builds unpack the seed under ``_MEIPASS`` while the writable
+    runtime cache lives beside ``TvCGUI.exe``.  The reader merges the seed
+    first and then overlays the writable cache so a fresh EXE starts with the
+    shipped previews immediately and can persist newly scanned characters.
+    """
+    override = os.environ.get("TVC_FD_PREVIEW_BUNDLED_FILE", "")
+    if str(override or "").strip():
+        return os.path.abspath(os.path.expanduser(str(override)))
+    bundle_dir = _profile_bundle_dir()
+    if bundle_dir:
+        return os.path.join(bundle_dir, PREVIEW_PROFILE_CACHE_FILENAME)
+    source_file = os.path.join(_profile_module_dir(), PREVIEW_PROFILE_CACHE_FILENAME)
+    return source_file if os.path.exists(source_file) else ""
+
+
+PREVIEW_PROFILE_BUNDLED_FILE = _preview_profile_bundled_file()
 PROFILE_CACHE_LOCK_FILE = os.environ.get(
     "TVC_FD_PROFILE_CACHE_LOCK_FILE",
     PROFILE_CACHE_FILE + ".lock",
@@ -336,6 +373,8 @@ PROFILE_CACHE_STALE_LOCK_SEC = float(os.environ.get("TVC_FD_PROFILE_STALE_LOCK_S
 _PROFILE_CACHE_LOCK = threading.RLock()
 _PROFILE_CACHE_DOC: Optional[Dict[str, Any]] = None
 _PROFILE_SAVE_WARNED: set[str] = set()
+_PREVIEW_PROFILE_LOCK = threading.RLock()
+_PREVIEW_PROFILE_DOC: Optional[Dict[str, Any]] = None
 
 _PROFILE_ADDRESS_KEYS = {
     "abs", "parent_abs", "addr",
@@ -2947,6 +2986,189 @@ def _profile_cache_allowed(force_dynamic: bool = False) -> bool:
     return bool(PROFILE_CACHE_ENABLED) and not bool(force_dynamic)
 
 
+def _empty_preview_profile_doc() -> Dict[str, Any]:
+    return {"version": PREVIEW_PROFILE_CACHE_VERSION, "profiles": {}}
+
+
+def _normalize_preview_profile_doc(doc: Any) -> Dict[str, Any]:
+    if not isinstance(doc, dict):
+        return _empty_preview_profile_doc()
+    if int(doc.get("version") or 0) != PREVIEW_PROFILE_CACHE_VERSION:
+        return _empty_preview_profile_doc()
+    profiles = doc.get("profiles")
+    if not isinstance(profiles, dict):
+        return _empty_preview_profile_doc()
+    out = dict(doc)
+    out["version"] = PREVIEW_PROFILE_CACHE_VERSION
+    out["profiles"] = profiles
+    return out
+
+
+def _read_preview_profile_doc_file(path: str) -> Optional[Dict[str, Any]]:
+    if not path:
+        return None
+    try:
+        if not os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            return _normalize_preview_profile_doc(json.load(f))
+    except Exception:
+        return None
+
+
+def _merge_preview_profile_docs(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+    merged = _normalize_preview_profile_doc(copy.deepcopy(base))
+    over = _normalize_preview_profile_doc(overlay)
+    profiles = merged.setdefault("profiles", {})
+    for key, value in (over.get("profiles") or {}).items():
+        if isinstance(value, dict):
+            profiles[str(key)] = value
+    # Runtime cache metadata should win when it exists, while a bundled seed
+    # still remains valid on first launch.
+    for key in ("generated_at", "source_profile_sha256"):
+        if over.get(key) is not None:
+            merged[key] = over.get(key)
+    merged["version"] = PREVIEW_PROFILE_CACHE_VERSION
+    return merged
+
+
+def _preview_profile_read_paths() -> List[str]:
+    paths: List[str] = []
+    for path in (PREVIEW_PROFILE_BUNDLED_FILE, PREVIEW_PROFILE_CACHE_FILE):
+        if not path:
+            continue
+        absolute = os.path.abspath(path)
+        if absolute not in paths:
+            paths.append(absolute)
+    return paths
+
+
+def _load_preview_profile_doc() -> Dict[str, Any]:
+    """Load the compact normal-preview snapshot without touching workbench data.
+
+    Fresh one-file EXEs have only the bundled seed in ``_MEIPASS``.  Learned
+    scans are written beside the EXE, so the two documents are merged here
+    instead of treating the first launch as a cache miss.
+    """
+    global _PREVIEW_PROFILE_DOC
+    with _PREVIEW_PROFILE_LOCK:
+        if _PREVIEW_PROFILE_DOC is not None:
+            return _PREVIEW_PROFILE_DOC
+        if not PREVIEW_PROFILE_CACHE_ENABLED:
+            _PREVIEW_PROFILE_DOC = _empty_preview_profile_doc()
+            return _PREVIEW_PROFILE_DOC
+        doc = _empty_preview_profile_doc()
+        found = False
+        for path in _preview_profile_read_paths():
+            part = _read_preview_profile_doc_file(path)
+            if part is None:
+                continue
+            doc = _merge_preview_profile_docs(doc, part)
+            found = True
+        if not found:
+            _profile_warn_once("preview-cache", "[fd preview] compact cache unavailable; a new roster can be auto-profiled once.")
+        _PREVIEW_PROFILE_DOC = _normalize_preview_profile_doc(doc)
+        return _PREVIEW_PROFILE_DOC
+
+
+_PREVIEW_MOVE_FIELDS = {
+    "active2_end", "active2_start", "active_end", "active_start",
+    "adv_block", "adv_hit", "animation_char_key", "animation_duration_seconds",
+    "animation_motion", "animation_total_frames", "blockstun", "damage",
+    "damage_flag", "ground_kb", "ground_kb_y", "hitstop", "hitstun", "id",
+    "invuln", "invuln_confidence", "invuln_frames", "invuln_kind", "kb_type",
+    "kind", "launch_profile", "meter", "move_name", "move_name_source",
+    "multi_hit_count", "normal_confirmed", "recovery", "recovery_source",
+    "runtime_profile_eligible", "stun_source",
+}
+
+
+def _compact_preview_moves(moves: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Strip a dynamic profile down to the small normal-preview contract."""
+    compact: List[Dict[str, Any]] = []
+    for move in list(moves or []):
+        if not isinstance(move, dict):
+            continue
+        if str(move.get("kind") or "").lower() != "normal":
+            continue
+        row = {key: copy.deepcopy(move[key]) for key in _PREVIEW_MOVE_FIELDS if key in move}
+        if row.get("id") is None:
+            continue
+        row.setdefault("kind", "normal")
+        compact.append(row)
+    return compact
+
+
+def _write_preview_profile_doc_safely(doc: Dict[str, Any]) -> bool:
+    """Atomically persist the compact snapshot beside the executable."""
+    target = os.path.abspath(PREVIEW_PROFILE_CACHE_FILE)
+    parent = os.path.dirname(target) or os.getcwd()
+    try:
+        os.makedirs(parent, exist_ok=True)
+    except Exception:
+        pass
+    data = json.dumps(doc, indent=2, sort_keys=True) + "\n"
+    tmp = f"{target}.{os.getpid()}.{threading.get_ident()}.tmp"
+    for attempt in range(8):
+        try:
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write(data)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+            with open(tmp, "r", encoding="utf-8") as f:
+                verify = _normalize_preview_profile_doc(json.load(f))
+            if not isinstance(verify.get("profiles"), dict):
+                raise ValueError("preview export verification failed")
+            os.replace(tmp, target)
+            return True
+        except PermissionError:
+            time.sleep(0.04 * (attempt + 1))
+        except OSError:
+            time.sleep(0.03 * (attempt + 1))
+        except Exception:
+            break
+    try:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    except Exception:
+        pass
+    return False
+
+
+def _save_preview_profile_moves(
+    char_id: Optional[int],
+    char_name: str,
+    chr_tbl_abs: int,
+    tbl_move_addrs: List[int],
+    moves: List[Dict[str, Any]],
+) -> bool:
+    """Append/replace one dynamically scanned fighter in the compact snapshot."""
+    global _PREVIEW_PROFILE_DOC
+    if not PREVIEW_PROFILE_CACHE_ENABLED:
+        return False
+    rows = _compact_preview_moves(moves)
+    if not rows:
+        return False
+    key = _profile_key(char_id, char_name)
+    entry = {
+        "char_id": char_id,
+        "char_name": char_name,
+        "table_signature": _profile_table_signature(tbl_move_addrs, chr_tbl_abs),
+        "moves": rows,
+    }
+    with _PREVIEW_PROFILE_LOCK:
+        doc = _load_preview_profile_doc()
+        out = _normalize_preview_profile_doc(copy.deepcopy(doc))
+        out.setdefault("profiles", {})[key] = entry
+        out["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        if not _write_preview_profile_doc_safely(out):
+            return False
+        _PREVIEW_PROFILE_DOC = out
+        return True
+
 def _profile_table_rels(tbl_move_addrs: List[int], chr_tbl_abs: int) -> List[int]:
     rels: List[int] = []
     for addr in tbl_move_addrs or []:
@@ -3347,6 +3569,33 @@ def _profile_refresh_move(mv: Dict[str, Any], buf: bytes, base_abs: int, char_id
             )
 
 
+def _load_preview_profile_moves(
+    char_id: Optional[int],
+    char_name: str,
+    chr_tbl_abs: int,
+    tbl_move_addrs: List[int],
+) -> Optional[List[Dict[str, Any]]]:
+    """Return saved normal-only rows without touching the full workbench cache.
+
+    Preview rows are static training data. The live table signature still has to
+    match so an unrelated/transitioning character can never inherit old rows.
+    """
+    if not PREVIEW_PROFILE_CACHE_ENABLED:
+        return None
+    key = _profile_key(char_id, char_name)
+    sig = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
+    doc = _load_preview_profile_doc()
+    prof = (doc.get("profiles") or {}).get(key)
+    if not isinstance(prof, dict):
+        return None
+    if str(prof.get("table_signature") or "") != sig:
+        return None
+    rows = prof.get("moves")
+    if not isinstance(rows, list) or not rows:
+        return None
+    return [copy.deepcopy(row) for row in rows if isinstance(row, dict)]
+
+
 def _load_profile_moves(
     char_id: Optional[int],
     char_name: str,
@@ -3648,10 +3897,19 @@ def _apply_runtime_stun_overlay(moves: List[Dict[str, Any]], char_id: Optional[i
 # MAIN SCAN
 # ============================================================
 
-def scan_once(force_dynamic: bool = False, cache_only: bool = False):
+def scan_once(
+    force_dynamic: bool = False,
+    cache_only: bool = False,
+    preview_only: bool = False,
+    dynamic_char_ids: Optional[Sequence[int]] = None,
+):
     hook()
 
     slots_info = read_slots_from_constants()
+    # A roster bootstrap may ask for only the fighter IDs that missed the
+    # compact preview cache.  Manual full scans pass no targets and retain the
+    # existing all-slots behavior.
+    dynamic_targets = {int(v) for v in (dynamic_char_ids or ()) if str(v).strip()}
 
     result: List[Dict[str, Any]] = []
     for _ in range(4):
@@ -3693,6 +3951,78 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
         tbl_move_addrs = [addr for _, addr in tbl_move_entries]
 
         table_signature = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
+
+        # A targeted full bootstrap must not dynamically rescan teammates that
+        # already have compact previews.  They remain cache-only for this pass.
+        if force_dynamic and dynamic_targets and int(cid or 0) not in dynamic_targets:
+            preview_moves = _load_preview_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs)
+            if preview_moves is not None:
+                apply_animation_metadata(preview_moves, cname, cid)
+                _apply_runtime_stun_overlay(preview_moves, cid)
+                result[slot_idx] = {
+                    "slot_label": slot_label,
+                    "char_name": cname,
+                    "char_id": cid,
+                    "moves": sorted(preview_moves, key=sort_key),
+                    "chr_tbl_abs": chr_tbl_abs,
+                    "tbl_move_count": len(tbl_move_addrs),
+                    "profile_table_signature": table_signature,
+                    "profile_fast_path": True,
+                    "profile_preview_fast_path": True,
+                    "profile_key": _profile_key(cid, cname),
+                }
+            else:
+                result[slot_idx] = {
+                    "slot_label": slot_label,
+                    "char_name": cname,
+                    "char_id": cid,
+                    "moves": [],
+                    "chr_tbl_abs": chr_tbl_abs,
+                    "tbl_move_count": len(tbl_move_addrs),
+                    "profile_table_signature": table_signature,
+                    "profile_fast_path": False,
+                    "profile_preview_fast_path": True,
+                    "profile_cache_miss": True,
+                    "profile_key": _profile_key(cid, cname),
+                }
+            continue
+
+        # The always-on HUD/overlay path is strictly read-only and compact. Do
+        # not load the large workbench cache or scan dynamic action scripts just
+        # because a fighter pointer changed.
+        if preview_only and not force_dynamic:
+            preview_moves = _load_preview_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs)
+            if preview_moves is not None:
+                apply_animation_metadata(preview_moves, cname, cid)
+                _apply_runtime_stun_overlay(preview_moves, cid)
+                result[slot_idx] = {
+                    "slot_label": slot_label,
+                    "char_name": cname,
+                    "char_id": cid,
+                    "moves": sorted(preview_moves, key=sort_key),
+                    "chr_tbl_abs": chr_tbl_abs,
+                    "tbl_move_count": len(tbl_move_addrs),
+                    "profile_table_signature": table_signature,
+                    "profile_fast_path": True,
+                    "profile_preview_fast_path": True,
+                    "profile_key": _profile_key(cid, cname),
+                }
+            else:
+                result[slot_idx] = {
+                    "slot_label": slot_label,
+                    "char_name": cname,
+                    "char_id": cid,
+                    "moves": [],
+                    "chr_tbl_abs": chr_tbl_abs,
+                    "tbl_move_count": len(tbl_move_addrs),
+                    "profile_table_signature": table_signature,
+                    "profile_fast_path": False,
+                    "profile_preview_fast_path": True,
+                    "profile_cache_miss": True,
+                    "profile_key": _profile_key(cid, cname),
+                }
+            continue
+
         if _profile_cache_allowed(force_dynamic):
             profiled_moves = _load_profile_moves(
                 cid, cname, chr_tbl_abs, tbl_move_addrs,
@@ -3771,6 +4101,16 @@ def scan_once(force_dynamic: bool = False, cache_only: bool = False):
         moves = collapse_duplicate_normals_by_quality(moves)
         sorted_moves = sorted(moves, key=sort_key)
         _save_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs, sorted_moves)
+        if _save_preview_profile_moves(cid, cname, chr_tbl_abs, tbl_move_addrs, sorted_moves):
+            _profile_warn_once(
+                f"preview-saved:{_profile_key(cid, cname)}",
+                f"[fd preview] saved compact preview for {cname} ({_profile_key(cid, cname)})",
+            )
+        else:
+            _profile_warn_once(
+                f"preview-save-deferred:{_profile_key(cid, cname)}",
+                f"[fd preview] save deferred for {cname}; current run still has the dynamic result",
+            )
         _apply_runtime_stun_overlay(sorted_moves, cid)
 
         extras = load_profile_extras(

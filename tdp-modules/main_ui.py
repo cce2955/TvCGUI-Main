@@ -924,7 +924,6 @@ def _normal_visible_moves(moves: list) -> list:
 _NORMAL_PREVIEW_MODE_META = {
     "fast": {"label": "Fast", "color": (112, 182, 245)},
     "damage": {"label": "Damage", "color": (232, 190, 96)},
-    "adv_hit": {"label": "+Hit", "color": (108, 214, 158)},
     "adv_block": {"label": "+Block", "color": (177, 145, 244)},
     "punish": {"label": "Punish", "color": (236, 136, 112)},
     "live_punish": {"label": "Live", "color": (100, 209, 223)},
@@ -1066,31 +1065,48 @@ def _normal_preview_live_source(slots: list[dict]) -> tuple[str, dict] | tuple[N
 
 
 def _normal_preview_best_keys(moves: list[dict], mode: str) -> set[str]:
-    """Return the best metric rows for one character card."""
-    ranked: list[tuple[int, str]] = []
+    """Return the best metric rows for one character card.
+
+    Fast/damage/+block highlights are split into grounded and aerial groups so
+    each card can show one best standing normal and one best jumping normal.
+    Fast ignores 1f/2f startup values to avoid false positives.
+    """
+    mode = str(mode or "")
+    if mode == "adv_hit":
+        mode = "adv_block"
+
+    grouped: dict[bool, list[tuple[int, str]]] = {False: [], True: []}
     for mv in moves:
         if not isinstance(mv, dict):
             continue
+        is_air = _normal_preview_is_air_move(mv)
         if mode == "fast":
             value = _normal_int(mv, "startup", "start", "active_start")
-            if value is not None:
-                ranked.append((-int(value), _normal_preview_key(mv)))
+            if value is None:
+                continue
+            value = int(value)
+            if value < 3:
+                continue
+            grouped[is_air].append((-value, _normal_preview_key(mv)))
         elif mode == "damage":
             value = _normal_damage(mv)
-            if value is not None:
-                ranked.append((int(value), _normal_preview_key(mv)))
-        elif mode == "adv_hit":
-            value = _normal_advantage(mv, "hit")
-            if value is not None:
-                ranked.append((int(value), _normal_preview_key(mv)))
+            if value is None:
+                continue
+            grouped[is_air].append((int(value), _normal_preview_key(mv)))
         elif mode == "adv_block":
             value = _normal_advantage(mv, "block")
-            if value is not None:
-                ranked.append((int(value), _normal_preview_key(mv)))
-    if not ranked:
-        return set()
-    best_value = max(value for value, _key in ranked)
-    return {key for value, key in ranked if value == best_value}
+            if value is None:
+                continue
+            grouped[is_air].append((int(value), _normal_preview_key(mv)))
+
+    out: set[str] = set()
+    for is_air in (False, True):
+        ranked = grouped[is_air]
+        if not ranked:
+            continue
+        best_value = max(value for value, _key in ranked)
+        out.update(key for value, key in ranked if value == best_value)
+    return out
 
 
 def _normal_preview_punish_candidate(slot: dict, source_mv: dict, window: int) -> str | None:
@@ -1150,11 +1166,13 @@ def _normal_preview_live_punish_keys(slots: list[dict]) -> tuple[dict[str, set[s
 def _normal_preview_highlight_keys(slots: list[dict], mode: str, selection: dict | None) -> tuple[dict[str, set[str]], int | None, str | None]:
     """Return highlight keys for the active preview mode."""
     mode = str(mode or "none")
+    if mode == "adv_hit":
+        mode = "adv_block"
     if mode == "punish":
         return _normal_preview_punish_keys(slots, selection)
     if mode == "live_punish":
         return _normal_preview_live_punish_keys(slots)
-    if mode not in {"fast", "damage", "adv_hit", "adv_block"}:
+    if mode not in {"fast", "damage", "adv_block"}:
         return {}, None, None
     out: dict[str, set[str]] = {}
     for slot in slots:
@@ -1170,6 +1188,8 @@ def _normal_preview_highlight_keys(slots: list[dict], mode: str, selection: dict
 def _normal_preview_status(slots: list[dict], mode: str, selection: dict | None) -> str:
     """Build the compact status label beside the preview controls."""
     mode = str(mode or "none")
+    if mode == "adv_hit":
+        mode = "adv_block"
     if mode not in {"punish", "live_punish"}:
         return "Click active filter to clear"
 
@@ -1299,7 +1319,7 @@ def draw_scan_normals_polished(
     label_s = smallfont.render("Highlight", True, GUI_TEXT_DIM)
     surf.blit(label_s, (rect.x + 10, control_y + (control_h - label_s.get_height()) // 2))
     control_x = rect.x + 10 + label_s.get_width() + 7
-    for control_key in ("fast", "damage", "adv_hit", "adv_block"):
+    for control_key in ("fast", "damage", "adv_block"):
         meta = _NORMAL_PREVIEW_MODE_META[control_key]
         control_w = max(38, smallfont.size(meta["label"])[0] + 14)
         control_rect = pygame.Rect(control_x, control_y, control_w, control_h)

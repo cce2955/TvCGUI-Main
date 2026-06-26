@@ -9,6 +9,9 @@ a = Analysis(
         ('projectilemap.json', '.') if __import__('pathlib').Path('projectilemap.json').exists() else None,
         ('projectile_ids.json', '.') if __import__('pathlib').Path('projectile_ids.json').exists() else None,
         ('frame_data_profiles.json', '.') if __import__('pathlib').Path('frame_data_profiles.json').exists() else None,
+        ('frame_data_preview_profiles.json', '.') if __import__('pathlib').Path('frame_data_preview_profiles.json').exists() else None,
+        ('hitbox_range_profiles.json', '.') if __import__('pathlib').Path('hitbox_range_profiles.json').exists() else None,
+        ('move_id_map_charagnostic.csv', '.') if __import__('pathlib').Path('move_id_map_charagnostic.csv').exists() else None,
         ('missions', 'missions') if __import__('pathlib').Path('missions').is_dir() else None,
         # megacrash_trainer.json is intentionally not bundled.
         # Megacrash must default OFF for every exported build; runtime saves stay local.

@@ -224,6 +224,9 @@ class MasterControl:
     show_hitboxes: bool = True
     show_hurtboxes: bool = True
     show_debug: bool = False
+    show_interaction_card: bool = True
+    show_combo_card: bool = True
+    show_tag_card: bool = True
 
 
 class Renderer(Protocol):
@@ -544,6 +547,9 @@ class MasterOverlay:
             "show_hitboxes": self.control.show_hitboxes,
             "show_hurtboxes": self.control.show_hurtboxes,
             "show_debug": self.control.show_debug,
+            "show_interaction_card": self.control.show_interaction_card,
+            "show_combo_card": self.control.show_combo_card,
+            "show_tag_card": self.control.show_tag_card,
         }
         try:
             with open(MASTER_CONTROL_FILE, "w", encoding="utf-8") as f:
@@ -565,6 +571,9 @@ class MasterOverlay:
             self.control.show_hitboxes = bool(data.get("show_hitboxes", True))
             self.control.show_hurtboxes = bool(data.get("show_hurtboxes", True))
             self.control.show_debug = bool(data.get("show_debug", False))
+            self.control.show_interaction_card = bool(data.get("show_interaction_card", True))
+            self.control.show_combo_card = bool(data.get("show_combo_card", True))
+            self.control.show_tag_card = bool(data.get("show_tag_card", True))
         except Exception:
             pass
     def _read_control_file(self) -> None:
@@ -579,7 +588,11 @@ class MasterOverlay:
 
                 self.control.show_hud = bool(data.get("show_hud", True))
                 self.control.show_hitboxes = bool(data.get("show_hitboxes", True))
+                self.control.show_hurtboxes = bool(data.get("show_hurtboxes", True))
                 self.control.show_debug = bool(data.get("show_debug", False))
+                self.control.show_interaction_card = bool(data.get("show_interaction_card", True))
+                self.control.show_combo_card = bool(data.get("show_combo_card", True))
+                self.control.show_tag_card = bool(data.get("show_tag_card", True))
             except Exception:
                 pass
 
