@@ -1,3 +1,0 @@
-3d70471815f0170f6745974e793b204989cedcc7d9561de7b013130e08e1b7dd  hitbox_range_profiles.json
-f8bdcb06e0ae4d876968e9c93ed4dee5acdd237531c20758765cd26685a02633  frame_data_profiles.json
-# Package baseline hashes. Code may append/update profile data only during a live run.
