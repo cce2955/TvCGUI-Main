@@ -1,5 +1,8 @@
 # frame_data_window.py
 
+import tkinter as tk
+from tk_host import tk_call
+
 try:
     from fd_window import open_editable_frame_data_window as _open_new_editor
     HAVE_NEW_EDITOR = True
@@ -32,7 +35,6 @@ def _fmt_move_label(mv):
 
 def _open_legacy_viewer(slot_label, target_slot):
     try:
-        import tkinter as tk
         from tkinter import ttk
     except Exception:
         print("tkinter not available")
@@ -174,3 +176,66 @@ def open_frame_data_window(slot_label, scan_data):
 
     _open_legacy_viewer(slot_label, target)
 
+
+
+# ---------------------------------------------------------------------------
+# Immediate non-blocking Frame Data launch shell
+# ---------------------------------------------------------------------------
+# The always-on HUD deliberately uses a compact preview snapshot with no live
+# write addresses.  This shell appears right away while the worker loads the
+# *editable* profile cache, then main.py swaps it for the real workbench.
+_FD_LOADING_WINDOWS = {}
+
+
+def open_frame_data_loading_window(slot_label, char_name=""):
+    """Show a lightweight native loading window immediately.
+
+    The worker-owned full profile cache is intentionally loaded off the pygame
+    click path.  The shell prevents the old "click again once warm" behavior
+    while preserving a responsive HUD.
+    """
+    label = str(slot_label or "Frame Data")
+    cname = str(char_name or "").strip()
+
+    def create(master_root):
+        old = _FD_LOADING_WINDOWS.pop(label, None)
+        try:
+            if old is not None and bool(old.winfo_exists()):
+                old.destroy()
+        except Exception:
+            pass
+        win = tk.Toplevel(master_root)
+        _FD_LOADING_WINDOWS[label] = win
+        win.title(f"Frame Data Editor: {label}{(' (' + cname + ')') if cname else ''}")
+        try:
+            win.geometry("610x135")
+            win.minsize(560, 125)
+        except Exception:
+            pass
+        frame = tk.Frame(win, padx=20, pady=18)
+        frame.pack(fill="both", expand=True)
+        tk.Label(frame, text="Opening editable frame data…", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        tk.Label(
+            frame,
+            text="Loading live, writable move packets for this fighter.",
+            justify="left",
+            wraplength=550,
+        ).pack(anchor="w", pady=(9, 0))
+        win.protocol("WM_DELETE_WINDOW", lambda: _close_loading_on_tk(label))
+
+    tk_call(create)
+
+
+def _close_loading_on_tk(slot_label):
+    label = str(slot_label or "Frame Data")
+    win = _FD_LOADING_WINDOWS.pop(label, None)
+    try:
+        if win is not None and bool(win.winfo_exists()):
+            win.destroy()
+    except Exception:
+        pass
+
+
+def close_frame_data_loading_window(slot_label):
+    """Close the transient launcher after a writable workbench is ready."""
+    tk_call(lambda _root: _close_loading_on_tk(slot_label))

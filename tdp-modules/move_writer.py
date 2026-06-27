@@ -4,7 +4,7 @@
 # Dynamic HB: if mv has "hb_off", use that; else fall back to 0x21C.
 # Active frames: always force end >= start.
 
-from dolphin_io import wd8, wdf32
+from dolphin_io import wd8, wdf32, rbytes
 
 # standard offsets the module already know
 # meter_addr is now stored as the direct editable value byte by scan_normals_all.collect_blocks.
@@ -45,23 +45,67 @@ def _wd32_be(addr: int, value: int) -> bool:
         and wd8(addr + 3, val & 0xFF)
     )
 
-def write_damage(mv: dict, new_damage: int) -> bool:
-    if not _has(mv, "damage_addr"):
-        return False
-    addr = mv["damage_addr"] + DAMAGE_VALUE_OFFSET
+
+def _read_exact(addr: int, size: int):
+    """Read a small packet defensively; test stubs may not implement reads."""
     try:
+        data = rbytes(int(addr), int(size))
+        return bytes(data) if data is not None else None
+    except Exception:
+        return None
+
+
+def _packet_matches(addr: int, header: bytes, size: int) -> bool:
+    data = _read_exact(addr, size)
+    # In unit-test / legacy transport shims rbytes may be unavailable. The
+    # scanner's live-owner verification is still enough in that case.
+    if data is None:
+        return True
+    return len(data) >= len(header) and data[:len(header)] == header
+
+
+def _field_enabled(mv: dict, field: str) -> bool:
+    """Respect scanner ownership proof without breaking legacy rows."""
+    key = f"{field}_write_verified"
+    return not (key in mv and not bool(mv.get(key)))
+
+
+def _direct_or_offset(mv: dict, direct_key: str, base_key: str, offset: int):
+    try:
+        direct = mv.get(direct_key)
+        if direct is not None:
+            return int(direct)
+        base = mv.get(base_key)
+        if base is not None:
+            return int(base) + int(offset)
+    except Exception:
+        return None
+    return None
+
+
+def write_damage(mv: dict, new_damage: int) -> bool:
+    if not _field_enabled(mv, "damage"):
+        print("[move_writer] damage target is unverified for this action")
+        return False
+    base = mv.get("damage_addr")
+    if base is None:
+        return False
+    try:
+        base = int(base)
+        if not _packet_matches(base, bytes((0x35, 0x10, 0x20, 0x3F, 0x00)), 16):
+            print(f"[move_writer] rejected stale damage packet @ {base:08X}")
+            return False
+        addr = _direct_or_offset(mv, "damage_value_addr", "damage_addr", DAMAGE_VALUE_OFFSET)
+        if addr is None:
+            return False
         val = int(new_damage) & 0xFFFFFF
-        b0 = (val >> 16) & 0xFF
-        b1 = (val >> 8) & 0xFF
-        b2 = val & 0xFF
-        ok = wd8(addr, b0) and wd8(addr + 1, b1) and wd8(addr + 2, b2)
+        ok = wd8(addr, (val >> 16) & 0xFF) and wd8(addr + 1, (val >> 8) & 0xFF) and wd8(addr + 2, val & 0xFF)
         if ok:
             print(f"[move_writer] wrote damage {new_damage} @ {addr:08X}")
         return ok
     except Exception as e:
         print("[move_writer] write_damage failed:", e)
         return False
-
 
 def write_meter(mv: dict, new_meter: int) -> bool:
     if not _has(mv, "meter_addr"):
@@ -79,20 +123,24 @@ def write_meter(mv: dict, new_meter: int) -> bool:
 
 
 def write_active_frames(mv: dict, new_start: int, new_end: int) -> bool:
-    if not _has(mv, "active_addr"):
+    if not _field_enabled(mv, "active"):
+        print("[move_writer] active target is unverified for this action")
+        return False
+    base = mv.get("active_addr")
+    if base is None:
         return False
     try:
+        base = int(base)
+        if not _packet_matches(base, bytes((0x20, 0x35, 0x01, 0x20, 0x3F)), 20):
+            print(f"[move_writer] rejected stale active packet @ {base:08X}")
+            return False
         s = int(new_start)
-        e = int(new_end)
-        if e < s:
-            e = s
-
-        addr_s = mv["active_addr"] + ACTIVE_START_OFFSET
-        addr_e = mv["active_addr"] + ACTIVE_END_OFFSET
-
-        ok = wd8(addr_s, (s - 1) & 0xFF)
-        ok = ok and wd8(addr_e, (e - 1) & 0xFF)
-
+        e = max(s, int(new_end))
+        addr_s = _direct_or_offset(mv, "active_start_addr", "active_addr", ACTIVE_START_OFFSET)
+        addr_e = _direct_or_offset(mv, "active_end_addr", "active_addr", ACTIVE_END_OFFSET)
+        if addr_s is None or addr_e is None:
+            return False
+        ok = wd8(addr_s, (s - 1) & 0xFF) and wd8(addr_e, (e - 1) & 0xFF)
         if ok:
             print(f"[move_writer] wrote active {s}-{e} @ {addr_s:08X}/{addr_e:08X}")
         return ok
@@ -100,14 +148,22 @@ def write_active_frames(mv: dict, new_start: int, new_end: int) -> bool:
         print("[move_writer] write_active_frames failed:", e)
         return False
 
-
 def write_hitstun(mv: dict, new_hitstun: int) -> bool:
-    if not _has(mv, "stun_addr"):
+    if not _field_enabled(mv, "stun"):
+        print("[move_writer] stun target is unverified for this action")
         return False
-    addr = mv["stun_addr"] + STUN_HITSTUN_OFFSET
+    base = mv.get("stun_addr")
+    if base is None:
+        return False
     try:
-        val = int(new_hitstun) & 0xFF
-        ok = wd8(addr, val)
+        base = int(base)
+        if not _packet_matches(base, bytes((0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x54, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)), 39):
+            print(f"[move_writer] rejected stale stun packet @ {base:08X}")
+            return False
+        addr = _direct_or_offset(mv, "hitstun_addr", "stun_addr", STUN_HITSTUN_OFFSET)
+        if addr is None:
+            return False
+        ok = wd8(addr, int(new_hitstun) & 0xFF)
         if ok:
             print(f"[move_writer] wrote hitstun {new_hitstun} @ {addr:08X}")
         return ok
@@ -115,14 +171,22 @@ def write_hitstun(mv: dict, new_hitstun: int) -> bool:
         print("[move_writer] write_hitstun failed:", e)
         return False
 
-
 def write_blockstun(mv: dict, new_blockstun: int) -> bool:
-    if not _has(mv, "stun_addr"):
+    if not _field_enabled(mv, "stun"):
+        print("[move_writer] stun target is unverified for this action")
         return False
-    addr = mv["stun_addr"] + STUN_BLOCKSTUN_OFFSET
+    base = mv.get("stun_addr")
+    if base is None:
+        return False
     try:
-        val = int(new_blockstun) & 0xFF
-        ok = wd8(addr, val)
+        base = int(base)
+        if not _packet_matches(base, bytes((0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x54, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)), 39):
+            print(f"[move_writer] rejected stale stun packet @ {base:08X}")
+            return False
+        addr = _direct_or_offset(mv, "blockstun_addr", "stun_addr", STUN_BLOCKSTUN_OFFSET)
+        if addr is None:
+            return False
+        ok = wd8(addr, int(new_blockstun) & 0xFF)
         if ok:
             print(f"[move_writer] wrote blockstun {new_blockstun} @ {addr:08X}")
         return ok
@@ -130,21 +194,28 @@ def write_blockstun(mv: dict, new_blockstun: int) -> bool:
         print("[move_writer] write_blockstun failed:", e)
         return False
 
-
 def write_hitstop(mv: dict, new_hitstop: int) -> bool:
-    if not _has(mv, "stun_addr"):
+    if not _field_enabled(mv, "stun"):
+        print("[move_writer] stun target is unverified for this action")
         return False
-    addr = mv["stun_addr"] + STUN_HITSTOP_OFFSET
+    base = mv.get("stun_addr")
+    if base is None:
+        return False
     try:
-        val = int(new_hitstop) & 0xFF
-        ok = wd8(addr, val)
+        base = int(base)
+        if not _packet_matches(base, bytes((0x04, 0x01, 0x60, 0x00, 0x00, 0x00, 0x02, 0x54, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)), 39):
+            print(f"[move_writer] rejected stale stun packet @ {base:08X}")
+            return False
+        addr = _direct_or_offset(mv, "hitstop_addr", "stun_addr", STUN_HITSTOP_OFFSET)
+        if addr is None:
+            return False
+        ok = wd8(addr, int(new_hitstop) & 0xFF)
         if ok:
             print(f"[move_writer] wrote hitstop {new_hitstop} @ {addr:08X}")
         return ok
     except Exception as e:
         print("[move_writer] write_hitstop failed:", e)
         return False
-
 
 def write_ground_knockback(mv: dict, new_ground_kb: float) -> bool:
     """Write the 35 0C +0x08 signed hit Push/Pull X float directly."""

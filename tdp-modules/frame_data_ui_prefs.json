@@ -3,10 +3,7 @@
     "abs": 142,
     "active": 111,
     "active2": 124,
-    "adv_block": 96,
-    "adv_hit": 89,
     "air_kb": 132,
-    "anim_total": 114,
     "attack_property": 220,
     "blockstun": 100,
     "context": 360,
@@ -20,8 +17,6 @@
     "dispatch_selector": 94,
     "dispatch_super_proof": 200,
     "dispatch_variant": 88,
-    "ground_kb": 140,
-    "ground_kb_y": 148,
     "hit_reaction": 260,
     "hit_result_flags": 170,
     "hit_spark": 112,
@@ -91,7 +86,6 @@
     "proj_super_speed": 106,
     "proj_super_speed_2": 112,
     "proj_type": 96,
-    "recovery": 124,
     "speed_mod": 132,
     "startup": 85,
     "stretch_height": 124,
@@ -102,8 +96,7 @@
     "superbg": 136
   },
   "density": "detailed",
-  "frame_layout_schema": "frame-workbench-v3",
   "geometry": "1700x818+177+43",
   "sash_pos": 1210,
-  "view_mode": "overview"
+  "view_mode": "all"
 }

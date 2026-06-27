@@ -1,0 +1,20 @@
+{
+  "critical_modules": [
+    "main.py",
+    "scan_normals_all.py",
+    "scan_worker.py",
+    "frame_data_binding.py",
+    "frame_data_window.py",
+    "move_writer.py",
+    "fd_window.py"
+  ],
+  "minimum_tests": 46,
+  "required_prefixes": [
+    "tests.test_frame_data_binding.FrameDataBindingTests",
+    "tests.test_frame_data_window_contract.FrameDataWindowContractTests",
+    "tests.test_move_writer_contract.MoveWriterContractTests",
+    "tests.test_scan_worker_contract.ScanWorkerContractTests",
+    "tests.test_slot_contracts.SlotContractTests"
+  ],
+  "suite": "TvC Continuo regression contracts"
+}

@@ -126,6 +126,11 @@ except ImportError:
 
 from layout import compute_layout, reassign_slots_for_giants
 from scan_worker import ScanNormalsWorker
+from frame_data_binding import (
+    editable_row_for_live_slot,
+    is_live_proven,
+    live_binding,
+)
 from training_flags import read_training_flags
 from debug_panel import read_debug_flags, draw_debug_overlay
 
@@ -838,6 +843,11 @@ KO_CONTROL_SAFE_PACKET = POST_KO_CONTROL_PACKET
 # raw-pad / input-feed safety patches that helped post-KO control, but those
 # can contaminate normal CPU input if left on before a match. Auto mode only
 # escalates to this after a full-team KO is detected, then drops back to SAFE.
+# Restored v22 reference packet.
+#
+# This is the last known working KO Ctrl model from the earlier project thread:
+# SAFE is armed during live play; FULL only comes on after a whole team is KO'd.
+# Deliberately DO NOT add later resolver/phase/live-fighter experiments here.
 KO_CONTROL_FULL_PACKET = (
     POST_KO_CONTROL_PACKET
     + FORCE_PAD_READ
@@ -845,7 +855,6 @@ KO_CONTROL_FULL_PACKET = (
     + FORCE_BUFFER_BUILD
     + NO_LATE_13D0_CLEAR
     + NO_ZERO_R31
-    + KO_RESULT_RESOLVER_UNLOCK_PACKET
 )
 
 KO_DOL_PATCH_TESTS = (
@@ -1104,10 +1113,11 @@ def tick_ko_control_auto(enabled: bool, live_active: bool, snaps: dict, now: flo
     """Auto-arm KO Control without leaking into the next arcade match.
 
     v21 waited until a full-team KO, then restored as soon as pointers unloaded.
-    That was too late/too short. v22 keeps the non-leaky SAFE packet armed while
-    enabled, escalates to FULL only after full-team KO detection, lingers briefly
-    through the result transition, then drops back to SAFE when both teams are
-    live again. Turning the button OFF restores originals.
+    Restored v22 reference behavior: SAFE remains armed during normal play,
+    escalates to FULL only after full-team KO detection, lingers briefly through
+    the result transition, then drops back to SAFE when both teams are live again.
+    Turning the button OFF restores originals. No later resolver/phase/fighter
+    state rewrite is part of this mode.
     """
     state = ko_ctrl_team_ko_state(snaps)
     result = None
@@ -1234,7 +1244,11 @@ except Exception:
     HAVE_SCAN_NORMALS = False
     SCAN_ANIM_MAP = {}
 
-from frame_data_window import open_frame_data_window
+from frame_data_window import (
+    open_frame_data_window,
+    open_frame_data_loading_window,
+    close_frame_data_loading_window,
+)
 from proj_scanner_window import open_proj_scanner_window
 try:
     from megacrash_trainer_window import open_megacrash_trainer_window
@@ -3205,7 +3219,7 @@ def draw_top_command_dock(
     hurtbox_slots: dict,
     ruler_slots: dict,
     ruler_enabled: bool,
-    ruler_dynamic: bool,
+    ruler_axes: dict,
     overlay_enabled: bool,
     show_interaction_card: bool,
     show_combo_card: bool,
@@ -3384,7 +3398,26 @@ def draw_top_command_dock(
         fill=(44, 48, 76) if ruler_enabled else (31, 33, 42), align="center",
     )
 
-    ruler_chip_x = ruler_btn_rect.right + 5
+    # Horz and Vert are independent layers. The old Dynamic ghost display is
+    # retired: active-frame samples build the two compact rulers instead.
+    # Keeping both on is intentional: Horz answers reach, Vert answers height.
+    ruler_axes = ruler_axes if isinstance(ruler_axes, dict) else {}
+    ruler_horz_on = bool(ruler_axes.get("horizontal", True))
+    ruler_vert_on = bool(ruler_axes.get("vertical", False))
+    ruler_axis_h_rect = pygame.Rect(ruler_btn_rect.right + 5, y_top, 42, btn_h)
+    draw_glass_button(
+        screen, ruler_axis_h_rect, "Horz", smallfont,
+        active=ruler_horz_on, hover=ruler_axis_h_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+        fill=(52, 42, 76) if ruler_horz_on else (31, 33, 42), align="center",
+    )
+    ruler_axis_v_rect = pygame.Rect(ruler_axis_h_rect.right + 2, y_top, 40, btn_h)
+    draw_glass_button(
+        screen, ruler_axis_v_rect, "Vert", smallfont,
+        active=ruler_vert_on, hover=ruler_axis_v_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+        fill=(52, 42, 76) if ruler_vert_on else (31, 33, 42), align="center",
+    )
+
+    ruler_chip_x = ruler_axis_v_rect.right + 5
     ruler_filter_rects = {}
     for index, slot_name in enumerate(("P1", "P2", "P3", "P4")):
         if index == 2:
@@ -3398,13 +3431,6 @@ def draw_top_command_dock(
         )
         ruler_filter_rects[slot_name] = chip_rect.inflate(4, 4)
         ruler_chip_x += chip_w + chip_gap
-
-    ruler_dynamic_btn_rect = pygame.Rect(ruler_chip_x + 5, y_top, 92, btn_h)
-    draw_glass_button(
-        screen, ruler_dynamic_btn_rect, "Dynamic: ON" if ruler_dynamic else "Dynamic: OFF", smallfont,
-        active=bool(ruler_dynamic), hover=ruler_dynamic_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
-        fill=(52, 42, 76) if ruler_dynamic else (31, 33, 42), align="center",
-    )
 
     x = ruler_group_rect.right + gap
     tools_btn_rect = pygame.Rect(x, y_top, 94, btn_h)
@@ -3498,10 +3524,13 @@ def draw_top_command_dock(
             help_tip = "Hurt slots: raw P1 / P2 / P3 / P4 visibility. The gap separates Team 1 (1/2) from Team 2 (3/4)."
             help_accent = GUI_ACCENT_GREEN
         elif ruler_btn_rect.collidepoint(mx, my):
-            help_tip = "Ruler: saved ground-normal reach guides. Known moves use their saved entry without scanning. A missing grounded normal is sampled once, saved to hitbox_range_profiles.json, then becomes instant on later uses. Chips only filter eligible sources. It needs Hurtboxes ON for live reach checks."
+            help_tip = "Ruler: saved active-frame reach guides. Horz and Vert are independent; turn on either or both. Each missing envelope is sampled once and saved. Chips only filter eligible sources. Hurtboxes are required for Horz touch checks."
             help_accent = GUI_ACCENT_PURPLE
-        elif ruler_dynamic_btn_rect.collidepoint(mx, my):
-            help_tip = "Dynamic: add the recorded active-frame sweep beside the single maximum-reach ruler. It captures a one-time root-path + multi-hit supplement only for moves that do not have one yet; static reach remains unchanged."
+        elif ruler_axis_h_rect.collidepoint(mx, my):
+            help_tip = "Horz: toggle the furthest forward active hitbox edge across the whole move. Can be on with Vert."
+            help_accent = GUI_ACCENT_PURPLE
+        elif ruler_axis_v_rect.collidepoint(mx, my):
+            help_tip = "Vert: toggle the full highest-to-lowest active hitbox envelope across the whole move. Can be on with Horz."
             help_accent = GUI_ACCENT_PURPLE
         elif any(rect.collidepoint(mx, my) for rect in ruler_filter_rects.values()):
             help_tip = "Ruler slots: choose which raw fighters can show a saved-profile ruler. Independent from Hitboxes. Off-stage partners are naturally hidden."
@@ -3537,7 +3566,7 @@ def draw_top_command_dock(
         overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect,
         solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect,
         tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects,
-        ruler_btn_rect, ruler_dynamic_btn_rect, ruler_filter_rects,
+        ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,
     )
 
 def _char_test_active_for_dock() -> bool:
@@ -5596,6 +5625,42 @@ def _fd_row_needs_dynamic_profile(slot_label: str, scan_rows) -> bool:
             return True
     return False
 
+def _fd_row_has_editable_fields(row) -> bool:
+    """Whether a single workbench row carries at least one writable packet."""
+    if not isinstance(row, dict):
+        return False
+    for mv in list(row.get("moves") or []):
+        if not isinstance(mv, dict):
+            continue
+        if any(mv.get(key) for key in ("damage_addr", "stun_addr", "active_addr", "meter_addr")):
+            return True
+    return False
+
+
+def _fd_current_live_binding(slot_label: str, preview_rows, render_snaps: dict) -> dict:
+    """Identity of the fighter currently shown behind a Frame Data button."""
+    return live_binding(
+        str(slot_label),
+        preview_rows,
+        (render_snaps or {}).get(str(slot_label)) or {},
+    )
+
+
+def _fd_live_editable_row(slot_label: str, workbench_rows, preview_rows, render_snaps: dict):
+    """Return only a workbench row proven to belong to the clicked live fighter.
+
+    A slot name alone is never enough: P1-C1 can be Ryu in the old match and
+    Jun in the current one. Unknown identities intentionally return None so the
+    UI shows its loading shell until the current preview lands.
+    """
+    row = editable_row_for_live_slot(
+        str(slot_label),
+        workbench_rows,
+        preview_rows,
+        (render_snaps or {}).get(str(slot_label)) or {},
+    )
+    return row if _fd_row_has_editable_fields(row) else None
+
 
 def _panel_bar_fraction(value, maximum) -> float:
     try:
@@ -5981,14 +6046,27 @@ def legacy_main():
         # into a dynamic MEM2 scan when a character changes. The full scanner is
         # reserved for an explicit Frame Data request.
         scan_worker = ScanNormalsWorker(
+            # Tiny immutable snapshot for the HUD only. It intentionally omits
+            # live write addresses and must never be handed to the editor.
             lambda: scan_normals_all.scan_once(cache_only=True, preview_only=True),
+            # Full saved profile rebase for the Frame Data editor. This is still
+            # cache-only: no one-minute dynamic discovery scan on ordinary click.
+            workbench_scan_func=lambda: scan_normals_all.scan_once(
+                force_dynamic=False,
+                cache_only=True,
+                preview_only=False,
+            ),
             full_scan_func=lambda dynamic_char_ids=None: scan_normals_all.scan_once(
                 force_dynamic=True,
                 cache_only=False,
+                preview_only=False,
                 dynamic_char_ids=dynamic_char_ids,
             ),
         )
         scan_worker.start()
+        # Prewarm the compact HUD snapshot immediately, rather than waiting for
+        # a button click to be the first request.
+        scan_worker.request()
     else:
         scan_worker = None
 
@@ -6019,7 +6097,12 @@ def legacy_main():
     # ------------------------------------------------------------------
     # Runtime state
     # ------------------------------------------------------------------
-    last_scan_normals = None
+    last_scan_normals = None              # compact HUD preview rows
+    last_workbench_scan_normals = None    # rich rows with live editable addresses
+    # slot -> immutable identity requested by the click. This prevents a stale
+    # Ryu/Chun cache row from opening after the user loads Jun/Polimar.
+    fd_pending_window_targets = {}
+    fd_workbench_prewarmed = False
     last_scan_time    = 0.0
     scan_anim         = None
 
@@ -6314,7 +6397,9 @@ def legacy_main():
     # hitbox chips so a clean visual view never removes a character's ruler.
     ruler_slots = {"P1": True, "P2": True, "P3": True, "P4": True}
     ruler_enabled = False
-    ruler_dynamic = False
+    # Axes are independent: Horz is the default, Vert can be added without
+    # replacing it. Legacy configs below migrate into this shape.
+    ruler_axes = {"horizontal": True, "vertical": False}
 
     try:
         if os.path.exists(HITBOX_FILTER_FILE):
@@ -6327,12 +6412,20 @@ def legacy_main():
                         if _slot_name in _stored_ruler_slots:
                             ruler_slots[_slot_name] = bool(_stored_ruler_slots[_slot_name])
                 ruler_enabled = bool(_existing_filter.get("show_range_ruler", ruler_enabled))
-                ruler_dynamic = bool(_existing_filter.get("show_range_dynamic", ruler_dynamic))
+                _stored_axes = _existing_filter.get("range_ruler_axes")
+                if isinstance(_stored_axes, dict):
+                    ruler_axes["horizontal"] = bool(_stored_axes.get("horizontal", ruler_axes["horizontal"]))
+                    ruler_axes["vertical"] = bool(_stored_axes.get("vertical", ruler_axes["vertical"]))
+                else:
+                    # One-time migration from the old exclusive selector.
+                    _stored_axis = str(_existing_filter.get("range_ruler_axis", "horizontal") or "horizontal").strip().lower()
+                    ruler_axes["horizontal"] = _stored_axis != "vertical"
+                    ruler_axes["vertical"] = _stored_axis == "vertical"
     except Exception:
         pass
 
     def _write_hitbox_filter(*, enable_range_ruler: bool = False):
-        nonlocal ruler_enabled, ruler_dynamic
+        nonlocal ruler_enabled, ruler_axes
         # Keep P1/P2/P3/P4 at top-level for older overlay builds, and add
         # separate hurtbox controls for the new split layer.  The saved range
         # profiles are read-only; this only controls whether the existing
@@ -6357,7 +6450,16 @@ def legacy_main():
             # Later writes respect Ruler OFF and the separate source chips.
             ruler_enabled = True
         payload["show_range_ruler"] = bool(ruler_enabled)
-        payload["show_range_dynamic"] = bool(ruler_dynamic)
+        # Dynamic ghosts are retired.  Active-frame samples remain internal
+        # profile data for the Horz/Vert rulers, never a second display layer.
+        payload["show_range_dynamic"] = False
+        payload["range_ruler_axes"] = {
+            "horizontal": bool(ruler_axes.get("horizontal", True)),
+            "vertical": bool(ruler_axes.get("vertical", False)),
+        }
+        # Keep an old single-axis value for older overlay builds. The current
+        # overlay reads range_ruler_axes and can render both at once.
+        payload["range_ruler_axis"] = "vertical" if (payload["range_ruler_axes"]["vertical"] and not payload["range_ruler_axes"]["horizontal"]) else "horizontal"
         payload["ruler_slots"] = dict(ruler_slots)
         payload["hurtbox_slots"] = dict(hurtbox_slots)
         payload["show_hurtboxes"] = any(hurtbox_slots.values())
@@ -6666,28 +6768,114 @@ def legacy_main():
                     except Exception:
                         pass
 
-        # Scan worker results
+        # Scan worker results. The tiny preview feeds the HUD; the rich
+        # workbench snapshot is kept separately so edits always receive live
+        # packet addresses rather than the stripped preview rows.
         if scan_worker:
             res, ts = scan_worker.get_latest()
             if res is not None and ts > last_scan_time:
-                last_scan_normals = res
+                try:
+                    _mode = scan_worker.last_mode() if hasattr(scan_worker, "last_mode") else "cache"
+                except Exception:
+                    _mode = "cache"
+
                 if fd_patch_runtime is not None:
                     try:
                         if fd_patch_controller is not None:
-                            fd_patch_controller.apply_to_scan_data(last_scan_normals)
+                            fd_patch_controller.apply_to_scan_data(res)
                         else:
-                            fd_patch_runtime.overlay_scan_data(last_scan_normals)
+                            fd_patch_runtime.overlay_scan_data(res)
                     except Exception as e:
                         print(f"[fd patch] scan overlay/apply failed: {e!r}")
-                _sync_runtime_engine_profile_targets(last_scan_normals)
-                last_scan_time    = ts
-                scan_anim = {"start": now, "dur": SCAN_SLIDE_DURATION}
-                try:
-                    _mode = scan_worker.last_mode() if hasattr(scan_worker, "last_mode") else "scan"
+
+                if _mode in {"workbench", "full"}:
+                    last_workbench_scan_normals = res
                     if _mode == "full":
                         print("[fd profile] full dynamic profile build completed")
-                except Exception:
-                    pass
+
+                    # A click already opened a native loading shell. Never
+                    # replace it merely because this result has the same *slot*
+                    # label: P1-C1 might still be Ryu's old cache while the HUD
+                    # already shows Jun. The binding guard requires live
+                    # character/table identity before the editable window opens.
+                    for _slot, _requested in list(fd_pending_window_targets.items()):
+                        _current = _fd_current_live_binding(
+                            _slot, last_scan_normals, render_snap_by_slot
+                        )
+                        if is_live_proven(_current):
+                            # A roster change while the shell is open retargets
+                            # the pending click to the fighter now occupying that
+                            # visible button. It can never open the old fighter.
+                            fd_pending_window_targets[_slot] = _current
+
+                        _target_row = _fd_live_editable_row(
+                            _slot,
+                            res,
+                            last_scan_normals,
+                            render_snap_by_slot,
+                        )
+                        if _target_row is not None:
+                            close_frame_data_loading_window(_slot)
+                            # Pass only the validated row. fd_window selects by
+                            # slot label, so this also makes accidental fallback
+                            # to another cached slot impossible.
+                            open_frame_data_window(_slot, [_target_row])
+                            fd_pending_window_targets.pop(_slot, None)
+                        elif is_live_proven(_current):
+                            # The workbench result was for a different/stale
+                            # roster. Request one current cache rebase; do not
+                            # dynamically scan until the matching live identity
+                            # is actually visible.
+                            if _fd_row_needs_dynamic_profile(_slot, res) and _mode == "workbench":
+                                print(f"[fd profile] no saved editable profile for {_slot}; running one background discovery pass")
+                                try:
+                                    scan_worker.request(force_dynamic=True)
+                                except TypeError:
+                                    scan_worker.request()
+                            else:
+                                try:
+                                    scan_worker.request(workbench=True)
+                                except TypeError:
+                                    scan_worker.request()
+                        else:
+                            # Preview has not caught up with the new match yet.
+                            # Refresh the compact identity first; opening a stale
+                            # same-character workbench row is never acceptable.
+                            try:
+                                scan_worker.request()
+                            except TypeError:
+                                pass
+                else:
+                    last_scan_normals = res
+                    # Once a current compact preview confirms the clicked
+                    # fighter/table, request the matching rich workbench row.
+                    # This is the second half of the stale-slot guard.
+                    for _slot in list(fd_pending_window_targets):
+                        _live = _fd_current_live_binding(
+                            _slot, last_scan_normals, render_snap_by_slot
+                        )
+                        if is_live_proven(_live):
+                            fd_pending_window_targets[_slot] = _live
+                            try:
+                                scan_worker.request(workbench=True)
+                            except TypeError:
+                                scan_worker.request()
+                    # Prewarm one rich cache read after the first compact HUD
+                    # snapshot. This makes the first editor click open directly
+                    # in normal cases without loading a 90+ MB JSON on the click.
+                    if not fd_workbench_prewarmed:
+                        fd_workbench_prewarmed = True
+                        try:
+                            scan_worker.request(workbench=True)
+                        except TypeError:
+                            pass
+
+                # HUD-facing consumers retain the newest rows; workbench rows
+                # are never substituted into the click path unless explicitly
+                # selected above.
+                _sync_runtime_engine_profile_targets(res)
+                last_scan_time = ts
+                scan_anim = {"start": now, "dur": SCAN_SLIDE_DURATION}
 
         # Resolve slot bases
         resolved_slots = resolve_bases(last_base_by_ptr, y_off_by_base)
@@ -7282,14 +7470,14 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_dynamic_btn_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
             hurtbox_slots=hurtbox_slots,
             ruler_slots=ruler_slots,
             ruler_enabled=bool(ruler_enabled),
-            ruler_dynamic=bool(ruler_dynamic),
+            ruler_axes=dict(ruler_axes),
             overlay_enabled=overlay_enabled,
             show_interaction_card=show_interaction_card,
             show_combo_card=show_combo_card,
@@ -7647,9 +7835,13 @@ def legacy_main():
             status_parts.append("Hurtboxes OFF")
         if ruler_enabled:
             active_ruler_slots = ", ".join(k for k, v in ruler_slots.items() if v)
-            status_parts.append(f"Ruler {active_ruler_slots or 'OFF'}")
-            if ruler_dynamic:
-                status_parts.append("Ruler Dynamic")
+            _axis_labels = []
+            if bool(ruler_axes.get("horizontal", False)):
+                _axis_labels.append("Horz")
+            if bool(ruler_axes.get("vertical", False)):
+                _axis_labels.append("Vert")
+            axis_label = "+".join(_axis_labels) or "No axis"
+            status_parts.append(f"Ruler {axis_label} {active_ruler_slots or 'OFF'}")
         else:
             status_parts.append("Ruler OFF")
         if mission_mgr.active_slot:
@@ -7742,8 +7934,16 @@ def legacy_main():
                 mouse_clicked_pos = None
                 continue
 
-            elif ruler_dynamic_btn_rect.collidepoint(mx, my):
-                ruler_dynamic = not bool(ruler_dynamic)
+            elif ruler_axis_h_rect.collidepoint(mx, my):
+                ruler_axes["horizontal"] = not bool(ruler_axes.get("horizontal", False))
+                _write_hitbox_filter()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif ruler_axis_v_rect.collidepoint(mx, my):
+                ruler_axes["vertical"] = not bool(ruler_axes.get("vertical", False))
                 _write_hitbox_filter()
                 _write_master_control()
                 _sync_master_overlay_state()
@@ -8051,25 +8251,39 @@ def legacy_main():
                 ("P1-C2", btn_p1c2), ("P2-C2", btn_p2c2),
             ]:
                 if btn_rect.collidepoint(mx, my):
-                    # Strict no-stall launch: use the ready worker snapshot only.
-                    # If the round/character just changed and the worker has not
-                    # finished rebasing its profile yet, request it in the
-                    # background instead of turning this click into a cache scan.
-                    last_scan_normals, last_scan_time = ensure_scan_now(last_scan_normals, last_scan_time)
-                    if _fd_row_needs_dynamic_profile(slot_label, last_scan_normals) and scan_worker:
-                        try:
-                            scan_worker.request(force_dynamic=True)
-                            print(f"[fd profile] queued full profile build for {slot_label}; cached normals are missing")
-                        except TypeError:
-                            scan_worker.request()
-                    if last_scan_normals:
-                        open_frame_data_window(slot_label, last_scan_normals)
+                    # Never open the editor from the compact HUD preview: it is
+                    # deliberately read-only and has no trustworthy write packet
+                    # addresses. Use a prewarmed rich cache when it exists; if
+                    # it does not, show a native launch shell immediately and
+                    # ask the worker for the editable cache exactly once.
+                    _target_row = _fd_live_editable_row(
+                        slot_label,
+                        last_workbench_scan_normals,
+                        last_scan_normals,
+                        render_snap_by_slot,
+                    )
+                    if _target_row is not None:
+                        # fd_window receives only the identity-checked row.
+                        open_frame_data_window(slot_label, [_target_row])
                     elif scan_worker:
+                        _snap = render_snap_by_slot.get(slot_label) or {}
+                        _name = str(_snap.get("char_name") or _snap.get("name") or "")
+                        open_frame_data_loading_window(slot_label, _name)
+                        _binding = _fd_current_live_binding(
+                            slot_label, last_scan_normals, render_snap_by_slot
+                        )
+                        fd_pending_window_targets[slot_label] = _binding
                         try:
+                            if is_live_proven(_binding):
+                                scan_worker.request(workbench=True)
+                            else:
+                                # The HUD changed before the compact scan did.
+                                # Ask for fresh identity first; do not reopen a
+                                # prior slot's cache while it catches up.
+                                scan_worker.request()
+                        except TypeError:
+                            # Compatibility fallback for any older worker copy.
                             scan_worker.request()
-                            print("[fd profile] Frame Data snapshot is warming on the background worker; click again once it is ready")
-                        except Exception:
-                            pass
                     panel_btn_flash[slot_label] = PANEL_FLASH_FRAMES
                     break
 

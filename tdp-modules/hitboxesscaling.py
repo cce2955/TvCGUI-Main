@@ -29,7 +29,8 @@ def pause_on_error(context: str, exc: BaseException) -> None:
     except EOFError:
         pass
 from dolphin_io import hook, rd32, rbytes
-from constants import CHAR_NAMES
+from constants import CHAR_NAMES, RUNTIME_IMPACT_FREEZE_OFF
+from move_id_map import lookup_move_name
 
 import json as _json
 
@@ -60,10 +61,10 @@ _show_hurtboxes = True
 _hurtbox_view_mode = "clean"
 _hitbox_view_mode = "live"
 _show_range_ruler = False
-# Optional second layer: show the complete recorded active-frame hitbox sweep
-# beside the existing single farthest-tip ruler. It is display-only until a
-# move needs its one-time sweep supplement captured.
+# Active-frame samples are retained internally to build the two clean ruler
+# axes. They are no longer a separate on-screen Dynamic/ghost layer.
 _show_range_dynamic = False
+_range_ruler_axes = {"horizontal": True, "vertical": False}
 RANGE_PROFILE_BASENAME = "hitbox_range_profiles.json"
 # Version 2 invalidates sweeps captured by the old frame gate, which treated
 # raw active2_* fields as real hit windows and could include startup circles.
@@ -72,6 +73,58 @@ RANGE_PROFILE_BASENAME = "hitbox_range_profiles.json"
 RANGE_DYNAMIC_SWEEP_VERSION = 2
 RANGE_DYNAMIC_MAX_FRAMES = 32
 RANGE_DYNAMIC_MAX_SHAPES_PER_FRAME = 8
+# Each axis is an active-frame envelope, never the final allocated circle.
+# Horizontal remembers the furthest forward edge; Vertical keeps the highest
+# and lowest edges across the same confirmed active frames.
+RANGE_HORIZONTAL_ENVELOPE_VERSION = 1
+RANGE_VERTICAL_ENVELOPE_VERSION = 1
+RANGE_VERTICAL_ENVELOPE_MAX_SPAN = 8.0
+# Air/special sweeps remain visible long enough to read after the active state
+# ends, but never leave an old airborne arc permanently on the floor.
+RANGE_DYNAMIC_LINGER_MS = 520
+# Lightweight contact-audit layer.  We deliberately do not revive the old
+# broad resolver-pool scan: it was expensive enough to stall the overlay during
+# impact.  Instead, a damage drop or the already-observed impact-freeze counter
+# opens one short audit window.  The audit samples only the active body boxes of
+# the currently profiled move and the already-cached defender hurt rig.
+RANGE_CONTACT_AUDIT_VERSION = 2
+RANGE_CONTACT_SNAPSHOT_MAX_AGE_MS = 220
+RANGE_CONTACT_WITNESS_MAX_GAP = 0.55
+RANGE_CONTACT_MARKER_MS = 760
+RANGE_CONTACT_MAX_WITNESSES = 10
+# A later occurrence needs long enough to be readable at 60 Hz, but it still
+# expires with the active snapshot instead of becoming persistent clutter.
+RANGE_CONTACT_EXPECTED_MARKER_MS = 260
+# Two matching engine-signalled contacts promote a pair from a one-off witness
+# to a stable truth reference. It remains diagnostic; it does not rewrite max
+# horizontal/vertical envelopes from a single matchup.
+RANGE_CONTACT_TRUTH_MIN_SAMPLES = 2
+# Ground/air presentation is a live physical state, not a move-name category.
+# Each on-stage slot learns its floor-level root Y from idle/walk/crouch/block
+# states.  During an action, a meaningful vertical departure from that baseline
+# switches the display from the floor ruler to the air sweep.  Explicit jump/
+# air-dash states cover the earliest airborne frames before the root has risen
+# far enough to cross the geometry threshold.
+RANGE_AIRBORNE_ROOT_DELTA = 0.30
+# When the fighter's root returns this close to its learned floor reference,
+# ground wins even if TvC leaves a jump/air action state ID live for a few
+# recovery frames.  This is deliberately lower than the airborne threshold so
+# takeoff/landing has a tiny hysteresis band instead of posture chatter.
+RANGE_GROUND_SNAP_ROOT_DELTA = 0.16
+RANGE_GROUND_REFERENCE_ALPHA = 0.18
+RANGE_EXPLICIT_AIR_STATE_IDS = frozenset({8, 9, 20, 21, 22, 28, 29, 35, 36, 50})
+RANGE_EXPLICIT_GROUND_STATE_IDS = frozenset({1, 2, 3, 6, 7, 10, 11, 13, 19, 25, 30, 31, 48, 49, 52, 53})
+# Presentation posture is independent from the action's current state ID.
+# Crouching normals can use dedicated attack states, so their input label is
+# also considered when the action is stored; these IDs handle idle/block pose.
+RANGE_CROUCH_STATE_IDS = frozenset({10, 11, 49, 53})
+# Action states frequently transition through a generic standing/recovery ID
+# even while a crouching normal is still visually in progress.  Keep the
+# action's posture bucket briefly through that ambiguous hand-off so a 2A/2B/
+# 2C ruler does not flicker to the standing ruler mid-animation.  A real new
+# action, a confirmed air state, or a settled passive posture immediately wins.
+RANGE_POSTURE_ACTION_HOLD_MS = 240
+RANGE_POSTURE_PASSIVE_SETTLE_MS = 120
 # Schema 5 switches the ruler anchor from the live hurtbox-envelope center to
 # the fighter's actual model/root translation.  Old schema-4 attack profiles
 # mixed pose changes and stale action origins into their stored reach, so they
@@ -81,10 +134,9 @@ RANGE_PROFILE_LEGACY_SCHEMA = 4
 RANGE_PROFILE_MAX_LOCAL_REACH = 6.0
 RANGE_PROFILE_MAX_ROOT_ADVANCE = 2.25
 RANGE_PROFILE_FLUSH_MS = 750
-# Range profiles are persistent training data. Static ruler geometry samples
-# only when that exact character/move key is missing. A known entry stays
-# scan-free unless the optional Dynamic layer is explicitly enabled and that
-# entry still lacks its separate one-time coverage supplement.
+# Range profiles are persistent training data. A known move stays scan-free
+# unless it is missing one compact active-frame axis envelope. The one capture
+# supplies both Horz and Vert data; no ghost/sweep display is involved.
 RANGE_PROFILE_WRITE_ENABLED = True
 RANGE_PROFILE_AUTO_LEARN_MISSING_ONLY = True
 
@@ -504,15 +556,15 @@ def _range_ruler_enabled() -> bool:
 
 
 def _range_dynamic_enabled() -> bool:
-    """Return whether the optional recorded active-frame sweep is visible."""
+    """Compatibility shim: Dynamic ghost coverage has been retired."""
     _read_filter_payload()
-    return bool(_show_range_dynamic)
+    return False
 
 
 def set_range_dynamic_enabled(value: Any) -> bool:
-    """Set and persist the optional multi-hit/vertical sweep display."""
+    """Compatibility shim that permanently disables the retired ghost layer."""
     global _show_range_dynamic, _last_filter_mtime
-    _show_range_dynamic = bool(value)
+    _show_range_dynamic = False
     try:
         payload = {}
         if os.path.exists(HITBOX_FILTER_FILE):
@@ -520,15 +572,28 @@ def set_range_dynamic_enabled(value: Any) -> bool:
                 existing = _json.load(f)
             if isinstance(existing, dict):
                 payload = existing
-        payload["show_range_dynamic"] = bool(_show_range_dynamic)
+        payload["show_range_dynamic"] = False
         temp_path = HITBOX_FILTER_FILE + ".tmp"
         with open(temp_path, "w", encoding="utf-8") as f:
             _json.dump(payload, f, indent=2, sort_keys=True)
         os.replace(temp_path, HITBOX_FILTER_FILE)
         _last_filter_mtime = 0.0
-    except Exception as exc:
-        print(f"[RangeSweep] could not save state: {exc!r}")
-    return bool(_show_range_dynamic)
+    except Exception:
+        pass
+    return False
+
+
+def _range_ruler_axes_enabled() -> Dict[str, bool]:
+    """Return the independent saved-profile ruler layer toggles.
+
+    Horz and Vert are intentionally not mutually exclusive. Horz answers
+    forward reach; Vert answers the full active height envelope.
+    """
+    _read_filter_payload()
+    return {
+        "horizontal": bool(_range_ruler_axes.get("horizontal", True)),
+        "vertical": bool(_range_ruler_axes.get("vertical", False)),
+    }
 
 
 def set_range_ruler_enabled(value: Any) -> bool:
@@ -581,7 +646,7 @@ def set_hurtbox_view_mode(value: Any) -> str:
 
 
 def _read_filter_payload() -> None:
-    global _last_filter_mtime, _slot_filter, _hurtbox_filter, _ruler_slot_filter, _show_hurtboxes, _hurtbox_view_mode, _hitbox_view_mode, _show_range_ruler, _show_range_dynamic
+    global _last_filter_mtime, _slot_filter, _hurtbox_filter, _ruler_slot_filter, _show_hurtboxes, _hurtbox_view_mode, _hitbox_view_mode, _show_range_ruler, _show_range_dynamic, _range_ruler_axes
     try:
         mt = os.path.getmtime(HITBOX_FILTER_FILE)
         if mt == _last_filter_mtime:
@@ -603,7 +668,19 @@ def _read_filter_payload() -> None:
         _hurtbox_view_mode = _normalize_hurtbox_view_mode(data.get("hurtbox_view_mode", _hurtbox_view_mode))
         _hitbox_view_mode = _normalize_hitbox_view_mode(data.get("hitbox_view_mode", _hitbox_view_mode))
         _show_range_ruler = bool(data.get("show_range_ruler", _show_range_ruler))
-        _show_range_dynamic = bool(data.get("show_range_dynamic", _show_range_dynamic))
+        # Legacy configs may still contain this key. It is deliberately ignored
+        # so a stale Dynamic ON setting can never redraw ghost coverage.
+        _show_range_dynamic = False
+        _axes = data.get("range_ruler_axes")
+        if isinstance(_axes, dict):
+            _range_ruler_axes = {
+                "horizontal": bool(_axes.get("horizontal", _range_ruler_axes.get("horizontal", True))),
+                "vertical": bool(_axes.get("vertical", _range_ruler_axes.get("vertical", False))),
+            }
+        else:
+            # Legacy exclusive selector migration. New UI persists both keys.
+            _axis = str(data.get("range_ruler_axis", "horizontal") or "horizontal").strip().lower()
+            _range_ruler_axes = {"horizontal": _axis != "vertical", "vertical": _axis == "vertical"}
     except Exception:
         pass
 
@@ -884,6 +961,142 @@ def is_air_normal_frame_data(fd: Optional[MoveFrameData]) -> bool:
     label = label.replace("air.", "j.").replace("air ", "j.")
     compact = re.sub(r"[\s._-]+", "", label)
     return label.startswith("j.") or compact in {"ja", "jb", "jc", "j2a", "j2b", "j2c"}
+
+
+def _range_label_is_air(label: Any) -> bool:
+    """Return whether a move label belongs to an airborne action family."""
+    text = str(label or "").strip().lower()
+    if not text:
+        return False
+    compact = re.sub(r"[\s._-]+", "", text)
+    return (
+        text.startswith("j.")
+        or text.startswith("jump")
+        or text.startswith("air ")
+        or text.startswith("air_")
+        or compact.startswith("air")
+        or compact in {"ja", "jb", "jc", "j2a", "j2b", "j2c"}
+    )
+
+
+def _range_label_is_throw_or_grab(label: Any) -> bool:
+    """Keep throws/grabs out of body-hitbox range profiles for now."""
+    text = str(label or "").strip().lower()
+    return any(token in text for token in ("throw", "grab", "command grab"))
+
+
+def _range_label_is_normal(label: Any) -> bool:
+    """Recognize the normal labels used by the compact frame-data cache."""
+    text = str(label or "").strip().lower()
+    if not text:
+        return False
+    canonical = text.replace("jump.", "j.").replace("jump ", "j.")
+    canonical = canonical.replace("air.", "j.").replace("air ", "j.")
+    compact = re.sub(r"[\s._-]+", "", canonical)
+    return bool(re.fullmatch(r"[1-9]?[abc]", compact) or compact in {"ja", "jb", "jc", "j2a", "j2b", "j2c"})
+
+
+def range_action_descriptor(
+    fd: Optional[MoveFrameData],
+    char_id: int,
+    state_id: int,
+) -> Optional[Dict[str, Any]]:
+    """Describe one action for the saved ruler/sweep system.
+
+    Move labels classify the action only for bookkeeping.  The actual display
+    is selected later from the fighter's live standing/crouching/air state:
+    each posture recalls only its own most-recent saved action.  The same
+    single-tip ruler is drawn at the fighter's current ground or air height;
+    Dynamic is the optional coverage layer.
+
+    Frame-data actions are gated by their validated active windows. Mapped
+    special states do not have full frame data yet, so they use the existing
+    live 0x53 attack-flag path and only profile a real body hitbox episode.
+    Projectile ownership remains separate; a projectile-only startup will not
+    produce player-body hitbox samples and therefore cannot create a profile.
+    """
+    try:
+        cid = int(char_id)
+        sid = int(state_id)
+    except Exception:
+        return None
+
+    if fd is not None:
+        move_id = int(getattr(fd, "move_id", sid) or sid)
+        move_name = str(getattr(fd, "move_name", "") or f"0x{move_id:04X}").strip()
+        has_frame_gate = bool(getattr(fd, "active_windows", ()))
+    else:
+        move_id = sid
+        try:
+            move_name = str(lookup_move_name(move_id, cid) or "").strip()
+        except Exception:
+            move_name = ""
+        has_frame_gate = False
+
+    if not move_name or _range_label_is_throw_or_grab(move_name):
+        return None
+
+    is_air = _range_label_is_air(move_name)
+    is_normal = _range_label_is_normal(move_name)
+    if is_normal:
+        kind = "air_normal" if is_air else "ground_normal"
+    else:
+        kind = "air_special" if is_air else "ground_special"
+
+    return {
+        "move_id": move_id,
+        "move_name": move_name,
+        "kind": kind,
+        # This is only a default/fallback.  The renderer overwrites it with
+        # physical grounded/airborne state for each action instance.
+        "display_mode": "ground_ruler",
+        "label_air_hint": bool(is_air),
+        "frame_gated": has_frame_gate,
+    }
+
+
+# These are locomotion/passive labels that can appear briefly between attack
+# states.  They are valid state names, but never valid posture-lock sources.
+_RANGE_PASSIVE_ACTION_LABELS = frozenset({
+    "idle", "ready", "forward", "backward", "walk", "walk forward",
+    "walk backward", "crouch", "crouching", "stand", "standing",
+    "block", "guard", "landing", "turn", "taunt", "assist standby",
+})
+
+
+def _range_descriptor_is_combat_action(
+    descriptor: Optional[Dict[str, Any]],
+    fd: Optional[MoveFrameData],
+    state_id: int,
+) -> bool:
+    """Return whether a descriptor is safe to use as a posture-lock source.
+
+    The move map includes passive state labels such as ``Forward`` and
+    ``idle``.  Treating those as a new action overwrites a crouching lock in
+    the middle of a 2A recovery.  Validated frame-data actions always win;
+    unprofiled specials are allowed only when their label is not a passive
+    locomotion/state label.
+    """
+    if not isinstance(descriptor, dict):
+        return False
+    try:
+        if fd is not None and bool(getattr(fd, "active_windows", ())):
+            return True
+    except Exception:
+        pass
+    try:
+        sid = int(state_id)
+    except Exception:
+        sid = 0
+    label = str(descriptor.get("move_name") or "").strip().lower()
+    compact = re.sub(r"[\s._-]+", " ", label).strip()
+    if not compact or compact in _RANGE_PASSIVE_ACTION_LABELS:
+        return False
+    if sid in RANGE_EXPLICIT_GROUND_STATE_IDS:
+        return False
+    # A mapped non-passive special can lack frame data; it is still a real
+    # action and will be guarded by the live 0x53 hitbox path during learning.
+    return True
 
 
 def lookup_frame_data(
@@ -2682,8 +2895,10 @@ class Overlay:
         calibration_pips: int = 0,
         advance_forward: float = 0.0,
         source_label: Optional[str] = None,
+        airborne: bool = False,
+        posture: str = "stand",
     ) -> None:
-        """Draw a retained center-to-tip range ruler and one profiled hitbox tip."""
+        """Draw a retained center-to-tip ruler at the fighter's current height."""
         try:
             direction = 1.0 if float(direction) >= 0.0 else -1.0
             far_units = max(0.0, float(far_units))
@@ -2705,7 +2920,10 @@ class Overlay:
             floor_y = max(34, min(self.h - 30, floor_y))
             band_h = 16
             has_target = bool(target_slot)
-            accent = (92, 236, 145) if touching else ((104, 210, 255) if has_target else (150, 162, 184))
+            if airborne:
+                accent = (182, 124, 255) if not touching else (92, 236, 145)
+            else:
+                accent = (92, 236, 145) if touching else ((104, 210, 255) if has_target else (150, 162, 184))
             fill_alpha = 74 if touching else 50
 
             width = max(1, right - left)
@@ -2745,7 +2963,9 @@ class Overlay:
                 cal_text = f"  CAL {int(calibration_pips):+d}" if int(calibration_pips) else ""
                 adv_text = f"  MOVE {float(advance_forward):+.2f}u" if abs(float(advance_forward)) >= 0.03 else ""
                 source_tag = str(source_label or source_slot)
-                label = f"{source_tag} {move_tag}  RANGE {far_units:.2f}u{adv_text}{cal_text}  {state}  {detail}"
+                pose = str(posture or "stand").strip().lower()
+                range_tag = "AIR RANGE" if airborne else ("CROUCH RANGE" if pose == "crouch" else "RANGE")
+                label = f"{source_tag} {move_tag}  {range_tag} {far_units:.2f}u{adv_text}{cal_text}  {state}  {detail}"
                 txt = self.font_small.render(label, True, (240, 250, 255))
                 tw, th = txt.get_size()
                 badge = pygame.Surface((tw + 8, th + 4), pygame.SRCALPHA)
@@ -2755,6 +2975,80 @@ class Overlay:
                 bx = max(0, min(surf.get_width() - badge.get_width(), (surf.get_width() - badge.get_width()) // 2))
                 surf.blit(badge, (bx, 0))
             self.screen.blit(surf, (left - 2, floor_y - 18))
+        except Exception:
+            pass
+
+    def draw_saved_vertical_range_zone(
+        self,
+        source_slot: str,
+        center_x: float,
+        center_y: float,
+        center_z: float,
+        direction: float,
+        lower_y: float,
+        upper_y: float,
+        upper_forward: float,
+        lower_forward: float,
+        move_name: str = "RANGE",
+        source_label: Optional[str] = None,
+        airborne: bool = False,
+        posture: str = "stand",
+    ) -> None:
+        """Draw one clean top-to-bottom active-frame envelope ruler."""
+        try:
+            direction = 1.0 if float(direction) >= 0.0 else -1.0
+            lower_y = float(lower_y)
+            upper_y = float(upper_y)
+            if not all(math.isfinite(v) for v in (lower_y, upper_y)) or upper_y <= lower_y + 0.01:
+                return
+            # Keep the rail just ahead of the fighter instead of through the
+            # torso. The measurement remains root-relative; this is display-only
+            # placement that avoids covering the character model.
+            forward_hint = max(abs(float(upper_forward or 0.0)), abs(float(lower_forward or 0.0)))
+            rail_forward = 0.30 + min(0.42, max(0.0, forward_hint) * 0.18)
+            rail_x = float(center_x) + direction * rail_forward
+            sx_top, sy_top, _d1, _f1 = self.world_to_screen(rail_x, float(center_y) + upper_y, float(center_z))
+            sx_bottom, sy_bottom, _d2, _f2 = self.world_to_screen(rail_x, float(center_y) + lower_y, float(center_z))
+            if not all(math.isfinite(v) for v in (sx_top, sy_top, sx_bottom, sy_bottom)):
+                return
+            x = int((sx_top + sx_bottom) / 2)
+            top = int(min(sy_top, sy_bottom))
+            bottom = int(max(sy_top, sy_bottom))
+            height = max(12, bottom - top)
+            top = max(26, min(self.h - 38, top))
+            bottom = max(top + 12, min(self.h - 18, bottom))
+            height = max(12, bottom - top)
+            accent = (182, 124, 255) if airborne else (104, 210, 255)
+            rail_w = 14
+            pad = 7
+            surf = pygame.Surface((rail_w + pad * 2 + 6, height + 38), pygame.SRCALPHA)
+            rail_x_px = pad + 3
+            rail = pygame.Rect(rail_x_px, 20, rail_w, height)
+            pygame.draw.rect(surf, (*accent, 46), rail, border_radius=3)
+            pygame.draw.rect(surf, (*accent, 228), rail, 2, border_radius=3)
+            pygame.draw.line(surf, (*accent, 235), (rail_x_px - 5, 20), (rail_x_px + rail_w + 5, 20), 2)
+            pygame.draw.line(surf, (*accent, 235), (rail_x_px - 5, 20 + height), (rail_x_px + rail_w + 5, 20 + height), 2)
+            for tick_y in range(30, 20 + height, 12):
+                pygame.draw.line(surf, (*accent, 130), (rail_x_px + 3, tick_y), (rail_x_px + rail_w - 3, tick_y), 1)
+
+            if self.font_small is not None:
+                up = max(0.0, upper_y)
+                down = max(0.0, -lower_y)
+                span = upper_y - lower_y
+                source_tag = str(source_label or source_slot)
+                pose = str(posture or "stand").strip().lower()
+                axis_tag = "AIR VERT" if airborne else ("CROUCH VERT" if pose == "crouch" else "VERT")
+                label = f"{source_tag} {str(move_name or 'RANGE')[:12]}  {axis_tag} {span:.2f}u  UP {up:.2f}  DOWN {down:.2f}"
+                txt = self.font_small.render(label, True, (240, 250, 255))
+                tw, th = txt.get_size()
+                badge = pygame.Surface((tw + 8, th + 4), pygame.SRCALPHA)
+                pygame.draw.rect(badge, (7, 15, 25, 224), badge.get_rect(), border_radius=3)
+                pygame.draw.rect(badge, (*accent, 205), badge.get_rect(), 1, border_radius=3)
+                badge.blit(txt, (4, 2))
+                bx = max(0, min(self.w - badge.get_width(), x - badge.get_width() // 2))
+                by = max(2, top - badge.get_height() - 6)
+                self.screen.blit(badge, (bx, by))
+            self.screen.blit(surf, (x - rail_x_px, top - 20))
         except Exception:
             pass
 
@@ -2863,6 +3157,49 @@ class Overlay:
                 self.screen.blit(txt, (sx + d + 4, sy - 8))
         except Exception:
             pass
+
+    def draw_range_contact_audit_marker(self, marker: Dict[str, Any], witnessed: bool) -> None:
+        """Draw an honest contact-audit marker.
+
+        ``witnessed`` means the game produced a damage/impact signal and the
+        displayed descriptor pair is the closest live geometry.  ``expected``
+        means the stored pair is being checked during a later occurrence.
+        """
+        try:
+            sx, sy, _d, _f = self.world_to_screen(
+                float(marker.get("x") or 0.0),
+                float(marker.get("y") or 0.0),
+                float(marker.get("z") or 0.0),
+            )
+            gap = max(0.0, float(marker.get("surface_gap") or 0.0))
+            touching = gap <= 0.045
+            color = (255, 228, 112) if witnessed else ((100, 246, 150) if touching else (255, 156, 94))
+            radius = 8 if witnessed else 6
+            pygame.draw.circle(self.screen, color, (int(sx), int(sy)), radius, 2)
+            pygame.draw.line(self.screen, color, (int(sx) - radius - 3, int(sy)), (int(sx) + radius + 3, int(sy)), 1)
+            pygame.draw.line(self.screen, color, (int(sx), int(sy) - radius - 3), (int(sx), int(sy) + radius + 3), 1)
+            if self.font_small is not None:
+                source = str(marker.get("source_slot") or "?")
+                target = str(marker.get("target_slot") or "?")
+                hit_index = int(marker.get("hitbox_index") or 0)
+                hurt_index = int(marker.get("hurtbox_index") or 0)
+                if witnessed:
+                    signal = str(marker.get("signal") or "impact").upper()
+                    mismatch = not bool(marker.get("predicted_touch"))
+                    status = "RULER MISS" if mismatch else "RULER ALIGN"
+                    label = f"{signal} WIT {source}[{hit_index}]>{target}[{hurt_index}]  {status}"
+                else:
+                    move_name = str(marker.get("move_name") or "RANGE")
+                    samples = max(0, int(marker.get("samples") or 0))
+                    truth = bool(marker.get("truth"))
+                    prefix = "TRUTH" if truth else "CHECK"
+                    label = f"{prefix} {move_name} {source}[{hit_index}]>{target}[{hurt_index}]  GAP +{gap:.2f}  x{samples}"
+                shadow = self.font_small.render(label, True, (0, 0, 0))
+                txt = self.font_small.render(label, True, color)
+                self.screen.blit(shadow, (int(sx) + radius + 5, int(sy) - 9))
+                self.screen.blit(txt, (int(sx) + radius + 4, int(sy) - 10))
+        except Exception:
+            return
 
     def draw_projectile_hitbox(
         self,
@@ -3058,6 +3395,16 @@ class HitboxRenderer:
         # Latest measured maximum forward reach per raw fighter slot. A new
         # active move replaces the prior measurement; walking/idle does not.
         self._saved_ranges: Dict[str, Dict[str, Any]] = {}
+        # Last usable action for each live posture.  The actual profile JSON
+        # remains move-keyed; this is transient presentation state only.
+        self._saved_ranges_by_posture: Dict[str, Dict[str, Dict[str, Any]]] = {
+            slot: {} for slot in SLOT_BASES
+        }
+        # Presentation-only action posture locks.  These never modify the
+        # learned JSON; they just prevent crouching/air actions from briefly
+        # borrowing a standing ruler when TvC switches through a generic state
+        # during startup/recovery.
+        self._range_posture_locks: Dict[str, Dict[str, Any]] = {}
         self._range_profiles: Dict[str, Any] = self._load_range_profiles()
         self._range_profiles_dirty = False
         self._last_range_profile_flush_ms = 0
@@ -3074,6 +3421,18 @@ class HitboxRenderer:
         # sampled across its complete active window, then committed once at
         # recovery/state exit.  Existing valid entries never enter this map.
         self._range_pending_learns: Dict[str, Dict[str, Any]] = {}
+        # Contact audit is intentionally tiny and action-scoped.  Each active
+        # profiled body move retains a few current hitbox snapshots.  When the
+        # game signals a real impact, those snapshots identify the closest
+        # attack/hurtbox pair without scanning the global resolver heap.
+        self._range_contact_snapshots: Dict[str, List[Dict[str, Any]]] = {}
+        self._range_contact_markers: List[Dict[str, Any]] = []
+        self._range_contact_expectations: Dict[str, Dict[str, Any]] = {}
+        self._range_last_impact_freeze: Dict[str, int] = {}
+        # Per raw slot floor-reference root height used for the live ground/air
+        # presentation decision.  This is transient; it is never stored in a
+        # move profile and resets cleanly on a roster/camera switch.
+        self._range_ground_reference_y: Dict[str, float] = {}
 
         self.w = DISPLAY.baseline_w
         self.h = DISPLAY.baseline_h
@@ -3183,8 +3542,13 @@ class HitboxRenderer:
         return float(pips) * RANGE_CALIBRATION_PIP, pips
 
     @staticmethod
-    def _range_profile_geometry(profile: Dict[str, Any]) -> Optional[Dict[str, float]]:
-        """Return normalized root-anchor geometry for one schema-5 attack profile."""
+    def _range_profile_core_geometry(profile: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        """Return the original root-anchor geometry stored for one attack.
+
+        This is deliberately separate from the horizontal-envelope override so
+        callers can still tell whether the move has a real core profile rather
+        than treating a malformed supplement as a complete move record.
+        """
         try:
             if str(profile.get("anchor") or "") != "fighter_root":
                 return None
@@ -3204,6 +3568,334 @@ class HitboxRenderer:
             return values
         except Exception:
             return None
+
+    @staticmethod
+    def _horizontal_envelope_from_dynamic_frames(frames: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, float]]:
+        """Extract the single furthest horizontal active hit edge.
+
+        Every Dynamic frame is already normalized for facing:
+
+            action-start root -> root travel -> local hitbox circle
+
+        The ruler should therefore choose the largest ``root_fwd + local_fwd +
+        radius`` over *all confirmed active frames*, not the final active
+        circle.  The chosen circle's Y/Z/radius are kept so the ruler tip still
+        marks where that horizontal maximum actually occurred.
+        """
+        if not isinstance(frames, list) or not frames:
+            return None
+        best: Optional[Dict[str, float]] = None
+        for frame_index, item in enumerate(frames):
+            if not isinstance(item, dict):
+                continue
+            root = item.get("root")
+            shapes = item.get("shapes")
+            if not isinstance(root, (tuple, list)) or len(root) < 3 or not isinstance(shapes, list):
+                continue
+            try:
+                root_fwd, root_y, root_z = (float(root[0]), float(root[1]), float(root[2]))
+            except Exception:
+                continue
+            if not all(math.isfinite(v) for v in (root_fwd, root_y, root_z)):
+                continue
+            if abs(root_fwd) > RANGE_PROFILE_MAX_ROOT_ADVANCE:
+                continue
+            for shape_index, shape in enumerate(shapes):
+                if not isinstance(shape, (tuple, list)) or len(shape) < 4:
+                    continue
+                try:
+                    local_fwd, local_y, local_z, radius = (
+                        float(shape[0]), float(shape[1]), float(shape[2]), float(shape[3])
+                    )
+                except Exception:
+                    continue
+                if not all(math.isfinite(v) for v in (local_fwd, local_y, local_z, radius)):
+                    continue
+                if radius <= 0.01 or radius > 1.5:
+                    continue
+                tip_center_from_start = root_fwd + local_fwd
+                reach_from_start = tip_center_from_start + radius
+                if reach_from_start <= 0.03 or reach_from_start > RANGE_PROFILE_MAX_LOCAL_REACH:
+                    continue
+                candidate = {
+                    "version": float(RANGE_HORIZONTAL_ENVELOPE_VERSION),
+                    "reach_from_start": float(reach_from_start),
+                    "tip_center_from_start": float(tip_center_from_start),
+                    "tip_y_from_start": float(root_y + local_y),
+                    "tip_z_from_start": float(root_z + local_z),
+                    "tip_radius": float(radius),
+                    "advance_at_tip": float(root_fwd),
+                    "tip_center_from_active_root": float(local_fwd),
+                    "active_frame": float(int(item.get("frame") or frame_index)),
+                    "shape_index": float(shape_index),
+                }
+                if best is None or candidate["reach_from_start"] > best["reach_from_start"]:
+                    best = candidate
+        return best
+
+    @staticmethod
+    def _validated_horizontal_envelope(raw: Any) -> Optional[Dict[str, float]]:
+        """Validate one persisted horizontal-envelope payload."""
+        if not isinstance(raw, dict):
+            return None
+        try:
+            if int(raw.get("version") or 0) != RANGE_HORIZONTAL_ENVELOPE_VERSION:
+                return None
+            values = {
+                "reach_from_start": float(raw.get("reach_from_start")),
+                "tip_center_from_start": float(raw.get("tip_center_from_start")),
+                "tip_y_from_start": float(raw.get("tip_y_from_start")),
+                "tip_z_from_start": float(raw.get("tip_z_from_start")),
+                "tip_radius": float(raw.get("tip_radius")),
+                "advance_at_tip": float(raw.get("advance_at_tip") or 0.0),
+                "tip_center_from_active_root": float(raw.get("tip_center_from_active_root") or 0.0),
+            }
+            if not all(math.isfinite(v) for v in values.values()):
+                return None
+            if values["reach_from_start"] <= 0.03 or values["reach_from_start"] > RANGE_PROFILE_MAX_LOCAL_REACH:
+                return None
+            if values["tip_radius"] <= 0.01 or values["tip_radius"] > 1.5:
+                return None
+            if abs(values["advance_at_tip"]) > RANGE_PROFILE_MAX_ROOT_ADVANCE:
+                return None
+            return values
+        except Exception:
+            return None
+
+    def _range_profile_horizontal_envelope(self, profile: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        """Return saved/derivable max-horizontal geometry for a profile."""
+        persisted = self._validated_horizontal_envelope(profile.get("horizontal_envelope"))
+        if persisted is not None:
+            return persisted
+        # Older profiles may already have a valid recorded sweep.  Use it for
+        # rendering immediately even before the next save backfills the compact
+        # envelope field.
+        return self._horizontal_envelope_from_dynamic_frames(self._range_dynamic_sweep(profile))
+
+    def _range_profile_geometry(self, profile: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        """Return display geometry, preferring true max-horizontal coverage."""
+        core = self._range_profile_core_geometry(profile)
+        if core is None:
+            return None
+        envelope = self._range_profile_horizontal_envelope(profile)
+        return envelope if envelope is not None else core
+
+    def _apply_horizontal_envelope(self, profile: Dict[str, Any], frames: List[Dict[str, Any]]) -> bool:
+        """Persist a one-time max-horizontal active-frame correction.
+
+        This is intentionally an upgrade to a move's ruler geometry, not a
+        calibration pip.  It does not alter contact witnesses or calibration.
+        The profile's canonical tip fields are updated too so any older display
+        call path reads the same truthful max-horizontal point.
+        """
+        if not RANGE_PROFILE_WRITE_ENABLED or not isinstance(profile, dict):
+            return False
+        envelope = self._horizontal_envelope_from_dynamic_frames(frames)
+        if envelope is None:
+            return False
+        current = self._validated_horizontal_envelope(profile.get("horizontal_envelope"))
+        # Once a valid envelope exists, it is authoritative. Do not allow later
+        # play to drift it backward/forward without an explicit reset.
+        if current is not None:
+            return False
+        persisted = {
+            "version": RANGE_HORIZONTAL_ENVELOPE_VERSION,
+            "reach_from_start": float(envelope["reach_from_start"]),
+            "tip_center_from_start": float(envelope["tip_center_from_start"]),
+            "tip_y_from_start": float(envelope["tip_y_from_start"]),
+            "tip_z_from_start": float(envelope["tip_z_from_start"]),
+            "tip_radius": float(envelope["tip_radius"]),
+            "advance_at_tip": float(envelope["advance_at_tip"]),
+            "tip_center_from_active_root": float(envelope["tip_center_from_active_root"]),
+            "active_frame": int(envelope.get("active_frame") or 0),
+            "shape_index": int(envelope.get("shape_index") or 0),
+        }
+        profile["horizontal_envelope"] = persisted
+        profile["reach_from_start"] = persisted["reach_from_start"]
+        profile["tip_center_from_start"] = persisted["tip_center_from_start"]
+        profile["tip_y_from_start"] = persisted["tip_y_from_start"]
+        profile["tip_z_from_start"] = persisted["tip_z_from_start"]
+        profile["tip_radius"] = persisted["tip_radius"]
+        profile["advance_at_tip"] = persisted["advance_at_tip"]
+        profile["tip_center_from_active_root"] = persisted["tip_center_from_active_root"]
+        profile["ruler_geometry_source"] = "max_horizontal_active_envelope"
+        profile["updated_ms"] = int(pygame.time.get_ticks())
+        self._range_profiles_dirty = True
+        return True
+
+    @staticmethod
+    def _vertical_envelope_from_dynamic_frames(frames: Optional[List[Dict[str, Any]]]) -> Optional[Dict[str, float]]:
+        """Extract the top and bottom active hitbox edges across one move.
+
+        Samples are action-root relative and contain only confirmed active
+        frames.  Keeping both extrema makes a vertical ruler useful for arcs,
+        low sweeps, launchers, and moves whose hitbox travels from floor to sky.
+        """
+        if not isinstance(frames, list) or not frames:
+            return None
+        top: Optional[Dict[str, float]] = None
+        bottom: Optional[Dict[str, float]] = None
+        for frame_index, item in enumerate(frames):
+            if not isinstance(item, dict):
+                continue
+            root = item.get("root")
+            shapes = item.get("shapes")
+            if not isinstance(root, (tuple, list)) or len(root) < 3 or not isinstance(shapes, list):
+                continue
+            try:
+                root_fwd, root_y, root_z = (float(root[0]), float(root[1]), float(root[2]))
+            except Exception:
+                continue
+            if not all(math.isfinite(v) for v in (root_fwd, root_y, root_z)):
+                continue
+            if abs(root_fwd) > RANGE_PROFILE_MAX_ROOT_ADVANCE:
+                continue
+            for shape_index, shape in enumerate(shapes):
+                if not isinstance(shape, (tuple, list)) or len(shape) < 4:
+                    continue
+                try:
+                    local_fwd, local_y, local_z, radius = (
+                        float(shape[0]), float(shape[1]), float(shape[2]), float(shape[3])
+                    )
+                except Exception:
+                    continue
+                if not all(math.isfinite(v) for v in (local_fwd, local_y, local_z, radius)):
+                    continue
+                if radius <= 0.01 or radius > 1.5:
+                    continue
+                center_y = root_y + local_y
+                candidate_common = {
+                    "forward_from_start": float(root_fwd + local_fwd),
+                    "z_from_start": float(root_z + local_z),
+                    "radius": float(radius),
+                    "active_frame": float(int(item.get("frame") or frame_index)),
+                    "shape_index": float(shape_index),
+                }
+                top_candidate = dict(candidate_common)
+                top_candidate["edge_y_from_start"] = float(center_y + radius)
+                bottom_candidate = dict(candidate_common)
+                bottom_candidate["edge_y_from_start"] = float(center_y - radius)
+                if top is None or top_candidate["edge_y_from_start"] > top["edge_y_from_start"]:
+                    top = top_candidate
+                if bottom is None or bottom_candidate["edge_y_from_start"] < bottom["edge_y_from_start"]:
+                    bottom = bottom_candidate
+        if top is None or bottom is None:
+            return None
+        high = float(top["edge_y_from_start"])
+        low = float(bottom["edge_y_from_start"])
+        if not math.isfinite(high) or not math.isfinite(low) or high <= low + 0.01:
+            return None
+        if (high - low) > RANGE_VERTICAL_ENVELOPE_MAX_SPAN:
+            return None
+        return {
+            "version": float(RANGE_VERTICAL_ENVELOPE_VERSION),
+            "upper_y_from_start": high,
+            "lower_y_from_start": low,
+            "upper_forward_from_start": float(top["forward_from_start"]),
+            "lower_forward_from_start": float(bottom["forward_from_start"]),
+            "upper_z_from_start": float(top["z_from_start"]),
+            "lower_z_from_start": float(bottom["z_from_start"]),
+            "upper_radius": float(top["radius"]),
+            "lower_radius": float(bottom["radius"]),
+            "upper_active_frame": float(top["active_frame"]),
+            "lower_active_frame": float(bottom["active_frame"]),
+            "upper_shape_index": float(top["shape_index"]),
+            "lower_shape_index": float(bottom["shape_index"]),
+        }
+
+    @staticmethod
+    def _validated_vertical_envelope(raw: Any) -> Optional[Dict[str, float]]:
+        """Validate one persisted top/bottom active-envelope payload."""
+        if not isinstance(raw, dict):
+            return None
+        try:
+            if int(raw.get("version") or 0) != RANGE_VERTICAL_ENVELOPE_VERSION:
+                return None
+            values = {
+                "upper_y_from_start": float(raw.get("upper_y_from_start")),
+                "lower_y_from_start": float(raw.get("lower_y_from_start")),
+                "upper_forward_from_start": float(raw.get("upper_forward_from_start") or 0.0),
+                "lower_forward_from_start": float(raw.get("lower_forward_from_start") or 0.0),
+                "upper_z_from_start": float(raw.get("upper_z_from_start") or 0.0),
+                "lower_z_from_start": float(raw.get("lower_z_from_start") or 0.0),
+                "upper_radius": float(raw.get("upper_radius") or 0.0),
+                "lower_radius": float(raw.get("lower_radius") or 0.0),
+            }
+            if not all(math.isfinite(v) for v in values.values()):
+                return None
+            if values["upper_y_from_start"] <= values["lower_y_from_start"] + 0.01:
+                return None
+            if (values["upper_y_from_start"] - values["lower_y_from_start"]) > RANGE_VERTICAL_ENVELOPE_MAX_SPAN:
+                return None
+            if not (0.01 < values["upper_radius"] <= 1.5 and 0.01 < values["lower_radius"] <= 1.5):
+                return None
+            return values
+        except Exception:
+            return None
+
+    def _range_profile_vertical_envelope(self, profile: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        """Return saved or derivable top/bottom active geometry for a profile."""
+        persisted = self._validated_vertical_envelope(profile.get("vertical_envelope"))
+        if persisted is not None:
+            return persisted
+        return self._vertical_envelope_from_dynamic_frames(self._range_dynamic_sweep(profile))
+
+    def _range_profile_vertical_geometry(self, profile: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        """Return vertical envelope, with a one-tip fallback while it is learned."""
+        envelope = self._range_profile_vertical_envelope(profile)
+        if envelope is not None:
+            return envelope
+        core = self._range_profile_core_geometry(profile)
+        if core is None:
+            return None
+        try:
+            center_y = float(core["tip_y_from_start"])
+            radius = float(core["tip_radius"])
+            if radius <= 0.01:
+                return None
+            return {
+                "upper_y_from_start": center_y + radius,
+                "lower_y_from_start": center_y - radius,
+                "upper_forward_from_start": float(core["tip_center_from_start"]),
+                "lower_forward_from_start": float(core["tip_center_from_start"]),
+                "upper_z_from_start": float(core["tip_z_from_start"]),
+                "lower_z_from_start": float(core["tip_z_from_start"]),
+                "upper_radius": radius,
+                "lower_radius": radius,
+                "fallback": 1.0,
+            }
+        except Exception:
+            return None
+
+    def _apply_vertical_envelope(self, profile: Dict[str, Any], frames: List[Dict[str, Any]]) -> bool:
+        """Persist one complete top/bottom active-frame envelope without overwriting it."""
+        if not RANGE_PROFILE_WRITE_ENABLED or not isinstance(profile, dict):
+            return False
+        envelope = self._vertical_envelope_from_dynamic_frames(frames)
+        if envelope is None:
+            return False
+        if self._validated_vertical_envelope(profile.get("vertical_envelope")) is not None:
+            return False
+        persisted = {
+            "version": RANGE_VERTICAL_ENVELOPE_VERSION,
+            "upper_y_from_start": float(envelope["upper_y_from_start"]),
+            "lower_y_from_start": float(envelope["lower_y_from_start"]),
+            "upper_forward_from_start": float(envelope["upper_forward_from_start"]),
+            "lower_forward_from_start": float(envelope["lower_forward_from_start"]),
+            "upper_z_from_start": float(envelope["upper_z_from_start"]),
+            "lower_z_from_start": float(envelope["lower_z_from_start"]),
+            "upper_radius": float(envelope["upper_radius"]),
+            "lower_radius": float(envelope["lower_radius"]),
+            "upper_active_frame": int(envelope.get("upper_active_frame") or 0),
+            "lower_active_frame": int(envelope.get("lower_active_frame") or 0),
+            "upper_shape_index": int(envelope.get("upper_shape_index") or 0),
+            "lower_shape_index": int(envelope.get("lower_shape_index") or 0),
+        }
+        profile["vertical_envelope"] = persisted
+        profile["vertical_geometry_source"] = "full_active_envelope"
+        profile["updated_ms"] = int(pygame.time.get_ticks())
+        self._range_profiles_dirty = True
+        return True
 
     @staticmethod
     def _range_dynamic_sweep(profile: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
@@ -3349,6 +4041,84 @@ class HitboxRenderer:
                     out.append((x, y, z, radius, frame_no))
         return out
 
+    @staticmethod
+    def _profile_display_mode(profile: Dict[str, Any], saved: Dict[str, Any]) -> str:
+        """Return the persisted display policy for a saved body action."""
+        mode = str(saved.get("display_mode") or profile.get("display_mode") or "ground_ruler").strip().lower()
+        return mode if mode in {"ground_ruler", "dynamic_only"} else "ground_ruler"
+
+    def _range_target_candidates(
+        self,
+        source_slot: str,
+        display_center: Tuple[float, float, float],
+    ) -> List[Tuple[float, str, Tuple[float, float, float], Dict[str, float], str]]:
+        """Collect opposing on-stage hurt/body targets for one saved profile."""
+        source_team = self._team_for_slot(source_slot)
+        if not source_team:
+            return []
+        candidates = []
+        for target_slot in SLOT_BASES:
+            if self._team_for_slot(target_slot) == source_team:
+                continue
+            if not self.slot_renderable.get(target_slot, False):
+                continue
+            target_root, target_local, target_source, _target_cid = self._body_bounds_for_slot(target_slot)
+            if target_root is None or target_local is None:
+                continue
+            dist = abs(float(target_root[0]) - float(display_center[0]))
+            if dist >= 0.05:
+                candidates.append((dist, target_slot, target_root, target_local, target_source))
+        return candidates
+
+    def _draw_profile_dynamic_sweep(
+        self,
+        ov: Any,
+        source_slot: str,
+        saved: Dict[str, Any],
+        profile: Dict[str, Any],
+        anchor: Tuple[float, float, float],
+        direction: float,
+        candidates: List[Tuple[float, str, Tuple[float, float, float], Dict[str, float], str]],
+    ) -> bool:
+        """Draw one persisted multi-hit/vertical sweep and calculate its gap."""
+        dynamic_frames = self._range_dynamic_sweep(profile)
+        if not dynamic_frames:
+            return False
+        sweep_shapes = self._dynamic_sweep_world_shapes(anchor, direction, dynamic_frames)
+        if not sweep_shapes:
+            return False
+        dynamic_best = None
+        dynamic_slot = ""
+        for _dist2, candidate_slot, candidate_root, candidate_local, _candidate_source in candidates:
+            hlist = list(self.cached_hurtboxes.get(candidate_slot) or [])
+            for sx, sy, sz, sr, _frame_no in sweep_shapes:
+                if hlist:
+                    for hurt in hlist:
+                        dx = float(sx) - float(hurt.x)
+                        dy = float(sy) - float(hurt.y)
+                        dz = float(sz) - float(hurt.z)
+                        gap = max(0.0, math.sqrt(dx * dx + dy * dy + dz * dz) - float(sr) - float(hurt.radius))
+                        if dynamic_best is None or gap < dynamic_best[0]:
+                            dynamic_best = (gap, candidate_slot)
+                else:
+                    body_world = self._world_bounds(candidate_root, candidate_local)
+                    _touch, gap = self._sphere_aabb_touch_or_gap((sx, sy, sz), sr, body_world)
+                    if dynamic_best is None or gap < dynamic_best[0]:
+                        dynamic_best = (gap, candidate_slot)
+        dynamic_gap = None if dynamic_best is None else float(dynamic_best[0])
+        if dynamic_best is not None:
+            dynamic_slot = str(dynamic_best[1])
+        ov.draw_dynamic_range_sweep(
+            self._ruler_source_label(source_slot, saved),
+            str(saved.get("move_name") or "RANGE"),
+            sweep_shapes,
+            dynamic_gap,
+            bool(dynamic_gap is not None and dynamic_gap <= 0.045),
+            dynamic_slot,
+        )
+        return True
+
+
     def _ruler_source_label(self, source_slot: str, saved: Dict[str, Any]) -> str:
         """Return a human-readable source label without hiding the raw slot.
 
@@ -3363,6 +4133,456 @@ class HitboxRenderer:
             char_id = 0
         char_name = CHAR_NAMES.get(char_id)
         return f"{char_name} ({source_slot})" if char_name else str(source_slot)
+
+    @staticmethod
+    def _range_contact_audit_entry(profile: Dict[str, Any]) -> Dict[str, Any]:
+        """Return the append/merge contact-audit block for one attack profile.
+
+        A game impact is real; the hitbox/hurtbox pair below is the closest
+        matching live geometry at that moment.  It is intentionally stored as a
+        witness rather than claimed to be a raw resolver-owned descriptor pair.
+        """
+        audit = profile.get("contact_audit")
+        if not isinstance(audit, dict):
+            audit = {}
+            profile["contact_audit"] = audit
+        audit["version"] = RANGE_CONTACT_AUDIT_VERSION
+        audit.setdefault("confirmed_events", 0)
+        audit.setdefault("ruler_mismatches", 0)
+        audit.setdefault("unresolved_events", 0)
+        audit.setdefault("truth_events", 0)
+        audit.setdefault("last_signal", "")
+        audit.setdefault("last_mismatch", False)
+        audit.setdefault("last_update_ms", 0)
+        witnesses = audit.get("witnesses")
+        if not isinstance(witnesses, list):
+            witnesses = []
+            audit["witnesses"] = witnesses
+        return audit
+
+    @staticmethod
+    def _range_contact_pair_metrics(hit: Dict[str, Any], hurt: HurtboxState) -> Dict[str, float]:
+        """Return 2D circle-pair metrics in the same x/y space as hitboxes.
+
+        Hurtbox z is intentionally not folded in here: the player hitbox table
+        is a 2D x/y circle list, and the existing overlay/contact helpers use
+        that same plane.  Treating z as a fake third hitbox coordinate made
+        valid pairs disappear on characters with animated bone depth.
+        """
+        hx = float(hit["x"])
+        hy = float(hit["y"])
+        hr = max(0.0, float(hit["radius"]))
+        dx = hx - float(hurt.x)
+        dy = hy - float(hurt.y)
+        distance = math.hypot(dx, dy)
+        combined = hr + max(0.0, float(hurt.radius))
+        surface_gap = max(0.0, distance - combined)
+        overlap = max(0.0, combined - distance)
+        if distance > 1e-6:
+            ux, uy = dx / distance, dy / distance
+            px = hx - ux * hr
+            py = hy - uy * hr
+        else:
+            px = (hx + float(hurt.x)) * 0.5
+            py = (hy + float(hurt.y)) * 0.5
+        return {
+            "surface_gap": float(surface_gap),
+            "overlap": float(overlap),
+            "point_x": float(px),
+            "point_y": float(py),
+            "point_z": float(hurt.z),
+        }
+
+    def _capture_range_active_snapshot(self, source_slot: str, meta: Dict[str, Any], now_ms: int) -> None:
+        """Keep a few exact active-frame body-hitbox snapshots for one move.
+
+        This reads at most the three normal player descriptors for a source that
+        is already running a saved range profile.  It is not a normal scan and
+        remains active even when the visual Hitboxes layer is hidden.
+        """
+        if source_slot not in SLOT_BASES or not isinstance(meta, dict):
+            return
+        try:
+            base = SLOT_BASES[source_slot]
+            state_id = decode_state_id(read_state_raw(base))
+            expected_state = int(meta.get("state_id") or state_id)
+            if int(state_id) != expected_state:
+                return
+            profile_key = str(meta.get("profile_key") or "")
+            if not profile_key:
+                char_id = int(meta.get("char_id") or 0)
+                move_key = int(meta.get("move_key") or 0)
+                profile_key = f"{char_id}:{move_key}"
+            root = tuple(float(v) for v in read_fighter_root(base))
+            if not all(math.isfinite(v) for v in root):
+                return
+            boxes = read_hitboxes(base, HITBOX)
+            active_boxes: List[Dict[str, Any]] = []
+            action_frame = None
+            for index, (x, y, radius, flag) in enumerate(boxes):
+                if float(radius) <= 0.001:
+                    continue
+                _draw_now, is_active, action_frame, _fd = self._frame_gate_for_slot(
+                    source_slot, base, int(state_id), int(flag)
+                )
+                if not is_active:
+                    continue
+                if not all(math.isfinite(float(v)) for v in (x, y, radius)):
+                    continue
+                active_boxes.append({
+                    "index": int(index),
+                    "x": float(x),
+                    "y": float(y),
+                    "z": 0.0,
+                    "radius": max(0.0, float(radius)),
+                })
+            if not active_boxes:
+                return
+            raw_origin = meta.get("action_origin")
+            if isinstance(raw_origin, (tuple, list)) and len(raw_origin) >= 3:
+                origin = tuple(float(raw_origin[i]) for i in range(3))
+            else:
+                origin = root
+            snapshot = {
+                "ms": int(now_ms),
+                "profile_key": profile_key,
+                "move_name": str(meta.get("move_name") or "RANGE"),
+                "state_id": int(state_id),
+                "action_frame": int(action_frame) if isinstance(action_frame, int) else None,
+                "root": root,
+                "action_origin": origin,
+                "boxes": active_boxes,
+            }
+            history = self._range_contact_snapshots.setdefault(source_slot, [])
+            if history and str(history[-1].get("profile_key") or "") == profile_key and history[-1].get("action_frame") == snapshot.get("action_frame"):
+                history[-1] = snapshot
+            else:
+                history.append(snapshot)
+            self._range_contact_snapshots[source_slot] = history[-8:]
+        except Exception:
+            return
+
+    def _recent_range_active_snapshot(self, source_slot: str, profile_key: str, now_ms: int) -> Optional[Dict[str, Any]]:
+        history = self._range_contact_snapshots.get(source_slot) or []
+        for snapshot in reversed(history):
+            try:
+                if str(snapshot.get("profile_key") or "") != str(profile_key):
+                    continue
+                if int(now_ms) - int(snapshot.get("ms") or 0) > RANGE_CONTACT_SNAPSHOT_MAX_AGE_MS:
+                    continue
+                if isinstance(snapshot.get("boxes"), list) and snapshot["boxes"]:
+                    return snapshot
+            except Exception:
+                continue
+        return None
+
+    def _range_profile_prediction_for_snapshot(
+        self,
+        profile: Dict[str, Any],
+        snapshot: Dict[str, Any],
+        target_hurtboxes: List[HurtboxState],
+    ) -> Tuple[bool, Optional[float]]:
+        """Evaluate the retained single-tip estimate at one observed hit frame."""
+        geometry = self._range_profile_geometry(profile)
+        if geometry is None or not target_hurtboxes:
+            return False, None
+        try:
+            root = snapshot.get("root")
+            if not isinstance(root, (tuple, list)) or len(root) < 3:
+                return False, None
+            target_x = sum(float(h.x) for h in target_hurtboxes) / float(len(target_hurtboxes))
+            direction = 1.0 if target_x >= float(root[0]) else -1.0
+            _adjustment, _pips = self._range_adjustment(profile)
+            tip_x = float(root[0]) + direction * (float(geometry["tip_center_from_start"]) + _adjustment)
+            tip_y = float(root[1]) + float(geometry["tip_y_from_start"])
+            tip_z = float(root[2]) + float(geometry["tip_z_from_start"])
+            radius = max(0.0, float(geometry["tip_radius"]))
+            best = None
+            for hurt in target_hurtboxes:
+                gap = max(0.0, math.sqrt((tip_x - float(hurt.x)) ** 2 + (tip_y - float(hurt.y)) ** 2 + (tip_z - float(hurt.z)) ** 2) - radius - float(hurt.radius))
+                best = gap if best is None else min(best, gap)
+            return bool(best is not None and float(best) <= 0.045), best
+        except Exception:
+            return False, None
+
+    def _record_range_contact_witness(
+        self,
+        source_slot: str,
+        target_slot: str,
+        profile_key: str,
+        snapshot: Dict[str, Any],
+        hit: Dict[str, Any],
+        hurt: HurtboxState,
+        metrics: Dict[str, float],
+        signal: str,
+        predicted_touch: bool,
+        now_ms: int,
+    ) -> None:
+        """Merge one engine-signalled impact into a move's audit witnesses."""
+        if not RANGE_PROFILE_WRITE_ENABLED:
+            return
+        profile = (self._range_profiles.get("attacks") or {}).get(str(profile_key))
+        if not isinstance(profile, dict):
+            return
+        try:
+            target_char_id = int(rd32(SLOT_BASES[target_slot] + OFF_CHAR_ID) or 0)
+        except Exception:
+            target_char_id = 0
+        try:
+            origin = snapshot.get("action_origin")
+            if not isinstance(origin, (tuple, list)) or len(origin) < 3:
+                origin = snapshot.get("root")
+            if not isinstance(origin, (tuple, list)) or len(origin) < 3:
+                return
+            direction = 1.0 if float(hurt.x) >= float(origin[0]) else -1.0
+            local_x = (float(hit["x"]) - float(origin[0])) * direction
+            local_y = float(hit["y"]) - float(origin[1])
+            local_z = float(hit.get("z") or 0.0) - float(origin[2])
+        except Exception:
+            return
+        audit = self._range_contact_audit_entry(profile)
+        witnesses = audit["witnesses"]
+        hit_index = int(hit.get("index") or 0)
+        hurt_index = int(hurt.index)
+        action_frame = snapshot.get("action_frame")
+        match = None
+        for witness in witnesses:
+            if not isinstance(witness, dict):
+                continue
+            if (
+                int(witness.get("target_char_id") or 0) == int(target_char_id)
+                and int(witness.get("hitbox_index") or -1) == hit_index
+                and int(witness.get("hurtbox_index") or -1) == hurt_index
+            ):
+                match = witness
+                break
+        if match is None:
+            match = {
+                "target_char_id": int(target_char_id),
+                "hitbox_index": hit_index,
+                "hurtbox_index": hurt_index,
+                "samples": 0,
+            }
+            witnesses.append(match)
+        prior_samples = max(0, int(match.get("samples") or 0))
+        # Merge position/radius gently so a single freeze-frame timing offset
+        # cannot replace an older good witness.
+        alpha = 1.0 if prior_samples <= 0 else 0.35
+        def blend(key: str, value: float) -> None:
+            old = match.get(key)
+            try:
+                oldf = float(old)
+            except Exception:
+                oldf = value
+            match[key] = (oldf * (1.0 - alpha)) + (float(value) * alpha)
+        blend("local_x", local_x)
+        blend("local_y", local_y)
+        blend("local_z", local_z)
+        blend("radius", max(0.0, float(hit.get("radius") or 0.0)))
+        blend("surface_gap", max(0.0, float(metrics.get("surface_gap") or 0.0)))
+        blend("overlap", max(0.0, float(metrics.get("overlap") or 0.0)))
+        sample_total = prior_samples + 1
+        match["action_frame"] = int(action_frame) if isinstance(action_frame, int) else None
+        match["signal"] = str(signal)
+        match["confidence"] = "geometry_overlap" if float(metrics.get("surface_gap") or 0.0) <= 0.045 else "nearest_geometry"
+        match["last_seen_ms"] = int(now_ms)
+        match["samples"] = sample_total
+        match["truth"] = bool(sample_total >= RANGE_CONTACT_TRUTH_MIN_SAMPLES)
+        match["predicted_touch_last"] = bool(predicted_touch)
+        match["mismatch_count"] = int(match.get("mismatch_count") or 0) + (0 if predicted_touch else 1)
+        audit["confirmed_events"] = int(audit.get("confirmed_events") or 0) + 1
+        audit["truth_events"] = int(audit.get("truth_events") or 0) + 1
+        audit["last_signal"] = str(signal)
+        audit["last_mismatch"] = not bool(predicted_touch)
+        audit["last_update_ms"] = int(now_ms)
+        if not predicted_touch:
+            audit["ruler_mismatches"] = int(audit.get("ruler_mismatches") or 0) + 1
+        # Keep a compact latest summary for exports and external audit tools;
+        # callers do not have to infer the current truth state from a list.
+        audit["latest"] = {
+            "target_char_id": int(target_char_id),
+            "hitbox_index": hit_index,
+            "hurtbox_index": hurt_index,
+            "action_frame": int(action_frame) if isinstance(action_frame, int) else None,
+            "samples": int(sample_total),
+            "truth": bool(sample_total >= RANGE_CONTACT_TRUTH_MIN_SAMPLES),
+            "predicted_touch": bool(predicted_touch),
+            "surface_gap": float(metrics.get("surface_gap") or 0.0),
+            "signal": str(signal),
+            "updated_ms": int(now_ms),
+        }
+        # Keep the most supported / newest witness set compact and auditable.
+        witnesses[:] = sorted(
+            [item for item in witnesses if isinstance(item, dict)],
+            key=lambda item: (int(item.get("samples") or 0), int(item.get("last_seen_ms") or 0)),
+            reverse=True,
+        )[:RANGE_CONTACT_MAX_WITNESSES]
+        profile["updated_ms"] = int(now_ms)
+        self._range_profiles_dirty = True
+
+    def _process_range_contact_audit(
+        self,
+        now_ms: int,
+        hp_drops: Dict[str, int],
+        impact_events: Dict[str, int],
+    ) -> None:
+        """Record the best live geometry witness for one engine-signalled hit/block.
+
+        Damage loss validates a hit.  The impact-freeze edge additionally covers
+        blocks and zero-damage interactions.  Pair ownership is labelled
+        *inferred* because TvC's available compact event record exposes actor
+        source/target but not raw descriptor indices.
+        """
+        signalled_targets = set(str(slot) for slot, delta in hp_drops.items() if int(delta or 0) > 0)
+        signalled_targets.update(str(slot) for slot, value in impact_events.items() if int(value or 0) > 0)
+        if not signalled_targets:
+            return
+        for target_slot in signalled_targets:
+            target_hurtboxes = list(self.cached_hurtboxes.get(target_slot) or [])
+            if not target_hurtboxes or target_slot not in SLOT_BASES:
+                continue
+            target_team = self._team_for_slot(target_slot)
+            best = None
+            for source_slot, history in list(self._range_contact_snapshots.items()):
+                if self._team_for_slot(source_slot) == target_team:
+                    continue
+                if not history:
+                    continue
+                for snapshot in reversed(history):
+                    try:
+                        age = int(now_ms) - int(snapshot.get("ms") or 0)
+                        if age < 0 or age > RANGE_CONTACT_SNAPSHOT_MAX_AGE_MS:
+                            continue
+                        profile_key = str(snapshot.get("profile_key") or "")
+                        profile = (self._range_profiles.get("attacks") or {}).get(profile_key)
+                        if not isinstance(profile, dict):
+                            continue
+                        for hit in snapshot.get("boxes") or []:
+                            if not isinstance(hit, dict):
+                                continue
+                            for hurt in target_hurtboxes:
+                                metrics = self._range_contact_pair_metrics(hit, hurt)
+                                candidate = (
+                                    float(metrics["surface_gap"]),
+                                    -float(metrics["overlap"]),
+                                    age,
+                                    source_slot,
+                                    profile_key,
+                                    snapshot,
+                                    hit,
+                                    hurt,
+                                    metrics,
+                                    profile,
+                                )
+                                if best is None or candidate[:3] < best[:3]:
+                                    best = candidate
+                    except Exception:
+                        continue
+            if best is None:
+                continue
+            gap, _neg_overlap, _age, source_slot, profile_key, snapshot, hit, hurt, metrics, profile = best
+            audit = self._range_contact_audit_entry(profile)
+            if float(gap) > RANGE_CONTACT_WITNESS_MAX_GAP:
+                audit["unresolved_events"] = int(audit.get("unresolved_events") or 0) + 1
+                self._range_profiles_dirty = True
+                continue
+            predicted_touch, predicted_gap = self._range_profile_prediction_for_snapshot(profile, snapshot, target_hurtboxes)
+            signal = "damage" if int(hp_drops.get(target_slot) or 0) > 0 else "impact"
+            self._record_range_contact_witness(
+                source_slot, target_slot, profile_key, snapshot, hit, hurt,
+                metrics, signal, predicted_touch, now_ms,
+            )
+            marker = {
+                "until_ms": int(now_ms) + RANGE_CONTACT_MARKER_MS,
+                "source_slot": str(source_slot),
+                "target_slot": str(target_slot),
+                "hitbox_index": int(hit.get("index") or 0),
+                "hurtbox_index": int(hurt.index),
+                "x": float(metrics["point_x"]),
+                "y": float(metrics["point_y"]),
+                "z": float(metrics["point_z"]),
+                "surface_gap": float(metrics["surface_gap"]),
+                "predicted_touch": bool(predicted_touch),
+                "predicted_gap": predicted_gap,
+                "signal": signal,
+                "kind": "witness",
+            }
+            self._range_contact_markers.append(marker)
+            self._range_contact_markers = self._range_contact_markers[-8:]
+            mismatch = "mismatch" if not predicted_touch else "aligned"
+            print(
+                f"[contact truth] {signal} {profile_key}: {source_slot}[{marker['hitbox_index']}] -> "
+                f"{target_slot}[{marker['hurtbox_index']}] inferred {mismatch}; "
+                f"pair_gap={marker['surface_gap']:.3f}; saved=1"
+            )
+
+    def _refresh_range_contact_expectations(self, now_ms: int) -> None:
+        """Check stored witnesses against the same live descriptors next time.
+
+        This is a diagnostic overlay, not a synthetic collision.  It tells us
+        whether a previously witnessed descriptor pair is lining up now before
+        the game resolves another hit.
+        """
+        self._range_contact_expectations.clear()
+        for source_slot, history in list(self._range_contact_snapshots.items()):
+            if not history:
+                continue
+            snapshot = history[-1]
+            try:
+                if int(now_ms) - int(snapshot.get("ms") or 0) > RANGE_CONTACT_EXPECTED_MARKER_MS:
+                    continue
+                # Exact-pair checks are meaningful only on a confirmed active
+                # snapshot. Do not redraw a stale truth marker in recovery.
+                if snapshot.get("action_frame") is None:
+                    continue
+                profile_key = str(snapshot.get("profile_key") or "")
+                profile = (self._range_profiles.get("attacks") or {}).get(profile_key)
+                if not isinstance(profile, dict):
+                    continue
+                audit = profile.get("contact_audit")
+                witnesses = audit.get("witnesses") if isinstance(audit, dict) else None
+                if not isinstance(witnesses, list) or not witnesses:
+                    continue
+                source_team = self._team_for_slot(source_slot)
+                for target_slot, target_base in SLOT_BASES.items():
+                    if self._team_for_slot(target_slot) == source_team:
+                        continue
+                    hlist = list(self.cached_hurtboxes.get(target_slot) or [])
+                    if not hlist:
+                        continue
+                    target_char_id = int(rd32(target_base + OFF_CHAR_ID) or 0)
+                    boxes_by_index = {int(box.get("index") or 0): box for box in snapshot.get("boxes") or [] if isinstance(box, dict)}
+                    hurts_by_index = {int(hurt.index): hurt for hurt in hlist}
+                    for witness in witnesses:
+                        if not isinstance(witness, dict) or int(witness.get("target_char_id") or 0) != target_char_id:
+                            continue
+                        hit = boxes_by_index.get(int(witness.get("hitbox_index") or -1))
+                        hurt = hurts_by_index.get(int(witness.get("hurtbox_index") or -1))
+                        if hit is None or hurt is None:
+                            continue
+                        metrics = self._range_contact_pair_metrics(hit, hurt)
+                        current = self._range_contact_expectations.get(source_slot)
+                        witness_samples = max(0, int(witness.get("samples") or 0))
+                        candidate = {
+                            "until_ms": int(now_ms) + RANGE_CONTACT_EXPECTED_MARKER_MS,
+                            "source_slot": source_slot,
+                            "target_slot": target_slot,
+                            "profile_key": profile_key,
+                            "move_name": str(snapshot.get("move_name") or "RANGE"),
+                            "hitbox_index": int(hit.get("index") or 0),
+                            "hurtbox_index": int(hurt.index),
+                            "x": float(metrics["point_x"]),
+                            "y": float(metrics["point_y"]),
+                            "z": float(metrics["point_z"]),
+                            "surface_gap": float(metrics["surface_gap"]),
+                            "samples": witness_samples,
+                            "truth": bool(witness.get("truth") or witness_samples >= RANGE_CONTACT_TRUTH_MIN_SAMPLES),
+                            "kind": "expected",
+                        }
+                        if current is None or float(candidate["surface_gap"]) < float(current.get("surface_gap") or 999.0):
+                            self._range_contact_expectations[source_slot] = candidate
+            except Exception:
+                continue
 
     def _apply_range_calibration(self, profile_key: str, step: int, reason: str) -> None:
         """Adjust one retained ruler by a single bounded calibration pip."""
@@ -3520,6 +4740,230 @@ class HitboxRenderer:
         except Exception:
             return tuple(float(v) for v in fighter_root)
 
+    def _observe_range_ground_reference(
+        self,
+        source_slot: str,
+        state_id: int,
+        fighter_root: Tuple[float, float, float],
+    ) -> None:
+        """Refresh one slot's floor-level root reference from true ground states."""
+        if source_slot not in SLOT_BASES or int(state_id) not in RANGE_EXPLICIT_GROUND_STATE_IDS:
+            return
+        try:
+            root_y = float(fighter_root[1])
+        except Exception:
+            return
+        if not math.isfinite(root_y):
+            return
+        previous = self._range_ground_reference_y.get(source_slot)
+        if previous is None or not math.isfinite(float(previous)):
+            self._range_ground_reference_y[source_slot] = root_y
+            return
+        # A stage/camera transition can legitimately move the whole reference.
+        # Snap large changes; otherwise smooth minor float jitter.
+        if abs(root_y - float(previous)) > 1.25:
+            self._range_ground_reference_y[source_slot] = root_y
+        else:
+            alpha = float(RANGE_GROUND_REFERENCE_ALPHA)
+            self._range_ground_reference_y[source_slot] = (float(previous) * (1.0 - alpha)) + (root_y * alpha)
+
+    def _range_slot_is_airborne(
+        self,
+        source_slot: str,
+        state_id: int,
+        fighter_root: Tuple[float, float, float],
+    ) -> bool:
+        """Return the live physical ground/air mode for ruler presentation.
+
+        State IDs catch the first jump/air-dash frames; root height catches
+        attack-state IDs that do not themselves identify as air attacks.
+        Labels are intentionally not part of this decision.
+        """
+        try:
+            sid = int(state_id)
+            root_y = float(fighter_root[1])
+        except Exception:
+            return False
+        baseline = self._range_ground_reference_y.get(source_slot)
+        if baseline is not None and math.isfinite(root_y) and math.isfinite(float(baseline)):
+            root_delta = abs(root_y - float(baseline))
+            # Landing truth must beat a stale explicit-air state.  TvC can
+            # retain the jump/air action ID for recovery frames after the
+            # model/root has already returned to the floor; without this
+            # root snap, an old j.A/j.B/j.C ruler remains selected on landing.
+            if root_delta <= float(RANGE_GROUND_SNAP_ROOT_DELTA):
+                return False
+            if root_delta >= float(RANGE_AIRBORNE_ROOT_DELTA):
+                return True
+            # Between the two thresholds, retain the engine's early-jump
+            # signal so the display changes promptly once the root departs the
+            # floor, but never lets that state override a confirmed landing.
+            return sid in RANGE_EXPLICIT_AIR_STATE_IDS
+        # Before a floor reference has been learned, state IDs remain the only
+        # reliable immediate hint.  Once the reference exists, root position
+        # above has priority for landing truth.
+        return sid in RANGE_EXPLICIT_AIR_STATE_IDS
+
+    @staticmethod
+    def _range_label_is_crouching(label: Any) -> bool:
+        """Return True for standard down-input normals, e.g. 2A/2B/2C."""
+        text = str(label or "").strip().lower()
+        if not text:
+            return False
+        canonical = text.replace("jump.", "j.").replace("jump ", "j.")
+        canonical = canonical.replace("air.", "j.").replace("air ", "j.")
+        compact = re.sub(r"[\s._-]+", "", canonical)
+        return bool(re.fullmatch(r"2[abc]", compact))
+
+    def _range_action_posture(
+        self,
+        source_slot: str,
+        state_id: int,
+        fighter_root: Tuple[float, float, float],
+        move_name: Any = None,
+        airborne_hint: bool = False,
+    ) -> str:
+        """Classify one action as standing, crouching, or airborne.
+
+        Live air state/root height wins.  A normal's canonical 2A/2B/2C label
+        catches crouching attack states whose raw state ID is not the passive
+        crouch state.  This bucket is purely a display selector; it does not
+        alter profile geometry or the saved JSON schema.
+        """
+        if bool(airborne_hint) or self._range_slot_is_airborne(source_slot, int(state_id), fighter_root):
+            return "air"
+        if int(state_id) in RANGE_CROUCH_STATE_IDS or self._range_label_is_crouching(move_name):
+            return "crouch"
+        return "stand"
+
+    def _range_live_posture(
+        self,
+        source_slot: str,
+        state_id: int,
+        fighter_root: Tuple[float, float, float],
+    ) -> str:
+        """Return the current physical presentation bucket for a fighter."""
+        if self._range_slot_is_airborne(source_slot, int(state_id), fighter_root):
+            return "air"
+        if int(state_id) in RANGE_CROUCH_STATE_IDS:
+            return "crouch"
+        return "stand"
+
+    def _note_range_action_posture(
+        self,
+        source_slot: str,
+        posture: Any,
+        profile_key: Any,
+        state_id: int,
+        action_frame: Optional[int],
+        now_ms: int,
+    ) -> None:
+        """Latch an action's intended presentation posture for its lifetime.
+
+        TvC can replace a 2A/2B/2C action state with a generic standing or
+        recovery state before the animation visually finishes.  The geometry
+        is still the crouching action, so the ruler must keep that action's
+        bucket rather than re-selecting the last standing normal for a frame.
+        This is transient UI state only; no profile data is changed.
+        """
+        if source_slot not in SLOT_BASES:
+            return
+        bucket = str(posture or "stand").strip().lower()
+        if bucket not in {"stand", "crouch", "air"}:
+            bucket = "stand"
+        self._range_posture_locks[source_slot] = {
+            "posture": bucket,
+            "profile_key": str(profile_key or ""),
+            "state_id": int(state_id),
+            "action_frame": action_frame if isinstance(action_frame, int) else None,
+            "last_seen_ms": int(now_ms),
+        }
+
+    def _range_presentation_posture(
+        self,
+        source_slot: str,
+        state_id: int,
+        fighter_root: Tuple[float, float, float],
+        now_ms: int,
+        action_posture: Any = None,
+        profile_key: Any = None,
+        action_frame: Optional[int] = None,
+    ) -> str:
+        """Choose the stable ruler bucket for the current frame.
+
+        A current action label wins immediately.  Once the engine drops that
+        label into an ambiguous standing/recovery state, hold its bucket just
+        long enough for the passive crouch/stand state to settle.  Air is
+        always immediate so a jump never carries a floor ruler upward.
+        """
+        raw = self._range_live_posture(source_slot, int(state_id), fighter_root)
+        if action_posture is not None:
+            bucket = str(action_posture).strip().lower()
+            if bucket in {"stand", "crouch", "air"}:
+                # A stale j.* descriptor can survive the physical landing for
+                # a frame or two.  Once the root says ground, do not let that
+                # stale action descriptor re-arm the air lock; immediately
+                # select the current grounded posture/ruler instead.
+                if bucket == "air" and raw != "air":
+                    self._range_posture_locks.pop(source_slot, None)
+                    return raw
+                self._note_range_action_posture(
+                    source_slot, bucket, profile_key, int(state_id), action_frame, int(now_ms),
+                )
+                return bucket
+
+        # A confirmed physical air state takes priority over a stale ground
+        # lock.  The opposite direction is held briefly only to suppress the
+        # generic-state wobble seen on crouching normals.
+        if raw == "air":
+            self._range_posture_locks.pop(source_slot, None)
+            return "air"
+
+        lock = self._range_posture_locks.get(source_slot)
+        if not isinstance(lock, dict):
+            return raw
+        bucket = str(lock.get("posture") or "stand").strip().lower()
+        if bucket not in {"stand", "crouch", "air"}:
+            self._range_posture_locks.pop(source_slot, None)
+            return raw
+        try:
+            age_ms = max(0, int(now_ms) - int(lock.get("last_seen_ms") or now_ms))
+        except Exception:
+            age_ms = RANGE_POSTURE_ACTION_HOLD_MS + 1
+
+        # Same bucket is already stable; discard the temporary lock.
+        if raw == bucket:
+            self._range_posture_locks.pop(source_slot, None)
+            return raw
+
+        # The only common bad hand-off is crouch -> generic stand while the
+        # attack still animates.  Keep the crouch guide through a short grace
+        # period, then let a genuinely settled standing pose win.
+        if bucket == "crouch" and raw == "stand" and age_ms <= RANGE_POSTURE_ACTION_HOLD_MS:
+            return "crouch"
+        if bucket == "stand" and raw == "crouch" and age_ms <= RANGE_POSTURE_PASSIVE_SETTLE_MS:
+            return "stand"
+
+        self._range_posture_locks.pop(source_slot, None)
+        return raw
+
+    def _remember_range_for_posture(
+        self,
+        source_slot: str,
+        saved: Dict[str, Any],
+        posture: Any,
+    ) -> None:
+        """Store the last action under its own posture without profile writes."""
+        if source_slot not in SLOT_BASES or not isinstance(saved, dict):
+            return
+        bucket = str(posture or "stand").strip().lower()
+        if bucket not in {"stand", "crouch", "air"}:
+            bucket = "stand"
+        entry = dict(saved)
+        entry["posture"] = bucket
+        self._saved_ranges[source_slot] = entry
+        self._saved_ranges_by_posture.setdefault(source_slot, {})[bucket] = entry
+
     @staticmethod
     def _pending_max_active_frame(fd: MoveFrameData) -> int:
         try:
@@ -3591,23 +5035,55 @@ class HitboxRenderer:
         source_slot: str,
         char_id: int,
         state_id: int,
-        fd: MoveFrameData,
+        fd: Optional[MoveFrameData],
         fighter_root: Tuple[float, float, float],
         action_frame: Optional[int],
         now_ms: int,
-        capture_dynamic_for_existing: bool = False,
+        descriptor: Dict[str, Any],
+        capture_samples_for_existing: bool = False,
     ) -> None:
-        """Capture a missing profile, or one missing Dynamic sweep supplement."""
+        """Capture one missing body-attack profile or missing axis envelope.
+
+        Ground/air normals with preview frame data sample only their confirmed
+        active windows. Mapped specials do not have a full frame profile yet,
+        so they use the existing exact live ``0x53`` attack-flag gate. That is
+        deliberately narrower than treating any allocated descriptor during a
+        special as an active hitbox.
+        """
         if not RANGE_PROFILE_WRITE_ENABLED or not RANGE_PROFILE_AUTO_LEARN_MISSING_ONLY:
             return
-        move_id = int(getattr(fd, "move_id", state_id) or state_id)
+        if not isinstance(descriptor, dict):
+            return
+        try:
+            move_id = int(descriptor.get("move_id") or state_id)
+            move_name = str(descriptor.get("move_name") or f"0x{move_id:04X}")
+            move_kind = str(descriptor.get("kind") or "ground_special")
+            airborne_now = bool(descriptor.get("runtime_airborne"))
+            display_mode = "ground_ruler"
+            posture = str(descriptor.get("posture") or self._range_action_posture(
+                source_slot, int(state_id), tuple(float(v) for v in fighter_root), move_name, airborne_now,
+            ))
+            frame_gated = bool(descriptor.get("frame_gated"))
+        except Exception:
+            return
+
         profile_key = f"{int(char_id)}:{move_id}"
         existing = (self._range_profiles.get("attacks") or {}).get(profile_key)
-        core_exists = isinstance(existing, dict) and self._range_profile_geometry(existing) is not None
-        needs_dynamic = bool(capture_dynamic_for_existing and core_exists and self._range_dynamic_sweep(existing) is None)
-        if core_exists and not needs_dynamic:
-            return
-        if not is_ground_normal_frame_data(fd):
+        core_exists = isinstance(existing, dict) and self._range_profile_core_geometry(existing) is not None
+        # A known profile is sampled once more only when it lacks either axis
+        # envelope and has no retained active-frame samples to derive it from.
+        # The same compact capture provides both Horz and Vert.
+        needs_envelope = bool(
+            core_exists and (
+                self._range_profile_horizontal_envelope(existing) is None
+                or self._range_profile_vertical_envelope(existing) is None
+            )
+        )
+        needs_samples = bool(
+            core_exists and (capture_samples_for_existing or needs_envelope)
+            and self._range_dynamic_sweep(existing) is None
+        )
+        if core_exists and not needs_samples:
             return
 
         try:
@@ -3617,59 +5093,88 @@ class HitboxRenderer:
         except Exception:
             return
 
+        # This runs from the first observed action frame, including startup, so
+        # a later active sample has the actual action-start root for motion.
         origin = self._range_move_origin(source_slot, int(char_id), int(state_id), move_id, action_frame, root)
         pending = self._range_pending_learns.get(source_slot)
         pending_key = str(pending.get("profile_key") or "") if isinstance(pending, dict) else ""
         if pending_key != profile_key:
-            # A different normal interrupted a previous collection.  Commit its
-            # best captured active frame before beginning the new one.
             if isinstance(pending, dict):
                 self._finalize_missing_range_profile(source_slot, now_ms, "new move")
             pending = {
                 "profile_key": profile_key,
                 "needs_core": not core_exists,
-                "needs_dynamic": bool(needs_dynamic or not core_exists),
+                "needs_samples": bool(needs_samples or not core_exists),
+                "needs_envelope": bool(needs_envelope or not core_exists),
                 "char_id": int(char_id),
                 "state_id": int(state_id),
                 "move_id": move_id,
-                "move_name": str(getattr(fd, "move_name", "") or f"0x{move_id:04X}"),
+                "move_name": move_name,
+                "move_kind": move_kind,
+                "display_mode": display_mode,
+                "airborne_action": bool(airborne_now),
+                "posture": posture,
+                "frame_gated": frame_gated,
                 "start_root": origin,
                 "facing": self._nearest_opponent_direction(source_slot, origin),
-                "max_active_frame": self._pending_max_active_frame(fd),
+                "max_active_frame": self._pending_max_active_frame(fd) if fd is not None else 0,
                 "last_action_frame": action_frame,
                 "last_seen_ms": int(now_ms),
                 "best_score": float("-inf"),
                 "best_active_root": None,
                 "best_shapes": [],
-                # Stored separately from the single farthest-tip sample. This
-                # records root travel plus hitbox-local motion for every active
-                # game frame, so the optional Dynamic layer can show vertical
-                # sweeps and multi-hit coverage without corrupting the ruler.
                 "dynamic_frames": [],
             }
             self._range_pending_learns[source_slot] = pending
         else:
             pending["last_seen_ms"] = int(now_ms)
             pending["last_action_frame"] = action_frame
-            pending["max_active_frame"] = max(int(pending.get("max_active_frame") or 0), self._pending_max_active_frame(fd))
+            pending["airborne_action"] = bool(pending.get("airborne_action")) or bool(airborne_now)
+            pending["display_mode"] = "ground_ruler"
+            if bool(pending.get("airborne_action")):
+                pending["posture"] = "air"
+            if fd is not None:
+                pending["max_active_frame"] = max(
+                    int(pending.get("max_active_frame") or 0),
+                    self._pending_max_active_frame(fd),
+                )
 
-        # Read just the three current attack descriptors for this one missing
-        # move, and only during its labelled active window.  This is not the old
-        # broad normal scanner and does not run for any profile that already
-        # exists.
-        if not is_frame_data_active(fd, action_frame):
+        boxes: Optional[List[Tuple[float, float, float, int]]] = None
+        active_now = False
+        if frame_gated:
+            active_now = is_frame_data_active(fd, action_frame)
+        else:
+            # No preview frame data for specials yet. Read only this fighter's
+            # three descriptors while the one missing/supplemental action is in
+            # progress, then require the engine's exact active marker.
+            try:
+                boxes = read_hitboxes(SLOT_BASES[source_slot], HITBOX)
+            except Exception:
+                boxes = None
+            active_now = any(
+                int(flag) == 0x53 and math.isfinite(float(radius)) and float(radius) > 0.01
+                for _x, _y, radius, flag in (boxes or [])
+            )
+        if not active_now:
             return
-        try:
-            boxes = read_hitboxes(SLOT_BASES[source_slot], HITBOX)
-        except Exception:
-            return
+
+        if boxes is None:
+            try:
+                boxes = read_hitboxes(SLOT_BASES[source_slot], HITBOX)
+            except Exception:
+                return
         shapes: List[Tuple[float, float, float, float]] = []
-        for x, y, radius, _flag in boxes:
+        for x, y, radius, flag in boxes:
             try:
                 x, y, radius = float(x), float(y), max(0.0, float(radius))
             except Exception:
                 continue
             if not all(math.isfinite(v) for v in (x, y, radius)) or radius <= 0.01:
+                continue
+            # For an unprofiled special, only use actual active player attack
+            # descriptors. Frame-gated normals can retain their complete live
+            # active shape set because their timing has already been validated.
+            if not frame_gated and int(flag) != 0x53:
                 continue
             shapes.append((x, y, 0.0, radius))
         if not shapes:
@@ -3677,7 +5182,7 @@ class HitboxRenderer:
 
         direction = 1.0 if float(pending.get("facing") or 1.0) >= 0.0 else -1.0
         start_root = pending.get("start_root") or origin
-        if bool(pending.get("needs_dynamic", True)):
+        if bool(pending.get("needs_samples", True)) or bool(pending.get("needs_envelope", False)):
             self._capture_dynamic_sweep_frame(pending, start_root, root, shapes, direction, action_frame)
         try:
             sx = float(start_root[0])
@@ -3689,8 +5194,9 @@ class HitboxRenderer:
             pending["best_active_root"] = root
             pending["best_shapes"] = shapes
 
+
     def _finalize_missing_range_profile(self, source_slot: str, now_ms: int, reason: str) -> None:
-        """Write exactly one new missing move record from its best active frame."""
+        """Commit one missing body-action profile from its confirmed active set."""
         pending = self._range_pending_learns.pop(source_slot, None)
         self._range_move_origins.pop(source_slot, None)
         if not isinstance(pending, dict):
@@ -3698,16 +5204,28 @@ class HitboxRenderer:
         profile_key = str(pending.get("profile_key") or "")
         attacks = self._range_profiles.get("attacks") or {}
         existing = attacks.get(profile_key)
-        core_exists = isinstance(existing, dict) and self._range_profile_geometry(existing) is not None
+        core_exists = isinstance(existing, dict) and self._range_profile_core_geometry(existing) is not None
         shapes = pending.get("best_shapes")
         active_root = pending.get("best_active_root")
         start_root = pending.get("start_root")
         dynamic_frames = list(pending.get("dynamic_frames") or [])
+        airborne_action = bool(pending.get("airborne_action"))
+        display_mode = "ground_ruler"
+        move_kind = str(pending.get("move_kind") or "ground_special")
+
+        horizontal_saved = False
+        vertical_saved = False
+        samples_saved = False
         if core_exists:
             entry = existing
-            # Existing single-tip data stays authoritative. Dynamic only adds a
-            # one-time trajectory/coverage supplement, never changes reach.
-            if not self._merge_dynamic_sweep(entry, dynamic_frames):
+            entry.setdefault("display_mode", display_mode)
+            entry.setdefault("move_kind", move_kind)
+            if bool(pending.get("needs_envelope")):
+                horizontal_saved = self._apply_horizontal_envelope(entry, dynamic_frames)
+                vertical_saved = self._apply_vertical_envelope(entry, dynamic_frames)
+            if bool(pending.get("needs_samples")):
+                samples_saved = self._merge_dynamic_sweep(entry, dynamic_frames)
+            if not horizontal_saved and not vertical_saved and not samples_saved:
                 return
         else:
             if not isinstance(shapes, list) or not shapes or not isinstance(active_root, (tuple, list)) or not isinstance(start_root, (tuple, list)):
@@ -3721,27 +5239,47 @@ class HitboxRenderer:
                 shapes,
                 float(pending.get("facing") or 1.0),
             )
-            if not isinstance(entry, dict) or self._range_profile_geometry(entry) is None:
+            if not isinstance(entry, dict) or self._range_profile_core_geometry(entry) is None:
                 return
-            self._merge_dynamic_sweep(entry, dynamic_frames)
-        self._saved_ranges[source_slot] = {
+            entry["display_mode"] = display_mode
+            entry["move_kind"] = move_kind
+            horizontal_saved = self._apply_horizontal_envelope(entry, dynamic_frames)
+            vertical_saved = self._apply_vertical_envelope(entry, dynamic_frames)
+            samples_saved = self._merge_dynamic_sweep(entry, dynamic_frames)
+
+        saved_entry = {
             "profile_key": profile_key,
             "move_key": int(pending.get("move_id") or 0),
             "move_name": str(pending.get("move_name") or "RANGE"),
             "last_direction": float(pending.get("facing") or 1.0),
             "captured_state_id": int(pending.get("state_id") or 0),
             "char_id": int(pending.get("char_id") or 0),
+            "display_mode": display_mode,
+            "airborne_action": bool(airborne_action),
+            "posture": str(pending.get("posture") or ("air" if airborne_action else "stand")),
+            "move_kind": move_kind,
+            "action_origin": tuple(float(v) for v in start_root[:3]) if isinstance(start_root, (tuple, list)) else None,
+            "dynamic_live_until_ms": int(now_ms) + RANGE_DYNAMIC_LINGER_MS,
             "profile_locked": False,
             "profile_source": "auto-learned",
             "default_profile": False,
         }
+        self._remember_range_for_posture(source_slot, saved_entry, saved_entry.get("posture"))
         exported = self._flush_range_profiles(force=True)
         export_note = "saved" if exported else "queued for retry"
-        mode_note = "dynamic sweep" if core_exists else "profile + dynamic sweep"
+        if horizontal_saved and vertical_saved:
+            mode_note = "Horz + Vert envelopes"
+        elif horizontal_saved:
+            mode_note = "Horz envelope"
+        elif vertical_saved:
+            mode_note = "Vert envelope"
+        else:
+            mode_note = "active-frame samples"
         print(
             f"[range profile] saved {mode_note} for {profile_key} ({pending.get('move_name')}) "
             f"from one complete active window; {export_note}; reason={reason}"
         )
+
 
     def _finalize_missing_range_profiles(self, seen_slots: set[str], now_ms: int) -> None:
         """Commit collectors at recovery/state exit; never reopen known moves."""
@@ -3777,7 +5315,7 @@ class HitboxRenderer:
         # add samples to an already learned move profile.
         key = f"{int(char_id)}:{int(move_id)}"
         existing = (self._range_profiles.get("attacks") or {}).get(key)
-        if isinstance(existing, dict) and self._range_profile_geometry(existing) is not None:
+        if isinstance(existing, dict) and self._range_profile_core_geometry(existing) is not None:
             return existing
         if not RANGE_PROFILE_WRITE_ENABLED:
             return None
@@ -4030,10 +5568,16 @@ class HitboxRenderer:
         self.cached_hit_contacts.clear()
         self._last_range_rulers.clear()
         self._saved_ranges.clear()
+        self._saved_ranges_by_posture = {slot: {} for slot in SLOT_BASES}
         self._range_calibration_attempts.clear()
         self._range_last_hp.clear()
         self._range_move_origins.clear()
         self._range_pending_learns.clear()
+        self._range_contact_snapshots.clear()
+        self._range_contact_markers.clear()
+        self._range_contact_expectations.clear()
+        self._range_last_impact_freeze.clear()
+        self._range_ground_reference_y.clear()
         self.hurt_counts = {}
         self.slot_renderable = {slot: False for slot in SLOT_BASES}
         self.last_counts = {}
@@ -4259,95 +5803,145 @@ class HitboxRenderer:
         # The saved-profile ruler needs target/body geometry, not live attack
         # geometry.  It can run with the hitbox drawing layer disabled.
         range_ruler_on = _range_ruler_enabled() and hurtboxes_on
-        range_dynamic_on = range_ruler_on and _range_dynamic_enabled()
+        range_ruler_axes = _range_ruler_axes_enabled()
         now_ms = pygame.time.get_ticks()
         hp_drops: Dict[str, int] = {}
+        impact_events: Dict[str, int] = {}
         if range_ruler_on and RANGE_PROFILE_WRITE_ENABLED:
             for _hp_slot, _hp_base in SLOT_BASES.items():
                 try:
                     _hp_now = int(rd32(_hp_base + 0x28) or 0)
                 except Exception:
-                    continue
+                    _hp_now = 0
                 _hp_before = self._range_last_hp.get(_hp_slot)
                 if isinstance(_hp_before, int) and 0 < _hp_now < _hp_before:
                     hp_drops[_hp_slot] = int(_hp_before - _hp_now)
                 self._range_last_hp[_hp_slot] = _hp_now
+                try:
+                    _impact_now = int(rd32(_hp_base + RUNTIME_IMPACT_FREEZE_OFF) or 0)
+                except Exception:
+                    _impact_now = 0
+                # Treat only small positive countdowns as a contact edge; stale
+                # sentinels/unknown counters cannot manufacture audit events.
+                if not (0 < _impact_now < 300):
+                    _impact_now = 0
+                _impact_before = int(self._range_last_impact_freeze.get(_hp_slot) or 0)
+                if _impact_now > 0 and _impact_before <= 0:
+                    impact_events[_hp_slot] = _impact_now
+                self._range_last_impact_freeze[_hp_slot] = _impact_now
         else:
             self._range_calibration_attempts.clear()
             self._range_last_hp.clear()
             self._range_move_origins.clear()
             self._range_pending_learns.clear()
+            self._range_posture_locks.clear()
+            self._range_contact_snapshots.clear()
+            self._range_contact_markers.clear()
+            self._range_contact_expectations.clear()
+            self._range_last_impact_freeze.clear()
         # Existing moves resolve directly from their saved profile.  A missing
         # grounded normal is the sole exception: it reads only that move's three
         # live descriptors while its active window is running, then commits one
         # new entry at recovery.  No full normal scan is launched.
         ruler_attack_shapes: List[Tuple[str, float, float, float, float]] = []
-        profile_trigger_meta: Dict[str, Tuple[int, int, str, int]] = {}
+        profile_trigger_meta: Dict[str, Dict[str, Any]] = {}
+        # Action posture context is separate from raw live state.  It lets the
+        # draw pass hold 2A/2B/2C in the crouch bucket while the engine briefly
+        # reports a generic standing/recovery state mid-animation.
+        action_posture_context: Dict[str, Dict[str, Any]] = {}
         learning_slots: set[str] = set()
         current_ghost_frame: List[Tuple[float, float, float, float, Tuple[int, int, int]]] = []
 
         if range_ruler_on:
-            # Source chips only decide who *may* display a ruler.  Do not
-            # fabricate an idle 5A guide just because a character happens to
-            # have one saved profile; a ruler is armed only after that fighter
-            # performs a grounded move which resolves to saved profile data.
-            # This keeps profile coverage honest and never scans live normals.
-
-            # Profile selection is state/frame-data lookup only.  This path does
-            # not read attack-circle descriptors, so the ruler remains usable
-            # with live hitbox rendering disabled.
+            # A profile is armed only by the fighter actually performing that
+            # action. Each action is filed under its standing/crouching/air
+            # posture. Missing actions sample only themselves.
             for name, base in SLOT_BASES.items():
-                # Saved-profile rulers are filtered independently from live
-                # attack-box visibility.  This keeps all four fighters usable
-                # as ruler sources even when their hitbox drawings are hidden.
                 if not ruler_filter.get(name, True):
                     continue
                 if not self.slot_renderable.get(name, False):
                     continue
                 try:
                     state_id = decode_state_id(read_state_raw(base))
+                    char_id = int(rd32(base + OFF_CHAR_ID) or 0)
+                    root = tuple(float(v) for v in read_fighter_root(base))
+                    if not all(math.isfinite(v) for v in root):
+                        continue
+                    self._observe_range_ground_reference(name, int(state_id), root)
                     if slot_passive_override(name, state_id):
                         continue
                     fd = lookup_frame_data(self.fd_by_slot, name, state_id)
-                    if fd is None or not fd.active_windows:
+                    descriptor = range_action_descriptor(fd, char_id, int(state_id))
+                    if descriptor is None:
                         continue
-                    if is_air_normal_frame_data(fd):
-                        # Ground-only ruler for now.  Do not select, sample,
-                        # or retain an airborne-normal guide.  Dropping only
-                        # this runtime marker prevents an old grounded normal
-                        # from drawing underneath/after a jump attack.
+                    airborne_now = self._range_slot_is_airborne(name, int(state_id), root)
+                    descriptor = dict(descriptor)
+                    descriptor["runtime_airborne"] = bool(airborne_now)
+                    descriptor["display_mode"] = "ground_ruler"
+                    descriptor["posture"] = self._range_action_posture(
+                        name, int(state_id), root, descriptor.get("move_name"), airborne_now,
+                    )
+                    move_key = int(descriptor["move_id"])
+                    profile_key = f"{char_id}:{move_key}"
+                    action_frame = read_action_frame(base)
+                    # Only bona-fide attack/special descriptors can establish
+                    # an action posture.  Generic Forward/idle/recovery map
+                    # labels must not overwrite a crouching action lock.
+                    if _range_descriptor_is_combat_action(descriptor, fd, int(state_id)):
+                        action_posture_context[name] = {
+                            "posture": str(descriptor.get("posture") or ("air" if airborne_now else "stand")),
+                            "profile_key": profile_key,
+                            "state_id": int(state_id),
+                            "action_frame": action_frame if isinstance(action_frame, int) else None,
+                        }
+                    origin = self._range_move_origin(
+                        name, char_id, int(state_id), move_key, action_frame, root,
+                    )
+
+                    # Never leave a prior move's guide visible while a new
+                    # action is being profiled.  Ground/air is determined from
+                    # this fighter's live root state, not the move label.
+                    prior = self._saved_ranges.get(name)
+                    if isinstance(prior, dict) and str(prior.get("profile_key") or "") != profile_key:
                         self._saved_ranges.pop(name, None)
                         self._range_calibration_attempts.pop(name, None)
-                        self._range_pending_learns.pop(name, None)
-                        self._range_move_origins.pop(name, None)
-                        continue
-                    char_id = int(rd32(base + OFF_CHAR_ID) or 0)
-                    move_key = int(getattr(fd, "move_id", state_id) or state_id)
-                    profile_key = f"{char_id}:{move_key}"
+
                     profile = (self._range_profiles.get("attacks") or {}).get(profile_key)
-                    if isinstance(profile, dict) and self._range_profile_geometry(profile) is not None:
-                        # Known profile: bind it immediately.  Do not read live
-                        # attack descriptors or add samples for this move.
-                        move_name = str(getattr(fd, "move_name", "") or profile.get("move_name") or f"0x{move_key:04X}")
-                        profile_trigger_meta[name] = (char_id, move_key, move_name, int(state_id))
-                        # Static profiles stay scan-free. Only when the user
-                        # explicitly enables Dynamic and this entry lacks its
-                        # coverage supplement do we sample this move once.
-                        if _range_dynamic_enabled() and self._range_dynamic_sweep(profile) is None:
-                            root = tuple(float(v) for v in read_fighter_root(base))
-                            action_frame = read_action_frame(base)
+                    core_exists = isinstance(profile, dict) and self._range_profile_core_geometry(profile) is not None
+                    if core_exists:
+                        profile_trigger_meta[name] = {
+                            "profile_key": profile_key,
+                            "char_id": char_id,
+                            "move_key": move_key,
+                            "move_name": str(descriptor["move_name"] or profile.get("move_name") or f"0x{move_key:04X}"),
+                            "state_id": int(state_id),
+                            "display_mode": "ground_ruler",
+                            "airborne_action": bool(airborne_now),
+                            "move_kind": str(profile.get("move_kind") or descriptor.get("kind") or "ground_special"),
+                            "posture": str(descriptor.get("posture") or ("air" if airborne_now else "stand")),
+                            "action_origin": origin,
+                        }
+                        # Known moves stay fast. One compact active-window
+                        # capture is allowed only while a Horz/Vert envelope is
+                        # genuinely missing and no retained samples can derive it.
+                        needs_envelope = bool(
+                            self._range_profile_horizontal_envelope(profile) is None
+                            or self._range_profile_vertical_envelope(profile) is None
+                        )
+                        needs_samples = bool(needs_envelope and self._range_dynamic_sweep(profile) is None)
+                        if needs_samples:
                             self._queue_missing_range_profile(
                                 name, char_id, int(state_id), fd, root, action_frame, now_ms,
-                                capture_dynamic_for_existing=True,
+                                descriptor, capture_samples_for_existing=True,
                             )
                             learning_slots.add(name)
-                    elif is_ground_normal_frame_data(fd):
-                        # Missing profile: capture this one normal instance. The
-                        # collector sees just three attack descriptors at active
-                        # frames and writes one new JSON entry after recovery.
-                        root = tuple(float(v) for v in read_fighter_root(base))
-                        action_frame = read_action_frame(base)
-                        self._queue_missing_range_profile(name, char_id, int(state_id), fd, root, action_frame, now_ms)
+                    else:
+                        # Unknown normals, air normals, and mapped specials all
+                        # learn once. Frame-data rows use validated active
+                        # frames; mapped specials require live 0x53 body boxes.
+                        self._queue_missing_range_profile(
+                            name, char_id, int(state_id), fd, root, action_frame, now_ms, descriptor,
+                        )
                         learning_slots.add(name)
                 except Exception:
                     continue
@@ -4603,10 +6197,24 @@ class HitboxRenderer:
             self._finalize_missing_range_profiles(learning_slots, now_ms)
 
         if range_ruler_on and profile_trigger_meta:
-            # A move has been identified through frame-data/state lookup.  Bind
-            # that move to its existing saved profile; do not read its active
-            # circles into the profile and do not update its JSON fields.
-            for source_slot, (_char_id, move_key, move_name, action_state_id) in profile_trigger_meta.items():
+            # Bind known profiles without scanning their live attack geometry.
+            # ``action_origin`` is retained only for the short live Dynamic
+            # replay; the persistent ground ruler still anchors to the current
+            # standing root after the action ends.
+            for source_slot, meta in profile_trigger_meta.items():
+                if not isinstance(meta, dict):
+                    continue
+                try:
+                    _char_id = int(meta.get("char_id") or 0)
+                    move_key = int(meta.get("move_key") or 0)
+                    move_name = str(meta.get("move_name") or "RANGE")
+                    action_state_id = int(meta.get("state_id") or 0)
+                    airborne_action = bool(meta.get("airborne_action"))
+                    display_mode = "ground_ruler"
+                    move_kind = str(meta.get("move_kind") or "ground_special")
+                    action_posture = str(meta.get("posture") or ("air" if airborne_action else "stand"))
+                except Exception:
+                    continue
                 source_team = self._team_for_slot(source_slot)
                 if not source_team:
                     continue
@@ -4616,7 +6224,7 @@ class HitboxRenderer:
                         continue
                 except Exception:
                     continue
-                profile_key = f"{int(_char_id)}:{int(move_key)}"
+                profile_key = f"{_char_id}:{move_key}"
                 profile = (self._range_profiles.get("attacks") or {}).get(profile_key)
                 if not isinstance(profile, dict) or self._range_profile_geometry(profile) is None:
                     continue
@@ -4641,16 +6249,42 @@ class HitboxRenderer:
                     direction = 1.0 if float(previous.get("last_direction") or 1.0) >= 0.0 else -1.0
                 else:
                     direction = 1.0 if nearest[1] >= float(source_center[0]) else -1.0
-                self._saved_ranges[source_slot] = {
+                raw_origin = meta.get("action_origin")
+                if isinstance(raw_origin, (tuple, list)) and len(raw_origin) >= 3:
+                    try:
+                        action_origin = tuple(float(raw_origin[i]) for i in range(3))
+                    except Exception:
+                        action_origin = source_center
+                else:
+                    action_origin = source_center
+                saved_entry = {
                     "profile_key": profile_key,
-                    "move_key": int(move_key),
-                    "move_name": str(move_name),
+                    "move_key": move_key,
+                    "move_name": move_name,
                     "last_direction": float(direction),
-                    "captured_state_id": int(action_state_id),
-                    "char_id": int(_char_id),
+                    "captured_state_id": action_state_id,
+                    "char_id": _char_id,
+                    "display_mode": display_mode,
+                    "airborne_action": bool(airborne_action),
+                    "posture": action_posture,
+                    "move_kind": move_kind,
+                    "action_origin": action_origin,
+                    "dynamic_live_until_ms": int(now_ms) + RANGE_DYNAMIC_LINGER_MS,
                     "profile_locked": True,
                     "default_profile": False,
                 }
+                self._remember_range_for_posture(source_slot, saved_entry, action_posture)
+
+        if range_ruler_on and profile_trigger_meta:
+            # Capture only current active body boxes for actions that already
+            # have a profile.  This is the narrow evidence window used when a
+            # later HP/impact signal says the saved ruler guessed wrong.
+            for _source_slot, _meta in profile_trigger_meta.items():
+                self._capture_range_active_snapshot(_source_slot, _meta, now_ms)
+            self._process_range_contact_audit(now_ms, hp_drops, impact_events)
+            self._refresh_range_contact_expectations(now_ms)
+        else:
+            self._range_contact_expectations.clear()
 
         if range_ruler_on and RANGE_PROFILE_WRITE_ENABLED:
             self._tick_range_calibration(now_ms, set(profile_trigger_meta.keys()), hp_drops)
@@ -4712,24 +6346,33 @@ class HitboxRenderer:
                     gap,
                 )
 
-        if range_ruler_on and self._saved_ranges:
-            # Rebuild each saved move from the current fighter-body center.  The
-            # stored tip circle is checked directly against live hurt circles;
-            # a profiled body AABB is only a fallback when a live scan is absent.
-            for source_slot, saved in list(self._saved_ranges.items()):
-                if source_slot not in SLOT_BASES or not isinstance(saved, dict):
-                    continue
+        if range_ruler_on and (self._saved_ranges or self._saved_ranges_by_posture):
+            # Each live posture owns its own last action. Standing never leaks a
+            # crouching ruler, and a jump never inherits a floor ruler.
+            for source_slot in SLOT_BASES:
                 if not ruler_filter.get(source_slot, True) or not self.slot_renderable.get(source_slot, False):
                     continue
                 try:
-                    # A retained ruler always starts from the fighter's *live*
-                    # root.  Never draw from a captured move-start root: that is
-                    # the stale-anchor path that made rulers point behind players.
-                    try:
-                        display_center = tuple(float(v) for v in read_fighter_root(SLOT_BASES[source_slot]))
-                    except Exception:
-                        continue
+                    display_center = tuple(float(v) for v in read_fighter_root(SLOT_BASES[source_slot]))
                     if not all(math.isfinite(v) for v in display_center):
+                        continue
+                    try:
+                        live_state_id = decode_state_id(read_state_raw(SLOT_BASES[source_slot]))
+                    except Exception:
+                        live_state_id = 0
+                    self._observe_range_ground_reference(source_slot, int(live_state_id), display_center)
+                    _action_ctx = action_posture_context.get(source_slot) or {}
+                    live_posture = self._range_presentation_posture(
+                        source_slot,
+                        int(live_state_id),
+                        display_center,
+                        int(now_ms),
+                        _action_ctx.get("posture"),
+                        _action_ctx.get("profile_key"),
+                        _action_ctx.get("action_frame"),
+                    )
+                    saved = (self._saved_ranges_by_posture.get(source_slot) or {}).get(live_posture)
+                    if not isinstance(saved, dict):
                         continue
                     source_team = self._team_for_slot(source_slot)
                     if not source_team:
@@ -4738,6 +6381,39 @@ class HitboxRenderer:
                     profile = (self._range_profiles.get("attacks") or {}).get(profile_key)
                     if not isinstance(profile, dict):
                         continue
+                    try:
+                        live_until = int(saved.get("dynamic_live_until_ms") or 0)
+                    except Exception:
+                        live_until = 0
+                    use_air_ruler = live_posture == "air"
+                    candidates = self._range_target_candidates(source_slot, display_center)
+                    if candidates:
+                        _dist, nearest_slot, nearest_root, _nearest_local, _nearest_source = min(candidates, key=lambda item: item[0])
+                        direction = 1.0 if float(nearest_root[0]) >= float(display_center[0]) else -1.0
+                    else:
+                        nearest_slot = ""
+                        direction = 1.0 if float(saved.get("last_direction") or 1.0) >= 0.0 else -1.0
+
+                    if bool(range_ruler_axes.get("vertical", False)):
+                        vertical = self._range_profile_vertical_geometry(profile)
+                        if vertical is not None:
+                            ov.draw_saved_vertical_range_zone(
+                                source_slot,
+                                display_center[0], display_center[1], display_center[2],
+                                direction,
+                                float(vertical["lower_y_from_start"]),
+                                float(vertical["upper_y_from_start"]),
+                                float(vertical.get("upper_forward_from_start") or 0.0),
+                                float(vertical.get("lower_forward_from_start") or 0.0),
+                                str(saved.get("move_name") or "RANGE"),
+                                source_label=self._ruler_source_label(source_slot, saved),
+                                airborne=bool(use_air_ruler),
+                                posture=live_posture,
+                            )
+
+                    if not bool(range_ruler_axes.get("horizontal", False)):
+                        continue
+
                     geometry = self._range_profile_geometry(profile)
                     if geometry is None:
                         continue
@@ -4750,42 +6426,25 @@ class HitboxRenderer:
                     if far <= 0.03 or tip_radius <= 0.01:
                         continue
 
-                    candidates = []
-                    for target_slot in SLOT_BASES:
-                        if self._team_for_slot(target_slot) == source_team:
-                            continue
-                        if not self.slot_renderable.get(target_slot, False):
-                            continue
-                        target_root, target_local, target_source, _target_cid = self._body_bounds_for_slot(target_slot)
-                        if target_root is None or target_local is None:
-                            continue
-                        dist = abs(float(target_root[0]) - float(display_center[0]))
-                        if dist >= 0.05:
-                            candidates.append((dist, target_slot, target_root, target_local, target_source))
                     if not candidates:
                         ov.draw_saved_range_zone(
                             source_slot, "", display_center[0], display_center[1], display_center[2],
-                            1.0 if float(saved.get("last_direction") or 1.0) >= 0.0 else -1.0, far, tip_forward, tip_y, tip_z, tip_radius,
+                            direction, far, tip_forward, tip_y, tip_z, tip_radius,
                             None, False, str(saved.get("move_name") or "RANGE"), "learning", calibration_pips,
                             source_label=self._ruler_source_label(source_slot, saved),
+                            airborne=bool(use_air_ruler),
+                            posture=live_posture,
                         )
                         continue
 
-                    # The opponent nearest to the source picks facing for the
-                    # reconstructed local hitbox tip.
-                    _dist, target_slot, target_root, target_local, target_source = min(candidates, key=lambda item: item[0])
-                    direction = 1.0 if float(target_root[0]) >= float(display_center[0]) else -1.0
                     tip_center = (
                         float(display_center[0]) + direction * tip_forward,
                         float(display_center[1]) + tip_y,
                         float(display_center[2]) + tip_z,
                     )
-
                     best_gap = None
-                    best_slot = target_slot
-                    best_source = target_source
-                    # Check all opposing visible hurt circles first.  This is the
-                    # actual on-screen collision geometry, not a broad range box.
+                    best_slot = nearest_slot
+                    best_source = "profile"
                     for _dist2, candidate_slot, candidate_root, candidate_local, candidate_source in candidates:
                         hlist = list(self.cached_hurtboxes.get(candidate_slot) or [])
                         if hlist:
@@ -4818,44 +6477,29 @@ class HitboxRenderer:
                         str(saved.get("move_name") or "RANGE"), str(best_source), calibration_pips,
                         float(geometry.get("advance_at_tip") or 0.0),
                         source_label=self._ruler_source_label(source_slot, saved),
+                        airborne=bool(use_air_ruler),
+                        posture=live_posture,
                     )
-
-                    # Dynamic is intentionally additive: the normal ruler stays
-                    # a single maximum-reach guide, while this optional layer
-                    # reconstructs every captured active hit circle from the
-                    # root path + local pose offsets.
-                    if range_dynamic_on:
-                        dynamic_frames = self._range_dynamic_sweep(profile)
-                        if dynamic_frames:
-                            sweep_shapes = self._dynamic_sweep_world_shapes(display_center, direction, dynamic_frames)
-                            dynamic_best = None
-                            dynamic_slot = best_slot
-                            for _dist2, candidate_slot, candidate_root, candidate_local, candidate_source in candidates:
-                                hlist = list(self.cached_hurtboxes.get(candidate_slot) or [])
-                                for sx, sy, sz, sr, _frame_no in sweep_shapes:
-                                    if hlist:
-                                        for hurt in hlist:
-                                            dx = float(sx) - float(hurt.x)
-                                            dy = float(sy) - float(hurt.y)
-                                            dz = float(sz) - float(hurt.z)
-                                            gap = max(0.0, math.sqrt(dx * dx + dy * dy + dz * dz) - float(sr) - float(hurt.radius))
-                                            if dynamic_best is None or gap < dynamic_best[0]:
-                                                dynamic_best = (gap, candidate_slot)
-                                    else:
-                                        body_world = self._world_bounds(candidate_root, candidate_local)
-                                        _touch, gap = self._sphere_aabb_touch_or_gap((sx, sy, sz), sr, body_world)
-                                        if dynamic_best is None or gap < dynamic_best[0]:
-                                            dynamic_best = (gap, candidate_slot)
-                            dynamic_gap = None if dynamic_best is None else float(dynamic_best[0])
-                            if dynamic_best is not None:
-                                dynamic_slot = str(dynamic_best[1])
-                            ov.draw_dynamic_range_sweep(
-                                self._ruler_source_label(source_slot, saved),
-                                str(saved.get("move_name") or "RANGE"),
-                                sweep_shapes, dynamic_gap, bool(dynamic_gap is not None and dynamic_gap <= 0.045), dynamic_slot,
-                            )
                 except Exception:
                     continue
+
+        # Contact audit markers are intentionally small and transient.  A
+        # witness is engine-signalled but descriptor pairing is geometric; an
+        # expected marker is the stored pair being checked on a later action.
+        for marker in list(self._range_contact_markers):
+            try:
+                if int(marker.get("until_ms") or 0) < int(now_ms):
+                    self._range_contact_markers.remove(marker)
+                    continue
+                ov.draw_range_contact_audit_marker(marker, witnessed=True)
+            except Exception:
+                continue
+        for marker in list(self._range_contact_expectations.values()):
+            try:
+                if int(marker.get("until_ms") or 0) >= int(now_ms):
+                    ov.draw_range_contact_audit_marker(marker, witnessed=False)
+            except Exception:
+                continue
 
         ov.draw_hud(self.last_counts, self.motion_filter, self.node_tracker, self.hurt_counts if hurtboxes_on else {})
 

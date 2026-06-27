@@ -3383,6 +3383,175 @@ def _profile_refresh_hit_segment(seg: Dict[str, Any], buf: bytes, base_abs: int)
             seg["hitstun"], seg["blockstun"], seg["hitstop"] = stun
 
 
+
+# ============================================================
+# Cached workbench write-target verification
+# ============================================================
+# Generic packet field offsets. Keep this local to the scanner so the cache
+# verifier does not import the writer module (which owns Dolphin write I/O).
+_PROFILE_ACTIVE_START_OFFSET = 8
+_PROFILE_ACTIVE_END_OFFSET = 16
+_PROFILE_DAMAGE_VALUE_OFFSET = 5
+_PROFILE_STUN_HITSTUN_OFFSET = 15
+_PROFILE_STUN_BLOCKSTUN_OFFSET = 31
+_PROFILE_STUN_HITSTOP_OFFSET = 38
+
+# A profile cache can rebase a structurally valid packet into the wrong action
+# owner.  Header-only checks are not enough: a neighbouring move may contain a
+# perfectly valid 35/10 damage packet.  Rebind the small set of generic editor
+# targets inside the row's own action window before exposing them as writable.
+#
+# This runs only in the editable workbench cache path, never in the compact HUD
+# preview path.  It keeps the editor instant while preventing stale/borrowed
+# packet addresses from silently writing a different move.
+
+def _clear_profile_write_target(mv: Dict[str, Any], field: str) -> None:
+    """Remove an unsafe generic write target while retaining display values."""
+    if field == "damage":
+        mv["damage_addr"] = None
+        mv["damage_value_addr"] = None
+        mv["damage_write_verified"] = False
+    elif field == "active":
+        mv["active_addr"] = None
+        mv["active_start_addr"] = None
+        mv["active_end_addr"] = None
+        mv["active_write_verified"] = False
+    elif field == "stun":
+        mv["stun_addr"] = None
+        mv["hitstun_addr"] = None
+        mv["blockstun_addr"] = None
+        mv["hitstop_addr"] = None
+        mv["stun_write_verified"] = False
+
+
+def _profile_owner_bounds(mv: Dict[str, Any], moves: List[Dict[str, Any]]) -> Tuple[Optional[int], Optional[int]]:
+    """Return the exclusive static-script ownership window for one row."""
+    try:
+        root = int(mv.get("abs") or 0)
+    except Exception:
+        return (None, None)
+    if not root:
+        return (None, None)
+    start, end = _invuln_owner_window(moves, root, mv_source=mv.get("source"))
+    if start is None:
+        start = root
+    if end is None or int(end) <= int(start):
+        end = _next_invuln_action_boundary(moves, root, mv_source=mv.get("source"))
+    try:
+        start_i = int(start)
+        end_i = int(end)
+    except Exception:
+        return (None, None)
+    if end_i <= start_i:
+        end_i = start_i + HIT_SEGMENT_SCAN_MAX
+    # Keep malformed/helper rows local rather than allowing them to reach into
+    # a later action just because a cache record was broad.
+    return (start_i, min(end_i, start_i + HIT_SEGMENT_SCAN_MAX))
+
+
+def _profile_owned_block(
+    blocks: List[Tuple[int, Any]],
+    start_abs: int,
+    end_abs: int,
+    *,
+    preferred_from: Optional[int] = None,
+    max_gap: int = HIT_SEGMENT_MAX_GAP,
+) -> Optional[Tuple[int, Any]]:
+    """Pick the first forward packet in one verified action owner window."""
+    if not blocks:
+        return None
+    first = int(preferred_from if preferred_from is not None else start_abs)
+    # The action root can be a few bytes after an initial active packet. Keep
+    # the owner preamble visible, but do not borrow arbitrary old blocks.
+    first = max(int(start_abs), first)
+    limit = min(int(end_abs), first + int(max_gap))
+    for addr, data in blocks:
+        try:
+            a = int(addr)
+        except Exception:
+            continue
+        if first <= a < limit:
+            return (a, data)
+    return None
+
+
+def _profile_rebind_generic_write_targets(
+    mv: Dict[str, Any],
+    moves: List[Dict[str, Any]],
+    blocks: Dict[str, Any],
+) -> None:
+    """Reconcile Damage/Active/Stun targets against the current action owner.
+
+    Only gameplay action roots (table/explicit action roots) receive automatic
+    generic targets. Raw helper rows remain visible in Raw Data, but no longer
+    advertise a borrowed packet as editable. Hit-segment rows retain their own
+    resolved addresses through their parent build path.
+    """
+    # Start pessimistic; every enabled generic writer below has a current live
+    # packet header plus an owner-window proof.
+    _clear_profile_write_target(mv, "damage")
+    _clear_profile_write_target(mv, "active")
+    _clear_profile_write_target(mv, "stun")
+
+    source = str(mv.get("source") or "")
+    if source not in {"table", "anim_hdr", "air_hdr", "cmd_hdr", "super_end"}:
+        return
+    start, end = _profile_owner_bounds(mv, moves)
+    if start is None or end is None:
+        return
+
+    active_blocks = sorted(list(blocks.get("active_blocks") or []), key=lambda x: int(x[0]))
+    damage_blocks = sorted(list(blocks.get("dmg_blocks") or []), key=lambda x: int(x[0]))
+    stun_blocks = sorted(list(blocks.get("stun_blocks") or []), key=lambda x: int(x[0]))
+
+    # Action roots can be placed after their first active declaration. Search
+    # the exclusive owner preamble first, then pair later packets in script order.
+    ablk = _profile_owned_block(active_blocks, start, end, preferred_from=start, max_gap=HIT_SEGMENT_MAX_GAP)
+    if ablk is not None:
+        active_addr, active_values = ablk
+        mv["active_addr"] = int(active_addr)
+        mv["active_start_addr"] = int(active_addr) + _PROFILE_ACTIVE_START_OFFSET
+        mv["active_end_addr"] = int(active_addr) + _PROFILE_ACTIVE_END_OFFSET
+        mv["active_start"], mv["active_end"] = active_values
+        mv["active_write_verified"] = True
+        damage_start = int(active_addr)
+    else:
+        damage_start = int(start)
+
+    dblk = _profile_owned_block(damage_blocks, start, end, preferred_from=damage_start, max_gap=HIT_SEGMENT_MAX_GAP)
+    if dblk is None and damage_start != start:
+        dblk = _profile_owned_block(damage_blocks, start, end, preferred_from=start, max_gap=HIT_SEGMENT_MAX_GAP)
+    if dblk is not None:
+        damage_addr, damage_values = dblk
+        mv["damage_addr"] = int(damage_addr)
+        mv["damage_value_addr"] = int(damage_addr) + _PROFILE_DAMAGE_VALUE_OFFSET
+        mv["damage"], mv["damage_flag"] = damage_values
+        mv["damage_write_verified"] = True
+        stun_start = int(damage_addr)
+    else:
+        stun_start = int(start)
+
+    sblk = _profile_owned_block(stun_blocks, start, end, preferred_from=stun_start, max_gap=HIT_SEGMENT_MAX_GAP)
+    if sblk is None and stun_start != start:
+        sblk = _profile_owned_block(stun_blocks, start, end, preferred_from=start, max_gap=HIT_SEGMENT_MAX_GAP)
+    if sblk is not None:
+        stun_addr, stun_values = sblk
+        mv["stun_addr"] = int(stun_addr)
+        mv["hitstun_addr"] = int(stun_addr) + _PROFILE_STUN_HITSTUN_OFFSET
+        mv["blockstun_addr"] = int(stun_addr) + _PROFILE_STUN_BLOCKSTUN_OFFSET
+        mv["hitstop_addr"] = int(stun_addr) + _PROFILE_STUN_HITSTOP_OFFSET
+        mv["hitstun"], mv["blockstun"], mv["hitstop"] = stun_values
+        mv["stun_write_verified"] = True
+
+    # Save a compact reason for the UI/status bar and for debugging profile
+    # mismatches without exposing raw cache internals to the main HUD.
+    mv["generic_write_owner_start"] = int(start)
+    mv["generic_write_owner_end"] = int(end)
+    mv["generic_write_verified"] = bool(
+        mv.get("damage_write_verified") or mv.get("active_write_verified") or mv.get("stun_write_verified")
+    )
+
+
 def _profile_refresh_move(mv: Dict[str, Any], buf: bytes, base_abs: int, char_id: Optional[int]) -> None:
     aid = mv.get("id")
     try:
@@ -3674,6 +3843,12 @@ def _load_profile_moves(
             # This is a transient scan aid, not profile data.
             mv.pop("_invuln_owner_start_abs", None)
             mv.pop("_invuln_owner_end_abs", None)
+        # Cache rows can have valid-looking packets assigned to a neighboring
+        # action. Rebuild only the generic editable targets inside each row's
+        # current live owner window before handing the workbench its snapshot.
+        profile_blocks = collect_blocks(buf, base_abs)
+        for mv in moves:
+            _profile_rebind_generic_write_targets(mv, moves, profile_blocks)
     except Exception as e:
         print(f"[fd profile] fast path failed for {char_name}: {e!r}")
         return None
@@ -3963,6 +4138,7 @@ def scan_once(
                     "slot_label": slot_label,
                     "char_name": cname,
                     "char_id": cid,
+                    "fighter_base_abs": fighter_base_abs,
                     "moves": sorted(preview_moves, key=sort_key),
                     "chr_tbl_abs": chr_tbl_abs,
                     "tbl_move_count": len(tbl_move_addrs),
@@ -3976,6 +4152,7 @@ def scan_once(
                     "slot_label": slot_label,
                     "char_name": cname,
                     "char_id": cid,
+                    "fighter_base_abs": fighter_base_abs,
                     "moves": [],
                     "chr_tbl_abs": chr_tbl_abs,
                     "tbl_move_count": len(tbl_move_addrs),
@@ -3999,6 +4176,7 @@ def scan_once(
                     "slot_label": slot_label,
                     "char_name": cname,
                     "char_id": cid,
+                    "fighter_base_abs": fighter_base_abs,
                     "moves": sorted(preview_moves, key=sort_key),
                     "chr_tbl_abs": chr_tbl_abs,
                     "tbl_move_count": len(tbl_move_addrs),
@@ -4012,6 +4190,7 @@ def scan_once(
                     "slot_label": slot_label,
                     "char_name": cname,
                     "char_id": cid,
+                    "fighter_base_abs": fighter_base_abs,
                     "moves": [],
                     "chr_tbl_abs": chr_tbl_abs,
                     "tbl_move_count": len(tbl_move_addrs),
@@ -4042,6 +4221,7 @@ def scan_once(
                     "slot_label": slot_label,
                     "char_name": cname,
                     "char_id": cid,
+                    "fighter_base_abs": fighter_base_abs,
                     "moves": sorted(profiled_moves, key=sort_key),
                     "chr_tbl_abs": chr_tbl_abs,
                     "tbl_move_count": len(tbl_move_addrs),
@@ -4066,6 +4246,7 @@ def scan_once(
                 "slot_label": slot_label,
                 "char_name": cname,
                 "char_id": cid,
+                    "fighter_base_abs": fighter_base_abs,
                 "moves": [],
                 "chr_tbl_abs": chr_tbl_abs,
                 "tbl_move_count": len(tbl_move_addrs),
@@ -4121,6 +4302,7 @@ def scan_once(
             "slot_label": slot_label,
             "char_name": cname,
             "char_id": cid,
+                    "fighter_base_abs": fighter_base_abs,
             "moves": sorted_moves,
             "chr_tbl_abs": chr_tbl_abs,
             "tbl_move_count": len(tbl_move_addrs),

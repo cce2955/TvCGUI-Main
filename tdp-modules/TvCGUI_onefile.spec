@@ -2,9 +2,7 @@
 # -----------------------------------------------------------------------
 # PyInstaller spec that produces ONE TvCGUI.exe.
 #
-# Data files are optional on purpose: local dev copies sometimes do not
-# have generated/debug files such as fd_region_hits.txt yet.  Missing
-# optional files should not break the EXE build.
+# Optional binary/JSON/CSV resources only; build-note text files are excluded.
 # -----------------------------------------------------------------------
 
 from pathlib import Path
@@ -37,7 +35,6 @@ def _data_dir(src, dst):
 datas = []
 datas += _data_dir('assets', 'assets')
 datas += _data_glob('*.csv', '.')
-datas += _data_file('fd_region_hits.txt', '.')
 datas += _data_file('frame_data_profiles.json', '.')
 datas += _data_file('frame_data_preview_profiles.json', '.')
 # Seed only: hitboxesscaling.py copies this beside TvCGUI.exe on first run

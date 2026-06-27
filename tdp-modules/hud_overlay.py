@@ -1999,7 +1999,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     point_anim["meter_display_value"] = _approach(point_anim["meter_display_value"], point_meter_target, 32000.0, dt)
 
     width = max(430, int(470 * scale))
-    height = max(102, int(110 * scale))
+    height = max(118, int(126 * scale))
     margin_x = int(12 * scale)
     base_y = int(148 * scale)
     is_left = team == "P1"
@@ -2082,31 +2082,62 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     outer_pad = int(10 * scale)
     left = x + outer_pad
     right = x + width - outer_pad
+    # Two complete character rows sit together at the top of the panel:
+    # badge + name + health + state.  LOG/MOVES begin only after both rows,
+    # so a C2 marker never becomes visually detached from its character.
     primary_y = y + int(7 * scale)
     hp_y = primary_y + max(16, int(18 * scale)) + int(4 * scale)
-    strip_y = hp_y + max(7, int(8 * scale)) + int(6 * scale)
+    secondary_y = hp_y + max(7, int(8 * scale)) + int(7 * scale)
+    partner_hp_y = secondary_y + font_sm.get_height() + int(2 * scale)
+    strip_y = partner_hp_y + max(5, int(6 * scale)) + int(5 * scale)
     history_y = strip_y + max(17, int(18 * scale)) + int(3 * scale)
     move_history_y = history_y + max(12, int(13 * scale)) + int(2 * scale)
-    secondary_y = move_history_y + max(12, int(13 * scale)) + int(4 * scale)
+    # Preserve the old tag-swap motion: when the active point changes, the
+    # incoming fighter rises from the reserve row while the outgoing fighter
+    # drops into it.  The C1/C2 badges travel with their full character rows.
     swap_progress = float(team_anim.get("swap_progress", 0.0))
-    top_row_y = int(primary_y + (secondary_y - primary_y) * swap_progress)
-    top_hp_y = int(hp_y + (secondary_y - primary_y) * swap_progress)
-    bottom_row_y = int(secondary_y - (secondary_y - primary_y) * swap_progress)
+    row_distance = secondary_y - primary_y
+    hp_distance = partner_hp_y - hp_y
+    top_row_y = int(primary_y + row_distance * swap_progress)
+    top_hp_y = int(hp_y + hp_distance * swap_progress)
+    bottom_row_y = int(secondary_y - row_distance * swap_progress)
+    bottom_hp_y = int(partner_hp_y - hp_distance * swap_progress)
     top_row_alpha = max(0.55, 1.0 - 0.18 * swap_progress)
     bottom_row_alpha = max(0.55, 1.0 - 0.18 * swap_progress)
 
+    # Character identity stays attached to each character row.  C1 and C2 are
+    # still directly one under the other, but each now carries its own name,
+    # health, and status instead of leaving C2 stranded above the LOG/MOVES area.
     point_badge = "C1" if point_label.endswith("C1") else "C2"
+    partner_badge = "C1" if partner_label.endswith("C1") else "C2"
+    partner_color = SLOT_COLORS.get(partner_label, accent)
     badge_w = max(22, int(25 * scale))
     badge_h = max(16, int(18 * scale))
-    badge_rect = pygame.Rect(left, primary_y, badge_w, badge_h)
-    pygame.draw.rect(screen, accent, badge_rect, border_radius=max(2, int(2 * scale)))
+    badge_radius = max(2, int(2 * scale))
+
+    badge_rect = pygame.Rect(left, top_row_y, badge_w, badge_h)
+    pygame.draw.rect(screen, accent, badge_rect, border_radius=badge_radius)
     badge = font_sm.render(point_badge, True, (250, 250, 252))
     screen.blit(badge, (badge_rect.centerx - badge.get_width() // 2, badge_rect.centery - badge.get_height() // 2))
+
+    partner_badge_rect = pygame.Rect(left, bottom_row_y, badge_w, badge_h)
+    partner_fill = tuple(max(24, int(channel * 0.24)) for channel in partner_color)
+    pygame.draw.rect(screen, partner_fill, partner_badge_rect, border_radius=badge_radius)
+    pygame.draw.rect(screen, partner_color, partner_badge_rect, 1, border_radius=badge_radius)
+    partner_badge_surface = font_sm.render(partner_badge, True, (183, 193, 210))
+    screen.blit(
+        partner_badge_surface,
+        (
+            partner_badge_rect.centerx - partner_badge_surface.get_width() // 2,
+            partner_badge_rect.centery - partner_badge_surface.get_height() // 2,
+        ),
+    )
 
     name_x = badge_rect.right + int(7 * scale)
     name = _compact_trim(str(point.get("name") or "???"), 13)
     name_surface = font.render(name, True, COL_DEAD if point_dead else (235, 238, 245))
-    screen.blit(name_surface, (name_x, primary_y - max(0, int(1 * scale))))
+    name_surface.set_alpha(int(255 * top_row_alpha))
+    screen.blit(name_surface, (name_x, top_row_y - max(0, int(1 * scale))))
 
     baroque = bool(point.get("baroque_ready_local", False)) and not point_dead
     if baroque:
@@ -2197,27 +2228,16 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
         float(team_anim.get("move_history_slide", 0.0)),
     )
 
-    partner_badge = "C1" if partner_label.endswith("C1") else "C2"
     partner_dead = int(partner.get("cur") or 0) <= 0
     partner_anim["ko_alpha"] = _approach(float(partner_anim.get("ko_alpha", 0.0)), 1.0 if partner_dead else 0.0, 6.5 if partner_dead else 3.2, dt)
     partner_anim["ko_scale"] = _approach(float(partner_anim.get("ko_scale", 0.90)), 1.08 if partner_dead else 0.92, 8.0 if partner_dead else 4.0, dt)
-    partner_color = SLOT_COLORS.get(partner_label, accent)
-    partner_badge_text = font_sm.render(partner_badge, True, (165, 175, 190))
-    partner_badge_text.set_alpha(int(255 * bottom_row_alpha)); screen.blit(partner_badge_text, (left, bottom_row_y))
+
+    # Reserve row: C2 badge, name, health, and status are one unit.
     partner_name = _compact_trim(str(partner.get("name") or "---"), 15)
     partner_name_surface = font_sm.render(partner_name, True, COL_DEAD if partner_dead else (168, 177, 194))
-    partner_name_x = left + badge_w + int(7 * scale)
-    partner_name_surface.set_alpha(int(255 * bottom_row_alpha)); screen.blit(partner_name_surface, (partner_name_x, bottom_row_y))
-    name_end_x = partner_name_x + min(partner_name_surface.get_width(), int(86 * scale))
-    partner_bar_x = name_end_x + int(8 * scale)
-    if partner_dead:
-        ko_w = max(22, font_sm.size("KO")[0] + int(10 * scale))
-        ko_h = max(13, int(15 * scale))
-        ko_x = partner_bar_x
-        _draw_compact_ko_badge(screen, font_sm, pygame.Rect(ko_x, bottom_row_y - int(2 * scale), ko_w, ko_h), scale, float(partner_anim.get("ko_alpha", 1.0)), float(partner_anim.get("ko_scale", 1.0)))
-        partner_bar_x = ko_x + ko_w + int(8 * scale)
-    partner_bar_w = max(54, int(63 * scale))
-    _draw_compact_health(screen, partner_bar_x, bottom_row_y + int(4 * scale), partner_bar_w, max(4, int(5 * scale)), partner.get("cur"), partner.get("max"), partner_dead, partner_anim.get("hp_display_frac"))
+    partner_name_x = partner_badge_rect.right + int(7 * scale)
+    partner_name_surface.set_alpha(int(255 * bottom_row_alpha))
+    screen.blit(partner_name_surface, (partner_name_x, bottom_row_y))
 
     partner_state = _compact_partner_state(partner)
     state_color = (255, 112, 120) if partner_dead else (partner_color if partner_state == "ACTIVE" else (132, 144, 164))
@@ -2226,11 +2246,34 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     bq_surface = _render_compact_rainbow_text(font_sm, f"BBQ {partner_bq_pct:.0f}%", 0.18) if (partner_bq_pct > 0.0 and not partner_dead) else None
     if bq_surface is not None:
         bq_x = right - bq_surface.get_width()
-        bq_surface.set_alpha(int(255 * bottom_row_alpha)); screen.blit(bq_surface, (bq_x, bottom_row_y))
-        state_x = min(partner_bar_x + partner_bar_w + int(7 * scale), bq_x - int(8 * scale) - state_surface.get_width())
+        bq_surface.set_alpha(int(255 * bottom_row_alpha))
+        screen.blit(bq_surface, (bq_x, bottom_row_y))
+        state_x = bq_x - int(8 * scale) - state_surface.get_width()
     else:
-        state_x = min(partner_bar_x + partner_bar_w + int(7 * scale), right - state_surface.get_width())
-    state_surface.set_alpha(int(255 * bottom_row_alpha)); screen.blit(state_surface, (state_x, bottom_row_y))
+        state_x = right - state_surface.get_width()
+    state_x = max(partner_name_x + partner_name_surface.get_width() + int(9 * scale), state_x)
+    state_surface.set_alpha(int(255 * bottom_row_alpha))
+    screen.blit(state_surface, (state_x, bottom_row_y))
+
+    partner_hp_text = font_sm.render(_compact_hp_text(partner.get("cur"), partner.get("max")), True, COL_DEAD if partner_dead else (150, 161, 180))
+    partner_hp_gap = int(5 * scale)
+    partner_ko_w = max(22, font_sm.size("KO")[0] + int(10 * scale)) if partner_dead else 0
+    partner_ko_gap = int(7 * scale)
+    partner_hp_reserve = partner_hp_text.get_width() + partner_hp_gap + (partner_ko_w + partner_ko_gap if partner_dead else 0)
+    partner_hp_w = max(54, min(max(98, int(118 * scale)), state_x - partner_name_x - partner_hp_reserve - int(6 * scale)))
+    _draw_compact_health(
+        screen, partner_name_x, bottom_hp_y, partner_hp_w, max(4, int(5 * scale)),
+        partner.get("cur"), partner.get("max"), partner_dead, partner_anim.get("hp_display_frac")
+    )
+    partner_hp_text_x = partner_name_x + partner_hp_w + partner_hp_gap
+    partner_hp_text.set_alpha(int(255 * bottom_row_alpha))
+    screen.blit(partner_hp_text, (partner_hp_text_x, bottom_hp_y - max(1, int(2 * scale))))
+    if partner_dead:
+        ko_x = min(partner_hp_text_x + partner_hp_text.get_width() + partner_ko_gap, state_x - partner_ko_w - int(4 * scale))
+        _draw_compact_ko_badge(
+            screen, font_sm, pygame.Rect(ko_x, bottom_hp_y - int(4 * scale), partner_ko_w, max(13, int(15 * scale))),
+            scale, float(partner_anim.get("ko_alpha", 1.0)), float(partner_anim.get("ko_scale", 1.0))
+        )
     if control is None or getattr(control, "show_tag_card", True):
         _draw_tag_card(screen, font_sm, team_anim, x, y + height + int(5 * scale), width, scale, is_left, dt)
     if control is None or getattr(control, "show_combo_card", True):

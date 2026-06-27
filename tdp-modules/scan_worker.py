@@ -13,14 +13,17 @@ class ScanNormalsWorker(threading.Thread):
     `request()` is signaled. The most recent result + timestamp
     can be retrieved via `get_latest()`.
     """
-    def __init__(self, scan_func, full_scan_func=None):
+    def __init__(self, scan_func, full_scan_func=None, workbench_scan_func=None):
         """
         scan_func: callable that takes no args and returns a lightweight scan result.
         full_scan_func: optional callable for full dynamic profile-building scans.
+        workbench_scan_func: optional callable that loads the full editable profile cache
+            without falling through into a dynamic MEM2 discovery scan.
         """
         super().__init__(daemon=True)
         self._scan_func = scan_func
         self._full_scan_func = full_scan_func
+        self._workbench_scan_func = workbench_scan_func
         self._want = threading.Event()
         self._lock = threading.Lock()
         self._last = None
@@ -28,6 +31,7 @@ class ScanNormalsWorker(threading.Thread):
         self._busy = False
         self._request_count = 0
         self._want_full = False
+        self._want_workbench = False
         self._full_kwargs = {}
         self._last_mode = "none"
 
@@ -44,12 +48,23 @@ class ScanNormalsWorker(threading.Thread):
                 with self._lock:
                     self._busy = True
                     want_full = bool(self._want_full)
+                    want_workbench = bool(self._want_workbench)
                     full_kwargs = dict(self._full_kwargs or {})
                     self._want_full = False
+                    self._want_workbench = False
                     self._full_kwargs = {}
-                func = self._full_scan_func if (want_full and self._full_scan_func is not None) else self._scan_func
-                mode = "full" if (want_full and self._full_scan_func is not None) else "cache"
-                res = func(**full_kwargs) if (want_full and self._full_scan_func is not None and full_kwargs) else func()
+                if want_full and self._full_scan_func is not None:
+                    func = self._full_scan_func
+                    mode = "full"
+                    res = func(**full_kwargs) if full_kwargs else func()
+                elif want_workbench and self._workbench_scan_func is not None:
+                    func = self._workbench_scan_func
+                    mode = "workbench"
+                    res = func()
+                else:
+                    func = self._scan_func
+                    mode = "cache"
+                    res = func()
                 now = time.time()
                 with self._lock:
                     self._last = res
@@ -61,19 +76,22 @@ class ScanNormalsWorker(threading.Thread):
                 with self._lock:
                     self._busy = False
 
-    def request(self, *, force_dynamic: bool = False, **full_scan_kwargs):
+    def request(self, *, force_dynamic: bool = False, workbench: bool = False, **full_scan_kwargs):
         """Signal the worker to perform a scan.
 
-        ``force_dynamic=True`` uses ``full_scan_func`` when one was provided.
-        Optional keyword arguments are delivered only to that full callable,
-        allowing a roster bootstrap to request specific missing character IDs
-        without making manual full scans less complete.  Requests coalesce;
-        a pending full scan wins over a pending cache scan.
+        ``workbench=True`` loads only the full saved editable profile cache.
+        It does not run the expensive dynamic discovery scan. ``force_dynamic=True``
+        remains the explicit fallback when a fighter has no saved profile.
+        Requests coalesce; dynamic work wins over workbench work, which wins over
+        the tiny HUD preview scan.
         """
         with self._lock:
             self._request_count += 1
             if force_dynamic:
                 self._want_full = True
+            elif workbench:
+                self._want_workbench = True
+            if force_dynamic:
                 # A no-argument manual full scan means "all" and must not be
                 # narrowed by an earlier targeted request.
                 if full_scan_kwargs:
