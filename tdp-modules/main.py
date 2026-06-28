@@ -135,7 +135,7 @@ except Exception as _runtime_stun_profiler_import_error:
     RuntimeStunProfiler = None
 
 
-from ko_control_runtime import (
+from tvcgui.runtime.ko_control import (
     KO_GLOBAL_HOLD_GROUPS,
     apply_ko_control_auto_mode,
     apply_ko_control_full_toggle,
@@ -309,7 +309,7 @@ REACTION_STATES = {48, 51, 64, 65, 66, 73, 79, 80, 81, 82, 90, 92, 95, 96, 97}
 
 GIANT_IDS = {11, 22}
 
-from megacrash_trainer_runtime import (
+from tvcgui.runtime.megacrash import (
     MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE,
     MEGACRASH_TRAINER_DEFAULT_CHANCE,
     MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES,
@@ -334,7 +334,7 @@ QUICK_ASSIST_PERSIST_EVERY_FRAMES = 60
 # Helpers
 # ---------------------------------------------------------------------------
 
-from main_runtime_utils import (
+from tvcgui.runtime.utilities import (
     FD_AUTOSCAN_DEBOUNCE_SEC,
     FD_AUTOSCAN_ENABLED,
     FD_AUTOSCAN_MIN_INTERVAL_SEC,
@@ -351,7 +351,7 @@ from main_runtime_utils import (
 
 
 
-from ui_components import (
+from tvcgui.ui.components import (
     TOP_UI_RESERVED,
     GUI_APP_ACCENT,
     GUI_CONFIRM,
@@ -403,7 +403,7 @@ def _win_score_active_for_dock() -> bool:
         return False
 
 
-from normal_preview_ui import (
+from tvcgui.ui.normal_preview import (
     _apply_panel_element_enter_animation,
     _ease_out_cubic,
     draw_quick_assist_footer,
