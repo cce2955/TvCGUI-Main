@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from dolphin_io import rd32, wd32
+from tvcgui.platform.dolphin import rd32, wd32
 
 # KO lab: base-relative packet that forces a fighter object back to the
 # idle-ish action cluster observed before KO.  This is intentionally a

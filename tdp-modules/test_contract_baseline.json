@@ -1,12 +1,12 @@
 {
   "critical_modules": [
     "main.py",
-    "scan_normals_all.py",
-    "scan_worker.py",
-    "frame_data_binding.py",
-    "frame_data_window.py",
-    "move_writer.py",
-    "fd_window.py"
+    "tvcgui/tools/scanners/normal_scanner.py",
+    "tvcgui/tools/scanners/normal_scan_worker.py",
+    "tvcgui/features/frame_data/binding.py",
+    "tvcgui/features/frame_data/window.py",
+    "tvcgui/features/combat/move_writer.py",
+    "tvcgui/features/frame_data/workbench.py"
   ],
   "minimum_tests": 64,
   "required_prefixes": [

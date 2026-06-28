@@ -1,7 +1,7 @@
 """Focused contract checks for the DOL UI-tag remap route."""
 from __future__ import annotations
 
-import char_test_runtime as runtime
+import tvcgui.features.character_select.runtime as runtime
 
 
 class FakeMemory:

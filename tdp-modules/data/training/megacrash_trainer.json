@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "mode": "targeted",
+  "chance": 0,
+  "delay_frames": 5,
+  "cooldown_sec": 2.0,
+  "target_label": "4B",
+  "attacker_scope": "slot:P1-C1",
+  "target_occurrence": 1
+}

@@ -4,7 +4,7 @@ import ast
 import unittest
 from pathlib import Path
 
-import tvc_chrsel_icon_tex0_probe as probe
+import tvcgui.tools.character_select.icon_tex0_probe as probe
 
 
 class ChrselIconProbeContractTests(unittest.TestCase):

@@ -3,7 +3,7 @@ from __future__ import annotations
 import struct
 import unittest
 
-import tvc_chrsel_yami_cmn_icon as icon
+import tvcgui.tools.character_select.yami_cmn_icon as icon
 
 
 class ChrselYamiCmnIconContractTests(unittest.TestCase):

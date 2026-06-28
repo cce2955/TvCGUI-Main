@@ -1,7 +1,7 @@
 from __future__ import annotations
 import unittest
 
-from frame_data_binding import (
+from tvcgui.features.frame_data.binding import (
     binding_from_row,
     binding_from_snapshot,
     binding_matches,

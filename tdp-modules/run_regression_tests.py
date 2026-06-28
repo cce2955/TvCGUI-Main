@@ -26,12 +26,12 @@ TEST_DIR = APP_DIR / "tests"
 BASELINE_PATH = APP_DIR / "test_contract_baseline.json"
 CRITICAL_MODULES = (
     "main.py",
-    "scan_normals_all.py",
-    "scan_worker.py",
-    "frame_data_binding.py",
-    "frame_data_window.py",
-    "move_writer.py",
-    "fd_window.py",
+    "tvcgui/tools/scanners/normal_scanner.py",
+    "tvcgui/tools/scanners/normal_scan_worker.py",
+    "tvcgui/features/frame_data/binding.py",
+    "tvcgui/features/frame_data/window.py",
+    "tvcgui/features/combat/move_writer.py",
+    "tvcgui/features/frame_data/workbench.py",
 )
 
 

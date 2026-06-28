@@ -1,6 +1,6 @@
 from __future__ import annotations
 import unittest
-import constants
+import tvcgui.core.constants as constants
 
 
 class SlotContractTests(unittest.TestCase):

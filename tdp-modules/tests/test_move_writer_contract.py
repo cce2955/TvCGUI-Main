@@ -14,7 +14,7 @@ if "dolphin_memory_engine" not in sys.modules:
         write_bytes=lambda _addr, _data: None,
     )
 
-import move_writer as mw
+import tvcgui.features.combat.move_writer as mw
 
 
 DAMAGE_HEADER = bytes((0x35, 0x10, 0x20, 0x3F, 0x00))

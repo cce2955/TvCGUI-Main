@@ -1,22 +1,28 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 
+def _data(src, dst):
+    return (src, dst) if __import__("pathlib").Path(src).exists() else None
+
+
 a = Analysis(
-    ['main.py'],
+    ['launcher.py'],
     pathex=[],
     binaries=[],
     datas=[x for x in [
-        ('projectilemap.json', '.') if __import__('pathlib').Path('projectilemap.json').exists() else None,
-        ('projectile_ids.json', '.') if __import__('pathlib').Path('projectile_ids.json').exists() else None,
-        ('frame_data_profiles.json', '.') if __import__('pathlib').Path('frame_data_profiles.json').exists() else None,
-        ('frame_data_preview_profiles.json', '.') if __import__('pathlib').Path('frame_data_preview_profiles.json').exists() else None,
-        ('hitbox_range_profiles.json', '.') if __import__('pathlib').Path('hitbox_range_profiles.json').exists() else None,
-        ('move_id_map_charagnostic.csv', '.') if __import__('pathlib').Path('move_id_map_charagnostic.csv').exists() else None,
+        _data('data/animation/animation_frames.json', 'data/animation'),
+        _data('data/animation/character_fpk_registry.json', 'data/animation'),
+        _data('data/assists/quick_assists.json', 'data/assists'),
+        _data('data/combat/projectilemap.json', 'data/combat'),
+        _data('data/combat/projectile_ids.json', 'data/combat'),
+        _data('data/combat/move_id_map_charagnostic.csv', 'data/combat'),
+        _data('data/frame_data/frame_data_profiles.json', 'data/frame_data'),
+        _data('data/frame_data/frame_data_preview_profiles.json', 'data/frame_data'),
+        _data('data/hitboxes/hitbox_range_profiles.json', 'data/hitboxes'),
         ('missions', 'missions') if __import__('pathlib').Path('missions').is_dir() else None,
-        # megacrash_trainer.json is intentionally not bundled.
-        # Megacrash must default OFF for every exported build; runtime saves stay local.
+        # Mutable runtime state is intentionally not bundled.
     ] if x],
-    hiddenimports=['fd_move_families', 'fd_projectile_integration', 'proj_scanner_window'],
+    hiddenimports=['tvcgui.platform.dolphin', 'tvcgui.platform.patch_manager', 'tvcgui.ui.debug_panel', 'tvcgui.ui.portraits', 'tvcgui.ui.overseer', 'tvcgui.ui.main_window', 'tvcgui.features.training.timer_debug', 'tvcgui.tools.scanners.normal_scanner', 'tvcgui.tools.scanners.bone_scanner', 'tvcgui.tools.scanners.special_runtime_finder', 'tvcgui.features.frame_data.move_families', 'tvcgui.features.frame_data.projectile_integration', 'tvcgui.features.combat.projectile_scanner', 'tvcgui.features.training.flags', 'tvcgui.features.training.mission_manager', 'tvcgui.features.training.mission_mode', 'tvcgui.features.training.megacrash_window', 'tvcgui.features.training.win_counter_gate', 'tvcgui.features.training.win_counter_window', 'tvcgui.features.training.stun_profiler', 'tvcgui.features.overlay.master_renderer', 'tvcgui.features.overlay.hud_renderer', 'tvcgui.features.hitboxes.renderer'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

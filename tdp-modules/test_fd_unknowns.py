@@ -1,6 +1,6 @@
 import sys
 sys.path.insert(0, '/mnt/data/win_counter_src')
-from fd_unknowns import extract_unmapped_field_ops, scan_unmapped_field_ops
+from tvcgui.features.frame_data.unknowns import extract_unmapped_field_ops, scan_unmapped_field_ops
 
 BASE=0x90800000
 buf=bytearray(0x100)

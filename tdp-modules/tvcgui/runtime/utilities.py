@@ -14,9 +14,9 @@ import time
 import zipfile
 from datetime import datetime
 
-from app_paths import resource_path
-from constants import MEM1_HI, MEM1_LO, MEM2_HI, MEM2_LO
-from dolphin_io import rbytes
+from tvcgui.core.paths import resource_path
+from tvcgui.core.constants import MEM1_HI, MEM1_LO, MEM2_HI, MEM2_LO
+from tvcgui.platform.dolphin import rbytes
 
 try:
     import pyperclip

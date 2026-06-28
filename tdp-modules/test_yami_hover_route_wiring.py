@@ -10,7 +10,7 @@ ID 0 -> Zero path owned by the DOL tag service.
 
 import unittest
 
-import char_test_runtime as runtime
+import tvcgui.features.character_select.runtime as runtime
 
 
 class YamiHoverRouteWiringTests(unittest.TestCase):

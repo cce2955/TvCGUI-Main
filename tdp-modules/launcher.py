@@ -24,12 +24,12 @@ def main():
             break
 
     if mode == "master_overlay":
-        import master_overlay
-        master_overlay.main()
+        from tvcgui.features.overlay import master_renderer
+        master_renderer.main()
 
     elif mode == "hud_overlay":
-        import hud_overlay
-        hud_overlay.main()
+        from tvcgui.features.overlay import hud_renderer
+        hud_renderer.main()
 
     else:
         # Default: run the HUD

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import unittest
 
-import char_test_runtime as ctr
+import tvcgui.features.character_select.runtime as ctr
 
 
 class ExtraCharacterVisualProfileTests(unittest.TestCase):

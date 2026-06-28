@@ -11,10 +11,10 @@ import threading
 import zipfile
 from datetime import datetime
 import pygame
-from subprocess_compat import frozen_exe
+from tvcgui.core.subprocess_compat import frozen_exe
 
 
-from app_paths import resource_path
+from tvcgui.core.paths import resource_path
 
 # Python 3.13 + pygame 2.6.1 can hard-abort inside pygame.event.get()
 # with PyEval_RestoreThread before Python can raise/catch an exception.
@@ -99,7 +99,7 @@ def _safe_pygame_event_get():
             pass
         return []
 
-from constants import (
+from tvcgui.core.constants import (
     SLOTS,
     CHAR_NAMES,
     OFF_CHAR_ID,
@@ -117,20 +117,20 @@ try:
 except ImportError:
     pyperclip = None
 
-from layout import compute_layout, reassign_slots_for_giants
-from scan_worker import ScanNormalsWorker
-from frame_data_binding import (
+from tvcgui.core.layout import compute_layout, reassign_slots_for_giants
+from tvcgui.tools.scanners.normal_scan_worker import ScanNormalsWorker
+from tvcgui.features.frame_data.binding import (
     editable_row_for_live_slot,
     is_live_proven,
     live_binding,
 )
-from training_flags import read_training_flags
-from debug_panel import read_debug_flags, draw_debug_overlay
+from tvcgui.features.training.flags import read_training_flags
+from tvcgui.ui.debug_panel import read_debug_flags, draw_debug_overlay
 
-from dolphin_io import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes, prime_mem2_latch, set_emulated_write_quarantine
+from tvcgui.platform.dolphin import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes, prime_mem2_latch, set_emulated_write_quarantine
 
 try:
-    from runtime_stun_profiler import RuntimeStunProfiler
+    from tvcgui.features.training.stun_profiler import RuntimeStunProfiler
 except Exception as _runtime_stun_profiler_import_error:
     RuntimeStunProfiler = None
 
@@ -148,7 +148,7 @@ from tvcgui.runtime.ko_control import (
     tick_ko_control_auto,
 )
 
-from config import (
+from tvcgui.core.config import (
     MIN_HIT_DAMAGE,
     SCREEN_W, SCREEN_H,
     FONT_MAIN_SIZE, FONT_SMALL_SIZE,
@@ -160,55 +160,55 @@ from config import (
     DEBUG_FLAG_ADDRS,
 )
 
-from portraits import (
+from tvcgui.ui.portraits import (
     load_portrait_placeholder,
     load_portraits_from_dir,
     get_portrait_for_snap,
 )
 
-from resolver import RESOLVER, pick_posy_off_no_jump
-from meter import read_meter, METER_CACHE
-from fighter import read_fighter, dist2
-from advantage import ADV_TRACK
-from moves import (
+from tvcgui.tools.scanners.fighter_resolver import RESOLVER, pick_posy_off_no_jump
+from tvcgui.features.combat.meter import read_meter, METER_CACHE
+from tvcgui.tools.scanners.fighter_state import read_fighter, dist2
+from tvcgui.features.combat.advantage import ADV_TRACK
+from tvcgui.features.combat.moves import (
     load_move_map,
     move_label_for,
     CHAR_ID_CORRECTION,
 )
-from move_id_map import lookup_move_name
-from hud_draw import (
+from tvcgui.features.combat.move_id_map import lookup_move_name
+from tvcgui.features.overlay.drawing import (
     draw_panel_classic,
     draw_activity,
     draw_event_log,
     draw_scan_normals,
 )
 
-from redscan import RedHealthScanner
-from global_redscan import GlobalRedScanner
-from events import log_engaged, log_hit, log_frame_advantage
+from tvcgui.tools.scanners.red_health_scanner import RedHealthScanner
+from tvcgui.tools.scanners.global_red_health_scanner import GlobalRedScanner
+from tvcgui.core.events import log_engaged, log_hit, log_frame_advantage
 
 try:
-    import scan_normals_all
+    import tvcgui.tools.scanners.normal_scanner as scan_normals_all
     HAVE_SCAN_NORMALS = True
-    from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
+    from tvcgui.tools.scanners.normal_scanner import ANIM_MAP as SCAN_ANIM_MAP
 except Exception:
     scan_normals_all = None
     HAVE_SCAN_NORMALS = False
     SCAN_ANIM_MAP = {}
 
-from frame_data_window import (
+from tvcgui.features.frame_data.window import (
     open_frame_data_window,
     open_frame_data_loading_window,
     close_frame_data_loading_window,
 )
-from proj_scanner_window import open_proj_scanner_window
+from tvcgui.features.combat.projectile_scanner import open_proj_scanner_window
 try:
-    from megacrash_trainer_window import open_megacrash_trainer_window
+    from tvcgui.features.training.megacrash_window import open_megacrash_trainer_window
 except Exception as e:
     open_megacrash_trainer_window = None
     print(f"WARNING: megacrash trainer window not available ({e!r})")
 try:
-    from hud_editor_window import open_hud_editor_window, tick_hud_editor_state, get_hud_editor_runtime_state, reset_hud_editor_runtime_state
+    from tvcgui.features.overlay.editor import open_hud_editor_window, tick_hud_editor_state, get_hud_editor_runtime_state, reset_hud_editor_runtime_state
 except Exception as e:
     open_hud_editor_window = None
     tick_hud_editor_state = None
@@ -216,17 +216,17 @@ except Exception as e:
     reset_hud_editor_runtime_state = None
     print(f"WARNING: HUD editor window not available ({e!r})")
 try:
-    from win_counter_runtime_gate import set_win_counter_runtime_active
+    from tvcgui.features.training.win_counter_gate import set_win_counter_runtime_active
 except Exception as e:
     set_win_counter_runtime_active = None
     print(f"WARNING: Win Counter runtime gate not available ({e!r})")
 try:
-    from overseer_window import open_overseer_window
+    from tvcgui.ui.overseer import open_overseer_window
 except Exception as e:
     open_overseer_window = None
     print(f"WARNING: Tool State window not available ({e!r})")
 try:
-    from char_test_runtime import (
+    from tvcgui.features.character_select.runtime import (
         get_char_test_state,
         stop_char_test,
         restore_char_test,
@@ -247,17 +247,17 @@ except Exception as e:
     toggle_solo_team = None
     print(f"WARNING: Extra characters toggle not available ({e!r})")
 try:
-    import fd_patch_runtime
+    import tvcgui.features.frame_data.patch_runtime as fd_patch_runtime
 except Exception as e:
     fd_patch_runtime = None
     print(f"WARNING: fd patch runtime not available ({e!r})")
 try:
-    import runtime_patch_manager as runtime_pm
+    import tvcgui.platform.patch_manager as runtime_pm
 except Exception as e:
     runtime_pm = None
     print(f"WARNING: runtime patch manager not available ({e!r})")
 try:
-    from assist_scanner_window import (
+    from tvcgui.features.assists import (
         open_assist_scanner_window,
         tick_assist_profiles_from_main,
         get_quick_assists_for_slot,
@@ -267,7 +267,7 @@ try:
         clear_assist_runtime_state,
     )
 except Exception:
-    from assist_scanner_window import open_assist_scanner_window
+    open_assist_scanner_window = None
     def tick_assist_profiles_from_main(_snaps):
         return None
     def get_quick_assists_for_slot(_slot_label, _snap=None):
@@ -286,10 +286,11 @@ except Exception:
     def clear_assist_runtime_state(clear_route_cache=False):
         return None
 
-from mission_manager import MissionManager
-from hud_overlay_manager import HudOverlayManager
+from tvcgui.features.training.mission_manager import MissionManager
+from tvcgui.features.overlay.manager import HudOverlayManager
+from tvcgui.core.paths import user_data_path
 
-MASTER_CONTROL_FILE = "master_overlay_control.json"
+MASTER_CONTROL_FILE = user_data_path("overlay", "master_overlay_control.json")
 
 TARGET_FPS          = 60
 DAMAGE_EVERY_FRAMES = 3
@@ -1323,7 +1324,7 @@ def legacy_main():
             print("[master] closed")
 
     # Hitbox filter
-    HITBOX_FILTER_FILE = "hitbox_filter.json"
+    HITBOX_FILTER_FILE = user_data_path("hitboxes", "hitbox_filter.json")
     hitbox_slots = {"P1": False, "P2": False, "P3": False, "P4": False}
     hurtbox_slots = {"P1": False, "P2": False, "P3": False, "P4": False}
     # Defaults are all four sources enabled. They stay independent from the
@@ -1397,6 +1398,7 @@ def legacy_main():
         payload["hurtbox_slots"] = dict(hurtbox_slots)
         payload["show_hurtboxes"] = any(hurtbox_slots.values())
         try:
+            os.makedirs(os.path.dirname(HITBOX_FILTER_FILE), exist_ok=True)
             with open(HITBOX_FILTER_FILE, "w") as f:
                 json.dump(payload, f)
         except Exception:
@@ -1413,6 +1415,7 @@ def legacy_main():
             "show_tag_card": bool(show_tag_card),
         }
         try:
+            os.makedirs(os.path.dirname(MASTER_CONTROL_FILE), exist_ok=True)
             with open(MASTER_CONTROL_FILE, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
         except Exception:
@@ -2505,7 +2508,7 @@ def legacy_main():
 
             btn_h          = 20
             frame_btn_w    = 98
-            mission_btn_w  = 104
+            mission_btn_w  = 124
             btn_gap        = 7
             bottom_pad     = 8
             total_btn_w    = frame_btn_w + btn_gap + mission_btn_w
@@ -2770,9 +2773,9 @@ def legacy_main():
             active_ruler_slots = ", ".join(k for k, v in ruler_slots.items() if v)
             _axis_labels = []
             if bool(ruler_axes.get("horizontal", False)):
-                _axis_labels.append("Horz")
+                _axis_labels.append("Horizontal")
             if bool(ruler_axes.get("vertical", False)):
-                _axis_labels.append("Vert")
+                _axis_labels.append("Vertical")
             axis_label = "+".join(_axis_labels) or "No axis"
             status_parts.append(f"Ruler {axis_label} {active_ruler_slots or 'OFF'}")
         else:

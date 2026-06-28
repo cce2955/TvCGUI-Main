@@ -72,15 +72,15 @@ def main(argv: list[str] | None = None) -> int:
     ok_all = True
 
     try:
-        import dolphin_io
-        import constants
-        import move_id_map
-        import scan_normals_all
+        import tvcgui.platform.dolphin as dolphin_io
+        import tvcgui.core.constants as constants
+        import tvcgui.features.combat.move_id_map as move_id_map
+        import tvcgui.tools.scanners.normal_scanner as scan_normals_all
     except Exception as exc:
         _status(False, "imports", repr(exc))
         return 1
 
-    _status(True, "imports", "dolphin_io/constants/move_id_map/scan_normals_all")
+    _status(True, "imports", "platform.dolphin/core.constants/combat.move_id_map/scanners.normal_scanner")
 
     if not args.skip_hook:
         print("[Dolphin smoke] Hooking Dolphin...")

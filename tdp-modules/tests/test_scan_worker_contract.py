@@ -2,7 +2,7 @@ from __future__ import annotations
 import time
 import unittest
 
-from scan_worker import ScanNormalsWorker
+from tvcgui.tools.scanners.normal_scan_worker import ScanNormalsWorker
 
 
 def wait_for(worker, expected_mode, timeout=1.0):

@@ -3,7 +3,7 @@ import inspect
 import unittest
 from unittest.mock import patch
 
-import frame_data_window as fdw
+import tvcgui.features.frame_data.window as fdw
 
 
 class FrameDataWindowContractTests(unittest.TestCase):

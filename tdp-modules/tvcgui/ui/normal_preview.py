@@ -11,7 +11,7 @@ import time
 import pygame
 
 try:
-    from scan_normals_all import ANIM_MAP as SCAN_ANIM_MAP
+    from tvcgui.tools.scanners.normal_scanner import ANIM_MAP as SCAN_ANIM_MAP
 except Exception:
     SCAN_ANIM_MAP = {}
 
@@ -330,14 +330,14 @@ def _normal_visible_moves(moves: list) -> list:
 
 
 _NORMAL_PREVIEW_MODE_META = {
-    "fast": {"label": "Fast", "color": (112, 182, 245)},
+    "fast": {"label": "Fastest", "color": (112, 182, 245)},
     "damage": {"label": "Damage", "color": (232, 190, 96)},
-    "adv_block": {"label": "+Block", "color": (177, 145, 244)},
-    "matchup": {"label": "Match", "color": (104, 211, 227)},
+    "adv_block": {"label": "Block", "color": (177, 145, 244)},
+    "matchup": {"label": "Matchup", "color": (104, 211, 227)},
     "safe": {"label": "Safe", "color": (108, 214, 158)},
     "unsafe": {"label": "Unsafe", "color": (232, 124, 124)},
     "punish": {"label": "Punish", "color": (236, 136, 112)},
-    "live_punish": {"label": "Live", "color": (100, 209, 223)},
+    "live_punish": {"label": "Live Punish", "color": (100, 209, 223)},
 }
 
 
@@ -725,9 +725,9 @@ def _normal_preview_status(slots: list[dict], mode: str, selection: dict | None)
         fast = ladder.get("fast") if isinstance(ladder, dict) else None
         damage = ladder.get("damage") if isinstance(ladder, dict) else None
         if isinstance(fast, dict) and isinstance(damage, dict):
-            bits.append(f"{target} F:{fast.get('label')} {fast.get('startup')}f D:{damage.get('label')} {damage.get('damage')}")
+            bits.append(f"{target} Fastest: {fast.get('label')} {fast.get('startup')}f | Damage: {damage.get('label')} {damage.get('damage')}")
         elif isinstance(fast, dict):
-            bits.append(f"{target} F:{fast.get('label')} {fast.get('startup')}f")
+            bits.append(f"{target} Fastest: {fast.get('label')} {fast.get('startup')}f")
     return f"{prefix}{source_slot} {label} {adv_block:+d}: " + " | ".join(bits)
 
 
@@ -806,8 +806,8 @@ def draw_scan_normals_polished(
     _draw_vertical_gradient(panel, panel.get_rect(), (14, 17, 26), (10, 12, 18), 255)
     surf.blit(panel, rect.topleft)
 
-    title = smallfont.render("Scan: Normals Preview", True, GUI_TEXT)
-    legend = smallfont.render("S startup | A active | R recovery | +H on hit | +B on block | D damage | blue = patched", True, GUI_TEXT_DIM)
+    title = smallfont.render("Normals Preview", True, GUI_TEXT)
+    legend = smallfont.render("S startup | A active | R recovery | H hit advantage | B block advantage | DMG damage | blue = patched", True, GUI_TEXT_DIM)
     surf.blit(title, (rect.x + 10, rect.y + 7))
     surf.blit(legend, (rect.right - legend.get_width() - 10, rect.y + 7))
     pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 24), (rect.right - 8, rect.y + 24))
@@ -853,7 +853,7 @@ def draw_scan_normals_polished(
         interaction["controls"][control_key] = control_rect.copy()
         control_x += control_w + 4
 
-    more_label = "More ▴" if advanced_open else "More ▾"
+    more_label = "Advanced ▴" if advanced_open else "Advanced ▾"
     more_w = max(44, smallfont.size(more_label)[0] + 14)
     more_rect = pygame.Rect(control_x, control_y, more_w, control_h)
     draw_glass_button(
@@ -940,6 +940,9 @@ def draw_scan_normals_polished(
     dense = rect.height < 260 or rect.width < 930
     header_h = 24 if not dense else 22
     table_header_h = 16 if not dense else 14
+    # Compact labels are deliberate here: these are six narrow
+    # combat-data columns, so the full wording belongs in the legend above.
+    table_header_font = smallfont
 
     def _section_for_label(label: str) -> str:
         low = str(label or "").lower()
@@ -996,11 +999,11 @@ def draw_scan_normals_polished(
         # the top stroke of the first normal row can visually merge with the
         # header separator on compact cards.
         first_row_gap = 3
-        metric_headers = ("S", "A", "R", "+H", "+B", "D")
+        metric_headers = ("S", "A", "R", "H", "B", "DMG")
         metric_count = len(metric_headers)
         # The preview prioritizes startup, active, recovery, advantage, and
         # damage. Raw hitstun/blockstun remain available in the Frame Data view.
-        preferred_move_col_w = 48 if card.width >= 260 else 42
+        preferred_move_col_w = 42 if card.width >= 260 else 38
         metric_col_w = max(1, (table_w - preferred_move_col_w) // metric_count)
         move_col_w = table_w - metric_col_w * metric_count
         grid_x, grid_y = table_x, table_y
@@ -1012,7 +1015,7 @@ def draw_scan_normals_polished(
 
         hdr = pygame.Rect(grid_x, grid_y, grid_w, table_header_h)
         pygame.draw.rect(surf, (18, 22, 31), hdr, border_radius=4)
-        header_labels = ("GND",) + metric_headers
+        header_labels = ("Move",) + metric_headers
         header_widths = (move_col_w,) + (metric_col_w,) * metric_count
         cell_x = grid_x
         for i, (txt, cell_w) in enumerate(zip(header_labels, header_widths)):
@@ -1020,7 +1023,7 @@ def draw_scan_normals_polished(
             header_fill = (29, 35, 49) if i % 2 == 0 else (23, 28, 40)
             pygame.draw.rect(surf, header_fill, header_cell)
             pygame.draw.rect(surf, (57, 68, 94), header_cell, 1)
-            hdr_s = smallfont.render(txt, True, GUI_TEXT_DIM)
+            hdr_s = table_header_font.render(txt, True, GUI_TEXT_DIM)
             surf.blit(hdr_s, (header_cell.x + (header_cell.width - hdr_s.get_width()) // 2, header_cell.y + (header_cell.height - hdr_s.get_height()) // 2))
             cell_x += cell_w
 

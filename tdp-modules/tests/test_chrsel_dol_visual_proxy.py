@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import unittest
 
-import char_test_runtime as runtime
+import tvcgui.features.character_select.runtime as runtime
 
 
 class _FakeDolphinMemory:

@@ -11,13 +11,13 @@ import json
 import random
 import time
 
-from app_paths import resource_path
-from constants import ATT_ID_OFF_PRIMARY
-from dolphin_io import addr_in_ram, rd8, wd32
-from fighter import dist2
+from tvcgui.core.paths import data_path, user_data_path
+from tvcgui.core.constants import ATT_ID_OFF_PRIMARY
+from tvcgui.platform.dolphin import addr_in_ram, rd8, wd32
+from tvcgui.tools.scanners.fighter_state import dist2
 
 try:
-    import runtime_patch_manager as runtime_pm
+    import tvcgui.platform.patch_manager as runtime_pm
 except Exception:
     runtime_pm = None
 
@@ -28,7 +28,7 @@ TARGET_FPS = 60
 # that same write primitive, but only pulses it on point characters during
 # hitstun when the opponent advances to a new combo label.
 MEGACRASH_MOVE_ID = 448
-MEGACRASH_TRAINER_CONFIG_FILE = "megacrash_trainer.json"
+MEGACRASH_TRAINER_CONFIG_FILE = user_data_path("training", "megacrash_trainer.json")
 MEGACRASH_TRAINER_DEFAULT_CHANCE = 0
 MEGACRASH_TRAINER_DEFAULT_MODE = "percent"
 MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES = 0
@@ -175,7 +175,7 @@ def _megacrash_label_id_cache() -> dict[str, set[int]]:
             if key:
                 out.setdefault(key, set()).add(mid_i)
 
-    csv_path = resource_path("move_id_map_charagnostic.csv")
+    csv_path = data_path("combat", "move_id_map_charagnostic.csv")
     try:
         with open(csv_path, newline="", encoding="utf-8-sig") as f:
             reader = csv.reader(f)
@@ -214,7 +214,7 @@ def _megacrash_label_options_for_char(char_id: int | None) -> list[str]:
     global _MEGACRASH_LABEL_OPTIONS_CACHE
     if _MEGACRASH_LABEL_OPTIONS_CACHE is None:
         catalog: dict[int, set[str]] = {}
-        csv_path = resource_path("move_id_map_charagnostic.csv")
+        csv_path = data_path("combat", "move_id_map_charagnostic.csv")
         try:
             with open(csv_path, newline="", encoding="utf-8-sig") as f:
                 reader = csv.reader(f)
@@ -404,6 +404,7 @@ def _save_megacrash_trainer_config(state: dict) -> None:
             "attacker_scope": _clean_megacrash_attacker_scope(save_src.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE)),
             "target_occurrence": _clamp_megacrash_target_occurrence(save_src.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE)),
         }
+        os.makedirs(os.path.dirname(MEGACRASH_TRAINER_CONFIG_FILE), exist_ok=True)
         with open(MEGACRASH_TRAINER_CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2)
     except Exception as e:

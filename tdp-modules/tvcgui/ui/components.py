@@ -415,6 +415,14 @@ def draw_top_command_dock(
     y_tools = 35
     btn_h = 22
 
+    # The main dock favors complete labels over abbreviations.  A compact
+    # dedicated font lets "Horizontal", "Vertical", and "Hit and Block"
+    # remain readable without crowding the live match controls.
+    try:
+        dockfont = pygame.font.SysFont("consolas", 11)
+    except Exception:
+        dockfont = smallfont
+
     # Dummy rect kept for the older projectile-scanner click path.
     ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     solo_team_btn_rect = pygame.Rect(-10000, -10000, 0, 0)
@@ -430,21 +438,21 @@ def draw_top_command_dock(
 
     # Overlay/card cluster.  It is outlined as one block so card switches no
     # longer look like unrelated free-floating buttons.
-    hud_group_rect = pygame.Rect(x, y_top - 2, 336, btn_h + 4)
+    hud_group_rect = pygame.Rect(x, y_top - 2, 356, btn_h + 4)
     draw_group(hud_group_rect)
 
     hud_btn_rect = pygame.Rect(hud_group_rect.x + 4, y_top, 100, btn_h)
     draw_glass_button(
         screen, hud_btn_rect,
         "Overlay: ON" if overlay_enabled else "Overlay: OFF",
-        smallfont, active=overlay_enabled,
+        dockfont, active=overlay_enabled,
         hover=hud_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
         fill=(44, 56, 82) if overlay_enabled else (31, 33, 42), align="center",
     )
 
-    interaction_card_btn_rect = pygame.Rect(hud_btn_rect.right + 4, y_top, 58, btn_h)
+    interaction_card_btn_rect = pygame.Rect(hud_btn_rect.right + 4, y_top, 82, btn_h)
     draw_glass_button(
-        screen, interaction_card_btn_rect, "Hit/Blk", smallfont,
+        screen, interaction_card_btn_rect, "Hit / Block", dockfont,
         active=bool(show_interaction_card),
         hover=interaction_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
         fill=(44, 56, 82) if show_interaction_card else (31, 33, 42), align="center",
@@ -452,7 +460,7 @@ def draw_top_command_dock(
 
     combo_card_btn_rect = pygame.Rect(interaction_card_btn_rect.right + 4, y_top, 55, btn_h)
     draw_glass_button(
-        screen, combo_card_btn_rect, "Combo", smallfont,
+        screen, combo_card_btn_rect, "Combo", dockfont,
         active=bool(show_combo_card),
         hover=combo_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
         fill=(44, 56, 82) if show_combo_card else (31, 33, 42), align="center",
@@ -460,7 +468,7 @@ def draw_top_command_dock(
 
     tag_card_btn_rect = pygame.Rect(combo_card_btn_rect.right + 4, y_top, 43, btn_h)
     draw_glass_button(
-        screen, tag_card_btn_rect, "Tag", smallfont,
+        screen, tag_card_btn_rect, "Tag", dockfont,
         active=bool(show_tag_card),
         hover=tag_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
         fill=(44, 56, 82) if show_tag_card else (31, 33, 42), align="center",
@@ -472,7 +480,7 @@ def draw_top_command_dock(
     cards_active = bool(show_interaction_card or show_combo_card or show_tag_card)
     clear_card_btn_rect = pygame.Rect(tag_card_btn_rect.right + 4, y_top, 52, btn_h)
     draw_glass_button(
-        screen, clear_card_btn_rect, "Clear", smallfont,
+        screen, clear_card_btn_rect, "Clear", dockfont,
         active=cards_active,
         hover=clear_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_RED,
         fill=(59, 38, 43) if cards_active else (31, 33, 42), align="center",
@@ -483,13 +491,13 @@ def draw_top_command_dock(
     # context.  A small divider preserves the P1/P2 vs P3/P4 pairing at a
     # glance without treating P1/P3 as a team.
     x = hud_group_rect.right + gap
-    visual_group_rect = pygame.Rect(x, y_top - 2, 496, btn_h + 4)
+    visual_group_rect = pygame.Rect(x, y_top - 2, 450, btn_h + 4)
     draw_group(visual_group_rect)
 
     hb_on = any(hitbox_slots.values())
-    hb_btn_rect = pygame.Rect(visual_group_rect.x + 4, y_top, 126, btn_h)
+    hb_btn_rect = pygame.Rect(visual_group_rect.x + 4, y_top, 100, btn_h)
     draw_glass_button(
-        screen, hb_btn_rect, "Hitboxes: ON" if hb_on else "Hitboxes: OFF", smallfont,
+        screen, hb_btn_rect, "Hitboxes: ON" if hb_on else "Hitboxes: OFF", dockfont,
         active=hb_on, hover=hb_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
         align="center",
     )
@@ -516,9 +524,9 @@ def draw_top_command_dock(
         chip_x += chip_w + chip_gap
 
     hurt_on = any(hurtbox_slots.values())
-    hurt_btn_rect = pygame.Rect(chip_x + 8, y_top, 136, btn_h)
+    hurt_btn_rect = pygame.Rect(chip_x + 8, y_top, 110, btn_h)
     draw_glass_button(
-        screen, hurt_btn_rect, "Hurtboxes: ON" if hurt_on else "Hurtboxes: OFF", smallfont,
+        screen, hurt_btn_rect, "Hurtboxes: ON" if hurt_on else "Hurtboxes: OFF", dockfont,
         active=hurt_on, hover=hurt_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN,
         align="center",
     )
@@ -542,31 +550,32 @@ def draw_top_command_dock(
     # filter only live attack-box drawings; they no longer decide which of the
     # four saved-profile rulers can appear.
     x = visual_group_rect.right + gap
-    ruler_group_rect = pygame.Rect(x, y_top - 2, 306, btn_h + 4)
+    ruler_group_rect = pygame.Rect(x, y_top - 2, 358, btn_h + 4)
     draw_group(ruler_group_rect)
 
-    ruler_btn_rect = pygame.Rect(ruler_group_rect.x + 4, y_top, 94, btn_h)
+    ruler_btn_rect = pygame.Rect(ruler_group_rect.x + 4, y_top, 82, btn_h)
     draw_glass_button(
-        screen, ruler_btn_rect, "Ruler: ON" if ruler_enabled else "Ruler: OFF", smallfont,
+        screen, ruler_btn_rect, "Ruler: ON" if ruler_enabled else "Ruler: OFF", dockfont,
         active=bool(ruler_enabled), hover=ruler_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
         fill=(44, 48, 76) if ruler_enabled else (31, 33, 42), align="center",
     )
 
-    # Horz and Vert are independent layers. The old Dynamic ghost display is
-    # retired: active-frame samples build the two compact rulers instead.
-    # Keeping both on is intentional: Horz answers reach, Vert answers height.
+    # Horizontal and Vertical are independent layers. The old Dynamic ghost
+    # display is retired: active-frame samples build the two compact rulers.
+    # Keeping both on is intentional: Horizontal answers reach, Vertical
+    # answers height.
     ruler_axes = ruler_axes if isinstance(ruler_axes, dict) else {}
     ruler_horz_on = bool(ruler_axes.get("horizontal", True))
     ruler_vert_on = bool(ruler_axes.get("vertical", False))
-    ruler_axis_h_rect = pygame.Rect(ruler_btn_rect.right + 5, y_top, 42, btn_h)
+    ruler_axis_h_rect = pygame.Rect(ruler_btn_rect.right + 5, y_top, 80, btn_h)
     draw_glass_button(
-        screen, ruler_axis_h_rect, "Horz", smallfont,
+        screen, ruler_axis_h_rect, "Horizontal", dockfont,
         active=ruler_horz_on, hover=ruler_axis_h_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
         fill=(52, 42, 76) if ruler_horz_on else (31, 33, 42), align="center",
     )
-    ruler_axis_v_rect = pygame.Rect(ruler_axis_h_rect.right + 2, y_top, 40, btn_h)
+    ruler_axis_v_rect = pygame.Rect(ruler_axis_h_rect.right + 2, y_top, 66, btn_h)
     draw_glass_button(
-        screen, ruler_axis_v_rect, "Vert", smallfont,
+        screen, ruler_axis_v_rect, "Vertical", dockfont,
         active=ruler_vert_on, hover=ruler_axis_v_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
         fill=(52, 42, 76) if ruler_vert_on else (31, 33, 42), align="center",
     )
@@ -587,9 +596,9 @@ def draw_top_command_dock(
         ruler_chip_x += chip_w + chip_gap
 
     x = ruler_group_rect.right + gap
-    tools_btn_rect = pygame.Rect(x, y_top, 94, btn_h)
+    tools_btn_rect = pygame.Rect(x, y_top, 70, btn_h)
     draw_glass_button(
-        screen, tools_btn_rect, "Lab  ▾" if not tools_open else "Lab  ▴", smallfont,
+        screen, tools_btn_rect, "Tools  ▾" if not tools_open else "Tools  ▴", dockfont,
         active=bool(tools_open), hover=tools_btn_rect.collidepoint(mx, my),
         accent=GUI_APP_ACCENT, fill=(38, 49, 70) if tools_open else (31, 33, 42), align="center",
     )
@@ -606,66 +615,66 @@ def draw_top_command_dock(
     overseer_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
 
     if tools_open:
-        drawer_rect = pygame.Rect(8, y_tools - 2, min(w - 16, 804), btn_h + 4)
+        drawer_rect = pygame.Rect(8, y_tools - 2, min(w - 16, 1020), btn_h + 4)
         draw_group(drawer_rect)
         x = drawer_rect.x + 4
 
-        win_counter_btn_rect = pygame.Rect(x, y_tools, 106, btn_h)
+        win_counter_btn_rect = pygame.Rect(x, y_tools, 122, btn_h)
         draw_glass_button(
             screen, win_counter_btn_rect,
             "Win Score: ON" if win_score_enabled else "Win Score: OFF",
-            smallfont, active=bool(win_score_enabled), hover=win_counter_btn_rect.collidepoint(mx, my),
+            dockfont, active=bool(win_score_enabled), hover=win_counter_btn_rect.collidepoint(mx, my),
             accent=GUI_APP_ACCENT, fill=(44, 56, 82) if win_score_enabled else (31, 33, 42), align="center",
         )
 
         x = win_counter_btn_rect.right + 4
-        as_btn_rect = pygame.Rect(x, y_tools, 100, btn_h)
-        draw_glass_button(screen, as_btn_rect, "Assist", smallfont, active=False,
+        as_btn_rect = pygame.Rect(x, y_tools, 106, btn_h)
+        draw_glass_button(screen, as_btn_rect, "Assist Setup", dockfont, active=False,
                           hover=as_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
 
         x = as_btn_rect.right + 4
-        memdump_btn_rect = pygame.Rect(x, y_tools, 96, btn_h)
-        dump_label = mem_dump_label if mem_dump_active and mem_dump_label else "Dump MEM"
+        memdump_btn_rect = pygame.Rect(x, y_tools, 118, btn_h)
+        dump_label = mem_dump_label if mem_dump_active and mem_dump_label else "Dump Memory"
         draw_glass_button(
-            screen, memdump_btn_rect, dump_label, smallfont, active=bool(mem_dump_active),
+            screen, memdump_btn_rect, dump_label, dockfont, active=bool(mem_dump_active),
             hover=memdump_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
             fill=(44, 56, 82) if mem_dump_active else (31, 33, 42), align="center",
         )
 
         x = memdump_btn_rect.right + 4
-        select_probe_btn_rect = pygame.Rect(x, y_tools, 110, btn_h)
+        select_probe_btn_rect = pygame.Rect(x, y_tools, 174, btn_h)
         draw_glass_button(
             screen, select_probe_btn_rect,
-            "Extra: ON" if char_test_active else "Extra: OFF", smallfont,
+            "Extra Characters: ON" if char_test_active else "Extra Characters: OFF", dockfont,
             active=bool(char_test_active), hover=select_probe_btn_rect.collidepoint(mx, my),
             accent=GUI_APP_ACCENT, fill=(44, 56, 82) if char_test_active else (31, 33, 42), align="center",
         )
 
         x = select_probe_btn_rect.right + 4
-        ko_control_btn_rect = pygame.Rect(x, y_tools, 112, btn_h)
-        ko_label = "KO: ACTIVE" if ko_control_live_active else ("KO: ARMED" if ko_control_enabled else "KO: OFF")
+        ko_control_btn_rect = pygame.Rect(x, y_tools, 160, btn_h)
+        ko_label = "KO Control: ACTIVE" if ko_control_live_active else ("KO Control: ARMED" if ko_control_enabled else "KO Control: OFF")
         draw_glass_button(
-            screen, ko_control_btn_rect, ko_label, smallfont, active=bool(ko_control_enabled),
+            screen, ko_control_btn_rect, ko_label, dockfont, active=bool(ko_control_enabled),
             hover=ko_control_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN,
             fill=((37, 64, 42) if ko_control_live_active else ((31, 42, 36) if ko_control_enabled else (31, 33, 42))),
             align="center",
         )
 
         x = ko_control_btn_rect.right + 4
-        megacrash_btn_rect = pygame.Rect(x, y_tools, 108, btn_h)
+        megacrash_btn_rect = pygame.Rect(x, y_tools, 190, btn_h)
         draw_glass_button(
             screen, megacrash_btn_rect,
-            "Megacrash: ON" if megacrash_trainer_enabled else "Megacrash",
-            smallfont, active=bool(megacrash_trainer_enabled), hover=megacrash_btn_rect.collidepoint(mx, my),
+            "Megacrash Trainer: ON" if megacrash_trainer_enabled else "Megacrash Trainer",
+            dockfont, active=bool(megacrash_trainer_enabled), hover=megacrash_btn_rect.collidepoint(mx, my),
             accent=GUI_APP_ACCENT, fill=(44, 56, 82) if megacrash_trainer_enabled else (31, 33, 42), align="center",
         )
 
         x = megacrash_btn_rect.right + 4
-        overseer_btn_rect = pygame.Rect(x, y_tools, 100, btn_h)
-        draw_glass_button(screen, overseer_btn_rect, "Tool State", smallfont, active=False,
+        overseer_btn_rect = pygame.Rect(x, y_tools, 110, btn_h)
+        draw_glass_button(screen, overseer_btn_rect, "Tool Status", dockfont, active=False,
                           hover=overseer_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
     else:
-        help_tip = "Visual controls stay here. Lab holds dumps, assists, extra characters, KO control, Megacrash, and tool state."
+        help_tip = "Visual controls stay here. Tools holds memory dumps, assists, extra characters, KO control, Megacrash training, and tool status."
         help_accent = GUI_APP_ACCENT
         if hb_btn_rect.collidepoint(mx, my):
             help_tip = "Hitboxes: master attack/projectile boxes. Turning them on also turns on the ground-normal range ruler."
@@ -678,13 +687,13 @@ def draw_top_command_dock(
             help_tip = "Hurt slots: raw P1 / P2 / P3 / P4 visibility. The gap separates Team 1 (1/2) from Team 2 (3/4)."
             help_accent = GUI_ACCENT_GREEN
         elif ruler_btn_rect.collidepoint(mx, my):
-            help_tip = "Ruler: saved active-frame reach guides. Horz and Vert are independent; turn on either or both. Each missing envelope is sampled once and saved. Chips only filter eligible sources. Hurtboxes are required for Horz touch checks."
+            help_tip = "Ruler: saved active-frame reach guides. Horizontal and Vertical are independent; turn on either or both. Each missing envelope is sampled once and saved. Chips only filter eligible sources. Hurtboxes are required for Horizontal touch checks."
             help_accent = GUI_ACCENT_PURPLE
         elif ruler_axis_h_rect.collidepoint(mx, my):
-            help_tip = "Horz: toggle the furthest forward active hitbox edge across the whole move. Can be on with Vert."
+            help_tip = "Horizontal: toggle the furthest forward active hitbox edge across the whole move. Can be on with Vertical."
             help_accent = GUI_ACCENT_PURPLE
         elif ruler_axis_v_rect.collidepoint(mx, my):
-            help_tip = "Vert: toggle the full highest-to-lowest active hitbox envelope across the whole move. Can be on with Horz."
+            help_tip = "Vertical: toggle the full highest-to-lowest active hitbox envelope across the whole move. Can be on with Horizontal."
             help_accent = GUI_ACCENT_PURPLE
         elif any(rect.collidepoint(mx, my) for rect in ruler_filter_rects.values()):
             help_tip = "Ruler slots: choose which raw fighters can show a saved-profile ruler. Independent from Hitboxes. Off-stage partners are naturally hidden."
@@ -692,16 +701,16 @@ def draw_top_command_dock(
         elif hud_btn_rect.collidepoint(mx, my):
             help_tip = "Overlay: starts or stops the master HUD process."
         elif clear_card_btn_rect.collidepoint(mx, my):
-            help_tip = "Clear: turn off Hit/Blk, Combo, and Tag together while leaving the main HUD on."
+            help_tip = "Clear: turn off Hit and Block, Combo, and Tag together while leaving the main HUD on."
             help_accent = GUI_ACCENT_RED
         elif interaction_card_btn_rect.collidepoint(mx, my):
-            help_tip = "Hit/Blk: show or hide the live hit/block interaction ribbon."
+            help_tip = "Hit and Block: show or hide the live hit/block interaction ribbon."
         elif combo_card_btn_rect.collidepoint(mx, my):
             help_tip = "Combo: show or hide the live combo ledger."
         elif tag_card_btn_rect.collidepoint(mx, my):
             help_tip = "Tag: show or hide the incoming tag resource card."
         elif tools_btn_rect.collidepoint(mx, my):
-            help_tip = "Lab: open occasional tools without keeping them in the match-time strip."
+            help_tip = "Tools: open occasional tools without keeping them in the match-time strip."
 
         help_rect = pygame.Rect(8, y_tools, max(120, w - 16), btn_h)
         _draw_vertical_gradient(screen, help_rect, (21, 24, 34), (15, 17, 25), 230)

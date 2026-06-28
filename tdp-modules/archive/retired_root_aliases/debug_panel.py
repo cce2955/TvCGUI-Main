@@ -1,0 +1,5 @@
+"""Compatibility alias for the relocated module."""
+from importlib import import_module as _import_module
+import sys as _sys
+
+_sys.modules[__name__] = _import_module("tvcgui.ui.debug_panel")

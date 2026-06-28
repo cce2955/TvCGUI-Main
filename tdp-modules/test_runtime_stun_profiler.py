@@ -2,12 +2,12 @@ from pathlib import Path
 import struct
 import tempfile
 
-from runtime_stun_profiler import (
+from tvcgui.features.training.stun_profiler import (
     ACTION_COUNTER_OFF,
     RuntimeStunProfiler,
     apply_runtime_stun_observations,
 )
-from constants import RUNTIME_RESOLVED_STUN_OFF, RUNTIME_STUN_REMAINING_OFF, RUNTIME_IMPACT_FREEZE_OFF
+from tvcgui.core.constants import RUNTIME_RESOLVED_STUN_OFF, RUNTIME_STUN_REMAINING_OFF, RUNTIME_IMPACT_FREEZE_OFF
 
 
 def _f32_word(value: float) -> int:
