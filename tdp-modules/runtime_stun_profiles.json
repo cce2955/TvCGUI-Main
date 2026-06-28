@@ -227,31 +227,6 @@
         "samples": {}
       }
     },
-    "3:261": {
-      "action_id": 261,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 3,
-      "char_name": "Tekkaman",
-      "hit": {
-        "freeze_samples": {
-          "0": 1
-        },
-        "last_frame": 608,
-        "last_freeze": 0,
-        "last_value": 21,
-        "samples": {
-          "21": 1
-        }
-      },
-      "last_frame": 608,
-      "last_freeze": 0,
-      "move_label": "2C",
-      "recovery": {
-        "samples": {}
-      }
-    },
     "4:256": {
       "action_id": 256,
       "block": {
@@ -596,6 +571,6 @@
       }
     }
   },
-  "updated_utc": "2026-06-27T15:11:29Z",
+  "updated_utc": "2026-06-28T13:37:55Z",
   "version": 2
 }

@@ -8,8 +8,11 @@
     "move_writer.py",
     "fd_window.py"
   ],
-  "minimum_tests": 46,
+  "minimum_tests": 64,
   "required_prefixes": [
+    "tests.test_chrsel_dol_visual_proxy.CharacterSelectDolVisualProxyTests",
+    "tests.test_chrsel_hover_display_profile.CharacterSelectHoverDisplayProfileTests",
+    "tests.test_chrsel_yami_cmn_icon_contract.ChrselYamiCmnIconContractTests",
     "tests.test_frame_data_binding.FrameDataBindingTests",
     "tests.test_frame_data_window_contract.FrameDataWindowContractTests",
     "tests.test_move_writer_contract.MoveWriterContractTests",

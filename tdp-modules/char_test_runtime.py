@@ -567,6 +567,98 @@ HOVER_CHAR_ID_ADDRS: tuple[int, ...] = (0x809BCF1C, 0x809BCFC0)
 # appended Yami ID.
 FOCUS_CHAR_ID_ADDRS: tuple[int, ...] = (0x809BD090, 0x809BD098)
 
+# Full Ryu visual-proxy cache.
+#
+# The actual selected fighter stays in HOVER_CHAR_ID_ADDRS: Yami 1/2/3 are
+# always 0x17/0x18/0x19 there.  The adjacent focus/cache lane controls the
+# active Character Select presentation branch.  Earlier builds wrote arbitrary
+# profile values (0/9/30) here, which changed the large card without yielding a
+# valid small cursor tile.  The stable test target is one complete stock visual
+# profile: Ryu (fighter ID 0x0C).  While a hidden Yami is hovered, every visual
+# lane uses Ryu; selection still remains Yami.
+YAMI_HOVER_DISPLAY_PROFILE_IDS: dict[int, int] = {
+    0x17: 0x0C,  # Yami 1 -> Ryu visual proxy
+    0x18: 0x0C,  # Yami 2 -> Ryu visual proxy
+    0x19: 0x0C,  # Yami 3 -> Ryu visual proxy
+}
+# The null/empty partner is visualized only when the cursor is on the physical
+# appended solo slot. This prevents a transient ID 0 elsewhere during menu setup
+# from being mistaken for an intentional Solo hover.
+SOLO_NULL_SLOT_INDEX = 0x1E
+SOLO_NULL_DISPLAY_PROFILE_ID = 0x1D
+YAMI_HOVER_DISPLAY_PROFILE_LANES: tuple[tuple[str, int, int], ...] = (
+    ("P1", 0x809BCF1C, 0x809BD090),
+    ("P2", 0x809BCFC0, 0x809BD098),
+)
+YAMI_HOVER_DISPLAY_PROFILE_CURSOR_ADDRS: tuple[int, ...] = (
+    0x809BCEA0,  # P1 physical roster index
+    0x809BCF2C,  # P2 physical roster index
+)
+# Session-only originals. These are intentionally separate from the broad
+# Restore cache: display focus is dynamic, so Restore must never push a stale
+# stock ID into a rebuilt Character Select scene.
+_YAMI_HOVER_DISPLAY_PROFILE_SESSION: dict[int, int] = {}
+
+
+# DOL-backed Character Select presentation-tag maps.
+#
+# These two tables are the shared fighter-ID -> resource-tag lookup used by
+# Character Select before it requests icon_<tag>, mof_<tag>, select_<tag>, and
+# name_<tag>.  The playable/selection ID is deliberately separate from this
+# presentation ID:
+#
+#   Yami 1/2/3 (0x17/0x18/0x19) stay Yami, but display as one valid Ryu profile.
+#   The appended Solo/null partner (0x00 at roster slot 0x1E) stays *empty* for
+#   team construction, but displays as Zero so it is no longer a broken CMN/none
+#   pane on Character Select.
+#
+# This is presentation-only while Extra Characters is active. It never writes
+# 0x809BD0C4's roster values, so the null entry still performs its solo-team role.
+DOL_CHAR_TAG_MAP_BASE = 0x803690D0
+DOL_CANONICAL_UI_TAG_MAP_BASE = 0x803692C4
+RYU_VISUAL_PROXY_ID = 0x0C
+ZERO_VISUAL_PROXY_ID = 0x1D
+DOL_TAG_POINTERS: dict[int, tuple[int, bytes]] = {
+    RYU_VISUAL_PROXY_ID: (0x805633E0, b"ryu\x00"),
+    ZERO_VISUAL_PROXY_ID: (0x80563424, b"zer\x00"),
+}
+# Recognize the prior failed cmn/ts2/fra state only as a migration source, so
+# replacing the trainer while Dolphin stays open does not strand the maps.
+_DOL_LEGACY_PRESENTATION_POINTERS: dict[int, int] = {
+    0x17: 0x805633B0,  # cmn
+    0x18: 0x805633D4,  # ts2
+    0x19: 0x80563428,  # fra
+}
+_DOL_STOCK_DIRECT_TAG_POINTERS: dict[int, int] = {
+    0x00: 0x805633B0,  # cmn / native empty-partner presentation
+    0x17: 0x8056340C,  # tk1
+    0x18: 0x80563410,  # tk2
+    0x19: 0x80563414,  # tk3
+}
+_DOL_STOCK_CANONICAL_TAG_POINTERS: dict[int, int] = {
+    0x00: 0x805633B0,  # cmn / native empty-partner presentation
+    0x17: 0x8056340C,  # tk1
+    0x18: 0x8056340C,  # tk1
+    0x19: 0x8056340C,  # tk1
+}
+# The appended 0x00 slot is the solo helper next to Ryu/Ken, not another Yami.
+# Give it Zero's complete presentation resources while preserving its ID 0x00.
+SOLO_NULL_DOL_ICON_TAG_PLAN: tuple[tuple[int, int], ...] = (
+    (0x00, ZERO_VISUAL_PROXY_ID),
+)
+YAMI_DOL_ICON_TAG_PLAN: tuple[tuple[int, int], ...] = (
+    (0x17, RYU_VISUAL_PROXY_ID),
+    (0x18, RYU_VISUAL_PROXY_ID),
+    (0x19, RYU_VISUAL_PROXY_ID),
+)
+CHARSEL_DOL_PRESENTATION_TAG_PLAN: tuple[tuple[int, int], ...] = (
+    SOLO_NULL_DOL_ICON_TAG_PLAN + YAMI_DOL_ICON_TAG_PLAN
+)
+_YAMI_DOL_ICON_TAG_SESSION: dict[str, dict[int, int]] = {
+    "originals": {},
+    "desired": {},
+}
+
 _SLOT_TO_ID = {slot: cid for slot, cid, _name in ROSTER_SLOT_TABLE}
 _SLOT_TO_DEFAULT_NAME = {slot: name for slot, _cid, name in ROSTER_SLOT_TABLE}
 _NAME_TO_ID = {name.lower(): cid for cid, name in CHAR_ID_TO_NAME.items()}
@@ -710,6 +802,18 @@ _ROSTER_STATE: dict[str, Any] = {
     "thumbnail_material_optional_failed": 0,
     "thumbnail_seq_matidx_installed": False,
     "thumbnail_seq_matidx_mode": "",
+    "yami_runtime_preview_installed": False,
+    "yami_runtime_preview_mode": "",
+    "yami_runtime_preview_detail": "",
+    "yami_wheel_random_icon_installed": False,
+    "yami_wheel_random_icon_mode": "",
+    "yami_wheel_random_icon_detail": "",
+    "yami_hover_icon_id_installed": False,
+    "yami_hover_icon_id_mode": "",
+    "yami_hover_icon_id_detail": "",
+    "yami_hover_display_profile_installed": False,
+    "yami_hover_display_profile_mode": "",
+    "yami_hover_display_profile_detail": "",
     "_extra_tick_next": 0.0,
     "_extra_active_since": 0.0,
     "_extra_last_active": False,
@@ -724,6 +828,21 @@ _ROSTER_STATE: dict[str, Any] = {
 _EXTRA_TICK_MIN_INTERVAL_SEC = 0.20
 _EXTRA_SELECT_STABLE_DELAY_SEC = 0.18
 _EXTRA_POST_APPLY_QUIET_SEC = 0.90
+
+
+# Retired live-preview bridge state.  The former implementation rewired
+# 0x90844A18/1C to ``icon_random0`` every time a hidden ID was hovered. The
+# 2026-06-27 capture proves those owner pointers can already contain that pair
+# while the renderer still displays Frank/PTX, so they are not the decisive
+# scene inputs. Keep these constants only to undo an older bridge safely; this
+# build never re-applies that bridge.
+YAMI_LEGACY_PREVIEW_OWNER_PREFIX_PTR = 0x90844A18
+YAMI_LEGACY_PREVIEW_OWNER_TAG_PTR = 0x90844A1C
+YAMI_LEGACY_PREVIEW_STOCK_PREFIX_PTR = 0x90818468
+YAMI_LEGACY_PREVIEW_STOCK_TAG_PTR = 0x90818470
+YAMI_LEGACY_PREVIEW_RANDOM_PREFIX_PTR = 0x9081848C  # b"icon_random0\0"
+YAMI_LEGACY_PREVIEW_RANDOM_TAG_PTR = 0x90818498     # b"\0\0\0\0"
+
 
 _INT_RE = re.compile(r"0x[0-9a-fA-F]+|\b\d+\b")
 
@@ -783,6 +902,35 @@ CHRSEL_SEQ_HEAP_BASE = 0x908183C0
 CHRSEL_SEQ_HEAP_SIZE = 0x2C310
 CHRSEL_SEQ_SIGNATURE_OFF = 0x40
 CHRSEL_SEQ_SIGNATURE = b"fpack/menu/001/0000.fpk\x00"
+
+# Runtime-only Yami preview route.
+#
+# This is the exact hidden-handler path from the supplied chrsel.seq dump,
+# applied to its *already loaded* heap copy. It is not an FPK operation. The
+# eight strings below are limited to the four dedicated 0x17/0x18/0x19 special
+# handlers and have the same byte lengths before/after, so no script offsets,
+# character IDs, roster rows, cursor state, or DOL code are changed.
+YAMI_RUNTIME_PREVIEW_SEQ_START_OFF = 0x9B00
+YAMI_RUNTIME_PREVIEW_SEQ_END_OFF = 0xA220
+YAMI_RUNTIME_PREVIEW_SELECT_OLD = b"select_gac\x00"
+YAMI_RUNTIME_PREVIEW_SELECT_NEW = b"select_sil\x00"
+YAMI_RUNTIME_PREVIEW_NAME_OLD = b"name_vjo\x00"
+YAMI_RUNTIME_PREVIEW_NAME_NEW = b"name_sil\x00"
+YAMI_RUNTIME_PREVIEW_EXPECTED_HANDLER_CALLS = 8
+
+# The active 1022.brres instance verified in tvc_memdump_20260627_224622.
+# This is its ResDic data-offset field for select_sil. Redirecting it to the
+# already-loaded select_random0 TEX0 object makes the hidden-script route use
+# native Random art while the `sil` profile leaves the rich fighter preview
+# blank. Each value is preflight-checked before a write occurs.
+YAMI_RUNTIME_PREVIEW_BRRES_1022_BASE = 0x92D39D60
+YAMI_RUNTIME_PREVIEW_BRRES_MAGIC = b"bres"
+YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_OFF = 0x704
+YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR = (
+    YAMI_RUNTIME_PREVIEW_BRRES_1022_BASE + YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_OFF
+)
+YAMI_RUNTIME_PREVIEW_SELECT_SIL_OFFSET = 0x0031CBD0
+YAMI_RUNTIME_PREVIEW_SELECT_RANDOM0_OFFSET = 0x002CC950
 
 
 # Bottom wheel thumbnail material aliases for the three appended Yami slots.
@@ -876,6 +1024,84 @@ EXTRA_VISUAL_SCRATCH_SLOT_PLAN: dict[int, tuple[bytes, bytes, str]] = {
     0x1B: (b"mof_fra\x00", b"fra\x00", "B27 / slot 0x1B visual suffix -> Frank"),
     0x1C: (b"mof_tkb\x00", b"tkb\x00", "B28 / slot 0x1C visual suffix -> Tekkaman Blade"),
     0x1D: (b"mof_ya2\x00", b"ya2\x00", "B29 / slot 0x1D visual suffix -> Yatterman-2"),
+}
+
+
+# Runtime random wheel icon route.
+#
+# The user-facing target is the small carousel badge below the 1P cursor, not
+# the large select-card/silhouette scene.  The stock Random tile is physical
+# row B13.  Rather than referring to a guessed `icon_random0` string or a
+# possibly-unloaded TEX0 object, mirror B13's *already bound live TEX0
+# pointers* into B27/B28/B29.  This is exactly the texture the current menu is
+# drawing for Random in this Dolphin session.
+#
+# Each BRRES copy exposes two independent material references for a thumbnail:
+#   - MDL0 material header +0x420
+#   - resolved thumbnail material binding pointer
+# Both must agree.  We copy both values, capture the twelve destination words,
+# and restore only those same words on Extra Characters OFF.  No FPK, DOL,
+# chrsel.seq row, material index, cursor, or roster value is changed.
+YAMI_WHEEL_RANDOM_TEX0_MAGIC = b"TEX0"
+YAMI_WHEEL_RANDOM_SOURCE_ROWS: tuple[tuple[str, int, int], ...] = (
+    # label, stock Random B13 binding field, stock Random B13 material + 0x420
+    ("1015 stock Random B13", 0x92D1D040, 0x92D1E1E0),
+    ("1022 stock Random B13", 0x932E1000, 0x932E21A0),
+)
+YAMI_WHEEL_RANDOM_TARGET_ROWS: tuple[tuple[str, int, int, int], ...] = (
+    # label, source-bank index, B27/B28/B29 binding field, material +0x420
+    ("1015 B27 / Yami 1", 0, 0x92D21CA0, 0x92D23420),
+    ("1015 B28 / Yami 2", 0, 0x92D22280, 0x92D23A00),
+    ("1015 B29 / Yami 3", 0, 0x92D22860, 0x92D23FE0),
+    ("1022 B27 / Yami 1", 1, 0x932E5C60, 0x932E73E0),
+    ("1022 B28 / Yami 2", 1, 0x932E6240, 0x932E79C0),
+    ("1022 B29 / Yami 3", 1, 0x932E6820, 0x932E7FA0),
+)
+
+# Session-only restore map.  This deliberately is not the broad roster restore
+# cache: the two BRRES copies are reallocated whenever Character Select is
+# rebuilt, so stale values are never applied to a later scene.
+_YAMI_WHEEL_RANDOM_ICON_SESSION: dict[str, Any] = {
+    "sources": (),
+    "originals": {},
+}
+
+
+# Runtime hover-icon ID route.
+#
+# The small icon inside the active 1P/2P cursor is selected by chrsel.seq's
+# per-row material ID at row +0x2E.  This is distinct from the Yami fighter ID
+# in the roster table and from the large preview-card path.  Keep the three
+# Yami roster IDs (0x17/0x18/0x19) exactly as-is; only route their physical
+# thumbnail rows to requested stock icon IDs:
+#
+#   Yami 1 / B27 -> icon ID 0  (B00; material ID 0x0001)
+#   Yami 2 / B28 -> icon ID 9  (B09; material ID 0x000A)
+#   Yami 3 / B29 -> icon ID 30 (B30; material ID 0x0024)
+#
+# The source material ID is copied from its live Bxx source row in each of the
+# two mirrored chrsel.seq banks, rather than guessed from a TEX0 address.  This
+# is a six-word, in-RAM-only patch with exact per-session restoration.
+YAMI_HOVER_ICON_ROW_BANKS: tuple[tuple[str, int], ...] = (
+    ("chrsel thumbnail bank A", 0x9083B3A8),
+    ("chrsel thumbnail bank B", 0x9083BF50),
+)
+YAMI_HOVER_ICON_ROW_STRIDE = 0x60
+YAMI_HOVER_ICON_MATERIAL_ID_OFF = 0x2E
+YAMI_HOVER_ICON_ID_PLAN: tuple[tuple[str, int, int, int], ...] = (
+    # label, Yami physical target Bxx, requested source icon Bxx, expected material ID
+    ("Yami 1 hover icon ID 0", 27, 0, 0x0001),
+    ("Yami 2 hover icon ID 9", 28, 9, 0x000A),
+    ("Yami 3 hover icon ID 30", 29, 30, 0x0024),
+)
+YAMI_HOVER_ICON_STOCK_TARGET_IDS: dict[int, int] = {
+    27: 0x001C,
+    28: 0x001D,
+    29: 0x001E,
+}
+_YAMI_HOVER_ICON_ID_SESSION: dict[str, dict[int, int]] = {
+    "originals": {},
+    "desired": {},
 }
 
 
@@ -1319,6 +1545,698 @@ def _row_copy_bytes_good(raw: bytes, size: int = EXTRA_THUMBNAIL_MATERIAL_ROW_SI
 
 
 
+def _is_live_tex0_ptr(value: int | None) -> bool:
+    """Return True only for a readable live TEX0 resource object."""
+    if value is None:
+        return False
+    ptr = int(value) & 0xFFFFFFFF
+    if ptr < 0x80000000 or ptr >= 0x94000000:
+        return False
+    return _safe_read(ptr, 4) == YAMI_WHEEL_RANDOM_TEX0_MAGIC
+
+
+def _yami_wheel_random_icon_route_status() -> dict[str, Any]:
+    """Classify the small carousel-icon route without writing it."""
+    source_values: list[tuple[int, int]] = []
+    for label, binding_addr, header_addr in YAMI_WHEEL_RANDOM_SOURCE_ROWS:
+        binding_ptr = _safe_read_u32be(binding_addr)
+        header_ptr = _safe_read_u32be(header_addr)
+        if not _is_live_tex0_ptr(binding_ptr) or not _is_live_tex0_ptr(header_ptr):
+            return {
+                "ready": False,
+                "reason": f"{label} Random TEX0 source was not resident",
+                "sources": (),
+                "targets": (),
+            }
+        source_values.append((int(binding_ptr), int(header_ptr)))
+
+    targets: list[dict[str, Any]] = []
+    installed = True
+    fresh = True
+    for label, source_index, binding_addr, header_addr in YAMI_WHEEL_RANDOM_TARGET_ROWS:
+        source_binding, source_header = source_values[source_index]
+        current_binding = _safe_read_u32be(binding_addr)
+        current_header = _safe_read_u32be(header_addr)
+        binding_is_random = current_binding == source_binding
+        header_is_random = current_header == source_header
+        target_is_random = binding_is_random and header_is_random
+        target_is_partial = binding_is_random != header_is_random
+        if not target_is_random:
+            installed = False
+        # A new/stock target can point to any other valid TEX0 resource.  Do
+        # not overwrite a non-TEX0 or partially redirected material.
+        if target_is_random or (
+            _is_live_tex0_ptr(current_binding)
+            and _is_live_tex0_ptr(current_header)
+        ):
+            pass
+        else:
+            fresh = False
+        targets.append({
+            "label": label,
+            "source_index": source_index,
+            "binding_addr": binding_addr,
+            "header_addr": header_addr,
+            "source_binding": source_binding,
+            "source_header": source_header,
+            "current_binding": current_binding,
+            "current_header": current_header,
+            "is_random": target_is_random,
+            "is_partial": target_is_partial,
+        })
+
+    # Mixing Random and another pointer can only be a partial write/foreign
+    # patch.  Refuse it rather than layering a second experiment on top.
+    any_random = any(bool(row["is_random"]) for row in targets)
+    any_partial = any(bool(row["is_partial"]) for row in targets)
+    mixed = any_partial or (any_random and not installed)
+    return {
+        "ready": bool(fresh and not mixed),
+        "fresh": bool(fresh and not any_random),
+        "installed": bool(installed),
+        "mixed": mixed,
+        "reason": "" if fresh and not mixed else (
+            "mixed Random/non-Random carousel binding state" if mixed
+            else "one or more Yami carousel targets was not a TEX0 pointer"
+        ),
+        "sources": tuple(source_values),
+        "targets": tuple(targets),
+    }
+
+
+def _clear_yami_wheel_random_icon_session() -> None:
+    _YAMI_WHEEL_RANDOM_ICON_SESSION["sources"] = ()
+    _YAMI_WHEEL_RANDOM_ICON_SESSION["originals"] = {}
+
+
+def _install_yami_wheel_random_icon_route() -> tuple[int, int]:
+    """Mirror stock Random B13's live icon into the B27/B28/B29 wheel tiles."""
+    route = _yami_wheel_random_icon_route_status()
+    if not route.get("ready"):
+        with _LOCK:
+            _ROSTER_STATE["yami_wheel_random_icon_installed"] = False
+            _ROSTER_STATE["yami_wheel_random_icon_mode"] = ""
+            _ROSTER_STATE["yami_wheel_random_icon_detail"] = str(route.get("reason") or "wheel route unavailable")
+        return 0, 1
+    if route.get("installed"):
+        with _LOCK:
+            _ROSTER_STATE["yami_wheel_random_icon_installed"] = True
+            _ROSTER_STATE["yami_wheel_random_icon_mode"] = "Yami B27/B28/B29 -> stock Random tile"
+            _ROSTER_STATE["yami_wheel_random_icon_detail"] = "live B13 TEX0 bindings already mirrored"
+        return 0, 0
+    if not route.get("fresh"):
+        with _LOCK:
+            _ROSTER_STATE["yami_wheel_random_icon_installed"] = False
+            _ROSTER_STATE["yami_wheel_random_icon_detail"] = "blocked: carousel binding signature did not match"
+            _ROSTER_STATE["last_error"] = "Yami Random wheel-icon route refused mixed/unknown TEX0 bindings"
+        return 0, 1
+
+    sources = tuple(route["sources"])
+    originals: dict[int, int] = {}
+    writes: list[tuple[int, int, str]] = []
+    for row in route["targets"]:
+        source_binding, source_header = sources[int(row["source_index"])]
+        binding_addr = int(row["binding_addr"])
+        header_addr = int(row["header_addr"])
+        originals[binding_addr] = int(row["current_binding"])
+        originals[header_addr] = int(row["current_header"])
+        writes.extend((
+            (binding_addr, source_binding, str(row["label"]) + " binding"),
+            (header_addr, source_header, str(row["label"]) + " header"),
+        ))
+
+    changed: list[tuple[int, int]] = []
+    for addr, target, _label in writes:
+        if _safe_write_u32be(addr, target):
+            changed.append((addr, originals[addr]))
+            continue
+        for rollback_addr, original in reversed(changed):
+            _safe_write_u32be(rollback_addr, original)
+        with _LOCK:
+            _ROSTER_STATE["yami_wheel_random_icon_installed"] = False
+            _ROSTER_STATE["yami_wheel_random_icon_detail"] = "write failed; Random wheel bindings rolled back"
+            _ROSTER_STATE["last_error"] = "Yami Random wheel-icon write failed; rollback attempted"
+        return len(changed), 1
+
+    verified = _yami_wheel_random_icon_route_status()
+    if not verified.get("installed"):
+        for rollback_addr, original in reversed(changed):
+            _safe_write_u32be(rollback_addr, original)
+        with _LOCK:
+            _ROSTER_STATE["yami_wheel_random_icon_installed"] = False
+            _ROSTER_STATE["yami_wheel_random_icon_detail"] = "post-write validation failed; bindings rolled back"
+            _ROSTER_STATE["last_error"] = "Yami Random wheel-icon verification failed"
+        return len(changed), 1
+
+    _YAMI_WHEEL_RANDOM_ICON_SESSION["sources"] = sources
+    _YAMI_WHEEL_RANDOM_ICON_SESSION["originals"] = originals
+    with _LOCK:
+        _ROSTER_STATE["yami_wheel_random_icon_installed"] = True
+        _ROSTER_STATE["yami_wheel_random_icon_mode"] = "Yami B27/B28/B29 -> stock Random tile"
+        _ROSTER_STATE["yami_wheel_random_icon_detail"] = "12 live MDL0 TEX0 pointers mirrored from B13"
+        _ROSTER_STATE["restore_available"] = True
+        _ROSTER_STATE["last_error"] = ""
+    return len(changed), 0
+
+
+def _restore_yami_wheel_random_icon_route_only() -> tuple[int, int]:
+    """Restore this session's carousel pointers without touching scene data."""
+    sources = tuple(_YAMI_WHEEL_RANDOM_ICON_SESSION.get("sources") or ())
+    originals = dict(_YAMI_WHEEL_RANDOM_ICON_SESSION.get("originals") or {})
+    if not sources or not originals:
+        with _LOCK:
+            _ROSTER_STATE["yami_wheel_random_icon_installed"] = False
+            _ROSTER_STATE["yami_wheel_random_icon_mode"] = ""
+        return 0, 0
+
+    expected_now: dict[int, int] = {}
+    for _label, source_index, binding_addr, header_addr in YAMI_WHEEL_RANDOM_TARGET_ROWS:
+        binding_ptr, header_ptr = sources[source_index]
+        expected_now[binding_addr] = binding_ptr
+        expected_now[header_addr] = header_ptr
+
+    wrote = 0
+    failed = 0
+    for addr, original in originals.items():
+        current = _safe_read_u32be(addr)
+        if current == original:
+            continue
+        if current != expected_now.get(addr):
+            # Do not clobber a new scene or a foreign patch.
+            failed += 1
+            continue
+        if _safe_write_u32be(addr, original):
+            wrote += 1
+        else:
+            failed += 1
+
+    if failed == 0:
+        _clear_yami_wheel_random_icon_session()
+    with _LOCK:
+        _ROSTER_STATE["yami_wheel_random_icon_installed"] = False
+        _ROSTER_STATE["yami_wheel_random_icon_mode"] = ""
+        _ROSTER_STATE["yami_wheel_random_icon_detail"] = (
+            "Random wheel bindings restored" if failed == 0 else "Random wheel restore incomplete"
+        )
+    return wrote, failed
+
+
+def _tick_yami_wheel_random_icon_route() -> tuple[int, int]:
+    """Own only the small Yami carousel badge; never touch the large preview."""
+    status = _select_screen_status()
+    with _LOCK:
+        requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+        enabled = bool(_ROSTER_STATE.get("extra_characters_enabled"))
+
+    if not bool(status.get("active")):
+        _clear_yami_wheel_random_icon_session()
+        with _LOCK:
+            _ROSTER_STATE["yami_wheel_random_icon_installed"] = False
+            _ROSTER_STATE["yami_wheel_random_icon_mode"] = ""
+        return 0, 0
+    if not requested or not enabled or not bool(status.get("patch_present")):
+        return _restore_yami_wheel_random_icon_route_only()
+    return _install_yami_wheel_random_icon_route()
+
+
+def _yami_hover_icon_field_addr(bank_base: int, row_index: int) -> int:
+    return int(bank_base) + int(row_index) * YAMI_HOVER_ICON_ROW_STRIDE + YAMI_HOVER_ICON_MATERIAL_ID_OFF
+
+
+
+def _clear_yami_dol_icon_tag_session() -> None:
+    _YAMI_DOL_ICON_TAG_SESSION["originals"] = {}
+    _YAMI_DOL_ICON_TAG_SESSION["desired"] = {}
+
+
+def _dol_icon_tag_route_status() -> dict[str, Any]:
+    """Validate the two live DOL ID->resource-tag maps without writing."""
+    rows: list[dict[str, Any]] = []
+    target_tags_ok = True
+    for _icon_id, (target_ptr, target_tag) in DOL_TAG_POINTERS.items():
+        target_tags_ok = target_tags_ok and _safe_read(int(target_ptr), len(target_tag)) == target_tag
+
+    fresh = True
+    installed = True
+    migratable_legacy = True
+    mixed = False
+    for map_label, map_base, stock_map in (
+        ("direct", DOL_CHAR_TAG_MAP_BASE, _DOL_STOCK_DIRECT_TAG_POINTERS),
+        ("canonical", DOL_CANONICAL_UI_TAG_MAP_BASE, _DOL_STOCK_CANONICAL_TAG_POINTERS),
+    ):
+        for fighter_id, proxy_id in CHARSEL_DOL_PRESENTATION_TAG_PLAN:
+            addr = int(map_base) + int(fighter_id) * 4
+            current = _safe_read_u32be(addr)
+            stock = int(stock_map[int(fighter_id)])
+            desired = int(DOL_TAG_POINTERS[int(proxy_id)][0])
+            current_is_stock = current == stock
+            current_is_desired = current == desired
+            legacy = _DOL_LEGACY_PRESENTATION_POINTERS.get(int(fighter_id))
+            current_is_legacy = legacy is not None and current == int(legacy)
+            fresh = fresh and current_is_stock
+            installed = installed and current_is_desired
+            # Only the three historic Yami entries have a legacy route.  The
+            # Solo/null entry is migratable when it is still stock CMN.
+            migratable_legacy = migratable_legacy and (current_is_legacy if legacy is not None else current_is_stock)
+            mixed = mixed or (current is None or (not current_is_stock and not current_is_desired and not current_is_legacy))
+            rows.append({
+                "map": map_label,
+                "fighter_id": int(fighter_id),
+                "proxy_id": int(proxy_id),
+                "addr": addr,
+                "current": current,
+                "stock": stock,
+                "desired": desired,
+                "current_is_stock": current_is_stock,
+                "current_is_desired": current_is_desired,
+                "current_is_legacy": current_is_legacy,
+            })
+
+    ready = bool(target_tags_ok and not mixed)
+    reason = ""
+    if not target_tags_ok:
+        reason = "DOL tag-string pool did not match ryu/zer"
+    elif mixed:
+        reason = "DOL tag map contains foreign values; refusing overwrite"
+    return {
+        "ready": ready,
+        "fresh": bool(fresh and target_tags_ok),
+        "installed": bool(installed and target_tags_ok),
+        "mixed": mixed,
+        "migratable_legacy": bool(migratable_legacy and target_tags_ok),
+        "reason": reason,
+        "rows": rows,
+    }
+
+
+def _install_yami_dol_icon_tag_route() -> tuple[int, int]:
+    """Remap only Character Select presentation tags; never alter fighter IDs."""
+    route = _dol_icon_tag_route_status()
+    if not route.get("ready"):
+        with _LOCK:
+            _ROSTER_STATE["yami_dol_icon_tag_installed"] = False
+            _ROSTER_STATE["yami_dol_icon_tag_mode"] = ""
+            _ROSTER_STATE["yami_dol_icon_tag_detail"] = str(route.get("reason") or "DOL tag route unavailable")
+        return 0, 1
+    if route.get("installed"):
+        with _LOCK:
+            _ROSTER_STATE["yami_dol_icon_tag_installed"] = True
+            _ROSTER_STATE["yami_dol_icon_tag_mode"] = "Yami -> Ryu; Solo null -> Zero visual profiles"
+            _ROSTER_STATE["yami_dol_icon_tag_detail"] = "direct + canonical DOL presentation maps already routed to Ryu/Zero"
+        return 0, 0
+    if not (route.get("fresh") or route.get("migratable_legacy")):
+        with _LOCK:
+            _ROSTER_STATE["yami_dol_icon_tag_installed"] = False
+            _ROSTER_STATE["yami_dol_icon_tag_detail"] = "blocked: DOL tag route is neither stock, legacy-owned, nor Ryu-owned"
+        return 0, 1
+
+    originals: dict[int, int] = {}
+    desired: dict[int, int] = {}
+    wrote = 0
+    for row in route["rows"]:
+        addr = int(row["addr"])
+        current = row["current"]
+        target = int(row["desired"])
+        if current is None:
+            break
+        originals[addr] = int(current)
+        desired[addr] = target
+        if _safe_write_u32be(addr, target) and _safe_read_u32be(addr) == target:
+            wrote += 1
+        else:
+            # Roll back only words successfully owned by this route.
+            for rollback_addr, original in originals.items():
+                if _safe_read_u32be(rollback_addr) == desired.get(rollback_addr):
+                    _safe_write_u32be(rollback_addr, original)
+            with _LOCK:
+                _ROSTER_STATE["yami_dol_icon_tag_installed"] = False
+                _ROSTER_STATE["yami_dol_icon_tag_mode"] = ""
+                _ROSTER_STATE["yami_dol_icon_tag_detail"] = "write failed; DOL tag route rolled back"
+                _ROSTER_STATE["last_error"] = "Yami DOL icon tag map write failed"
+            return wrote, 1
+
+    verified = _dol_icon_tag_route_status()
+    if not verified.get("installed"):
+        for rollback_addr, original in originals.items():
+            if _safe_read_u32be(rollback_addr) == desired.get(rollback_addr):
+                _safe_write_u32be(rollback_addr, original)
+        with _LOCK:
+            _ROSTER_STATE["yami_dol_icon_tag_installed"] = False
+            _ROSTER_STATE["yami_dol_icon_tag_mode"] = ""
+            _ROSTER_STATE["yami_dol_icon_tag_detail"] = "post-write verification failed; DOL tag route rolled back"
+        return wrote, 1
+
+    _YAMI_DOL_ICON_TAG_SESSION["originals"] = originals
+    _YAMI_DOL_ICON_TAG_SESSION["desired"] = desired
+    with _LOCK:
+        _ROSTER_STATE["yami_dol_icon_tag_installed"] = True
+        _ROSTER_STATE["yami_dol_icon_tag_mode"] = "Yami -> Ryu; Solo null -> Zero visual profiles"
+        _ROSTER_STATE["yami_dol_icon_tag_detail"] = "eight DOL tag-table entries: 0x17/0x18/0x19 -> ryu; 0x00 -> zer"
+        _ROSTER_STATE["last_error"] = ""
+    return wrote, 0
+
+
+def _restore_yami_dol_icon_tag_route_only() -> tuple[int, int]:
+    """Restore only DOL tag-map words still owned by this runtime session."""
+    originals = dict(_YAMI_DOL_ICON_TAG_SESSION.get("originals") or {})
+    desired = dict(_YAMI_DOL_ICON_TAG_SESSION.get("desired") or {})
+    if not originals:
+        with _LOCK:
+            _ROSTER_STATE["yami_dol_icon_tag_installed"] = False
+            _ROSTER_STATE["yami_dol_icon_tag_mode"] = ""
+        return 0, 0
+
+    wrote = 0
+    failed = 0
+    for addr, original in originals.items():
+        current = _safe_read_u32be(int(addr))
+        if current == int(original):
+            continue
+        if current != desired.get(int(addr)):
+            failed += 1
+            continue
+        if _safe_write_u32be(int(addr), int(original)) and _safe_read_u32be(int(addr)) == int(original):
+            wrote += 1
+        else:
+            failed += 1
+    if failed == 0:
+        _clear_yami_dol_icon_tag_session()
+    with _LOCK:
+        _ROSTER_STATE["yami_dol_icon_tag_installed"] = False
+        _ROSTER_STATE["yami_dol_icon_tag_mode"] = ""
+        _ROSTER_STATE["yami_dol_icon_tag_detail"] = "DOL tag maps restored" if failed == 0 else "DOL tag map restore incomplete"
+    return wrote, failed
+
+
+def _tick_yami_dol_icon_tag_route() -> tuple[int, int]:
+    """Install the real DOL display-tag mapping only in live Character Select."""
+    status = _select_screen_status()
+    with _LOCK:
+        requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+        enabled = bool(_ROSTER_STATE.get("extra_characters_enabled"))
+    if not bool(status.get("active")):
+        return _restore_yami_dol_icon_tag_route_only()
+    if not requested or not enabled or not bool(status.get("patch_present")):
+        return _restore_yami_dol_icon_tag_route_only()
+    return _install_yami_dol_icon_tag_route()
+
+
+def _clear_yami_hover_icon_id_session() -> None:
+    _YAMI_HOVER_ICON_ID_SESSION["originals"] = {}
+    _YAMI_HOVER_ICON_ID_SESSION["desired"] = {}
+
+
+def _yami_hover_icon_id_route_status() -> dict[str, Any]:
+    """Read-only status for the Yami-specific hover-icon material-ID route."""
+    if not _chrsel_seq_heap_present():
+        return {"ready": False, "installed": False, "fresh": False, "mixed": False, "reason": "chrsel.seq heap not present", "rows": []}
+
+    rows: list[dict[str, Any]] = []
+    source_ok = True
+    fresh = True
+    installed = True
+    mixed = False
+    for bank_label, bank_base in YAMI_HOVER_ICON_ROW_BANKS:
+        for label, target_row, source_row, expected_source_id in YAMI_HOVER_ICON_ID_PLAN:
+            source_addr = _yami_hover_icon_field_addr(bank_base, source_row)
+            target_addr = _yami_hover_icon_field_addr(bank_base, target_row)
+            source_value = _safe_read_u16be(source_addr)
+            target_value = _safe_read_u16be(target_addr)
+            stock_target = YAMI_HOVER_ICON_STOCK_TARGET_IDS[target_row]
+            source_matches = source_value == expected_source_id
+            target_is_stock = target_value == stock_target
+            target_is_desired = source_matches and target_value == source_value
+            source_ok = source_ok and source_matches
+            fresh = fresh and target_is_stock
+            installed = installed and target_is_desired
+            mixed = mixed or (not target_is_stock and not target_is_desired)
+            rows.append({
+                "bank": bank_label,
+                "label": label,
+                "target_row": target_row,
+                "source_row": source_row,
+                "source_addr": source_addr,
+                "target_addr": target_addr,
+                "source_value": source_value,
+                "target_value": target_value,
+                "expected_source_value": expected_source_id,
+                "stock_target_value": stock_target,
+                "source_matches": source_matches,
+                "target_is_stock": target_is_stock,
+                "target_is_desired": target_is_desired,
+            })
+
+    ready = bool(source_ok and not mixed)
+    return {
+        "ready": ready,
+        "installed": bool(installed and source_ok),
+        "fresh": bool(fresh and source_ok),
+        "mixed": bool(mixed),
+        "reason": "" if ready else ("mixed/foreign thumbnail material IDs" if mixed else "source icon material IDs did not match expected B00/B09/B30"),
+        "rows": rows,
+    }
+
+
+def _install_yami_hover_icon_id_route() -> tuple[int, int]:
+    """Route the three Yami hover icons by live chrsel.seq icon ID, not fighter ID."""
+    route = _yami_hover_icon_id_route_status()
+    if not route.get("ready"):
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = ""
+            _ROSTER_STATE["yami_hover_icon_id_detail"] = str(route.get("reason") or "hover icon IDs unavailable")
+        return 0, 1
+    if route.get("installed"):
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = True
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = "Yami 1/2/3 hover IDs -> 0 / 9 / 30"
+            _ROSTER_STATE["yami_hover_icon_id_detail"] = "six chrsel.seq material IDs already routed"
+        return 0, 0
+    if not route.get("fresh"):
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+            _ROSTER_STATE["yami_hover_icon_id_detail"] = "blocked: hover icon IDs are neither stock nor this route"
+        return 0, 1
+
+    originals: dict[int, int] = {}
+    desired: dict[int, int] = {}
+    wrote = 0
+    failed = 0
+    for row in route["rows"]:
+        source_value = row["source_value"]
+        current_value = row["target_value"]
+        target_addr = int(row["target_addr"])
+        if source_value is None or current_value is None:
+            failed += 1
+            break
+        originals[target_addr] = int(current_value)
+        desired[target_addr] = int(source_value)
+        if _safe_write_bytes(target_addr, int(source_value).to_bytes(2, "big")) and _safe_read_u16be(target_addr) == int(source_value):
+            wrote += 1
+        else:
+            failed += 1
+            break
+
+    if failed:
+        for addr, original in originals.items():
+            if _safe_read_u16be(addr) == desired.get(addr):
+                _safe_write_bytes(addr, int(original).to_bytes(2, "big"))
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = ""
+            _ROSTER_STATE["yami_hover_icon_id_detail"] = "write failed; hover icon IDs rolled back"
+            _ROSTER_STATE["last_error"] = "Yami hover icon ID route write failed"
+        return wrote, failed
+
+    verified = _yami_hover_icon_id_route_status()
+    if not verified.get("installed"):
+        for addr, original in originals.items():
+            if _safe_read_u16be(addr) == desired.get(addr):
+                _safe_write_bytes(addr, int(original).to_bytes(2, "big"))
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = ""
+            _ROSTER_STATE["yami_hover_icon_id_detail"] = "post-write verification failed; hover icon IDs rolled back"
+        return wrote, 1
+
+    _YAMI_HOVER_ICON_ID_SESSION["originals"] = originals
+    _YAMI_HOVER_ICON_ID_SESSION["desired"] = desired
+    with _LOCK:
+        _ROSTER_STATE["yami_hover_icon_id_installed"] = True
+        _ROSTER_STATE["yami_hover_icon_id_mode"] = "Yami 1/2/3 hover IDs -> 0 / 9 / 30"
+        _ROSTER_STATE["yami_hover_icon_id_detail"] = "six live chrsel.seq material IDs routed from B00/B09/B30"
+        _ROSTER_STATE["last_error"] = ""
+    return wrote, 0
+
+
+def _restore_yami_hover_icon_id_route_only() -> tuple[int, int]:
+    """Restore only the six material-ID fields we changed in this live scene."""
+    originals = dict(_YAMI_HOVER_ICON_ID_SESSION.get("originals") or {})
+    desired = dict(_YAMI_HOVER_ICON_ID_SESSION.get("desired") or {})
+    if not originals:
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = ""
+        return 0, 0
+    if not _chrsel_seq_heap_present():
+        _clear_yami_hover_icon_id_session()
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = ""
+            _ROSTER_STATE["yami_hover_icon_id_detail"] = "scene rebuilt; stale restore skipped"
+        return 0, 0
+
+    wrote = 0
+    failed = 0
+    for addr, original in originals.items():
+        current = _safe_read_u16be(addr)
+        if current == original:
+            continue
+        if current != desired.get(addr):
+            failed += 1
+            continue
+        if _safe_write_bytes(addr, int(original).to_bytes(2, "big")) and _safe_read_u16be(addr) == original:
+            wrote += 1
+        else:
+            failed += 1
+    if failed == 0:
+        _clear_yami_hover_icon_id_session()
+    with _LOCK:
+        _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+        _ROSTER_STATE["yami_hover_icon_id_mode"] = ""
+        _ROSTER_STATE["yami_hover_icon_id_detail"] = "hover icon IDs restored" if failed == 0 else "hover icon ID restore incomplete"
+    return wrote, failed
+
+
+def _display_profile_for_hover_lane(lane_index: int, hover: int | None) -> tuple[int | None, str]:
+    """Return the presentation profile for one hover lane without changing selection.
+
+    Yami IDs are unconditional hidden-fighter routes. ID 0 is deliberately
+    stricter: it is the Solo helper only at appended roster slot 0x1E.
+    """
+    if hover is None:
+        return None, ""
+    yami_profile = YAMI_HOVER_DISPLAY_PROFILE_IDS.get(int(hover))
+    if yami_profile is not None:
+        return int(yami_profile), f"Yami 0x{int(hover):02X} -> Ryu profile 0x{int(yami_profile):02X}"
+    if int(hover) != 0x00:
+        return None, ""
+    if not (0 <= int(lane_index) < len(YAMI_HOVER_DISPLAY_PROFILE_CURSOR_ADDRS)):
+        return None, ""
+    cursor_addr = int(YAMI_HOVER_DISPLAY_PROFILE_CURSOR_ADDRS[int(lane_index)])
+    cursor = _safe_read_u32be(cursor_addr)
+    if cursor is None or (int(cursor) & 0xFF) != SOLO_NULL_SLOT_INDEX:
+        return None, ""
+    return SOLO_NULL_DISPLAY_PROFILE_ID, f"Solo null slot 0x{SOLO_NULL_SLOT_INDEX:02X} -> Zero profile 0x{SOLO_NULL_DISPLAY_PROFILE_ID:02X}"
+
+
+def _clear_yami_hover_display_profile_session() -> None:
+    _YAMI_HOVER_DISPLAY_PROFILE_SESSION.clear()
+
+
+def _restore_yami_hover_display_profile_route_only() -> tuple[int, int]:
+    """Restore only cache fields this process changed and only if still owned."""
+    originals = dict(_YAMI_HOVER_DISPLAY_PROFILE_SESSION)
+    if not originals:
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_display_profile_installed"] = False
+            _ROSTER_STATE["yami_hover_display_profile_mode"] = ""
+        return 0, 0
+
+    wrote = 0
+    failed = 0
+    for lane_index, (_lane, hover_addr, focus_addr) in enumerate(YAMI_HOVER_DISPLAY_PROFILE_LANES):
+        original = originals.get(int(focus_addr))
+        if original is None:
+            continue
+        hover = _safe_read_u32be(hover_addr)
+        current = _safe_read_u32be(focus_addr)
+        # Do not overwrite a live stock update. Restore only while this lane is
+        # still on a hidden Yami and still contains the profile ID we own.
+        desired, _detail = _display_profile_for_hover_lane(lane_index, hover)
+        if desired is None or current != desired:
+            continue
+        if _safe_write_u32be(focus_addr, int(original)):
+            wrote += 1
+        else:
+            failed += 1
+
+    _clear_yami_hover_display_profile_session()
+    with _LOCK:
+        _ROSTER_STATE["yami_hover_display_profile_installed"] = False
+        _ROSTER_STATE["yami_hover_display_profile_mode"] = ""
+        _ROSTER_STATE["yami_hover_display_profile_detail"] = (
+            "hover display cache restored" if failed == 0 else "hover display cache restore incomplete"
+        )
+    return wrote, failed
+
+
+def _tick_yami_hover_display_profile_route() -> tuple[int, int]:
+    """Route Character Select presentation caches without changing fighter IDs.
+
+    Hidden Yami IDs use Ryu. The physical appended Solo/null slot (roster index
+    0x1E, fighter ID 0x00) uses Zero only while that exact slot is hovered.
+    """
+    status = _select_screen_status()
+    with _LOCK:
+        requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+        enabled = bool(_ROSTER_STATE.get("extra_characters_enabled"))
+
+    if not bool(status.get("active")) or not requested or not enabled or not bool(status.get("patch_present")):
+        return _restore_yami_hover_display_profile_route_only()
+
+    wrote = 0
+    failed = 0
+    active_lanes: list[str] = []
+    for lane_index, (lane, hover_addr, focus_addr) in enumerate(YAMI_HOVER_DISPLAY_PROFILE_LANES):
+        hover = _safe_read_u32be(hover_addr)
+        focus = _safe_read_u32be(focus_addr)
+        if hover is None or focus is None:
+            failed += 1
+            continue
+        desired, detail = _display_profile_for_hover_lane(lane_index, hover)
+        if desired is None:
+            continue
+
+        active_lanes.append(f"{lane}: {detail}")
+        if int(focus_addr) not in _YAMI_HOVER_DISPLAY_PROFILE_SESSION:
+            _YAMI_HOVER_DISPLAY_PROFILE_SESSION[int(focus_addr)] = int(focus)
+        if int(focus) == int(desired):
+            continue
+        if _safe_write_u32be(focus_addr, int(desired)):
+            wrote += 1
+        else:
+            failed += 1
+
+    with _LOCK:
+        installed = bool(active_lanes) and failed == 0
+        _ROSTER_STATE["yami_hover_display_profile_installed"] = installed
+        _ROSTER_STATE["yami_hover_display_profile_mode"] = "Yami -> Ryu; Solo null -> Zero visual profiles" if installed else ""
+        _ROSTER_STATE["yami_hover_display_profile_detail"] = (
+            "; ".join(active_lanes) if active_lanes else "waiting for Yami hover"
+        )
+        if failed:
+            _ROSTER_STATE["last_error"] = "Yami hover display profile cache write failed"
+    return wrote, failed
+
+
+def _tick_yami_hover_icon_id_route() -> tuple[int, int]:
+    """Own only the three Yami cursor-tile IDs while Extra Characters is active."""
+    status = _select_screen_status()
+    with _LOCK:
+        requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+        enabled = bool(_ROSTER_STATE.get("extra_characters_enabled"))
+    if not bool(status.get("active")):
+        _clear_yami_hover_icon_id_session()
+        with _LOCK:
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = ""
+        return 0, 0
+    if not requested or not enabled or not bool(status.get("patch_present")):
+        return _restore_yami_hover_icon_id_route_only()
+    return _install_yami_hover_icon_id_route()
+
+
 def _extra_thumbnail_mdl0_binding_texptrs_present() -> bool:
     if not EXTRA_THUMBNAIL_MDL0_BINDING_TEXPTR_WRITES_ENABLED:
         return False
@@ -1699,6 +2617,281 @@ def _rescue_chrsel_source_rows() -> tuple[int, int]:
             _ROSTER_STATE["last_action"] = f"chrsel source rescue restored={wrote} failed={failed}"
             _ROSTER_STATE["last_error"] = "" if failed == 0 else f"chrsel source rescue failed writes={failed}"
     return wrote, failed
+
+
+def _find_cstring_offsets(blob: bytes, needle: bytes) -> tuple[int, ...]:
+    """Return all exact C-string starts in a small verified script window."""
+    hits: list[int] = []
+    start = 0
+    while True:
+        pos = bytes(blob).find(bytes(needle), start)
+        if pos < 0:
+            return tuple(hits)
+        hits.append(pos)
+        start = pos + 1
+
+
+def _classify_yami_runtime_preview_route(seq_window: bytes, select_sil_field: int | None) -> dict[str, Any]:
+    """Classify the hidden-only scene route without touching Dolphin memory."""
+    old_select = _find_cstring_offsets(seq_window, YAMI_RUNTIME_PREVIEW_SELECT_OLD)
+    new_select = _find_cstring_offsets(seq_window, YAMI_RUNTIME_PREVIEW_SELECT_NEW)
+    old_name = _find_cstring_offsets(seq_window, YAMI_RUNTIME_PREVIEW_NAME_OLD)
+    new_name = _find_cstring_offsets(seq_window, YAMI_RUNTIME_PREVIEW_NAME_NEW)
+    n = YAMI_RUNTIME_PREVIEW_EXPECTED_HANDLER_CALLS
+    fresh = (
+        len(old_select) == n and len(new_select) == 0
+        and len(old_name) == n and len(new_name) == 0
+        and select_sil_field == YAMI_RUNTIME_PREVIEW_SELECT_SIL_OFFSET
+    )
+    installed = (
+        len(old_select) == 0 and len(new_select) == n
+        and len(old_name) == 0 and len(new_name) == n
+        and select_sil_field == YAMI_RUNTIME_PREVIEW_SELECT_RANDOM0_OFFSET
+    )
+    return {
+        "fresh": fresh,
+        "installed": installed,
+        "old_select_offsets": old_select,
+        "new_select_offsets": new_select,
+        "old_name_offsets": old_name,
+        "new_name_offsets": new_name,
+        "select_sil_field": select_sil_field,
+    }
+
+
+def _yami_runtime_preview_route_status() -> dict[str, Any]:
+    """Read only the two live structures used by the hidden preview route."""
+    if not _chrsel_seq_heap_present():
+        return {"ready": False, "reason": "chrsel seq heap not present"}
+
+    seq_addr = CHRSEL_SEQ_HEAP_BASE + YAMI_RUNTIME_PREVIEW_SEQ_START_OFF
+    seq_size = YAMI_RUNTIME_PREVIEW_SEQ_END_OFF - YAMI_RUNTIME_PREVIEW_SEQ_START_OFF
+    seq_window = _safe_read(seq_addr, seq_size)
+    if len(seq_window) != seq_size:
+        return {"ready": False, "reason": "hidden handler window unreadable"}
+
+    brres_magic = _safe_read(YAMI_RUNTIME_PREVIEW_BRRES_1022_BASE, 4)
+    if brres_magic != YAMI_RUNTIME_PREVIEW_BRRES_MAGIC:
+        return {"ready": False, "reason": "1022.brres signature mismatch"}
+
+    field = _safe_read_u32be(YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR)
+    route = _classify_yami_runtime_preview_route(seq_window, field)
+    route.update({
+        "ready": True,
+        "seq_addr": seq_addr,
+        "seq_size": seq_size,
+        "brres_field_addr": YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR,
+    })
+    return route
+
+
+def _restore_retired_yami_preview_bridge() -> tuple[int, int]:
+    """Undo only the old two-pointer bridge if this process installed it."""
+    prefix = _safe_read_u32be(YAMI_LEGACY_PREVIEW_OWNER_PREFIX_PTR)
+    tag = _safe_read_u32be(YAMI_LEGACY_PREVIEW_OWNER_TAG_PTR)
+    if (
+        prefix != YAMI_LEGACY_PREVIEW_RANDOM_PREFIX_PTR
+        or tag != YAMI_LEGACY_PREVIEW_RANDOM_TAG_PTR
+    ):
+        return 0, 0
+
+    stock_prefix = _safe_read(YAMI_LEGACY_PREVIEW_STOCK_PREFIX_PTR, 5)
+    stock_tag = _safe_read(YAMI_LEGACY_PREVIEW_STOCK_TAG_PTR, 4)
+    if stock_prefix != b"mof_\\x00" or len(stock_tag) != 4 or stock_tag[3] != 0:
+        return 0, 1
+
+    wrote = 0
+    failed = 0
+    if _safe_write_u32be(
+        YAMI_LEGACY_PREVIEW_OWNER_PREFIX_PTR,
+        YAMI_LEGACY_PREVIEW_STOCK_PREFIX_PTR,
+    ):
+        wrote += 1
+    else:
+        failed += 1
+    if _safe_write_u32be(
+        YAMI_LEGACY_PREVIEW_OWNER_TAG_PTR,
+        YAMI_LEGACY_PREVIEW_STOCK_TAG_PTR,
+    ):
+        wrote += 1
+    else:
+        failed += 1
+    return wrote, failed
+
+
+def _capture_runtime_route_originals(route: dict[str, Any]) -> bool:
+    """Capture exactly the 17 reversible runtime fields after preflight."""
+    seq_addr = int(route["seq_addr"])
+    start_off = YAMI_RUNTIME_PREVIEW_SEQ_START_OFF
+    for local in tuple(route["old_select_offsets"]) + tuple(route["old_name_offsets"]):
+        addr = seq_addr + int(local)
+        expected = (
+            YAMI_RUNTIME_PREVIEW_SELECT_OLD
+            if local in route["old_select_offsets"]
+            else YAMI_RUNTIME_PREVIEW_NAME_OLD
+        )
+        if _safe_read(addr, len(expected)) != expected:
+            return False
+        if _remember_original_bytes(addr, len(expected)) is None:
+            return False
+    field = _safe_read_u32be(YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR)
+    if field != YAMI_RUNTIME_PREVIEW_SELECT_SIL_OFFSET:
+        return False
+    return _remember_original(YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR, field) is not None
+
+
+def _install_yami_runtime_preview_route() -> tuple[int, int]:
+    """Install Random/blank preview through the loaded hidden-ID script path.
+
+    This patches the in-RAM character-select scene only. It deliberately does
+    not open, replace, or write an FPK file.
+    """
+    route = _yami_runtime_preview_route_status()
+    if not route.get("ready"):
+        with _LOCK:
+            _ROSTER_STATE["yami_runtime_preview_installed"] = False
+            _ROSTER_STATE["yami_runtime_preview_detail"] = str(route.get("reason") or "route unavailable")
+        return 0, 0
+    if route.get("installed"):
+        with _LOCK:
+            _ROSTER_STATE["yami_runtime_preview_installed"] = True
+            _ROSTER_STATE["yami_runtime_preview_mode"] = "Yami -> native Random card; blank rich preview"
+            _ROSTER_STATE["yami_runtime_preview_detail"] = "runtime scene route already installed"
+        return 0, 0
+    if not route.get("fresh"):
+        with _LOCK:
+            _ROSTER_STATE["yami_runtime_preview_installed"] = False
+            _ROSTER_STATE["yami_runtime_preview_detail"] = "blocked: hidden route signature did not match"
+            _ROSTER_STATE["last_error"] = "Yami runtime preview route refused unknown chrsel scene bytes"
+        return 0, 1
+    if not _capture_runtime_route_originals(route):
+        with _LOCK:
+            _ROSTER_STATE["last_error"] = "Yami runtime preview route could not capture verified originals"
+        return 0, 1
+
+    seq_addr = int(route["seq_addr"])
+    writes: list[tuple[int, bytes, bytes]] = []
+    writes.extend(
+        (seq_addr + int(local), YAMI_RUNTIME_PREVIEW_SELECT_OLD, YAMI_RUNTIME_PREVIEW_SELECT_NEW)
+        for local in route["old_select_offsets"]
+    )
+    writes.extend(
+        (seq_addr + int(local), YAMI_RUNTIME_PREVIEW_NAME_OLD, YAMI_RUNTIME_PREVIEW_NAME_NEW)
+        for local in route["old_name_offsets"]
+    )
+
+    wrote = 0
+    failed = 0
+    changed: list[tuple[int, bytes]] = []
+    for addr, expected, replacement in writes:
+        if _safe_read(addr, len(expected)) != expected:
+            failed += 1
+            break
+        if _safe_write_bytes(addr, replacement):
+            wrote += 1
+            changed.append((addr, expected))
+        else:
+            failed += 1
+            break
+
+    if failed == 0:
+        current = _safe_read_u32be(YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR)
+        if current != YAMI_RUNTIME_PREVIEW_SELECT_SIL_OFFSET:
+            failed += 1
+        elif _safe_write_u32be(
+            YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR,
+            YAMI_RUNTIME_PREVIEW_SELECT_RANDOM0_OFFSET,
+        ):
+            wrote += 1
+        else:
+            failed += 1
+
+    # Do not leave a half-swapped script behind if a guarded write failed.
+    if failed:
+        for addr, original in reversed(changed):
+            _safe_write_bytes(addr, original)
+        if _safe_read_u32be(YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR) == YAMI_RUNTIME_PREVIEW_SELECT_RANDOM0_OFFSET:
+            original_field = _ROSTER_ORIGINALS.get(YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR)
+            if original_field == YAMI_RUNTIME_PREVIEW_SELECT_SIL_OFFSET:
+                _safe_write_u32be(YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR, original_field)
+        with _LOCK:
+            _ROSTER_STATE["yami_runtime_preview_installed"] = False
+            _ROSTER_STATE["yami_runtime_preview_detail"] = "failed; partial scene bytes rolled back"
+            _ROSTER_STATE["last_error"] = "Yami runtime preview route write failed; rollback attempted"
+        return wrote, failed
+
+    verified = _yami_runtime_preview_route_status()
+    ok = bool(verified.get("installed"))
+    with _LOCK:
+        _ROSTER_STATE["yami_runtime_preview_installed"] = ok
+        _ROSTER_STATE["yami_runtime_preview_mode"] = (
+            "Yami -> native Random card; blank rich preview" if ok else ""
+        )
+        _ROSTER_STATE["yami_runtime_preview_detail"] = (
+            "16 hidden handler strings + select_sil dictionary alias" if ok else "post-write verification failed"
+        )
+        _ROSTER_STATE["byte_restore_available"] = bool(_ROSTER_BYTE_ORIGINALS)
+        _ROSTER_STATE["restore_available"] = bool(_ROSTER_ORIGINALS or _ROSTER_BYTE_ORIGINALS)
+        _ROSTER_STATE["last_error"] = "" if ok else "Yami runtime preview route verification failed"
+    return wrote, 0 if ok else 1
+
+
+def _restore_yami_runtime_preview_route_only() -> tuple[int, int]:
+    """Restore only the in-RAM scene route when Extra Characters turns off."""
+    route = _yami_runtime_preview_route_status()
+    if not route.get("ready") or not route.get("installed"):
+        return 0, 0
+
+    wrote = 0
+    failed = 0
+    seq_addr = int(route["seq_addr"])
+    for local in tuple(route["new_select_offsets"]) + tuple(route["new_name_offsets"]):
+        is_select = local in route["new_select_offsets"]
+        current = YAMI_RUNTIME_PREVIEW_SELECT_NEW if is_select else YAMI_RUNTIME_PREVIEW_NAME_NEW
+        original = YAMI_RUNTIME_PREVIEW_SELECT_OLD if is_select else YAMI_RUNTIME_PREVIEW_NAME_OLD
+        addr = seq_addr + int(local)
+        if _safe_read(addr, len(current)) != current:
+            failed += 1
+            continue
+        if _safe_write_bytes(addr, original):
+            wrote += 1
+        else:
+            failed += 1
+
+    if _safe_read_u32be(YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR) == YAMI_RUNTIME_PREVIEW_SELECT_RANDOM0_OFFSET:
+        if _safe_write_u32be(
+            YAMI_RUNTIME_PREVIEW_SELECT_SIL_FIELD_ADDR,
+            YAMI_RUNTIME_PREVIEW_SELECT_SIL_OFFSET,
+        ):
+            wrote += 1
+        else:
+            failed += 1
+
+    with _LOCK:
+        _ROSTER_STATE["yami_runtime_preview_installed"] = False
+        _ROSTER_STATE["yami_runtime_preview_mode"] = ""
+        _ROSTER_STATE["yami_runtime_preview_detail"] = "runtime scene route restored" if failed == 0 else "runtime scene route restore incomplete"
+    return wrote, failed
+
+
+def _tick_yami_runtime_preview_route() -> tuple[int, int]:
+    """Own the Yami visual policy through the loaded scene, never an FPK."""
+    status = _select_screen_status()
+    with _LOCK:
+        requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+        enabled = bool(_ROSTER_STATE.get("extra_characters_enabled"))
+
+    if not bool(status.get("active")):
+        return 0, 0
+    if not requested or not enabled or not bool(status.get("patch_present")):
+        return _restore_yami_runtime_preview_route_only()
+
+    # Remove only the obsolete pointer pair from previous builds; the actual
+    # renderer route below is script-driven and does not rely on those words.
+    wrote, failed = _restore_retired_yami_preview_bridge()
+    w, f = _install_yami_runtime_preview_route()
+    return wrote + w, failed + f
+
 
 def _tick_extra_characters_request() -> None:
     now = time.monotonic()
@@ -3641,6 +4834,21 @@ def _do_restore() -> dict[str, int]:
     restored = 0
     failed = 0
 
+    w, f = _restore_yami_dol_icon_tag_route_only()
+    restored += w
+    failed += f
+
+    w, f = _restore_yami_hover_display_profile_route_only()
+    restored += w
+    failed += f
+
+    w, f = _restore_yami_hover_icon_id_route_only()
+    restored += w
+    failed += f
+    w, f = _restore_yami_wheel_random_icon_route_only()
+    restored += w
+    failed += f
+
     byte_originals = dict(_ROSTER_BYTE_ORIGINALS)
     for addr, data in byte_originals.items():
         if _safe_write_bytes(int(addr), bytes(data)):
@@ -3685,6 +4893,18 @@ def _do_restore() -> dict[str, int]:
             _ROSTER_STATE["thumbnail_material_copy_installed"] = False
             _ROSTER_STATE["thumbnail_material_copy_mode"] = ""
             _ROSTER_STATE["thumbnail_material_optional_failed"] = 0
+            _ROSTER_STATE["yami_runtime_preview_installed"] = False
+            _ROSTER_STATE["yami_runtime_preview_mode"] = ""
+            _ROSTER_STATE["yami_runtime_preview_detail"] = ""
+            _ROSTER_STATE["yami_hover_icon_id_installed"] = False
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = ""
+            _ROSTER_STATE["yami_hover_icon_id_detail"] = ""
+            _ROSTER_STATE["yami_hover_display_profile_installed"] = False
+            _ROSTER_STATE["yami_hover_display_profile_mode"] = ""
+            _ROSTER_STATE["yami_hover_display_profile_detail"] = ""
+            _ROSTER_STATE["yami_dol_icon_tag_installed"] = False
+            _ROSTER_STATE["yami_dol_icon_tag_mode"] = ""
+            _ROSTER_STATE["yami_dol_icon_tag_detail"] = ""
             _ROSTER_STATE["solo_team_enabled"] = False
             _ROSTER_STATE["solo_team_requested"] = False
             _ROSTER_STATE["solo_team_mode"] = ""
@@ -3715,6 +4935,15 @@ def _tick_roster_actions() -> None:
         status = _select_screen_status()
         if not bool(status.get("active")):
             return
+        # Extra Characters can be turned off while the select heap remains live.
+        # Restore only our wheel icon bindings before normal roster cleanup.
+        # Also clean a scene-route patch left by an older build; this build never
+        # applies that large-preview route.
+        _restore_yami_dol_icon_tag_route_only()
+        _restore_yami_hover_display_profile_route_only()
+        _restore_yami_hover_icon_id_route_only()
+        _restore_yami_wheel_random_icon_route_only()
+        _restore_yami_runtime_preview_route_only()
         if not bool(status.get("patch_present") or status.get("extended_layout_present")):
             return
         with _LOCK:
@@ -3734,6 +4963,19 @@ def _tick_roster_actions() -> None:
 
     if extra_requested:
         _tick_extra_characters_request()
+        # The top-card/silhouette route was the wrong feature.  Clean any state
+        # a prior build left behind, then patch only the small carousel tile.
+        _restore_yami_runtime_preview_route_only()
+        # Clear only a prior Random-TEX0 session from the previous build; the
+        # current route is the requested per-Yami hover-icon ID mapping.
+        _restore_yami_wheel_random_icon_route_only()
+        # Use one coherent stock donor for every presentation layer.  The DOL
+        # tag maps drive icon_/mof_/select_/name_ lookup; the focus cache keeps
+        # the large card branch on the same Ryu donor.  B-row material edits
+        # remain retired because they do not control the 1P hover tile.
+        _restore_yami_hover_icon_id_route_only()
+        _tick_yami_dol_icon_tag_route()
+        _tick_yami_hover_display_profile_route()
     if solo_requested:
         _tick_solo_team_request()
 

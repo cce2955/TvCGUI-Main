@@ -1,0 +1,163 @@
+{
+  "created": "20260627_215851",
+  "read_only": true,
+  "character_select_signature_addr": "0x90818400",
+  "character_select_signature_ok": true,
+  "character_select_signature_hex": "66 70 61 63 6b 2f 6d 65 6e 75 2f 30 30 31 2f 30 30 30 30 2e 66 70 6b 00",
+  "windows": {
+    "1015": {
+      "name": "1015",
+      "base": "0x92D00000",
+      "bytes_read": 327680,
+      "bres_headers": [
+        {
+          "addr": "0x92D10380",
+          "file_size": "0x00029080",
+          "head_hex": "62 72 65 73 fe ff 00 00 00 02 90 80 00 10 00 25 72 6f 6f 74 00 00 02 d8 00 00 00 48 00 00 00 03"
+        }
+      ],
+      "target_names": {
+        "icon_cmn": [
+          {
+            "addr": "0x92D38200",
+            "word_refs": [],
+            "context": "animation.......group_1015......icon_alx........icon_bat........icon_cas........icon_chu........icon_cmn........icon_dro........icon_fra........icon_gac........icon_gld........icon_ipa........"
+          }
+        ],
+        "icon_random0": [],
+        "icon_none": [
+          {
+            "addr": "0x92D382A0",
+            "word_refs": [],
+            "context": "icon_gld........icon_ipa........icon_joe........icon_jun........icon_krs........icon_mor........icon_none.......icon_pol........icon_ptx........icon_roc........icon_rol........icon_ryu........"
+          }
+        ],
+        "icon_fra": [
+          {
+            "addr": "0x92D38220",
+            "word_refs": [],
+            "context": "icon_alx........icon_bat........icon_cas........icon_chu........icon_cmn........icon_dro........icon_fra........icon_gac........icon_gld........icon_ipa........icon_joe........icon_jun........"
+          }
+        ],
+        "icon_tkb": [
+          {
+            "addr": "0x92D38350",
+            "word_refs": [],
+            "context": "icon_ryu........icon_sak........icon_tek........icon_tk1........icon_tk2........icon_tk3........icon_tkb........icon_ts2........icon_vjo........icon_ya2........icon_yat........icon_yuk........"
+          }
+        ],
+        "icon_ya2": [
+          {
+            "addr": "0x92D38380",
+            "word_refs": [],
+            "context": "icon_tk1........icon_tk2........icon_tk3........icon_tkb........icon_ts2........icon_vjo........icon_ya2........icon_yat........icon_yuk........icon_zer........polygon0........polygon1........"
+          }
+        ]
+      }
+    },
+    "1022": {
+      "name": "1022",
+      "base": "0x932E0000",
+      "bytes_read": 262144,
+      "bres_headers": [],
+      "target_names": {
+        "icon_cmn": [
+          {
+            "addr": "0x932FC378",
+            "word_refs": [],
+            "context": "animation.......group_1016......icon_alx........icon_bat........icon_cas........icon_chu........icon_cmn........icon_dro........icon_fra........icon_gac........icon_gld........icon_ipa........"
+          }
+        ],
+        "icon_random0": [],
+        "icon_none": [
+          {
+            "addr": "0x932FC418",
+            "word_refs": [],
+            "context": "icon_gld........icon_ipa........icon_joe........icon_jun........icon_krs........icon_mor........icon_none.......icon_pol........icon_ptx........icon_roc........icon_rol........icon_ryu........"
+          }
+        ],
+        "icon_fra": [
+          {
+            "addr": "0x932FC398",
+            "word_refs": [],
+            "context": "icon_alx........icon_bat........icon_cas........icon_chu........icon_cmn........icon_dro........icon_fra........icon_gac........icon_gld........icon_ipa........icon_joe........icon_jun........"
+          }
+        ],
+        "icon_tkb": [
+          {
+            "addr": "0x932FC4C8",
+            "word_refs": [],
+            "context": "icon_ryu........icon_sak........icon_tek........icon_tk1........icon_tk2........icon_tk3........icon_tkb........icon_ts2........icon_vjo........icon_ya2........icon_yat........icon_yuk........"
+          }
+        ],
+        "icon_ya2": [
+          {
+            "addr": "0x932FC4F8",
+            "word_refs": [],
+            "context": "icon_tk1........icon_tk2........icon_tk3........icon_tkb........icon_ts2........icon_vjo........icon_ya2........icon_yat........icon_yuk........icon_zer........polygon0........polygon1........"
+          }
+        ]
+      }
+    }
+  },
+  "bindings_before": {
+    "1015_B27_binding_tex0": {
+      "addr": "0x92D21CA0",
+      "value": "0x92D32FA0"
+    },
+    "1015_B28_binding_tex0": {
+      "addr": "0x92D22280",
+      "value": "0x92D331E0"
+    },
+    "1015_B29_binding_tex0": {
+      "addr": "0x92D22860",
+      "value": "0x92D33420"
+    },
+    "1022_B27_binding_tex0": {
+      "addr": "0x932E5C60",
+      "value": "0x932F70E0"
+    },
+    "1022_B28_binding_tex0": {
+      "addr": "0x932E6240",
+      "value": "0x932F7320"
+    },
+    "1022_B29_binding_tex0": {
+      "addr": "0x932E6820",
+      "value": "0x932F7560"
+    }
+  },
+  "material_tex0_before": {
+    "1015_B27_material_tex0": {
+      "addr": "0x92D23420",
+      "value": "0x92D2F6A0"
+    },
+    "1015_B28_material_tex0": {
+      "addr": "0x92D23A00",
+      "value": "0x92D33D20"
+    },
+    "1015_B29_material_tex0": {
+      "addr": "0x92D23FE0",
+      "value": "0x92D343E0"
+    },
+    "1022_B27_material_tex0": {
+      "addr": "0x932E73E0",
+      "value": "0x932F37E0"
+    },
+    "1022_B28_material_tex0": {
+      "addr": "0x932E79C0",
+      "value": "0x932F7E60"
+    },
+    "1022_B29_material_tex0": {
+      "addr": "0x932E7FE0",
+      "value": "0x61F33F00"
+    }
+  },
+  "target_names": [
+    "icon_cmn",
+    "icon_random0",
+    "icon_none",
+    "icon_fra",
+    "icon_tkb",
+    "icon_ya2"
+  ]
+}
