@@ -67,10 +67,15 @@ TvC Continuo adds a live training and research layer around a running Dolphin se
 ### Live HUD and match information
 
 The main window provides a live view of the active match. It tracks fighter health, meter, Baroque state, current move labels, combat events, and frame-advantage results. Fighter panels update across tags, assists, giant characters, and normal match transitions so the displayed data follows the active fighter structures rather than a fixed character selection.
+<img width="1261" height="825" alt="image" src="https://github.com/user-attachments/assets/597b94fd-6fe3-4984-922c-eb4cb9197306" />
+<img width="1895" height="1006" alt="image" src="https://github.com/user-attachments/assets/c98cd1d8-35fd-46c2-a4b9-3fe8b8b35b2e" />
+
 
 ### Hitbox, hurtbox, and range tools
 
 The hitbox overlay draws active collision data over the Dolphin window. It supports per-slot visibility filters, hitbox and hurtbox display, invulnerability information, contact auditing, and saved range profiles. The range-ruler tools provide visual horizontal or vertical reference lines for normal attacks and can retain learned adjustments in the local `data` folder.
+
+<img width="1918" height="1014" alt="image" src="https://github.com/user-attachments/assets/bbdb9d87-b55b-4854-be55-d0a37653d83b" />
 
 ### Frame data, editing, and runtime patches
 
@@ -78,13 +83,24 @@ The frame-data workbench scans and organizes normals, specials, supers, and proj
 
 The workbench also includes controlled editing and patch support. Approved edits are applied to the running session through narrow write paths, can be restored, and may be stored as reviewed patch records. Unknown-data tools keep unclassified values visible for research without presenting them as confirmed mechanics.
 
+<img width="1683" height="835" alt="image" src="https://github.com/user-attachments/assets/6e60651a-78c8-4ec3-9a2d-6e1227bebc08" />
+
 ### Missions and practical training tools
 
 Mission Mode provides character-specific combo and execution trials that validate live move sequences, track progress, reset failed routes, and save completion state. The surrounding training tools include the MegaCrash trainer, runtime stun profiling, debug flags, timer controls, win-counter editing, and KO control behavior for supported training scenarios.
 
-### Character-select experiments
+<img width="1898" height="958" alt="image" src="https://github.com/user-attachments/assets/9ce684f5-b1c8-4d26-81a4-57e36a20a00a" />
 
-Character-select tools provide guarded controls for extra slots, hover data, icons, thumbnails, material routes, and team-size behavior. These tools are isolated behind scene checks and dedicated patch routes because character-select memory is especially sensitive to incorrect writes.
+<img width="1189" height="575" alt="image" src="https://github.com/user-attachments/assets/f52523ed-4afd-48d0-ad58-70924f86a1d1" />
+
+### Extra Characters
+
+Character-select tools provide guarded controls for extra slots including the abliity to use Yami or Play Solo
+<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/7808bd9a-2781-47cc-a574-f30b86a66c4f" />
+
+<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/6ed87998-226e-4792-9b5c-9894ad313a2b" />
+
+<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/8bc6cdc3-2b54-4884-924d-356c28b71cb2" />
 
 ### Research and diagnostics
 
