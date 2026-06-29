@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tkinter as tk
 from tkinter import ttk
 from typing import Any, Callable
@@ -17,12 +18,17 @@ except Exception:  # pragma: no cover
 
 
 _OPEN_WINDOW: tk.Toplevel | None = None
-
-_CHANCE_PRESETS = (0, 5, 10, 15, 20, 25, 33, 50, 75, 100)
-_MODE_PERCENT = "percent"
-_MODE_TARGETED = "targeted"
 _SCOPE_ANY = "any"
-_LABEL_ANY = ""
+
+# The trainer's Reset button restores all five user-facing controls.
+# It deliberately leaves the armed/off toggle alone so reset is a quick
+# "start this setup over" action rather than a surprise disarm.
+_DEFAULT_SCOPE = _SCOPE_ANY
+_DEFAULT_LABEL = ""
+_DEFAULT_OCCURRENCE = 1
+_DEFAULT_CHANCE = 100
+_DEFAULT_DELAY_FRAMES = 5
+_DEFAULT_COOLDOWN_SEC = 3.0
 
 _BG = "#0D1018"
 _PANEL = "#171D2A"
@@ -35,7 +41,107 @@ _ACCENT = "#75B8FF"
 _ACTIVE = "#315A87"
 _FIELD = "#111827"
 _GOOD = "#7CE0B5"
-_WARN = "#F2CC85"
+
+# Dropdown sections deliberately mirror the readable Frame Data order rather
+# than the raw CSV/alphabetical order.  Section entries are display-only: the
+# selected value is always a real move label (or Any label), never a heading.
+_LABEL_SECTION_ORDER = ("normal", "special", "super", "projectile", "other")
+_LABEL_SECTION_TITLES = {
+    "normal": "NORMALS",
+    "special": "SPECIALS",
+    "super": "SUPERS",
+    "projectile": "PROJECTILES",
+    "other": "OTHER",
+}
+_LABEL_SECTION_HEADERS = {
+    f"──── {title} ────"
+    for title in _LABEL_SECTION_TITLES.values()
+}
+_NORMAL_LABEL_ORDER = {
+    "5a": 0, "2a": 1, "5b": 2, "2b": 3, "6b": 4,
+    "5c": 5, "2c": 6, "6c": 7, "4c": 8, "3c": 9,
+    "ja": 10, "jb": 11, "jc": 12,
+}
+_SUPER_WORDS = (
+    "super", "hyper", "shinkuu", "shinku", "shin shoryu",
+    "shinsho", "shin sho", "voltekka", "level 3", "lv3",
+)
+_PROJECTILE_WORDS = (
+    "projectile", "fireball", "shot", "bullet", "missile",
+    "beam", "laser", "bomb", "mine", "grenade", "orb",
+    "soul fist", "hadouken", "hadoken", "hado", "hadou",
+    "kikoken", "charge shot",
+)
+_SPECIAL_WORDS = (
+    "special", "tatsu", "shoryu", "donkey",
+    "spinning bird", "lightning legs", "tensho", "hazanshu",
+    "shadow blade", "vector drain", "uppercut", "dive kick",
+    "command grab",
+)
+
+
+def _compact_label_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", _clean_label(value).casefold())
+
+
+def _label_section_for(value: Any) -> str:
+    """Classify a label for display only; matching continues to use the raw label."""
+    label = _clean_label(value)
+    compact = _compact_label_key(label)
+    if compact in _NORMAL_LABEL_ORDER:
+        return "normal"
+
+    low = label.casefold()
+    if any(word in low for word in _SUPER_WORDS):
+        return "super"
+    if any(word in low for word in _PROJECTILE_WORDS):
+        return "projectile"
+    if any(word in low for word in _SPECIAL_WORDS):
+        return "special"
+    return "other"
+
+
+def _label_section_header(section: str) -> str:
+    return f"──── {_LABEL_SECTION_TITLES[section]} ────"
+
+
+def _is_label_section_header(value: Any) -> bool:
+    return str(value or "") in _LABEL_SECTION_HEADERS
+
+
+def _normal_label_sort_key(label: str) -> tuple:
+    compact = _compact_label_key(label)
+    return (_NORMAL_LABEL_ORDER.get(compact, 99), label.casefold(), label)
+
+
+def _ordered_label_choices(labels: list[str]) -> list[str]:
+    """Build the trainer dropdown in Frame Data category order.
+
+    Any label stays at the top.  Real labels are grouped under headings in the
+    requested order: normals, specials, supers, projectiles, then all unknown
+    or system rows at the end.
+    """
+    buckets: dict[str, list[str]] = {section: [] for section in _LABEL_SECTION_ORDER}
+    seen: set[str] = set()
+    for raw in labels or []:
+        label = _clean_label(raw)
+        key = label.casefold()
+        if not label or key in seen:
+            continue
+        seen.add(key)
+        buckets[_label_section_for(label)].append(label)
+
+    buckets["normal"].sort(key=_normal_label_sort_key)
+    for section in ("special", "super", "projectile", "other"):
+        buckets[section].sort(key=lambda label: (label.casefold(), label))
+
+    options = ["Any label"]
+    for section in _LABEL_SECTION_ORDER:
+        rows = buckets[section]
+        if rows:
+            options.append(_label_section_header(section))
+            options.extend(rows)
+    return options
 
 
 def _clamp_int(value: Any, default: int, low: int, high: int) -> int:
@@ -55,12 +161,8 @@ def _clamp_float(value: Any, default: float, low: float, high: float) -> float:
 
 
 def _format_seconds(value: Any) -> str:
-    return f"{_clamp_float(value, 2.0, 0.0, 60.0):g}"
-
-
-def _clean_mode(value: Any) -> str:
-    value = str(value or "").strip().lower()
-    return _MODE_TARGETED if value in {"target", "targeted", "delay", "delayed"} else _MODE_PERCENT
+    out = _clamp_float(value, _DEFAULT_COOLDOWN_SEC, 0.0, 60.0)
+    return f"{out:g}"
 
 
 def _clean_scope(value: Any) -> str:
@@ -100,13 +202,16 @@ def _label_summary(value: Any) -> str:
 
 def _state_label(state: dict, scope_display: dict[str, str] | None = None) -> str:
     enabled = bool(state.get("enabled", False))
-    mode = _clean_mode(state.get("mode", _MODE_PERCENT))
-    chance = _clamp_int(state.get("chance", 0), 0, 0, 100)
-    delay = _clamp_int(state.get("delay_frames", 0), 0, 0, 300)
-    cooldown = _format_seconds(state.get("cooldown_sec", 2.0))
-    occ = _ordinal(state.get("target_occurrence", 1))
-    mode_txt = f"Targeted +{delay}f" if mode == _MODE_TARGETED else f"Random {chance}%"
-    return f"{'ON' if enabled else 'OFF'}  •  {_scope_summary(state, scope_display)}  •  {_label_summary(state.get('target_label', ''))}  •  {occ} matching hit in combo  •  {mode_txt}  •  cooldown {cooldown}s"
+    chance = _clamp_int(state.get("chance", _DEFAULT_CHANCE), _DEFAULT_CHANCE, 0, 100)
+    delay = _clamp_int(state.get("delay_frames", _DEFAULT_DELAY_FRAMES), _DEFAULT_DELAY_FRAMES, 0, 300)
+    occurrence = _ordinal(state.get("target_occurrence", _DEFAULT_OCCURRENCE))
+    cooldown = _format_seconds(state.get("cooldown_sec", _DEFAULT_COOLDOWN_SEC))
+    return (
+        f"{'ARMED' if enabled else 'OFF'}  •  "
+        f"{_scope_summary(state, scope_display)}  •  "
+        f"{_label_summary(state.get('target_label', ''))}  •  "
+        f"{occurrence} occurrence  •  {chance}% chance  •  +{delay}f delay  •  {cooldown}s cooldown"
+    )
 
 
 def _label(parent: tk.Misc, text: str, *, muted: bool = False, bold: bool = False, size: int = 9, color: str | None = None) -> tk.Label:
@@ -143,42 +248,22 @@ def _button(parent: tk.Misc, text: str, command: Callable[[], None] | None = Non
     )
 
 
-def _field(parent: tk.Misc, textvariable: tk.Variable, *, width: int = 9, spin: bool = False, **spin_kw):
-    common = dict(
+def _field(parent: tk.Misc, textvariable: tk.Variable, *, width: int = 9, **spin_kw) -> tk.Spinbox:
+    return tk.Spinbox(
+        parent,
         textvariable=textvariable,
         width=width,
         bg=_FIELD,
         fg=_TEXT,
         insertbackground=_TEXT,
+        buttonbackground=_PANEL_2,
         relief="flat",
         bd=1,
         highlightthickness=1,
         highlightbackground=_BORDER,
         highlightcolor=_ACCENT,
         font=("Segoe UI", 9),
-    )
-    if spin:
-        return tk.Spinbox(parent, buttonbackground=_PANEL_2, **common, **spin_kw)
-    return tk.Entry(parent, **common)
-
-
-def _radio(parent: tk.Misc, text: str, variable: tk.StringVar, value: str, command: Callable[[], None]) -> tk.Radiobutton:
-    return tk.Radiobutton(
-        parent,
-        text=text,
-        variable=variable,
-        value=value,
-        command=command,
-        bg=parent.cget("bg"),
-        fg=_TEXT,
-        activebackground=parent.cget("bg"),
-        activeforeground=_TEXT,
-        selectcolor=_FIELD,
-        font=("Segoe UI", 9, "bold"),
-        relief="flat",
-        bd=0,
-        anchor="w",
-        justify="left",
+        **spin_kw,
     )
 
 
@@ -237,8 +322,8 @@ def _normalize_roster_context(roster_context: Any) -> list[dict]:
             char_id = int(raw.get("char_id") or raw.get("id") or 0)
         except Exception:
             char_id = 0
-        labels = []
-        seen_labels = set()
+        labels: list[str] = []
+        seen_labels: set[str] = set()
         for label in list(raw.get("labels") or []):
             label = _clean_label(label)
             key = label.casefold()
@@ -261,11 +346,10 @@ def open_megacrash_trainer_window(
     save_func: Callable[[dict], None] | None = None,
     roster_context: list[dict] | Callable[[], list[dict]] | None = None,
 ) -> None:
-    """Open Megacrash controls with roster-scoped label selection."""
+    """Open the unified five-setting Megacrash trainer."""
 
     def _show(root: tk.Tk) -> None:
         global _OPEN_WINDOW
-
         try:
             if _OPEN_WINDOW is not None and bool(_OPEN_WINDOW.winfo_exists()):
                 _OPEN_WINDOW.lift()
@@ -290,10 +374,9 @@ def open_megacrash_trainer_window(
         _OPEN_WINDOW = win
         win.title("Megacrash Trainer")
         win.configure(bg=_BG)
-        win.minsize(690, 620)
+        win.minsize(700, 540)
         apply_titlebar_icon(win, root)
         _configure_combo_style(win)
-
         try:
             win.attributes("-topmost", True)
             win.after(300, lambda: win.attributes("-topmost", False))
@@ -301,13 +384,12 @@ def open_megacrash_trainer_window(
             pass
 
         enabled_var = tk.BooleanVar(value=bool(state.get("enabled", False)))
-        mode_var = tk.StringVar(value=_clean_mode(state.get("mode", _MODE_PERCENT)))
-        chance_var = tk.StringVar(value=str(_clamp_int(state.get("chance", 0), 0, 0, 100)))
-        delay_var = tk.StringVar(value=str(_clamp_int(state.get("delay_frames", 0), 0, 0, 300)))
-        cooldown_var = tk.StringVar(value=_format_seconds(state.get("cooldown_sec", 2.0)))
-        scope_var = tk.StringVar(value=_clean_scope(state.get("attacker_scope", _SCOPE_ANY)))
-        label_var = tk.StringVar(value=_clean_label(state.get("target_label", "")))
-        occurrence_var = tk.StringVar(value=str(_clamp_int(state.get("target_occurrence", 1), 1, 1, 99)))
+        chance_var = tk.StringVar(value=str(_clamp_int(state.get("chance", _DEFAULT_CHANCE), _DEFAULT_CHANCE, 0, 100)))
+        delay_var = tk.StringVar(value=str(_clamp_int(state.get("delay_frames", _DEFAULT_DELAY_FRAMES), _DEFAULT_DELAY_FRAMES, 0, 300)))
+        cooldown_var = tk.StringVar(value=_format_seconds(state.get("cooldown_sec", _DEFAULT_COOLDOWN_SEC)))
+        scope_var = tk.StringVar(value=_clean_scope(state.get("attacker_scope", _DEFAULT_SCOPE)))
+        label_var = tk.StringVar(value=_clean_label(state.get("target_label", _DEFAULT_LABEL)))
+        occurrence_var = tk.StringVar(value=str(_clamp_int(state.get("target_occurrence", _DEFAULT_OCCURRENCE), _DEFAULT_OCCURRENCE, 1, 99)))
         status_var = tk.StringVar(value=_state_label(state, scope_display))
         target_status_var = tk.StringVar(value="")
         match_status_var = tk.StringVar(value="")
@@ -321,10 +403,6 @@ def open_megacrash_trainer_window(
         header = tk.Frame(root_frame, bg=_BG)
         header.pack(fill="x")
         _label(header, "Megacrash Trainer", bold=True, size=15).pack(side="left")
-
-        # This is intentionally a large, stateful control instead of a tiny title-bar
-        # checkbox. Megacrash has an immediate gameplay effect, so its armed state
-        # needs to be impossible to miss at a glance.
         enabled_btn = tk.Button(
             header,
             text="",
@@ -349,104 +427,85 @@ def open_megacrash_trainer_window(
 
         _label(
             root_frame,
-            "Point-vs-point trainer. Airborne and grounded hit-reaction states are both eligible. The selected roster slot must be the active point when its matching label appears.",
+            "One route only: when the selected occurrence lands, the trainer rolls the chance; a success forces Megacrash after the selected delay. Each crash then observes the selected cooldown. Arm it, then set the five items below.",
             muted=True,
         ).pack(fill="x", pady=(4, 12))
 
-        target_card = _card(root_frame, alt=True)
-        target_card.pack(fill="x", pady=(0, 10))
-        target = target_card.inner  # type: ignore[attr-defined]
-        _label(target, "Trigger source", bold=True, size=10).grid(row=0, column=0, sticky="w", columnspan=4)
-        _label(
-            target,
-            "Choose which roster character can arm the burst, then choose one of that character’s known labels. Labels are selectable only; no free typing.",
-            muted=True,
-        ).grid(row=1, column=0, sticky="w", columnspan=4, pady=(2, 9))
+        settings_card = _card(root_frame, alt=True)
+        settings_card.pack(fill="x", pady=(0, 10))
+        settings = settings_card.inner  # type: ignore[attr-defined]
+        _label(settings, "1. Character and label", bold=True, size=10).grid(row=0, column=0, sticky="w", columnspan=4)
+        _label(settings, "Character", muted=True).grid(row=1, column=0, sticky="w", padx=(0, 8), pady=(8, 6))
 
-        _label(target, "Attacker", muted=True).grid(row=2, column=0, sticky="w", padx=(0, 8))
         scope_choices = ["Any active point"] + [entry["display"] for entry in roster]
         display_to_scope = {"Any active point": _SCOPE_ANY}
         display_to_scope.update({entry["display"]: entry["scope"] for entry in roster})
         scope_to_display = {value: key for key, value in display_to_scope.items()}
         scope_display_var = tk.StringVar(value=scope_to_display.get(scope_var.get(), "Any active point"))
-        scope_combo = ttk.Combobox(target, textvariable=scope_display_var, values=scope_choices, state="readonly", style="Megacrash.TCombobox", width=28)
-        scope_combo.grid(row=2, column=1, sticky="ew", pady=(0, 6))
+        scope_combo = ttk.Combobox(settings, textvariable=scope_display_var, values=scope_choices, state="readonly", style="Megacrash.TCombobox", width=28)
+        scope_combo.grid(row=1, column=1, sticky="ew", pady=(8, 6))
 
-        _label(target, "Label", muted=True).grid(row=3, column=0, sticky="w", padx=(0, 8))
+        _label(settings, "Label", muted=True).grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(0, 10))
         label_display_var = tk.StringVar(value="Any label")
-        label_combo = ttk.Combobox(target, textvariable=label_display_var, values=["Any label"], state="readonly", style="Megacrash.TCombobox", width=40)
-        label_combo.grid(row=3, column=1, columnspan=2, sticky="ew", pady=(0, 6))
-        refresh_btn = _button(target, "Refresh roster", width=12)
-        refresh_btn.grid(row=3, column=3, sticky="e", padx=(8, 0), pady=(0, 6))
+        label_combo = ttk.Combobox(settings, textvariable=label_display_var, values=["Any label"], state="readonly", style="Megacrash.TCombobox", width=42)
+        label_combo.grid(row=2, column=1, columnspan=2, sticky="ew", pady=(0, 10))
+        refresh_btn = _button(settings, "Refresh roster", width=12)
+        refresh_btn.grid(row=2, column=3, sticky="e", padx=(8, 0), pady=(0, 10))
 
-        _label(target, "Trigger on", muted=True).grid(row=4, column=0, sticky="w", padx=(0, 8))
-        occurrence_row = tk.Frame(target, bg=_PANEL_ALT)
-        occurrence_row.grid(row=4, column=1, sticky="w")
-        occurrence_spin = _field(occurrence_row, occurrence_var, width=5, spin=True, from_=1, to=99, increment=1)
+        _label(settings, "2. Occurrence", bold=True, size=10).grid(row=3, column=0, sticky="w", padx=(0, 8), pady=(4, 5))
+        occurrence_row = tk.Frame(settings, bg=_PANEL_ALT)
+        occurrence_row.grid(row=3, column=1, sticky="w", pady=(4, 5))
+        occurrence_spin = _field(occurrence_row, occurrence_var, width=5, from_=1, to=99, increment=1)
         occurrence_spin.pack(side="left")
-        _label(occurrence_row, "matching hit count in this combo", muted=True).pack(side="left", padx=(8, 0))
+        occurrence_desc = _label(occurrence_row, "matching hit of the selected label in this combo", muted=True)
+        occurrence_desc.pack(side="left", padx=(8, 0))
 
-        current_lbl = _label(target, "", muted=True)
+        _label(settings, "3. Chance", bold=True, size=10).grid(row=4, column=0, sticky="w", padx=(0, 8), pady=(5, 5))
+        chance_row = tk.Frame(settings, bg=_PANEL_ALT)
+        chance_row.grid(row=4, column=1, sticky="w", pady=(5, 5))
+        chance_spin = _field(chance_row, chance_var, width=7, from_=0, to=100, increment=1)
+        chance_spin.pack(side="left")
+        _label(chance_row, "% chance the crash occurs", muted=True).pack(side="left", padx=(8, 0))
+
+        _label(settings, "4. Crash delay", bold=True, size=10).grid(row=5, column=0, sticky="w", padx=(0, 8), pady=(5, 0))
+        delay_row = tk.Frame(settings, bg=_PANEL_ALT)
+        delay_row.grid(row=5, column=1, sticky="w", pady=(5, 0))
+        delay_spin = _field(delay_row, delay_var, width=7, from_=0, to=300, increment=1)
+        delay_spin.pack(side="left")
+        _label(delay_row, "frames after a successful roll", muted=True).pack(side="left", padx=(8, 0))
+
+        _label(settings, "5. Cooldown", bold=True, size=10).grid(row=6, column=0, sticky="w", padx=(0, 8), pady=(5, 0))
+        cooldown_row = tk.Frame(settings, bg=_PANEL_ALT)
+        cooldown_row.grid(row=6, column=1, sticky="w", pady=(5, 0))
+        cooldown_spin = _field(cooldown_row, cooldown_var, width=7, from_=0.0, to=60.0, increment=0.25)
+        cooldown_spin.pack(side="left")
+        _label(cooldown_row, "seconds after each forced crash", muted=True).pack(side="left", padx=(8, 0))
+
+        settings.grid_columnconfigure(1, weight=1)
+        settings.grid_columnconfigure(2, weight=1)
+
+        live_card = _card(root_frame)
+        live_card.pack(fill="x", pady=(0, 10))
+        live = live_card.inner  # type: ignore[attr-defined]
+        current_lbl = _label(live, "", muted=True)
         current_lbl.configure(textvariable=target_status_var)
-        current_lbl.grid(row=5, column=0, sticky="w", columnspan=4, pady=(8, 0))
-        match_lbl = _label(target, "", muted=True, color=_GOOD)
+        current_lbl.pack(fill="x")
+        match_lbl = _label(live, "", muted=True, color=_GOOD)
         match_lbl.configure(textvariable=match_status_var)
-        match_lbl.grid(row=6, column=0, sticky="w", columnspan=4, pady=(3, 0))
-        target.grid_columnconfigure(1, weight=1)
-        target.grid_columnconfigure(2, weight=1)
-
-        mode_wrap = tk.Frame(root_frame, bg=_BG)
-        mode_wrap.pack(fill="x", pady=(0, 10))
-
-        left_card = _card(mode_wrap)
-        left_card.pack(side="left", fill="both", expand=True, padx=(0, 6))
-        left = left_card.inner  # type: ignore[attr-defined]
-        _radio(left, "Random roll", mode_var, _MODE_PERCENT, lambda: _apply()).pack(anchor="w")
-        _label(left, "Roll once when the selected label reaches the chosen matching-hit count in the same combo. Multi-hit labels add every hit; other labels do not reset this total.", muted=True).pack(anchor="w", pady=(2, 8))
-        chance_row = tk.Frame(left, bg=_PANEL)
-        chance_row.pack(fill="x")
-        _label(chance_row, "Chance", muted=True).pack(side="left")
-        chance_spin = _field(chance_row, chance_var, width=7, spin=True, from_=0, to=100, increment=1)
-        chance_spin.pack(side="left", padx=(8, 4))
-        _label(chance_row, "%", muted=True).pack(side="left")
-        presets = tk.Frame(left, bg=_PANEL)
-        presets.pack(fill="x", pady=(8, 0))
-        for idx, preset in enumerate(_CHANCE_PRESETS):
-            _button(presets, str(preset), lambda v=preset: (chance_var.set(str(v)), mode_var.set(_MODE_PERCENT), _apply()), width=3).grid(row=idx // 5, column=idx % 5, padx=(0, 4), pady=(0, 4), sticky="w")
-
-        right_card = _card(mode_wrap)
-        right_card.pack(side="left", fill="both", expand=True, padx=(6, 0))
-        right = right_card.inner  # type: ignore[attr-defined]
-        _radio(right, "Targeted delay", mode_var, _MODE_TARGETED, lambda: _apply()).pack(anchor="w")
-        _label(right, "Force a burst after the selected label reaches the chosen matching-hit count in the same combo.", muted=True).pack(anchor="w", pady=(2, 8))
-        delay_row = tk.Frame(right, bg=_PANEL)
-        delay_row.pack(fill="x")
-        _label(delay_row, "Delay", muted=True).pack(side="left")
-        delay_spin = _field(delay_row, delay_var, width=7, spin=True, from_=0, to=300, increment=1)
-        delay_spin.pack(side="left", padx=(8, 4))
-        _label(delay_row, "frames", muted=True).pack(side="left")
-        _label(right, "Cancels if the victim leaves any supported hit-reaction state first.", muted=True).pack(anchor="w", pady=(10, 0))
-
-        bottom_card = _card(root_frame)
-        bottom_card.pack(fill="x", pady=(0, 10))
-        bottom = bottom_card.inner  # type: ignore[attr-defined]
-        cd_row = tk.Frame(bottom, bg=_PANEL)
-        cd_row.pack(fill="x")
-        _label(cd_row, "Cooldown", bold=True, size=10).pack(side="left")
-        cooldown_spin = _field(cd_row, cooldown_var, width=7, spin=True, from_=0.0, to=60.0, increment=0.25)
-        cooldown_spin.pack(side="left", padx=(12, 4))
-        _label(cd_row, "seconds after each forced burst", muted=True).pack(side="left")
+        match_lbl.pack(fill="x", pady=(4, 0))
 
         status = _label(root_frame, "", muted=True)
         status.configure(textvariable=status_var)
         status.pack(fill="x", pady=(0, 10))
 
-        def _label_options_for_scope(scope: str) -> list[str]:
+        def _raw_labels_for_scope(scope: str) -> list[str]:
             if scope == _SCOPE_ANY:
-                return ["Any label"]
+                return [label for entry in roster for label in entry.get("labels", [])]
             entry = scope_to_entry.get(scope) or {}
-            labels = list(entry.get("labels") or [])
-            return ["Any label"] + labels
+            return list(entry.get("labels") or [])
+
+        def _label_options_for_scope(scope: str) -> list[str]:
+            return _ordered_label_choices(_raw_labels_for_scope(scope))
 
         def _refresh_label_choices(*, preserve: bool = True) -> None:
             scope = _clean_scope(scope_var.get())
@@ -456,7 +515,7 @@ def open_megacrash_trainer_window(
                 label_combo.configure(values=options)
             except Exception:
                 pass
-            if current and current in options:
+            if current and current in options and not _is_label_section_header(current):
                 label_display_var.set(current)
             else:
                 label_display_var.set("Any label")
@@ -466,7 +525,11 @@ def open_megacrash_trainer_window(
         def _refresh_target_copy() -> None:
             scope = _clean_scope(scope_var.get())
             label = _clean_label(label_var.get())
-            target_status_var.set(f"Armed source: {_scope_summary({'attacker_scope': scope}, scope_display)}  •  label: {_label_summary(label)}  •  count resets when the global combo counter returns to 0")
+            occurrence = _ordinal(occurrence_var.get())
+            target_status_var.set(
+                f"Route: {_scope_summary({'attacker_scope': scope}, scope_display)}  •  "
+                f"{_label_summary(label)}  •  {occurrence} matching hit in combo"
+            )
             count = _clamp_int(state.get("occurrence_counter", 0), 0, 0, 999)
             wanted = _clamp_int(occurrence_var.get(), 1, 1, 99)
             game_count = _clamp_int(state.get("live_combo_counter", 0), 0, 0, 255)
@@ -483,6 +546,8 @@ def open_megacrash_trainer_window(
                 state.setdefault("scheduled_triggers", {}).clear()
                 state.setdefault("match_occurrences", {}).clear()
                 state.setdefault("combo_counter_probes", {}).clear()
+                state.setdefault("victim_reaction_latches", {}).clear()
+                state.setdefault("opening_counter_acks", {}).clear()
                 state["global_combo_counter_probe"] = {"last": None, "seen_zero": False}
                 state["occurrence_counter"] = 0
                 state["live_combo_counter"] = 0
@@ -494,21 +559,25 @@ def open_megacrash_trainer_window(
         def _apply(*, reset_counts: bool = False) -> None:
             old_sig = (
                 bool(state.get("enabled", False)),
-                _clean_mode(state.get("mode", _MODE_PERCENT)),
                 _clean_scope(state.get("attacker_scope", _SCOPE_ANY)),
                 _clean_label(state.get("target_label", "")),
-                _clamp_int(state.get("target_occurrence", 1), 1, 1, 99),
+                _clamp_int(state.get("target_occurrence", _DEFAULT_OCCURRENCE), _DEFAULT_OCCURRENCE, 1, 99),
+                _clamp_int(state.get("chance", _DEFAULT_CHANCE), _DEFAULT_CHANCE, 0, 100),
+                _clamp_int(state.get("delay_frames", _DEFAULT_DELAY_FRAMES), _DEFAULT_DELAY_FRAMES, 0, 300),
+                _clamp_float(state.get("cooldown_sec", _DEFAULT_COOLDOWN_SEC), _DEFAULT_COOLDOWN_SEC, 0.0, 60.0),
             )
             new_scope = _clean_scope(scope_var.get())
-            new_label = "" if label_display_var.get() == "Any label" else _clean_label(label_display_var.get())
+            selected_label = label_display_var.get()
+            new_label = "" if selected_label == "Any label" or _is_label_section_header(selected_label) else _clean_label(selected_label)
             state["enabled"] = bool(enabled_var.get())
-            state["mode"] = _clean_mode(mode_var.get())
-            state["chance"] = _clamp_int(chance_var.get(), 0, 0, 100)
-            state["delay_frames"] = _clamp_int(delay_var.get(), 0, 0, 300)
-            state["cooldown_sec"] = _clamp_float(cooldown_var.get(), 2.0, 0.0, 60.0)
+            # Compatibility fields are intentionally normalized, not exposed.
+            state["mode"] = "combined"
+            state["cooldown_sec"] = _clamp_float(cooldown_var.get(), _DEFAULT_COOLDOWN_SEC, 0.0, 60.0)
+            state["chance"] = _clamp_int(chance_var.get(), _DEFAULT_CHANCE, 0, 100)
+            state["delay_frames"] = _clamp_int(delay_var.get(), _DEFAULT_DELAY_FRAMES, 0, 300)
             state["attacker_scope"] = new_scope
             state["target_label"] = new_label
-            state["target_occurrence"] = _clamp_int(occurrence_var.get(), 1, 1, 99)
+            state["target_occurrence"] = _clamp_int(occurrence_var.get(), _DEFAULT_OCCURRENCE, 1, 99)
             chance_var.set(str(state["chance"]))
             delay_var.set(str(state["delay_frames"]))
             cooldown_var.set(_format_seconds(state["cooldown_sec"]))
@@ -517,7 +586,8 @@ def open_megacrash_trainer_window(
 
             new_sig = (
                 bool(state.get("enabled", False)),
-                state["mode"], state["attacker_scope"], state["target_label"], state["target_occurrence"],
+                state["attacker_scope"], state["target_label"], state["target_occurrence"],
+                state["chance"], state["delay_frames"], state["cooldown_sec"],
             )
             if reset_counts or old_sig != new_sig or not state["enabled"]:
                 _reset_runtime_counts()
@@ -532,38 +602,47 @@ def open_megacrash_trainer_window(
             if armed:
                 enabled_btn.configure(
                     text="●  MEGACRASH ARMED\n    CLICK TO DISABLE",
-                    bg="#176B4C",
-                    fg="#F3FFF9",
-                    activebackground="#1D805C",
-                    activeforeground="#FFFFFF",
-                    highlightbackground="#53C992",
+                    bg="#176B4C", fg="#F3FFF9", activebackground="#1D805C",
+                    activeforeground="#FFFFFF", highlightbackground="#53C992",
                 )
             else:
                 enabled_btn.configure(
                     text="○  MEGACRASH OFF\n    CLICK TO ARM",
-                    bg="#2B3443",
-                    fg="#D7E1EE",
-                    activebackground="#3A495C",
-                    activeforeground="#FFFFFF",
-                    highlightbackground="#5A6B80",
+                    bg="#2B3443", fg="#D7E1EE", activebackground="#3A495C",
+                    activeforeground="#FFFFFF", highlightbackground="#5A6B80",
                 )
 
         def _toggle_enabled() -> None:
             enabled_var.set(not bool(enabled_var.get()))
             _apply(reset_counts=True)
 
-        def _arm_targeted_for_trigger_change() -> None:
-            'A new trigger source is an intentional deterministic setup.\n\n            Source changes should never leave the trainer silently using the\n            random-roll mode from a prior experiment. Random mode remains\n            available whenever the operator explicitly clicks its radio/preset.\n            '
-            mode_var.set(_MODE_TARGETED)
+        def _reset_to_defaults() -> None:
+            """Restore all five trainer settings immediately, preserving armed state."""
+            scope_var.set(_DEFAULT_SCOPE)
+            scope_display_var.set("Any active point")
+            label_var.set(_DEFAULT_LABEL)
+            label_display_var.set("Any label")
+            occurrence_var.set(str(_DEFAULT_OCCURRENCE))
+            chance_var.set(str(_DEFAULT_CHANCE))
+            delay_var.set(str(_DEFAULT_DELAY_FRAMES))
+            cooldown_var.set(_format_seconds(_DEFAULT_COOLDOWN_SEC))
+            _refresh_label_choices(preserve=False)
             _apply(reset_counts=True)
+            status_var.set("Defaults restored: Any active point • Any label • 1st occurrence • 100% • +5f • 3s cooldown.")
 
         def _on_scope_selected(_evt=None) -> None:
             scope_var.set(display_to_scope.get(scope_display_var.get(), _SCOPE_ANY))
             _refresh_label_choices(preserve=False)
-            _arm_targeted_for_trigger_change()
+            _apply(reset_counts=True)
 
         def _on_label_selected(_evt=None) -> None:
-            _arm_targeted_for_trigger_change()
+            # Native ttk comboboxes cannot make individual rows disabled.
+            # Treat category separators as display-only and snap back to the
+            # current real label if one is clicked or reached by keyboard.
+            if _is_label_section_header(label_display_var.get()):
+                label_display_var.set(_label_summary(label_var.get()))
+                return
+            _apply(reset_counts=True)
 
         def _refresh_roster() -> None:
             nonlocal roster, scope_to_entry, scope_display, scope_choices, display_to_scope, scope_to_display
@@ -586,21 +665,16 @@ def open_megacrash_trainer_window(
                 pass
             _refresh_label_choices(preserve=True)
             _apply(reset_counts=True)
-            status_var.set("Roster and label dropdowns refreshed from the live character slots.")
+            status_var.set("Roster and labels refreshed from the live character slots.")
 
         refresh_btn.configure(command=_refresh_roster)
         scope_combo.bind("<<ComboboxSelected>>", _on_scope_selected)
         label_combo.bind("<<ComboboxSelected>>", _on_label_selected)
         enabled_btn.configure(command=_toggle_enabled)
-        chance_spin.configure(command=lambda: _apply())
-        delay_spin.configure(command=lambda: _apply())
-        cooldown_spin.configure(command=lambda: _apply())
-        occurrence_spin.configure(command=_arm_targeted_for_trigger_change)
-        for widget in (chance_spin, delay_spin, cooldown_spin):
-            widget.bind("<Return>", lambda _e: _apply())
-            widget.bind("<FocusOut>", lambda _e: _apply())
-        occurrence_spin.bind("<Return>", lambda _e: _arm_targeted_for_trigger_change())
-        occurrence_spin.bind("<FocusOut>", lambda _e: _arm_targeted_for_trigger_change())
+        for widget in (occurrence_spin, chance_spin, delay_spin, cooldown_spin):
+            widget.configure(command=lambda: _apply(reset_counts=True))
+            widget.bind("<Return>", lambda _e: _apply(reset_counts=True))
+            widget.bind("<FocusOut>", lambda _e: _apply(reset_counts=True))
         win.bind("<Return>", lambda _e: _apply())
         win.bind("<Escape>", lambda _e: win.destroy())
 
@@ -624,7 +698,7 @@ def open_megacrash_trainer_window(
         buttons = tk.Frame(root_frame, bg=_BG)
         buttons.pack(fill="x", side="bottom")
         _button(buttons, "Apply", _apply, width=10, primary=True).pack(side="left")
-        _button(buttons, "Reset combo count", lambda: (_reset_runtime_counts(), _apply()), width=15).pack(side="left", padx=(8, 0))
+        _button(buttons, "Reset defaults", _reset_to_defaults, width=14).pack(side="left", padx=(8, 0))
         _button(buttons, "Close", lambda: (_apply(), win.destroy()), width=10).pack(side="right")
 
         def _on_close() -> None:
@@ -640,9 +714,9 @@ def open_megacrash_trainer_window(
         try:
             win.update_idletasks()
             req_w = max(700, int(win.winfo_reqwidth()) + 12)
-            req_h = max(650, int(win.winfo_reqheight()) + 12)
+            req_h = max(540, int(win.winfo_reqheight()) + 12)
             screen_h = int(win.winfo_screenheight())
-            win.geometry(f"{req_w}x{min(req_h, max(650, screen_h - 70))}")
+            win.geometry(f"{req_w}x{min(req_h, max(540, screen_h - 70))}")
         except Exception:
             pass
         scope_combo.focus_set()

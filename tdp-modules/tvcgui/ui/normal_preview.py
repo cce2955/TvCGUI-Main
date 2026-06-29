@@ -1180,8 +1180,6 @@ def draw_scan_normals_polished(
             interaction["rows"].append({"rect": row.copy(), "slot_label": slot_label, "key": row_key})
 
             label_col = GUI_TEXT if (is_current or is_selected) else (218, 224, 234)
-            label_s = _render_outlined_text(smallfont, label, label_col, (0, 0, 0), move_col_w - 20, outline_px=1)
-            surf.blit(label_s, (row.x + 6, row.y + (row.height - label_s.get_height()) // 2))
             role_tag = ""
             role_col = None
             if is_ladder_fast and is_ladder_damage:
@@ -1192,9 +1190,33 @@ def draw_scan_normals_polished(
                 role_tag, role_col = "D", (244, 194, 98)
             elif is_matchup:
                 role_tag, role_col = "=", (104, 211, 227)
+
+            # The move name is primary information.  The old renderer always
+            # reserved 20px for the optional F/D marker, which clipped j.A,
+            # j.B, and j.C to "j." on the compact four-card layout.  Render
+            # the full label first; draw a role marker only when it can fit in
+            # the remaining space without touching the label.
+            label_s = _render_outlined_text(
+                smallfont,
+                label,
+                label_col,
+                (0, 0, 0),
+                max(1, move_col_w - 10),
+                outline_px=1,
+            )
+            surf.blit(label_s, (row.x + 6, row.y + (row.height - label_s.get_height()) // 2))
+
             if role_tag:
                 tag_s = smallfont.render(role_tag, True, role_col)
-                surf.blit(tag_s, (row.x + move_col_w - tag_s.get_width() - 4, row.y + (row.height - tag_s.get_height()) // 2))
+                available_after_label = move_col_w - 10
+                if label_s.get_width() + tag_s.get_width() <= available_after_label:
+                    surf.blit(
+                        tag_s,
+                        (
+                            row.x + move_col_w - tag_s.get_width() - 4,
+                            row.y + (row.height - tag_s.get_height()) // 2,
+                        ),
+                    )
 
             startup = _normal_int(mv, "startup", "start", "active_start")
             a1 = _normal_int(mv, "active_start", "a_start")

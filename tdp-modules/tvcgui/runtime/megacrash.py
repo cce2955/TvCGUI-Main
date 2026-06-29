@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import random
 import time
 
@@ -29,12 +30,18 @@ TARGET_FPS = 60
 # hitstun when the opponent advances to a new combo label.
 MEGACRASH_MOVE_ID = 448
 MEGACRASH_TRAINER_CONFIG_FILE = user_data_path("training", "megacrash_trainer.json")
-MEGACRASH_TRAINER_DEFAULT_CHANCE = 0
-MEGACRASH_TRAINER_DEFAULT_MODE = "percent"
-MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES = 0
+MEGACRASH_TRAINER_DEFAULT_CHANCE = 100
+# One unified route: match -> occurrence -> chance -> delay -> Megacrash.
+# The legacy mode field remains only so old callers/configs do not break.
+MEGACRASH_TRAINER_DEFAULT_MODE = "combined"
+MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES = 5
 MEGACRASH_TRAINER_MAX_DELAY_FRAMES = 300
-MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC = 2.0
+MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC = 3.0
 MEGACRASH_TRAINER_MAX_COOLDOWN_SEC = 60.0
+# Older trainer builds stored a retired cooldown control. This marker makes
+# the newly restored unified setting start at its new 3-second default once,
+# while preserving any cooldown the user chooses in this version afterward.
+MEGACRASH_TRAINER_COOLDOWN_SCHEMA = 1
 MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL = ""
 MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE = "any"
 MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE = 1
@@ -326,36 +333,38 @@ def _megacrash_target_summary(value) -> str:
 
 
 def _normalize_megacrash_mode(value) -> str:
-    value = str(value or "").strip().lower()
-    if value in {"target", "targeted", "delay", "delayed"}:
-        return "targeted"
-    return "percent"
+    """Normalize legacy mode values into the unified trainer route.
+
+    Older configs offered mutually exclusive random and targeted modes.  The
+    trainer now always rolls the configured chance and, on success, waits the
+    configured frame delay, so old values intentionally collapse to one mode.
+    """
+    return "combined"
 
 
 def _megacrash_mode_summary(state: dict) -> str:
-    mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
-    cd = _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+    chance = _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
+    delay = _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
     target_txt = _megacrash_target_summary(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
     scope = _clean_megacrash_attacker_scope(state.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
     source_txt = "any point" if scope == MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE else scope.replace("slot:", "")
     nth = _clamp_megacrash_target_occurrence(state.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE))
-    cd_txt = f" cd {cd:g}s"
-    trigger_txt = f"{source_txt} {target_txt} #{nth}"
-    if mode == "targeted":
-        return f"{trigger_txt} +{_clamp_megacrash_delay_frames(state.get('delay_frames', 0))}f{cd_txt}"
-    return f"{trigger_txt} in combo • roll {_clamp_megacrash_chance(state.get('chance', MEGACRASH_TRAINER_DEFAULT_CHANCE))}%{cd_txt}"
+    cooldown = _clamp_megacrash_cooldown_sec(
+        state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)
+    )
+    return f"{source_txt} {target_txt} #{nth} • {chance}% • +{delay}f • {cooldown:g}s cooldown"
 
 
 def _load_megacrash_trainer_config() -> dict:
     cfg = {
-        # Safety rule: Megacrash never auto-enables on app startup.
-        # Persist trainer settings, but require an explicit ON click
-        # every run so an exported build or stale JSON cannot force bursts by
-        # surprise.
+        # Safety rule: Megacrash never auto-enables on app startup. Settings
+        # persist, but arming remains an explicit in-session action.
         "enabled": False,
         "mode": MEGACRASH_TRAINER_DEFAULT_MODE,
         "chance": MEGACRASH_TRAINER_DEFAULT_CHANCE,
         "delay_frames": MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES,
+        # A global post-crash lockout prevents a follow-up hit from
+        # immediately re-arming the trainer.
         "cooldown_sec": MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC,
         "target_label": MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL,
         "attacker_scope": MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE,
@@ -365,14 +374,14 @@ def _load_megacrash_trainer_config() -> dict:
         with open(MEGACRASH_TRAINER_CONFIG_FILE, "r", encoding="utf-8") as f:
             raw = json.load(f)
         if isinstance(raw, dict):
-            # Intentionally ignore raw["enabled"].  The trainer is always OFF
-            # at startup, even if the previous session exited while ON.
-            cfg["mode"] = _normalize_megacrash_mode(raw.get("mode", cfg["mode"]))
-            # Startup safety: Megacrash always launches OFF with a 0% random roll,
-            # even if an old config was saved at 25/50/100%.
-            cfg["chance"] = MEGACRASH_TRAINER_DEFAULT_CHANCE
+            # Do not restore raw["enabled"]. The trainer is always OFF after
+            # launch, but all four actual trainer settings are restored.
+            cfg["chance"] = _clamp_megacrash_chance(raw.get("chance", cfg["chance"]))
             cfg["delay_frames"] = _clamp_megacrash_delay_frames(raw.get("delay_frames", cfg["delay_frames"]))
-            cfg["cooldown_sec"] = _clamp_megacrash_cooldown_sec(raw.get("cooldown_sec", cfg["cooldown_sec"]))
+            # Do not resurrect a hidden cooldown from the retired split-mode
+            # trainer. Only cooldown values saved by this unified UI persist.
+            if int(raw.get("cooldown_schema", 0) or 0) >= MEGACRASH_TRAINER_COOLDOWN_SCHEMA:
+                cfg["cooldown_sec"] = _clamp_megacrash_cooldown_sec(raw.get("cooldown_sec", cfg["cooldown_sec"]))
             cfg["target_label"] = _clean_megacrash_target_label(raw.get("target_label", cfg["target_label"]))
             cfg["attacker_scope"] = _clean_megacrash_attacker_scope(raw.get("attacker_scope", cfg["attacker_scope"]))
             cfg["target_occurrence"] = _clamp_megacrash_target_occurrence(raw.get("target_occurrence", cfg["target_occurrence"]))
@@ -391,12 +400,9 @@ def _save_megacrash_trainer_config(state: dict) -> None:
             if isinstance(saved, dict) and saved:
                 save_src = saved
         payload = {
-            # Do not persist an enabled state. Megacrash must default OFF on
-            # every launch, while the rest of the trainer settings persist.
-            # Mission-scoped overrides are not persisted; save the selected
-            # pre-mission settings if the trainer window is opened mid-trial.
+            # The armed state never persists between app launches.
             "enabled": False,
-            "mode": _normalize_megacrash_mode(save_src.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
+            "cooldown_schema": MEGACRASH_TRAINER_COOLDOWN_SCHEMA,
             "chance": _clamp_megacrash_chance(save_src.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
             "delay_frames": _clamp_megacrash_delay_frames(save_src.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
             "cooldown_sec": _clamp_megacrash_cooldown_sec(save_src.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)),
@@ -421,13 +427,11 @@ def _extract_mission_megacrash_setup(payload: dict) -> dict:
         or payload.get("setup_megacrash_trainer")
         or {}
     )
-
     if not isinstance(raw, dict):
         return {}
 
     out = dict(raw)
     out["enabled"] = bool(out.get("enabled", True))
-    out["mode"] = _normalize_megacrash_mode(out.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
     out["chance"] = _clamp_megacrash_chance(out.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
     out["delay_frames"] = _clamp_megacrash_delay_frames(out.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
     out["cooldown_sec"] = _clamp_megacrash_cooldown_sec(out.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
@@ -444,6 +448,8 @@ def _clear_megacrash_runtime_state(state: dict) -> None:
         state.setdefault("scheduled_triggers", {}).clear()
         state.setdefault("match_occurrences", {}).clear()
         state.setdefault("combo_counter_probes", {}).clear()
+        state.setdefault("victim_reaction_latches", {}).clear()
+        state.setdefault("opening_counter_acks", {}).clear()
         state["global_combo_counter_probe"] = {"last": None, "seen_zero": False}
         state["occurrence_counter"] = 0
         state["live_combo_counter"] = 0
@@ -454,7 +460,7 @@ def _clear_megacrash_runtime_state(state: dict) -> None:
 
 
 def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
-    'Apply mission-scoped Megacrash Trainer setup, then restore operator settings.\n\n    Mission JSON can provide setup_megacrash_trainer.  This lets trials that\n    need a controlled burst turn the trainer on only while that mission is the\n    active mission.  It never persists enabled=True and it restores the selected\n    normal Megacrash settings when the mission changes or mission mode is off.\n    '
+    """Apply a mission-scoped unified Megacrash setup, then restore settings."""
     if not isinstance(state, dict):
         state = _load_megacrash_trainer_config()
 
@@ -468,7 +474,6 @@ def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
         )
 
     current_key = state.get("mission_override_key")
-
     if not setup:
         if current_key is not None:
             saved = state.pop("mission_saved_settings", {}) or {}
@@ -484,7 +489,6 @@ def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
     if current_key != mission_key:
         saved = {
             "enabled": bool(state.get("enabled", False)),
-            "mode": _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)),
             "chance": _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
             "delay_frames": _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
             "cooldown_sec": _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)),
@@ -498,17 +502,19 @@ def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
         _clear_megacrash_runtime_state(state)
         print(
             "[megacrash trainer] mission override "
-            f"{payload.get('active_mission_id')}: "
-            f"{setup.get('mode')} label={setup.get('target_label') or 'any'} "
-            f"+{setup.get('delay_frames')}f cd={setup.get('cooldown_sec')}s"
+            f"{payload.get('active_mission_id')}: label={setup.get('target_label') or 'any'} "
+            f"#{setup.get('target_occurrence')} {setup.get('chance')}% +{setup.get('delay_frames')}f "
+            f"cd={setup.get('cooldown_sec')}s"
         )
 
     state["mission_override_active"] = True
     state["enabled"] = bool(setup.get("enabled", True))
-    state["mode"] = _normalize_megacrash_mode(setup.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    state["mode"] = MEGACRASH_TRAINER_DEFAULT_MODE
     state["chance"] = _clamp_megacrash_chance(setup.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
     state["delay_frames"] = _clamp_megacrash_delay_frames(setup.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
-    state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(setup.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+    state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(
+        setup.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)
+    )
     state["target_label"] = _clean_megacrash_target_label(setup.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
     state["attacker_scope"] = _clean_megacrash_attacker_scope(setup.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
     state["target_occurrence"] = _clamp_megacrash_target_occurrence(setup.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE))
@@ -699,6 +705,52 @@ def _megacrash_combo_counter_probes(state: dict) -> dict:
     return current
 
 
+def _megacrash_reaction_latches(state: dict) -> dict:
+    """Return the per-victim hitstun edge records used for opening hits.
+
+    The global combo byte is useful for later repeated hits, but it is one
+    observation behind the actual contact on some normals.  This latch gives
+    the opening contact its own event at the victim's hitstun transition.
+    """
+    current = state.get("victim_reaction_latches") if isinstance(state, dict) else None
+    if not isinstance(current, dict):
+        current = {}
+        try:
+            state["victim_reaction_latches"] = current
+        except Exception:
+            pass
+    return current
+
+
+def _megacrash_opening_counter_acks(state: dict) -> dict:
+    """Counter acknowledgements for contacts already counted on hitstun entry.
+
+    The first later global-counter rise is confirmation of that opening hit,
+    not a second hit.  Holding this tiny acknowledgement prevents occurrence
+    2 from being reached by one physical hit.
+    """
+    current = state.get("opening_counter_acks") if isinstance(state, dict) else None
+    if not isinstance(current, dict):
+        current = {}
+        try:
+            state["opening_counter_acks"] = current
+        except Exception:
+            pass
+    return current
+
+
+def _megacrash_mark_reaction_edge(state: dict, victim_base: int | str | None, active: bool) -> bool:
+    """Update one victim latch and return True only on hitstun entry."""
+    key = _megacrash_occurrence_key(victim_base)
+    latches = _megacrash_reaction_latches(state)
+    was_active = bool(latches.get(key, False))
+    if active:
+        latches[key] = True
+    else:
+        latches.pop(key, None)
+    return bool(active and not was_active)
+
+
 def _megacrash_global_combo_probe(state: dict) -> dict:
     """Return the single global combo-counter probe record."""
     probe = state.get("global_combo_counter_probe") if isinstance(state, dict) else None
@@ -716,6 +768,7 @@ def _megacrash_reset_occurrences_for_global_combo_end(state: dict) -> None:
     try:
         state.setdefault("match_occurrences", {}).clear()
         state.setdefault("last_combo_keys", {}).clear()
+        state.setdefault("opening_counter_acks", {}).clear()
         state["occurrence_counter"] = 0
         state["last_matching_label"] = ""
         state["last_matching_combo_base"] = ""
@@ -730,8 +783,8 @@ def _megacrash_read_global_combo_counter(state: dict, *, consume_only: bool = Fa
     A rising counter means one or more actual hits occurred.  ``delta`` is
     deliberately preserved: multi-hit labels such as Shinkuu contribute every
     hit, while a label that reappears after another label continues adding to
-    its existing per-combo total.  The first read while already mid-combo is
-    only a baseline; it does not retroactively count unknown earlier hits.
+    its existing per-combo total.  A nonzero first read is treated as live so
+    arming between polls cannot discard the combo's opening hit.
     """
     probe = _megacrash_global_combo_probe(state)
     try:
@@ -754,10 +807,17 @@ def _megacrash_read_global_combo_counter(state: dict, *, consume_only: bool = Fa
     delta = 0
     baseline = previous is None
     if previous is None:
-        # The initial read only arms the tracker. If it is zero, the next rise
-        # belongs to a fresh combo; if it is already nonzero, avoid assigning
-        # earlier unseen hits to whichever label happens to be on screen.
+        # The trainer can be armed between polling ticks.  Do not throw away a
+        # live nonzero counter on that first read: doing so made hit 2 become
+        # the apparent "1st occurrence" whenever hit 1 landed before the
+        # tracker had established its idle-zero baseline.  A fresh nonzero
+        # value is therefore a real event immediately, with its existing
+        # counter value preserved as the hit delta.
         probe["seen_zero"] = bool(current == 0)
+        if current > 0:
+            fresh = True
+            delta = int(current)
+            probe["seen_zero"] = False
     elif current == 0:
         reset = bool(previous != 0)
         probe["seen_zero"] = True
@@ -877,12 +937,20 @@ def _megacrash_clear_finished_combo_occurrences(state: dict, snaps: dict) -> Non
         if base and (_snap_is_hitstun_primary(_snap) or _snap_primary_action_id(_snap) == MEGACRASH_MOVE_ID):
             live_bases.add(_megacrash_occurrence_key(base))
     probes = _megacrash_combo_counter_probes(state)
+    reaction_latches = _megacrash_reaction_latches(state)
+    opening_acks = _megacrash_opening_counter_acks(state)
     for key in list(occurrences):
         if str(key) not in live_bases:
             occurrences.pop(key, None)
     for key in list(probes):
         if str(key) not in live_bases:
             probes.pop(key, None)
+    for key in list(reaction_latches):
+        if str(key) not in live_bases:
+            reaction_latches.pop(key, None)
+    for key in list(opening_acks):
+        if str(key) not in live_bases:
+            opening_acks.pop(key, None)
     if not live_bases:
         state["live_combo_counter"] = 0
         state["live_combo_counter_source"] = ""
@@ -947,17 +1015,6 @@ def _start_megacrash_trainer_pulse(state: dict, vic_snap: dict, now: float, reas
             pass
         return False
 
-    mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
-    chance = _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
-    if mode == "percent" and chance <= 0:
-        try:
-            state.setdefault("pulses", {}).clear()
-            state.setdefault("scheduled_triggers", {}).clear()
-            state["cooldown_until"] = 0.0
-        except Exception:
-            pass
-        return False
-
     base = 0
     try:
         base = int(vic_snap.get("base") or 0)
@@ -983,7 +1040,12 @@ def _start_megacrash_trainer_pulse(state: dict, vic_snap: dict, now: float, reas
 
     if wrote_any:
         slot = str(vic_snap.get("slotname") or vic_snap.get("slot_label") or "?")
-        cooldown_sec = _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+        # Start the global lockout only after the game accepted the forced
+        # Megacrash write. Delayed schedules therefore still wait their full
+        # selected frame count before cooldown begins.
+        cooldown_sec = _clamp_megacrash_cooldown_sec(
+            state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)
+        )
         state["cooldown_until"] = now + cooldown_sec if cooldown_sec > 0.0 else 0.0
         try:
             state.setdefault("scheduled_triggers", {}).clear()
@@ -1010,16 +1072,20 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         state = {}
 
     state.setdefault("enabled", False)
-    state["mode"] = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
+    state["mode"] = MEGACRASH_TRAINER_DEFAULT_MODE
     state["chance"] = _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
     state["delay_frames"] = _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
-    state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC))
+    state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(
+        state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)
+    )
     state["target_label"] = _clean_megacrash_target_label(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
     state["attacker_scope"] = _clean_megacrash_attacker_scope(state.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
     state["target_occurrence"] = _clamp_megacrash_target_occurrence(state.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE))
     state.setdefault("occurrence_counter", 0)
     state.setdefault("match_occurrences", {})
     state.setdefault("combo_counter_probes", {})
+    state.setdefault("victim_reaction_latches", {})
+    state.setdefault("opening_counter_acks", {})
     state.setdefault("global_combo_counter_probe", {"last": None, "seen_zero": False})
     state.setdefault("live_combo_counter", 0)
     state.setdefault("live_combo_counter_source", "")
@@ -1051,16 +1117,7 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
             pass
         return state
 
-    mode = _normalize_megacrash_mode(state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE))
     chance = state["chance"]
-    if mode == "percent" and chance <= 0:
-        try:
-            pulses.clear()
-            scheduled.clear()
-            state["cooldown_until"] = 0.0
-        except Exception:
-            pass
-        return state
 
     snaps = snaps or {}
     snaps_by_base = {}
@@ -1114,16 +1171,30 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
 
     cooldown_remaining = _megacrash_cooldown_remaining(state, now)
     if cooldown_remaining > 0.0:
-        # While cooling down, do not roll or fire scheduled bursts.  Consume the
-        # currently visible combo labels so the trainer waits for a truly new
-        # attacker label after the cooldown expires.
+        # A forced Megacrash owns the trainer globally for this interval.
+        # Drop deferred bursts, consume visible labels/counter movement, and
+        # keep hitstun-edge latches current so a combo that began during the
+        # lockout cannot become a late "first hit" when it expires.
         scheduled.clear()
         _megacrash_mark_visible_combo_keys(snaps, last_keys)
+        for _teamtag in ("P1", "P2"):
+            _vic_slot = _team_point_slot_for_megacrash(_teamtag, snaps)
+            _vic_snap = snaps.get(_vic_slot) if _vic_slot else None
+            if not isinstance(_vic_snap, dict):
+                continue
+            try:
+                _vic_base = int(_vic_snap.get("base") or 0)
+            except Exception:
+                _vic_base = 0
+            if _vic_base:
+                _megacrash_mark_reaction_edge(
+                    state, _vic_base, _snap_is_hitstun_primary(_vic_snap)
+                )
         _megacrash_prime_live_combo_counters(state, snaps)
         _megacrash_clear_finished_combo_occurrences(state, snaps)
         return state
 
-    # Process targeted delayed-burst schedules. A schedule is tied to the victim
+    # Process delayed-burst schedules. A schedule is tied to the victim
     # point base and only fires if that same point is still in primary hitstun.
     for base, pending in list(scheduled.items()):
         try:
@@ -1157,9 +1228,14 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         if not due:
             continue
 
-        reason = str(pending.get("reason") or "targeted delayed label")
+        reason = str(pending.get("reason") or "delayed matching label")
         _start_megacrash_trainer_pulse(state, live_snap, now, reason=reason)
         scheduled.pop(base, None)
+        if _megacrash_cooldown_remaining(state, now) > 0.0:
+            scheduled.clear()
+            _megacrash_mark_visible_combo_keys(snaps, last_keys)
+            _megacrash_clear_finished_combo_occurrences(state, snaps)
+            return state
 
     # Trainer logic is team-point vs team-point.  Assists/projectiles are not
     # allowed to become the attacker key or the victim target.  A roll happens
@@ -1167,6 +1243,10 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
     # hitstun; the same label cannot roll again until the attacker label changes
     # or the victim leaves hitstun and starts a new hitstun sequence.
     for teamtag in ("P1", "P2"):
+        if _megacrash_cooldown_remaining(state, now) > 0.0:
+            # An immediate 0f trigger on the other side already fired this
+            # tick. Do not schedule/roll a second burst before its lockout.
+            break
         vic_slot = _team_point_slot_for_megacrash(teamtag, snaps)
         if not vic_slot:
             continue
@@ -1191,11 +1271,19 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
             continue
 
         if not _snap_is_hitstun_primary(vic_snap):
+            _megacrash_mark_reaction_edge(state, base, False)
             last_keys.pop(base, None)
             _megacrash_combo_occurrences(state).pop(_megacrash_occurrence_key(base), None)
             _megacrash_combo_counter_probes(state).pop(_megacrash_occurrence_key(base), None)
+            _megacrash_opening_counter_acks(state).pop(_megacrash_occurrence_key(base), None)
             _megacrash_refresh_occurrence_display(state)
             continue
+
+        # Count the opening impact at the victim's real hitstun entry.  The
+        # global combo byte commonly reports that same contact a tick later;
+        # using only that byte made a starting 2A become "occurrence 0" and
+        # pushed a 1st-occurrence trigger to the next 2A.
+        victim_hitstun_edge = _megacrash_mark_reaction_edge(state, base, True)
 
         atk_team = _opponent_teamtag(teamtag)
         atk_slot = _team_point_slot_for_megacrash(atk_team, snaps)
@@ -1225,46 +1313,10 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         if combo_key is None:
             continue
 
-        # Global counter path: every rising edge is a real hit. Consume it on
-        # the first valid point-vs-point pair, *before* filtering the chosen
-        # character/label. That is what lets 2A -> 2B -> 2A keep 2A's old total
-        # while preventing the 2B hits from being misattributed to the later 2A.
-        using_global_counter = bool(
-            isinstance(global_combo_event, dict)
-            and bool(global_combo_event.get("fresh", False))
-            and not global_combo_event_used
-        )
-        if isinstance(global_combo_event, dict) and bool(global_combo_event.get("fresh", False)) and global_combo_event_used:
-            # One global hit stream can only belong to one point-vs-point pair.
-            continue
-
-        if using_global_counter:
-            global_combo_event_used = True
-            hit_delta = max(1, int(global_combo_event.get("delta", 1) or 1))
-            last_keys[base] = tuple(combo_key) + ("global_combo_counter", int(global_combo_event.get("value", 0) or 0))
-            if not _megacrash_attacker_scope_matches(state, atk_slot, atk_snap):
-                continue
-            if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
-                continue
-        else:
-            # Read failure fallback: still allow the previous label-change path
-            # rather than making the trainer dead if the global byte is absent.
-            if isinstance(global_combo_event, dict):
-                continue
-            if not _megacrash_attacker_scope_matches(state, atk_slot, atk_snap):
-                continue
-            if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
-                continue
-            if last_keys.get(base) == combo_key:
-                continue
-            last_keys[base] = combo_key
-            hit_delta = 1
-
         # Count matching *hits* inside this victim's current combo only.
-        # The count starts at global counter reset / combo end. Each selected
-        # label contributes every one of its hit increments; other labels are
-        # consumed but do not change this selected-label total. Once the Nth
-        # matching hit is reached, that combo is consumed.
+        # The opening hit is anchored to the victim's hitstun edge; later hits
+        # stay on the global confirmed counter.  This keeps label selection and
+        # occurrence selection on the same physical hit.
         occurrence_target = _clamp_megacrash_target_occurrence(state.get("target_occurrence", 1))
         occurrence_key = _megacrash_occurrence_key(base)
         occurrences = _megacrash_combo_occurrences(state)
@@ -1272,6 +1324,84 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         if not isinstance(combo_occurrence, dict):
             combo_occurrence = {"count": 0, "triggered": False}
             occurrences[occurrence_key] = combo_occurrence
+        opening_acks = _megacrash_opening_counter_acks(state)
+        opening_contact = bool(victim_hitstun_edge and not combo_occurrence.get("triggered", False)
+                               and int(combo_occurrence.get("count", 0) or 0) == 0)
+        counter_source = ""
+
+        if opening_contact:
+            # Register the physical opening impact now.  If the global byte has
+            # already moved this tick, consume that movement as the same hit;
+            # otherwise its next rise is an acknowledgement and gets removed
+            # from the later-hit stream below.
+            if isinstance(global_combo_event, dict) and bool(global_combo_event.get("fresh", False)) and not global_combo_event_used:
+                global_combo_event_used = True
+            else:
+                try:
+                    current_global = int((global_combo_event or {}).get("value", 0) or 0)
+                except Exception:
+                    current_global = 0
+                if current_global <= 0:
+                    opening_acks[occurrence_key] = {
+                        "attacker_base": str(atk_snap.get("base") or atk_slot),
+                        "attacker_slot": str(atk_slot),
+                    }
+
+            last_keys[base] = tuple(combo_key) + ("reaction_entry",)
+            if not _megacrash_attacker_scope_matches(state, atk_slot, atk_snap):
+                continue
+            if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
+                continue
+            hit_delta = 1
+            counter_source = "victim hitstun entry"
+        else:
+            # Global counter path: every later rise is a real follow-up hit.
+            # Consume it before the filter so an intervening 2B cannot be
+            # attributed to a later 2A.
+            using_global_counter = bool(
+                isinstance(global_combo_event, dict)
+                and bool(global_combo_event.get("fresh", False))
+                and not global_combo_event_used
+            )
+            if isinstance(global_combo_event, dict) and bool(global_combo_event.get("fresh", False)) and global_combo_event_used:
+                continue
+
+            if using_global_counter:
+                global_combo_event_used = True
+                hit_delta = max(1, int(global_combo_event.get("delta", 1) or 1))
+                last_keys[base] = tuple(combo_key) + ("global_combo_counter", int(global_combo_event.get("value", 0) or 0))
+
+                # The first counter rise after the edge confirms the opening
+                # contact already counted above.  Remove exactly one count;
+                # any remaining delta is a real later hit that happened between
+                # polling ticks.
+                opening_ack = opening_acks.pop(occurrence_key, None)
+                if isinstance(opening_ack, dict):
+                    hit_delta = max(0, int(hit_delta) - 1)
+                if hit_delta <= 0:
+                    continue
+
+                if not _megacrash_attacker_scope_matches(state, atk_slot, atk_snap):
+                    continue
+                if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
+                    continue
+                counter_source = str(global_combo_event.get("source") or "global combo counter")
+            else:
+                # Read failure fallback: still allow the previous label-change
+                # path rather than making the trainer dead if the counter is
+                # unavailable.  Do not use it while a live global source merely
+                # has no new hit; that would turn startup animation into a hit.
+                if isinstance(global_combo_event, dict):
+                    continue
+                if not _megacrash_attacker_scope_matches(state, atk_slot, atk_snap):
+                    continue
+                if not _megacrash_label_matches(state.get("target_label", ""), atk_label, atk_id):
+                    continue
+                if last_keys.get(base) == combo_key:
+                    continue
+                last_keys[base] = combo_key
+                hit_delta = 1
+                counter_source = "label fallback"
 
         if bool(combo_occurrence.get("triggered", False)):
             # This combo already reached its selected trigger point. Wait for
@@ -1285,7 +1415,7 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
             "label": str(atk_label or atk_id),
             "last_combo_key": tuple(combo_key),
             "last_hit_delta": max(1, int(hit_delta or 1)),
-            "counter_source": str((global_combo_event or {}).get("source") or "label fallback"),
+            "counter_source": counter_source or str((global_combo_event or {}).get("source") or "label fallback"),
         })
         state["last_matching_label"] = str(atk_label or atk_id)
         state["last_matching_combo_base"] = occurrence_key
@@ -1299,33 +1429,35 @@ def _tick_megacrash_trainer(state: dict, snaps: dict, now: float, frame_idx: int
         combo_occurrence["triggered_at"] = occurrence_counter
         _megacrash_refresh_occurrence_display(state)
 
-        if mode == "targeted":
-            delay_frames = _clamp_megacrash_delay_frames(state.get("delay_frames", 0))
-            fire_frame = int(frame_idx or 0) + delay_frames
-            scheduled[base] = {
-                "slot": str(vic_snap.get("slotname") or vic_slot),
-                "attacker": str(atk_slot),
-                "label": str(atk_label or atk_id),
-                "fire_frame": fire_frame,
-                "fire_time": now + (delay_frames / float(TARGET_FPS)),
-                "reason": f"{atk_slot} {atk_label or atk_id} matching-hit #{occurrence_counter} in combo +{delay_frames}f",
-            }
-            state["roll_count"] = int(state.get("roll_count", 0) or 0) + 1
-            if int(state.get("roll_count", 0) or 0) % 20 == 1:
-                print(f"[megacrash trainer] schedule {vic_slot}: {atk_slot} {atk_label or atk_id} +{delay_frames}f")
-            continue
-
-        # Use random.random()*100 and a strict < comparison so 0% can never
-        # pass, while 100% still always passes.
+        # One unified route: reaching the selected occurrence rolls the configured
+        # chance exactly once. A successful roll either crashes immediately (0f)
+        # or schedules the same crash after the configured delay.
         roll = random.random() * 100.0
         state["roll_count"] = int(state.get("roll_count", 0) or 0) + 1
-        if chance > 0 and roll < float(chance):
-            reason = f"{atk_slot} {atk_label or atk_id} nth-in-combo roll {roll:.1f}<{chance}%"
+        if chance <= 0 or roll >= float(chance):
+            if int(state.get("roll_count", 0) or 0) % 20 == 0:
+                print(f"[megacrash trainer] roll skip {atk_slot} {atk_label or atk_id}: {roll:.1f}>={chance}%")
+            continue
+
+        delay_frames = _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
+        reason = (
+            f"{atk_slot} {atk_label or atk_id} matching-hit #{occurrence_counter} "
+            f"roll {roll:.1f}<{chance}% +{delay_frames}f"
+        )
+        if delay_frames <= 0:
             _start_megacrash_trainer_pulse(state, vic_snap, now, reason=reason)
-        else:
-            if frame_idx_mod := int(state.get("roll_count", 0) or 0):
-                if frame_idx_mod % 20 == 0:
-                    print(f"[megacrash trainer] roll skip {atk_slot} {atk_label or atk_id}: {roll:.1f}>={chance}%")
+            continue
+
+        scheduled[base] = {
+            "slot": str(vic_snap.get("slotname") or vic_slot),
+            "attacker": str(atk_slot),
+            "label": str(atk_label or atk_id),
+            "fire_frame": int(frame_idx or 0) + delay_frames,
+            "fire_time": now + (delay_frames / float(TARGET_FPS)),
+            "reason": reason,
+        }
+        if int(state.get("roll_count", 0) or 0) % 20 == 1:
+            print(f"[megacrash trainer] schedule {vic_slot}: {atk_slot} {atk_label or atk_id} +{delay_frames}f")
 
     _megacrash_clear_finished_combo_occurrences(state, snaps)
     return state
@@ -1339,6 +1471,7 @@ __all__ = [
     'MEGACRASH_TRAINER_MAX_DELAY_FRAMES',
     'MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC',
     'MEGACRASH_TRAINER_MAX_COOLDOWN_SEC',
+    'MEGACRASH_TRAINER_COOLDOWN_SCHEMA',
     'MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL',
     'MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE',
     'MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE',
@@ -1390,6 +1523,9 @@ __all__ = [
     '_megacrash_combo_occurrences',
     '_megacrash_refresh_occurrence_display',
     '_megacrash_combo_counter_probes',
+    '_megacrash_reaction_latches',
+    '_megacrash_opening_counter_acks',
+    '_megacrash_mark_reaction_edge',
     '_megacrash_global_combo_probe',
     '_megacrash_reset_occurrences_for_global_combo_end',
     '_megacrash_read_global_combo_counter',

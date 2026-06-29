@@ -3220,65 +3220,27 @@
       },
       "char_id": 13,
       "contact_audit": {
-        "confirmed_events": 13,
+        "confirmed_events": 1,
         "last_mismatch": false,
         "last_signal": "damage",
-        "last_update_ms": 84074,
+        "last_update_ms": 194217,
         "latest": {
-          "action_frame": 5,
+          "action_frame": 6,
           "hitbox_index": 0,
-          "hurtbox_index": 3,
+          "hurtbox_index": 1,
           "predicted_touch": true,
           "samples": 1,
           "signal": "damage",
           "surface_gap": 0.0,
-          "target_char_id": 1,
+          "target_char_id": 4,
           "truth": false,
-          "updated_ms": 84074
+          "updated_ms": 194217
         },
         "ruler_mismatches": 0,
-        "truth_events": 13,
+        "truth_events": 1,
         "unresolved_events": 0,
         "version": 2,
         "witnesses": [
-          {
-            "action_frame": 5,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 1,
-            "hurtbox_index": 6,
-            "last_seen_ms": 80710,
-            "local_x": 0.49058350422680386,
-            "local_y": 0.4899102885492146,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.396073699131256,
-            "predicted_touch_last": true,
-            "radius": 0.35728962230943145,
-            "samples": 5,
-            "signal": "impact",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
-            "truth": true
-          },
-          {
-            "action_frame": 5,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 2,
-            "hurtbox_index": 8,
-            "last_seen_ms": 71420,
-            "local_x": 0.7852301794886589,
-            "local_y": 0.1076083779335022,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.2781134397970759,
-            "predicted_touch_last": true,
-            "radius": 0.17999999225139618,
-            "samples": 4,
-            "signal": "damage",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
-            "truth": true
-          },
           {
             "action_frame": 6,
             "confidence": "geometry_overlap",
@@ -3296,63 +3258,6 @@
             "signal": "damage",
             "surface_gap": 0.0,
             "target_char_id": 4,
-            "truth": false
-          },
-          {
-            "action_frame": 5,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 0,
-            "hurtbox_index": 3,
-            "last_seen_ms": 84074,
-            "local_x": 0.3611149787902832,
-            "local_y": 1.183565378189087,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.3329588779810564,
-            "predicted_touch_last": true,
-            "radius": 0.19999998807907104,
-            "samples": 1,
-            "signal": "damage",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
-            "truth": false
-          },
-          {
-            "action_frame": 5,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 0,
-            "hurtbox_index": 12,
-            "last_seen_ms": 83978,
-            "local_x": 0.3611149787902832,
-            "local_y": 1.183565378189087,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.3023851265258823,
-            "predicted_touch_last": true,
-            "radius": 0.19999998807907104,
-            "samples": 1,
-            "signal": "impact",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
-            "truth": false
-          },
-          {
-            "action_frame": 5,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 0,
-            "hurtbox_index": 12,
-            "last_seen_ms": 80505,
-            "local_x": 0.7408394813537598,
-            "local_y": 1.183565378189087,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.22887497408515728,
-            "predicted_touch_last": true,
-            "radius": 0.19999998807907104,
-            "samples": 1,
-            "signal": "damage",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
             "truth": false
           }
         ]
@@ -3488,7 +3393,7 @@
       "tip_radius": 0.19999998807907104,
       "tip_y_from_start": 1.1779968738555908,
       "tip_z_from_start": 0.0,
-      "updated_ms": 84074,
+      "updated_ms": 194217,
       "vertical_envelope": {
         "lower_active_frame": 8,
         "lower_forward_from_start": 0.5941736176609993,
@@ -3516,68 +3421,6 @@
         "pips": 0
       },
       "char_id": 13,
-      "contact_audit": {
-        "confirmed_events": 2,
-        "last_mismatch": false,
-        "last_signal": "damage",
-        "last_update_ms": 75320,
-        "latest": {
-          "action_frame": 9,
-          "hitbox_index": 0,
-          "hurtbox_index": 10,
-          "predicted_touch": true,
-          "samples": 1,
-          "signal": "damage",
-          "surface_gap": 0.0,
-          "target_char_id": 1,
-          "truth": false,
-          "updated_ms": 75320
-        },
-        "ruler_mismatches": 0,
-        "truth_events": 2,
-        "unresolved_events": 0,
-        "version": 2,
-        "witnesses": [
-          {
-            "action_frame": 9,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 0,
-            "hurtbox_index": 10,
-            "last_seen_ms": 75320,
-            "local_x": 0.6125621795654297,
-            "local_y": 1.3690448999404907,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.21409728831188451,
-            "predicted_touch_last": true,
-            "radius": 0.25,
-            "samples": 1,
-            "signal": "damage",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
-            "truth": false
-          },
-          {
-            "action_frame": 9,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 0,
-            "hurtbox_index": 3,
-            "last_seen_ms": 75287,
-            "local_x": 0.6125621795654297,
-            "local_y": 1.3690448999404907,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.15423060947220263,
-            "predicted_touch_last": true,
-            "radius": 0.25,
-            "samples": 1,
-            "signal": "impact",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
-            "truth": false
-          }
-        ]
-      },
       "display_mode": "ground_ruler",
       "dynamic_sweep": {
         "frame_count": 1,
@@ -3647,7 +3490,7 @@
       "tip_radius": 0.25,
       "tip_y_from_start": 1.3738652467727661,
       "tip_z_from_start": 0.0,
-      "updated_ms": 75320,
+      "updated_ms": 160069,
       "vertical_envelope": {
         "lower_active_frame": 10,
         "lower_forward_from_start": 0.5068995952606201,
@@ -4025,302 +3868,6 @@
         "upper_radius": 0.17999999225139618,
         "upper_shape_index": 0,
         "upper_y_from_start": 1.072661504149437,
-        "upper_z_from_start": 0.0,
-        "version": 1
-      },
-      "vertical_geometry_source": "full_active_envelope"
-    },
-    "13:262": {
-      "advance_at_tip": 0.5,
-      "anchor": "fighter_root",
-      "calibration": {
-        "false_negative_hits": 0,
-        "false_positive_adjustments": 0,
-        "false_positive_streak": 0,
-        "pips": 0
-      },
-      "char_id": 13,
-      "display_mode": "ground_ruler",
-      "dynamic_sweep": {
-        "frame_count": 1,
-        "frames": [
-          {
-            "frame": 14,
-            "root": [
-              0.5,
-              0.0,
-              0.0
-            ],
-            "shapes": [
-              [
-                -0.026727676391601562,
-                2.049138069152832,
-                0.0,
-                0.2800000011920929
-              ],
-              [
-                -0.11725950241088867,
-                1.640432596206665,
-                0.0,
-                0.2800000011920929
-              ],
-              [
-                -0.405275821685791,
-                1.330857753753662,
-                0.0,
-                0.17999999225139618
-              ]
-            ]
-          }
-        ],
-        "shape_count": 3,
-        "version": 2
-      },
-      "horizontal_envelope": {
-        "active_frame": 14,
-        "advance_at_tip": 0.5,
-        "reach_from_start": 0.7532723248004913,
-        "shape_index": 0,
-        "tip_center_from_active_root": -0.026727676391601562,
-        "tip_center_from_start": 0.47327232360839844,
-        "tip_radius": 0.2800000011920929,
-        "tip_y_from_start": 2.049138069152832,
-        "tip_z_from_start": 0.0,
-        "version": 1
-      },
-      "last_sample": {
-        "active_root": [
-          5.666250705718994,
-          0.0,
-          0.0
-        ],
-        "advance_at_tip": 0.5,
-        "reach_from_start": 0.7532723248004913,
-        "start_root": [
-          5.166250705718994,
-          0.0,
-          0.0
-        ],
-        "tip_center_from_active_root": -0.026727676391601562
-      },
-      "move_id": 262,
-      "move_kind": "ground_normal",
-      "move_name": "6C",
-      "profile_schema": 5,
-      "reach_from_start": 0.7532723248004913,
-      "ruler_geometry_source": "max_horizontal_active_envelope",
-      "samples": 1,
-      "tip_center_from_active_root": -0.026727676391601562,
-      "tip_center_from_start": 0.47327232360839844,
-      "tip_radius": 0.2800000011920929,
-      "tip_y_from_start": 2.049138069152832,
-      "tip_z_from_start": 0.0,
-      "updated_ms": 44689,
-      "vertical_envelope": {
-        "lower_active_frame": 14,
-        "lower_forward_from_start": 0.09472417831420898,
-        "lower_radius": 0.17999999225139618,
-        "lower_shape_index": 2,
-        "lower_y_from_start": 1.150857761502266,
-        "lower_z_from_start": 0.0,
-        "upper_active_frame": 14,
-        "upper_forward_from_start": 0.47327232360839844,
-        "upper_radius": 0.2800000011920929,
-        "upper_shape_index": 0,
-        "upper_y_from_start": 2.329138070344925,
-        "upper_z_from_start": 0.0,
-        "version": 1
-      },
-      "vertical_geometry_source": "full_active_envelope"
-    },
-    "13:264": {
-      "advance_at_tip": 0.022710323333740234,
-      "anchor": "fighter_root",
-      "calibration": {
-        "false_negative_hits": 0,
-        "false_positive_adjustments": 0,
-        "false_positive_streak": 0,
-        "pips": 0
-      },
-      "char_id": 13,
-      "contact_audit": {
-        "confirmed_events": 2,
-        "last_mismatch": false,
-        "last_signal": "damage",
-        "last_update_ms": 76113,
-        "latest": {
-          "action_frame": 13,
-          "hitbox_index": 2,
-          "hurtbox_index": 6,
-          "predicted_touch": true,
-          "samples": 1,
-          "signal": "damage",
-          "surface_gap": 0.0,
-          "target_char_id": 1,
-          "truth": false,
-          "updated_ms": 76113
-        },
-        "ruler_mismatches": 0,
-        "truth_events": 2,
-        "unresolved_events": 0,
-        "version": 2,
-        "witnesses": [
-          {
-            "action_frame": 13,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 2,
-            "hurtbox_index": 6,
-            "last_seen_ms": 76113,
-            "local_x": 0.29090023040771484,
-            "local_y": 0.7561135292053223,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.29297497993048427,
-            "predicted_touch_last": true,
-            "radius": 0.3799999952316284,
-            "samples": 1,
-            "signal": "damage",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
-            "truth": false
-          },
-          {
-            "action_frame": 13,
-            "confidence": "geometry_overlap",
-            "hitbox_index": 2,
-            "hurtbox_index": 8,
-            "last_seen_ms": 76088,
-            "local_x": 0.29090023040771484,
-            "local_y": 0.7561135292053223,
-            "local_z": 0.0,
-            "mismatch_count": 0,
-            "overlap": 0.3370188803942464,
-            "predicted_touch_last": true,
-            "radius": 0.3799999952316284,
-            "samples": 1,
-            "signal": "impact",
-            "surface_gap": 0.0,
-            "target_char_id": 1,
-            "truth": false
-          }
-        ]
-      },
-      "display_mode": "ground_ruler",
-      "dynamic_sweep": {
-        "frame_count": 2,
-        "frames": [
-          {
-            "frame": 13,
-            "root": [
-              0.022710323333740234,
-              0.0,
-              0.0
-            ],
-            "shapes": [
-              [
-                0.08196783065795898,
-                0.7675209045410156,
-                0.0,
-                0.29999998211860657
-              ],
-              [
-                -0.048528194427490234,
-                0.4391878843307495,
-                0.0,
-                0.3400000035762787
-              ],
-              [
-                0.2528719902038574,
-                0.7561135292053223,
-                0.0,
-                0.3799999952316284
-              ]
-            ]
-          },
-          {
-            "frame": 15,
-            "root": [
-              -0.18331050872802734,
-              0.0,
-              0.0
-            ],
-            "shapes": [
-              [
-                0.43813610076904297,
-                1.8540678024291992,
-                0.0,
-                0.29999998211860657
-              ],
-              [
-                0.34196043014526367,
-                1.4279004335403442,
-                0.0,
-                0.3400000035762787
-              ],
-              [
-                0.24578523635864258,
-                1.0017333030700684,
-                0.0,
-                0.3799999952316284
-              ]
-            ]
-          }
-        ],
-        "shape_count": 6,
-        "version": 2
-      },
-      "horizontal_envelope": {
-        "active_frame": 13,
-        "advance_at_tip": 0.022710323333740234,
-        "reach_from_start": 0.6555823087692261,
-        "shape_index": 2,
-        "tip_center_from_active_root": 0.2528719902038574,
-        "tip_center_from_start": 0.27558231353759766,
-        "tip_radius": 0.3799999952316284,
-        "tip_y_from_start": 0.7561135292053223,
-        "tip_z_from_start": 0.0,
-        "version": 1
-      },
-      "last_sample": {
-        "active_root": [
-          7.629088878631592,
-          0.0,
-          0.0
-        ],
-        "advance_at_tip": 0.022710323333740234,
-        "reach_from_start": 0.6555823087692261,
-        "start_root": [
-          7.606378555297852,
-          0.0,
-          0.0
-        ],
-        "tip_center_from_active_root": 0.2528719902038574
-      },
-      "move_id": 264,
-      "move_kind": "ground_normal",
-      "move_name": "3C",
-      "profile_schema": 5,
-      "reach_from_start": 0.6555823087692261,
-      "ruler_geometry_source": "max_horizontal_active_envelope",
-      "samples": 1,
-      "tip_center_from_active_root": 0.2528719902038574,
-      "tip_center_from_start": 0.27558231353759766,
-      "tip_radius": 0.3799999952316284,
-      "tip_y_from_start": 0.7561135292053223,
-      "tip_z_from_start": 0.0,
-      "updated_ms": 76113,
-      "vertical_envelope": {
-        "lower_active_frame": 13,
-        "lower_forward_from_start": -0.02581787109375,
-        "lower_radius": 0.3400000035762787,
-        "lower_shape_index": 1,
-        "lower_y_from_start": 0.09918788075447083,
-        "lower_z_from_start": 0.0,
-        "upper_active_frame": 15,
-        "upper_forward_from_start": 0.2548255920410156,
-        "upper_radius": 0.29999998211860657,
-        "upper_shape_index": 0,
-        "upper_y_from_start": 2.154067784547806,
         "upper_z_from_start": 0.0,
         "version": 1
       },
