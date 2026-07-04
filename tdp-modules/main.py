@@ -134,6 +134,11 @@ try:
 except Exception as _runtime_stun_profiler_import_error:
     RuntimeStunProfiler = None
 
+try:
+    from tvcgui.features.frame_data.spreadsheet_export import FrameDataSpreadsheetExporter
+except Exception as _frame_data_export_import_error:
+    FrameDataSpreadsheetExporter = None
+
 
 from tvcgui.runtime.ko_control import (
     KO_GLOBAL_HOLD_GROUPS,
@@ -225,6 +230,14 @@ try:
 except Exception as e:
     open_overseer_window = None
     print(f"WARNING: Tool State window not available ({e!r})")
+try:
+    from tvcgui.features.stage_select.window import open_stage_select_window
+    from tvcgui.features.stage_select.runtime import tick_stage_probe
+except Exception as e:
+    open_stage_select_window = None
+    tick_stage_probe = None
+    print(f"WARNING: Stage Select tool not available ({e!r})")
+
 try:
     from tvcgui.features.character_select.runtime import (
         get_char_test_state,
@@ -1176,6 +1189,13 @@ def legacy_main():
     last_missing_profile_build_time = 0.0
     last_missing_profile_build_signature = None
 
+    # Individual character CSV export is intentionally a cached workbench
+    # read, scheduled once per stable roster. It never modifies a master CSV
+    # and never asks the dynamic compiler to build data during gameplay.
+    fd_csv_pending_roster_signature = None
+    fd_csv_pending_since = 0.0
+    fd_csv_last_requested_signature = None
+
     def _fd_scan_signature(_snaps: dict) -> tuple:
         parts = []
         if isinstance(_snaps, dict):
@@ -1221,6 +1241,29 @@ def legacy_main():
                 missing.append((_cid, _sig, _slot))
         return tuple(sorted(set(missing)))
 
+    def _fd_export_roster_signature(scan_rows) -> tuple:
+        """Identify the current live roster for cached per-character CSV export.
+
+        This uses only a completed compact HUD snapshot.  The follow-up request
+        is workbench/cache-only, never a dynamic scan, so roster changes cannot
+        make the frame-data compiler run during gameplay.
+        """
+        signature = []
+        for _row in list(scan_rows or []):
+            if not isinstance(_row, dict):
+                continue
+            try:
+                _cid = int(_row.get("char_id") or 0)
+            except Exception:
+                _cid = 0
+            if _cid <= 0:
+                continue
+            _slot = str(_row.get("slot_label") or "")
+            _profile_key = str(_row.get("profile_key") or "")
+            _table_sig = str(_row.get("profile_table_signature") or "")
+            signature.append((_slot, _cid, _profile_key, _table_sig))
+        return tuple(sorted(signature))
+
     last_adv_display = ""
     pending_hits     = []
     frame_idx        = 0
@@ -1233,6 +1276,29 @@ def legacy_main():
             runtime_stun_profiler = RuntimeStunProfiler()
         except Exception as _runtime_stun_profiler_error:
             print(f"[runtime stun] unavailable: {_runtime_stun_profiler_error!r}", flush=True)
+
+    # Every scanner result is mirrored into one persistent CSV spreadsheet.
+    # It is observation-only and does not affect in-game frame-data behavior.
+    frame_data_exporter = None
+    if FrameDataSpreadsheetExporter is not None:
+        try:
+            frame_data_exporter = FrameDataSpreadsheetExporter()
+            print(
+                f"[fd sheet] writing character sources to {frame_data_exporter.directory}; "
+                f"compiling master to {frame_data_exporter.path}",
+                flush=True,
+            )
+        except Exception as _frame_data_export_error:
+            print(f"[fd sheet] unavailable: {_frame_data_export_error!r}", flush=True)
+
+    def _export_frame_data_sheet(scan_rows) -> None:
+        if frame_data_exporter is None:
+            return
+        try:
+            frame_data_exporter.upsert_scan_rows(scan_rows)
+        except Exception as _frame_data_export_tick_error:
+            if frame_idx % 300 == 0:
+                print(f"[fd sheet] update failed: {_frame_data_export_tick_error!r}", flush=True)
 
     def _sync_runtime_engine_profile_targets(scan_rows) -> None:
         """Give the reverse profiler only scanner-proven engine-default normals.
@@ -1806,12 +1872,48 @@ def legacy_main():
                         except TypeError:
                             pass
 
+                    # A confirmed roster swap gets one later *cache-only*
+                    # workbench read. The resulting rich rows are routed to
+                    # individual character CSVs, never to a master workbook.
+                    if frame_data_exporter is not None:
+                        _fd_csv_sig = _fd_export_roster_signature(last_scan_normals)
+                        if _fd_csv_sig and _fd_csv_sig != fd_csv_last_requested_signature:
+                            fd_csv_pending_roster_signature = _fd_csv_sig
+                            fd_csv_pending_since = now
+
                 # HUD-facing consumers retain the newest rows; workbench rows
                 # are never substituted into the click path unless explicitly
                 # selected above.
                 _sync_runtime_engine_profile_targets(res)
                 last_scan_time = ts
                 scan_anim = {"start": now, "dur": SCAN_SLIDE_DURATION}
+
+        # CSV export observes every completed rich result through the worker's
+        # dedicated queue.  A full profile scan can finish and then be replaced
+        # by a compact HUD refresh before ``get_latest`` is polled; exporting
+        # from the queue prevents that successful profile (notably Yatterman-2)
+        # from being silently lost.  This never schedules scans or touches the
+        # frame-data compiler itself.
+        if scan_worker and frame_data_exporter is not None:
+            try:
+                _rich_results = scan_worker.drain_completed_rich_results()
+            except AttributeError:
+                _rich_results = []
+            except Exception as _frame_sheet_drain_error:
+                _rich_results = []
+                if frame_idx % 300 == 0:
+                    print(f"[fd sheet] rich-result drain failed: {_frame_sheet_drain_error!r}", flush=True)
+            for _rich_generation, _rich_rows, _rich_ts, _rich_mode in _rich_results:
+                try:
+                    _export_frame_data_sheet(_rich_rows)
+                    print(
+                        f"[fd sheet] exported completed {_rich_mode} scan "
+                        f"#{_rich_generation}",
+                        flush=True,
+                    )
+                except Exception as _frame_sheet_rich_export_error:
+                    if frame_idx % 300 == 0:
+                        print(f"[fd sheet] completed scan export failed: {_frame_sheet_rich_export_error!r}", flush=True)
 
         # Resolve slot bases
         resolved_slots = resolve_bases(last_base_by_ptr, y_off_by_base)
@@ -2175,11 +2277,32 @@ def legacy_main():
             and _win_counter_teams["P1"]
             and _win_counter_teams["P2"]
         )
+        # Yami's appended roster route does not share the normal HUD resource
+        # lifetime.  The Win Counter writes texture-pane addresses, so fail
+        # closed before any write/freeze tick when a Yami is in either team.
+        _win_counter_unsafe_ids = set()
+        for _win_counter_snap in (snaps or {}).values():
+            if not isinstance(_win_counter_snap, dict):
+                continue
+            try:
+                _win_counter_char_id = int(_win_counter_snap.get("id") or 0)
+            except Exception:
+                _win_counter_char_id = 0
+            if _win_counter_char_id in (0x17, 0x18, 0x19):
+                _win_counter_unsafe_ids.add(_win_counter_char_id)
         if set_win_counter_runtime_active is not None:
             try:
                 set_win_counter_runtime_active(
                     _win_counter_match_active,
                     reason="active_match" if _win_counter_match_active else "outside_match",
+                    unsafe_character_ids=tuple(sorted(_win_counter_unsafe_ids)),
+                )
+            except TypeError:
+                # Compatibility with an older gate module during partial source
+                # updates. The current module receives the Yami IDs above.
+                set_win_counter_runtime_active(
+                    _win_counter_match_active and not bool(_win_counter_unsafe_ids),
+                    reason="yami_safeguard" if _win_counter_unsafe_ids else ("active_match" if _win_counter_match_active else "outside_match"),
                 )
             except Exception:
                 pass
@@ -2193,6 +2316,15 @@ def legacy_main():
                 if frame_idx % 60 == 0:
                     print(f"[hud editor] persistent tick failed: {e!r}")
             _perf_warn("hud_editor_tick", _perf_section_start)
+
+        # Stage Select capture service is independent from Extra Characters.
+        # It only performs queued read-only scene snapshots.
+        if tick_stage_probe is not None:
+            try:
+                tick_stage_probe()
+            except Exception as e:
+                if frame_idx % 60 == 0:
+                    print(f"[stage select] capture tick failed: {e!r}")
 
         # Character-select runtime service is enabled only while a request
         # or queued action is present. The disabled state does not access
@@ -2406,7 +2538,7 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -2967,6 +3099,15 @@ def legacy_main():
                 mouse_clicked_pos = None
                 continue
 
+            elif yami_stage_btn_rect.collidepoint(mx, my):
+                if open_stage_select_window is not None:
+                    open_stage_select_window()
+                    print("[stage select] window opened", flush=True)
+                else:
+                    print("[stage select] window unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
             elif ko_control_btn_rect.collidepoint(mx, my):
                 ko_control_full_enabled = not bool(ko_control_full_enabled)
                 # The top-dock button is an ARM switch now, not a permanent
@@ -3459,6 +3600,35 @@ def legacy_main():
         elif HAVE_SCAN_NORMALS and need_rescan_normals and not FD_AUTOSCAN_ENABLED:
             need_rescan_normals = False
 
+        # Per-character CSV export requests a saved workbench cache rebase only
+        # after a compact scan has confirmed a stable new roster. This avoids
+        # the old background full-scan loop entirely: no dynamic discovery is
+        # requested here, no live data is patched, and no master CSV is opened.
+        if frame_data_exporter is not None and scan_worker and fd_csv_pending_roster_signature:
+            _fd_csv_current = _fd_export_roster_signature(last_scan_normals)
+            if _fd_csv_current != fd_csv_pending_roster_signature:
+                fd_csv_pending_roster_signature = None
+                fd_csv_pending_since = 0.0
+            else:
+                try:
+                    _fd_csv_busy = bool(scan_worker.is_busy())
+                except Exception:
+                    _fd_csv_busy = False
+                if not _fd_csv_busy and (now - fd_csv_pending_since) >= 0.45:
+                    try:
+                        scan_worker.request(workbench=True)
+                        fd_csv_last_requested_signature = fd_csv_pending_roster_signature
+                        print(
+                            f"[fd sheet] queued cached per-character CSV export for "
+                            f"{len(fd_csv_pending_roster_signature)} live slot(s)",
+                            flush=True,
+                        )
+                    except Exception as _fd_csv_request_error:
+                        print(f"[fd sheet] cached character export request failed: {_fd_csv_request_error!r}", flush=True)
+                    finally:
+                        fd_csv_pending_roster_signature = None
+                        fd_csv_pending_since = 0.0
+
         # A compact-preview cache miss is different from ordinary live ruler
         # sampling: without normal frame data, a brand-new fighter cannot tell
         # us which frames are active.  Bootstrap exactly one background dynamic
@@ -3514,6 +3684,7 @@ def legacy_main():
                         except Exception as e:
                             print(f"[fd patch] manual scan overlay/apply failed: {e!r}")
                     _sync_runtime_engine_profile_targets(last_scan_normals)
+                    _export_frame_data_sheet(last_scan_normals)
                     last_scan_time    = time.time()
                 except Exception as e:
                     print("manual scan failed:", e)

@@ -18,11 +18,12 @@ a = Analysis(
         _data('data/combat/move_id_map_charagnostic.csv', 'data/combat'),
         _data('data/frame_data/frame_data_profiles.json', 'data/frame_data'),
         _data('data/frame_data/frame_data_preview_profiles.json', 'data/frame_data'),
+        _data('data/templates/TvC_Frame_Data_Observed_template.csv', 'data/templates'),
         _data('data/hitboxes/hitbox_range_profiles.json', 'data/hitboxes'),
         ('missions', 'missions') if __import__('pathlib').Path('missions').is_dir() else None,
-        # Mutable runtime state is intentionally not bundled.
+        # Mutable runtime state is intentionally not bundled; this CSV is a blank release template.
     ] if x],
-    hiddenimports=['tvcgui.platform.dolphin', 'tvcgui.platform.patch_manager', 'tvcgui.ui.debug_panel', 'tvcgui.ui.portraits', 'tvcgui.ui.overseer', 'tvcgui.ui.main_window', 'tvcgui.features.training.timer_debug', 'tvcgui.tools.scanners.normal_scanner', 'tvcgui.tools.scanners.bone_scanner', 'tvcgui.tools.scanners.special_runtime_finder', 'tvcgui.features.frame_data.move_families', 'tvcgui.features.frame_data.projectile_integration', 'tvcgui.features.combat.projectile_scanner', 'tvcgui.features.training.flags', 'tvcgui.features.training.mission_manager', 'tvcgui.features.training.mission_mode', 'tvcgui.features.training.megacrash_window', 'tvcgui.features.training.win_counter_gate', 'tvcgui.features.training.win_counter_window', 'tvcgui.features.training.stun_profiler', 'tvcgui.features.overlay.master_renderer', 'tvcgui.features.overlay.hud_renderer', 'tvcgui.features.hitboxes.renderer'],
+    hiddenimports=['tvcgui.platform.dolphin', 'tvcgui.platform.patch_manager', 'tvcgui.ui.debug_panel', 'tvcgui.ui.portraits', 'tvcgui.ui.overseer', 'tvcgui.ui.main_window', 'tvcgui.features.training.timer_debug', 'tvcgui.tools.scanners.normal_scanner', 'tvcgui.tools.scanners.bone_scanner', 'tvcgui.tools.scanners.special_runtime_finder', 'tvcgui.features.frame_data.move_families', 'tvcgui.features.frame_data.spreadsheet_export', 'tvcgui.features.frame_data.projectile_integration', 'tvcgui.features.combat.projectile_scanner', 'tvcgui.features.training.flags', 'tvcgui.features.training.mission_manager', 'tvcgui.features.training.mission_mode', 'tvcgui.features.training.megacrash_window', 'tvcgui.features.training.win_counter_gate', 'tvcgui.features.training.win_counter_window', 'tvcgui.features.training.stun_profiler', 'tvcgui.features.overlay.master_renderer', 'tvcgui.features.overlay.hud_renderer', 'tvcgui.features.hitboxes.renderer'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

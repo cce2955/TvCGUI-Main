@@ -39,6 +39,7 @@ datas += _data_file('data/animation/character_fpk_registry.json', 'data/animatio
 datas += _data_file('data/combat/move_id_map_charagnostic.csv', 'data/combat')
 datas += _data_file('data/frame_data/frame_data_profiles.json', 'data/frame_data')
 datas += _data_file('data/frame_data/frame_data_preview_profiles.json', 'data/frame_data')
+datas += _data_file('data/templates/TvC_Frame_Data_Observed_template.csv', 'data/templates')
 # Seed only: hitboxesscaling.py copies this beside TvCGUI.exe on first run
 # and writes all auto-learned profile data to that persistent copy.
 datas += _data_file('data/hitboxes/hitbox_range_profiles.json', 'data/hitboxes')
@@ -115,6 +116,7 @@ a = Analysis(
         'tvcgui.features.frame_data.workbench',
         'tvcgui.features.frame_data.tree',
         'tvcgui.features.frame_data.move_families',
+        'tvcgui.features.frame_data.spreadsheet_export',
         'tvcgui.features.frame_data.editors',
         'tvcgui.features.frame_data.widgets',
         'tvcgui.features.frame_data.utils',

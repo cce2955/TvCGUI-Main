@@ -7,6 +7,11 @@ from typing import Any
 from . import runtime
 
 try:
+    from tvcgui.features.stage_select.window import open_stage_test_window
+except Exception:  # pragma: no cover
+    open_stage_test_window = None
+
+try:
     from tvcgui.core.tk_host import tk_call
 except Exception:  # pragma: no cover
     tk_call = None
@@ -234,6 +239,13 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
         runtime.queue_yami_force_hover(slot=slot, target=target)
         _set_status(f"Force target queued for slot 0x{slot:02X}.")
 
+    def _open_stage_test() -> None:
+        if open_stage_test_window is None:
+            _set_status("Stage test window is unavailable in this build.")
+            return
+        open_stage_test_window(win)
+        _set_status("Stage Control opened.")
+
     button_card = _card(body)
     button_card.pack(fill="x", pady=(0, 10))
     _label(button_card, "Actions", bold=True).pack(fill="x", padx=12, pady=(12, 4))
@@ -246,6 +258,8 @@ def _show_char_test_window(master: tk.Misc | None = None) -> None:
         ("Frank visual rows", _frank_append),
         ("Native Yami rows", _native_append),
         ("Force target", _force_yami),
+        # Stage Control intentionally hidden for now. Keep _open_stage_test and
+        # its import intact so the proven test window can be restored later.
         ("Restore", _restore),
     ]
     for i, (text, cmd) in enumerate(buttons):

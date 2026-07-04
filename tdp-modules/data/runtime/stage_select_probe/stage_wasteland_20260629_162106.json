@@ -1,0 +1,307 @@
+{
+  "label": "wasteland",
+  "created_at": "20260629_162106",
+  "selection": {
+    "event_a": "0x000025DA",
+    "event_b": "0x000025DA",
+    "event_a_after": "0x000025DA",
+    "event_b_after": "0x000025DA",
+    "cursor_a": "0x0000000A",
+    "cursor_b": "0x0000000A",
+    "cursor_a_after": "0x0000000A",
+    "cursor_b_after": "0x0000000A",
+    "requested_label": "wasteland",
+    "settled": true
+  },
+  "controls": {
+    "address": "0x804E9000",
+    "size": 2560,
+    "bytes_read": 2560,
+    "after_bytes_read": 2560
+  },
+  "pointer_bank": [
+    "0x935E00E0",
+    "0x935E0200",
+    "0x935E00E0",
+    "0x935E01A0",
+    "0x935E00E0",
+    "0x935E0200",
+    "0x935E00E0",
+    "0x935E01A0",
+    "0x935E00E0",
+    "0x935E0200",
+    "0x935E00E0",
+    "0x935E01A0",
+    "0x935E00E0",
+    "0x935E0200",
+    "0x935E00E0",
+    "0x935E01A0"
+  ],
+  "heap": {
+    "base": "0x935E0000",
+    "size": 196608,
+    "bytes_read": 196608,
+    "record_size": 6144,
+    "record_count": 32,
+    "records": [
+      {
+        "index": 0,
+        "address": "0x935E0000",
+        "sha1": "67d93727215d6ba0",
+        "nonzero_words": 586,
+        "mem1_pointer_words": 13,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 1,
+        "address": "0x935E1800",
+        "sha1": "afae94732dd50452",
+        "nonzero_words": 584,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 2,
+        "address": "0x935E3000",
+        "sha1": "71146435c4081908",
+        "nonzero_words": 584,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 3,
+        "address": "0x935E4800",
+        "sha1": "bf6a033098acba28",
+        "nonzero_words": 564,
+        "mem1_pointer_words": 13,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 4,
+        "address": "0x935E6000",
+        "sha1": "4aef66e2bfb6f398",
+        "nonzero_words": 564,
+        "mem1_pointer_words": 13,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 5,
+        "address": "0x935E7800",
+        "sha1": "d1fde0ab64351670",
+        "nonzero_words": 572,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 6,
+        "address": "0x935E9000",
+        "sha1": "4a973d2b9a99d42d",
+        "nonzero_words": 573,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 7,
+        "address": "0x935EA800",
+        "sha1": "d1fde0ab64351670",
+        "nonzero_words": 572,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 8,
+        "address": "0x935EC000",
+        "sha1": "afe9c8005bdefde0",
+        "nonzero_words": 573,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 9,
+        "address": "0x935ED800",
+        "sha1": "d1fde0ab64351670",
+        "nonzero_words": 572,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 10,
+        "address": "0x935EF000",
+        "sha1": "cbabbde7a5ed2d34",
+        "nonzero_words": 573,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 11,
+        "address": "0x935F0800",
+        "sha1": "824bfb933c4674ed",
+        "nonzero_words": 573,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 12,
+        "address": "0x935F2000",
+        "sha1": "04ff40e54f731902",
+        "nonzero_words": 573,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 13,
+        "address": "0x935F3800",
+        "sha1": "381b3e03e33e9b57",
+        "nonzero_words": 573,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 14,
+        "address": "0x935F5000",
+        "sha1": "d1fde0ab64351670",
+        "nonzero_words": 572,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 15,
+        "address": "0x935F6800",
+        "sha1": "8dae35581ab762c2",
+        "nonzero_words": 574,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 16,
+        "address": "0x935F8000",
+        "sha1": "d90179a11211f5cc",
+        "nonzero_words": 572,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 17,
+        "address": "0x935F9800",
+        "sha1": "a98e79d76b575697",
+        "nonzero_words": 586,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 18,
+        "address": "0x935FB000",
+        "sha1": "ea4c76e76d22477d",
+        "nonzero_words": 586,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 19,
+        "address": "0x935FC800",
+        "sha1": "90ea430ca23d7c7a",
+        "nonzero_words": 586,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 20,
+        "address": "0x935FE000",
+        "sha1": "8910f64bb35e5a6c",
+        "nonzero_words": 586,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 21,
+        "address": "0x935FF800",
+        "sha1": "e729829bd635b9d3",
+        "nonzero_words": 582,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 22,
+        "address": "0x93601000",
+        "sha1": "01603e210891a8b7",
+        "nonzero_words": 586,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 23,
+        "address": "0x93602800",
+        "sha1": "07972ae008203c36",
+        "nonzero_words": 582,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 24,
+        "address": "0x93604000",
+        "sha1": "274dc9363df08efc",
+        "nonzero_words": 586,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 25,
+        "address": "0x93605800",
+        "sha1": "df8181ea4352f286",
+        "nonzero_words": 586,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 26,
+        "address": "0x93607000",
+        "sha1": "92142870211ca149",
+        "nonzero_words": 573,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 27,
+        "address": "0x93608800",
+        "sha1": "8fd73f82dc2dab38",
+        "nonzero_words": 575,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 28,
+        "address": "0x9360A000",
+        "sha1": "096c245434e38a81",
+        "nonzero_words": 570,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 29,
+        "address": "0x9360B800",
+        "sha1": "f07c36e8b5742e18",
+        "nonzero_words": 580,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      },
+      {
+        "index": 30,
+        "address": "0x9360D000",
+        "sha1": "e61a914a8047b7ee",
+        "nonzero_words": 574,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 3
+      },
+      {
+        "index": 31,
+        "address": "0x9360E800",
+        "sha1": "7f286dde2e1d1bb6",
+        "nonzero_words": 570,
+        "mem1_pointer_words": 11,
+        "mem2_pointer_words": 2
+      }
+    ]
+  },
+  "controls_file": "stage_wasteland_20260629_162106_controls.bin",
+  "scene_heap_file": "stage_wasteland_20260629_162106_scene_heap.bin"
+}

@@ -23,10 +23,16 @@ except Exception:  # pragma: no cover
     _rpm = None
 
 try:
-    from tvcgui.features.training.win_counter_gate import is_win_counter_runtime_active
+    from tvcgui.features.training.win_counter_gate import (
+        is_win_counter_runtime_active,
+        win_counter_block_message,
+    )
 except Exception:  # pragma: no cover
     def is_win_counter_runtime_active() -> bool:
         return False
+
+    def win_counter_block_message() -> str:
+        return "Win Counter writes are currently unavailable."
 
 _OPEN_WINDOW: tk.Toplevel | None = None
 
@@ -593,7 +599,7 @@ def reset_hud_editor_runtime_state(*, apply_zero: bool = False) -> dict[str, Any
 def tick_hud_editor_state(*, now: float | None = None, force: bool = False) -> None:
     """Keep active HUD Editor holds alive during an active match."""
     if not is_win_counter_runtime_active():
-        _HUD_EDITOR_RUNTIME_STATE["status"] = "Win Score hold paused outside active match."
+        _HUD_EDITOR_RUNTIME_STATE["status"] = win_counter_block_message()
         return
     try:
         now_f = float(time.monotonic() if now is None else now)
@@ -771,7 +777,6 @@ def _button(parent: tk.Misc, text: str, command: Callable[[], None] | None = Non
     )
 
 
-
 def _field(parent: tk.Misc, textvariable: tk.Variable, *, width: int = 8, max_value: int = 999):
     return tk.Spinbox(
         parent,
@@ -914,34 +919,6 @@ def open_hud_editor_window() -> None:
         )
         desc.pack(fill="x", pady=(4, 10))
 
-        hold_state_var = tk.StringVar(value="Hold visible wins: --")
-        hold_detail_var = tk.StringVar(value="Checking status...")
-
-        quick_row = tk.Frame(root_frame, bg=_PANEL, padx=12, pady=8)
-        quick_row.pack(fill="x", pady=(0, 10))
-        hold_state_label = tk.Label(
-            quick_row,
-            textvariable=hold_state_var,
-            bg=_PANEL,
-            fg=_GOOD,
-            anchor="w",
-            justify="left",
-            font=("Segoe UI", 10, "bold"),
-        )
-        hold_state_label.pack(side="left")
-        hold_detail_label = tk.Label(
-            quick_row,
-            textvariable=hold_detail_var,
-            bg=_PANEL,
-            fg=_MUTED,
-            anchor="w",
-            justify="left",
-            font=("Segoe UI", 9),
-        )
-        hold_detail_label.pack(side="left", padx=(12, 0))
-        _button(quick_row, "Turn ON both", lambda: enable_both_streaks(), width=13).pack(side="right")
-        _button(quick_row, "Turn OFF both", lambda: disable_both_streaks(), width=13).pack(side="right", padx=(0, 8))
-
         opts = tk.Frame(root_frame, bg=_BG)
         opts.pack(fill="x", pady=(0, 10))
         _check(opts, "Write VS/in-fight wins", vs_var).pack(side="left")
@@ -950,26 +927,6 @@ def open_hud_editor_window() -> None:
         _check(opts, "Raw score too", score_raw_var).pack(side="left", padx=(26, 0))
         _check(opts, "Raw timer too", timer_raw_var).pack(side="left", padx=(18, 0))
         _check(opts, "Show 0 WINS instead of NEW HERO", zero_wins_as_text_var).pack(side="left", padx=(26, 0))
-
-        def refresh_hold_ui() -> None:
-            p1_on = bool(p1_streak_enabled_var.get())
-            p2_on = bool(p2_streak_enabled_var.get())
-            p1_value = _clamp_int(p1_streak_var.get(), 0, 999)
-            p2_value = _clamp_int(p2_streak_var.get(), 0, 999)
-            if p1_on and p2_on:
-                hold_state_var.set("Hold visible wins: ON")
-                hold_detail_var.set(f"P1 {p1_value}   P2 {p2_value}")
-                hold_state_label.configure(fg=_GOOD)
-            elif p1_on or p2_on:
-                hold_state_var.set("Hold visible wins: PARTIAL")
-                hold_detail_var.set(
-                    f"P1 {'ON' if p1_on else 'OFF'} ({p1_value})   P2 {'ON' if p2_on else 'OFF'} ({p2_value})"
-                )
-                hold_state_label.configure(fg="#ffd27f")
-            else:
-                hold_state_var.set("Hold visible wins: OFF")
-                hold_detail_var.set("Game-controlled wins and NEW HERO behavior")
-                hold_state_label.configure(fg=_BAD)
 
         def update_readout() -> None:
             p1_vs = read_visible_vs_win_count("P1")
@@ -1041,7 +998,6 @@ def open_hud_editor_window() -> None:
             )
 
         sample_current_hud_values()
-        refresh_hold_ui()
 
         def write_win(player: str, value: Any, *, announce: bool = True) -> None:
             value_i = _clamp_int(value, 0, 999)
@@ -1049,7 +1005,7 @@ def open_hud_editor_window() -> None:
             last_applied[f"{player}_WIN"] = value_i
             freeze_kinds.add(f"{player}_WIN")
             if announce:
-                status_var.set(f"{player} wins set to {value_i}" if ok else f"{player} win write failed; confirm Dolphin is hooked")
+                status_var.set(f"{player} wins set to {value_i}" if ok else win_counter_block_message())
                 update_readout()
 
         def write_score(player: str, value: Any, *, announce: bool = True) -> None:
@@ -1120,7 +1076,6 @@ def open_hud_editor_window() -> None:
             last_applied[f"{player}_WIN"] = _clamp_int(var.get(), 0, 999)
             streak_last_raw[player] = read_raw_win_count(player)
             status_var.set(f"Captured {player} visible wins as {var.get()}.")
-            refresh_hold_ui()
             update_readout()
 
         def enable_streak(player: str) -> None:
@@ -1142,7 +1097,6 @@ def open_hud_editor_window() -> None:
                 use_svm=bool(svm_var.get()),
             )
             status_var.set(f"{player} visible wins held at {value_i}. This keeps running even if the HUD Editor window is closed.")
-            refresh_hold_ui()
             update_readout()
 
         def bump_streak(player: str, delta: int) -> None:
@@ -1166,7 +1120,6 @@ def open_hud_editor_window() -> None:
             else:
                 apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
             status_var.set(f"{player} held wins adjusted to {value_i}.")
-            refresh_hold_ui()
             update_readout()
 
         def disable_streak(player: str) -> None:
@@ -1175,7 +1128,6 @@ def open_hud_editor_window() -> None:
             enabled_var.set(False)
             release_hud_editor_hold(player)
             status_var.set(f"{player} Win Score hold released. The game can show NEW HERO normally again after the next HUD refresh.")
-            refresh_hold_ui()
             update_readout()
 
         def enable_both_streaks() -> None:
@@ -1198,7 +1150,6 @@ def open_hud_editor_window() -> None:
                     use_svm=bool(svm_var.get()),
                 )
             status_var.set("Win Score enabled for P1 and P2.")
-            refresh_hold_ui()
             update_readout()
 
         def disable_both_streaks() -> None:
@@ -1207,7 +1158,6 @@ def open_hud_editor_window() -> None:
                 enabled_var.set(False)
                 release_hud_editor_hold(player)
             status_var.set("Win Score disabled for P1 and P2. The game can show NEW HERO normally after the next HUD refresh.")
-            refresh_hold_ui()
             update_readout()
 
         def clear_visible_wins(player: str) -> None:
@@ -1231,7 +1181,6 @@ def open_hud_editor_window() -> None:
                 status_var.set(f"{player} cleared to visible 0 WINS.")
             else:
                 status_var.set(f"{player} cleared to NEW HERO/default zero state.")
-            refresh_hold_ui()
             update_readout()
 
         def apply_stored_streak(player: str) -> None:
@@ -1254,7 +1203,6 @@ def open_hud_editor_window() -> None:
             else:
                 apply_win_count(player, value_i, use_vs=True, use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()), force_zero_as_win=bool(zero_wins_as_text_var.get()))
             status_var.set(f"Held {player} wins {value_i} written.")
-            refresh_hold_ui()
             update_readout()
 
         def streak_tick_once() -> None:
@@ -1270,7 +1218,6 @@ def open_hud_editor_window() -> None:
                 msg = str(_HUD_EDITOR_RUNTIME_STATE.get("status") or "")
                 if msg:
                     status_var.set(msg)
-                refresh_hold_ui()
             except Exception as e:
                 status_var.set(f"Hold Visible Wins tick failed: {e!r}")
 
@@ -1305,9 +1252,9 @@ def open_hud_editor_window() -> None:
 
         both_row = tk.Frame(streak_inner, bg=_PANEL)
         both_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        _button(both_row, "Turn ON for both", enable_both_streaks, width=14).pack(side="left")
-        _button(both_row, "Turn OFF for both", disable_both_streaks, width=14).pack(side="left", padx=(8, 0))
-        _label(both_row, "Per-side controls remain below.", muted=True).pack(side="left", padx=(12, 0))
+        _button(both_row, "Enable both", enable_both_streaks, width=12).pack(side="left")
+        _button(both_row, "Disable both", disable_both_streaks, width=12).pack(side="left", padx=(8, 0))
+        _label(both_row, "Bulk toggle for P1/P2 Win Score holds.", muted=True).pack(side="left", padx=(12, 0))
 
         def make_hold_card(parent: tk.Misc, col: int, player: str, var: tk.StringVar, enabled_var: tk.BooleanVar, auto_var: tk.BooleanVar) -> None:
             side_outer = tk.Frame(parent, bg=_BORDER, padx=1, pady=1)
@@ -1428,7 +1375,7 @@ def open_hud_editor_window() -> None:
             try:
                 if not is_win_counter_runtime_active():
                     if bool(p1_streak_enabled_var.get()) or bool(p2_streak_enabled_var.get()) or freeze_var.get():
-                        status_var.set("Automatic HUD writes are paused outside active match.")
+                        status_var.set(win_counter_block_message())
                 else:
                     if bool(p1_streak_enabled_var.get()) or bool(p2_streak_enabled_var.get()):
                         streak_tick_once()
@@ -1469,7 +1416,6 @@ def open_hud_editor_window() -> None:
             win.destroy()
 
         win.protocol("WM_DELETE_WINDOW", on_close)
-        refresh_hold_ui()
         update_readout()
         freeze_tick()
 

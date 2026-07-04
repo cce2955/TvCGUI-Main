@@ -610,12 +610,13 @@ def draw_top_command_dock(
     memdump_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     win_counter_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     select_probe_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    yami_stage_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     ko_control_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     megacrash_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     overseer_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
 
     if tools_open:
-        drawer_rect = pygame.Rect(8, y_tools - 2, min(w - 16, 1020), btn_h + 4)
+        drawer_rect = pygame.Rect(8, y_tools - 2, min(w - 16, 1160), btn_h + 4)
         draw_group(drawer_rect)
         x = drawer_rect.x + 4
 
@@ -651,6 +652,14 @@ def draw_top_command_dock(
         )
 
         x = select_probe_btn_rect.right + 4
+        yami_stage_btn_rect = pygame.Rect(x, y_tools, 112, btn_h)
+        draw_glass_button(
+            screen, yami_stage_btn_rect,
+            "Stage Control", dockfont, active=False,
+            hover=yami_stage_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center",
+        )
+
+        x = yami_stage_btn_rect.right + 4
         ko_control_btn_rect = pygame.Rect(x, y_tools, 160, btn_h)
         ko_label = "KO Control: ACTIVE" if ko_control_live_active else ("KO Control: ARMED" if ko_control_enabled else "KO Control: OFF")
         draw_glass_button(
@@ -726,7 +735,7 @@ def draw_top_command_dock(
     return (
         hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect,
         megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect,
-        overseer_btn_rect, select_probe_btn_rect, ko_control_btn_rect,
+        overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect,
         solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect,
         tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects,
         ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,

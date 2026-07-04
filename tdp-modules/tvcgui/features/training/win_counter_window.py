@@ -15,10 +15,16 @@ except Exception:  # pragma: no cover
     wd32 = None
 
 try:
-    from tvcgui.features.training.win_counter_gate import is_win_counter_runtime_active
+    from tvcgui.features.training.win_counter_gate import (
+        is_win_counter_runtime_active,
+        win_counter_block_message,
+    )
 except Exception:  # pragma: no cover
     def is_win_counter_runtime_active() -> bool:
         return False
+
+    def win_counter_block_message() -> str:
+        return "Win Counter writes are currently unavailable."
 
 _OPEN_WINDOW: tk.Toplevel | None = None
 
@@ -343,7 +349,7 @@ def open_win_counter_window() -> None:
                 status_var.set(
                     f"{player} win digits set to {value_i}"
                     if ok else
-                    f"{player} write failed; confirm Dolphin is hooked"
+                    win_counter_block_message()
                 )
                 update_readout()
 
@@ -394,7 +400,7 @@ def open_win_counter_window() -> None:
                     apply_win_count("P1", last_applied.get("P1", _clamp_count(p1_var.get())), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
                     apply_win_count("P2", last_applied.get("P2", _clamp_count(p2_var.get())), use_vs=bool(vs_var.get()), use_hud=bool(hud_var.get()), use_svm=bool(svm_var.get()))
                 elif freeze_var.get():
-                    status_var.set("Freeze paused outside active match.")
+                    status_var.set(win_counter_block_message())
             except Exception as e:
                 status_var.set(f"Freeze write failed: {e!r}")
             try:

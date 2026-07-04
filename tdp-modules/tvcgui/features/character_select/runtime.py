@@ -5335,7 +5335,6 @@ def tick_char_test() -> None:
         return
     _tick_roster_actions()
 
-
 def start_char_test(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
     return {"ok": False, "disabled": True, "error": "Only roster table patch is enabled in this build."}
 

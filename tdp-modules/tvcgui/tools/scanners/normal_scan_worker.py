@@ -34,6 +34,12 @@ class ScanNormalsWorker(threading.Thread):
         self._want_workbench = False
         self._full_kwargs = {}
         self._last_mode = "none"
+        # Rich workbench/full results must not vanish just because the next
+        # compact HUD refresh finishes before the main loop polls ``_last``.
+        # The CSV exporter drains this completed-result queue independently of
+        # the UI-facing latest-result slot.
+        self._rich_results = []
+        self._rich_generation = 0
 
     def run(self):
         while True:
@@ -70,6 +76,14 @@ class ScanNormalsWorker(threading.Thread):
                     self._last = res
                     self._last_ts = now
                     self._last_mode = mode
+                    # A cache result may immediately follow this one and
+                    # replace ``_last``. Preserve every completed rich result
+                    # until its observation/export consumer has drained it.
+                    if mode in {"workbench", "full"}:
+                        self._rich_generation += 1
+                        self._rich_results.append((
+                            int(self._rich_generation), res, now, mode
+                        ))
             except Exception as e:
                 print("scan worker failed:", e)
             finally:
@@ -128,6 +142,20 @@ class ScanNormalsWorker(threading.Thread):
         """Return the mode of the last completed scan: cache, full, or none."""
         with self._lock:
             return str(self._last_mode)
+
+    def drain_completed_rich_results(self):
+        """Return and clear completed workbench/full scan results.
+
+        The regular ``get_latest`` API remains intentionally lightweight for
+        the HUD.  This separate queue guarantees that a completed rich scan is
+        still available to non-UI consumers such as the observation CSV even
+        when a later compact cache refresh has already become the latest row.
+        Each entry is ``(generation, result, timestamp, mode)``.
+        """
+        with self._lock:
+            completed = list(self._rich_results)
+            self._rich_results.clear()
+            return completed
 
     def get_latest(self):
         """
