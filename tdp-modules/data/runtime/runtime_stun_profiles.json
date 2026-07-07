@@ -19,19 +19,21 @@
           "12": 7
         }
       },
-      "last_frame": 2207,
+      "last_frame": 61277,
       "last_freeze": 6,
       "last_recovery": 13,
       "move_label": "5A",
       "recovery": {
-        "last_frame": 2207,
+        "last_frame": 61277,
         "last_value": 13,
         "samples": {
           "10": 2,
-          "11": 1,
-          "13": 2,
+          "11": 3,
+          "12": 2,
+          "13": 4,
           "7": 1,
-          "8": 1
+          "8": 1,
+          "9": 3
         }
       }
     },
@@ -81,17 +83,20 @@
           "21": 4
         }
       },
-      "last_frame": 2104,
+      "last_frame": 62452,
       "last_freeze": 0,
-      "last_recovery": 1,
+      "last_recovery": 34,
       "move_label": "5C",
       "recovery": {
-        "last_frame": 2102,
-        "last_value": 1,
+        "last_frame": 62452,
+        "last_value": 34,
         "samples": {
           "1": 1,
           "18": 1,
-          "26": 1
+          "26": 1,
+          "31": 1,
+          "32": 1,
+          "34": 2
         }
       }
     },
@@ -113,16 +118,19 @@
           "12": 2
         }
       },
-      "last_frame": 2012,
+      "last_frame": 61713,
       "last_freeze": 0,
-      "last_recovery": 1,
+      "last_recovery": 13,
       "move_label": "2A",
       "recovery": {
-        "last_frame": 2012,
-        "last_value": 1,
+        "last_frame": 61713,
+        "last_value": 13,
         "samples": {
           "1": 1,
-          "14": 1
+          "12": 1,
+          "13": 1,
+          "14": 2,
+          "15": 2
         }
       }
     },
@@ -168,15 +176,19 @@
       "hit": {
         "samples": {}
       },
-      "last_frame": 514,
-      "last_recovery": 25,
+      "last_frame": 62668,
+      "last_recovery": 26,
       "move_label": "2C",
       "recovery": {
-        "last_frame": 514,
-        "last_value": 25,
+        "last_frame": 62668,
+        "last_value": 26,
         "samples": {
-          "23": 1,
-          "25": 2
+          "22": 1,
+          "23": 2,
+          "25": 2,
+          "26": 2,
+          "27": 1,
+          "28": 2
         }
       }
     },
@@ -198,9 +210,41 @@
           "21": 1
         }
       },
-      "last_frame": 429,
+      "last_frame": 63297,
       "last_freeze": 0,
-      "move_label": "6C"
+      "last_recovery": 34,
+      "move_label": "6C",
+      "recovery": {
+        "last_frame": 63297,
+        "last_value": 34,
+        "samples": {
+          "32": 1,
+          "34": 4,
+          "35": 4
+        }
+      }
+    },
+    "15:264": {
+      "action_id": 264,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 62970,
+      "last_recovery": 33,
+      "move_label": "3C",
+      "recovery": {
+        "last_frame": 62970,
+        "last_value": 33,
+        "samples": {
+          "33": 1,
+          "36": 2
+        }
+      }
     },
     "15:270": {
       "action_id": 270,
@@ -220,11 +264,207 @@
           "17": 1
         }
       },
-      "last_frame": 933,
+      "last_frame": 61904,
       "last_freeze": 9,
+      "last_recovery": 25,
       "move_label": "6B",
       "recovery": {
+        "last_frame": 61904,
+        "last_value": 25,
+        "samples": {
+          "24": 1,
+          "25": 2,
+          "26": 2
+        }
+      }
+    },
+    "26:265": {
+      "action_id": 265,
+      "block": {
         "samples": {}
+      },
+      "char_id": 26,
+      "char_name": "Tekkaman Blade",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 231088,
+      "last_recovery": 3,
+      "move_label": "j.A",
+      "recovery": {
+        "last_frame": 231088,
+        "last_value": 3,
+        "samples": {
+          "11": 1,
+          "12": 1,
+          "14": 2,
+          "15": 3,
+          "16": 1,
+          "2": 2,
+          "3": 1,
+          "4": 2,
+          "5": 1,
+          "6": 1,
+          "9": 1
+        }
+      }
+    },
+    "26:266": {
+      "action_id": 266,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 26,
+      "char_name": "Tekkaman Blade",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 230999,
+      "last_recovery": 12,
+      "move_label": "j.B",
+      "recovery": {
+        "last_frame": 230999,
+        "last_value": 12,
+        "samples": {
+          "11": 2,
+          "12": 4,
+          "13": 1,
+          "16": 1,
+          "4": 1,
+          "8": 1,
+          "9": 2
+        }
+      }
+    },
+    "26:267": {
+      "action_id": 267,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 26,
+      "char_name": "Tekkaman Blade",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 229720,
+      "last_recovery": 11,
+      "move_label": "j.C",
+      "recovery": {
+        "last_frame": 229720,
+        "last_value": 11,
+        "samples": {
+          "10": 2,
+          "11": 2,
+          "14": 4,
+          "2": 1,
+          "3": 1
+        }
+      }
+    },
+    "3:261": {
+      "action_id": 261,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 3,
+      "char_name": "Tekkaman",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 31773,
+      "last_recovery": 33,
+      "move_label": "2C",
+      "recovery": {
+        "last_frame": 31773,
+        "last_value": 33,
+        "samples": {
+          "33": 1,
+          "34": 1
+        }
+      }
+    },
+    "3:264": {
+      "action_id": 264,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 3,
+      "char_name": "Tekkaman",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 31687,
+      "last_recovery": 31,
+      "move_label": "3C",
+      "recovery": {
+        "last_frame": 31687,
+        "last_value": 31,
+        "samples": {
+          "31": 1
+        }
+      }
+    },
+    "3:265": {
+      "action_id": 265,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 3,
+      "char_name": "Tekkaman",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 33806,
+      "last_recovery": 10,
+      "move_label": "j.A",
+      "recovery": {
+        "last_frame": 33806,
+        "last_value": 10,
+        "samples": {
+          "10": 1
+        }
+      }
+    },
+    "3:266": {
+      "action_id": 266,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 3,
+      "char_name": "Tekkaman",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 33838,
+      "last_recovery": 2,
+      "move_label": "j.B",
+      "recovery": {
+        "last_frame": 33838,
+        "last_value": 2,
+        "samples": {
+          "2": 1
+        }
+      }
+    },
+    "3:267": {
+      "action_id": 267,
+      "block": {
+        "samples": {}
+      },
+      "char_id": 3,
+      "char_name": "Tekkaman",
+      "hit": {
+        "samples": {}
+      },
+      "last_frame": 33421,
+      "last_recovery": 10,
+      "move_label": "j.C",
+      "recovery": {
+        "last_frame": 33421,
+        "last_value": 10,
+        "samples": {
+          "10": 1
+        }
       }
     },
     "4:256": {
@@ -246,16 +486,17 @@
           "12": 6
         }
       },
-      "last_frame": 3595,
+      "last_frame": 26947,
       "last_freeze": 6,
-      "last_recovery": 20,
+      "last_recovery": 19,
       "move_label": "5A",
       "recovery": {
-        "last_frame": 3190,
-        "last_value": 20,
+        "last_frame": 26947,
+        "last_value": 19,
         "samples": {
           "17": 1,
-          "20": 1
+          "19": 1,
+          "20": 2
         }
       }
     },
@@ -283,17 +524,24 @@
           "17": 14
         }
       },
-      "last_frame": 3596,
+      "last_frame": 27234,
       "last_freeze": 0,
-      "last_recovery": 12,
+      "last_recovery": 21,
       "move_label": "5B",
       "recovery": {
-        "last_frame": 3180,
-        "last_value": 12,
+        "last_frame": 27234,
+        "last_value": 21,
         "samples": {
           "12": 1,
           "15": 1,
           "17": 1,
+          "19": 1,
+          "21": 1,
+          "23": 1,
+          "24": 1,
+          "25": 1,
+          "27": 1,
+          "28": 1,
           "7": 1
         }
       }
@@ -320,16 +568,21 @@
           "21": 15
         }
       },
-      "last_frame": 3601,
+      "last_frame": 24102,
       "last_freeze": 0,
-      "last_recovery": 21,
+      "last_recovery": 32,
       "move_label": "5C",
       "recovery": {
-        "last_frame": 3539,
-        "last_value": 21,
+        "last_frame": 24102,
+        "last_value": 32,
         "samples": {
           "21": 1,
-          "24": 1
+          "24": 1,
+          "28": 1,
+          "29": 1,
+          "30": 2,
+          "31": 1,
+          "32": 1
         }
       }
     },
@@ -378,15 +631,21 @@
           "17": 9
         }
       },
-      "last_frame": 3570,
+      "last_frame": 23707,
       "last_freeze": 0,
-      "last_recovery": 16,
+      "last_recovery": 27,
       "move_label": "2B",
       "recovery": {
-        "last_frame": 2951,
-        "last_value": 16,
+        "last_frame": 23707,
+        "last_value": 27,
         "samples": {
-          "16": 1
+          "16": 1,
+          "26": 1,
+          "27": 3,
+          "28": 4,
+          "29": 1,
+          "30": 3,
+          "31": 2
         }
       }
     },
@@ -408,11 +667,17 @@
           "21": 2
         }
       },
-      "last_frame": 3498,
+      "last_frame": 24198,
       "last_freeze": 0,
+      "last_recovery": 23,
       "move_label": "2C",
       "recovery": {
-        "samples": {}
+        "last_frame": 24198,
+        "last_value": 23,
+        "samples": {
+          "23": 1,
+          "24": 1
+        }
       }
     },
     "4:262": {
@@ -424,25 +689,30 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 11,
+          "0": 12,
           "12": 4
         },
-        "last_frame": 3587,
-        "last_freeze": 12,
-        "last_value": 21,
+        "last_frame": 25490,
+        "last_freeze": 0,
+        "last_value": 12,
         "samples": {
+          "12": 1,
           "21": 15
         }
       },
-      "last_frame": 3587,
-      "last_freeze": 12,
-      "last_recovery": 30,
+      "last_frame": 25490,
+      "last_freeze": 0,
+      "last_recovery": 35,
       "move_label": "6C",
       "recovery": {
-        "last_frame": 3053,
-        "last_value": 30,
+        "last_frame": 24322,
+        "last_value": 35,
         "samples": {
-          "30": 1
+          "30": 1,
+          "34": 1,
+          "35": 1,
+          "37": 1,
+          "38": 1
         }
       }
     },
@@ -464,11 +734,20 @@
           "21": 3
         }
       },
-      "last_frame": 3604,
+      "last_frame": 24560,
       "last_freeze": 0,
+      "last_recovery": 33,
       "move_label": "3C",
       "recovery": {
-        "samples": {}
+        "last_frame": 24560,
+        "last_value": 33,
+        "samples": {
+          "20": 1,
+          "29": 2,
+          "31": 1,
+          "32": 1,
+          "33": 1
+        }
       }
     },
     "4:265": {
@@ -490,15 +769,15 @@
           "12": 4
         }
       },
-      "last_frame": 3609,
+      "last_frame": 26813,
       "last_freeze": 0,
       "last_recovery": 13,
       "move_label": "j.A",
       "recovery": {
-        "last_frame": 3545,
+        "last_frame": 26813,
         "last_value": 13,
         "samples": {
-          "13": 1
+          "13": 2
         }
       }
     },
@@ -571,6 +850,6 @@
       }
     }
   },
-  "updated_utc": "2026-07-04T13:48:53Z",
+  "updated_utc": "2026-07-07T00:50:52Z",
   "version": 2
 }
