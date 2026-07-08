@@ -825,19 +825,35 @@ def _normal_recovery(mv: dict) -> int | None:
     return _normal_int(mv, "recovery", "recover", "recovery_frames")
 
 
-def _normal_advantage(mv: dict, kind: str) -> int | None:
-    """Return stored calculated advantage, or reproduce the local fallback.
+def _normal_observed_block_advantage(mv: dict) -> int | None:
+    """Return the wiki/observed block advantage when a row carries it."""
+    return _normal_int(
+        mv,
+        "adv_block_observed",
+        "observed_adv_block",
+        "wiki_adv_block",
+        "block_adv_observed",
+        "on_block_observed",
+        "observed_block_advantage",
+    )
 
-    The scanner/profile pass stores ``adv_hit`` and ``adv_block`` once MOT
-    recovery is known.  Keeping the small fallback here lets the preview still
-    show the same estimate for a freshly scanned row that has raw stun and
-    recovery but has not yet been profile-saved.
-    """
+
+def _normal_derived_block_advantage(mv: dict) -> int | None:
+    """Return the scanner-derived block advantage, with legacy fallback."""
+    return _normal_int(mv, "adv_block_derived", "derived_adv_block", "adv_block", "on_block", "block_adv", "plus_block")
+
+
+def _normal_advantage(mv: dict, kind: str, *, prefer_observed: bool = False) -> int | None:
+    """Return advantage with explicit observed/derived block separation."""
     if str(kind).lower().startswith("b"):
-        stored = _normal_int(mv, "adv_block", "on_block", "block_adv", "plus_block")
+        if prefer_observed:
+            observed = _normal_observed_block_advantage(mv)
+            if observed is not None:
+                return observed
+        stored = _normal_derived_block_advantage(mv)
         stun = _normal_int(mv, "blockstun", "block", "b")
     else:
-        stored = _normal_int(mv, "adv_hit", "on_hit", "hit_adv", "plus_hit")
+        stored = _normal_int(mv, "adv_hit", "adv_hit_derived", "derived_adv_hit", "on_hit", "hit_adv", "plus_hit")
         stun = _normal_int(mv, "hitstun", "hit", "h")
     if stored is not None:
         return stored
@@ -845,7 +861,6 @@ def _normal_advantage(mv: dict, kind: str) -> int | None:
     if stun is None or recovery is None:
         return None
     return int(stun) - int(recovery)
-
 
 def _normal_damage(mv: dict) -> int | None:
     """Return the decoded primary-hit damage without summing multihits."""
@@ -873,7 +888,7 @@ def _normal_row_quality(mv: dict) -> tuple[int, int, int, int]:
     block = _normal_int(mv, "blockstun", "block", "b")
     recovery = _normal_recovery(mv)
     adv_hit = _normal_advantage(mv, "hit")
-    adv_block = _normal_advantage(mv, "block")
+    adv_block = _normal_advantage(mv, "block", prefer_observed=True)
     filled = sum(v is not None for v in (startup, a1, a2, recovery, hit, block, adv_hit, adv_block))
     active_span = 0 if a1 is None or a2 is None else max(0, a2 - a1)
     damage = _normal_damage(mv) or 0
@@ -1094,7 +1109,7 @@ def _normal_preview_best_keys(moves: list[dict], mode: str) -> set[str]:
                 continue
             grouped[is_air].append((int(value), _normal_preview_key(mv)))
         elif mode == "adv_block":
-            value = _normal_advantage(mv, "block")
+            value = _normal_advantage(mv, "block", prefer_observed=True)
             if value is None:
                 continue
             grouped[is_air].append((int(value), _normal_preview_key(mv)))
@@ -1130,7 +1145,7 @@ def _normal_preview_punish_from_source(
     source_mv: dict,
 ) -> tuple[dict[str, set[str]], int | None, str | None]:
     """Return the active opposing point-normal that punishes a source move."""
-    adv_block = _normal_advantage(source_mv, "block")
+    adv_block = _normal_advantage(source_mv, "block", prefer_observed=True)
     if adv_block is None or adv_block >= 0:
         return {}, adv_block, source_slot
 
@@ -1203,7 +1218,7 @@ def _normal_preview_status(slots: list[dict], mode: str, selection: dict | None)
             return "Select a move to test"
 
     label = _normal_move_label(source_mv)
-    adv_block = _normal_advantage(source_mv, "block")
+    adv_block = _normal_advantage(source_mv, "block", prefer_observed=True)
     prefix = "Live " if mode == "live_punish" else ""
     if adv_block is None:
         return f"{prefix}{source_slot} {label}: block value unavailable"
@@ -1293,7 +1308,7 @@ def draw_scan_normals_polished(
     surf.blit(panel, rect.topleft)
 
     title = smallfont.render("Scan: Normals Preview", True, GUI_TEXT)
-    legend = smallfont.render("S startup | A active | R recovery | H hit advantage | B block advantage | DMG damage | blue = patched", True, GUI_TEXT_DIM)
+    legend = smallfont.render("Attack | S startup | A active | HS hitstun | BS blockstun | BA observed block adv | DMG damage", True, GUI_TEXT_DIM)
     surf.blit(title, (rect.x + 10, rect.y + 7))
     surf.blit(legend, (rect.right - legend.get_width() - 10, rect.y + 7))
     pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 24), (rect.right - 8, rect.y + 24))
@@ -1435,7 +1450,7 @@ def draw_scan_normals_polished(
         table_y = card.y + header_h + 4
         table_w = card.width - 12
         table_h = card.height - header_h - 8
-        metric_headers = ("S", "A", "R", "H", "B", "DMG")
+        metric_headers = ("S", "A", "HS", "BS", "BA", "DMG")
         metric_count = len(metric_headers)
         # The preview prioritizes startup, active, recovery, advantage, and
         # damage. Raw hitstun/blockstun remain available in the Frame Data view.
@@ -1451,7 +1466,7 @@ def draw_scan_normals_polished(
 
         hdr = pygame.Rect(grid_x, grid_y, grid_w, table_header_h)
         pygame.draw.rect(surf, (18, 22, 31), hdr, border_radius=4)
-        header_labels = ("Move",) + metric_headers
+        header_labels = ("Attack",) + metric_headers
         header_widths = (move_col_w,) + (metric_col_w,) * metric_count
         cell_x = grid_x
         for i, (txt, cell_w) in enumerate(zip(header_labels, header_widths)):
@@ -1579,8 +1594,9 @@ def draw_scan_normals_polished(
             recovery = _normal_recovery(mv)
             hit = _normal_int(mv, "hitstun", "hit", "h")
             block = _normal_int(mv, "blockstun", "block", "b")
-            adv_hit = _normal_advantage(mv, "hit")
-            adv_block = _normal_advantage(mv, "block")
+            adv_block = _normal_advantage(mv, "block", prefer_observed=True)
+            if adv_block is None and block is not None and recovery is not None:
+                adv_block = int(block) - int(recovery)
             damage = _normal_damage(mv)
             active_txt = "-"
             if a1 is not None and a2 is not None:
@@ -1590,8 +1606,8 @@ def draw_scan_normals_polished(
             values = [
                 "-" if startup is None else str(startup),
                 active_txt,
-                "-" if recovery is None else str(recovery),
-                "-" if adv_hit is None else f"{adv_hit:+d}",
+                "-" if hit is None else str(hit),
+                "-" if block is None else str(block),
                 "-" if adv_block is None else f"{adv_block:+d}",
                 "-" if damage is None else str(damage),
             ]
@@ -1601,7 +1617,7 @@ def draw_scan_normals_polished(
                 patch_fields = set(patch_fields)
             except Exception:
                 patch_fields = set()
-            metric_groups = ("active", "active", "recovery", "adv_hit", "adv_block", "damage")
+            metric_groups = ("startup", "active", "hitstun", "blockstun", "adv_block", "damage")
             value_col = GUI_TEXT if is_current else (205, 211, 224)
             patched_col = _brighten(accent, 52) if is_current else (145, 194, 255)
             for i, value in enumerate(values):

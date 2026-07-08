@@ -36,6 +36,7 @@ FD_COLUMNS = (
     "meter",
     "startup", "active", "active2",
     "hitstun", "invuln", "blockstun", "hitstop",
+    "adv_block_derived", "adv_block_observed",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
     "speed_mod", "attack_property", "hit_reaction", "hit_result_flags",
@@ -52,6 +53,7 @@ FD_CORE_COLUMNS = (
     "damage", "meter",
     "startup", "active",
     "hitstun", "invuln", "blockstun", "hitstop",
+    "adv_block_derived", "adv_block_observed",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
     "speed_mod", "attack_property", "hit_reaction", "hit_result_flags",
@@ -113,6 +115,8 @@ FD_LABELS = {
     "hitstun": "Hitstun",
     "blockstun": "Blockstun",
     "hitstop": "Hitstop",
+    "adv_block_derived": "Derived Block Adv",
+    "adv_block_observed": "Observed Block Adv",
     "hit_spark": "Hit Spark",
     "stretch_part": "Stretch Part",
     "stretch_len": "Reach Length",
@@ -1352,6 +1356,8 @@ def build_tree_widget(win) -> ttk.Frame:
         ("hitstun", "HS"),
         ("blockstun", "BS"),
         ("hitstop", "Stop"),
+        ("adv_block_derived", "Der B"),
+        ("adv_block_observed", "Obs B"),
         ("hit_spark", "Hit Spark"),
         ("stretch_part", "Stretch Part"),
         ("stretch_len", "Reach Length"),
@@ -1445,6 +1451,8 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("invuln", width=78, anchor="center")
     win.tree.column("blockstun", width=58, anchor="center")
     win.tree.column("hitstop", width=58, anchor="center")
+    win.tree.column("adv_block_derived", width=78, anchor="center")
+    win.tree.column("adv_block_observed", width=78, anchor="center")
     win.tree.column("hit_spark", width=86, anchor="center")
     win.tree.column("stretch_part", width=92, anchor="center")
     win.tree.column("stretch_len", width=96, anchor="center")
@@ -1770,6 +1778,14 @@ def _populate_tree_sync(win) -> None:
     def _fmt(v):
         return "" if v is None else str(v)
 
+    def _fmt_adv(v):
+        if v is None or v == "":
+            return ""
+        try:
+            return f"{int(v):+d}"
+        except Exception:
+            return str(v)
+
     # Opening the workbench used to issue several separate Dolphin reads per
     # row while resolving optional fields such as speed, SuperBG, hit spark,
     # stretch, and post-link.  Cache reads for the duration of this population
@@ -1903,6 +1919,14 @@ def _populate_tree_sync(win) -> None:
         kb_x_txt = U.fmt_kb_x_ui(mv)
         air_kb_txt = U.fmt_air_kb_ui(mv)
         hitstop_txt = U.fmt_stun(mv.get("hitstop"))
+        adv_block_derived = mv.get("adv_block_derived")
+        if adv_block_derived is None:
+            adv_block_derived = mv.get("adv_block")
+        adv_block_observed = mv.get("adv_block_observed")
+        if adv_block_observed is None:
+            adv_block_observed = mv.get("observed_adv_block")
+        adv_block_derived_txt = _fmt_adv(adv_block_derived)
+        adv_block_observed_txt = _fmt_adv(adv_block_observed)
 
         if move_abs and deep_probe:
             try:
@@ -2056,6 +2080,8 @@ def _populate_tree_sync(win) -> None:
                 invuln_txt,
                 U.fmt_stun(mv.get("blockstun")),
                 hitstop_txt,
+                adv_block_derived_txt,
+                adv_block_observed_txt,
                 hit_spark_txt,
                 stretch_part_txt,
                 stretch_len_txt,

@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "interval_sec": 3.0,
+  "mode": "interval",
+  "next_interval_at": 0.0,
+  "opponent_team": "P2",
+  "release_delay_frames": 0,
+  "response_label": "",
+  "source_label": "",
+  "target_side": "P2",
+  "trigger_count": 0
+}

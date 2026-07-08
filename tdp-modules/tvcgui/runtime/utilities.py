@@ -72,6 +72,10 @@ FD_BUILD_MISSING_PROFILES = os.environ.get("TVC_FD_BUILD_MISSING_PROFILES", "1")
 FD_MISSING_PROFILE_BUILD_DELAY_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_DELAY_SEC", "0.75") or "0.75")
 FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC", "20.0") or "20.0")
 
+# Startup-sensitive frame-data jobs stay off unless explicitly enabled.
+FD_SHEET_EXPORT_ENABLED = os.environ.get("TVC_FD_SHEET_EXPORT", "0").strip().lower() in {"1", "true", "on", "yes"}
+FD_WORKBENCH_PREWARM_ENABLED = os.environ.get("TVC_FD_PREWARM_WORKBENCH", "0").strip().lower() in {"1", "true", "on", "yes"}
+
 
 def _perf_warn(label: str, start_perf: float, *, threshold_ms: float | None = None, min_interval: float = 1.0) -> None:
     if not PERF_LOG_ENABLED:
@@ -228,6 +232,8 @@ __all__ = [
     'FD_BUILD_MISSING_PROFILES',
     'FD_MISSING_PROFILE_BUILD_DELAY_SEC',
     'FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC',
+    'FD_SHEET_EXPORT_ENABLED',
+    'FD_WORKBENCH_PREWARM_ENABLED',
     '_perf_warn',
     '_runtime_output_dir',
     '_start_memory_dump'

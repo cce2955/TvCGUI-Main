@@ -361,6 +361,8 @@ FIELD_HELP = {
         "UNVERIFIED LABEL: this field is currently called Hitstop, but that has not been confirmed in-game yet. "
         "It may control impact freeze/pause frames or another hit-timing behavior. Treat it as experimental: change one value at a time and verify the result in-game."
     ),
+    "adv_block_derived": "Scanner-derived block advantage from blockstun minus recovery. Useful for audit, but not always 1:1 with match reality.",
+    "adv_block_observed": "Observed wiki block advantage. The normals preview uses this value first when it exists.",
     "hit_spark": "Hit spark/effect number. User-tested on Ryu 5A: changing this can change the spark type and sometimes the spark location.",
     "stretch_part": "Which body/limb slot the reach stretch packet targets. Change this to test what part gets stretched.",
     "stretch_len": "Reach length scale. Higher values can create longer Dhalsim-style limb reach when the stretch packet is active.",

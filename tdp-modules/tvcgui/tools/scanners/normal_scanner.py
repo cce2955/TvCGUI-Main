@@ -2529,7 +2529,9 @@ def attach_move_fields(moves: List[Dict[str, Any]],
         hs = mv.get("hitstun") or 0
         bs = mv.get("blockstun") or 0
         mv["adv_hit"] = hs - recovery
+        mv["adv_hit_derived"] = hs - recovery
         mv["adv_block"] = bs - recovery
+        mv["adv_block_derived"] = bs - recovery
 
         mv["move_name_source"] = "none"
         mv["normal_confirmed"] = False
@@ -3065,7 +3067,8 @@ def _load_preview_profile_doc() -> Dict[str, Any]:
 
 _PREVIEW_MOVE_FIELDS = {
     "active2_end", "active2_start", "active_end", "active_start",
-    "adv_block", "adv_hit", "animation_char_key", "animation_duration_seconds",
+    "adv_block", "adv_block_derived", "adv_block_observed",
+    "adv_hit", "adv_hit_derived", "animation_char_key", "animation_duration_seconds",
     "animation_motion", "animation_total_frames", "blockstun", "damage",
     "damage_flag", "ground_kb", "ground_kb_y", "hitstop", "hitstun", "id",
     "invuln", "invuln_confidence", "invuln_frames", "invuln_kind", "kb_type",
@@ -3699,7 +3702,9 @@ def _profile_refresh_move(mv: Dict[str, Any], buf: bytes, base_abs: int, char_id
     hs = mv.get("hitstun") or 0
     bs = mv.get("blockstun") or 0
     mv["adv_hit"] = hs - recovery
+    mv["adv_hit_derived"] = hs - recovery
     mv["adv_block"] = bs - recovery
+    mv["adv_block_derived"] = bs - recovery
 
     # Refresh names/optional-normal confirmation in case move_id_map was updated
     # after the profile was created.

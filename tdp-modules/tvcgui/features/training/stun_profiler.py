@@ -242,12 +242,14 @@ def apply_runtime_stun_observations(moves: Iterable[dict], char_id: Any, *, path
                 hs = mv.get("hitstun")
                 if hs is not None:
                     mv["adv_hit"] = int(hs) - int(recovery_value)
+                    mv["adv_hit_derived"] = int(hs) - int(recovery_value)
             except Exception:
                 pass
             try:
                 bs = mv.get("blockstun")
                 if bs is not None:
                     mv["adv_block"] = int(bs) - int(recovery_value)
+                    mv["adv_block_derived"] = int(bs) - int(recovery_value)
             except Exception:
                 pass
 

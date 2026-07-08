@@ -10,6 +10,7 @@ import sys
 import threading
 import zipfile
 from datetime import datetime
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 import pygame
 from tvcgui.core.subprocess_compat import frozen_exe
 
@@ -355,6 +356,8 @@ from tvcgui.runtime.utilities import (
     FD_BUILD_MISSING_PROFILES,
     FD_MISSING_PROFILE_BUILD_DELAY_SEC,
     FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC,
+    FD_SHEET_EXPORT_ENABLED,
+    FD_WORKBENCH_PREWARM_ENABLED,
     PERF_FRAME_WARN_MS,
     _PERF_LAST_ELAPSED_MS,
     _copy_to_clipboard,
@@ -1277,10 +1280,11 @@ def legacy_main():
         except Exception as _runtime_stun_profiler_error:
             print(f"[runtime stun] unavailable: {_runtime_stun_profiler_error!r}", flush=True)
 
-    # Every scanner result is mirrored into one persistent CSV spreadsheet.
-    # It is observation-only and does not affect in-game frame-data behavior.
+    # Runtime sheet export is opt-in because compiling/exporting CSVs can stall
+    # the HUD during startup. Set TVC_FD_SHEET_EXPORT=1 when a sheet rebuild is
+    # needed from live scans.
     frame_data_exporter = None
-    if FrameDataSpreadsheetExporter is not None:
+    if FD_SHEET_EXPORT_ENABLED and FrameDataSpreadsheetExporter is not None:
         try:
             frame_data_exporter = FrameDataSpreadsheetExporter()
             print(
@@ -1862,10 +1866,10 @@ def legacy_main():
                                 scan_worker.request(workbench=True)
                             except TypeError:
                                 scan_worker.request()
-                    # Prewarm one rich cache read after the first compact HUD
-                    # snapshot. This makes the first editor click open directly
-                    # in normal cases without loading a 90+ MB JSON on the click.
-                    if not fd_workbench_prewarmed:
+                    # Optional workbench prewarm is disabled by default because
+                    # loading the full editable profile cache can stutter startup.
+                    # Set TVC_FD_PREWARM_WORKBENCH=1 to restore the old behavior.
+                    if FD_WORKBENCH_PREWARM_ENABLED and not fd_workbench_prewarmed:
                         fd_workbench_prewarmed = True
                         try:
                             scan_worker.request(workbench=True)

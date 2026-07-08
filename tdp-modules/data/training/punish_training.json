@@ -1,0 +1,9 @@
+{
+  "enabled": false,
+  "mode": "interval",
+  "opponent_team": "P1",
+  "response_label": "2B",
+  "interval_sec": 3.0,
+  "source_label": "",
+  "release_delay_frames": 0
+}

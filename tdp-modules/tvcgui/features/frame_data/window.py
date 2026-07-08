@@ -20,6 +20,15 @@ def _fmt_stun(v):
     return str(v)
 
 
+def _fmt_adv(v):
+    if v is None or v == "":
+        return ""
+    try:
+        return f"{int(v):+d}"
+    except Exception:
+        return str(v)
+
+
 def _fmt_move_label(mv):
     aid = mv.get("id")
     name = mv.get("move_name")
@@ -47,7 +56,7 @@ def _open_legacy_viewer(slot_label, target_slot):
     cols = (
         "move", "kind", "damage", "meter",
         "startup", "active", "hitstun", "blockstun", "hitstop",
-        "advH", "advB",
+        "advH", "advBD", "advBO",
         "hb",
         "abs",
     )
@@ -77,8 +86,9 @@ def _open_legacy_viewer(slot_label, target_slot):
         ("hitstun", "HS"),
         ("blockstun", "BS"),
         ("hitstop", "Stop"),
-        ("advH", "advH"),
-        ("advB", "advB"),
+        ("advH", "Adv H"),
+        ("advBD", "Derived B"),
+        ("advBO", "Observed B"),
         ("hb", "HB"),
         ("abs", "ABS"),
     ]
@@ -95,7 +105,8 @@ def _open_legacy_viewer(slot_label, target_slot):
     tree.column("blockstun", width=55, anchor="center")
     tree.column("hitstop", width=70, anchor="center")
     tree.column("advH", width=70, anchor="center")
-    tree.column("advB", width=70, anchor="center")
+    tree.column("advBD", width=86, anchor="center")
+    tree.column("advBO", width=92, anchor="center")
     tree.column("hb", width=110, anchor="center")
     tree.column("abs", width=120, anchor="center")
 
@@ -127,7 +138,12 @@ def _open_legacy_viewer(slot_label, target_slot):
             hb_txt = ""
 
         adv_hit = mv.get("adv_hit")
-        adv_block = mv.get("adv_block")
+        adv_block_derived = mv.get("adv_block_derived")
+        if adv_block_derived is None:
+            adv_block_derived = mv.get("adv_block")
+        adv_block_observed = mv.get("adv_block_observed")
+        if adv_block_observed is None:
+            adv_block_observed = mv.get("observed_adv_block")
 
         tree.insert(
             "",
@@ -143,7 +159,8 @@ def _open_legacy_viewer(slot_label, target_slot):
                 _fmt_stun(mv.get("blockstun")),
                 "" if mv.get("hitstop") is None else str(mv.get("hitstop")),
                 "" if adv_hit is None else f"{adv_hit:+d}",
-                "" if adv_block is None else f"{adv_block:+d}",
+                _fmt_adv(adv_block_derived),
+                _fmt_adv(adv_block_observed),
                 hb_txt,
                 f"0x{mv.get('abs', 0):08X}" if mv.get("abs") else "",
             ),

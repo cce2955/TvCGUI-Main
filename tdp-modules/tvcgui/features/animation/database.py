@@ -189,7 +189,9 @@ def apply_animation_metadata(moves: Iterable[Dict[str, Any]], char_name: Any, ch
         except Exception:
             blockstun = 0
         move["adv_hit"] = hitstun - recovery
+        move["adv_hit_derived"] = hitstun - recovery
         move["adv_block"] = blockstun - recovery
+        move["adv_block_derived"] = blockstun - recovery
 
 
 def animation_database_status() -> Dict[str, Any]:
