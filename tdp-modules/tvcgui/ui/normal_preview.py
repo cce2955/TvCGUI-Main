@@ -15,6 +15,8 @@ try:
 except Exception:
     SCAN_ANIM_MAP = {}
 
+from tvcgui.features.combat.move_filters import is_purged_move_label
+
 from tvcgui.ui.components import (
     GUI_ACCENT_BLUE,
     GUI_CONFIRM,
@@ -260,7 +262,7 @@ def _normal_canonical_label(label: str) -> str | None:
     return aliases.get(low)
 
 
-def _normal_preview_label_allowed(mv: dict, canon: str, raw_label: str) -> bool:
+def _normal_preview_label_allowed(mv: dict, canon: str, raw_label: str, char_ref: dict | None = None) -> bool:
     """Gate optional labels that raw ids can falsely create.
 
     Core normals are allowed from the scanner map. 6B is allowed only when the
@@ -269,6 +271,9 @@ def _normal_preview_label_allowed(mv: dict, canon: str, raw_label: str) -> bool:
     member. j.2B/j.2C stay hidden from the compact preview for now.
     """
     if canon in _HIDDEN_PREVIEW_NORMALS:
+        return False
+
+    if is_purged_move_label(char_ref or mv, mv, canon):
         return False
 
     if canon not in _OPTIONAL_PREVIEW_NORMALS:
@@ -310,7 +315,7 @@ def _normal_row_quality(mv: dict) -> tuple[int, int, int, int]:
     return (filled, active_span, damage, -int(mv.get("_scan_index", 0) or 0))
 
 
-def _normal_visible_moves(moves: list) -> list:
+def _normal_visible_moves(moves: list, char_ref: dict | None = None) -> list:
     """Return only the curated normal rows, in fighting-game notation order.
 
     The scan can contain duplicate/system/debug rows, and some characters put
@@ -331,7 +336,7 @@ def _normal_visible_moves(moves: list) -> list:
         canon = _normal_canonical_label(label)
         if canon is None:
             continue
-        if not _normal_preview_label_allowed(mv, canon, label):
+        if not _normal_preview_label_allowed(mv, canon, label, char_ref):
             continue
 
         row = dict(mv)
@@ -405,7 +410,7 @@ def _normal_preview_selected_move(slots: list[dict], selection: dict | None) -> 
         slot_label = str(slot.get("slot_label") or slot.get("slot") or "")
         if slot_label != wanted_slot:
             continue
-        for mv in _normal_visible_moves(slot.get("moves") or []):
+        for mv in _normal_visible_moves(slot.get("moves") or [], slot):
             if _normal_preview_selection_matches(selection, slot_label, mv):
                 return slot_label, mv
     return None, None
@@ -421,7 +426,7 @@ def _normal_preview_current_move(slot: dict) -> dict | None:
     """Resolve the currently executing visible normal for one slot."""
     if not isinstance(slot, dict):
         return None
-    visible = _normal_visible_moves(slot.get("moves") or [])
+    visible = _normal_visible_moves(slot.get("moves") or [], slot)
     if not visible:
         return None
 
@@ -556,7 +561,7 @@ def _normal_preview_punish_ladder(slot: dict, source_mv: dict, window: int) -> d
     """Return fastest and highest-damage legal normal punish options for one slot."""
     source_is_air = _normal_preview_is_air_move(source_mv)
     candidates: list[dict[str, object]] = []
-    for mv in _normal_visible_moves(slot.get("moves") or []):
+    for mv in _normal_visible_moves(slot.get("moves") or [], slot):
         if _normal_preview_is_air_move(mv) != source_is_air:
             continue
         startup = _normal_int(mv, "startup", "start", "active_start")
@@ -643,7 +648,7 @@ def _normal_preview_matchup_from_source(
         slot_label = str(slot.get("slot_label") or slot.get("slot") or "")
         if not slot_label.startswith(target_team):
             continue
-        for mv in _normal_visible_moves(slot.get("moves") or []):
+        for mv in _normal_visible_moves(slot.get("moves") or [], slot):
             canon = _normal_canonical_label(_normal_move_label(mv)) or _normal_canon_label(_normal_move_label(mv))
             if canon != wanted:
                 continue
@@ -697,7 +702,7 @@ def _normal_preview_highlight_keys(slots: list[dict], mode: str, selection: dict
         if not isinstance(slot, dict):
             continue
         slot_label = str(slot.get("slot_label") or slot.get("slot") or "")
-        keys = _normal_preview_best_keys(_normal_visible_moves(slot.get("moves") or []), mode)
+        keys = _normal_preview_best_keys(_normal_visible_moves(slot.get("moves") or [], slot), mode)
         if keys:
             out[slot_label] = keys
     return out, {}, None, None
@@ -1003,7 +1008,7 @@ def draw_scan_normals_polished(
         moves = slot.get("moves") or []
         if not isinstance(moves, list):
             moves = []
-        visible_moves = _normal_visible_moves(moves)
+        visible_moves = _normal_visible_moves(moves, slot)
         is_empty_card = len(visible_moves) <= 0
 
         cur_id = slot.get("cur_anim") or slot.get("current_anim") or slot.get("mv_id_display") or slot.get("move_id")

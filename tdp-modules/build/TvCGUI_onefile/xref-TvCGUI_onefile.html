@@ -491,6 +491,7 @@ imported by:
  &#8226;   <a href="#tvcgui.features.assists.api">tvcgui.features.assists.api</a>
  &#8226;   <a href="#tvcgui.features.assists.backend">tvcgui.features.assists.backend</a>
  &#8226;   <a href="#tvcgui.features.character_select.runtime">tvcgui.features.character_select.runtime</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.features.combat.projectile_scanner">tvcgui.features.combat.projectile_scanner</a>
  &#8226;   <a href="#tvcgui.features.frame_data.binding">tvcgui.features.frame_data.binding</a>
  &#8226;   <a href="#tvcgui.features.frame_data.dialogs">tvcgui.features.frame_data.dialogs</a>
@@ -516,6 +517,8 @@ imported by:
  &#8226;   <a href="#tvcgui.features.overlay.master_renderer">tvcgui.features.overlay.master_renderer</a>
  &#8226;   <a href="#tvcgui.features.stage_select.runtime">tvcgui.features.stage_select.runtime</a>
  &#8226;   <a href="#tvcgui.features.stage_select.window">tvcgui.features.stage_select.window</a>
+ &#8226;   <a href="#tvcgui.features.training.action_force_window">tvcgui.features.training.action_force_window</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
  &#8226;   <a href="#tvcgui.features.training.megacrash_window">tvcgui.features.training.megacrash_window</a>
  &#8226;   <a href="#tvcgui.features.training.mission_manager">tvcgui.features.training.mission_manager</a>
  &#8226;   <a href="#tvcgui.features.training.mission_mode">tvcgui.features.training.mission_mode</a>
@@ -524,11 +527,14 @@ imported by:
  &#8226;   <a href="#tvcgui.features.training.win_counter_gate">tvcgui.features.training.win_counter_gate</a>
  &#8226;   <a href="#tvcgui.features.training.win_counter_window">tvcgui.features.training.win_counter_window</a>
  &#8226;   <a href="#tvcgui.platform.patch_manager">tvcgui.platform.patch_manager</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
  &#8226;   <a href="#tvcgui.runtime.ko_control">tvcgui.runtime.ko_control</a>
  &#8226;   <a href="#tvcgui.runtime.megacrash">tvcgui.runtime.megacrash</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
  &#8226;   <a href="#tvcgui.tools.scanners.bone_scanner">tvcgui.tools.scanners.bone_scanner</a>
  &#8226;   <a href="#tvcgui.tools.scanners.fighter_state">tvcgui.tools.scanners.fighter_state</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.components">tvcgui.ui.components</a>
  &#8226;   <a href="#tvcgui.ui.normal_preview">tvcgui.ui.normal_preview</a>
  &#8226;   <a href="#tvcgui.ui.overseer">tvcgui.ui.overseer</a>
@@ -3135,6 +3141,7 @@ imported by:
  &#8226;   <a href="#tokenize">tokenize</a>
  &#8226;   <a href="#tvcgui.features.combat.projectile_scanner">tvcgui.features.combat.projectile_scanner</a>
  &#8226;   <a href="#tvcgui.features.frame_data.workbench">tvcgui.features.frame_data.workbench</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
  &#8226;   <a href="#tvcgui.features.training.stun_profiler">tvcgui.features.training.stun_profiler</a>
  &#8226;   <a href="#typing">typing</a>
  &#8226;   <a href="#unittest._log">unittest._log</a>
@@ -8217,6 +8224,7 @@ imported by:
  &#8226;   <a href="#tvcgui.runtime.megacrash">tvcgui.runtime.megacrash</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.overseer">tvcgui.ui.overseer</a>
 
   </div>
@@ -8451,7 +8459,9 @@ imports:
  &#8226;   <a href="#tvcgui.features.overlay.manager">tvcgui.features.overlay.manager</a>
  &#8226;   <a href="#tvcgui.features.stage_select.runtime">tvcgui.features.stage_select.runtime</a>
  &#8226;   <a href="#tvcgui.features.stage_select.window">tvcgui.features.stage_select.window</a>
+ &#8226;   <a href="#tvcgui.features.training.action_force_window">tvcgui.features.training.action_force_window</a>
  &#8226;   <a href="#tvcgui.features.training.flags">tvcgui.features.training.flags</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
  &#8226;   <a href="#tvcgui.features.training.megacrash_window">tvcgui.features.training.megacrash_window</a>
  &#8226;   <a href="#tvcgui.features.training.mission_manager">tvcgui.features.training.mission_manager</a>
  &#8226;   <a href="#tvcgui.features.training.stun_profiler">tvcgui.features.training.stun_profiler</a>
@@ -8467,6 +8477,7 @@ imports:
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scan_worker">tvcgui.tools.scanners.normal_scan_worker</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
  &#8226;   <a href="#tvcgui.tools.scanners.red_health_scanner">tvcgui.tools.scanners.red_health_scanner</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.components">tvcgui.ui.components</a>
  &#8226;   <a href="#tvcgui.ui.debug_panel">tvcgui.ui.debug_panel</a>
  &#8226;   <a href="#tvcgui.ui.normal_preview">tvcgui.ui.normal_preview</a>
@@ -16386,6 +16397,7 @@ imported by:
  &#8226;   <a href="#tvcgui.runtime.megacrash">tvcgui.runtime.megacrash</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.portraits">tvcgui.ui.portraits</a>
  &#8226;   <a href="#unittest.loader">unittest.loader</a>
  &#8226;   <a href="#unittest.main">unittest.main</a>
@@ -16984,6 +16996,7 @@ imported by:
  &#8226;   <a href="#tvcgui.features.overlay.drawing">tvcgui.features.overlay.drawing</a>
  &#8226;   <a href="#tvcgui.features.overlay.hud_renderer">tvcgui.features.overlay.hud_renderer</a>
  &#8226;   <a href="#tvcgui.features.overlay.master_renderer">tvcgui.features.overlay.master_renderer</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.components">tvcgui.ui.components</a>
  &#8226;   <a href="#tvcgui.ui.debug_panel">tvcgui.ui.debug_panel</a>
  &#8226;   <a href="#tvcgui.ui.main_window">tvcgui.ui.main_window</a>
@@ -18007,6 +18020,7 @@ imported by:
  &#8226;   <a href="#tokenize">tokenize</a>
  &#8226;   <a href="#tvcgui.features.animation.database">tvcgui.features.animation.database</a>
  &#8226;   <a href="#tvcgui.features.character_select.runtime">tvcgui.features.character_select.runtime</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.features.frame_data.dumper">tvcgui.features.frame_data.dumper</a>
  &#8226;   <a href="#tvcgui.features.frame_data.move_families">tvcgui.features.frame_data.move_families</a>
  &#8226;   <a href="#tvcgui.features.frame_data.spreadsheet_export">tvcgui.features.frame_data.spreadsheet_export</a>
@@ -18016,6 +18030,7 @@ imported by:
  &#8226;   <a href="#tvcgui.features.hitboxes.renderer">tvcgui.features.hitboxes.renderer</a>
  &#8226;   <a href="#tvcgui.features.training.megacrash_window">tvcgui.features.training.megacrash_window</a>
  &#8226;   <a href="#tvcgui.features.training.mission_mode">tvcgui.features.training.mission_mode</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#typing">typing</a>
  &#8226;   <a href="#unittest.case">unittest.case</a>
  &#8226;   <a href="#unittest.loader">unittest.loader</a>
@@ -18649,6 +18664,8 @@ imported by:
  &#8226;   <a href="#tvcgui.features.training.stun_profiler">tvcgui.features.training.stun_profiler</a>
  &#8226;   <a href="#tvcgui.platform.dolphin">tvcgui.platform.dolphin</a>
  &#8226;   <a href="#tvcgui.platform.patch_manager">tvcgui.platform.patch_manager</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
  &#8226;   <a href="#tvcgui.tools.scanners.bone_scanner">tvcgui.tools.scanners.bone_scanner</a>
  &#8226;   <a href="#tvcgui.tools.scanners.fighter_state">tvcgui.tools.scanners.fighter_state</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
@@ -19123,6 +19140,7 @@ imported by:
  &#8226;   <a href="#tvcgui.features.stage_select.runtime">tvcgui.features.stage_select.runtime</a>
  &#8226;   <a href="#tvcgui.platform.dolphin">tvcgui.platform.dolphin</a>
  &#8226;   <a href="#tvcgui.platform.patch_manager">tvcgui.platform.patch_manager</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scan_worker">tvcgui.tools.scanners.normal_scan_worker</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
@@ -19196,11 +19214,13 @@ imported by:
  &#8226;   <a href="#tvcgui.features.overlay.hud_renderer">tvcgui.features.overlay.hud_renderer</a>
  &#8226;   <a href="#tvcgui.features.overlay.master_renderer">tvcgui.features.overlay.master_renderer</a>
  &#8226;   <a href="#tvcgui.features.stage_select.runtime">tvcgui.features.stage_select.runtime</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
  &#8226;   <a href="#tvcgui.features.training.mission_manager">tvcgui.features.training.mission_manager</a>
  &#8226;   <a href="#tvcgui.features.training.stun_profiler">tvcgui.features.training.stun_profiler</a>
  &#8226;   <a href="#tvcgui.features.training.win_counter_gate">tvcgui.features.training.win_counter_gate</a>
  &#8226;   <a href="#tvcgui.platform.dolphin">tvcgui.platform.dolphin</a>
  &#8226;   <a href="#tvcgui.platform.patch_manager">tvcgui.platform.patch_manager</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
  &#8226;   <a href="#tvcgui.runtime.ko_control">tvcgui.runtime.ko_control</a>
  &#8226;   <a href="#tvcgui.runtime.megacrash">tvcgui.runtime.megacrash</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
@@ -19209,6 +19229,7 @@ imported by:
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scan_worker">tvcgui.tools.scanners.normal_scan_worker</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
  &#8226;   <a href="#tvcgui.tools.scanners.red_health_scanner">tvcgui.tools.scanners.red_health_scanner</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.main_window">tvcgui.ui.main_window</a>
  &#8226;   <a href="#tvcgui.ui.normal_preview">tvcgui.ui.normal_preview</a>
  &#8226;   <a href="#tvcgui.ui.overseer">tvcgui.ui.overseer</a>
@@ -19264,8 +19285,11 @@ imported by:
  &#8226;   <a href="#tvcgui.features.hitboxes.renderer">tvcgui.features.hitboxes.renderer</a>
  &#8226;   <a href="#tvcgui.features.overlay.editor">tvcgui.features.overlay.editor</a>
  &#8226;   <a href="#tvcgui.features.stage_select.window">tvcgui.features.stage_select.window</a>
+ &#8226;   <a href="#tvcgui.features.training.action_force_window">tvcgui.features.training.action_force_window</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
  &#8226;   <a href="#tvcgui.features.training.megacrash_window">tvcgui.features.training.megacrash_window</a>
  &#8226;   <a href="#tvcgui.features.training.win_counter_window">tvcgui.features.training.win_counter_window</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.overseer">tvcgui.ui.overseer</a>
 
   </div>
@@ -19411,6 +19435,7 @@ imported by:
  &#8226;   <a href="#tvcgui.features.frame_data.window">tvcgui.features.frame_data.window</a>
  &#8226;   <a href="#tvcgui.features.frame_data.workbench">tvcgui.features.frame_data.workbench</a>
  &#8226;   <a href="#tvcgui.features.training.megacrash_window">tvcgui.features.training.megacrash_window</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
 
   </div>
 
@@ -19630,6 +19655,7 @@ imported by:
  &#8226;   <a href="#tvcgui.features.hitboxes.renderer">tvcgui.features.hitboxes.renderer</a>
  &#8226;   <a href="#tvcgui.features.training.stun_profiler">tvcgui.features.training.stun_profiler</a>
  &#8226;   <a href="#tvcgui.platform.dolphin">tvcgui.platform.dolphin</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
  &#8226;   <a href="#tvcgui.runtime.megacrash">tvcgui.runtime.megacrash</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
  &#8226;   <a href="#tvcgui.tools.scanners.fighter_resolver">tvcgui.tools.scanners.fighter_resolver</a>
@@ -19712,6 +19738,7 @@ imported by:
  &#8226;   <a href="#tvcgui.runtime.megacrash">tvcgui.runtime.megacrash</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
 
   </div>
 
@@ -19762,8 +19789,11 @@ imported by:
  &#8226;   <a href="#tvcgui.features.frame_data.workbench">tvcgui.features.frame_data.workbench</a>
  &#8226;   <a href="#tvcgui.features.overlay.editor">tvcgui.features.overlay.editor</a>
  &#8226;   <a href="#tvcgui.features.stage_select.window">tvcgui.features.stage_select.window</a>
+ &#8226;   <a href="#tvcgui.features.training.action_force_window">tvcgui.features.training.action_force_window</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
  &#8226;   <a href="#tvcgui.features.training.megacrash_window">tvcgui.features.training.megacrash_window</a>
  &#8226;   <a href="#tvcgui.features.training.win_counter_window">tvcgui.features.training.win_counter_window</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.overseer">tvcgui.ui.overseer</a>
 
   </div>
@@ -19985,6 +20015,7 @@ imports:
 imported by:
     <a href="#tvcgui.features.combat.advantage">tvcgui.features.combat.advantage</a>
  &#8226;   <a href="#tvcgui.features.combat.meter">tvcgui.features.combat.meter</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.features.combat.move_id_map">tvcgui.features.combat.move_id_map</a>
  &#8226;   <a href="#tvcgui.features.combat.move_writer">tvcgui.features.combat.move_writer</a>
  &#8226;   <a href="#tvcgui.features.combat.moves">tvcgui.features.combat.moves</a>
@@ -20032,6 +20063,32 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="tvcgui.features.combat.move_filters"></a>
+  <a target="code" href="///C:/Users/cce29/OneDrive/Desktop/TvCGUI-Main/tdp-modules/tvcgui/features/combat/move_filters.py" type="text/plain"><tt>tvcgui.features.combat.move_filters</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#tvcgui.features.combat">tvcgui.features.combat</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tvcgui.features.combat.move_id_map">tvcgui.features.combat.move_id_map</a>
+ &#8226;   <a href="#tvcgui.features.combat.moves">tvcgui.features.combat.moves</a>
+ &#8226;   <a href="#tvcgui.features.frame_data.spreadsheet_export">tvcgui.features.frame_data.spreadsheet_export</a>
+ &#8226;   <a href="#tvcgui.features.frame_data.workbench">tvcgui.features.frame_data.workbench</a>
+ &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
+ &#8226;   <a href="#tvcgui.ui.main_window">tvcgui.ui.main_window</a>
+ &#8226;   <a href="#tvcgui.ui.normal_preview">tvcgui.ui.normal_preview</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="tvcgui.features.combat.move_id_map"></a>
   <a target="code" href="///C:/Users/cce29/OneDrive/Desktop/TvCGUI-Main/tdp-modules/tvcgui/features/combat/move_id_map.py" type="text/plain"><tt>tvcgui.features.combat.move_id_map</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -20040,6 +20097,7 @@ imports:
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#tvcgui.core.paths">tvcgui.core.paths</a>
  &#8226;   <a href="#tvcgui.features.combat">tvcgui.features.combat</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
 
   </div>
   <div class="import">
@@ -20050,6 +20108,7 @@ imported by:
  &#8226;   <a href="#tvcgui.features.frame_data.utils">tvcgui.features.frame_data.utils</a>
  &#8226;   <a href="#tvcgui.features.hitboxes.renderer">tvcgui.features.hitboxes.renderer</a>
  &#8226;   <a href="#tvcgui.features.overlay.drawing">tvcgui.features.overlay.drawing</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
 
   </div>
@@ -20083,6 +20142,7 @@ imports:
  &#8226;   <a href="#os">os</a>
  &#8226;   <a href="#tvcgui.core.constants">tvcgui.core.constants</a>
  &#8226;   <a href="#tvcgui.features.combat">tvcgui.features.combat</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.platform.dolphin">tvcgui.platform.dolphin</a>
 
   </div>
@@ -20408,6 +20468,7 @@ imports:
  &#8226;   <a href="#threading">threading</a>
  &#8226;   <a href="#time">time</a>
  &#8226;   <a href="#tvcgui.core.paths">tvcgui.core.paths</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.features.frame_data">tvcgui.features.frame_data</a>
  &#8226;   <a href="#typing">typing</a>
 
@@ -20602,6 +20663,7 @@ imports:
  &#8226;   <a href="#tvcgui.core.config">tvcgui.core.config</a>
  &#8226;   <a href="#tvcgui.core.paths">tvcgui.core.paths</a>
  &#8226;   <a href="#tvcgui.core.tk_host">tvcgui.core.tk_host</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.features.frame_data">tvcgui.features.frame_data</a>
  &#8226;   <a href="#tvcgui.features.frame_data.dumper">tvcgui.features.frame_data.dumper</a>
  &#8226;   <a href="#tvcgui.features.frame_data.editors">tvcgui.features.frame_data.editors</a>
@@ -20827,6 +20889,8 @@ imports:
  &#8226;   <a href="#tvcgui.core.paths">tvcgui.core.paths</a>
  &#8226;   <a href="#tvcgui.features.overlay">tvcgui.features.overlay</a>
  &#8226;   <a href="#tvcgui.features.training.mission_manager">tvcgui.features.training.mission_manager</a>
+ &#8226;   <a href="#tvcgui.runtime">tvcgui.runtime</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
  &#8226;   <a href="#typing">typing</a>
 
   </div>
@@ -20948,7 +21012,9 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#tvcgui.features.training.flags">tvcgui.features.training.flags</a>
+    <a href="#tvcgui.features.training.action_force_window">tvcgui.features.training.action_force_window</a>
+ &#8226;   <a href="#tvcgui.features.training.flags">tvcgui.features.training.flags</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
  &#8226;   <a href="#tvcgui.features.training.megacrash_window">tvcgui.features.training.megacrash_window</a>
  &#8226;   <a href="#tvcgui.features.training.mission_manager">tvcgui.features.training.mission_manager</a>
  &#8226;   <a href="#tvcgui.features.training.mission_mode">tvcgui.features.training.mission_mode</a>
@@ -20956,6 +21022,28 @@ imported by:
  &#8226;   <a href="#tvcgui.features.training.timer_debug">tvcgui.features.training.timer_debug</a>
  &#8226;   <a href="#tvcgui.features.training.win_counter_gate">tvcgui.features.training.win_counter_gate</a>
  &#8226;   <a href="#tvcgui.features.training.win_counter_window">tvcgui.features.training.win_counter_window</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tvcgui.features.training.action_force_window"></a>
+  <a target="code" href="///C:/Users/cce29/OneDrive/Desktop/TvCGUI-Main/tdp-modules/tvcgui/features/training/action_force_window.py" type="text/plain"><tt>tvcgui.features.training.action_force_window</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tvcgui.core.tk_host">tvcgui.core.tk_host</a>
+ &#8226;   <a href="#tvcgui.features.training">tvcgui.features.training</a>
+ &#8226;   <a href="#tvcgui.runtime">tvcgui.runtime</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
 
   </div>
 
@@ -20974,6 +21062,30 @@ imports:
 imported by:
     <a href="#launcher.py">launcher.py</a>
  &#8226;   <a href="#main">main</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tvcgui.features.training.input_spoof_window"></a>
+  <a target="code" href="///C:/Users/cce29/OneDrive/Desktop/TvCGUI-Main/tdp-modules/tvcgui/features/training/input_spoof_window.py" type="text/plain"><tt>tvcgui.features.training.input_spoof_window</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#collections">collections</a>
+ &#8226;   <a href="#time">time</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tvcgui.core.tk_host">tvcgui.core.tk_host</a>
+ &#8226;   <a href="#tvcgui.features.training">tvcgui.features.training</a>
+ &#8226;   <a href="#tvcgui.runtime">tvcgui.runtime</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
 
   </div>
 
@@ -21214,6 +21326,8 @@ imported by:
  &#8226;   <a href="#tvcgui.features.training.timer_debug">tvcgui.features.training.timer_debug</a>
  &#8226;   <a href="#tvcgui.features.training.win_counter_window">tvcgui.features.training.win_counter_window</a>
  &#8226;   <a href="#tvcgui.platform.patch_manager">tvcgui.platform.patch_manager</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
  &#8226;   <a href="#tvcgui.runtime.ko_control">tvcgui.runtime.ko_control</a>
  &#8226;   <a href="#tvcgui.runtime.megacrash">tvcgui.runtime.megacrash</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
@@ -21262,13 +21376,67 @@ imported by:
 <span class="moduletype">Package</span>  <div class="import">
 imports:
     <a href="#tvcgui">tvcgui</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
 
   </div>
   <div class="import">
 imported by:
-    <a href="#tvcgui.runtime.ko_control">tvcgui.runtime.ko_control</a>
+    <a href="#tvcgui.features.overlay.manager">tvcgui.features.overlay.manager</a>
+ &#8226;   <a href="#tvcgui.features.training.action_force_window">tvcgui.features.training.action_force_window</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
+ &#8226;   <a href="#tvcgui.runtime.ko_control">tvcgui.runtime.ko_control</a>
  &#8226;   <a href="#tvcgui.runtime.megacrash">tvcgui.runtime.megacrash</a>
  &#8226;   <a href="#tvcgui.runtime.utilities">tvcgui.runtime.utilities</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tvcgui.runtime.action_force"></a>
+  <a target="code" href="///C:/Users/cce29/OneDrive/Desktop/TvCGUI-Main/tdp-modules/tvcgui/runtime/action_force.py" type="text/plain"><tt>tvcgui.runtime.action_force</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#struct">struct</a>
+ &#8226;   <a href="#threading">threading</a>
+ &#8226;   <a href="#time">time</a>
+ &#8226;   <a href="#tvcgui.platform.dolphin">tvcgui.platform.dolphin</a>
+ &#8226;   <a href="#tvcgui.runtime">tvcgui.runtime</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tvcgui.features.training.action_force_window">tvcgui.features.training.action_force_window</a>
+ &#8226;   <a href="#tvcgui.runtime">tvcgui.runtime</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tvcgui.runtime.input_monitor"></a>
+  <a target="code" href="///C:/Users/cce29/OneDrive/Desktop/TvCGUI-Main/tdp-modules/tvcgui/runtime/input_monitor.py" type="text/plain"><tt>tvcgui.runtime.input_monitor</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#struct">struct</a>
+ &#8226;   <a href="#tvcgui.core.constants">tvcgui.core.constants</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_id_map">tvcgui.features.combat.move_id_map</a>
+ &#8226;   <a href="#tvcgui.platform.dolphin">tvcgui.platform.dolphin</a>
+ &#8226;   <a href="#tvcgui.runtime">tvcgui.runtime</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#tvcgui.features.overlay.manager">tvcgui.features.overlay.manager</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
+ &#8226;   <a href="#tvcgui.runtime">tvcgui.runtime</a>
 
   </div>
 
@@ -21513,6 +21681,7 @@ imports:
  &#8226;   <a href="#tvcgui.core.constants">tvcgui.core.constants</a>
  &#8226;   <a href="#tvcgui.core.paths">tvcgui.core.paths</a>
  &#8226;   <a href="#tvcgui.features.animation.database">tvcgui.features.animation.database</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.features.combat.move_id_map">tvcgui.features.combat.move_id_map</a>
  &#8226;   <a href="#tvcgui.features.training.stun_profiler">tvcgui.features.training.stun_profiler</a>
  &#8226;   <a href="#tvcgui.platform.dolphin">tvcgui.platform.dolphin</a>
@@ -21583,12 +21752,43 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#tvcgui.ui.components">tvcgui.ui.components</a>
+    <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
+ &#8226;   <a href="#tvcgui.ui.components">tvcgui.ui.components</a>
  &#8226;   <a href="#tvcgui.ui.debug_panel">tvcgui.ui.debug_panel</a>
  &#8226;   <a href="#tvcgui.ui.main_window">tvcgui.ui.main_window</a>
  &#8226;   <a href="#tvcgui.ui.normal_preview">tvcgui.ui.normal_preview</a>
  &#8226;   <a href="#tvcgui.ui.overseer">tvcgui.ui.overseer</a>
  &#8226;   <a href="#tvcgui.ui.portraits">tvcgui.ui.portraits</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="tvcgui.ui.advantage_window"></a>
+  <a target="code" href="///C:/Users/cce29/OneDrive/Desktop/TvCGUI-Main/tdp-modules/tvcgui/ui/advantage_window.py" type="text/plain"><tt>tvcgui.ui.advantage_window</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#__future__">__future__</a>
+ &#8226;   <a href="#json">json</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#pygame">pygame</a>
+ &#8226;   <a href="#re">re</a>
+ &#8226;   <a href="#time">time</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
+ &#8226;   <a href="#tvcgui.core.paths">tvcgui.core.paths</a>
+ &#8226;   <a href="#tvcgui.core.tk_host">tvcgui.core.tk_host</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
+ &#8226;   <a href="#tvcgui.ui">tvcgui.ui</a>
+ &#8226;   <a href="#tvcgui.ui.components">tvcgui.ui.components</a>
+ &#8226;   <a href="#tvcgui.ui.normal_preview">tvcgui.ui.normal_preview</a>
+ &#8226;   <a href="#typing">typing</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#main">main</a>
 
   </div>
 
@@ -21609,6 +21809,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#main">main</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.normal_preview">tvcgui.ui.normal_preview</a>
 
   </div>
@@ -21643,6 +21844,7 @@ imports:
     <a href="#math">math</a>
  &#8226;   <a href="#pygame">pygame</a>
  &#8226;   <a href="#time">time</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
  &#8226;   <a href="#tvcgui.ui">tvcgui.ui</a>
 
@@ -21663,6 +21865,7 @@ imports:
     <a href="#__future__">__future__</a>
  &#8226;   <a href="#pygame">pygame</a>
  &#8226;   <a href="#time">time</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
  &#8226;   <a href="#tvcgui.ui">tvcgui.ui</a>
  &#8226;   <a href="#tvcgui.ui.components">tvcgui.ui.components</a>
@@ -21671,6 +21874,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#main">main</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
 
   </div>
 
@@ -21865,6 +22069,7 @@ imported by:
  &#8226;   <a href="#tvcgui.features.animation.database">tvcgui.features.animation.database</a>
  &#8226;   <a href="#tvcgui.features.animation.runtime">tvcgui.features.animation.runtime</a>
  &#8226;   <a href="#tvcgui.features.character_select.runtime">tvcgui.features.character_select.runtime</a>
+ &#8226;   <a href="#tvcgui.features.combat.move_filters">tvcgui.features.combat.move_filters</a>
  &#8226;   <a href="#tvcgui.features.frame_data.binding">tvcgui.features.frame_data.binding</a>
  &#8226;   <a href="#tvcgui.features.frame_data.dumper">tvcgui.features.frame_data.dumper</a>
  &#8226;   <a href="#tvcgui.features.frame_data.move_families">tvcgui.features.frame_data.move_families</a>
@@ -21883,6 +22088,8 @@ imported by:
  &#8226;   <a href="#tvcgui.features.overlay.master_renderer">tvcgui.features.overlay.master_renderer</a>
  &#8226;   <a href="#tvcgui.features.stage_select.runtime">tvcgui.features.stage_select.runtime</a>
  &#8226;   <a href="#tvcgui.features.stage_select.window">tvcgui.features.stage_select.window</a>
+ &#8226;   <a href="#tvcgui.features.training.action_force_window">tvcgui.features.training.action_force_window</a>
+ &#8226;   <a href="#tvcgui.features.training.input_spoof_window">tvcgui.features.training.input_spoof_window</a>
  &#8226;   <a href="#tvcgui.features.training.megacrash_window">tvcgui.features.training.megacrash_window</a>
  &#8226;   <a href="#tvcgui.features.training.mission_manager">tvcgui.features.training.mission_manager</a>
  &#8226;   <a href="#tvcgui.features.training.mission_mode">tvcgui.features.training.mission_mode</a>
@@ -21890,9 +22097,12 @@ imported by:
  &#8226;   <a href="#tvcgui.features.training.win_counter_gate">tvcgui.features.training.win_counter_gate</a>
  &#8226;   <a href="#tvcgui.features.training.win_counter_window">tvcgui.features.training.win_counter_window</a>
  &#8226;   <a href="#tvcgui.platform.patch_manager">tvcgui.platform.patch_manager</a>
+ &#8226;   <a href="#tvcgui.runtime.action_force">tvcgui.runtime.action_force</a>
+ &#8226;   <a href="#tvcgui.runtime.input_monitor">tvcgui.runtime.input_monitor</a>
  &#8226;   <a href="#tvcgui.tools.scanners.bone_scanner">tvcgui.tools.scanners.bone_scanner</a>
  &#8226;   <a href="#tvcgui.tools.scanners.fighter_state">tvcgui.tools.scanners.fighter_state</a>
  &#8226;   <a href="#tvcgui.tools.scanners.normal_scanner">tvcgui.tools.scanners.normal_scanner</a>
+ &#8226;   <a href="#tvcgui.ui.advantage_window">tvcgui.ui.advantage_window</a>
  &#8226;   <a href="#tvcgui.ui.overseer">tvcgui.ui.overseer</a>
 
   </div>

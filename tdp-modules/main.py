@@ -227,6 +227,16 @@ except Exception as e:
     set_win_counter_runtime_active = None
     print(f"WARNING: Win Counter runtime gate not available ({e!r})")
 try:
+    from tvcgui.features.training.input_spoof_window import open_input_spoof_window
+except Exception as e:
+    open_input_spoof_window = None
+    print(f"WARNING: Input Spoof window not available ({e!r})")
+try:
+    from tvcgui.features.training.action_force_window import open_action_force_window
+except Exception as e:
+    open_action_force_window = None
+    print(f"WARNING: Action Force window not available ({e!r})")
+try:
     from tvcgui.ui.overseer import open_overseer_window
 except Exception as e:
     open_overseer_window = None
@@ -426,6 +436,7 @@ from tvcgui.ui.normal_preview import (
     draw_quick_assist_footer,
     draw_scan_normals_polished,
 )
+from tvcgui.ui.advantage_window import draw_advantage_window, open_advantage_window
 
 def merged_debug_values():
     core_flags = read_debug_flags()
@@ -1535,6 +1546,9 @@ def legacy_main():
     normal_preview_ui = {"controls": {}, "rows": []}
     normal_preview_offset = (0, 0)
     normal_preview_advanced_open = False
+    advantage_selection: dict | None = None
+    advantage_ui = {"controls": {}, "rows": [], "char_order": [], "current_char_key": None}
+    advantage_offset = (0, 0)
 
     # Momentary write restore
     hype_restore_addr  = None
@@ -2542,7 +2556,7 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, input_spoof_btn_rect, action_force_btn_rect, ko_control_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -2788,6 +2802,8 @@ def legacy_main():
 
         debug_click_areas = {}
         debug_max_scroll = 0
+        if active_bottom_tab == "advantage":
+            active_bottom_tab = "scan"
 
         if active_bottom_tab == "scan":
             scan_rect = bottom_content_rect
@@ -2859,13 +2875,62 @@ def legacy_main():
             normal_preview_offset = (scan_rect.x, int(y))
             scan_surf.set_alpha(255)
             screen.blit(scan_surf, normal_preview_offset)
+            advantage_ui = {"controls": {}, "rows": [], "char_order": [], "current_char_key": None}
+
+        elif active_bottom_tab == "advantage":
+            normal_preview_ui = {"controls": {}, "rows": []}
+            adv_rect = bottom_content_rect
+            adv_surf = pygame.Surface((adv_rect.width, adv_rect.height), pygame.SRCALPHA)
+
+            adv_display = []
+            adv_base_scan_map = {}
+            try:
+                if fd_patch_runtime is not None:
+                    fd_patch_runtime.overlay_scan_data(last_scan_normals)
+            except Exception:
+                pass
+            try:
+                for _row in list(last_scan_normals or []):
+                    if isinstance(_row, dict):
+                        _lbl = str(_row.get("slot_label") or _row.get("slot") or "")
+                        if _lbl:
+                            adv_base_scan_map[_lbl] = dict(_row)
+            except Exception:
+                adv_base_scan_map = {}
+            for _lbl in ("P1-C1", "P1-C2", "P2-C1", "P2-C2"):
+                _row = dict(adv_base_scan_map.get(_lbl, {"slot_label": _lbl, "moves": []}))
+                _snap = render_snap_by_slot.get(_lbl)
+                if isinstance(_snap, dict):
+                    _row["mv_id_display"] = _snap.get("mv_id_display")
+                    _row["mv_label"] = _snap.get("mv_label")
+                    _row["char_name"] = _snap.get("name") or _row.get("char_name")
+                    if _snap.get("char_id") is not None:
+                        _row["char_id"] = _snap.get("char_id")
+                adv_display.append(_row)
+
+            local_mouse = (pygame.mouse.get_pos()[0] - adv_rect.x, pygame.mouse.get_pos()[1] - adv_rect.y)
+            advantage_ui = draw_advantage_window(
+                adv_surf,
+                adv_surf.get_rect(),
+                font,
+                smallfont,
+                adv_display,
+                selection=advantage_selection,
+                mouse_pos=local_mouse,
+                t_ms=t_ms,
+            )
+            advantage_offset = (adv_rect.x, adv_rect.y)
+            adv_surf.set_alpha(255)
+            screen.blit(adv_surf, advantage_offset)
 
         elif active_bottom_tab == "events":
             normal_preview_ui = {"controls": {}, "rows": []}
+            advantage_ui = {"controls": {}, "rows": [], "char_order": [], "current_char_key": None}
 
             draw_event_log(screen, bottom_content_rect, font, smallfont)
 
         elif active_bottom_tab == "debug":
+            advantage_ui = {"controls": {}, "rows": [], "char_order": [], "current_char_key": None}
             if frame_idx % DEBUG_REFRESH_EVERY == 0:
                 debug_cache = merged_debug_values()
             debug_click_areas, debug_max_scroll = draw_debug_overlay(
@@ -2873,6 +2938,7 @@ def legacy_main():
             )
 
         elif active_bottom_tab == "activity":
+            advantage_ui = {"controls": {}, "rows": [], "char_order": [], "current_char_key": None}
             draw_activity(screen, bottom_content_rect, font, last_adv_display)
 
         if bottom_tab_fade is not None:
@@ -3112,6 +3178,24 @@ def legacy_main():
                 mouse_clicked_pos = None
                 continue
 
+            elif input_spoof_btn_rect.collidepoint(mx, my):
+                if open_input_spoof_window is not None:
+                    open_input_spoof_window()
+                    print("[input spoof] window opened", flush=True)
+                else:
+                    print("[input spoof] window unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
+            elif action_force_btn_rect.collidepoint(mx, my):
+                if open_action_force_window is not None:
+                    open_action_force_window()
+                    print("[action force] window opened", flush=True)
+                else:
+                    print("[action force] window unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
             elif ko_control_btn_rect.collidepoint(mx, my):
                 ko_control_full_enabled = not bool(ko_control_full_enabled)
                 # The top-dock button is an ARM switch now, not a permanent
@@ -3181,7 +3265,9 @@ def legacy_main():
 
             for _tab_key, _tab_rect in list(bottom_tab_rects.items()):
                 if _tab_rect.collidepoint(mx, my):
-                    if active_bottom_tab != _tab_key:
+                    if _tab_key == "advantage":
+                        open_advantage_window(last_scan_normals, render_snap_by_slot)
+                    elif active_bottom_tab != _tab_key:
                         active_bottom_tab = _tab_key
                         bottom_tab_fade = {"start": now, "dur": 0.18}
                     mouse_clicked_pos = None
@@ -3228,6 +3314,56 @@ def legacy_main():
                             _handled_preview_click = True
                             break
                 if _handled_preview_click:
+                    mouse_clicked_pos = None
+
+            if mouse_clicked_pos is not None and active_bottom_tab == "advantage":
+                _adv_controls = advantage_ui.get("controls") if isinstance(advantage_ui, dict) else {}
+                _adv_rows = advantage_ui.get("rows") if isinstance(advantage_ui, dict) else []
+                _adv_order = advantage_ui.get("char_order") if isinstance(advantage_ui, dict) else []
+                _adv_current = str(advantage_ui.get("current_char_key") or "") if isinstance(advantage_ui, dict) else ""
+                _off_x, _off_y = advantage_offset
+                _handled_adv_click = False
+
+                if isinstance(_adv_controls, dict):
+                    for _ctrl_key, _local_rect in list(_adv_controls.items()):
+                        if isinstance(_local_rect, pygame.Rect) and _local_rect.move(_off_x, _off_y).collidepoint(mx, my):
+                            if _ctrl_key in {"__char_prev__", "__char_next__"}:
+                                _order = [str(item) for item in list(_adv_order or []) if str(item)]
+                                if _order:
+                                    try:
+                                        _idx = _order.index(_adv_current)
+                                    except Exception:
+                                        _idx = 0
+                                    _step = -1 if _ctrl_key == "__char_prev__" else 1
+                                    _new_key = _order[(_idx + _step) % len(_order)]
+                                    _next_sel = dict(advantage_selection or {})
+                                    _next_sel["source_char_key"] = _new_key
+                                    _next_sel["lock_char"] = True
+                                    advantage_selection = _next_sel
+                            elif _ctrl_key == "__live_default__":
+                                _next_sel = dict(advantage_selection or {})
+                                _next_sel.pop("source_char_key", None)
+                                _next_sel["lock_char"] = False
+                                advantage_selection = _next_sel if _next_sel.get("attack_key") else None
+                            _handled_adv_click = True
+                            break
+
+                if not _handled_adv_click:
+                    for _row_meta in list(_adv_rows or []):
+                        if not isinstance(_row_meta, dict):
+                            continue
+                        _local_rect = _row_meta.get("rect")
+                        if isinstance(_local_rect, pygame.Rect) and _local_rect.move(_off_x, _off_y).collidepoint(mx, my):
+                            if str(_row_meta.get("type") or "") == "source_attack":
+                                _next_sel = dict(advantage_selection or {})
+                                _next_sel["attack_key"] = str(_row_meta.get("attack_key") or "")
+                                if bool(_next_sel.get("lock_char")):
+                                    _next_sel["source_char_key"] = str(_row_meta.get("source_char_key") or "")
+                                advantage_selection = _next_sel
+                            _handled_adv_click = True
+                            break
+
+                if _handled_adv_click:
                     mouse_clicked_pos = None
 
             if mouse_clicked_pos is None:

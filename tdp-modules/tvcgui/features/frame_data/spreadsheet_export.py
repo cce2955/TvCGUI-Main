@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from tvcgui.core.paths import resource_path, user_data_path
+from tvcgui.features.combat.move_filters import is_purged_move_label
 
 EXPORT_FILE_NAME = "TvC_Frame_Data_Observed.csv"
 EXPORT_DIRECTORY_NAME = "frame_data_by_character"
@@ -351,6 +352,8 @@ def _iter_export_moves(slot: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
     if isinstance(moves, Iterable) and not isinstance(moves, (str, bytes, Mapping)):
         for move in moves:
             if isinstance(move, Mapping):
+                if is_purged_move_label(slot, dict(move)):
+                    continue
                 yield move
     projectile_hits = slot.get("profile_projectile_hits")
     if isinstance(projectile_hits, Iterable) and not isinstance(projectile_hits, (str, bytes, Mapping)):

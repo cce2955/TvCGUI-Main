@@ -20,6 +20,7 @@ import sys
 from typing import TYPE_CHECKING
 
 from tvcgui.core.paths import user_data_path
+from tvcgui.runtime import input_monitor
 
 if TYPE_CHECKING:
     from tvcgui.features.training.mission_manager import MissionManager
@@ -82,6 +83,13 @@ class HudOverlayManager:
             mv_label = snap.get("mv_label")
             active_start = None
             active_end = None
+            try:
+                input_packet = input_monitor.read_overlay_input_packet(
+                    slot_label,
+                    int(snap.get("base") or 0),
+                )
+            except Exception:
+                input_packet = {}
 
             if last_scan_normals and cur_anim is not None:
                 for slot_data in last_scan_normals:
@@ -107,6 +115,13 @@ class HudOverlayManager:
                 "baroque_cancel_raw":     snap.get("baroque_cancel_raw", False),
                 "baroque_cancel_latched": snap.get("baroque_cancel_latched", False),
                 "baroque_cancel_frames":  snap.get("baroque_cancel_latch_frames", 0),
+                "input_previous":         input_packet.get("previous", 0),
+                "input_held":             input_packet.get("held", 0),
+                "input_pressed":          input_packet.get("pressed", 0),
+                "input_released":         input_packet.get("released", 0),
+                "input_text":             input_packet.get("held_text", "5"),
+                "input_pressed_text":     input_packet.get("pressed_text", "none"),
+                "input_released_text":    input_packet.get("released_text", "none"),
                 "active_start":           active_start,
                 "active_end":             active_end,
                 "mission_target":         slot_label == mission_active_slot,

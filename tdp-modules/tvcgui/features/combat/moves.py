@@ -1,6 +1,7 @@
 import os, csv
 from tvcgui.platform.dolphin import rd32
 from tvcgui.core.constants import ATT_ID_OFF_PRIMARY, ATT_ID_OFF_SECOND
+from tvcgui.features.combat.move_filters import is_purged_move_label
 
 # VERY IMPORTANT:
 # Keys here MUST exactly match snap["name"] as shown in the HUD.
@@ -93,6 +94,8 @@ def load_move_map(big_csv_path, override_csv_path=None):
                     # This is the global/system/assist/etc bucket.
                     global_map[atk_id] = label
                 else:
+                    if is_purged_move_label({"char_id": char_id}, {"move_name": label, "id": atk_id}, label):
+                        continue
                     bucket = move_map.setdefault(char_id, {})
                     bucket[atk_id] = label
     else:
@@ -125,6 +128,8 @@ def load_move_map(big_csv_path, override_csv_path=None):
                 if char_id == 100:
                     global_map[atk_id] = lab
                 else:
+                    if is_purged_move_label({"char_id": char_id}, {"move_name": lab, "id": atk_id}, lab):
+                        continue
                     bucket = move_map.setdefault(char_id, {})
                     bucket[atk_id] = lab
 
@@ -150,10 +155,16 @@ def move_label_for(aid, cid, move_map, global_map):
     if cid is not None:
         bucket = move_map.get(cid)
         if bucket and aid in bucket:
-            return bucket[aid]
+            label = bucket[aid]
+            if is_purged_move_label({"char_id": cid}, {"move_name": label, "id": aid}, label):
+                return f"FLAG_{aid}"
+            return label
 
     if aid in global_map:
-        return global_map[aid]
+        label = global_map[aid]
+        if cid is not None and is_purged_move_label({"char_id": cid}, {"move_name": label, "id": aid}, label):
+            return f"FLAG_{aid}"
+        return label
 
     return f"FLAG_{aid}"
 

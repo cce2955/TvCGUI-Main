@@ -56,6 +56,7 @@ from .write_helpers import (
 
 from tvcgui.core.tk_host import tk_call
 from tvcgui.core.paths import resource_path
+from tvcgui.features.combat.move_filters import filter_purged_moves_for_char, is_purged_move_label
 
 
 class EditableFrameDataWindow(FDCellEditorsMixin):
@@ -130,7 +131,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         # Preserve the raw scan order for optional view sorting.
         # Tag each move dict with a stable scan index so we can return to the scanner order.
-        moves_scanned = list(target_slot.get("moves", []) or [])
+        moves_scanned = filter_purged_moves_for_char(target_slot, list(target_slot.get("moves", []) or []))
+        try:
+            target_slot["moves"] = moves_scanned
+        except Exception:
+            pass
         for i, mv in enumerate(moves_scanned):
             try:
                 mv.setdefault("_scan_index", i)

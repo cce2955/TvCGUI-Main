@@ -82,6 +82,9 @@ REACTION_IDS = {48, 49, 50, 51, 52, 64, 65, 66, 73,75, 79, 80, 81,
                 82, 83, 89, 90, 92, 95, 96, 98,
                 102,105,106,113, 114,115,116, 117, 118 ,119, 160}
 BAROQUE_CANCEL_IDS = {162, 163, 164}
+INPUT_DIRECTION_MASK = 0x0F
+INPUT_BUTTON_MASK = 0xF0
+INPUT_TRACK_MASK = INPUT_DIRECTION_MASK | INPUT_BUTTON_MASK
 
 
 
@@ -383,6 +386,9 @@ def _get_slot_anim(slot_label: str):
         "move_scroll_px": 0.0,
         "prev_baroque_pct": None,
         "baroque_events": [],
+        "input_history": [],
+        "prev_input_key": None,
+        "last_input_frame": -9999,
         "hp_display_frac": None,
         "partner_hp_display_frac": None,
         "meter_display_value": None,
@@ -412,9 +418,21 @@ def _get_team_anim(team: str):
     })
 
 
-def _push_event_history(slot_anim: dict, label: str, value: str, color: tuple[int, int, int]) -> None:
+def _push_event_history(
+    slot_anim: dict,
+    label: str,
+    value: str,
+    color: tuple[int, int, int],
+    rainbow: bool = False,
+) -> None:
     items = slot_anim["event_history"]
-    items.insert(0, {"label": label, "value": value, "color": color, "life": 1.0})
+    items.insert(0, {
+        "label": label,
+        "value": value,
+        "color": color,
+        "life": 1.0,
+        "rainbow": bool(rainbow),
+    })
     del items[6:]
 
 
@@ -695,7 +713,7 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
         delta = cur_baroque_pct - prev_baroque_pct
         events = slot_anim["baroque_events"]
         events.insert(0, {"value": delta, "life": 1.0, "x_offset": 20})
-        _push_event_history(slot_anim, "BBQ", f"{delta:+.0f}%", (255, 180, 92) if delta < 0 else (172, 112, 255))
+        _push_event_history(slot_anim, "BBQ", f"{delta:+.0f}%", (255, 180, 92) if delta < 0 else (172, 112, 255), rainbow=True)
         if len(events) > 5:
             events.pop()
     slot_anim["prev_baroque_pct"] = cur_baroque_pct
@@ -1348,6 +1366,52 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
             del meter_events[3:]
     slot_anim["prev_meter"] = meter_cur
 
+    try:
+        baroque_cur = float(snap.get("baroque_red_pct_max") or 0.0)
+    except (TypeError, ValueError):
+        baroque_cur = 0.0
+    prev_baroque = slot_anim.get("prev_baroque_pct")
+    if prev_baroque is not None:
+        baroque_delta = baroque_cur - float(prev_baroque)
+        if abs(baroque_delta) >= 0.05:
+            baroque_events = slot_anim["baroque_events"]
+            baroque_events.insert(0, {
+                "value": baroque_delta,
+                "direction": "gain" if baroque_delta > 0 else "loss",
+                "life": 1.0,
+                "age": 0.0,
+                "x_offset": 0,
+            })
+            baroque_text = f"{'+' if baroque_delta > 0 else '-'}{abs(baroque_delta):.1f}%"
+            baroque_color = (255, 211, 92) if baroque_delta > 0 else (255, 132, 104)
+            _push_event_history(slot_anim, "BBQ", baroque_text, baroque_color, rainbow=True)
+            del baroque_events[3:]
+    slot_anim["prev_baroque_pct"] = baroque_cur
+
+    try:
+        input_held = int(snap.get("input_held") or 0) & 0xFF
+        input_pressed = int(snap.get("input_pressed") or 0) & 0xFF
+    except (TypeError, ValueError):
+        input_held = 0
+        input_pressed = 0
+    input_key = input_held & INPUT_TRACK_MASK
+    previous_input_key = slot_anim.get("prev_input_key")
+    input_history = slot_anim["input_history"]
+    input_text = str(snap.get("input_text") or "5").strip()
+    if input_key != previous_input_key:
+        if input_key and input_text and input_text != "5":
+            if not input_history or input_history[-1] != input_text:
+                input_history.append(input_text)
+                slot_anim["last_input_frame"] = _frame
+        elif previous_input_key not in (None, 0) and input_history and input_history[-1] != "·":
+            input_history.append("·")
+        slot_anim["prev_input_key"] = input_key
+    elif input_pressed & INPUT_BUTTON_MASK and input_text and input_text != "5":
+        if not input_history or input_history[-1] != input_text:
+            input_history.append(input_text)
+            slot_anim["last_input_frame"] = _frame
+    del input_history[:-12]
+
     move_id = snap.get("mv_id_display")
     move_label = _compact_move_label(snap)
     try:
@@ -1515,9 +1579,14 @@ def _draw_compact_stat_chip(
     scale: float,
     life: float = 1.0,
     event: dict | None = None,
+    rainbow: bool = False,
 ) -> int:
-    label_surface = font_sm.render(label, True, (142, 151, 169))
-    value_surface = font_sm.render(value, True, _compact_chip_color(color, life))
+    if rainbow:
+        label_surface = _render_compact_rainbow_text(font_sm, label, 0.10)
+        value_surface = _render_compact_rainbow_text(font_sm, value, 0.48)
+    else:
+        label_surface = font_sm.render(label, True, (142, 151, 169))
+        value_surface = font_sm.render(value, True, _compact_chip_color(color, life))
     pad_x = max(4, int(5 * scale))
     seg_gap = max(2, int(2 * scale))
     label_w = label_surface.get_width() + pad_x * 2
@@ -1531,7 +1600,7 @@ def _draw_compact_stat_chip(
     rise = int((1.0 - fade) * max(1, int(3 * scale)))
     chip = pygame.Surface((width, height), pygame.SRCALPHA)
     radius = max(2, int(2 * scale))
-    border = _compact_chip_color(color, life)
+    border = _compact_rainbow_color(0.28, 1.1) if rainbow else _compact_chip_color(color, life)
     label_rect = pygame.Rect(0, 0, label_w, height)
     value_rect = pygame.Rect(label_w + seg_gap, 0, value_w, height)
     pygame.draw.rect(chip, (16, 21, 31, int(222 * fade)), chip.get_rect(), border_radius=radius)
@@ -1578,7 +1647,7 @@ def _draw_compact_info_strip(
     scale: float,
 ) -> None:
     damage_event, meter_event, advantage_event, baroque_event = _compact_consume_panel_events(slot_anim)
-    chips: list[tuple[str, str, tuple[int, int, int], float, dict | None]] = []
+    chips: list[tuple[str, str, tuple[int, int, int], float, dict | None, bool]] = []
 
     if damage_event is not None:
         event_type = str(damage_event.get("type") or "")
@@ -1588,35 +1657,39 @@ def _draw_compact_info_strip(
             label, color = "HP +", (92, 232, 146)
         else:
             label, color = "DMG IN", (255, 110, 110)
-        chips.append((label, _compact_short_number(damage_event.get("value", 0)), color, float(damage_event.get("life", 1.0)), damage_event))
+        chips.append((label, _compact_short_number(damage_event.get("value", 0)), color, float(damage_event.get("life", 1.0)), damage_event, False))
 
     if meter_event is not None:
         direction = str(meter_event.get("direction") or "gain")
         gain = direction != "loss"
-        chips.append(("MTR", f"{'+' if gain else '-'}{_compact_short_number(meter_event.get('value', 0))}", (96, 182, 255) if gain else (255, 164, 92), float(meter_event.get("life", 1.0)), meter_event))
+        chips.append(("MTR", f"{'+' if gain else '-'}{_compact_short_number(meter_event.get('value', 0))}", (96, 182, 255) if gain else (255, 164, 92), float(meter_event.get("life", 1.0)), meter_event, False))
 
     if advantage_event is not None:
         value = int(advantage_event.get("value", 0))
         value_text = f"{value:+d}" if value else "0"
         color = (92, 232, 146) if value > 0 else ((255, 112, 112) if value < 0 else (196, 205, 220))
-        chips.append(("FRAME", value_text, color, float(advantage_event.get("life", 1.0)), advantage_event))
+        chips.append(("FRAME", value_text, color, float(advantage_event.get("life", 1.0)), advantage_event, False))
 
     if baroque_event is not None:
         value = float(baroque_event.get("value", 0.0))
         value_text = f"{value:+.0f}%"
         color = (172, 112, 255) if value > 0 else (255, 180, 92)
-        chips.append(("BBQ", value_text, color, float(baroque_event.get("life", 1.0)), baroque_event))
+        chips.append(("BBQ", value_text, color, float(baroque_event.get("life", 1.0)), baroque_event, True))
 
     action_text, action_color, action_kind = _compact_action_chip(action_label)
     draw_x = x
     gap = max(4, int(5 * scale))
-    for label, value, color, life, event in chips:
-        label_surface = font_sm.render(label, True, (142, 151, 169))
-        value_surface = font_sm.render(value, True, color)
+    for label, value, color, life, event, rainbow in chips:
+        if rainbow:
+            label_surface = _render_compact_rainbow_text(font_sm, label, 0.10)
+            value_surface = _render_compact_rainbow_text(font_sm, value, 0.48)
+        else:
+            label_surface = font_sm.render(label, True, (142, 151, 169))
+            value_surface = font_sm.render(value, True, color)
         width = label_surface.get_width() + value_surface.get_width() + max(3, int(4 * scale)) + max(8, int(10 * scale))
         if draw_x + width > right:
             continue
-        used = _draw_compact_stat_chip(screen, font_sm, draw_x, y, label, value, color, scale, life, event)
+        used = _draw_compact_stat_chip(screen, font_sm, draw_x, y, label, value, color, scale, life, event, rainbow=rainbow)
         draw_x += used + gap
 
     if action_text and draw_x < right:
@@ -1650,6 +1723,7 @@ def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x
                 "value": value,
                 "color": item.get("color") or (196, 205, 220),
                 "life": float(item.get("life", 1.0)),
+                "rainbow": bool(item.get("rainbow", False) or label.upper() == "BBQ"),
             })
             if len(out) >= 4:
                 break
@@ -1660,7 +1734,10 @@ def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x
         for idx, item in enumerate(source_items):
             alpha = max(0.35, min(1.0, alpha_override if alpha_override is not None else item.get("life", 1.0)))
             txt = f"{item.get('label','')} {item.get('value','')}".strip()
-            surf = font_sm.render(txt, True, item.get("color") or (196, 205, 220))
+            if item.get("rainbow"):
+                surf = _render_compact_rainbow_text(font_sm, txt, 0.18 + idx * 0.14)
+            else:
+                surf = font_sm.render(txt, True, item.get("color") or (196, 205, 220))
             surf.set_alpha(int(255 * alpha))
             rendered.append(surf)
             if idx < len(source_items) - 1:
@@ -1697,6 +1774,42 @@ def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x
         _draw_parts(current_parts, draw_x - int(inserted_shift * slide_progress))
     else:
         _draw_parts(current_parts, draw_x)
+    screen.set_clip(old_clip)
+
+
+def _draw_compact_input_history(screen, font_sm, items: list[str], x: int, y: int, right: int, scale: float) -> None:
+    title_surface = font_sm.render("INPUT", True, (110, 122, 142))
+    screen.blit(title_surface, (x, y))
+    draw_x = x + title_surface.get_width() + max(6, int(7 * scale))
+    gap = max(4, int(5 * scale))
+    clip_rect = pygame.Rect(draw_x, y - 1, max(1, right - draw_x), font_sm.get_height() + int(4 * scale))
+    tokens = [str(item or "").strip() for item in (items or []) if str(item or "").strip()]
+    if not tokens:
+        empty = font_sm.render("—", True, (86, 96, 114))
+        screen.blit(empty, (draw_x, y))
+        return
+
+    old_clip = screen.get_clip()
+    screen.set_clip(clip_rect)
+    widths = []
+    rendered = []
+    for index, token in enumerate(tokens[-12:]):
+        if token == "·":
+            color = (78, 88, 104)
+        else:
+            age = len(tokens[-12:]) - 1 - index
+            color = (108, 166, 255) if age == 0 else (188, 204, 232) if age <= 3 else (126, 139, 160)
+        surf = font_sm.render(token, True, color)
+        rendered.append(surf)
+        widths.append(surf.get_width())
+    # Keep the input stream attached to its INPUT tag. Right-aligning the
+    # tokens placed short histories in the meter/Baroque column.
+    dx = draw_x
+    for index, surf in enumerate(rendered):
+        screen.blit(surf, (dx, y))
+        dx += surf.get_width()
+        if index < len(rendered) - 1:
+            dx += gap
     screen.set_clip(old_clip)
 
 
@@ -2001,7 +2114,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     point_anim["meter_display_value"] = _approach(point_anim["meter_display_value"], point_meter_target, 32000.0, dt)
 
     width = max(430, int(470 * scale))
-    height = max(118, int(126 * scale))
+    height = max(132, int(142 * scale))
     margin_x = int(12 * scale)
     base_y = int(148 * scale)
     is_left = team == "P1"
@@ -2093,7 +2206,8 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     partner_hp_y = secondary_y + font_sm.get_height() + int(2 * scale)
     strip_y = partner_hp_y + max(5, int(6 * scale)) + int(5 * scale)
     history_y = strip_y + max(17, int(18 * scale)) + int(3 * scale)
-    move_history_y = history_y + max(12, int(13 * scale)) + int(2 * scale)
+    input_y = history_y + max(12, int(13 * scale)) + int(2 * scale)
+    move_history_y = input_y + max(12, int(13 * scale)) + int(2 * scale)
     # Preserve the old tag-swap motion: when the active point changes, the
     # incoming fighter rises from the reserve row while the outgoing fighter
     # drops into it.  The C1/C2 badges travel with their full character rows.
@@ -2209,6 +2323,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
         team_anim["log_history_signature"] = log_signature
     team_anim["log_history_slide"] = _approach(float(team_anim.get("log_history_slide", 0.0)), 0.0, 6.0, dt)
     _draw_compact_history_line(screen, font_sm, "LOG", log_items, left, history_y, right, scale, team_anim.get("log_history_prev", []), float(team_anim.get("log_history_slide", 0.0)))
+    _draw_compact_input_history(screen, font_sm, point_anim.get("input_history", []), left, input_y, info_right, scale)
     merged_moves = _merge_move_history(point_anim.get("move_events", []), partner_anim.get("move_events", []))
     move_signature = tuple(str(item.get("text") or "").strip() for item in merged_moves[:5] if str(item.get("text") or "").strip())
     previous_signature = tuple(team_anim.get("move_history_signature", ()))

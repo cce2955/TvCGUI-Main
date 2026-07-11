@@ -139,7 +139,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 15,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -173,7 +176,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 28,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -207,7 +213,10 @@
           "multi_hit_count": 2,
           "normal_confirmed": true,
           "recovery": 46,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -554,7 +563,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 15,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -7,
+          "observed_block_advantage": -7,
+          "wiki_adv_block": -7
         },
         {
           "active2_end": 4,
@@ -588,7 +600,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 30,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -7,
+          "observed_block_advantage": -7,
+          "wiki_adv_block": -7
         },
         {
           "active2_end": 4,
@@ -622,7 +637,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 36,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -15,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
         },
         {
           "active2_end": 4,
@@ -974,7 +992,10 @@
           "normal_confirmed": true,
           "recovery": 28,
           "recovery_source": "mot_derived",
-          "stun_source": "owned_direct_override"
+          "stun_source": "owned_direct_override",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -1009,7 +1030,10 @@
           "normal_confirmed": true,
           "recovery": 29,
           "recovery_source": "mot_derived",
-          "stun_source": "owned_direct_override"
+          "stun_source": "owned_direct_override",
+          "adv_block_observed": -7,
+          "observed_block_advantage": -7,
+          "wiki_adv_block": -7
         },
         {
           "active2_end": 8,
@@ -1045,7 +1069,10 @@
           "recovery": 32,
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
-          "stun_source": "engine_default_hit_level"
+          "stun_source": "engine_default_hit_level",
+          "adv_block_observed": -7,
+          "observed_block_advantage": -7,
+          "wiki_adv_block": -7
         },
         {
           "active2_end": 8,
@@ -1225,40 +1252,6 @@
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
           "stun_source": "engine_default_hit_level"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": 3,
-          "active_start": 1,
-          "adv_block": -7,
-          "adv_hit": -7,
-          "animation_char_key": "tek",
-          "animation_duration_seconds": 0.16666667,
-          "animation_motion": "0000.mot",
-          "animation_total_frames": 10,
-          "blockstun": null,
-          "damage": 880,
-          "damage_flag": 12,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": null,
-          "hitstun": null,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": 9,
-          "kind": "normal",
-          "launch_profile": 0,
-          "meter": 200,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 4,
-          "normal_confirmed": true,
-          "recovery": 7,
-          "recovery_source": "mot_derived"
         }
       ],
       "table_signature": "c921e941ba629b75"
@@ -1409,7 +1402,10 @@
           "recovery": 18,
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
-          "stun_source": "engine_default_hit_level"
+          "stun_source": "engine_default_hit_level",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -1445,7 +1441,10 @@
           "recovery": 23,
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
-          "stun_source": "engine_default_hit_level"
+          "stun_source": "engine_default_hit_level",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -1481,7 +1480,10 @@
           "recovery": 28,
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
-          "stun_source": "engine_default_hit_level"
+          "stun_source": "engine_default_hit_level",
+          "adv_block_observed": -13,
+          "observed_block_advantage": -13,
+          "wiki_adv_block": -13
         },
         {
           "active2_end": 4,
@@ -1832,7 +1834,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 15,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -1866,7 +1871,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 19,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -1900,7 +1908,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 35,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -13,
+          "observed_block_advantage": -13,
+          "wiki_adv_block": -13
         },
         {
           "active2_end": 4,
@@ -2247,7 +2258,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 18,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -2281,7 +2295,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 25,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -2315,7 +2332,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 34,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -9,
+          "observed_block_advantage": -9,
+          "wiki_adv_block": -9
         },
         {
           "active2_end": 4,
@@ -2486,40 +2506,6 @@
           "normal_confirmed": true,
           "recovery": 26,
           "recovery_source": "mot_derived"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": 14,
-          "active_start": 5,
-          "adv_block": -30,
-          "adv_hit": -27,
-          "animation_char_key": "dro",
-          "animation_duration_seconds": 0.88333333,
-          "animation_motion": "0000.mot",
-          "animation_total_frames": 53,
-          "blockstun": 9,
-          "damage": 800,
-          "damage_flag": 4,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": 0,
-          "hitstun": 12,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": 9,
-          "kind": "normal",
-          "launch_profile": 0,
-          "meter": 150,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 1,
-          "normal_confirmed": true,
-          "recovery": 39,
-          "recovery_source": "mot_derived"
         }
       ],
       "table_signature": "3e40c290f5a58696"
@@ -2662,7 +2648,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 10,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -4,
+          "observed_block_advantage": -4,
+          "wiki_adv_block": -4
         },
         {
           "active2_end": 4,
@@ -2696,7 +2685,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 22,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -2730,7 +2722,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 0,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -11,
+          "observed_block_advantage": -11,
+          "wiki_adv_block": -11
         },
         {
           "active2_end": 12,
@@ -3077,7 +3072,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 13,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -3111,7 +3109,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 26,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -8,
+          "observed_block_advantage": -8,
+          "wiki_adv_block": -8
         },
         {
           "active2_end": 10,
@@ -3145,7 +3146,10 @@
           "multi_hit_count": 2,
           "normal_confirmed": true,
           "recovery": 35,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -14,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
         },
         {
           "active2_end": 10,
@@ -3492,7 +3496,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 19,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -3526,7 +3533,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 26,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 5,
@@ -3560,7 +3570,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 31,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": 16,
@@ -3725,34 +3738,6 @@
           "normal_confirmed": true,
           "recovery": 43,
           "recovery_source": "mot_derived"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": 19,
-          "active_start": 12,
-          "adv_block": -14,
-          "adv_hit": -16,
-          "blockstun": 27,
-          "damage": 2060,
-          "damage_flag": 12,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": 0,
-          "hitstun": 25,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": 9,
-          "kind": "normal",
-          "launch_profile": 0,
-          "meter": 150,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 1,
-          "normal_confirmed": true
         }
       ],
       "table_signature": "34e017fe6de4d5e3"
@@ -4310,7 +4295,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 18,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -4344,7 +4332,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 35,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": 4,
@@ -4378,7 +4369,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 37,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -15,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
         },
         {
           "active2_end": 4,
@@ -4446,7 +4440,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 36,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -13,
+          "observed_block_advantage": -13,
+          "wiki_adv_block": -13
         },
         {
           "active2_end": 4,
@@ -4725,7 +4722,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 18,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": null,
@@ -4759,7 +4759,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 21,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": null,
@@ -4793,7 +4796,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 26,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -15,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
         },
         {
           "active2_end": null,
@@ -5101,12 +5107,15 @@
           "kind": "normal",
           "launch_profile": 0,
           "meter": 50,
-          "move_name": "2B",
-          "move_name_source": "lookup",
+          "move_name": "2A",
+          "move_name_source": "manual_correction",
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 19,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -9,
+          "observed_block_advantage": -9,
+          "wiki_adv_block": -9
         },
         {
           "active2_end": 4,
@@ -5140,7 +5149,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 31,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -6,
+          "observed_block_advantage": -6,
+          "wiki_adv_block": -6
         },
         {
           "active2_end": 4,
@@ -5174,7 +5186,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 37,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": 17,
@@ -5242,7 +5257,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 35,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -25,
+          "observed_block_advantage": -25,
+          "wiki_adv_block": -25
         },
         {
           "active2_end": 8,
@@ -5529,7 +5547,10 @@
           "recovery": 16,
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
-          "stun_source": "engine_default_hit_level"
+          "stun_source": "engine_default_hit_level",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -5565,7 +5586,10 @@
           "recovery": 21,
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
-          "stun_source": "engine_default_hit_level"
+          "stun_source": "engine_default_hit_level",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -5601,7 +5625,10 @@
           "recovery": 30,
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
-          "stun_source": "engine_default_hit_level"
+          "stun_source": "engine_default_hit_level",
+          "adv_block_observed": -15,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
         },
         {
           "active2_end": 8,
@@ -5673,7 +5700,10 @@
           "recovery": 38,
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
-          "stun_source": "engine_default_hit_level"
+          "stun_source": "engine_default_hit_level",
+          "adv_block_observed": -28,
+          "observed_block_advantage": -28,
+          "wiki_adv_block": -28
         },
         {
           "active2_end": 5,
@@ -5945,7 +5975,7 @@
           "active_start": 8,
           "adv_block": -8,
           "adv_block_derived": -8,
-          "adv_block_observed": -8,
+          "adv_block_observed": -5,
           "adv_block_observed_source": "wiki",
           "adv_hit": -5,
           "adv_hit_derived": -5,
@@ -5974,7 +6004,9 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 17,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -5983,7 +6015,7 @@
           "active_start": 10,
           "adv_block": -7,
           "adv_block_derived": -7,
-          "adv_block_observed": -7,
+          "adv_block_observed": -5,
           "adv_block_observed_source": "wiki",
           "adv_hit": -2,
           "adv_hit_derived": -2,
@@ -6012,7 +6044,9 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 19,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": null,
@@ -6021,7 +6055,7 @@
           "active_start": 14,
           "adv_block": -23,
           "adv_block_derived": -23,
-          "adv_block_observed": -23,
+          "adv_block_observed": -18,
           "adv_block_observed_source": "wiki",
           "adv_hit": -17,
           "adv_hit_derived": -17,
@@ -6050,7 +6084,9 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 38,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "observed_block_advantage": -18,
+          "wiki_adv_block": -18
         },
         {
           "active2_end": null,
@@ -6097,7 +6133,7 @@
           "active_start": 16,
           "adv_block": -24,
           "adv_block_derived": -24,
-          "adv_block_observed": -24,
+          "adv_block_observed": -20,
           "adv_block_observed_source": "wiki",
           "adv_hit": -18,
           "adv_hit_derived": -18,
@@ -6126,7 +6162,9 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 39,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "observed_block_advantage": -20,
+          "wiki_adv_block": -20
         },
         {
           "active2_end": null,
@@ -6238,42 +6276,6 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 0,
-          "recovery_source": "mot_derived"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": 13,
-          "active_start": 12,
-          "adv_block": -14,
-          "adv_block_derived": -14,
-          "adv_hit": -8,
-          "adv_hit_derived": -8,
-          "animation_char_key": "alx",
-          "animation_duration_seconds": 0.69999999,
-          "animation_motion": "0000.mot",
-          "animation_total_frames": 42,
-          "blockstun": 15,
-          "damage": 2800,
-          "damage_flag": 12,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": 0,
-          "hitstun": 21,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": 9,
-          "kind": "normal",
-          "launch_profile": 0,
-          "meter": 200,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 1,
-          "normal_confirmed": true,
-          "recovery": 29,
           "recovery_source": "mot_derived"
         }
       ],
@@ -6832,7 +6834,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 19,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -6866,7 +6871,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 30,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -9,
+          "observed_block_advantage": -9,
+          "wiki_adv_block": -9
         },
         {
           "active2_end": null,
@@ -7104,7 +7112,37 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 46,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -20,
+          "observed_block_advantage": -20,
+          "wiki_adv_block": -20
+        },
+        {
+          "move_name": "6B Shield",
+          "kind": "normal",
+          "startup": 21,
+          "display_order": 805,
+          "adv_block_observed": -4,
+          "observed_block_advantage": -4,
+          "wiki_adv_block": -4
+        },
+        {
+          "move_name": "Drill 6B",
+          "kind": "normal",
+          "startup": 19,
+          "display_order": 806,
+          "adv_block_observed": -4,
+          "observed_block_advantage": -4,
+          "wiki_adv_block": -4
+        },
+        {
+          "move_name": "Drill 3B",
+          "kind": "normal",
+          "startup": 12,
+          "display_order": 807,
+          "adv_block_observed": -32,
+          "observed_block_advantage": -32,
+          "wiki_adv_block": -32
         }
       ],
       "table_signature": "c3f2b11d4bc3e5ce"
@@ -7247,7 +7285,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 10,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -7281,7 +7322,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 21,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": 8,
@@ -7315,7 +7359,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 31,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": 14,
@@ -7383,7 +7430,10 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 30,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -15,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
         },
         {
           "active2_end": 14,
@@ -7662,7 +7712,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 20,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": 4,
@@ -7696,7 +7749,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 21,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": 4,
@@ -7798,7 +7854,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 37,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -21,
+          "observed_block_advantage": -21,
+          "wiki_adv_block": -21
         },
         {
           "active2_end": 4,
@@ -7901,38 +7960,6 @@
           "normal_confirmed": true,
           "recovery": 30,
           "recovery_source": "mot_derived"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": null,
-          "active_start": null,
-          "adv_block": -12,
-          "adv_hit": -12,
-          "animation_char_key": "sak",
-          "animation_duration_seconds": 1.25,
-          "animation_motion": "0000.mot",
-          "animation_total_frames": 75,
-          "blockstun": null,
-          "damage": null,
-          "damage_flag": null,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": null,
-          "hitstun": null,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": null,
-          "kind": "normal",
-          "launch_profile": null,
-          "meter": 150,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 0,
-          "normal_confirmed": true
         }
       ],
       "table_signature": "7f051747bb8bad35"
@@ -8075,7 +8102,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 28,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -14,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
         },
         {
           "active2_end": 10,
@@ -8109,7 +8139,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 46,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -24,
+          "observed_block_advantage": -24,
+          "wiki_adv_block": -24
         },
         {
           "active2_end": 10,
@@ -8143,7 +8176,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 44,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -20,
+          "observed_block_advantage": -20,
+          "wiki_adv_block": -20
         },
         {
           "active2_end": 12,
@@ -8211,7 +8247,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 41,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -20,
+          "observed_block_advantage": -20,
+          "wiki_adv_block": -20
         },
         {
           "active2_end": 12,
@@ -9594,7 +9633,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 11,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -4,
+          "observed_block_advantage": -4,
+          "wiki_adv_block": -4
         },
         {
           "active2_end": 4,
@@ -9628,7 +9670,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 30,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -15,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
         },
         {
           "active2_end": 8,
@@ -9662,7 +9707,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 31,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -21,
+          "observed_block_advantage": -21,
+          "wiki_adv_block": -21
         },
         {
           "active2_end": 8,
@@ -9841,34 +9889,6 @@
           "recovery_source": "mot_derived",
           "runtime_profile_eligible": true,
           "stun_source": "engine_default_hit_level"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": 1,
-          "active_start": 1,
-          "adv_block": -59,
-          "adv_hit": -59,
-          "blockstun": null,
-          "damage": 0,
-          "damage_flag": 0,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": null,
-          "hitstun": null,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": 9,
-          "kind": "normal",
-          "launch_profile": 0,
-          "meter": 150,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 1,
-          "normal_confirmed": true
         }
       ],
       "table_signature": "c7ef08f0b1abb6c0"
@@ -10011,7 +10031,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 13,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -10045,7 +10068,10 @@
           "multi_hit_count": 2,
           "normal_confirmed": true,
           "recovery": 22,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -3,
+          "observed_block_advantage": -3,
+          "wiki_adv_block": -3
         },
         {
           "active2_end": 4,
@@ -10079,7 +10105,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 34,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -3,
+          "observed_block_advantage": -3,
+          "wiki_adv_block": -3
         },
         {
           "active2_end": 4,
@@ -10244,34 +10273,6 @@
           "normal_confirmed": true,
           "recovery": 20,
           "recovery_source": "mot_derived"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": 13,
-          "active_start": 5,
-          "adv_block": -38,
-          "adv_hit": -35,
-          "blockstun": 9,
-          "damage": 740,
-          "damage_flag": 4,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": 0,
-          "hitstun": 12,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": 9,
-          "kind": "normal",
-          "launch_profile": 0,
-          "meter": 150,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 1,
-          "normal_confirmed": true
         }
       ],
       "table_signature": "6100484ed66f5879"
@@ -10795,7 +10796,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 13,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -5,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
         },
         {
           "active2_end": 4,
@@ -10829,7 +10833,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 23,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -14,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
         },
         {
           "active2_end": 4,
@@ -10863,7 +10870,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 24,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -10,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
         },
         {
           "active2_end": 4,
@@ -11034,40 +11044,6 @@
           "normal_confirmed": true,
           "recovery": 15,
           "recovery_source": "mot_derived"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": 36,
-          "active_start": 16,
-          "adv_block": -4,
-          "adv_hit": 2,
-          "animation_char_key": "zer",
-          "animation_duration_seconds": 0.91666669,
-          "animation_motion": "0000.mot",
-          "animation_total_frames": 55,
-          "blockstun": 15,
-          "damage": 1030,
-          "damage_flag": 12,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": 0,
-          "hitstun": 21,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": 9,
-          "kind": "normal",
-          "launch_profile": 0,
-          "meter": 50,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 1,
-          "normal_confirmed": true,
-          "recovery": 19,
-          "recovery_source": "mot_derived"
         }
       ],
       "table_signature": "562575fccade63ad"
@@ -11210,7 +11186,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 13,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -14,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
         },
         {
           "active2_end": 4,
@@ -11244,7 +11223,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 29,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -14,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
         },
         {
           "active2_end": 4,
@@ -11278,7 +11260,10 @@
           "multi_hit_count": 0,
           "normal_confirmed": true,
           "recovery": 44,
-          "recovery_source": "mot_derived"
+          "recovery_source": "mot_derived",
+          "adv_block_observed": -30,
+          "observed_block_advantage": -30,
+          "wiki_adv_block": -30
         },
         {
           "active2_end": 12,
@@ -11448,40 +11433,6 @@
           "multi_hit_count": 1,
           "normal_confirmed": true,
           "recovery": 19,
-          "recovery_source": "mot_derived"
-        },
-        {
-          "active2_end": null,
-          "active2_start": null,
-          "active_end": 1,
-          "active_start": 1,
-          "adv_block": -19,
-          "adv_hit": -13,
-          "animation_char_key": "fra",
-          "animation_duration_seconds": 0.58333331,
-          "animation_motion": "0000.mot",
-          "animation_total_frames": 35,
-          "blockstun": 15,
-          "damage": 0,
-          "damage_flag": 0,
-          "ground_kb": null,
-          "ground_kb_y": null,
-          "hitstop": 0,
-          "hitstun": 21,
-          "id": 270,
-          "invuln": "",
-          "invuln_confidence": "none",
-          "invuln_frames": 0,
-          "invuln_kind": "",
-          "kb_type": 9,
-          "kind": "normal",
-          "launch_profile": 0,
-          "meter": 150,
-          "move_name": "6B",
-          "move_name_source": "lookup",
-          "multi_hit_count": 1,
-          "normal_confirmed": true,
-          "recovery": 34,
           "recovery_source": "mot_derived"
         }
       ],

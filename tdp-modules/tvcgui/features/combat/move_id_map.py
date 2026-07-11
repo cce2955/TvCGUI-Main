@@ -14,6 +14,7 @@ import os
 import csv
 
 from tvcgui.core.paths import data_path
+from tvcgui.features.combat.move_filters import is_purged_move_label
  
 # (char_id -> {anim_id -> name})
 _MOVE_NAMES_BY_CHAR = {}
@@ -124,6 +125,11 @@ def lookup_move_name(anim_id, char_id=None):
         if per_char:
             name = per_char.get(anim_id)
             if name:
+                if is_purged_move_label({"char_id": char_id}, {"move_name": name, "id": anim_id}, name):
+                    return None
                 return name
 
-    return _MOVE_NAMES_GENERIC.get(anim_id)
+    name = _MOVE_NAMES_GENERIC.get(anim_id)
+    if name and char_id is not None and is_purged_move_label({"char_id": char_id}, {"move_name": name, "id": anim_id}, name):
+        return None
+    return name

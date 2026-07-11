@@ -12,6 +12,7 @@ from tvcgui.platform.dolphin import hook, rbytes, rd32
 from tvcgui.core.constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 from tvcgui.features.combat.move_id_map import lookup_move_name
 from tvcgui.core.paths import data_path, user_data_path
+from tvcgui.features.combat.move_filters import is_purged_move_label, filter_purged_moves_for_char
 try:
     from tvcgui.features.training.stun_profiler import apply_runtime_stun_observations
 except Exception:
@@ -2553,6 +2554,9 @@ def attach_move_fields(moves: List[Dict[str, Any]],
             except Exception:
                 name = None
 
+            if name and is_purged_move_label({"char_id": char_id}, {"move_name": name, "id": aid}, name):
+                name = None
+
             if name:
                 mv["move_name"] = name
                 mv["move_name_source"] = "lookup"
@@ -3144,7 +3148,8 @@ def _save_preview_profile_moves(
     global _PREVIEW_PROFILE_DOC
     if not PREVIEW_PROFILE_CACHE_ENABLED:
         return False
-    rows = _compact_preview_moves(moves)
+    visible_moves = filter_purged_moves_for_char({"char_id": char_id, "char_name": char_name}, moves)
+    rows = _compact_preview_moves(visible_moves)
     if not rows:
         return False
     key = _profile_key(char_id, char_name)
@@ -3719,6 +3724,9 @@ def _profile_refresh_move(mv: Dict[str, Any], buf: bytes, base_abs: int, char_id
                 name = None
         except Exception:
             name = None
+        if name and is_purged_move_label({"char_id": char_id}, {"move_name": name, "id": aid}, name):
+            name = None
+
         if name:
             mv["move_name"] = name
             mv["move_name_source"] = "lookup"
@@ -3759,6 +3767,7 @@ def _load_preview_profile_moves(
     rows = prof.get("moves")
     if not isinstance(rows, list) or not rows:
         return None
+    rows = filter_purged_moves_for_char({"char_id": char_id, "char_name": char_name, "profile_key": key}, rows)
     return [copy.deepcopy(row) for row in rows if isinstance(row, dict)]
 
 
@@ -3793,6 +3802,9 @@ def _load_profile_moves(
         return None
     rows = prof.get("moves")
     if not isinstance(rows, list) or not rows:
+        return None
+    rows = filter_purged_moves_for_char({"char_id": char_id, "char_name": char_name, "profile_key": key}, rows)
+    if not rows:
         return None
 
     # Existing profile files may have stored a table root with ``id=None``
@@ -3869,7 +3881,8 @@ def _save_profile_moves(
     key = _profile_key(char_id, char_name)
     sig = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
     try:
-        rows = [_relativize_profile_obj(copy.deepcopy(mv), chr_tbl_abs) for mv in moves]
+        visible_moves = filter_purged_moves_for_char({"char_id": char_id, "char_name": char_name}, moves)
+        rows = [_relativize_profile_obj(copy.deepcopy(mv), chr_tbl_abs) for mv in visible_moves]
         doc = _load_profile_doc()
         profiles = doc.setdefault("profiles", {})
         previous = profiles.get(key) if isinstance(profiles.get(key), dict) else {}

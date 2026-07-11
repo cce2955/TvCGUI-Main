@@ -1,0 +1,2799 @@
+{
+  "version": "observed_block_advantage_profiles.v1",
+  "source": "Alex_Full_Wiki_Updated.zip",
+  "profiles": {
+    "id_29_zero": {
+      "char_id": 29,
+      "char_name": "Zero",
+      "source": "Zero_TvCColors_Restored_Data.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 3,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-12",
+          "display_order": 4
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 5,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 6
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "0",
+          "display_order": 10
+        },
+        {
+          "move_name": "Ryuenjin",
+          "kind": "special",
+          "adv_block_observed": "-9/-17/-29",
+          "display_order": 11
+        },
+        {
+          "move_name": "Hyper Zero Blaster",
+          "kind": "special",
+          "adv_block_observed": "-13/-10/-5",
+          "display_order": 12
+        },
+        {
+          "move_name": "Sentsuizan j.",
+          "kind": "special",
+          "adv_block_observed": "0/-9/+5",
+          "display_order": 13
+        },
+        {
+          "move_name": "Rekkoha",
+          "kind": "super",
+          "adv_block_observed": "-47",
+          "display_order": 14
+        },
+        {
+          "move_name": "Dark Hold",
+          "kind": "super",
+          "adv_block_observed": "-23",
+          "display_order": 15
+        }
+      ]
+    },
+    "id_22_ptx_40a": {
+      "char_id": 22,
+      "char_name": "PTX-40A",
+      "source": "PTX40A_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-25",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-25",
+          "display_order": 1
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-30",
+          "display_order": 2
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-45",
+          "display_order": 3
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-27",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-29",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-39",
+          "display_order": 6
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-16",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 9
+        },
+        {
+          "move_name": "Caliber Execution",
+          "kind": "special",
+          "adv_block_observed": "-28/-30/-54",
+          "display_order": 10
+        },
+        {
+          "move_name": "Tackle Snapback",
+          "kind": "special",
+          "adv_block_observed": "-34",
+          "display_order": 11
+        }
+      ]
+    },
+    "id_11_gold_lightan": {
+      "char_id": 11,
+      "char_name": "Gold Lightan",
+      "source": "GoldLightan_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-28",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-24",
+          "display_order": 1
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-33",
+          "display_order": 2
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-36",
+          "display_order": 3
+        },
+        {
+          "move_name": "4B",
+          "kind": "normal",
+          "adv_block_observed": "-48",
+          "display_order": 4
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-33",
+          "display_order": 5
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-41",
+          "display_order": 6
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-27",
+          "display_order": 7
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-28",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-12",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 10
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "+15",
+          "display_order": 11
+        },
+        {
+          "move_name": "Tank Slice",
+          "kind": "special",
+          "adv_block_observed": "-30",
+          "display_order": 12
+        },
+        {
+          "move_name": "Battleship Breaker",
+          "kind": "special",
+          "adv_block_observed": "-50",
+          "display_order": 13
+        },
+        {
+          "move_name": "Gold Quake",
+          "kind": "special",
+          "adv_block_observed": "-17",
+          "display_order": 14
+        }
+      ]
+    },
+    "id_03_tekkaman": {
+      "char_id": 3,
+      "char_name": "Tekkaman",
+      "source": "TvCColors_Tekkaman_Blade_Yatterman1_Yatterman2.zip::Tekkaman_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-19",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 3,
+          "observed_block_advantage": -7,
+          "wiki_adv_block": -7
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-19",
+          "display_order": 4
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 6,
+          "observed_block_advantage": -7,
+          "wiki_adv_block": -7
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-16",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-34",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-46",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "+1",
+          "display_order": 10
+        },
+        {
+          "move_name": "Tek Lancer",
+          "kind": "special",
+          "adv_block_observed": "-10/-10/+20",
+          "display_order": 11
+        },
+        {
+          "move_name": "TekWin",
+          "kind": "special",
+          "adv_block_observed": "-36",
+          "display_order": 12
+        },
+        {
+          "move_name": "Galaxy Windmill",
+          "kind": "special",
+          "adv_block_observed": "-20",
+          "display_order": 13
+        },
+        {
+          "move_name": "Gatling",
+          "kind": "special",
+          "adv_block_observed": "-10",
+          "display_order": 14
+        },
+        {
+          "move_name": "Voltekka",
+          "kind": "super",
+          "adv_block_observed": "-64",
+          "display_order": 15
+        },
+        {
+          "move_name": "Super Spinning Tek Lancer",
+          "kind": "super",
+          "adv_block_observed": "-84",
+          "display_order": 16
+        },
+        {
+          "move_name": "Space Knights Formation",
+          "kind": "super",
+          "adv_block_observed": "-50",
+          "display_order": 17
+        }
+      ]
+    },
+    "id_26_tekkaman_blade": {
+      "char_id": 26,
+      "char_name": "Tekkaman Blade",
+      "source": "TvCColors_Tekkaman_Blade_Yatterman1_Yatterman2.zip::TekkamanBlade_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 1,
+          "observed_block_advantage": -4,
+          "wiki_adv_block": -4
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-26",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 3,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-27",
+          "display_order": 4
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-21",
+          "display_order": 5,
+          "observed_block_advantage": -21,
+          "wiki_adv_block": -21
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 6
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-30",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-24",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "+4",
+          "display_order": 9
+        },
+        {
+          "move_name": "Shamshir",
+          "kind": "special",
+          "adv_block_observed": "+5/+5/-6",
+          "display_order": 10
+        },
+        {
+          "move_name": "Baselard",
+          "kind": "special",
+          "adv_block_observed": "-10/-10/-18",
+          "display_order": 11
+        },
+        {
+          "move_name": "Katzbalger",
+          "kind": "special",
+          "adv_block_observed": "-5/-15/-15",
+          "display_order": 12
+        },
+        {
+          "move_name": "Falchion",
+          "kind": "special",
+          "adv_block_observed": "0",
+          "display_order": 13
+        },
+        {
+          "move_name": "Crash Intrude",
+          "kind": "super",
+          "adv_block_observed": "-18",
+          "display_order": 14
+        },
+        {
+          "move_name": "Voltekka",
+          "kind": "super",
+          "adv_block_observed": "-55",
+          "display_order": 15
+        },
+        {
+          "move_name": "Omnidirectional Super Voltekka",
+          "kind": "super",
+          "adv_block_observed": "-64",
+          "display_order": 16
+        }
+      ]
+    },
+    "id_05_yatterman_1": {
+      "char_id": 5,
+      "char_name": "Yatterman-1",
+      "source": "TvCColors_Tekkaman_Blade_Yatterman1_Yatterman2.zip::Yatterman1_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 2
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-22",
+          "display_order": 3
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 4,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 5
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-21",
+          "display_order": 6
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 7,
+          "observed_block_advantage": -13,
+          "wiki_adv_block": -13
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-31",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-11",
+          "display_order": 10
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 11
+        },
+        {
+          "move_name": "Yatterspin",
+          "kind": "special",
+          "adv_block_observed": "-5",
+          "display_order": 12
+        },
+        {
+          "move_name": "Yattershock",
+          "kind": "special",
+          "adv_block_observed": "-14",
+          "display_order": 13
+        }
+      ]
+    },
+    "id_28_yatterman_2": {
+      "char_id": 28,
+      "char_name": "Yatterman-2",
+      "source": "TvCColors_Tekkaman_Blade_Yatterman1_Yatterman2.zip::Yatterman2_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-3",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-3",
+          "display_order": 1
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "0",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 3
+        },
+        {
+          "move_name": "3B",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-11",
+          "display_order": 6
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-29",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-19",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-2",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 10
+        },
+        {
+          "move_name": "YatterShield",
+          "kind": "special",
+          "adv_block_observed": "-17/-21/-35",
+          "display_order": 11
+        },
+        {
+          "move_name": "YatterStep",
+          "kind": "special",
+          "adv_block_observed": "-10/-20/-16",
+          "display_order": 12
+        },
+        {
+          "move_name": "Yattersplash",
+          "kind": "special",
+          "adv_block_observed": "0/0/+10",
+          "display_order": 13
+        }
+      ]
+    },
+    "id_04_polimar": {
+      "char_id": 4,
+      "char_name": "Polimar",
+      "source": "TvCColors_Polimar_Casshan_Doronjo_Ippatsuman_Joe_Jun_Karas_Ken.zip::Polimar_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 3,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-19",
+          "display_order": 4
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 5,
+          "observed_block_advantage": -13,
+          "wiki_adv_block": -13
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-24",
+          "display_order": 6
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "+7",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "+1",
+          "display_order": 10
+        },
+        {
+          "move_name": "Hurricane Destruction Fist",
+          "kind": "special",
+          "adv_block_observed": "-20",
+          "display_order": 11
+        },
+        {
+          "move_name": "Razor Chain Kicks",
+          "kind": "special",
+          "adv_block_observed": "-25",
+          "display_order": 12
+        },
+        {
+          "move_name": "3-Stage Reaction Kick",
+          "kind": "special",
+          "adv_block_observed": "-25/-5/-15",
+          "display_order": 13
+        },
+        {
+          "move_name": "Storm Kamae",
+          "kind": "special",
+          "adv_block_observed": "-24",
+          "display_order": 14
+        },
+        {
+          "move_name": "Tenshin Polimar Drill",
+          "kind": "super",
+          "adv_block_observed": "-41",
+          "display_order": 15
+        },
+        {
+          "move_name": "Illusive Destructive Fist",
+          "kind": "super",
+          "adv_block_observed": "-14",
+          "display_order": 16
+        }
+      ]
+    },
+    "id_02_casshan": {
+      "char_id": 2,
+      "char_name": "Casshan",
+      "source": "TvCColors_Polimar_Casshan_Doronjo_Ippatsuman_Joe_Jun_Karas_Ken.zip::Casshan_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 1,
+          "observed_block_advantage": -7,
+          "wiki_adv_block": -7
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-17",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 3,
+          "observed_block_advantage": -7,
+          "wiki_adv_block": -7
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-17",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 6,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-17",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 10
+        },
+        {
+          "move_name": "Denkou Punch",
+          "kind": "special",
+          "adv_block_observed": "-15/-20/-28",
+          "display_order": 11,
+          "wiki_adv_block": "-15/-20/-28",
+          "observed_block_advantage": "-15/-20/-28"
+        },
+        {
+          "move_name": "Shooting Star Kick",
+          "kind": "special",
+          "adv_block_observed": "-5/-27/-27",
+          "display_order": 12,
+          "wiki_adv_block": "-5/-27/-27",
+          "observed_block_advantage": "-5/-27/-27",
+          "segment": "air"
+        },
+        {
+          "move_name": "Catapult Knee",
+          "kind": "special",
+          "adv_block_observed": "-32",
+          "display_order": 13,
+          "wiki_adv_block": "-32",
+          "observed_block_advantage": "-32"
+        }
+      ]
+    },
+    "id_06_doronjo": {
+      "char_id": 6,
+      "char_name": "Doronjo",
+      "source": "TvCColors_Polimar_Casshan_Doronjo_Ippatsuman_Joe_Jun_Karas_Ken.zip::Doronjo_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 3,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 4
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-23",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 6,
+          "observed_block_advantage": -9,
+          "wiki_adv_block": -9
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-17",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-19",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-11",
+          "display_order": 9
+        }
+      ]
+    },
+    "id_07_ippatsuman": {
+      "char_id": 7,
+      "char_name": "Ippatsuman",
+      "source": "TvCColors_Polimar_Casshan_Doronjo_Ippatsuman_Joe_Jun_Karas_Ken.zip::Ippatsuman_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 1,
+          "observed_block_advantage": -4,
+          "wiki_adv_block": -4
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-25",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 3,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-24",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 5
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 6
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-11",
+          "display_order": 7,
+          "observed_block_advantage": -11,
+          "wiki_adv_block": -11
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-22",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-38",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-19",
+          "display_order": 10
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 11
+        },
+        {
+          "move_name": "Quick Upper",
+          "kind": "special",
+          "adv_block_observed": "-3/-5/-13",
+          "display_order": 12,
+          "wiki_adv_block": "-3/-5/-13",
+          "observed_block_advantage": "-3/-5/-13"
+        },
+        {
+          "move_name": "Mound Blast",
+          "kind": "special",
+          "adv_block_observed": "-32/-22/-18",
+          "display_order": 13,
+          "wiki_adv_block": "-32/-22/-18",
+          "observed_block_advantage": "-32/-22/-18"
+        },
+        {
+          "move_name": "Straight Fly",
+          "kind": "special",
+          "adv_block_observed": "-20/-22/-30",
+          "display_order": 14,
+          "wiki_adv_block": "-20/-22/-30",
+          "observed_block_advantage": "-20/-22/-30"
+        }
+      ]
+    },
+    "id_27_joe_the_condor": {
+      "char_id": 27,
+      "char_name": "Joe the Condor",
+      "source": "TvCColors_Polimar_Casshan_Doronjo_Ippatsuman_Joe_Jun_Karas_Ken.zip::JoeTheCondor_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-3",
+          "display_order": 3,
+          "observed_block_advantage": -3,
+          "wiki_adv_block": -3
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 4
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-3",
+          "display_order": 5,
+          "observed_block_advantage": -3,
+          "wiki_adv_block": -3
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 6
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-17",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 9
+        }
+      ]
+    },
+    "id_08_jun_the_swan": {
+      "char_id": 8,
+      "char_name": "Jun the Swan",
+      "source": "TvCColors_Polimar_Casshan_Doronjo_Ippatsuman_Joe_Jun_Karas_Ken.zip::JunTheSwan_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 3,
+          "observed_block_advantage": -8,
+          "wiki_adv_block": -8
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-32",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-16",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 6,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-32",
+          "display_order": 7
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-24",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 10
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 11
+        },
+        {
+          "move_name": "Yoyo",
+          "kind": "special",
+          "adv_block_observed": "-16",
+          "display_order": 12
+        },
+        {
+          "move_name": "Bingo",
+          "kind": "special",
+          "adv_block_observed": "+10",
+          "display_order": 13
+        },
+        {
+          "move_name": "Lightning Kick",
+          "kind": "special",
+          "adv_block_observed": "0/+10/+5",
+          "display_order": 14
+        },
+        {
+          "move_name": "Dancing Swan",
+          "kind": "special",
+          "adv_block_observed": "-18/-20/-22",
+          "display_order": 15
+        },
+        {
+          "move_name": "Swan Rush j.",
+          "kind": "special",
+          "adv_block_observed": "0/0/-5",
+          "display_order": 16
+        },
+        {
+          "move_name": "Mirage Swan",
+          "kind": "super",
+          "adv_block_observed": "-25",
+          "display_order": 17
+        },
+        {
+          "move_name": "Science Ninpo Phoenix",
+          "kind": "super",
+          "adv_block_observed": "0",
+          "display_order": 18
+        }
+      ]
+    },
+    "id_10_karas": {
+      "char_id": 10,
+      "char_name": "Karas",
+      "source": "TvCColors_Polimar_Casshan_Doronjo_Ippatsuman_Joe_Jun_Karas_Ken.zip::Karas_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 3,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 4
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 5,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-33",
+          "display_order": 6
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-28",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-32",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-28",
+          "display_order": 10
+        },
+        {
+          "move_name": "Yoinagi",
+          "kind": "special",
+          "adv_block_observed": "-9",
+          "display_order": 11,
+          "wiki_adv_block": "-9",
+          "observed_block_advantage": "-9"
+        },
+        {
+          "move_name": "Zaneijin",
+          "kind": "super",
+          "adv_block_observed": "-40",
+          "display_order": 12
+        },
+        {
+          "move_name": "Kasha",
+          "kind": "special",
+          "adv_block_observed": "-24",
+          "display_order": 13,
+          "wiki_adv_block": "-24",
+          "observed_block_advantage": "-24"
+        },
+        {
+          "move_name": "Yasagurama",
+          "kind": "special",
+          "adv_block_observed": "-24",
+          "display_order": 14,
+          "wiki_adv_block": "-24",
+          "observed_block_advantage": "-24"
+        },
+        {
+          "move_name": "Yato",
+          "kind": "special",
+          "adv_block_observed": "-35",
+          "display_order": 15,
+          "wiki_adv_block": "-35",
+          "observed_block_advantage": "-35"
+        },
+        {
+          "move_name": "Tobimizuchi",
+          "kind": "special",
+          "adv_block_observed": "-8",
+          "display_order": 16,
+          "wiki_adv_block": "-8",
+          "observed_block_advantage": "-8"
+        },
+        {
+          "move_name": "Narukami",
+          "kind": "special",
+          "adv_block_observed": "-8/-18/-30",
+          "display_order": 17,
+          "wiki_adv_block": "-8/-18/-30",
+          "observed_block_advantage": "-8/-18/-30"
+        },
+        {
+          "move_name": "Ungaikyo",
+          "kind": "special",
+          "adv_block_observed": "-24/-32/-40",
+          "display_order": 18,
+          "wiki_adv_block": "-24/-32/-40",
+          "observed_block_advantage": "-24/-32/-40"
+        }
+      ]
+    },
+    "id_01_ken_the_eagle": {
+      "char_id": 1,
+      "char_name": "Ken the Eagle",
+      "source": "TvCColors_Polimar_Casshan_Doronjo_Ippatsuman_Joe_Jun_Karas_Ken.zip::KenTheEagle_TvCColors_AllStats.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-18",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 3,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-23",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 6,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-23",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-12",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-16",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 10
+        },
+        {
+          "move_name": "Bird Run",
+          "kind": "special",
+          "adv_block_observed": "-5",
+          "display_order": 11
+        },
+        {
+          "move_name": "Bird Shoot",
+          "kind": "special",
+          "adv_block_observed": "-34",
+          "display_order": 12
+        },
+        {
+          "move_name": "Eagle Rush",
+          "kind": "special",
+          "adv_block_observed": "-24",
+          "display_order": 13
+        },
+        {
+          "move_name": "Gatchaman Attack: Lightning Strike",
+          "kind": "super",
+          "adv_block_observed": "-27",
+          "display_order": 14
+        },
+        {
+          "move_name": "Science Ninpo: Bird Smash",
+          "kind": "super",
+          "adv_block_observed": "-29",
+          "display_order": 15
+        },
+        {
+          "move_name": "Science Ninpo: Phoenix",
+          "kind": "super",
+          "adv_block_observed": "-27",
+          "display_order": 16
+        }
+      ]
+    },
+    "id_17_viewtiful_joe": {
+      "char_id": 17,
+      "char_name": "Viewtiful Joe",
+      "source": "ViewtifulJoe_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 1
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 3
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 6
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-23",
+          "display_order": 10
+        },
+        {
+          "move_name": "Voomerang",
+          "kind": "special",
+          "adv_block_observed": "-17",
+          "display_order": 11
+        },
+        {
+          "move_name": "Red Hot Kick j.",
+          "kind": "special",
+          "adv_block_observed": "+13",
+          "display_order": 12
+        },
+        {
+          "move_name": "Desperado",
+          "kind": "super",
+          "adv_block_observed": "-79/21",
+          "display_order": 13
+        },
+        {
+          "move_name": "Mach Speed",
+          "kind": "super",
+          "adv_block_observed": "-33",
+          "display_order": 14
+        },
+        {
+          "move_name": "Slow and Zoom",
+          "kind": "super",
+          "adv_block_observed": "-15",
+          "display_order": 15
+        }
+      ]
+    },
+    "id_20_saki": {
+      "char_id": 20,
+      "char_name": "Saki",
+      "source": "Saki_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-18",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 1,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-11",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 3,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-44",
+          "display_order": 4
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-39",
+          "display_order": 5
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-21",
+          "display_order": 6,
+          "observed_block_advantage": -21,
+          "wiki_adv_block": -21
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-26",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-16",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-11",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-18",
+          "display_order": 10
+        },
+        {
+          "move_name": "Positron Cannon",
+          "kind": "special",
+          "adv_block_observed": "-5/-12/-34",
+          "display_order": 11
+        },
+        {
+          "move_name": "Grenade Toss",
+          "kind": "special",
+          "adv_block_observed": "-34",
+          "display_order": 12
+        },
+        {
+          "move_name": "Special Ammo",
+          "kind": "special",
+          "adv_block_observed": "-13/+5/-21",
+          "display_order": 13
+        }
+      ]
+    },
+    "id_12_ryu": {
+      "char_id": 12,
+      "char_name": "Ryu",
+      "source": "Ryu_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-17",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 3,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-16",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-17",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 6,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 7
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 8,
+          "observed_block_advantage": -13,
+          "wiki_adv_block": -13
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 10
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 11
+        },
+        {
+          "move_name": "Shoryuken",
+          "kind": "special",
+          "adv_block_observed": "-26/-30/-42",
+          "display_order": 12
+        },
+        {
+          "move_name": "Tatsumaki",
+          "kind": "special",
+          "adv_block_observed": "-13",
+          "display_order": 13
+        },
+        {
+          "move_name": "Joudan Sokutogeri",
+          "kind": "special",
+          "adv_block_observed": "-22",
+          "display_order": 14
+        },
+        {
+          "move_name": "Shinku Tatsumaki Senpukyaku",
+          "kind": "super",
+          "adv_block_observed": "-12",
+          "display_order": 15
+        },
+        {
+          "move_name": "Shin Shoryuken",
+          "kind": "super",
+          "adv_block_observed": "-30",
+          "display_order": 16
+        }
+      ]
+    },
+    "id_19_roll": {
+      "char_id": 19,
+      "char_name": "Roll",
+      "source": "Roll_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "0",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 3,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-31",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 6,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 7,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 10
+        },
+        {
+          "move_name": "Roll Broom Swing",
+          "kind": "special",
+          "adv_block_observed": "-14/-22/-28",
+          "display_order": 11
+        },
+        {
+          "move_name": "Roll Splash",
+          "kind": "special",
+          "adv_block_observed": "-8",
+          "display_order": 12
+        },
+        {
+          "move_name": "Roll Mop Up",
+          "kind": "special",
+          "adv_block_observed": "-4",
+          "display_order": 13
+        },
+        {
+          "move_name": "Roll Mop Up Turbo",
+          "kind": "super",
+          "adv_block_observed": "-30",
+          "display_order": 14
+        }
+      ]
+    },
+    "id_15_morrigan": {
+      "char_id": 15,
+      "char_name": "Morrigan",
+      "source": "MorriganAensland_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-7",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 3,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-12",
+          "display_order": 5
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-28",
+          "display_order": 6,
+          "observed_block_advantage": -28,
+          "wiki_adv_block": -28
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 7,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-24",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-22",
+          "display_order": 10
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-23",
+          "display_order": 11
+        },
+        {
+          "move_name": "Shadow Blade",
+          "kind": "special",
+          "adv_block_observed": "-20/-40/-50",
+          "display_order": 12
+        }
+      ]
+    },
+    "id_18_volnutt": {
+      "char_id": 18,
+      "char_name": "Volnutt",
+      "source": "Volnutt_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-16",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 3,
+          "observed_block_advantage": -9,
+          "wiki_adv_block": -9
+        },
+        {
+          "move_name": "6B Fist",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 4,
+          "observed_block_advantage": -20,
+          "wiki_adv_block": -20,
+          "startup": 12
+        },
+        {
+          "move_name": "6B Shield",
+          "kind": "normal",
+          "startup": 21,
+          "display_order": 5,
+          "adv_block_observed": "-4",
+          "observed_block_advantage": -4,
+          "wiki_adv_block": -4
+        },
+        {
+          "move_name": "Drill 6B",
+          "kind": "normal",
+          "startup": 19,
+          "display_order": 6,
+          "adv_block_observed": "-4",
+          "observed_block_advantage": -4,
+          "wiki_adv_block": -4
+        },
+        {
+          "move_name": "Drill 3B",
+          "kind": "normal",
+          "adv_block_observed": "-32",
+          "display_order": 8,
+          "observed_block_advantage": -32,
+          "wiki_adv_block": -32,
+          "startup": 12
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-25",
+          "display_order": 9
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-32",
+          "display_order": 10
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-17",
+          "display_order": 11
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-18",
+          "display_order": 12
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-21",
+          "display_order": 13
+        },
+        {
+          "move_name": "Machine Gun Sweep",
+          "kind": "super",
+          "adv_block_observed": "-8",
+          "display_order": 14
+        },
+        {
+          "move_name": "Max Power Drill Uppercut",
+          "kind": "super",
+          "adv_block_observed": "-54",
+          "display_order": 15
+        },
+        {
+          "move_name": "Max Power Shining Laser",
+          "kind": "super",
+          "adv_block_observed": "-20",
+          "display_order": 16
+        }
+      ]
+    },
+    "id_21_soki": {
+      "char_id": 21,
+      "char_name": "Soki",
+      "source": "Soki_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-19",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 1,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-32",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-24",
+          "display_order": 3,
+          "observed_block_advantage": -24,
+          "wiki_adv_block": -24
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-36",
+          "display_order": 4
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 5,
+          "observed_block_advantage": -20,
+          "wiki_adv_block": -20
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-18",
+          "display_order": 6
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 7,
+          "observed_block_advantage": -20,
+          "wiki_adv_block": -20
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-25",
+          "display_order": 10
+        },
+        {
+          "move_name": "HeadSplitter",
+          "kind": "special",
+          "adv_block_observed": "-16",
+          "display_order": 11
+        },
+        {
+          "move_name": "Slam",
+          "kind": "special",
+          "adv_block_observed": "-8/-16/-22",
+          "display_order": 12
+        },
+        {
+          "move_name": "Finisher",
+          "kind": "special",
+          "adv_block_observed": "-30",
+          "display_order": 13
+        },
+        {
+          "move_name": "Sword of Purification",
+          "kind": "super",
+          "adv_block_observed": "-32",
+          "display_order": 14
+        },
+        {
+          "move_name": "Oni tactics",
+          "kind": "super",
+          "adv_block_observed": "-32/-9/-54",
+          "display_order": 15
+        },
+        {
+          "move_name": "Oni Cutter After Oni Mode with 7 Red Orbs Absorbed",
+          "kind": "super",
+          "adv_block_observed": "-90",
+          "display_order": 16
+        }
+      ]
+    },
+    "id_30_frank_west": {
+      "char_id": 30,
+      "char_name": "Frank West",
+      "source": "FrankWest_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-11",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 1,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-21",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 3,
+          "observed_block_advantage": -14,
+          "wiki_adv_block": -14
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 4
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-30",
+          "display_order": 6,
+          "observed_block_advantage": -30,
+          "wiki_adv_block": -30
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-16",
+          "display_order": 7
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-4",
+          "display_order": 9
+        },
+        {
+          "move_name": "Round House Kick",
+          "kind": "special",
+          "adv_block_observed": "0/-8/-17",
+          "display_order": 11
+        },
+        {
+          "move_name": "Grand Slam",
+          "kind": "special",
+          "adv_block_observed": "-8/-8/-13",
+          "display_order": 12
+        },
+        {
+          "move_name": "Zombie Charge",
+          "kind": "super",
+          "adv_block_observed": "-14",
+          "display_order": 13
+        }
+      ]
+    },
+    "id_13_chun_li": {
+      "char_id": 13,
+      "char_name": "Chun-Li",
+      "source": "ChunLi_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-11",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 3,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 4
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "0",
+          "display_order": 5
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 6
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 7,
+          "observed_block_advantage": -15,
+          "wiki_adv_block": -15
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-18",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 11
+        },
+        {
+          "move_name": "Kikoken",
+          "kind": "special",
+          "adv_block_observed": "-14",
+          "display_order": 12
+        },
+        {
+          "move_name": "Tenshokyaku",
+          "kind": "special",
+          "adv_block_observed": "-10/-27/-40",
+          "display_order": 13
+        },
+        {
+          "move_name": "Hyakuretsukyaku",
+          "kind": "special",
+          "adv_block_observed": "+5",
+          "display_order": 14
+        },
+        {
+          "move_name": "Spinning Bird Kick",
+          "kind": "special",
+          "adv_block_observed": "-30",
+          "display_order": 15
+        },
+        {
+          "move_name": "Kikosho",
+          "kind": "super",
+          "adv_block_observed": "-46",
+          "display_order": 16
+        },
+        {
+          "move_name": "Hoyokusen",
+          "kind": "super",
+          "adv_block_observed": "-17",
+          "display_order": 17
+        },
+        {
+          "move_name": "Shichisei Senkukyaku j.",
+          "kind": "super",
+          "adv_block_observed": "+5",
+          "display_order": 18
+        }
+      ]
+    },
+    "id_14_batsu": {
+      "char_id": 14,
+      "char_name": "Batsu",
+      "source": "Batsu_TvCColors_AllStats_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-9",
+          "display_order": 1,
+          "observed_block_advantage": -9,
+          "wiki_adv_block": -9
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-6",
+          "display_order": 3,
+          "observed_block_advantage": -6,
+          "wiki_adv_block": -6
+        },
+        {
+          "move_name": "6B",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 4
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-21",
+          "display_order": 5
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 6,
+          "observed_block_advantage": -10,
+          "wiki_adv_block": -10
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 7
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-25",
+          "display_order": 8,
+          "observed_block_advantage": -25,
+          "wiki_adv_block": -25
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 10
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-8",
+          "display_order": 11
+        },
+        {
+          "move_name": "Guts Bullet",
+          "kind": "special",
+          "adv_block_observed": "-10",
+          "display_order": 12
+        },
+        {
+          "move_name": "Air Guts Bullet j.",
+          "kind": "special",
+          "adv_block_observed": "-10",
+          "display_order": 13
+        },
+        {
+          "move_name": "Guts Upper",
+          "kind": "special",
+          "adv_block_observed": "-24/-24/-32",
+          "display_order": 14
+        },
+        {
+          "move_name": "Crescent Kick",
+          "kind": "special",
+          "adv_block_observed": "-8/-10/-12",
+          "display_order": 15
+        },
+        {
+          "move_name": "Light Shooting Star Kick j.",
+          "kind": "special",
+          "adv_block_observed": "-22",
+          "display_order": 16
+        },
+        {
+          "move_name": "Super Guts Bullet",
+          "kind": "super",
+          "adv_block_observed": "-17",
+          "display_order": 17
+        },
+        {
+          "move_name": "Air Super Guts Bullet j.",
+          "kind": "super",
+          "adv_block_observed": "0",
+          "display_order": 18
+        },
+        {
+          "move_name": "Super Guts Upper",
+          "kind": "super",
+          "adv_block_observed": "-14",
+          "display_order": 19
+        },
+        {
+          "move_name": "United By Fate Bullet",
+          "kind": "super",
+          "adv_block_observed": "-30",
+          "display_order": 20
+        },
+        {
+          "move_name": "United By Fate Upper",
+          "kind": "super",
+          "adv_block_observed": "-30",
+          "display_order": 21
+        },
+        {
+          "move_name": "United By Fate Kick",
+          "kind": "super",
+          "adv_block_observed": "-30",
+          "display_order": 22
+        },
+        {
+          "move_name": "United By Fall",
+          "kind": "super",
+          "adv_block_observed": "-30",
+          "display_order": 23
+        }
+      ]
+    },
+    "id_16_alex": {
+      "char_id": 16,
+      "char_name": "Alex",
+      "source": "Alex_TvCColors_BlockAdv_Update.wiki",
+      "moves": [
+        {
+          "move_name": "5A",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 0
+        },
+        {
+          "move_name": "2A",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 1,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5B",
+          "kind": "normal",
+          "adv_block_observed": "-15",
+          "display_order": 2
+        },
+        {
+          "move_name": "2B",
+          "kind": "normal",
+          "adv_block_observed": "-5",
+          "display_order": 3,
+          "observed_block_advantage": -5,
+          "wiki_adv_block": -5
+        },
+        {
+          "move_name": "5C",
+          "kind": "normal",
+          "adv_block_observed": "-23",
+          "display_order": 4
+        },
+        {
+          "move_name": "2C",
+          "kind": "normal",
+          "adv_block_observed": "-18",
+          "display_order": 5,
+          "observed_block_advantage": -18,
+          "wiki_adv_block": -18
+        },
+        {
+          "move_name": "6C",
+          "kind": "normal",
+          "adv_block_observed": "-10",
+          "display_order": 6
+        },
+        {
+          "move_name": "3C",
+          "kind": "normal",
+          "adv_block_observed": "-20",
+          "display_order": 7,
+          "observed_block_advantage": -20,
+          "wiki_adv_block": -20
+        },
+        {
+          "move_name": "j.A",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 8
+        },
+        {
+          "move_name": "j.B",
+          "kind": "normal",
+          "adv_block_observed": "-14",
+          "display_order": 9
+        },
+        {
+          "move_name": "j.C",
+          "kind": "normal",
+          "adv_block_observed": "-13",
+          "display_order": 10
+        },
+        {
+          "move_name": "Flash Chop",
+          "kind": "special",
+          "adv_block_observed": "-13/-19/-10",
+          "display_order": 11
+        },
+        {
+          "move_name": "Slash Elbow",
+          "kind": "special",
+          "adv_block_observed": "-10",
+          "display_order": 12
+        },
+        {
+          "move_name": "Dropkick",
+          "kind": "special",
+          "adv_block_observed": "-24",
+          "display_order": 13
+        },
+        {
+          "move_name": "Air Stampede",
+          "kind": "special",
+          "adv_block_observed": "-10",
+          "display_order": 14
+        }
+      ]
+    }
+  }
+}
