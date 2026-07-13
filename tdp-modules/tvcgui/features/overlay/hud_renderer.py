@@ -17,6 +17,7 @@ import sys
 import time
 from typing import Optional
 import math
+import random
 import pygame
 import win32con
 import win32gui
@@ -36,6 +37,7 @@ BASE_H          = 720
 BASE_FONT_SIZE  = 14
 BASE_ROW_H      = 22
 BG_ALPHA        = 180
+OOMPH_SCALE     = 0.40
 
 SLOT_LAYOUT = {
     "P1-C1": ("left",  28, 178),
@@ -137,6 +139,9 @@ _interaction_ribbon = {
     "life": 0.0,
 }
 _combo_ledgers: dict[str, dict] = {"P1": {}, "P2": {}}
+
+_HISTORY_HEADER_CHIP_CACHE: dict[tuple, pygame.Surface] = {}
+_COMPACT_PANEL_SHELL_CACHE: dict[tuple, tuple[pygame.Surface, pygame.Surface]] = {}
 
 # ---------------------------------------------------------------------------
 # ADV helpers
@@ -291,6 +296,7 @@ def _set_guard_indicator(slot_label: str, label: str, hit: bool) -> None:
     slot_anim["guard_indicator_result"] = "HIT" if hit else "BLOCK"
     slot_anim["guard_indicator_life"] = 1.0
     slot_anim["guard_indicator_flash"] = 1.0
+    _trigger_team_panel_fx(_team_from_slot(slot_label), (255, 110, 110) if hit else (92, 232, 146), 1.05 if hit else 0.85, 8 if hit else 6)
 
 
 def _publish_interaction(attacker_slot: str, victim_slot: str, st: dict, advantage: int) -> None:
@@ -532,6 +538,7 @@ def _get_slot_anim(slot_label: str):
         "partner_hp_display_frac": None,
         "meter_display_value": None,
         "baroque_alpha": 0.0,
+        "baroque_fade_direction": 0,
         "event_history": [],
         "prev_compact_move_key": "",
         "guard_indicator_label": "",
@@ -566,6 +573,11 @@ def _get_team_anim(team: str):
         "log_history_signature": (),
         "log_history_prev": [],
         "log_history_slide": 0.0,
+        "pulse_life": 0.0,
+        "pulse_color": (107, 154, 232),
+        "sweep_pos": -0.25,
+        "shake": 0.0,
+        "sparks": [],
         "tag_card": None,
     })
 
@@ -586,6 +598,105 @@ def _push_event_history(
         "rainbow": bool(rainbow),
     })
     del items[6:]
+
+
+def _team_from_slot(slot_label: str) -> str:
+    return "P1" if str(slot_label).startswith("P1") else "P2"
+
+
+def _trigger_team_panel_fx(team: str, color: tuple[int, int, int], strength: float = 1.0, spark_count: int = 6) -> None:
+    team_anim = _get_team_anim(team)
+    strength = max(0.25, min(1.6, float(strength or 1.0)))
+    team_anim["pulse_life"] = max(float(team_anim.get("pulse_life", 0.0)), min(0.72, (0.28 + 0.14 * strength) * OOMPH_SCALE / 0.40))
+    team_anim["pulse_color"] = tuple(max(0, min(255, int(c))) for c in (color or (107, 154, 232)))
+    team_anim["sweep_pos"] = -0.20
+    team_anim["shake"] = max(float(team_anim.get("shake", 0.0)), min(0.42, (0.14 + 0.18 * strength) * OOMPH_SCALE / 0.40))
+    sparks = team_anim.setdefault("sparks", [])
+    for _ in range(max(1, int(round(spark_count * OOMPH_SCALE)))):
+        sparks.append({
+            "column": random.choice(("left", "right")),
+            "x": random.uniform(0.06, 0.94),
+            "y": random.uniform(0.12, 0.82),
+            "vx": random.uniform(-0.22, 0.22),
+            "vy": random.uniform(-0.22, 0.22),
+            "life": random.uniform(0.45, 0.9),
+            "size": random.uniform(1.2, 3.4),
+            "color": team_anim["pulse_color"],
+        })
+    if len(sparks) > 24:
+        del sparks[:-24]
+
+
+def _tick_team_panel_fx(team_anim: dict, dt: float) -> None:
+    team_anim["pulse_life"] = max(0.0, float(team_anim.get("pulse_life", 0.0)) - dt * 2.25)
+    team_anim["shake"] = max(0.0, float(team_anim.get("shake", 0.0)) - dt * 5.4)
+    team_anim["sweep_pos"] = min(1.20, float(team_anim.get("sweep_pos", -0.25)) + dt * 1.30)
+    updated = []
+    for spark in list(team_anim.get("sparks", [])):
+        life = max(0.0, float(spark.get("life", 0.0)) - dt * 1.6)
+        if life <= 0.01:
+            continue
+        spark["life"] = life
+        spark["x"] = float(spark.get("x", 0.0)) + float(spark.get("vx", 0.0)) * dt
+        spark["y"] = float(spark.get("y", 0.0)) + float(spark.get("vy", 0.0)) * dt
+        spark["vy"] = float(spark.get("vy", 0.0)) * 0.985
+        if -0.2 <= float(spark.get("x", 0.0)) <= 1.2 and -0.2 <= float(spark.get("y", 0.0)) <= 1.2:
+            updated.append(spark)
+    team_anim["sparks"] = updated[-24:]
+
+
+def _team_panel_fx_columns(x: int, y: int, width: int, height: int, scale: float) -> tuple[pygame.Rect, pygame.Rect]:
+    inset_x = max(4, int(5 * scale))
+    inset_y = max(6, int(8 * scale))
+    col_w = max(max(18, int(22 * scale)), min(int(width * 0.12), int(56 * scale)))
+    inner_h = max(8, height - inset_y * 2)
+    left_rect = pygame.Rect(x + inset_x, y + inset_y, col_w, inner_h)
+    right_rect = pygame.Rect(x + width - inset_x - col_w, y + inset_y, col_w, inner_h)
+    return left_rect, right_rect
+
+
+def _draw_team_panel_fx(screen, team_anim: dict, x: int, y: int, width: int, height: int, accent: tuple[int, int, int], scale: float, alpha: float) -> None:
+    pulse = max(0.0, min(1.0, float(team_anim.get("pulse_life", 0.0))))
+    if pulse <= 0.01 and not team_anim.get("sparks"):
+        return
+    fx_color = tuple(team_anim.get("pulse_color") or accent or (107, 154, 232))
+    radius = max(6, int(7 * scale))
+    left_col, right_col = _team_panel_fx_columns(x, y, width, height, scale)
+    columns = (left_col, right_col)
+    if pulse > 0.01:
+        glow = pygame.Surface((width + int(18 * scale), height + int(18 * scale)), pygame.SRCALPHA)
+        glow_rect = pygame.Rect(int(9 * scale), int(9 * scale), width, height)
+        pygame.draw.rect(glow, (*fx_color, int(14 * pulse * alpha)), glow_rect, border_radius=radius + 3)
+        pygame.draw.rect(glow, (*fx_color, int(31 * pulse * alpha)), glow_rect, 2, border_radius=radius + 3)
+        screen.blit(glow, (x - int(9 * scale), y - int(9 * scale)))
+
+        sweep = float(team_anim.get("sweep_pos", -0.25))
+        if -0.05 <= sweep <= 1.20:
+            for col_rect in columns:
+                sheen = pygame.Surface((col_rect.width, col_rect.height), pygame.SRCALPHA)
+                center_x = int((sweep * col_rect.width))
+                band_w = max(10, int(col_rect.width * 0.90))
+                poly = [
+                    (center_x - band_w, 0),
+                    (center_x + int(band_w * 0.40), 0),
+                    (center_x - int(band_w * 0.40), col_rect.height),
+                    (center_x - int(band_w * 1.40), col_rect.height),
+                ]
+                pygame.draw.polygon(sheen, (*fx_color, int(10 * pulse * alpha)), poly)
+                pygame.draw.line(sheen, (255, 255, 255, int(7 * pulse * alpha)), (max(0, center_x - band_w), 2), (min(col_rect.width - 1, center_x + int(band_w * 0.25)), 2), 1)
+                screen.blit(sheen, col_rect.topleft)
+
+    for spark in list(team_anim.get("sparks", [])):
+        life = max(0.0, min(1.0, float(spark.get("life", 0.0))))
+        if life <= 0.01:
+            continue
+        col_rect = left_col if str(spark.get("column", "left")) == "left" else right_col
+        sx = col_rect.x + int(float(spark.get("x", 0.0)) * col_rect.width)
+        sy = col_rect.y + int(float(spark.get("y", 0.0)) * col_rect.height)
+        size = max(1, int(float(spark.get("size", 1.0)) * scale * (0.70 + life * 0.55)))
+        spark_color = tuple(spark.get("color") or fx_color)
+        pygame.draw.circle(screen, (*spark_color, int(70 * life * alpha)), (sx, sy), size)
+        pygame.draw.line(screen, (*spark_color, int(48 * life * alpha)), (sx - size, sy), (sx + size, sy), 1)
 
 
 
@@ -1608,6 +1719,7 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
                 damage = -hp_delta
                 events.insert(0, {"value": damage, "life": 1.0, "age": 0.0, "x_offset": 0, "type": "self"})
                 _push_event_history(slot_anim, "DMG IN", _compact_short_number(damage), (255, 110, 110))
+                _trigger_team_panel_fx(_team_from_slot(slot_label), (255, 110, 110), min(1.35, 0.55 + damage / 2400.0), 10)
                 _combo_register_damage(slot_label, damage)
                 opponent = _get_active_slot("P2" if slot_label.startswith("P1") else "P1")
                 if opponent:
@@ -1615,10 +1727,12 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
                     other = opp_anim["damage_events"]
                     other.insert(0, {"value": damage, "life": 1.0, "age": 0.0, "x_offset": 0, "type": "opponent"})
                     _push_event_history(opp_anim, "DMG OUT", _compact_short_number(damage), (255, 110, 110))
+                    _trigger_team_panel_fx(_team_from_slot(opponent), (255, 132, 92), min(1.05, 0.45 + damage / 3200.0), 7)
                     del other[3:]
             else:
                 events.insert(0, {"value": hp_delta, "life": 1.0, "age": 0.0, "x_offset": 0, "type": "heal"})
                 _push_event_history(slot_anim, "HP +", _compact_short_number(hp_delta), (92, 232, 146))
+                _trigger_team_panel_fx(_team_from_slot(slot_label), (92, 232, 146), 0.70, 5)
             del events[3:]
     slot_anim["prev_hp"] = hp_cur
 
@@ -1639,6 +1753,7 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
                 "x_offset": 0,
             })
             _push_event_history(slot_anim, "MTR", f"{'+' if meter_delta > 0 else '-'}{_compact_short_number(abs(meter_delta))}", (96, 182, 255) if meter_delta > 0 else (255, 164, 92))
+            _trigger_team_panel_fx(_team_from_slot(slot_label), (96, 182, 255) if meter_delta > 0 else (255, 164, 92), 0.55, 4)
             del meter_events[3:]
     slot_anim["prev_meter"] = meter_cur
 
@@ -1661,6 +1776,7 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
             baroque_text = f"{'+' if baroque_delta > 0 else '-'}{abs(baroque_delta):.1f}%"
             baroque_color = (255, 211, 92) if baroque_delta > 0 else (255, 132, 104)
             _push_event_history(slot_anim, "BBQ", baroque_text, baroque_color, rainbow=True)
+            _trigger_team_panel_fx(_team_from_slot(slot_label), (172, 112, 255) if baroque_delta > 0 else (255, 180, 92), 0.85, 7)
             del baroque_events[3:]
     slot_anim["prev_baroque_pct"] = baroque_cur
 
@@ -1836,12 +1952,119 @@ def _render_compact_rainbow_text(font, text: str, phase_offset: float = 0.0) -> 
     return base
 
 
-def _draw_compact_baroque_badge(screen, font_sm, rect: pygame.Rect, percent: float, scale: float, is_left: bool, alpha: float = 1.0) -> None:
-    rainbow = _render_compact_rainbow_text(font_sm, f"BBQ {max(0.0, percent):.0f}%", 0.18)
-    rainbow.set_alpha(max(0, min(255, int(255 * alpha))))
-    text_x = rect.x + max(0, (rect.width - rainbow.get_width()) // 2)
-    text_y = rect.y + max(0, (rect.height - rainbow.get_height()) // 2)
-    screen.blit(rainbow, (text_x, text_y))
+def _draw_compact_baroque_badge(screen, font_sm, rect: pygame.Rect, percent: float, scale: float, is_left: bool, alpha: float = 1.0, fade_direction: int = 0) -> None:
+    pct = max(0.0, float(percent or 0.0))
+    fade = max(0.0, min(1.0, float(alpha or 0.0)))
+    if fade <= 0.01 or rect.width <= 2 or rect.height <= 2:
+        return
+
+    entering = int(fade_direction or 0) > 0
+    leaving = int(fade_direction or 0) < 0
+    # Entry is revealed by the wipe itself, so avoid multiplying the content
+    # down to near-invisible alpha a second time. Exit keeps the approved fade.
+    visual_fade = min(1.0, 0.34 + 0.66 * math.sqrt(fade)) if entering else fade
+
+    radius = max(4, int(5 * scale))
+    pulse = 0.70 + 0.30 * ((math.sin(time.time() * 3.8) + 1.0) * 0.5)
+    border = _compact_rainbow_color(0.16 + pct * 0.004, 1.0)
+    border_glow = _compact_rainbow_color(0.48 + pct * 0.003, 1.15)
+
+    glow = pygame.Surface((rect.width + max(6, int(8 * scale)), rect.height + max(6, int(8 * scale))), pygame.SRCALPHA)
+    glow_rect = pygame.Rect(max(3, int(4 * scale)), max(3, int(4 * scale)), rect.width, rect.height)
+    pygame.draw.rect(glow, (*border_glow, int(22 * visual_fade * pulse)), glow_rect, border_radius=radius + 2)
+    screen.blit(glow, (rect.x - glow_rect.x, rect.y - glow_rect.y))
+
+    badge = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    pygame.draw.rect(badge, (14, 18, 28, int(212 * visual_fade)), badge.get_rect(), border_radius=radius)
+    pygame.draw.rect(badge, (22, 27, 39, int(188 * visual_fade)), badge.get_rect(), 1, border_radius=radius)
+    pygame.draw.rect(badge, (*border, int(210 * visual_fade)), pygame.Rect(1, 1, max(1, rect.width - 2), max(2, int(2 * scale))), border_top_left_radius=radius, border_top_right_radius=radius)
+
+    label_pad_x = max(5, int(6 * scale))
+    label_gap = max(4, int(5 * scale))
+    label_text = font_sm.render("BBQ", True, (225, 232, 246))
+    value_text = _render_compact_rainbow_text(font_sm, f"{pct:.0f}%", 0.18)
+
+    chip_h = max(int(13 * scale), label_text.get_height() + max(2, int(3 * scale)))
+    chip_w = max(int(24 * scale), label_text.get_width() + label_pad_x * 2)
+    chip_y = badge.get_height() // 2 - chip_h // 2
+    chip_x = max(4, int(5 * scale))
+    chip_rect = pygame.Rect(chip_x, chip_y, chip_w, chip_h)
+    pygame.draw.rect(badge, (34, 42, 60, int(216 * visual_fade)), chip_rect, border_radius=max(3, int(4 * scale)))
+    pygame.draw.rect(badge, (*border, int(148 * visual_fade)), chip_rect, 1, border_radius=max(3, int(4 * scale)))
+
+    label_text.set_alpha(int(245 * visual_fade))
+    value_text.set_alpha(int(255 * visual_fade))
+    badge.blit(label_text, (chip_rect.centerx - label_text.get_width() // 2, chip_rect.centery - label_text.get_height() // 2))
+
+    value_x = chip_rect.right + label_gap
+    available_w = rect.width - value_x - max(5, int(6 * scale))
+    if value_text.get_width() > available_w and available_w > 8:
+        scale_mul = available_w / max(1, value_text.get_width())
+        value_text = pygame.transform.smoothscale(value_text, (max(1, int(value_text.get_width() * scale_mul)), max(1, int(value_text.get_height() * scale_mul))))
+        value_text.set_alpha(int(255 * visual_fade))
+    badge.blit(value_text, (value_x, badge.get_height() // 2 - value_text.get_height() // 2))
+
+    if pct >= 1.0:
+        marker_r = max(2, int(2 * scale))
+        marker_x = rect.width - max(7, int(8 * scale))
+        marker_y = badge.get_height() // 2
+        pygame.draw.circle(badge, (*border_glow, int(210 * visual_fade * pulse)), (marker_x, marker_y), marker_r)
+
+    if fade < 0.995:
+        soft_w = max(10, int(16 * scale))
+        if is_left:
+            solid_w = max(0, min(rect.width, int(rect.width * fade)))
+            edge_start = solid_w
+            edge_end = min(rect.width, solid_w + soft_w)
+            wipe_center = edge_start + soft_w * 0.45
+        else:
+            solid_start = max(0, rect.width - int(rect.width * fade))
+            edge_start = max(0, solid_start - soft_w)
+            edge_end = solid_start
+            wipe_center = edge_end - soft_w * 0.45
+
+        mask = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+        for col in range(rect.width):
+            col_alpha = 0
+            if is_left:
+                if col < edge_start:
+                    col_alpha = 255
+                elif col < edge_end:
+                    t = 1.0 - ((col - edge_start) / max(1, edge_end - edge_start))
+                    col_alpha = int(255 * t)
+            else:
+                if col >= edge_end:
+                    col_alpha = 255
+                elif col >= edge_start:
+                    t = (col - edge_start) / max(1, edge_end - edge_start)
+                    col_alpha = int(255 * t)
+            if col_alpha > 0:
+                pygame.draw.line(mask, (255, 255, 255, col_alpha), (col, 0), (col, rect.height - 1))
+        badge.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+
+        wipe = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+        if entering:
+            # Softest at the endpoints, clearest while the reveal edge crosses.
+            wipe_alpha = max(0.0, min(1.0, math.sin(math.pi * fade)))
+        elif leaving:
+            wipe_alpha = max(0.0, min(1.0, 1.0 - fade))
+        else:
+            wipe_alpha = max(0.0, min(1.0, 1.0 - fade))
+        band_w = max(10, int(18 * scale))
+        for idx in range(4):
+            color = _compact_rainbow_color(0.12 + idx * 0.12 + time.time() * 0.08, 1.0)
+            offset = (idx - 1.5) * max(2, int(3 * scale))
+            cx = wipe_center + offset
+            poly = [
+                (int(cx - band_w), 0),
+                (int(cx + band_w * 0.35), 0),
+                (int(cx - band_w * 0.25), rect.height),
+                (int(cx - band_w * 1.60), rect.height),
+            ]
+            pygame.draw.polygon(wipe, (*color, int((18 + idx * 6) * wipe_alpha)), poly)
+        badge.blit(wipe, (0, 0))
+
+    screen.blit(badge, rect.topleft)
 
 
 def _compact_chip_color(color: tuple[int, int, int], life: float) -> tuple[int, int, int]:
@@ -2056,13 +2279,21 @@ def _history_label_width(font_sm, scale: float) -> int:
 def _draw_history_header_chip(screen, font_sm, title: str, x: int, y: int, scale: float) -> int:
     label_w = _history_label_width(font_sm, scale)
     label_h = max(font_sm.get_height() + max(4, int(5 * scale)), int(15 * scale))
-    radius = max(3, int(4 * scale))
-    chip = pygame.Surface((label_w, label_h), pygame.SRCALPHA)
-    pygame.draw.rect(chip, (22, 28, 36, 214), (0, 0, label_w, label_h), border_radius=radius)
-    pygame.draw.rect(chip, (66, 82, 108, 170), (0, 0, label_w, label_h), 1, border_radius=radius)
-    pygame.draw.rect(chip, (88, 128, 190, 120), (1, 1, max(1, label_w - 2), max(2, int(2 * scale))), border_top_left_radius=radius, border_top_right_radius=radius)
-    label_surface = font_sm.render(title, True, (176, 190, 214))
-    chip.blit(label_surface, ((label_w - label_surface.get_width()) // 2, (label_h - label_surface.get_height()) // 2))
+    key = (id(font_sm), str(title), label_w, label_h, round(float(scale), 3))
+    chip = _HISTORY_HEADER_CHIP_CACHE.get(key)
+    if chip is None:
+        radius = max(3, int(4 * scale))
+        chip = pygame.Surface((label_w, label_h), pygame.SRCALPHA)
+        pygame.draw.rect(chip, (16, 21, 28, 188), (0, 0, label_w, label_h), border_radius=radius)
+        pygame.draw.rect(chip, (52, 67, 92, 148), (0, 0, label_w, label_h), 1, border_radius=radius)
+        accent_w = max(3, int(4 * scale))
+        pygame.draw.rect(chip, (86, 142, 228, 190), (0, 0, accent_w, label_h), border_top_left_radius=radius, border_bottom_left_radius=radius)
+        pygame.draw.line(chip, (238, 242, 248, 48), (accent_w + 2, 1), (label_w - 3, 1), 1)
+        label_surface = font_sm.render(title, True, (194, 208, 228))
+        chip.blit(label_surface, (accent_w + max(6, int(7 * scale)), (label_h - label_surface.get_height()) // 2))
+        if len(_HISTORY_HEADER_CHIP_CACHE) >= 32:
+            _HISTORY_HEADER_CHIP_CACHE.clear()
+        _HISTORY_HEADER_CHIP_CACHE[key] = chip
     screen.blit(chip, (x, y))
     return label_w
 
@@ -3007,19 +3238,25 @@ def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float
     title = str(_interaction_ribbon.get("title") or "")
     detail = str(_interaction_ribbon.get("detail") or "")
     accent = tuple(_interaction_ribbon.get("color") or (130, 175, 255))
-    title_s = font.render(title, True, (242, 245, 250))
-    detail_s = font_sm.render(detail, True, (192, 204, 222))
-    width = max(int(238 * scale), title_s.get_width() + int(28 * scale), detail_s.get_width() + int(28 * scale))
-    height = max(int(35 * scale), title_s.get_height() + detail_s.get_height() + int(10 * scale))
+    title_s = font.render(title, True, (246, 248, 252))
+    detail_s = font_sm.render(detail, True, (196, 208, 226))
+    width = max(int(280 * scale), title_s.get_width() + int(34 * scale), detail_s.get_width() + int(34 * scale))
+    height = max(int(42 * scale), title_s.get_height() + detail_s.get_height() + int(12 * scale))
     x = screen.get_width() // 2 - width // 2
-    y = int(106 * scale - (1.0 - fade) * 9 * scale)
+    y = int(100 * scale - (1.0 - fade) * 14 * scale)
+    radius = max(6, int(7 * scale))
+    shadow = pygame.Surface((width + 10, height + 10), pygame.SRCALPHA)
+    pygame.draw.rect(shadow, (0, 0, 0, int(88 * fade)), (5, 5, width, height), border_radius=radius + 2)
+    screen.blit(shadow, (x - 5, y + 2))
     card = pygame.Surface((width, height), pygame.SRCALPHA)
-    pygame.draw.rect(card, (18, 23, 34, int(224 * fade)), card.get_rect(), border_radius=max(3, int(5 * scale)))
-    pygame.draw.rect(card, (*accent, int(225 * fade)), card.get_rect(), 1, border_radius=max(3, int(5 * scale)))
-    pygame.draw.rect(card, (*accent, int(210 * fade)), (0, 0, max(3, int(4 * scale)), height), border_radius=max(2, int(3 * scale)))
+    pygame.draw.rect(card, (10, 13, 19, int(232 * fade)), card.get_rect(), border_radius=radius)
+    pygame.draw.rect(card, (34, 41, 55, int(216 * fade)), card.get_rect(), 1, border_radius=radius)
+    pygame.draw.rect(card, (*accent, int(220 * fade)), (0, 0, max(5, int(6 * scale)), height), border_top_left_radius=radius, border_bottom_left_radius=radius)
+    pygame.draw.polygon(card, (*accent, int(76 * fade)), [(max(5, int(6 * scale)), 0), (int(width * 0.40), 0), (int(width * 0.28), height - 1), (0, height - 1)])
+    pygame.draw.line(card, (248, 250, 254, int(58 * fade)), (max(8, int(9 * scale)), 1), (width - int(10 * scale), 1), 1)
     title_s.set_alpha(int(255 * fade)); detail_s.set_alpha(int(240 * fade))
-    card.blit(title_s, (int(11 * scale), int(4 * scale)))
-    card.blit(detail_s, (int(11 * scale), height - detail_s.get_height() - int(4 * scale)))
+    card.blit(title_s, (int(14 * scale), int(5 * scale)))
+    card.blit(detail_s, (int(14 * scale), height - detail_s.get_height() - int(5 * scale)))
     screen.blit(card, (x, y))
 
 
@@ -3042,18 +3279,24 @@ def _draw_combo_ledger(screen, font_sm, team: str, x: int, y: int, width: int, s
         resource += f"  •  BBQ {baroque_delta:+.0f}%"
     title_s = font_sm.render(title, True, (236, 241, 248))
     resource_s = font_sm.render(resource, True, (124, 188, 255) if meter_delta >= 0 else (255, 174, 104))
-    h = max(int(27 * scale), title_s.get_height() + resource_s.get_height() + int(7 * scale))
-    w = min(width, max(int(178 * scale), title_s.get_width() + int(18 * scale), resource_s.get_width() + int(18 * scale)))
+    h = max(int(29 * scale), title_s.get_height() + resource_s.get_height() + int(8 * scale))
+    w = min(width, max(int(194 * scale), title_s.get_width() + int(22 * scale), resource_s.get_width() + int(22 * scale)))
     draw_x = x if is_left else x + width - w
+    slide = int((1.0 - fade) * 8 * scale)
+    draw_y = y + slide
+    shadow = pygame.Surface((w + 8, h + 8), pygame.SRCALPHA)
     card = pygame.Surface((w, h), pygame.SRCALPHA)
-    pygame.draw.rect(card, (15, 19, 28, int(208 * fade)), card.get_rect(), border_radius=max(3, int(4 * scale)))
+    pygame.draw.rect(shadow, (0, 0, 0, int(72 * fade)), (4, 4, w, h), border_radius=max(4, int(5 * scale)))
+    pygame.draw.rect(card, (15, 19, 28, int(216 * fade)), card.get_rect(), border_radius=max(4, int(5 * scale)))
     pygame.draw.rect(card, (107, 154, 232, int(178 * fade)), card.get_rect(), 1, border_radius=max(3, int(4 * scale)))
     rail_x = 0 if is_left else w - max(2, int(3 * scale))
     pygame.draw.rect(card, (107, 154, 232, int(220 * fade)), (rail_x, 0, max(2, int(3 * scale)), h))
     title_s.set_alpha(int(255 * fade)); resource_s.set_alpha(int(238 * fade))
     card.blit(title_s, (int(8 * scale), int(3 * scale)))
     card.blit(resource_s, (int(8 * scale), h - resource_s.get_height() - int(3 * scale)))
-    screen.blit(card, (draw_x, y))
+    screen.blit(shadow, (draw_x - 4, draw_y - 1))
+    screen.blit(shadow, (draw_x - 4, draw_y + 1))
+    screen.blit(card, (draw_x, draw_y))
 
 
 def _draw_tag_card(screen, font_sm, team_anim: dict, x: int, y: int, width: int, scale: float, is_left: bool, dt: float) -> None:
@@ -3066,7 +3309,7 @@ def _draw_tag_card(screen, font_sm, team_anim: dict, x: int, y: int, width: int,
         team_anim["tag_card"] = None
         return
     fade = min(1.0, life * 2.5)
-    slide = int((1.0 - fade) * 16 * scale)
+    slide = int((1.0 - fade) * 10 * scale)
     name = _compact_trim(str(card_data.get("name") or "---"), 16)
     hp = _compact_hp_text(card_data.get("cur"), card_data.get("max"))
     meter = _compact_meter_text(card_data.get("meter"))
@@ -3103,8 +3346,10 @@ def _draw_tag_card(screen, font_sm, team_anim: dict, x: int, y: int, width: int,
     w = min(width, max(int(185 * scale), title_s.get_width() + int(18 * scale), detail_s.get_width() + int(18 * scale)))
     draw_x = x if is_left else x + width - w
     draw_y = y + slide
+    shadow = pygame.Surface((w + 8, h + 8), pygame.SRCALPHA)
+    pygame.draw.rect(shadow, (0, 0, 0, int(70 * fade)), (4, 4, w, h), border_radius=max(4, int(5 * scale)))
     card = pygame.Surface((w, h), pygame.SRCALPHA)
-    pygame.draw.rect(card, (*fill, int(224 * fade)), card.get_rect(), border_radius=max(3, int(4 * scale)))
+    pygame.draw.rect(card, (*fill, int(224 * fade)), card.get_rect(), border_radius=max(4, int(5 * scale)))
     pygame.draw.rect(card, (*accent, int(200 * fade)), card.get_rect(), 1, border_radius=max(3, int(4 * scale)))
     rail_w = max(2, int(3 * scale))
     rail_x = 0 if is_left else w - rail_w
@@ -3112,7 +3357,68 @@ def _draw_tag_card(screen, font_sm, team_anim: dict, x: int, y: int, width: int,
     title_s.set_alpha(int(255 * fade)); detail_s.set_alpha(int(245 * fade))
     card.blit(title_s, (int(8 * scale), int(3 * scale)))
     card.blit(detail_s, (int(8 * scale), h - detail_s.get_height() - int(3 * scale)))
+    screen.blit(shadow, (draw_x - 4, draw_y + 1))
     screen.blit(card, (draw_x, draw_y))
+
+
+def _cached_compact_panel_shell(
+    width: int,
+    height: int,
+    accent: tuple[int, int, int],
+    is_left: bool,
+    scale: float,
+    panel_alpha: float,
+) -> tuple[pygame.Surface, pygame.Surface]:
+    alpha_bucket = max(1, min(20, int(round(float(panel_alpha) * 20.0))))
+    key = (int(width), int(height), tuple(accent), bool(is_left), round(float(scale), 3), alpha_bucket)
+    cached = _COMPACT_PANEL_SHELL_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    alpha = alpha_bucket / 20.0
+    shadow = pygame.Surface((width + int(16 * scale), height + int(16 * scale)), pygame.SRCALPHA)
+    panel = pygame.Surface((width, height), pygame.SRCALPHA)
+    base_alpha = int(220 * alpha)
+    notch = max(8, int(10 * scale))
+    if is_left:
+        points = [(notch, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1), (0, notch)]
+    else:
+        points = [(0, 0), (width - notch - 1, 0), (width - 1, notch), (width - 1, height - 1), (0, height - 1)]
+
+    pygame.draw.polygon(shadow, (0, 0, 0, int(76 * alpha)), [(p[0] + int(8 * scale), p[1] + int(8 * scale)) for p in points])
+    pygame.draw.polygon(panel, (16, 21, 28, base_alpha), points)
+    for py in range(height):
+        blend = py / max(1, height - 1)
+        line_color = _lerp_color((60, 68, 80), (12, 16, 22), blend)
+        pygame.draw.line(panel, (*line_color, int(172 * alpha)), (1, py), (width - 2, py))
+
+    core_h = max(56, int(60 * scale))
+    analysis_y = max(core_h + int(16 * scale), int(78 * scale))
+    pygame.draw.rect(panel, (22, 28, 38, int(120 * alpha)), (int(8 * scale), int(8 * scale), width - int(16 * scale), core_h), border_radius=max(6, int(7 * scale)))
+    pygame.draw.rect(panel, (8, 12, 18, int(104 * alpha)), (int(8 * scale), analysis_y, width - int(16 * scale), height - analysis_y - int(8 * scale)), border_radius=max(6, int(7 * scale)))
+
+    sheen_surface = pygame.Surface((width, height), pygame.SRCALPHA)
+    pygame.draw.polygon(sheen_surface, (255, 255, 255, int(18 * alpha)), [
+        (int(width * 0.08), 0),
+        (int(width * 0.42), 0),
+        (int(width * 0.28), height - 1),
+        (0, height - 1),
+    ])
+    pygame.draw.line(sheen_surface, (250, 252, 255, int(26 * alpha)), (int(width * 0.08), 1), (int(width * 0.42), 1), 1)
+    panel.blit(sheen_surface, (0, 0))
+    pygame.draw.polygon(panel, (*accent, int(170 * alpha)), points, 1)
+    pygame.draw.line(panel, (250, 252, 255, int(42 * alpha)), (notch if is_left else 0, 0), (width - 1 if is_left else width - notch - 1, 0))
+    pygame.draw.line(panel, (8, 10, 14, int(178 * alpha)), (0, height - 1), (width - 1, height - 1))
+    pygame.draw.line(panel, (*accent, int(60 * alpha)), (int(8 * scale), int(74 * scale)), (width - int(8 * scale), int(74 * scale)))
+    rail_w = max(4, int(5 * scale))
+    rail_x = 0 if is_left else width - rail_w
+    pygame.draw.rect(panel, (*accent, int(238 * alpha)), (rail_x, 0, rail_w, height))
+
+    if len(_COMPACT_PANEL_SHELL_CACHE) >= 96:
+        _COMPACT_PANEL_SHELL_CACHE.clear()
+    cached = (shadow, panel)
+    _COMPACT_PANEL_SHELL_CACHE[key] = cached
+    return cached
 
 
 def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scale: float, overlay_alpha: float, dt: float, control=None) -> None:
@@ -3162,6 +3468,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     point_anim["meter_display_value"] = _approach(point_anim["meter_display_value"], point_meter_target, 32000.0, dt)
 
     team_anim = _get_team_anim(team)
+    _tick_team_panel_fx(team_anim, dt)
     hold_items = _display_button_holds(point_anim, _frame)
     hold_target = 1.0 if hold_items else 0.0
     team_anim["hold_expand"] = _approach(
@@ -3172,12 +3479,12 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     )
     hold_expand = max(0.0, min(1.0, float(team_anim.get("hold_expand", 0.0))))
 
-    width = max(430, int(470 * scale))
-    collapsed_height = max(152, int(162 * scale))
+    width = max(442, int(486 * scale))
+    collapsed_height = max(154, int(166 * scale))
     hold_extra_height = max(18, int(20 * scale))
     height = collapsed_height + int(hold_extra_height * hold_expand)
     margin_x = int(12 * scale)
-    base_y = int(148 * scale)
+    base_y = int(144 * scale)
     is_left = team == "P1"
     base_x = margin_x if is_left else screen.get_width() - margin_x - width
     accent = SLOT_COLORS.get(point_label, SLOT_COLORS[f"{team}-C1"])
@@ -3187,9 +3494,9 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
 
     team_present = bool(_get_slot_anim(first_label).get("present") or _get_slot_anim(second_label).get("present"))
     if team_present and not team_anim.get("present"):
-        team_anim["slide_y"] = -34.0
+        team_anim["slide_y"] = -22.0
         team_anim["slide_x"] = 0.0
-        team_anim["alpha"] = min(team_anim.get("alpha", 0.0), 0.20)
+        team_anim["alpha"] = min(team_anim.get("alpha", 0.0), 0.45)
     if team_present:
         prior_point = team_anim.get("current_point_label")
         if prior_point is None:
@@ -3207,10 +3514,10 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
             }
     team_anim["present"] = team_present
     if team_present:
-        team_anim["slide_y"] = _approach(float(team_anim.get("slide_y", -34.0)), 0.0, 160.0, dt)
+        team_anim["slide_y"] = _approach(float(team_anim.get("slide_y", -22.0)), 0.0, 176.0, dt)
         team_anim["slide_x"] = _approach(float(team_anim.get("slide_x", 0.0)), 0.0, 1800.0, dt)
         team_anim["alpha"] = _approach(float(team_anim.get("alpha", 0.0)), 1.0, 4.8, dt)
-        team_anim["swap_progress"] = _approach(float(team_anim.get("swap_progress", 0.0)), 0.0, 4.0, dt)
+        team_anim["swap_progress"] = _approach(float(team_anim.get("swap_progress", 0.0)), 0.0, 4.8, dt)
     else:
         off_target = -float(width + margin_x + 18) if is_left else float(width + margin_x + 18)
         team_anim["slide_x"] = _approach(float(team_anim.get("slide_x", 0.0)), off_target, 1700.0, dt)
@@ -3219,40 +3526,17 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     panel_alpha = overlay_alpha * float(team_anim.get("alpha", 0.0))
     if panel_alpha <= 0.01:
         return
-    x = int(base_x + float(team_anim.get("slide_x", 0.0)))
-    y = int(base_y + float(team_anim.get("slide_y", 0.0)))
+    shake = float(team_anim.get("shake", 0.0))
+    shake_dir = -1.0 if is_left else 1.0
+    shake_x = math.sin(time.time() * 42.0) * (1.0 * shake) * shake_dir
+    shake_y = math.sin(time.time() * 28.0 + (0.8 if is_left else 1.4)) * (0.5 * shake)
+    x = int(base_x + float(team_anim.get("slide_x", 0.0)) + shake_x)
+    y = int(base_y + float(team_anim.get("slide_y", 0.0)) + shake_y)
 
-    panel = pygame.Surface((width, height), pygame.SRCALPHA)
-    base_alpha = int(228 * panel_alpha)
-    notch = max(8, int(10 * scale))
-    if is_left:
-        points = [(notch, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1), (0, notch)]
-    else:
-        points = [(0, 0), (width - notch - 1, 0), (width - 1, notch), (width - 1, height - 1), (0, height - 1)]
-    pygame.draw.polygon(panel, (33, 38, 46, base_alpha), points)
-    for py in range(height):
-        blend = py / max(1, height - 1)
-        c1 = (66, 72, 82)
-        c2 = (28, 32, 39)
-        line_color = _lerp_color(c1, c2, blend)
-        pygame.draw.line(panel, (*line_color, int(172 * panel_alpha)), (1, py), (width - 2, py))
-    sheen_surface = pygame.Surface((width, height), pygame.SRCALPHA)
-    pygame.draw.polygon(sheen_surface, (255, 255, 255, int(18 * panel_alpha)), [
-        (int(width * 0.08), 0),
-        (int(width * 0.36), 0),
-        (int(width * 0.24), height - 1),
-        (0, height - 1),
-    ])
-    pygame.draw.line(sheen_surface, (250, 252, 255, int(26 * panel_alpha)), (int(width * 0.08), 1), (int(width * 0.36), 1), 1)
-    panel.blit(sheen_surface, (0, 0))
-    pygame.draw.polygon(panel, (*accent, int(155 * panel_alpha)), points, 1)
-    pygame.draw.line(panel, (250, 252, 255, int(42 * panel_alpha)), (notch if is_left else 0, 0), (width - 1 if is_left else width - notch - 1, 0))
-    pygame.draw.line(panel, (8, 10, 14, int(178 * panel_alpha)), (0, height - 1), (width - 1, height - 1))
-    pygame.draw.line(panel, (*accent, int(42 * panel_alpha)), (int(8 * scale), int(35 * scale)), (width - int(8 * scale), int(35 * scale)))
-    rail_w = max(3, int(4 * scale))
-    rail_x = 0 if is_left else width - rail_w
-    pygame.draw.rect(panel, (*accent, int(238 * overlay_alpha)), (rail_x, 0, rail_w, height))
+    shadow, panel = _cached_compact_panel_shell(width, height, accent, is_left, scale, panel_alpha)
+    screen.blit(shadow, (x - int(4 * scale), y + int(4 * scale)))
     screen.blit(panel, (x, y))
+    _draw_team_panel_fx(screen, team_anim, x, y, width, height, accent, scale, panel_alpha)
 
     outer_pad = int(10 * scale)
     left = x + outer_pad
@@ -3326,13 +3610,21 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     screen.blit(name_surface, (name_x, top_row_y - max(0, int(1 * scale))))
 
     baroque = bool(point.get("baroque_ready_local", False)) and not point_dead
+    previous_baroque_alpha = float(point_anim.get("baroque_alpha", 0.0))
     if baroque:
         point_anim["baroque_last_pct"] = float(point.get("baroque_red_pct_max") or 0.0)
         point_anim["baroque_display_pct"] = _approach(float(point_anim.get("baroque_display_pct", 0.0)), point_anim["baroque_last_pct"], 80.0, dt)
-        point_anim["baroque_alpha"] = _approach(float(point_anim.get("baroque_alpha", 0.0)), 1.0, 5.5, dt)
+        point_anim["baroque_alpha"] = _approach(previous_baroque_alpha, 1.0, 5.5, dt)
     else:
-        point_anim["baroque_alpha"] = _approach(float(point_anim.get("baroque_alpha", 0.0)), 0.0, 2.1, dt)
-    show_baroque_badge = float(point_anim.get("baroque_alpha", 0.0)) > 0.03
+        point_anim["baroque_alpha"] = _approach(previous_baroque_alpha, 0.0, 2.1, dt)
+    current_baroque_alpha = float(point_anim.get("baroque_alpha", 0.0))
+    if current_baroque_alpha > previous_baroque_alpha + 0.0001:
+        point_anim["baroque_fade_direction"] = 1
+    elif current_baroque_alpha < previous_baroque_alpha - 0.0001:
+        point_anim["baroque_fade_direction"] = -1
+    else:
+        point_anim["baroque_fade_direction"] = 0
+    show_baroque_badge = current_baroque_alpha > 0.03
     power_w = max(int(76 * scale), font_sm.size("METER 5")[0] + int(12 * scale))
     power_left = right - power_w
     separator_x = power_left - int(6 * scale)
@@ -3356,7 +3648,16 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     if show_baroque_badge:
         bq_h = max(14, int(16 * scale))
         bq_rect = pygame.Rect(power_left, strip_y + int(1 * scale), power_w, bq_h)
-        _draw_compact_baroque_badge(screen, font_sm, bq_rect, float(point_anim.get("baroque_display_pct", point.get("baroque_red_pct_max") or 0.0)), scale, is_left, float(point_anim.get("baroque_alpha", 0.0)))
+        _draw_compact_baroque_badge(
+            screen,
+            font_sm,
+            bq_rect,
+            float(point_anim.get("baroque_display_pct", point.get("baroque_red_pct_max") or 0.0)),
+            scale,
+            is_left,
+            float(point_anim.get("baroque_alpha", 0.0)),
+            int(point_anim.get("baroque_fade_direction", 0) or 0),
+        )
         guard_y = bq_rect.bottom + max(3, int(4 * scale))
 
     guard_label = str(point_anim.get("guard_indicator_label") or "")
@@ -3408,9 +3709,9 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
                 {"label": (txt.split(' ', 1)[0] if ' ' in txt else txt), "value": (txt.split(' ', 1)[1] if ' ' in txt else ''), "color": (196, 205, 220), "life": 1.0}
                 for txt in previous_log_signature
             ]
-            team_anim["log_history_slide"] = 1.0
+            team_anim["log_history_slide"] = 0.52
         team_anim["log_history_signature"] = log_signature
-    team_anim["log_history_slide"] = _approach(float(team_anim.get("log_history_slide", 0.0)), 0.0, 6.0, dt)
+    team_anim["log_history_slide"] = _approach(float(team_anim.get("log_history_slide", 0.0)), 0.0, 6.6, dt)
     _draw_compact_history_line(screen, font_sm, "LOG", log_items, left, history_y, right, scale, team_anim.get("log_history_prev", []), float(team_anim.get("log_history_slide", 0.0)))
     # Keep the raw input tail in chronological order. The grouped renderer
     # builds commands from oldest to newest, then places the newest group first.
@@ -3420,10 +3721,10 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     if input_signature != previous_input_signature:
         if previous_input_signature:
             team_anim["input_history_prev"] = [dict(chip) for chip in input_chips[1:]]
-            team_anim["input_history_slide"] = 1.0
+            team_anim["input_history_slide"] = 0.56
         team_anim["input_history_signature"] = input_signature
     team_anim["input_history_current"] = [dict(chip) for chip in input_chips]
-    team_anim["input_history_slide"] = _approach(float(team_anim.get("input_history_slide", 0.0)), 0.0, 6.0, dt)
+    team_anim["input_history_slide"] = _approach(float(team_anim.get("input_history_slide", 0.0)), 0.0, 6.8, dt)
     _draw_compact_input_history(
         screen,
         font_sm,
@@ -3443,13 +3744,13 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
             team_anim["hold_history_prev"] = [
                 dict(item) for item in team_anim.get("hold_history_current", [])
             ]
-            team_anim["hold_history_slide"] = 1.0
+            team_anim["hold_history_slide"] = 0.50
         team_anim["hold_history_signature"] = hold_signature
     team_anim["hold_history_current"] = [dict(item) for item in hold_items]
     team_anim["hold_history_slide"] = _approach(
         float(team_anim.get("hold_history_slide", 0.0)),
         0.0,
-        6.0,
+        6.6,
         dt,
     )
     if hold_expand > 0.03:
@@ -3476,9 +3777,9 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     if move_signature != previous_signature:
         if previous_signature:
             team_anim["move_history_prev"] = list(previous_signature)
-            team_anim["move_history_slide"] = 1.0
+            team_anim["move_history_slide"] = 0.54
         team_anim["move_history_signature"] = move_signature
-    team_anim["move_history_slide"] = _approach(float(team_anim.get("move_history_slide", 0.0)), 0.0, 6.0, dt)
+    team_anim["move_history_slide"] = _approach(float(team_anim.get("move_history_slide", 0.0)), 0.0, 6.8, dt)
     _draw_compact_move_history(
         screen,
         font_sm,

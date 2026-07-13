@@ -61,20 +61,20 @@ _PERF_LAST_ELAPSED_MS: dict[str, float] = {}
 # scanner when needed, but the main HUD loop must not keep launching dynamic
 # scans during character changes or round reloads.
 FD_AUTOSCAN_ENABLED = os.environ.get("TVC_FD_AUTOSCAN", "1").strip().lower() not in {"0", "false", "off", "no"}
-FD_AUTOSCAN_DEBOUNCE_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_DEBOUNCE_SEC", "0.35") or "0.35")
-FD_AUTOSCAN_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_MIN_INTERVAL_SEC", "3.0") or "3.0")
+FD_AUTOSCAN_DEBOUNCE_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_DEBOUNCE_SEC", "0.75") or "0.75")
+FD_AUTOSCAN_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_MIN_INTERVAL_SEC", "6.0") or "6.0")
 
 # A newly seen fighter with no compact frame-data profile gets one background
 # dynamic scan after the roster settles.  Known entries stay on the compact
 # fast path.  This is deliberately roster/profile driven, not a scan on every
 # move or every character refresh.
-FD_BUILD_MISSING_PROFILES = os.environ.get("TVC_FD_BUILD_MISSING_PROFILES", "1").strip().lower() not in {"0", "false", "off", "no"}
+FD_BUILD_MISSING_PROFILES = os.environ.get("TVC_FD_BUILD_MISSING_PROFILES", "0").strip().lower() not in {"0", "false", "off", "no"}
 FD_MISSING_PROFILE_BUILD_DELAY_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_DELAY_SEC", "0.75") or "0.75")
 FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC", "20.0") or "20.0")
 
 # Runtime automatic frame-data jobs stay off during normal play.
 # Explicit Frame Data and full scans can still feed the background exporter.
-FD_SHEET_EXPORT_ENABLED = False
+FD_SHEET_EXPORT_ENABLED = os.environ.get("TVC_FD_SHEET_EXPORT", "0").strip().lower() in {"1", "true", "on", "yes"}
 FD_WORKBENCH_PREWARM_ENABLED = False
 
 

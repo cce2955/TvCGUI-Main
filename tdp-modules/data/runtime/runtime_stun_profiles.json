@@ -774,13 +774,13 @@
           "21": 31
         }
       },
-      "last_frame": 2192,
+      "last_frame": 13872,
       "last_freeze": 12,
-      "last_recovery": 24,
+      "last_recovery": 4,
       "move_label": "5C",
       "recovery": {
-        "last_frame": 742,
-        "last_value": 24,
+        "last_frame": 13872,
+        "last_value": 4,
         "samples": {
           "21": 1,
           "24": 2,
@@ -788,7 +788,8 @@
           "29": 1,
           "30": 2,
           "31": 1,
-          "32": 1
+          "32": 1,
+          "4": 1
         }
       }
     },
@@ -803,26 +804,26 @@
         "freeze_samples": {
           "0": 4,
           "12": 1,
-          "6": 4
+          "6": 5
         },
-        "last_frame": 2042,
-        "last_freeze": 0,
+        "last_frame": 13646,
+        "last_freeze": 6,
         "last_value": 12,
         "samples": {
-          "12": 8,
+          "12": 9,
           "21": 1
         }
       },
-      "last_frame": 2251,
-      "last_freeze": 0,
-      "last_recovery": 10,
+      "last_frame": 14319,
+      "last_freeze": 6,
+      "last_recovery": 12,
       "move_label": "2A",
       "recovery": {
-        "last_frame": 2251,
-        "last_value": 10,
+        "last_frame": 14319,
+        "last_value": 12,
         "samples": {
           "10": 1,
-          "12": 1,
+          "12": 2,
           "14": 1,
           "6": 1,
           "7": 1,
@@ -926,16 +927,18 @@
           "21": 43
         }
       },
-      "last_frame": 9059,
+      "last_frame": 13858,
       "last_freeze": 0,
       "last_recovery": 27,
       "move_label": "6C",
       "recovery": {
-        "last_frame": 9059,
+        "last_frame": 13858,
         "last_value": 27,
         "samples": {
-          "27": 1,
+          "27": 2,
+          "29": 1,
           "30": 1,
+          "33": 1,
           "34": 1,
           "35": 1,
           "37": 1,
@@ -996,16 +999,16 @@
           "12": 7
         }
       },
-      "last_frame": 9745,
+      "last_frame": 13410,
       "last_freeze": 0,
-      "last_recovery": 12,
+      "last_recovery": 13,
       "move_label": "j.A",
       "recovery": {
-        "last_frame": 9745,
-        "last_value": 12,
+        "last_frame": 13410,
+        "last_value": 13,
         "samples": {
           "12": 1,
-          "13": 2,
+          "13": 3,
           "14": 1
         }
       }
@@ -1084,6 +1087,6 @@
       }
     }
   },
-  "updated_utc": "2026-07-13T16:44:46Z",
+  "updated_utc": "2026-07-13T18:24:11Z",
   "version": 2
 }
