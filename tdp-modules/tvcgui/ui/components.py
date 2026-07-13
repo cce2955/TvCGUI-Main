@@ -709,11 +709,11 @@ def draw_top_command_dock(
 
         x = yami_stage_btn_rect.right + 4
         ko_control_btn_rect = pygame.Rect(x, y_tools, 160, btn_h)
-        ko_label = "KO Control: ACTIVE" if ko_control_live_active else ("KO Control: ARMED" if ko_control_enabled else "KO Control: OFF")
+        ko_label = "KO Ctrl: ON" if ko_control_enabled else "KO Ctrl: OFF"
         draw_glass_button(
             screen, ko_control_btn_rect, ko_label, dockfont, active=bool(ko_control_enabled),
             hover=ko_control_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN,
-            fill=((37, 64, 42) if ko_control_live_active else ((31, 42, 36) if ko_control_enabled else (31, 33, 42))),
+            fill=((31, 42, 36) if ko_control_enabled else (31, 33, 42)),
             align="center",
         )
 

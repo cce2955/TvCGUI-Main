@@ -8,6 +8,7 @@ import random
 import subprocess
 import sys
 import threading
+import traceback
 import zipfile
 from datetime import datetime
 import pygame
@@ -142,7 +143,6 @@ except Exception as _frame_data_export_import_error:
 
 from tvcgui.runtime.ko_control import (
     KO_GLOBAL_HOLD_GROUPS,
-    apply_ko_control_auto_mode,
     apply_ko_control_full_toggle,
     apply_ko_global_hold,
     apply_ko_input_inject,
@@ -150,7 +150,7 @@ from tvcgui.runtime.ko_control import (
     apply_slot_only_ko_hold,
     capture_ko_rewind_baselines,
     idle_restore_status_text,
-    tick_ko_control_auto,
+    ko_dol_status_text,
 )
 
 from tvcgui.core.config import (
@@ -1099,17 +1099,15 @@ def legacy_main():
     idle_restore_status = {"text": "", "until": 0.0}
     ko_rewind_baseline_by_slot = {}
     ko_dol_patch_index = -1
-    ko_control_full_enabled = False  # operator armed auto-mode; starts OFF
-    ko_control_live_active = False    # whether the DOL Control+Full packet is currently applied
-    ko_control_last_apply = 0.0
-    ko_control_auto_state = {"any_team_dead": False, "summary": ""}
+    ko_control_full_enabled = False
+    ko_control_live_active = False
     ko_global_hold_baseline = None
 
     # Off by default means the DOL addresses are restored when the GUI starts,
     # not merely that the button is visually off.
     try:
         apply_ko_control_full_toggle(False, verify=False)
-        print("[ko control] default OFF/auto unarmed; restored KO/input DOL originals", flush=True)
+        print("[ko control] default OFF; restored KO/input DOL originals", flush=True)
     except Exception as _e:
         print(f"[ko control] default OFF restore skipped: {_e!r}", flush=True)
 
@@ -2189,32 +2187,6 @@ def legacy_main():
         # KO lab v4: learn a rolling last-good pre-KO frame for each live slot.
         ko_rewind_baseline_by_slot = capture_ko_rewind_baselines(snaps, render_snap_by_slot, ko_rewind_baseline_by_slot)
 
-        # KO Ctrl auto-mode: while armed, only apply the DOL input/control packet
-        # after one whole team is KO'd.  Restore originals as soon as both teams
-        # are live/new match begins, preventing P1 input from leaking into CPU
-        # control during the next arcade match.
-        try:
-            _old_live = bool(ko_control_live_active)
-            ko_control_live_active, ko_control_last_apply, _ko_auto_result, ko_control_auto_state = tick_ko_control_auto(
-                bool(ko_control_full_enabled),
-                bool(ko_control_live_active),
-                snaps,
-                now,
-                ko_control_last_apply,
-                verify=False,
-            )
-            if _ko_auto_result is not None:
-                _phase = "ACTIVE" if ko_control_live_active else "RESTORED"
-                idle_restore_status = {
-                    "text": f"KO Ctrl auto {_phase}: {ko_control_auto_state.get('summary', '')} {ko_control_auto_state.get('auto_mode', '')}",
-                    "until": now + 2.0,
-                }
-                if _old_live != bool(ko_control_live_active):
-                    print(f"[ko control] auto {_phase}: {ko_control_auto_state.get('summary', '')}", flush=True)
-        except Exception as _e:
-            if frame_idx % 60 == 0:
-                print(f"[ko control] auto tick failed: {_e!r}", flush=True)
-
         # KO lab: keep reapplying the rewind packet for a short burst after the
         # click.  This makes it obvious the button fired and fights the
         # post-KO manager reasserting winner/loser states every frame.
@@ -2946,9 +2918,7 @@ def legacy_main():
             except Exception:
                 pass
         if bool(ko_control_full_enabled):
-            _ko_state_txt = "ACTIVE" if bool(ko_control_live_active) else "ARMED"
-            _ko_summary = str((ko_control_auto_state or {}).get("summary") or "")
-            status_parts.append(f"KO Ctrl {_ko_state_txt}" + (f" [{_ko_summary}]" if _ko_summary else ""))
+            status_parts.append("KO Ctrl ON")
         if float(idle_restore_status.get("until", 0.0) or 0.0) > now:
             _idle_status_text = str(idle_restore_status.get("text") or "")
             if _idle_status_text:
@@ -3110,21 +3080,12 @@ def legacy_main():
 
             elif ko_control_btn_rect.collidepoint(mx, my):
                 ko_control_full_enabled = not bool(ko_control_full_enabled)
-                # The top-dock button is an ARM switch now, not a permanent
-                # patch.  Always restore immediately; the main-loop auto tick
-                # applies Control+Full only while a complete team KO is present.
+                ko_control_live_active = bool(ko_control_full_enabled)
                 ko_dol_patch_index = -1
                 idle_restore_hold_until_by_slot.clear()
                 ko_global_hold_baseline = None
-                ko_control_live_active = False
-                ko_control_last_apply = 0.0
-                result = apply_ko_control_auto_mode("safe" if ko_control_full_enabled else "off", verify=True)
-                ko_control_last_apply = now
-                _mode_txt = "ARMED auto" if ko_control_full_enabled else "OFF"
-                idle_restore_status = {
-                    "text": f"KO Ctrl {_mode_txt}; SAFE armed, FULL only after full-team KO",
-                    "until": now + 5.0,
-                }
+                result = apply_ko_control_full_toggle(ko_control_full_enabled, verify=True)
+                idle_restore_status = {"text": ko_dol_status_text(result), "until": now + 5.0}
                 print(f"[ko control] {idle_restore_status['text']}", flush=True)
                 mouse_clicked_pos = None
                 continue
@@ -3177,7 +3138,15 @@ def legacy_main():
 
             for _tab_key, _tab_rect in list(bottom_tab_rects.items()):
                 if _tab_rect.collidepoint(mx, my):
-                    if active_bottom_tab != _tab_key:
+                    if _tab_key == "advantage":
+                        print("[advantage] click received, opening Advantage Matrix", flush=True)
+                        try:
+                            from tvcgui.ui.advantage_window import open_advantage_window
+                            open_advantage_window(last_scan_normals, render_snap_by_slot)
+                        except Exception:
+                            print("[advantage] popup creation failed", flush=True)
+                            traceback.print_exc()
+                    elif active_bottom_tab != _tab_key:
                         active_bottom_tab = _tab_key
                         bottom_tab_fade = {"start": now, "dur": 0.18}
                     mouse_clicked_pos = None

@@ -400,12 +400,12 @@
       "hit": {
         "samples": {}
       },
-      "last_frame": 231088,
-      "last_recovery": 3,
+      "last_frame": 646,
+      "last_recovery": 7,
       "move_label": "j.A",
       "recovery": {
-        "last_frame": 231088,
-        "last_value": 3,
+        "last_frame": 646,
+        "last_value": 7,
         "samples": {
           "11": 1,
           "12": 1,
@@ -417,6 +417,7 @@
           "4": 2,
           "5": 1,
           "6": 1,
+          "7": 1,
           "9": 1
         }
       }
@@ -458,21 +459,21 @@
       "hit": {
         "samples": {}
       },
-      "last_frame": 8763,
+      "last_frame": 1235,
       "last_recovery": 8,
       "move_label": "j.C",
       "recovery": {
-        "last_frame": 8763,
+        "last_frame": 1235,
         "last_value": 8,
         "samples": {
           "1": 1,
           "10": 2,
-          "11": 2,
+          "11": 3,
           "14": 4,
           "2": 2,
           "3": 2,
           "5": 1,
-          "8": 2
+          "8": 3
         }
       }
     },
@@ -1087,6 +1088,6 @@
       }
     }
   },
-  "updated_utc": "2026-07-13T18:24:11Z",
+  "updated_utc": "2026-07-13T20:32:33Z",
   "version": 2
 }
