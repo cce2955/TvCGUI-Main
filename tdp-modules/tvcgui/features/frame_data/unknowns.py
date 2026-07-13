@@ -222,7 +222,7 @@ class UnknownSignalScout:
 
         self.root = tk.Toplevel(master)
         apply_titlebar_icon(self.root, master)
-        self.root.title(f"Unmapped Static Signals — {char_label}")
+        self.root.title(f"Unmapped Static Signals  -  {char_label}")
         self.root.geometry("1260x700")
         self.root.minsize(920, 520)
         try:
@@ -398,7 +398,7 @@ class UnknownSignalScout:
             return
         rows = self._groups.get(sig, [])
         target, command, value, typed = _sig_text(sig)
-        self.details_var.set(f"{target} via {command}: {value} ({typed}) — {len(rows)} packet(s)")
+        self.details_var.set(f"{target} via {command}: {value} ({typed})  -  {len(rows)} packet(s)")
         lines = [
             "No mechanic name is assigned here.",
             "Use this list to compare positives/controls, then promote only proven signals into a decoder.",

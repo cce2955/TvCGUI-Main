@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import copy
 import json
 import os
 import sys
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from tvcgui.core.paths import resource_path, user_data_path
+from tvcgui.features.training.wiki_input_catalog import infer_wiki_input_notation
 
 
 def _bundle_base_dir() -> str:
@@ -35,6 +38,7 @@ class MissionStep:
     pass_step: bool = False
     grace_keeps_alive_only: bool = False
     display: str = ""
+    input_notation: str = ""
 
 
 @dataclass
@@ -53,6 +57,13 @@ class MissionDef:
 class MissionPack:
     character: str
     missions: List[MissionDef] = field(default_factory=list)
+
+
+_MISSION_PACK_CACHE: Dict[str, tuple[int, int, MissionPack]] = {}
+_MISSION_PACK_NEXT_CHECK: Dict[str, float] = {}
+_MISSION_PROGRESS_CACHE: Dict[str, Any] = {"signature": None, "data": {}, "next_check": 0.0}
+MISSION_PACK_POLL_INTERVAL = 0.50
+MISSION_PROGRESS_POLL_INTERVAL = 0.25
 
 
 def _safe_slug(value: str) -> str:
@@ -80,7 +91,302 @@ def _save_json_file(path: str, payload: Any) -> None:
         json.dump(payload, f, indent=2)
 
 
-def load_mission_pack(character_name: str) -> MissionPack:
+_MISSION_STRENGTH_BUTTONS = {
+    "a": "A",
+    "b": "B",
+    "c": "C",
+    "l": "A",
+    "light": "A",
+    "weak": "A",
+    "m": "B",
+    "mid": "B",
+    "medium": "B",
+    "h": "C",
+    "heavy": "C",
+    "strong": "C",
+}
+
+
+def _mission_strength_button(candidates: List[str]) -> str:
+    for raw in reversed(candidates):
+        tokens = re.findall(r"[A-Za-z]+", str(raw or "").lower())
+        for token in reversed(tokens):
+            mapped = _MISSION_STRENGTH_BUTTONS.get(token)
+            if mapped:
+                return mapped
+    return ""
+
+
+def _mission_has_air_marker(value: str) -> bool:
+    text = str(value or "")
+    return bool(
+        re.search(r"(?:^|[^a-z0-9])air(?:$|[^a-z0-9])", text, flags=re.IGNORECASE)
+        or re.search(r"(?:^|[^a-z0-9])j\.", text, flags=re.IGNORECASE)
+    )
+
+
+def _mission_variant_parts(labels: List[str], display: str = "") -> List[str]:
+    values = [str(label or "").strip() for label in labels if str(label or "").strip()]
+    display_text = str(display or "").strip()
+
+    if display_text:
+        if re.search(r"\s+/\s+", display_text):
+            display_parts = [
+                part.strip()
+                for part in re.split(r"\s+/\s+", display_text)
+                if part.strip()
+            ]
+            if len(display_parts) > 1:
+                values = display_parts
+        elif not values:
+            values = [display_text]
+
+    return values
+
+
+def _mission_preferred_variants(labels: List[str], display: str = "") -> List[str]:
+    values = _mission_variant_parts(labels, display)
+    if not values:
+        return []
+
+    display_text = str(display or "").strip()
+    display_requests_air = bool(display_text and _mission_has_air_marker(display_text))
+    air_values = [value for value in values if _mission_has_air_marker(value)]
+    ground_values = [value for value in values if not _mission_has_air_marker(value)]
+
+    if display_requests_air and air_values:
+        return air_values
+    if ground_values:
+        return ground_values
+    return air_values or values
+
+
+def _mission_strength_variant(value: str) -> tuple[str, str]:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return "", ""
+
+    prefix = re.fullmatch(
+        r"(light|weak|mid|medium|heavy|strong|[LMH])\s+(.+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if prefix:
+        button = _MISSION_STRENGTH_BUTTONS.get(prefix.group(1).lower(), "")
+        if button:
+            return prefix.group(2).strip(), button
+
+    suffix = re.fullmatch(
+        r"(.+?)\s+(light|weak|mid|medium|heavy|strong|[ABCLMH])",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if suffix:
+        button = _MISSION_STRENGTH_BUTTONS.get(suffix.group(2).lower(), "")
+        if button:
+            return suffix.group(1).strip(), button
+
+    return text, ""
+
+
+def _mission_variant_buttons(labels: List[str], display: str = "") -> List[str]:
+    found = []
+    for value in _mission_preferred_variants(labels, display):
+        _base, button = _mission_strength_variant(value)
+        if button and button not in found:
+            found.append(button)
+    return [button for button in ("A", "B", "C") if button in found]
+
+
+def _mission_is_assist_step(labels: List[str], display: str = "") -> bool:
+    values = [str(display or "").strip()] + [
+        str(label or "").strip() for label in labels
+    ]
+    joined = " / ".join(value.lower() for value in values if value)
+    if "assist" in joined:
+        return True
+
+    compact_parts = [
+        re.sub(r"\s+", "", value.upper())
+        for value in _mission_variant_parts(labels, display)
+    ]
+    return bool(compact_parts) and all(
+        part in {"A+P", "B+P", "C+P", "AP", "BP", "CP"}
+        for part in compact_parts
+    )
+
+
+def _normalize_step_display(labels: List[str], display: str = "") -> str:
+    display_text = str(display or "").strip()
+
+    if _mission_is_assist_step(labels, display_text):
+        return "ATK+P"
+
+    values = _mission_preferred_variants(labels, display_text)
+    if not values:
+        return display_text
+
+    collapsed = []
+    for value in values:
+        base, button = _mission_strength_variant(value)
+        collapsed.append((base, button))
+
+    bases = {
+        re.sub(r"[^a-z0-9]+", " ", base.lower()).strip()
+        for base, _button in collapsed
+        if base
+    }
+    buttons = [
+        button for button in ("A", "B", "C")
+        if any(found == button for _base, found in collapsed)
+    ]
+
+    if len(bases) == 1 and len(buttons) >= 2:
+        base = next(base for base, _button in collapsed if base)
+        return f"{base} {'/'.join(buttons)}"
+
+    if display_text and not re.search(r"\s+/\s+", display_text):
+        return display_text
+
+    return " / ".join(values)
+
+
+def _collapse_motion_strength_notation(notation: str) -> str:
+    parts = [
+        " ".join(part.strip().split())
+        for part in re.split(r"\s+/\s+", str(notation or "").strip())
+        if part.strip()
+    ]
+    if len(parts) < 2:
+        return str(notation or "").strip()
+
+    parsed = []
+    for part in parts:
+        match = re.fullmatch(r"(.+?)([ABC])", part, flags=re.IGNORECASE)
+        if not match:
+            return " / ".join(parts)
+        parsed.append((match.group(1), match.group(2).upper()))
+
+    prefixes = {prefix.upper() for prefix, _button in parsed}
+    buttons = [
+        button for button in ("A", "B", "C")
+        if any(found == button for _prefix, found in parsed)
+    ]
+    if len(prefixes) == 1 and len(buttons) >= 2:
+        prefix = parsed[0][0]
+        return f"{prefix}{'/'.join(buttons)}"
+    return " / ".join(parts)
+
+
+def _normalize_step_input_notation(
+    notation: str,
+    labels: List[str],
+    display: str = "",
+) -> str:
+    if _mission_is_assist_step(labels, display):
+        return "ATK+P"
+
+    raw = " ".join(str(notation or "").strip().split())
+    if not raw:
+        return ""
+
+    raw = re.sub(
+        r"(?:^|\s+/\s+)AIR\s+",
+        lambda match: match.group(0).replace("AIR ", ""),
+        raw,
+        flags=re.IGNORECASE,
+    )
+    raw = re.sub(r"^AIR\s+", "", raw, flags=re.IGNORECASE)
+
+    buttons = _mission_variant_buttons(labels, display)
+    if buttons:
+        replacement = "/".join(buttons)
+        raw = re.sub(r"(?<!X)X(?!X)", replacement, raw)
+        if len(buttons) >= 2:
+            raw = re.sub(
+                r"(?P<prefix>(?:\[[1-9]\]|[1-9])+)[ABC]$",
+                lambda match: f"{match.group('prefix')}{replacement}",
+                raw,
+                flags=re.IGNORECASE,
+            )
+
+    return _collapse_motion_strength_notation(raw)
+
+
+def _infer_step_input_notation(character_name: str, labels: List[str], display: str = "") -> str:
+    """Infer a readable command hint without requiring mission JSON rewrites."""
+    candidates = [str(display or "").strip()] + [str(label or "").strip() for label in labels]
+    candidates = [value for value in candidates if value]
+    lowered = [value.lower() for value in candidates]
+
+    if any("baroque cancel" in value for value in lowered):
+        return "A+P / B+P / C+P"
+
+    if any("jump cancel" in value for value in lowered):
+        return "7 / 8 / 9"
+
+    # Normals already contain their own notation. Jump normals stay literal.
+    # A second j.A is still j.A, not a motion command inferred from the wiki.
+    for value in candidates:
+        compact = value.replace(" ", "")
+        jump_match = re.search(
+            r"(?:^|[^a-z0-9])j\.?([ABC])(?:$|[^a-z0-9])",
+            value,
+            flags=re.IGNORECASE,
+        )
+        if not jump_match:
+            jump_match = re.search(
+                r"(?:^|[^a-z0-9])air\s*([ABC])(?:$|[^a-z0-9])",
+                value,
+                flags=re.IGNORECASE,
+            )
+        if jump_match:
+            return f"j.{jump_match.group(1).upper()}"
+
+        match = re.fullmatch(r"([1-9])([ABC])", compact, flags=re.IGNORECASE)
+        if match:
+            return f"{match.group(1)}{match.group(2).upper()}"
+
+    joined = " / ".join(lowered)
+    strength = _mission_strength_button(candidates)
+
+    if "donkey" in joined:
+        return f"421{strength}" if strength else "421A/B/C"
+
+    if "shinkuu" in joined or "shinku" in joined:
+        return "236XX"
+
+    preferred_candidates = _mission_preferred_variants(labels, display)
+    wiki_candidates = (
+        [str(display or "").strip()] + preferred_candidates
+        if str(display or "").strip()
+        else preferred_candidates
+    )
+    wiki_candidates = [value for value in wiki_candidates if value]
+
+    wiki_notation = infer_wiki_input_notation(character_name, wiki_candidates)
+    if wiki_notation:
+        return _normalize_step_input_notation(
+            wiki_notation,
+            labels,
+            display,
+        )
+
+    char_key = _safe_slug(character_name)
+    if char_key in {"chun_li", "chunli"}:
+        if "legs" in joined or "lightning legs" in joined:
+            return f"{strength or 'A'} {strength or 'A'} {strength or 'A'}"
+        if "kikoken" in joined:
+            return f"[4]6{strength or 'A'}"
+        if "spinning bird" in joined or re.search(r"\bsbk\b", joined):
+            return f"[2]8{strength or 'A'}"
+        if "tensho" in joined:
+            return f"22{strength or 'A'}"
+
+    return ""
+
+
+def _load_mission_pack_uncached(character_name: str) -> MissionPack:
     path = _missions_path_for_character(character_name)
     raw = _load_json_file(path, default=None)
 
@@ -159,6 +465,28 @@ def load_mission_pack(character_name: str) -> MissionPack:
                 or step.get("text")
                 or ""
             ).strip()
+            input_notation = str(
+                step.get("input")
+                or step.get("command")
+                or step.get("notation")
+                or step.get("directions")
+                or ""
+            ).strip()
+
+            display = _normalize_step_display(labels, display)
+
+            if not input_notation:
+                input_notation = _infer_step_input_notation(
+                    character_name,
+                    labels,
+                    display,
+                )
+
+            input_notation = _normalize_step_input_notation(
+                input_notation,
+                labels,
+                display,
+            )
 
             steps.append(
                 MissionStep(
@@ -169,6 +497,7 @@ def load_mission_pack(character_name: str) -> MissionPack:
                         step.get("grace_keeps_alive_only", False)
                     ),
                     display=display,
+                    input_notation=input_notation,
                 )
             )
         if not mission_id or (not steps and not goal):
@@ -190,15 +519,62 @@ def load_mission_pack(character_name: str) -> MissionPack:
     return MissionPack(character=character_name, missions=missions)
 
 
+def load_mission_pack(character_name: str) -> MissionPack:
+    """Load a mission pack only when its source file changes."""
+    path = _missions_path_for_character(character_name)
+    now = time.monotonic()
+    cached = _MISSION_PACK_CACHE.get(path)
+    if cached and now < float(_MISSION_PACK_NEXT_CHECK.get(path, 0.0) or 0.0):
+        return cached[2]
+
+    try:
+        stat = os.stat(path)
+        signature = (int(stat.st_mtime_ns), int(stat.st_size))
+    except OSError:
+        signature = (-1, -1)
+
+    _MISSION_PACK_NEXT_CHECK[path] = now + MISSION_PACK_POLL_INTERVAL
+    if cached and cached[:2] == signature:
+        return cached[2]
+
+    pack = _load_mission_pack_uncached(character_name)
+    _MISSION_PACK_CACHE[path] = (signature[0], signature[1], pack)
+    return pack
+
+
+def _progress_signature() -> tuple[int, int]:
+    try:
+        stat = os.stat(MISSION_PROGRESS_FILE)
+        return int(stat.st_mtime_ns), int(stat.st_size)
+    except OSError:
+        return -1, -1
+
+
 def load_progress() -> Dict[str, Any]:
+    """Load mission progress only when the file changes."""
+    now = time.monotonic()
+    cached_signature = _MISSION_PROGRESS_CACHE.get("signature")
+    if cached_signature is not None and now < float(_MISSION_PROGRESS_CACHE.get("next_check", 0.0) or 0.0):
+        return copy.deepcopy(_MISSION_PROGRESS_CACHE.get("data") or {})
+
+    signature = _progress_signature()
+    _MISSION_PROGRESS_CACHE["next_check"] = now + MISSION_PROGRESS_POLL_INTERVAL
+    if cached_signature == signature:
+        return copy.deepcopy(_MISSION_PROGRESS_CACHE.get("data") or {})
+
     data = _load_json_file(MISSION_PROGRESS_FILE, default={})
     if not isinstance(data, dict):
-        return {}
-    return data
+        data = {}
+    _MISSION_PROGRESS_CACHE["signature"] = signature
+    _MISSION_PROGRESS_CACHE["data"] = copy.deepcopy(data)
+    return copy.deepcopy(data)
 
 
 def save_progress(progress: Dict[str, Any]) -> None:
     _save_json_file(MISSION_PROGRESS_FILE, progress)
+    _MISSION_PROGRESS_CACHE["signature"] = _progress_signature()
+    _MISSION_PROGRESS_CACHE["data"] = copy.deepcopy(progress if isinstance(progress, dict) else {})
+    _MISSION_PROGRESS_CACHE["next_check"] = time.monotonic() + MISSION_PROGRESS_POLL_INTERVAL
 
 
 def _get_char_progress_node(progress: Dict[str, Any], character_name: str) -> Dict[str, Any]:
@@ -348,6 +724,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
 {
     "labels": step.labels,
     "display": step.display,
+    "input": step.input_notation,
     "grace": step.grace,
     "pass": step.pass_step,
     "grace_keeps_alive_only": step.grace_keeps_alive_only,
@@ -373,6 +750,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
 {
     "labels": step.labels,
     "display": step.display,
+    "input": step.input_notation,
     "grace": step.grace,
     "pass": step.pass_step,
     "grace_keeps_alive_only": step.grace_keeps_alive_only,

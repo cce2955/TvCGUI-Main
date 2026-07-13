@@ -1,517 +1,1039 @@
 # TvC Continuo
 
-TvC Continuo is a Windows training, overlay, and research suite for **Tatsunoko vs. Capcom: Ultimate All-Stars** running in Dolphin Emulator. It reads the game's live emulated memory to provide match information, training controls, visual overlays, frame-data tooling, and character-select experiments.
+A Python-based live memory overlay for Tatsunoko vs. Capcom: Ultimate All-Stars (Wii), running on Dolphin Emulator.
+This suite connects directly to Dolphin's RAM and provides:
 
-> **Release users only need `TvCGUI.exe`.** Python, a virtual environment, `run.bat`, source files, test scripts, and build tools are not required to use a release.
-
----
-
-## Install and Quick Start
-
-### What is needed
-
-- Windows
-- Dolphin Emulator, running as `Dolphin.exe`
-- A compatible copy of *Tatsunoko vs. Capcom: Ultimate All-Stars* configured in Dolphin
-- `TvCGUI.exe` from the [GitHub Releases page](https://github.com/cce2955/TvCGUI-Main/releases/)
-
-### Installation
-
-There is no installer and no separate setup process.
-
-1. Open the [GitHub Releases page](https://github.com/cce2955/TvCGUI-Main/releases/) and download **`TvCGUI.exe`** from the latest release.
-2. Place it in a normal writable folder, such as a folder under Documents or a dedicated tools folder.
-3. Do not launch it from inside a ZIP archive, a browser download preview, or a protected Windows folder.
-
-The EXE creates and uses a local `data` folder beside itself for saved settings, range profiles, overlay state, and trainer configuration. Keeping the EXE in one writable location preserves those settings between sessions.
-
-### Launch order
-
-1. Start Dolphin.
-2. Launch *Tatsunoko vs. Capcom* and reach a menu, training mode, or match.
-3. Launch `TvCGUI.exe`.
-4. Wait for the application status to report that Dolphin is hooked.
-5. Enter or continue a match to populate the fighter-specific tools.
-
-The EXE can be started as soon as you see the intro scene, but as long as dolphin is showing any visual, the GUI should be live.
-
-### Not part of normal installation
-
-The following are for source development only:
-
-- `run.bat`
-- `.venv`
-- `main.py`
-- test runners
-- PyInstaller `.spec` files
-- scanner scripts, probes, and memory-dump utilities
-
-A normal release session is simply: **start Dolphin, start the game, start `TvCGUI.exe`.**
-
-### Quick troubleshooting
-
-| Symptom | Check |
-|---|---|
-| The EXE does not hook Dolphin | Confirm that the emulator process is named `Dolphin.exe`, that Dolphin and TvCGUI are running at the same Windows permission level, and that only one Dolphin instance is open. TvCGUI hooks the first active `Dolphin.exe` instance it finds; later instances are not hooked. |
-| The EXE hooks but fighter panels are empty | Enter a match so the game allocates live fighter data. |
-| Settings do not persist | Move the EXE to a writable folder and keep it in that location between sessions. |
-| An overlay does not appear | Enable it from the main application after Dolphin is hooked. Overlay windows are separate managed processes. |
-| A memory-writing tool does not behave as expected | Confirm the supported game build and current scene before changing any offsets, patches, or runtime guards. |
+- A real-time training HUD with health, meter, baroque tracking, and frame advantage
+- Live hitbox overlay with per-slot filtering
+- Automated move-table and frame-data scanning
+- Memory tools for debugging and reverse-engineering fighter structs
 
 ---
 
+## Overview
+
+TvC Continuo visualizes live match data pulled directly from Dolphin's memory.
+It supports all four character slots (P1-C1, P1-C2, P2-C1, P2-C2) with dynamic pointer resolution to track state across tags, swaps, and giant normalization logic.
+
+The HUD runs at a fixed 60 FPS and is designed to remain stable even during pointer churn, character swaps, assists, and match transitions.
+
+---
 ## High-Level Overview
 
-TvC Continuo adds a live training and research layer around a running Dolphin session. It does not replace Dolphin or modify the game files on disk. The application reads the game's active emulated memory and presents useful match information, visual tools, training controls, and focused workbenches while the game is running.
+TvC Continuo is an all-in-one live training and reverse-engineering toolkit for Tatsunoko vs. Capcom running through Dolphin Emulator.
 
-### Live HUD and match information
+It reads game memory in real time to provide tools that do not exist in-game, including:
 
-The main window provides a live view of the active match. It tracks fighter health, meter, Baroque state, current move labels, combat events, and frame-advantage results. Fighter panels update across tags, assists, giant characters, and normal match transitions so the displayed data follows the active fighter structures rather than a fixed character selection.
-<img width="1261" height="825" alt="image" src="https://github.com/user-attachments/assets/597b94fd-6fe3-4984-922c-eb4cb9197306" />
-<img width="1895" height="1006" alt="image" src="https://github.com/user-attachments/assets/c98cd1d8-35fd-46c2-a4b9-3fe8b8b35b2e" />
+- Live HUD with health, meter, move states, and frame advantage
+- Hitbox and projectile visualization overlays
+- Mission mode with combo validation and progress tracking
+- Automated frame-data extraction
+- Debug flag editing and training mode enhancements
+- Memory scanning and research utilities
+- Character/move mapping systems for custom tools
+
+Built for players, lab monsters, modders, and researchers.
+---
+## Getting Started
+
+### 1. Requirements
+
+- Windows
+- TvC Continuo from the Release Page
+- Dolphin Emulator
+- Tatsunoko vs. Capcom (US build recommended)
 
 
-### Hitbox, hurtbox, and range tools
+### 2. Launch Dolphin
 
-The hitbox overlay draws active collision data over the Dolphin window. It supports per-slot visibility filters, hitbox and hurtbox display, invulnerability information, contact auditing, and saved range profiles. The range-ruler tools provide visual horizontal or vertical reference lines for normal attacks and can retain learned adjustments in the local `data` folder.
+Start the game and enter training mode or a match.
 
-<img width="1918" height="1014" alt="image" src="https://github.com/user-attachments/assets/bbdb9d87-b55b-4854-be55-d0a37653d83b" />
+### 3. Run Continuo
 
-### Frame data, editing, and runtime patches
+```bash
+open TvCGui.exe
+```
 
-The frame-data workbench scans and organizes normals, specials, supers, and projectiles for the selected fighter. It presents decoded values such as startup, active frames, recovery, hitstun, blockstun, damage, knockback, meter behavior, and available runtime signals.
+### 4. Use the HUD
 
-The workbench also includes controlled editing and patch support. Approved edits are applied to the running session through narrow write paths, can be restored, and may be stored as reviewed patch records. Unknown-data tools keep unclassified values visible for research without presenting them as confirmed mechanics.
+Once hooked:
 
-<img width="1683" height="835" alt="image" src="https://github.com/user-attachments/assets/6e60651a-78c8-4ec3-9a2d-6e1227bebc08" />
+- View live fighter data
+- Toggle overlays
+- Open frame data tools
+- Run mission mode
+- Use debug tools
 
-### Missions and practical training tools
+## Features
 
-Mission Mode provides character-specific combo and execution trials that validate live move sequences, track progress, reset failed routes, and save completion state. The surrounding training tools include the MegaCrash trainer, runtime stun profiling, debug flags, timer controls, win-counter editing, and KO control behavior for supported training scenarios.
+### Real-Time HUD
 
-<img width="1898" height="958" alt="image" src="https://github.com/user-attachments/assets/9ce684f5-b1c8-4d26-81a4-57e36a20a00a" />
-
-<img width="1189" height="575" alt="image" src="https://github.com/user-attachments/assets/f52523ed-4afd-48d0-ad58-70924f86a1d1" />
-
-### Extra Characters
-
-Character-select tools provide guarded controls for extra slots including the abliity to use Yami or Play Solo
-<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/7808bd9a-2781-47cc-a574-f30b86a66c4f" />
-
-<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/6ed87998-226e-4792-9b5c-9894ad313a2b" />
-
-<img width="1920" height="1032" alt="image" src="https://github.com/user-attachments/assets/8bc6cdc3-2b54-4884-924d-356c28b71cb2" />
-
-### Research and diagnostics
-
-The suite also includes developer-facing scanners and diagnostics for fighter resolution, memory searches, animation and MOT lookup, projectile discovery, assist analysis, collision probes, and character-select research. These tools support continued mapping work without making scanner scripts or memory-dump utilities part of normal release use.
-
-### Runtime behavior and write safety
-
-Most TvC Continuo features are read-oriented. Features that modify live memory use guarded runtime modules, editor actions, or narrow patch systems because game memory is scene- and build-sensitive. A feature that writes memory should only be used with the supported game build and in the scene it was designed to handle.
-
-### How the application works
-
-1. `TvCGUI.exe` starts through `launcher.py`.
-2. `main.py` connects to the running Dolphin process.
-3. The Dolphin layer translates Wii guest addresses into safe process-memory reads and writes.
-4. Fighter slots are resolved into current fighter structures and normalized snapshots.
-5. Feature modules consume those snapshots for HUD panels, scanners, overlays, training tools, and editor windows.
-6. Settings and learned profiles are stored under `data/` beside the EXE in a frozen release.
-
+- 4-panel live display for both teams (HP, meter, position, current move)
+- Color-coded health bars with pooled HP (red-life style)
+- True 32-bit baroque detection using live HP32 vs Pool32 comparison
+- Baroque readiness and activation tracking
+- Real-time frame advantage computation based on live hits
+- Event feed for hits and inferred attacker/victim pairs
+- Correct giant-solo detection (only when C1 and C2 share the same base)
+- Per-slot assist phase tracking (fly-in / attack / recover inference)
+- Per-slot input monitor (P1-C1)
+- Dynamic character metadata caching (true struct ID + CSV correction)
+- Panel slide and fade animations
+- Clipboard integration (click fighter panel to copy base address)
+- Scrollable debug overlay
 ---
 
-## Project Map
+### HUD Overlay Evolution
 
-The source tree is rooted at `tdp-modules/`.
+The real time HUD now works in game, so you can see everything without hopping to an alt screen
+
+### Visual Upgrades
+
+- Fully redesigned row layout with dynamic width scaling
+- Metallic neo-futurist panel styling
+- Team-colored borders and accent rails
+- Animated scanline energy sweeps across active players
+- Fade-in / fade-out transitions for appearing slots
+- Smooth value interpolation for meters and UI elements
+- Responsive scaling for different Dolphin window sizes
+- Cleaner spacing, typography, and alignment
+- Improved contrast for instant readability
+- Multi-layer alpha effects and glow treatments
+
+### Live Combat Feedback
+
+The overlay now reacts to gameplay events in real time instead of only showing static values.
+
+New popup systems include:
+
+- Damage popups on hit
+- Meter gain popups
+- Baroque gain / loss popups
+- Live frame advantage popups
+- Move history timeline
+- Highlighted newest route step
+- Animated current-state emphasis
+
+Each event fades, animates, and stacks cleanly during fast gameplay. 
+
+### Enhanced Data Display
+
+Every slot can now show richer live combat information including:
+
+- Current HP and max HP
+- Animated health bars
+- Meter pips plus raw meter values
+- Current move labels
+- Passive vs active state dimming
+- Baroque readiness state
+- Stored red-life percentage
+- Frame advantage outcomes
+- Assist state awareness
+- Active character detection
+- Team slot identity (C1 / C2)
+
+### Smart Match Logic
+
+The overlay now makes decisions based on match state rather than blindly printing memory values.
+
+Examples include:
+
+- Detecting active point character vs assist
+- Cross-team frame advantage pairing
+- Ignoring passive states
+- Tracking combo gaps correctly
+- Resetting stale interactions
+- Preserving popup history briefly after events
+- Handling tag scenarios more cleanly
+- Stable rendering during pointer churn
+
+### Move History System
+
+A major quality-of-life upgrade is the route history display.
+
+Recent actions are shown in sequence, such as:
 
 ```text
-tdp-modules/
-├── launcher.py                 Frozen-EXE entry point and overlay mode router
-├── main.py                     Main Pygame application and runtime coordinator
-├── tvcgui/
-│   ├── core/                   Shared constants, paths, configuration, Tk helpers
-│   ├── platform/               Dolphin memory I/O and patch safety boundary
-│   ├── runtime/                Always-on runtime controls such as KO and MegaCrash
-│   ├── ui/                     Main application UI, portraits, previews, debug panels
-│   ├── features/               User-facing combat, training, frame-data, and overlay tools
-│   └── tools/                  Scanners, diagnostics, read-only probes, research utilities
-├── data/                       Seed data and persisted settings/profile files
-├── missions/                   Character-specific mission definitions
-├── assets/portraits/           Portrait textures used by the primary UI
-├── tests/                      Standard unit and contract tests
-├── archive/                    Retired aliases, backups, and legacy material
-├── dist/                       Generated release output
-└── build/                      PyInstaller intermediate output
+5A > 5B > 2B > 5C > Baroque Cancel > j.B
 ```
 
----
+The newest action is highlighted, older steps fade over time, and Baroque actions receive custom animated styling.
 
-## Technical Reference: Main Files and Folders
+This turns the HUD into a real combo-learning tool rather than just a stat panel.
 
-### Root files
-
-| File | Role |
-|---|---|
-| `launcher.py` | Entry point used by the frozen EXE. Starts the normal application by default and routes `--mode master_overlay` or `--mode hud_overlay` to the appropriate overlay process. |
-| `main.py` | Main Pygame application loop. Hooks Dolphin, resolves fighter snapshots, coordinates live feature updates, handles the main window, and opens feature-specific tools. |
-| `TvCGUI_onefile.spec` | PyInstaller definition for the public one-file release. Packages `launcher.py`, required assets, hidden imports, and bundled seed data. |
-| `TvCGUI.spec` | Alternate PyInstaller build definition retained for development/build workflows. |
-| `run_dolphin_smoke_tests.py` | Live Dolphin validation for the hook boundary, memory reads, fighter slot pointers, character-table resolution, and move lookup. |
-| `run_unit_tests.py` / `run_unit_tests.bat` | Runs the standard `unittest` suite under `tests/`. |
-| `run_regression_tests.py` / `run_regression_tests.bat` | Runs contract tests, verifies the approved test baseline, and byte-compiles critical modules. |
-| `test_*.py` at the root | Focused regression scripts, primarily for character-select routes, icon behavior, frame-data unknowns, and runtime stun profiling. |
-| `test_contract_baseline.json` | Expected contract-test inventory used by the regression runner. |
-
-### `tvcgui/core/`: shared application definitions
-
-| File | Role |
-|---|---|
-| `constants.py` | Central shared memory map: fighter pointer slots, common fighter-structure offsets, memory ranges, bad-pointer markers, and character IDs. This is the primary reference for shared offsets. |
-| `config.py` | Presentation settings, refresh values, colors, debug addresses, Baroque monitoring values, data-file references, and shared UI configuration. |
-| `paths.py` | Separates bundled resources from writable user data. Frozen builds read seed data from the packaged app and write mutable state beside `TvCGUI.exe`. |
-| `layout.py` | Computes main-window layout and applies special slot handling for large characters. |
-| `events.py` | Shared combat-event logging used by the HUD and combat tracking. |
-| `tk_host.py` | Safe Tk-window hosting and coordination for tools opened from the Pygame application. |
-| `subprocess_compat.py` | Frozen/source-compatible process launching for overlay and helper processes. |
-
-### `tvcgui/platform/`: Dolphin memory boundary
-
-| File | Role |
-|---|---|
-| `dolphin.py` | Primary Dolphin interface. Hooks `Dolphin.exe`, reads and writes MEM1/MEM2 guest addresses, performs big-endian conversion, validates address ranges, primes the MEM2 latch, and applies the character-select write quarantine. |
-| `patch_manager.py` | Tracks reviewed memory patches, applies and restores them, and keeps patch behavior separate from general runtime reads. |
-
-No feature module should create its own general-purpose Dolphin memory interface. Shared reads and writes belong behind this package.
-
-### `tvcgui/runtime/`: always-on runtime controls
-
-| File | Role |
-|---|---|
-| `ko_control.py` | KO-control state machine, baseline capture, input recovery, auto-mode handling, slot/global holds, and controlled restore behavior. |
-| `megacrash.py` | Runtime side of the MegaCrash trainer: hit recognition, sequence/cooldown tracking, armed state, and crash trigger timing. |
-| `utilities.py` | Shared runtime helpers used by main-loop feature coordination. |
-
-### `tvcgui/ui/`: primary application interface
-
-| File | Role |
-|---|---|
-| `main_window.py` | Main-window UI composition and interaction helpers used by the primary Pygame surface. |
-| `components.py` | Reusable Pygame controls, labels, panels, and input elements. |
-| `portraits.py` | Portrait loading and fighter-to-portrait selection. |
-| `normal_preview.py` | Normal-move preview panel and readable label/display handling. |
-| `debug_panel.py` | Debug flag reads and debug overlay rendering. |
-| `overseer.py` | Tk tool-state/status window for inspecting active subsystems. |
 
 ---
 
-## Memory Map and Offset Reference
+### Hitbox Overlay
 
-The addresses below are the shared stable values currently defined in `tvcgui/core/constants.py` and `tvcgui/core/config.py`. They describe the supported runtime layout and are not guaranteed to apply to another game revision or a changed emulator layout.
-
-### Address ranges
-
-| Range | Purpose |
-|---|---|
-| `0x80000000`–`0x81800000` | Wii MEM1 guest memory range. |
-| `0x90000000`–`0x94000000` | Wii MEM2 guest memory range. |
-
-### Fighter pointer slots
-
-Each slot points to a fighter-related structure. `fighter_resolver.py` validates the pointer and follows approved indirections to locate the active live fighter base.
-
-| Slot | Guest address |
-|---|---:|
-| P1 character 1 | `0x803C9FCC` |
-| P1 character 2 | `0x803C9FDC` |
-| P2 character 1 | `0x803C9FD4` |
-| P2 character 2 | `0x803C9FE4` |
-
-### Common fighter-structure offsets
-
-All offsets in this table are relative to the resolved fighter base unless noted otherwise.
-
-| Field | Offset | Use |
-|---|---:|---|
-| Character ID | `+0x14` | Character/name/portrait lookup. |
-| Maximum health | `+0x24` | Max HP read. |
-| Current health | `+0x28` | Current HP read. |
-| Auxiliary health | `+0x2C` | Additional/mirrored HP field used by some states. |
-| Last-hit value | `+0x40` | Recent damage-event input; behavior varies by character/state. |
-| Meter, primary bank | `+0x4C` | Current meter read. |
-| Meter, secondary bank | `+0x93CC` | Mirrored/deeper meter-bank read (`0x9380 + 0x4C`). |
-| Control word | `+0x70` | Action/control gating bitfield. |
-| Status flag | `+0x62` | Common hitstop/guard-related state signal. |
-| Status flag | `+0x63` | Common runtime state signal. |
-| Status flag | `+0x64` | Common runtime state signal. |
-| Status flag | `+0x72` | Common airborne/ground-related state signal. |
-| World X | `+0xF0` | Fighter X position. |
-| World Y candidates | `+0xE8`, `+0xEC`, `+0xF4`, `+0xF8`, `+0xFC` | Candidate Y fields; the resolver selects a valid value for the current fighter/state. |
-| Primary action ID | `+0x1E8` | Main action/subaction value. |
-| Secondary action ID | `+0x1EC` | Secondary action/subaction value. |
-| Resolved stun | `+0x1210` | Victim-side runtime stun value used by the stun profiler. |
-| Stun remaining | `+0x1228` | Victim-side live stun countdown. |
-| Impact freeze | `+0x2120` | Contact-related impact-freeze countdown. |
-
-### Pointer safety values
-
-| Value | Purpose |
-|---|---|
-| `0x00000000` | Invalid/null fighter pointer marker. |
-| `0x80520000` | Invalid/transient fighter pointer marker. |
-| `+0x10`, `+0x18`, `+0x1C`, `+0x20` | Approved internal pointer probes used by fighter recovery logic. |
-| 1.0 second | Last-known-good fighter-base cache lifetime. |
-
-### Global configuration addresses
-
-These values are feature-specific global addresses held in `tvcgui/core/config.py`.
-
-| Name | Guest address | Used by |
-|---|---:|---|
-| Orientation flag | `0x908AEE38` | Scene/display-state logic. |
-| Super-background flag | `0x908AEE21` | Super/background state logic. |
-| Pause overlay flag | `0x8056110B` | Debug/pause overlay state. |
-| Baroque readiness | `0x9246CBAB` | Primary Baroque state. |
-| Baroque neighbor byte | `0x9246CB9C` | Secondary Baroque-adjacent state. |
-| Baroque flag 0 | `0x9246CC48` | Baroque monitor state. |
-| Baroque flag 1 | `0x9246CC50` | Baroque monitor state. |
-| Input monitor A0 | `0x9246CC40` | Input-monitor group. |
-| Input monitor A1 | `0x9246CC50` | Input-monitor group. |
-| Input monitor A2 | `0x9246CC60` | Input-monitor group. |
-
-### Feature-local offset ownership
-
-The shared table above is intentionally limited to values reused across the application. Larger feature-specific maps stay with the code that validates and uses them.
-
-| Area | Primary location | Contents |
-|---|---|---|
-| Frame-data packet fields | `features/frame_data/patterns.py` | Command-stream signatures, parser primitives, and decoded packet-field rules. |
-| Hitbox structures | `features/hitboxes/renderer.py`, `tools/probes/hitbox_probe.py` | Collision-table reads, camera conversion, filters, and focused structure probes. |
-| Animation/MOT resource tables | `features/animation/runtime.py` | Resource windows, MOT table lookup, and tightly scoped animation pointer changes. |
-| MegaCrash state | `runtime/megacrash.py`, `training/megacrash_window.py` | Trainer state, timing, sequence rules, and persisted configuration. |
-| KO-control values | `runtime/ko_control.py` | KO state checks, recovery baselines, and guarded input/control restoration. |
-| Character-select patches | `features/character_select/runtime.py`, `tools/character_select/` | Scene-guarded roster, hover, icon, thumbnail, and material-route writes. |
-| Projectile and assist scans | `features/combat/projectile_*.py`, `features/assists/backend.py` | Projectile pools, templates, assist scans, and character-specific scan anchors. |
+- Launch a live hitbox visualizer directly from the HUD with one click
+- Per-slot color-coded filter checkboxes (P1/P2/P3/P4)
+- Runtime slot filter persisted via hitbox_filter.json
+- Overlay runs as an independent subprocess
+- Automatic overlay shutdown when the HUD exits
+- Live process monitoring (overlay state reflects actual subprocess state)
 
 ---
 
-## Technical Reference: Feature Packages
+### Frame Data Scanner
 
-### `tvcgui/tools/scanners/`: live fighter and memory readers
-
-| File | Role |
-|---|---|
-| `fighter_resolver.py` | Resolves the four pointer slots into validated fighter bases, handles indirection and invalid markers, and holds short-lived last-known-good pointers through transient swaps. |
-| `fighter_state.py` | Builds normalized per-frame fighter snapshots: character ID, HP, position, action fields, and combat-facing values. |
-| `normal_scanner.py` | Scans and decodes normal-move information for the frame-data path. |
-| `normal_scan_worker.py` | Background/cooperative worker for long normal scans without blocking the main UI. |
-| `memory_scanner.py` | Shared memory-search helpers for research and diagnostic scans. |
-| `special_runtime_finder.py` | Finds runtime special-move structures and relationships. |
-| `red_health_scanner.py` | Fighter-local red-health analysis. |
-| `global_red_health_scanner.py` | Match/global red-health analysis. |
-| `bone_scanner.py` | Bone and transform discovery for rendering and hitbox research. |
-
-### `tvcgui/features/combat/`: live combat data
-
-| File | Role |
-|---|---|
-| `moves.py` | Reads live action state, resolves display labels, and applies character-aware move mapping. |
-| `move_id_map.py` | Lookup layer for move IDs and readable move names. |
-| `move_writer.py` | Controlled move/action write helpers for reviewed edit paths. |
-| `meter.py` | Meter reads and meter-state cache handling. |
-| `advantage.py` | Frame-advantage tracking and combat timing state. |
-| `projectile_scanner.py` | Projectile scanner UI and live projectile discovery route. |
-| `projectile_backtrace.py` | Connects projectile instances to likely source/action information. |
-| `projectile_templates.py` | Projectile structure/template definitions used by projectile reads. |
-
-### `tvcgui/features/frame_data/`: frame-data workbench
-
-| File | Role |
-|---|---|
-| `window.py` | Public opener for the frame-data tool. |
-| `workbench.py` | Main editable Tk workbench, including refresh, selection, probes, and write actions. |
-| `binding.py` | Binds cached rows to live fighter-table identity rather than only a slot label, preventing stale tag-swap data from being reused. |
-| `tree.py` | Builds the normal/special/super/projectile hierarchy, grouping, filtering, and tree presentation. |
-| `patterns.py` | Command-stream packet signatures, parser rules, and decoded field definitions. |
-| `patch_runtime.py` | Applies, tracks, restores, and persists reviewed runtime frame-data patches. |
-| `editors.py` / `write_helpers.py` | Validates editable fields and converts approved edits into runtime actions. |
-| `dumper.py` | Captures/exports decoded frame-data structures. |
-| `formatters.py` | Formats decoded values for the workbench. |
-| `move_families.py` | Classifies and groups moves for the tree. |
-| `projectile_integration.py` | Adds projectile-derived information to the workbench model. |
-| `super_integration.py` | Adds super-specific static and runtime information. |
-| `unknowns.py` | Presents unclassified static signals without treating them as confirmed mechanics. |
-| `widgets.py`, `dialogs.py`, `ui_prefs.py`, `utils.py` | Workbench UI components, dialogs, persistent presentation preferences, and shared helpers. |
-
-### `tvcgui/features/hitboxes/` and `tvcgui/features/overlay/`
-
-| File | Role |
-|---|---|
-| `features/hitboxes/renderer.py` | Transparent hitbox/hurtbox overlay. Handles collision reads, camera state, filters, invulnerability display, ranges/rulers, contact audits, and persisted range profiles. |
-| `features/overlay/manager.py` | Writes the serialized per-frame payload consumed by overlay processes and manages overlay state. |
-| `features/overlay/hud_renderer.py` | Transparent HUD overlay process parented to Dolphin's window. |
-| `features/overlay/master_renderer.py` | Transparent master-overlay host for consolidated overlay rendering. |
-| `features/overlay/drawing.py` | Shared Pygame drawing utilities for live combat panels and move information. |
-| `features/overlay/editor.py` | Tk editor for controlled arcade/HUD values such as timer, score, stage, and win display. |
-
-### `tvcgui/features/training/`
-
-| File | Role |
-|---|---|
-| `mission_manager.py` | Loads mission definitions, tracks active mission progress, handles success/failure/reset conditions, and exposes display-ready state. |
-| `mission_mode.py` | Mission schema, parsing, validation, and data-routing helpers. |
-| `megacrash_window.py` | Tk configuration window for the MegaCrash trainer. Runtime behavior remains in `runtime/megacrash.py`. |
-| `stun_profiler.py` | Learns engine-resolved stun values when static frame-data rows use unresolved/sentinel values. |
-| `flags.py` | Training/debug-flag reads and writes. |
-| `timer_debug.py` | Timer and timing diagnostic helpers. |
-| `win_counter_gate.py` | Runtime permission gate for win-counter editing. |
-| `win_counter_window.py` | Tk interface for controlled win-counter edits. |
-
-### `tvcgui/features/animation/` and `tvcgui/features/assists/`
-
-| File | Role |
-|---|---|
-| `animation/database.py` | Loads the FPK-derived animation database and character registry. |
-| `animation/runtime.py` | Resolves MOT runtime tables and performs narrowly scoped animation-only pointer changes. Gameplay SEQ links and visual MOT selection remain separate. |
-| `assists/api.py` | Public entry points for assist analysis. |
-| `assists/backend.py` | Assist scan implementation, anchors, payload recognition, and character-specific analysis logic. |
-| `assists/config.py` | Assist scan configuration and persisted quick-assist data access. |
-
-### `tvcgui/features/character_select/`
-
-| File | Role |
-|---|---|
-| `runtime.py` | Main character-select patch system. Owns roster state, safe patch/restore flow, extra-slot behavior, thumbnail/icon routes, hover display profiles, and scene checks. |
-| `window.py` | Tk control surface for character-select changes, clone choices, route controls, state display, and restoration. |
-
-Character-select writes are deliberately isolated and scene-guarded. The default platform layer quarantines writes during select unless an approved character-select route has enabled them.
-
-### `tvcgui/tools/diagnostics/`, `tvcgui/tools/probes/`, and `tvcgui/tools/character_select/`
-
-| File | Role |
-|---|---|
-| `diagnostics/assist_detector.py` | Live assist-activity diagnostic. |
-| `diagnostics/projectile_pool_monitor.py` | Projectile-pool allocation and instance monitor. |
-| `probes/hitbox_probe.py` | Focused collision-structure probe. |
-| `probes/hitbox_spawn_probe.py` | Standalone hitbox-spawn/translation research utility. |
-| `probes/select_screen_probe.py` | Read-oriented character-select scene probe. |
-| `character_select/icon_material_patch.py` | Guarded extra-slot material-row patcher using reviewed donor rows. |
-| `character_select/icon_tex0_probe.py` | Read-only BRRES/TEX0 capture and icon-mapping probe. |
-| `character_select/mdl0_texptr_patch.py` | Focused texture-pointer patch experiment. |
-| `character_select/thumbnail_probe.py` | Read-only donor/appended thumbnail-row dump. |
-| `character_select/yami_cmn_icon.py` | Narrow `icon_cmn` material route for appended Yami/Solo thumbnails. |
+- Deep MEM2 analysis via scan_normals_all.py
+- Extracts:
+  - Startup
+  - Active
+  - Recovery
+  - Hitstun
+  - Blockstun
+  - Damage
+  - Knockback
+  - Meter values
+- Computes estimated frame advantage on hit and block
+- Interactive move-table window per character slot
+- Background scan worker (non-blocking)
+- Auto-scan on character change
+- Manual F5 trigger
+- Synchronous fallback scan if worker is unavailable
+- Slide-in animation when new scan data arrives
 
 ---
+## Mission Mode
 
-## Data, Assets, Missions, and Generated Output
+TvC Continuo now includes a full in-game combo trial and training mission system built directly into the live HUD.
 
-| Path | Role |
-|---|---|
-| `assets/portraits/` | Portrait textures loaded by `tvcgui.ui.portraits`. |
-| `data/animation/` | FPK-derived animation-frame database and character FPK registry. |
-| `data/assists/` | Quick-assist profiles. |
-| `data/combat/` | Character-agnostic move-ID map plus projectile IDs and maps. |
-| `data/frame_data/` | Static/preview frame-data profiles and workbench UI preferences. These files should not be casually regenerated. |
-| `data/hitboxes/` | Hitbox filter state and saved/learned range profiles. |
-| `data/overlay/` | HUD/master-overlay serialized state. In frozen builds, writable files live beside the EXE. |
-| `data/runtime/` | Runtime stun profiles, character-select write trace, and diagnostic binary dumps. |
-| `data/training/` | MegaCrash settings, mission overlay state, and mission progress. |
-| `fd_patches/` | Persistent frame-data patch records. |
-| `missions/` | Character-specific mission JSON files and `example_json.json` schema reference. |
-| `tests/` | Standard deterministic unit/contract tests. |
-| `dist/` | Generated release output. `TvCGUI.exe` is the public artifact. |
-| `build/` | Generated PyInstaller intermediate files. Rebuildable; not source of truth. |
-| `archive/` | Protected retired aliases, old data, backups, and integrity hashes. Active code should not import from this tree. |
-| `memory_dumps/`, `char_test_traces/`, `chrsel_icon_tex0_probe_dump/`, `chrsel_yami_cmn_icon_backups/` | Diagnostic evidence and research artifacts. They are not required for normal launch. |
+Mission Mode transforms the toolkit from a viewer into an active training platform by validating routes in real time, tracking progress, and celebrating successful clears.
 
----
+### Core Features
 
-## Developer Source Runs
+- Per-character mission packs
+- Live combo step validation
+- Real-time progress tracking
+- Auto-reset on dropped routes
+- Mission completion save data
+- Dynamic mission selection overlay
+- Completion celebration effects
+- Integrated with the main HUD
+- Works directly from live memory state
+- No emulator mods required
 
-This section is only for source work. It is not part of release installation.
+### How It Works
 
-### `run.bat`
+Each mission contains a sequence of expected actions such as:
 
-`run.bat` is a Windows convenience launcher for the source tree. It:
-
-1. Looks for `.venv\Scripts\python.exe`.
-2. Calls the local setup script when the project environment is missing.
-3. Sets `PYTHONPATH` to `tdp-modules`.
-4. Starts `tdp-modules\main.py`.
-
-The release EXE does not use `run.bat`.
-
-### Direct source launch
-
-From `tdp-modules/`:
-
-```bat
-python main.py
+```text
+5A -> 5B -> 2B -> 5C -> 6C -> Issen
 ```
 
-From the repository root after configuring the project environment:
+The system watches live animation IDs, move labels, hit states, damage confirms, and combo state transitions.
 
-```bat
+When the correct next action occurs, progress advances instantly.
+
+If the combo drops before completion, progress resets and the player can retry immediately.
+
+### Validation Logic
+
+Mission validation is deeper than simple input matching.
+
+The engine can detect:
+
+- Correct move order
+- Fresh move instances
+- Repeated moves counted separately
+- Damage-confirmed actions
+- Baroque cancels
+- Whiff-confirmed utility moves
+- Combo state continuity
+- Hitstun / reaction state transitions
+- Route completion
+- Route failure and reset
+
+This allows missions to behave like real combo trials instead of basic macro checklists.
+
+### Mission Selection
+
+Players can change missions without leaving training mode.
+
+Open the selector with:
+
+```text
+Crouch, Crouch, Taunt
+```
+
+Then choose a mission directly from the overlay.
+
+### Progress Saving
+
+Completed missions are stored automatically.
+
+The system tracks:
+
+- Cleared missions
+- Current selected mission
+- Character mission progress
+
+So players can return later without losing progress.
+
+### Mission Examples
+
+Examples of supported mission styles:
+
+- Basic confirms
+- Launcher routes
+- Baroque extensions
+- Metered enders
+- Rejump combos
+- Character-specific challenge routes
+- Repetition tests
+- Execution trials
+- Advanced conversions
+
+### Why It Matters
+
+Most fighting games require external guides or combo videos.
+
+Mission Mode brings structured practice directly into Tatsunoko vs. Capcom through Dolphin, with live validation and instant feedback.
+
+That means players can learn routes faster, practice consistently, and build execution without guessing whether they did the combo correctly.
+
+### Future Expansion Ideas
+
+- Difficulty tiers
+- Community mission packs
+- Custom mission creator
+- Time attack clears
+- Combo score grading
+- Character completion percentage
+- Replay verification
+- Advanced punish drills
+- Defensive challenges
+- Matchup-specific training missions
+---
+### Assist Phase Tracking
+
+Each slot maintains a lightweight assist state machine:
+
+```
+None -> flyin -> attack -> recover -> None
+```
+
+Assist phases are inferred from animation IDs using:
+
+```
+ASSIST_FLYIN_IDS
+ASSIST_ATTACK_IDS
+```
+
+Snapshots are augmented with:
+
+```
+snap["assist_phase"]
+snap["is_assist"]
+```
+
+This system is conservative and animation-driven.
+Future refinement can replace animation ID inference with explicit assist struct mapping.
+
+---
+
+### True 32-bit Baroque Detection
+
+In addition to pool-byte tracking, TvC Continuo reads:
+
+```
++0x28  HP32
++0x2C  Pool32
+```
+
+Baroque readiness is determined by:
+
+```
+hp32 != pool32
+```
+
+The HUD computes:
+
+- baroque_local_hp32
+- baroque_local_pool32
+- baroque_ready_local
+- baroque_red_amt
+- baroque_red_pct_max
+
+This avoids inaccuracies from 8-bit pool tracking and reflects actual red-life state.
+
+---
+
+### Memory Tools
+
+- redscan.py / global_redscan.py - detect HP-correlated bytes (red-life / mystery bytes)
+- memscan.py - scans MEM1 and MEM2 for ASCII strings and backreferences
+- resolver.py - automatically resolves and validates fighter base pointers
+- tvc_fill_bacluster.py - read, fill, and restore fighter float clusters (BA40-BA9F)
+
+---
+
+### Interactive Debug Flags
+
+The debug panel supports direct memory writes:
+
+- Toggle flags (PauseOverlay, FreeBaroque, CameraLock, etc.)
+- Cycle values (CpuAction, CpuGuard, DummyMeter, CpuDifficulty)
+- Momentary triggers (HypeTrigger, SpecialPopup)
+- Coupled logic (P2Pause auto-syncs TrPause)
+
+Momentary writes are automatically restored after a short delay to prevent unintended state corruption.
+
+All debug writes are performed safely via wd8() and are guarded against failure.
+
+---
+
+## HUD Controls
+
+| Input | Action |
+|-------|--------|
+| F5 | Manual move-table re-scan |
+| Click "Activate Hitboxes" | Toggle hitbox overlay on or off |
+| Filter: P1/P2/P3/P4 | Toggle hitbox visibility per slot |
+| Click "Frame Data" on panel | Open move list for that character |
+| Click debug row | Copy memory address to clipboard |
+| Click character panel | Copy fighter base address to clipboard |
+| Scroll wheel on debug panel | Scroll debug flag list |
+
+---
+
+## Installation
+
+### Requirements
+
+- Python 3.10+
+- Dolphin Emulator (US build recommended)
+- Pygame
+
+---
+
+### Quick Setup (Windows)
+
+Full HUD plus all tools:
+
+```
 run.bat
 ```
 
-### Test and smoke-test commands
+Hitbox overlay only:
 
-Run from `tdp-modules/`:
-
-```bat
-python run_unit_tests.py
-python run_regression_tests.py
-python run_dolphin_smoke_tests.py
+```
+hitbox.bat
 ```
 
-`run_dolphin_smoke_tests.py` is read-only by default. Its optional write-echo mode should only be used with a reviewed safe address because it writes the existing byte value back to that same location.
+Manual setup:
 
-```bat
-python run_dolphin_smoke_tests.py --write-echo 0x90000000
+```
+python -m venv .venv
+.venv\Scripts\activate
+pip install pygame
 ```
 
-### Release build
-
-The public one-file release is built from `TvCGUI_onefile.spec`. Generated output belongs under `dist/`; `build/` is PyInstaller working output.
+Ensure Dolphin is running TvC and memory read and write is enabled.
+If your revision differs from the US build, update addresses in constants.py.
 
 ---
 
-## Change Guide
+## Running the HUD
 
-| Change type | Start with |
-|---|---|
-| Main application behavior or launch wiring | `main.py`, then `launcher.py` and the relevant `tvcgui.features.*` module. |
-| Dolphin read/write behavior | `platform/dolphin.py`, `platform/patch_manager.py`, and `core/constants.py`. |
-| Shared offset or memory-range work | `core/constants.py`; place feature-only values beside the feature that validates them. |
-| Fighter snapshots, move labels, or slot behavior | `tools/scanners/fighter_resolver.py`, `tools/scanners/fighter_state.py`, `features/combat/moves.py`, and `features/combat/move_id_map.py`. |
-| Frame data | `features/frame_data/workbench.py`, `features/frame_data/patterns.py`, `features/frame_data/patch_runtime.py`, and `tools/scanners/normal_scanner.py`. |
-| Hitbox rendering or range learning | `features/hitboxes/renderer.py` and `data/hitboxes/`. |
-| Missions | `features/training/mission_manager.py`, `features/training/mission_mode.py`, and the matching file under `missions/`. |
-| MegaCrash behavior | `runtime/megacrash.py` and `features/training/megacrash_window.py`. |
-| KO-control behavior | `runtime/ko_control.py` and its call sites in `main.py`. |
-| Character-select work | `features/character_select/runtime.py`, then the relevant guarded probe or narrow patch module. |
-| HUD/transparent overlay behavior | `features/overlay/manager.py`, `hud_renderer.py`, `master_renderer.py`, and `core/subprocess_compat.py`. |
-| Persisted settings or packaged data | `core/paths.py`, then the corresponding `data/` directory. |
-| Regression coverage | `tests/`, root `test_*.py` scripts, `run_regression_tests.py`, and `test_contract_baseline.json`. |
+```
+python main.py
+```
+
+Wait until the console shows Dolphin is hooked.
+When connected, four fighter panels and the event log appear automatically.
 
 ---
 
-## Compatibility and Maintenance Notes
+## Frame Data Scanning
 
-TvC Continuo depends on the supported game's live memory layout and Dolphin's process behavior. A different game revision, changed emulator behavior, or incompatible scene can invalidate reads, overlays, scans, and runtime patches.
-
-When a feature stops working after a game or emulator change, validate the Dolphin boundary first:
-
-```bat
-python run_dolphin_smoke_tests.py
+```
+python -m scan_normals_all
 ```
 
-Then validate fighter resolution, move mapping, affected parser rules, feature-local offsets, and the corresponding regression contracts before changing shared constants.
+Or use the HUD (F5 then click "Frame Data").
+Displays move labels, startup, active frames, hitstun, blockstun, and computed frame advantage.
 
-- Keep shared offsets in `core/constants.py`.
-- Keep feature-specific signatures and addresses with the feature that validates them.
-- Use `core/paths.py` for mutable data; do not write into PyInstaller's temporary extraction directory.
-- Keep general memory I/O behind `platform/dolphin.py`.
-- Treat character-select writes as guarded runtime patches.
-- Preserve unclassified values as unknown until behavior is repeatably validated and covered by regression tests.
+---
+
+## Memory Reference (US Build)
+
+### Slot Pointers
+
+```
+803C9FCC  PTR_P1_CHAR1
+803C9FDC  PTR_P1_CHAR2
+803C9FD4  PTR_P2_CHAR1
+803C9FE4  PTR_P2_CHAR2
+```
+
+### Fighter Struct (relative to resolved base)
+
+```
++0x14  Character ID (u32)
++0x24  Max HP (s32)
++0x28  Current HP (s32)
++0x2C  Aux HP / Red-life (s32)
++0x40  Last damage chunk (s32)
++0x4C  Super meter primary (s32)
++0xF0  Position X (f32)
++0xF4  Position Y (auto-picked by variance)
+```
+
+### Valid Ranges
+
+```
+MEM1: 0x80000000-0x817FFFFF
+MEM2: 0x90000000-0x93FFFFFF
+BAD_PTRS: {0x00000000, 0x80520000}
+```
+
+---
+
+## Character IDs (known)
+
+```
+1   Ken the Eagle
+2   Casshan
+3   Tekkaman
+4   Polimar
+5   Yatterman-1
+6   Doronjo
+7   Ippatsuman
+8   Jun the Swan
+10  Karas
+11  PTX-40A
+12  Ryu
+13  Chun-Li
+14  Batsu
+15  Morrigan
+16  Alex
+17  Viewtiful Joe
+18  Volnutt
+19  Roll
+20  Saki
+21  Soki
+22  Gold Lightan
+23  Yami
+24  Yami
+25  Yami
+26  Tekkaman Blade
+27  Joe the Condor
+28  Yatterman-2
+29  Zero
+30  Frank West
+```
+
+Extend the list in constants.py under CHAR_NAMES.
+
+---
+
+## Attacker Detection Logic
+
+When a victim's HP drops or a hit state is detected, the system:
+
+1. Logs a hit for that fighter
+2. Finds the nearest opponent (distance squared heuristic)
+3. Associates that attacker to compute live frame advantage
+
+This method is consistent during training mode and normal gameplay.
+
+---
+
+## File Overview
+
+| File | Purpose |
+|------|---------|
+| main.py | Main Pygame HUD loop |
+| hitboxesscaling.py | Standalone hitbox overlay |
+| fighter.py | Reads fighter structs |
+| advantage.py | Frame advantage tracker |
+| hud_draw.py | Visual HUD rendering |
+| layout.py | Panel layout and giant normalization |
+| resolver.py | Slot pointer resolution |
+| meter.py | Meter state reading |
+| moves.py | Move label mapping |
+| move_id_map.py | Move ID to name lookup |
+| scan_normals_all.py | Full move table scanner |
+| scan_worker.py | Background scan thread |
+| frame_data_window.py | Interactive frame data GUI |
+| debug_panel.py | Debug overlay rendering |
+| training_flags.py | Training flag reader |
+| redscan.py / global_redscan.py | HP correlation scanners |
+| memscan.py | ASCII and pointer reference search |
+| tvc_fill_bacluster.py | Fighter float cluster tool |
+| events.py | Hit and advantage logging |
+| constants.py | Offsets and IDs |
+| config.py | Screen and color config |
+| portraits.py | Portrait loading |
+
+# TvC Continuo — Offsets Reference
+
+---
+
+## Slot Pointers
+
+```
+803C9FCC  PTR_P1_CHAR1
+803C9FDC  PTR_P1_CHAR2
+803C9FD4  PTR_P2_CHAR1
+803C9FE4  PTR_P2_CHAR2
+```
+
+---
+
+## Fighter Struct Offsets (relative to resolved base)
+
+```
++0x14  Character ID (u32)
++0x24  Max HP (s32)
++0x28  Current HP (s32)
++0x2C  Aux HP / Red-life (s32)
++0x40  Last damage chunk (s32)
++0x4C  Super meter primary (s32)
++0xF0  Position X (f32)
++0xF4  Position Y (auto-picked by variance)
+```
+
+---
+
+## Baroque Detection Offsets (relative to resolved base)
+
+```
++0x28  HP32
++0x2C  Pool32
+```
+
+---
+
+## Fighter Struct — Additional Fields (from fighter.py)
+
+```
++0x02A  HP Pool Byte (u8) — experimental pooled health byte
++0x02B  Mystery Byte (u8) — unknown, tracked alongside pool
+```
+
+---
+
+## Control / State Offsets (from fighter.py / constants.py)
+
+```
+CTRL_WORD_OFF   Control word (u32)
+FLAG_062        State flag byte at +0x062
+FLAG_063        State flag byte at +0x063
+FLAG_064        State flag byte at +0x064
+FLAG_072        State flag byte at +0x072
+```
+
+---
+
+## Position Offsets (from resolver.py / fighter.py)
+
+```
+POSX_OFF        Position X (f32)              — defined in constants.py
+POSY_CANDS      Y-offset candidates list       — sampled and selected by variance
+0xF4            Fallback Y offset (f32)        — used if variance picker fails
+```
+
+---
+
+## Move Block Pattern Offsets (from fd_patterns.py)
+
+```
+Phase Record Header:   04 01 02 3F  [u32 phase]  [u16 anim_id]
+  - Anim ID at:        +8 from record header start
+
+Legacy Anim Header:    01 ?? 01 3C
+  - Anim ID at:        +1 from header start
+
+Speed Mod Pattern:     20 3F 00 00 00 [XX] 04 17
+  - Value byte (XX):   +5 from anchor start
+
+SuperBG Pattern:       04 [XX] 60  (after anim anchor)
+  - Toggle byte (XX):  +1 from 0x04 marker
+  - ON  = 0x04
+  - OFF = 0x01
+
+Combo KB Modifier:     01 AC 3D 00 00 00 [XX]
+                       01 AC 3F 00 00 00 [XX]
+  - Value byte (XX):   +6 from pattern start
+  - Scan range:        first 0x200 bytes of move block
+
+Fallback Hitbox Offset: 0x21C
+Hitbox Scan Max:        0x600
+```
+
+---
+
+## Projectile Pattern (from fd_utils.py)
+
+```
+Suffix anchor:   00 00 00 0C FF FF FF FF
+Damage word:     4 bytes immediately before suffix — format: 00 00 XX YY
+  - Damage:      low 16 bits (XX YY, big-endian)
+  - proj_tpl:    absolute address of the 00 00 XX YY word
+
+Strength Slice Anchor:  A6 F0
+  - slice[0] = L
+  - slice[1] = M
+  - slice[2] = H / C
+```
+
+---
+
+## Scan Regions (from fd_window.py / fd_utils.py)
+
+```
+Default scan start:   0x92477400
+Default scan end:     0x94477500
+Default region size:  0x1400  (per-move block scan)
+Max region clamp:     0x6000
+```
+
+---
+
+## Hit Reaction Values (from fd_format.py)
+
+```
+0x000000  Stay on ground
+0x000001  Ground/Air > KB
+0x000002  Ground/Air > KD
+0x000003  Ground/Air > Spiral KD
+0x000004  Sweep
+0x000008  Stagger
+0x000010  Ground > Stay Ground, Air > KB
+0x000040  Ground > Stay Ground, Air > KB, OTG > Stay OTG
+0x000041  Ground/Air > KB, OTG > Stay OTG
+0x000042  Ground/Air > KD, OTG > Stay OTG
+0x000080  Ground > Stay Ground, Air > KB
+0x000082  Ground/Air > KD
+0x000083  Ground/Air > Spiral KD
+0x000400  Launcher
+0x000800  Ground > Stay Ground, Air > Soft KD
+0x000848  Ground > Stagger, Air > Soft KD
+0x002010  Ground > Stay Ground, Air > KB
+0x003010  Ground > Stay Ground, Air > KB
+0x004200  Ground/Air > KD
+0x800002  Ground/Air > KD, Wall > Wallbounce
+0x800008  Alex Flash Chop
+0x800020  Snap Back
+0x800080  Ground > Crumple, Air > KB
+0x800082  Ground/Air > KD, Wall > Wallbounce
+0x001001  Wonky: Friender/Zombies grab if KD near ground
+0x001003  Wonky variant
+```
+
+---
+
+## Knockback Trajectory Values (from fd_format.py)
+
+```
+0xBC  Up KB (Spiral)
+0xBD  Up Forward KB
+0xBE  Down Forward KB
+0xC4  Up Pop (j.L / j.M)
+```
+
+---
+
+## Stun Value Encoding (from fd_format.py)
+
+```
+Display  Raw Byte
+10       0x0C
+15       0x0F
+17       0x11
+21       0x15
+```
+
+---
+
+## Float Cluster Range
+
+```
+BA40-BA9F  Fighter float cluster (read/fill/restore via tvc_fill_bacluster.py)
+```
+
+---
+
+## Hitbox Overlay — Slot Base Addresses (MEM2, US Build)
+
+```
+P1: 0x9246B9C0
+P2: 0x92B6BA00
+P3: 0x927EB9E0
+P4: 0x92EEBA20
+```
+
+---
+
+## Hitbox Struct Layout (relative to slot_base + struct_shift)
+
+```
+struct_shift: +0x4C0       (hitbox struct starts here, relative to slot base)
+
+Block offsets within struct:
+  Block 0: +0x64
+  Block 1: +0xA4
+  Block 2: +0xE4
+
+Per-block field offsets:
+  +0x00  X position (f32)
+  +0x04  Y position (f32)
+  +0x18  Radius (f32)
+  +0xC3  Active flag (u8)  — 0x53 = active hitbox
+```
+
+---
+
+## Hitbox Motion / Camera Struct (static base)
+
+```
+Base: 0x8053CB20
+  +0x00  X (f32)
+  +0x04  Y (f32)
+  +0x08  Z (f32)
+  +0x0C  W (f32)
+```
+
+---
+
+## gui_hitbox_probe.py — Table Probe Constants
+
+```
+TAIL_PATTERN:        00 00 00 38 01 33 00 00
+ANCHOR_BYTES:        FF FF FF FE
+ANCHOR_REL_FROM_TAIL: -0xB0   (anchor is 0xB0 bytes before tail)
+SAMPLE_TAIL_REL:     0x10     (capture starts 0x10 before tail)
+SCAN_MATCH_LEN:      0x40     (bytes matched when identifying character table)
+CAPTURE_SIZE:        0x2000   (8KB capture window)
+```
+
+---
+
+## memscan.py — Memory Region Definitions
+
+```
+MEM1: 0x80000000 - 0x81800000  (~24 MB)
+MEM2: 0x90000000 - 0x94000000  (up to 64 MB)
+Chunk size: 0x10000 (64KB reads)
+Local scan radius: ±0x4000 around fighter base
+```
+
+---
+
+## Valid Memory Ranges
+
+```
+MEM1: 0x80000000 - 0x817FFFFF
+MEM2: 0x90000000 - 0x93FFFFFF
+```
+---
+## Global Table Pointer
+```
+Global Table Pointer 0x803AA4C0
+```
+---
+
+## Bad Pointers
+
+```
+0x00000000
+0x80520000
+```
+
+---
+
+## Meter Offsets (from meter.py / constants.py)
+
+```
+METER_OFF_PRIMARY    Super meter primary read address   (relative to fighter base)
+METER_OFF_SECONDARY  Super meter secondary/mirror bank  (relative to fighter base)
+  - Valid meter range: 0 .. 200,000
+  - Known full-meter sentinel: 50,000 (0xC350)
+```
+
+---
+
+## Attack / Move ID Offsets (from moves.py / constants.py)
+
+```
+ATT_ID_OFF_PRIMARY   Primary attack/state ID (u32, relative to fighter base)
+ATT_ID_OFF_SECOND    Secondary attack ID     (u32, relative to fighter base)
+```
+
+---
+
+## Normal Move Anim ID Map (from scan_normals_all.py)
+
+```
+0x00  5A       0x01  5B       0x02  5C
+0x03  2A       0x04  2B       0x05  2C
+0x06  6C       0x08  3C
+0x09  j.A      0x0A  j.B      0x0B  j.C
+0x0E  6B
+```
+
+---
+
+## Flag 0x62 State Decode Table (from moves.py)
+
+```
+Value   State
+0       ATTACK_ACTIVE
+8       STUN_LOCK
+16      THROW
+32      MOVEMENT
+40      IMPACTED
+48      THROW_TECH
+64      ``` (throw knockdown only)
+128     ATK_REC
+136     ATK_END
+160     IDLE_BASE
+168     ENGAGED
+```
+
+---
+
+## Flag 0x63 State Decode Table (from moves.py)
+
+```
+Value   State
+0       STARTUP
+1       NEUTRAL
+4       HITSTUN_PUSH
+6       HIT_COMMIT
+16      BLOCK_PUSH
+17      ATKR_READY
+32      STARTUP
+34      CHAIN_BUFFER
+36      HIT_RESOLVE
+37/5    RECOVERY
+64      AIR_ASCEND_ATK
+65      AIR_CANCEL
+68      AIR_IMPACT
+70      AIR_PREHIT
+96      AIR_CHAIN_BUF1
+168     DEF_READY
+192     AIR_DESC_ATK
+193     FALLING
+194     AIR_CHAIN_END
+196     KB_VERTICAL
+197     KB_GROUNDED
+198     KB_VERTICAL_PEAK
+224     AIR_CHAIN_BUF2
+230     AIR_CHAIN_BUF3
+```
+
+---
+
+## scan_normals_all.py — Scanner Constants
+
+```
+CLUSTER_GAP:         0x4000   (max gap between blocks treated as same cluster)
+CLUSTER_PAD_BACK:    0x400    (padding behind cluster start for region read)
+LOOKAHEAD_AFTER_HDR: 0x80     (bytes scanned after anim header for frame data)
+PAIR_RANGE:          0x600    (search range when pairing move blocks)
+INLINE_ACTIVE_OFF:   0xB0     (offset within move block where inline active frames live)
+SLOT_SCAN_BEFORE:    0x2000   (bytes before slot base to begin scan)
+SLOT_SCAN_LENS:      0x30000, 0x50000, 0x80000  (192KB / 320KB / 512KB scan windows)
+```
+
+---
+
+## scan_normals_all.py — Pattern Headers
+
+```
+DAMAGE_HDR:          35 10 20 3F 00
+HITREACTION_CODE_OFF: +28 from HITREACTION_HDR match start
+HITBOX_OFF_X:        +0x40 from hitbox block base
+HITBOX_OFF_Y:        +0x48 from hitbox block base
+INLINE_ACTIVE_LEN:   17 bytes
+```
+
+---
+
+## Projectile Instance Struct Offsets (from projectile.py)
+
+```
++0x68  Collider pointer (u32)
++0x70  Owner fighter_base pointer (u32)
++0x94  Projectile life counter (u32)
+```
+
+---
+
+## Projectile Definition / Template Block (from projectile.py / projectiles.py)
+
+```
+Segment header:        00 00 00 04  (block starts here)
+Delimiter markers:     FF FF FF FF FF FF FF FF  (FF*8)
+                       FF FF FF FF              (FF*4)
+Hitbox marker set:     35 0D 20 3F
+                       33 0D 20 3F
+                       37 0D 20 3F
+  - Hitbox radius:     +0x44 from marker
+Behavior triple:       ?? [family] [variant]
+  - Default family:    0xA5
+  - Default variant:   0xA0
+Physics cluster:       [f32 speed] [f32 accel] [u32 0x00000000] [f32 cap]
+  - Dominant cluster gap: ~0x40 .. 0x800
+DEF_REGION (scan target): 0x90800000 .. 0x90A80000
+```
+
+---
+
+## redscan.py — Fighter Struct Scan Range
+
+```
+SCAN_START: +0x000  (relative to fighter base)
+SCAN_END:   +0x100  (exclusive; scans offsets 0x000..0x0FF)
+```
+
+---
+
+## special_runtime_finder.py — Special Animation Scan
+
+```
+Pattern:    01 [XX] 01 3C   where XX in [0x01 .. 0x1E]
+Region:     MEM2 full scan (MEM2_LO .. MEM2_HI)
+```
+---
+## Troubleshooting
+
+If the HUD says "waiting for Dolphin":
+
+- Ensure Dolphin is running TvC
+- Close duplicate Dolphin instances
+- Relaunch both Dolphin and the HUD
+
+---
+
+## Developer Notes
+
+- Bulk fighter struct reads use rbytes() for performance
+- Character metadata cache refreshes automatically on ID change
+- Safe wrappers prevent pointer churn from crashing the render loop
+- RedScan requires multiple snapshots
+- Frame advantage auto-corrects using active frames
+- CSV output logged under HIT_CSV
+- Compatible with modern Dolphin memory APIs (dolphin_io.py)
+
+---
+
+## License
+
+MIT License - free for community use and research.
+Not affiliated with Capcom, Tatsunoko, or the Dolphin project.
+
+---
+
+## Special Thanks
+
+- Jaaaames - for his amazing foundational work
+- The TvC community led by Dr. Science
+- Capcom and their amazing work over the years
+- Brian Transeau
+- This fish sandwich with homemade coleslaw and spicy mayo sitting in front of me, man I wish I had some cajun fries.

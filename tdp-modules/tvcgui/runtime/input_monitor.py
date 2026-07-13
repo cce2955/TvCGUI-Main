@@ -35,7 +35,9 @@ BUTTON_A = 0x80
 BUTTON_B = 0x40
 BUTTON_C = 0x20
 BUTTON_PARTNER = 0x10
-KNOWN_INPUT_MASK = DIRECTION_MASK | BUTTON_A | BUTTON_B | BUTTON_C | BUTTON_PARTNER
+BUTTON_TAUNT = 0x0C00
+KNOWN_INPUT_MASK = DIRECTION_MASK | BUTTON_A | BUTTON_B | BUTTON_C | BUTTON_PARTNER | BUTTON_TAUNT
+DISPLAY_IGNORED_INPUT_MASK = 0x8000
 
 _DIRECTION_TO_NUMPAD = {
     0x0: "5",
@@ -120,10 +122,20 @@ def read_overlay_input_packet(slot_label: str = "P1-C1", fighter_base: int = 0) 
             "released_text": "none",
         }
 
-    previous = _read_u32(base + INPUT_PREVIOUS_OFF)
-    held = _read_u32(base + INPUT_HELD_OFF)
-    pressed = _read_u32(base + INPUT_PRESSED_OFF)
-    released = _read_u32(base + INPUT_RELEASED_OFF)
+    # These four words are contiguous. One bulk process-memory read is much
+    # cheaper than four individual reads, which matters for the 240 Hz overlay
+    # input sampler. Fall back to scalar reads if the block is unavailable.
+    try:
+        packet_blob = rbytes(base + INPUT_PREVIOUS_OFF, 16)
+    except Exception:
+        packet_blob = None
+    if packet_blob and len(packet_blob) >= 16:
+        previous, held, pressed, released = struct.unpack(">IIII", packet_blob[:16])
+    else:
+        previous = _read_u32(base + INPUT_PREVIOUS_OFF)
+        held = _read_u32(base + INPUT_HELD_OFF)
+        pressed = _read_u32(base + INPUT_PRESSED_OFF)
+        released = _read_u32(base + INPUT_RELEASED_OFF)
     return {
         "connected": True,
         "slot": label,
@@ -156,6 +168,8 @@ def button_names(value: int) -> tuple[str, ...]:
         out.append("C")
     if word & BUTTON_PARTNER:
         out.append("P")
+    if (word & BUTTON_TAUNT) == BUTTON_TAUNT:
+        out.append("T")
     return tuple(out)
 
 
@@ -164,9 +178,9 @@ def format_input_word(value: int, *, neutral_label: bool = True) -> str:
     direction = direction_name(word)
     buttons = "".join(button_names(word))
     text = f"{direction}{buttons}" if buttons else direction
-    unknown_low = (word & 0xFF) & ~KNOWN_INPUT_MASK
-    if unknown_low:
-        text += f" +0x{unknown_low:02X}"
+    unknown_bits = (word & 0xFFFF) & ~KNOWN_INPUT_MASK & ~DISPLAY_IGNORED_INPUT_MASK
+    if unknown_bits:
+        text += f" +0x{unknown_bits:04X}"
     if not neutral_label and text == "5":
         return ""
     return text
@@ -178,9 +192,9 @@ def format_button_edges(value: int) -> str:
     direction = word & DIRECTION_MASK
     if direction:
         labels.insert(0, direction_name(direction))
-    unknown_low = (word & 0xFF) & ~KNOWN_INPUT_MASK
-    if unknown_low:
-        labels.append(f"0x{unknown_low:02X}")
+    unknown_bits = (word & 0xFFFF) & ~KNOWN_INPUT_MASK & ~DISPLAY_IGNORED_INPUT_MASK
+    if unknown_bits:
+        labels.append(f"0x{unknown_bits:04X}")
     return " + ".join(labels) if labels else "none"
 
 

@@ -9,17 +9,17 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 3,
-          "6": 5
+          "0": 5,
+          "6": 7
         },
-        "last_frame": 2278,
+        "last_frame": 1121,
         "last_freeze": 6,
         "last_value": 12,
         "samples": {
-          "12": 8
+          "12": 12
         }
       },
-      "last_frame": 2278,
+      "last_frame": 1121,
       "last_freeze": 6,
       "last_recovery": 10,
       "move_label": "5A",
@@ -46,18 +46,18 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 2,
-          "9": 1
+          "0": 4,
+          "9": 3
         },
-        "last_frame": 2019,
-        "last_freeze": 0,
+        "last_frame": 1293,
+        "last_freeze": 9,
         "last_value": 17,
         "samples": {
-          "17": 3
+          "17": 7
         }
       },
-      "last_frame": 14053,
-      "last_freeze": 0,
+      "last_frame": 1293,
+      "last_freeze": 9,
       "last_recovery": 14,
       "move_label": "5B",
       "recovery": {
@@ -77,22 +77,22 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 11,
-          "12": 5,
+          "0": 16,
+          "12": 7,
           "3": 1,
           "7": 2
         },
-        "last_frame": 3490,
+        "last_frame": 1302,
         "last_freeze": 0,
         "last_value": 21,
         "samples": {
           "13": 2,
           "16": 1,
           "17": 3,
-          "21": 13
+          "21": 20
         }
       },
-      "last_frame": 12944,
+      "last_frame": 1302,
       "last_freeze": 0,
       "last_recovery": 26,
       "move_label": "5C",
@@ -120,19 +120,19 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 6,
-          "6": 5
+          "0": 8,
+          "6": 6
         },
-        "last_frame": 3482,
-        "last_freeze": 0,
+        "last_frame": 1262,
+        "last_freeze": 6,
         "last_value": 12,
         "samples": {
-          "12": 10,
+          "12": 13,
           "13": 1
         }
       },
-      "last_frame": 3482,
-      "last_freeze": 0,
+      "last_frame": 1262,
+      "last_freeze": 6,
       "last_recovery": 12,
       "move_label": "2A",
       "recovery": {
@@ -156,18 +156,18 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 7,
-          "9": 7
+          "0": 10,
+          "9": 8
         },
-        "last_frame": 3280,
+        "last_frame": 1265,
         "last_freeze": 9,
         "last_value": 17,
         "samples": {
           "12": 1,
-          "17": 13
+          "17": 17
         }
       },
-      "last_frame": 3280,
+      "last_frame": 1265,
       "last_freeze": 9,
       "last_recovery": 10,
       "move_label": "2B",
@@ -191,20 +191,20 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 2,
-          "12": 3,
+          "0": 4,
+          "12": 6,
           "7": 2
         },
-        "last_frame": 3502,
-        "last_freeze": 7,
-        "last_value": 13,
+        "last_frame": 1280,
+        "last_freeze": 0,
+        "last_value": 21,
         "samples": {
           "13": 2,
-          "21": 5
+          "21": 10
         }
       },
-      "last_frame": 3502,
-      "last_freeze": 7,
+      "last_frame": 1280,
+      "last_freeze": 0,
       "last_recovery": 22,
       "move_label": "2C",
       "recovery": {
@@ -266,19 +266,20 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 3,
+          "0": 4,
           "7": 1,
-          "9": 7
+          "9": 10
         },
-        "last_frame": 3512,
+        "last_frame": 1309,
         "last_freeze": 9,
         "last_value": 21,
         "samples": {
           "13": 2,
-          "21": 9
+          "17": 1,
+          "21": 12
         }
       },
-      "last_frame": 3512,
+      "last_frame": 1309,
       "last_freeze": 9,
       "last_recovery": 15,
       "move_label": "3C",
@@ -303,23 +304,23 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 6,
+          "0": 9,
           "12": 2,
           "4": 2,
           "6": 3,
-          "7": 2
+          "7": 3
         },
-        "last_frame": 3528,
+        "last_frame": 1477,
         "last_freeze": 0,
-        "last_value": 18,
+        "last_value": 21,
         "samples": {
-          "12": 6,
-          "13": 5,
+          "12": 8,
+          "13": 6,
           "18": 3,
-          "21": 1
+          "21": 2
         }
       },
-      "last_frame": 3528,
+      "last_frame": 1477,
       "last_freeze": 0,
       "last_recovery": 19,
       "move_label": "j.A",
@@ -1083,6 +1084,6 @@
       }
     }
   },
-  "updated_utc": "2026-07-11T15:28:33Z",
+  "updated_utc": "2026-07-13T16:44:46Z",
   "version": 2
 }

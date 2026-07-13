@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import ctypes
 import json
+import math
+import re
 import os
 import sys
 import time
@@ -409,8 +411,10 @@ class MasterOverlay:
         pygame.init()
 
         try:
-            from tvcgui.features.overlay.hud_renderer import HudRenderer
-            self.hud_renderer = HudRenderer()
+            from tvcgui.features.overlay import hud_renderer as hud_renderer_module
+            self.hud_renderer = hud_renderer_module.HudRenderer()
+            print(f"[master] master_renderer.__file__={os.path.abspath(__file__)}")
+            print(f"[master] hud_renderer.__file__={os.path.abspath(hud_renderer_module.__file__)}")
             print("[master] hud renderer loaded")
         except Exception:
             print("[master] failed to import hud renderer")
@@ -1178,6 +1182,97 @@ class MasterOverlay:
 
 
 
+    def _mission_direction_icon(self, digit: str, color: tuple[int, int, int], size: int = 16, charged: bool = False) -> pygame.Surface:
+        vectors = {
+            "1": (-1.0, 1.0), "2": (0.0, 1.0), "3": (1.0, 1.0),
+            "4": (-1.0, 0.0), "5": (0.0, 0.0), "6": (1.0, 0.0),
+            "7": (-1.0, -1.0), "8": (0.0, -1.0), "9": (1.0, -1.0),
+        }
+        size = max(12, int(size))
+        surf = pygame.Surface((size, size), pygame.SRCALPHA)
+        if charged:
+            pygame.draw.rect(surf, (*color, 105), surf.get_rect(), 1, border_radius=3)
+        vx, vy = vectors.get(str(digit), (0.0, 0.0))
+        cx = size / 2.0
+        cy = size / 2.0
+        if vx == 0.0 and vy == 0.0:
+            pygame.draw.circle(surf, color, (round(cx), round(cy)), max(2, size // 6))
+            return surf
+        mag = math.hypot(vx, vy) or 1.0
+        ux, uy = vx / mag, vy / mag
+        pygame.draw.line(
+            surf,
+            color,
+            (cx - ux * size * 0.22, cy - uy * size * 0.22),
+            (cx + ux * size * 0.22, cy + uy * size * 0.22),
+            max(2, size // 8),
+        )
+        px, py = -uy, ux
+        tip = (cx + ux * size * 0.40, cy + uy * size * 0.40)
+        back = (cx + ux * size * 0.10, cy + uy * size * 0.10)
+        half = size * 0.16
+        pygame.draw.polygon(surf, color, [
+            (round(tip[0]), round(tip[1])),
+            (round(back[0] + px * half), round(back[1] + py * half)),
+            (round(back[0] - px * half), round(back[1] - py * half)),
+        ])
+        return surf
+
+    def _render_mission_input_notation(self, notation: str, color: tuple[int, int, int]) -> pygame.Surface | None:
+        notation = str(notation or "").strip().upper()
+        if not notation:
+            return None
+
+        jump_match = re.fullmatch(r"J\.?([ABC])", notation)
+        if jump_match:
+            jump_text = f"j.{jump_match.group(1)}"
+            label = self.smallfont.render(jump_text, True, (245, 248, 255))
+            box = pygame.Surface(
+                (label.get_width() + 10, max(16, label.get_height() + 4)),
+                pygame.SRCALPHA,
+            )
+            pygame.draw.rect(box, (*color, 170), box.get_rect(), border_radius=4)
+            pygame.draw.rect(box, color, box.get_rect(), 1, border_radius=4)
+            box.blit(
+                label,
+                (
+                    (box.get_width() - label.get_width()) // 2,
+                    (box.get_height() - label.get_height()) // 2,
+                ),
+            )
+            return box
+        tokens = re.findall(
+            r"\[[1-9]\]|ATK|XX|HOLD|RELEASE|MASH|CHARGE|AIR|THEN|[1-9]|[ABCP TX]|\+|/|>|X\d+",
+            notation.replace("×", "X"),
+        )
+        tokens = [token for token in tokens if token.strip()]
+        if not tokens:
+            return None
+        parts = []
+        gap = 3
+        for token in tokens:
+            charged = token.startswith("[") and token.endswith("]")
+            bare = token[1:-1] if charged else token
+            if bare in "123456789":
+                parts.append(self._mission_direction_icon(bare, color, 16, charged))
+            elif bare in {"A", "B", "C", "P", "T", "X", "XX", "ATK"}:
+                label = self.smallfont.render(bare, True, (245, 248, 255))
+                box = pygame.Surface((label.get_width() + 8, max(16, label.get_height() + 4)), pygame.SRCALPHA)
+                pygame.draw.rect(box, (*color, 170), box.get_rect(), border_radius=4)
+                pygame.draw.rect(box, color, box.get_rect(), 1, border_radius=4)
+                box.blit(label, ((box.get_width() - label.get_width()) // 2, (box.get_height() - label.get_height()) // 2))
+                parts.append(box)
+            else:
+                parts.append(self.smallfont.render(bare, True, (188, 196, 214)))
+        width = sum(part.get_width() for part in parts) + gap * max(0, len(parts) - 1)
+        height = max(part.get_height() for part in parts)
+        surface = pygame.Surface((max(1, width), max(1, height)), pygame.SRCALPHA)
+        dx = 0
+        for part in parts:
+            surface.blit(part, (dx, (height - part.get_height()) // 2))
+            dx += part.get_width() + gap
+        return surface
+
     def draw_mission_overlay(self) -> None:
         self.mission_click_rects = []
         self.mission_panel_rect = None
@@ -1417,9 +1512,16 @@ class MasterOverlay:
                     color = base_color
 
                 surf = self.smallfont.render(label, True, color)
-                step_surfs.append((idx, surf, color))
+                input_notation = str(step.get("input") or "").strip() if isinstance(step, dict) else ""
+                input_surf = self._render_mission_input_notation(input_notation, color)
+                step_surfs.append((idx, surf, color, input_surf))
 
-            step_row_h = (step_surfs[0][1].get_height() if step_surfs else 18) + STEP_PAD_Y * 2
+            step_content_h = max(
+                [surf.get_height() for _idx, surf, _color, _input_surf in step_surfs]
+                + [input_surf.get_height() for _idx, _surf, _color, input_surf in step_surfs if input_surf is not None]
+                + [18]
+            )
+            step_row_h = step_content_h + STEP_PAD_Y * 2
 
             timer_block_h = 0
             if show_goal_timer:
@@ -1614,7 +1716,7 @@ class MasterOverlay:
 
             # Step boxes
             step_box_w = box_w - pad * 2
-            for idx, surf, text_color in step_surfs:
+            for idx, surf, text_color, input_surf in step_surfs:
                 t = self.step_anim.get(idx, 0.0)
                 is_completed = idx < completed_step_count
                 is_active = idx == current_step_index
@@ -1629,7 +1731,7 @@ class MasterOverlay:
                     row_surf.fill((20, 38, 26, alpha))
                     border_color = (60, 140, 80, int(80 + t * 100))
                 elif is_active and t > 0.0:
-                    # Metallic blue gradient — drawn as horizontal strips
+                    # Metallic blue gradient  -  drawn as horizontal strips
                     for strip_y in range(step_row_h):
                         frac = strip_y / max(step_row_h - 1, 1)
                         # gradient: dark blue at top/bottom, brighter mid
@@ -1656,7 +1758,7 @@ class MasterOverlay:
                         )
 
                 else:
-                    # Pending or animating out — dark base
+                    # Pending or animating out  -  dark base
                     row_surf.fill((28, 22, 44, 180))
                     border_color = (80, 70, 110, 120)
 
@@ -1688,7 +1790,7 @@ class MasterOverlay:
                     border_radius=3,
                 )
 
-                # Text — dim completed steps based on animation
+                # Text  -  dim completed steps based on animation
                 step = steps[idx]
                 if isinstance(step, dict):
                     step_text = str(step.get("display") or "").strip() or " / ".join(step.get("labels", []))
@@ -1716,6 +1818,10 @@ class MasterOverlay:
                 draw_surf = self.smallfont.render(label_str, True, draw_color)
 
                 self.screen.blit(draw_surf, (x + pad + STEP_PAD_X + row_offset_x, draw_y + STEP_PAD_Y))
+                if input_surf is not None:
+                    input_x = x + pad + step_box_w - STEP_PAD_X - input_surf.get_width() + row_offset_x
+                    input_y = draw_y + (step_row_h - input_surf.get_height()) // 2
+                    self.screen.blit(input_surf, (input_x, input_y))
                 draw_y += step_row_h + STEP_GAP
 
             if not self.mission_show_all and len(steps) > STEP_VISIBLE_COUNT:

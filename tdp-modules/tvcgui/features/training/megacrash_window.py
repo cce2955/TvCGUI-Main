@@ -336,7 +336,7 @@ def _normalize_roster_context(roster_context: Any) -> list[dict]:
             "name": name,
             "char_id": char_id,
             "labels": labels,
-            "display": f"{slot} — {name}",
+            "display": f"{slot}  -  {name}",
         })
     return out
 

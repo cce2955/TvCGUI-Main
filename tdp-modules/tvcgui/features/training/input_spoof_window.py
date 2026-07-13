@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+import threading
 import tkinter as tk
 from collections import deque
 from typing import Any
@@ -84,16 +85,18 @@ def _show(master: tk.Misc | None = None) -> None:
     win = tk.Toplevel(master) if master is not None else tk.Toplevel()
     _WIN = win
     win.title("Input Monitor")
-    win.geometry("760x650")
-    win.minsize(680, 560)
+    win.geometry("780x650")
+    win.minsize(700, 560)
     win.configure(bg=_BG)
 
     closed = False
+    sampler_stop = threading.Event()
 
     def _close() -> None:
         nonlocal closed
         global _WIN
         closed = True
+        sampler_stop.set()
         _WIN = None
         win.destroy()
 
@@ -104,7 +107,7 @@ def _show(master: tk.Misc | None = None) -> None:
     _label(body, "Live Input Monitor", bold=True, size=13).pack(fill="x")
     _label(
         body,
-        "Reads the verified fighter input packet directly. It does not use Punish Training or write input values.",
+        "Read-only monitor. Polls the fighter input packet from emulated RAM. It does not enable debugging, install Gecko codes, edit Dolphin configuration, create breakpoints, or inject inputs.",
         muted=True,
     ).pack(fill="x", pady=(3, 10))
 
@@ -197,120 +200,220 @@ def _show(master: tk.Misc | None = None) -> None:
     rule_var = tk.StringVar(value="No normal-rule record for the current action.")
     _label(rule_card, variable=rule_var, muted=True, wrap=700).pack(fill="x", padx=12, pady=(0, 9))
 
-    history: deque[str] = deque(maxlen=24)
-    last_held_key: int | None = None
+    history: deque[str] = deque(maxlen=32)
+    sample_lock = threading.RLock()
+    sample_queue: deque[dict[str, int]] = deque(maxlen=192)
+    sampler_state: dict[str, Any] = {
+        "slot": slot_var.get(),
+        "raw": None,
+        "latest": {},
+        "seq": 0,
+    }
     last_action_id: int | None = None
     last_slot = slot_var.get()
     last_non_neutral_at = 0.0
+    next_detail_refresh = 0.0
+
+    def _reset_sampler(slot: str) -> None:
+        with sample_lock:
+            sampler_state["slot"] = str(slot)
+            sampler_state["raw"] = None
+            sampler_state["latest"] = {}
+            sample_queue.clear()
 
     def _clear_history(*_args: Any) -> None:
-        nonlocal last_held_key, last_action_id, last_slot
+        nonlocal last_action_id, last_slot, last_non_neutral_at
         history.clear()
         history_var.set("")
-        last_held_key = None
         last_action_id = None
         last_slot = slot_var.get()
+        last_non_neutral_at = 0.0
+        _reset_sampler(last_slot)
 
     slot_var.trace_add("write", _clear_history)
 
     def _hex(value: Any) -> str:
         return f"0x{int(value or 0) & 0xFFFFFFFF:08X}"
 
-    def _record_input(snapshot: dict[str, Any]) -> None:
-        nonlocal last_held_key, last_action_id, last_non_neutral_at, last_slot
-        current_slot = str(snapshot.get("slot") or slot_var.get())
-        if current_slot != last_slot:
-            _clear_history()
-            last_slot = current_slot
+    def _sampler_loop() -> None:
+        interval = 1.0 / 240.0
+        next_tick = time.perf_counter()
+        while not sampler_stop.is_set():
+            with sample_lock:
+                selected_slot = str(sampler_state.get("slot") or "P1-C1")
+            try:
+                packet = input_monitor.read_overlay_input_packet(selected_slot)
+            except Exception:
+                packet = {}
 
-        held = int(snapshot.get("held", 0)) & 0xFF
-        pressed = int(snapshot.get("pressed", 0)) & 0xFF
-        relevant = held & input_monitor.KNOWN_INPUT_MASK
-        event_key = relevant
+            held = int(packet.get("held", 0) or 0) & 0xFFFF
+            raw_pressed = int(packet.get("pressed", 0) or 0) & 0xFFFF
+            raw_released = int(packet.get("released", 0) or 0) & 0xFFFF
+
+            with sample_lock:
+                if selected_slot != str(sampler_state.get("slot") or ""):
+                    continue
+                previous = sampler_state.get("raw")
+                if previous is None:
+                    previous_held = held
+                    previous_pressed = 0
+                    previous_released = 0
+                else:
+                    previous_held, previous_pressed, previous_released = previous
+
+                fresh_pressed = raw_pressed & ~int(previous_pressed)
+                fresh_released = raw_released & ~int(previous_released)
+                held_changed = previous is None or held != int(previous_held)
+
+                sampler_state["raw"] = (held, raw_pressed, raw_released)
+                sampler_state["latest"] = {
+                    **dict(packet or {}),
+                    "held": held,
+                    "pressed": fresh_pressed,
+                    "released": fresh_released,
+                }
+
+                # Ignore repeated reads of the same one-frame edge. A genuine
+                # second tap has a neutral/release transition before it returns.
+                if held_changed or fresh_pressed or fresh_released:
+                    sampler_state["seq"] = int(sampler_state.get("seq", 0) or 0) + 1
+                    sample_queue.append({
+                        "seq": int(sampler_state["seq"]),
+                        "held": held,
+                        "pressed": fresh_pressed,
+                        "released": fresh_released,
+                    })
+
+            next_tick += interval
+            delay = next_tick - time.perf_counter()
+            if delay <= 0.0:
+                next_tick = time.perf_counter()
+                delay = 0.001
+            sampler_stop.wait(delay)
+
+    sampler_thread = threading.Thread(
+        target=_sampler_loop,
+        name="TvCInputMonitorSampler",
+        daemon=True,
+    )
+    sampler_thread.start()
+
+    def _record_sample(sample: dict[str, int]) -> None:
+        nonlocal last_non_neutral_at
+        held = int(sample.get("held", 0) or 0) & 0xFFFF
+        notation = input_monitor.format_input_word(held, neutral_label=False)
         now = time.monotonic()
-
-        if event_key != last_held_key:
-            notation = input_monitor.format_input_word(held, neutral_label=False)
-            if notation:
-                history.append(notation)
-                last_non_neutral_at = now
-            elif history and now - last_non_neutral_at > 0.12:
+        if notation:
+            # Do not compare with history[-1]. Identical tokens separated by a
+            # real neutral/release sample are separate taps and must both appear.
+            history.append(notation)
+            last_non_neutral_at = now
+        elif history and now - last_non_neutral_at > 0.12:
+            if history[-1] != "·":
                 history.append("·")
-            last_held_key = event_key
-        elif pressed & (input_monitor.BUTTON_A | input_monitor.BUTTON_B | input_monitor.BUTTON_C | input_monitor.BUTTON_PARTNER):
-            notation = input_monitor.format_input_word(held, neutral_label=False)
-            if notation and (not history or history[-1] != notation):
-                history.append(notation)
-                last_non_neutral_at = now
-
-        action_id = int(snapshot.get("action_id", 0))
-        if action_id != last_action_id:
-            action_name = str(snapshot.get("action_name") or "")
-            if action_id >= 0x100 and action_name:
-                marker = f"[{action_name}]"
-                if not history or history[-1] != marker:
-                    history.append(marker)
-            last_action_id = action_id
-
         history_var.set("  ".join(history))
 
+    def _record_action(snapshot: dict[str, Any]) -> None:
+        nonlocal last_action_id
+        action_id = int(snapshot.get("action_id", 0) or 0)
+        if action_id == last_action_id:
+            return
+        action_name = str(snapshot.get("action_name") or "")
+        if action_id >= 0x100 and action_name:
+            marker = f"[{action_name}]"
+            if not history or history[-1] != marker:
+                history.append(marker)
+                history_var.set("  ".join(history))
+        last_action_id = action_id
+
+    def _update_fast_input_ui(packet: dict[str, Any]) -> None:
+        if not packet:
+            return
+        if not packet.get("connected", True):
+            status_var.set("Waiting for a live fighter pointer...")
+            return
+        status_var.set("Live, 240 Hz input capture")
+        held = int(packet.get("held", 0) or 0) & 0xFFFF
+        pressed = int(packet.get("pressed", 0) or 0) & 0xFFFF
+        released = int(packet.get("released", 0) or 0) & 0xFFFF
+        held_var.set(input_monitor.format_input_word(held))
+        pressed_var.set(f"Pressed: {input_monitor.format_button_edges(pressed)}")
+        released_var.set(f"Released: {input_monitor.format_button_edges(released)}")
+        raw_vars["previous"].set(_hex(packet.get("previous")))
+        raw_vars["held"].set(f"{_hex(held)}  {input_monitor.format_input_word(held)}")
+        raw_vars["pressed"].set(f"{_hex(pressed)}  {input_monitor.format_button_edges(pressed)}")
+        raw_vars["released"].set(f"{_hex(released)}  {input_monitor.format_button_edges(released)}")
+
+    def _refresh_details(snapshot: dict[str, Any]) -> None:
+        if not snapshot.get("connected"):
+            identity_var.set(f"{slot_var.get()} pointer {_hex(snapshot.get('pointer_address'))}")
+            action_var.set("Action: --")
+            return
+
+        action_id = int(snapshot.get("action_id", 0))
+        action_name = str(snapshot.get("action_name") or "unknown")
+        action_var.set(f"Action: 0x{action_id:03X}  {action_name}")
+        identity_var.set(
+            f"{snapshot.get('slot')}  {snapshot.get('char_name')}  "
+            f"fighter {_hex(snapshot.get('base'))}"
+        )
+        raw_vars["repeat_a"].set(_hex(snapshot.get("repeat_a")))
+        raw_vars["repeat_b"].set(_hex(snapshot.get("repeat_b")))
+        raw_vars["software"].set(_hex(snapshot.get("software_flags")))
+        raw_vars["state"].set(f"{_hex(snapshot.get('state_a'))} / {_hex(snapshot.get('state_b'))}")
+        raw_vars["commands"].set(
+            f"accepted={_hex(snapshot.get('accepted_command'))}  "
+            f"pending={_hex(snapshot.get('pending_command_index'))}  "
+            f"flags={_hex(snapshot.get('pending_command_flags'))}  "
+            f"meta={_hex(snapshot.get('pending_command_meta'))}"
+        )
+        if snapshot.get("slot") == "P1-C1":
+            raw_vars["source"].set(
+                f"status={_hex(snapshot.get('source_status'))}  "
+                f"decoded={_hex(snapshot.get('source_decoded'))}  "
+                f"raw={_hex(snapshot.get('source_raw'))}"
+            )
+        else:
+            raw_vars["source"].set("P1-C1 source globals only")
+        raw_vars["rule_table"].set(
+            f"{_hex(snapshot.get('rule_table'))}  entries={int(snapshot.get('rule_count', 0))}"
+        )
+
+        action_rules = list(snapshot.get("current_action_rules") or [])
+        if action_rules:
+            rule_var.set("\n".join(input_monitor.format_rule(entry) for entry in action_rules[:4]))
+        elif action_id >= 0x100:
+            rule_var.set("No normal-rule record for this action. It may come from the special-command or another resolver path.")
+        else:
+            rule_var.set("No normal-rule record for the current movement/state action.")
+        _record_action(snapshot)
+
     def _refresh() -> None:
+        nonlocal next_detail_refresh
         if closed:
             return
-        snapshot = input_monitor.read_input_snapshot(slot_var.get())
-        if not snapshot.get("connected"):
-            status_var.set(str(snapshot.get("error") or "Waiting for Dolphin..."))
-            held_var.set("--")
-            action_var.set("Action: --")
-            identity_var.set(f"{slot_var.get()} pointer {_hex(snapshot.get('pointer_address'))}")
-        else:
-            status_var.set("Live")
-            held_var.set(str(snapshot.get("held_text") or "5"))
-            action_id = int(snapshot.get("action_id", 0))
-            action_name = str(snapshot.get("action_name") or "unknown")
-            action_var.set(f"Action: 0x{action_id:03X}  {action_name}")
-            identity_var.set(
-                f"{snapshot.get('slot')}  {snapshot.get('char_name')}  "
-                f"fighter {_hex(snapshot.get('base'))}"
-            )
-            pressed_var.set(f"Pressed: {snapshot.get('pressed_text')}")
-            released_var.set(f"Released: {snapshot.get('released_text')}")
 
-            raw_vars["previous"].set(_hex(snapshot.get("previous")))
-            raw_vars["held"].set(f"{_hex(snapshot.get('held'))}  {snapshot.get('held_text')}")
-            raw_vars["pressed"].set(f"{_hex(snapshot.get('pressed'))}  {snapshot.get('pressed_text')}")
-            raw_vars["released"].set(f"{_hex(snapshot.get('released'))}  {snapshot.get('released_text')}")
-            raw_vars["repeat_a"].set(_hex(snapshot.get("repeat_a")))
-            raw_vars["repeat_b"].set(_hex(snapshot.get("repeat_b")))
-            raw_vars["software"].set(_hex(snapshot.get("software_flags")))
-            raw_vars["state"].set(f"{_hex(snapshot.get('state_a'))} / {_hex(snapshot.get('state_b'))}")
-            raw_vars["commands"].set(
-                f"accepted={_hex(snapshot.get('accepted_command'))}  "
-                f"pending={_hex(snapshot.get('pending_command_index'))}  "
-                f"flags={_hex(snapshot.get('pending_command_flags'))}  "
-                f"meta={_hex(snapshot.get('pending_command_meta'))}"
-            )
-            if snapshot.get("slot") == "P1-C1":
-                raw_vars["source"].set(
-                    f"status={_hex(snapshot.get('source_status'))}  "
-                    f"decoded={_hex(snapshot.get('source_decoded'))}  "
-                    f"raw={_hex(snapshot.get('source_raw'))}"
-                )
-            else:
-                raw_vars["source"].set("P1-C1 source globals only")
-            raw_vars["rule_table"].set(
-                f"{_hex(snapshot.get('rule_table'))}  entries={int(snapshot.get('rule_count', 0))}"
-            )
+        with sample_lock:
+            latest = dict(sampler_state.get("latest") or {})
+            pending = list(sample_queue)
+            sample_queue.clear()
 
-            action_rules = list(snapshot.get("current_action_rules") or [])
-            if action_rules:
-                rule_var.set("\n".join(input_monitor.format_rule(entry) for entry in action_rules[:4]))
-            elif action_id >= 0x100:
-                rule_var.set("No normal-rule record for this action. It may come from the special-command or another resolver path.")
-            else:
-                rule_var.set("No normal-rule record for the current movement/state action.")
+        for sample in pending:
+            _record_sample(sample)
+        _update_fast_input_ui(latest)
 
-            _record_input(snapshot)
+        now = time.monotonic()
+        if now >= next_detail_refresh:
+            next_detail_refresh = now + 0.25
+            try:
+                snapshot = input_monitor.read_input_snapshot(slot_var.get())
+            except Exception as exc:
+                snapshot = {"connected": False, "error": repr(exc)}
+            if not snapshot.get("connected"):
+                if not latest.get("connected"):
+                    status_var.set(str(snapshot.get("error") or "Waiting for Dolphin..."))
+                    held_var.set("--")
+            _refresh_details(snapshot)
 
         try:
             win.after(16, _refresh)

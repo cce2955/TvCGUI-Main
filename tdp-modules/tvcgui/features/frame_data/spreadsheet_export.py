@@ -385,7 +385,15 @@ class FrameDataSpreadsheetExporter:
     can never replace the whole workbook.
     """
 
-    def __init__(self, *, path: Path | None = None, master_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        path: Path | None = None,
+        master_path: Path | None = None,
+        background: bool | None = None,
+        startup_rebuild: bool | None = None,
+    ) -> None:
+        runtime_default = path is None and master_path is None
         requested = Path(master_path or path or master_export_path())
         # Older internal callers treated ``path`` as a directory.  Continue to
         # accept that form while making the default/master path unambiguous.
@@ -394,6 +402,11 @@ class FrameDataSpreadsheetExporter:
         self.path = requested
         self.character_directory = self.path.parent / EXPORT_DIRECTORY_NAME
         self._lock = threading.RLock()
+        self._background = runtime_default if background is None else bool(background)
+        self._startup_rebuild = (not runtime_default) if startup_rebuild is None else bool(startup_rebuild)
+        self._queue_lock = threading.Lock()
+        self._pending_scans: list[tuple[Mapping[str, Any], ...]] = []
+        self._worker: threading.Thread | None = None
         self._rows_by_path: dict[Path, dict[str, dict[str, str]]] = {}
         self._loaded_paths: set[Path] = set()
         self.last_error = ""
@@ -403,9 +416,8 @@ class FrameDataSpreadsheetExporter:
         self.character_directory.mkdir(parents=True, exist_ok=True)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._migrate_prior_export_layout_if_needed()
-        # Safe on startup: no source file can remove an older master row, and
-        # no disk write happens unless the merged result actually differs.
-        self.compile_master_from_character_exports()
+        if self._startup_rebuild:
+            self.compile_master_from_character_exports()
 
     def _migrate_prior_export_layout_if_needed(self) -> None:
         """Copy older runtime exports into the requested ``data/exports`` layout.
@@ -415,8 +427,14 @@ class FrameDataSpreadsheetExporter:
         additional recovery copy.
         """
         try:
+            def _has_csv_data(candidate: Path) -> bool:
+                try:
+                    return candidate.is_file() and candidate.stat().st_size > 64
+                except OSError:
+                    return False
+
             old_master = prior_root_export_path()
-            if self._data_row_count(self.path) == 0 and self._data_row_count(old_master) > 0:
+            if not _has_csv_data(self.path) and _has_csv_data(old_master):
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(old_master, self.path)
             old_source_dir = prior_root_character_directory()
@@ -425,7 +443,7 @@ class FrameDataSpreadsheetExporter:
                     if source_path.name.lower().endswith(".previous.csv"):
                         continue
                     target_path = self.character_directory / source_path.name
-                    if self._data_row_count(target_path) == 0 and self._data_row_count(source_path) > 0:
+                    if not _has_csv_data(target_path) and _has_csv_data(source_path):
                         shutil.copy2(source_path, target_path)
         except Exception as exc:
             self.last_error = f"prior export migration failed: {exc!r}"
@@ -642,7 +660,7 @@ class FrameDataSpreadsheetExporter:
     # Simple alias for any future GUI button or test harness.
     rebuild_master = compile_master_from_character_exports
 
-    def upsert_scan_rows(self, scan_rows: Iterable[Mapping[str, Any]] | None) -> bool:
+    def _upsert_scan_rows_sync(self, scan_rows: Iterable[Mapping[str, Any]] | None, *, rebuild_master: bool = True) -> bool:
         """Write each observed character first, then rebuild the shared master.
 
         A four-character rich scan updates at most four durable source files.
@@ -690,6 +708,8 @@ class FrameDataSpreadsheetExporter:
                     observed_character_file = True
 
             if wrote_character_source:
+                if not rebuild_master:
+                    return True
                 master_ok = self.compile_master_from_character_exports()
                 if not master_ok and not self.last_error:
                     self.last_error = "master compile did not produce a CSV"
@@ -698,8 +718,63 @@ class FrameDataSpreadsheetExporter:
             # a completed rich result to heal a missing master without touching
             # scanner behavior.
             if observed_character_file and not self.path.exists():
-                return self.compile_master_from_character_exports()
+                return self.compile_master_from_character_exports() if rebuild_master else True
             return observed_character_file
+
+    def _background_worker(self) -> None:
+        while True:
+            with self._queue_lock:
+                if not self._pending_scans:
+                    self._worker = None
+                    return
+                batch = list(self._pending_scans)
+                self._pending_scans.clear()
+
+            processed = False
+            for scan_rows in batch:
+                try:
+                    processed = self._upsert_scan_rows_sync(scan_rows, rebuild_master=False) or processed
+                except Exception as exc:
+                    self.last_error = f"background export failed: {exc!r}"
+
+            if processed:
+                try:
+                    self.compile_master_from_character_exports()
+                    print(f"[fd sheet] background export complete: {self.path}", flush=True)
+                except Exception as exc:
+                    self.last_error = f"background master compile failed: {exc!r}"
+
+    def upsert_scan_rows(self, scan_rows: Iterable[Mapping[str, Any]] | None) -> bool:
+        """Queue runtime exports, while explicit test paths remain synchronous."""
+        if not self._background:
+            return self._upsert_scan_rows_sync(scan_rows)
+
+        snapshot = tuple(row for row in (scan_rows or ()) if isinstance(row, Mapping))
+        if not snapshot:
+            return False
+
+        with self._queue_lock:
+            self._pending_scans.append(snapshot)
+            if self._worker is None or not self._worker.is_alive():
+                self._worker = threading.Thread(
+                    target=self._background_worker,
+                    name="TvCFrameDataExport",
+                    daemon=True,
+                )
+                self._worker.start()
+        return True
+
+    def wait_for_idle(self, timeout: float = 30.0) -> bool:
+        """Wait for queued exports, mainly for tests and explicit shutdown tools."""
+        deadline = time.time() + max(0.0, float(timeout))
+        while time.time() < deadline:
+            with self._queue_lock:
+                worker = self._worker
+                pending = bool(self._pending_scans)
+            if not pending and (worker is None or not worker.is_alive()):
+                return True
+            time.sleep(0.02)
+        return False
 
 __all__ = [
     "EXPORT_DISCLAIMER",

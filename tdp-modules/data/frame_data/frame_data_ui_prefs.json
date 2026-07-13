@@ -3,6 +3,8 @@
     "abs": 142,
     "active": 111,
     "active2": 124,
+    "adv_block_derived": 78,
+    "adv_block_observed": 78,
     "air_kb": 132,
     "attack_property": 220,
     "blockstun": 100,
@@ -96,7 +98,7 @@
     "superbg": 136
   },
   "density": "detailed",
-  "geometry": "1700x818+177+43",
+  "geometry": "1700x818+301+1614",
   "sash_pos": 1210,
   "view_mode": "all"
 }

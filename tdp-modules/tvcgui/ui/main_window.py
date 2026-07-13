@@ -7,6 +7,7 @@ main event loop is easier to audit without changing behavior.
 
 import math
 import time
+from collections import OrderedDict
 
 import pygame
 
@@ -61,6 +62,55 @@ GUI_SLOT_MUTED = {
 }
 
 
+_GRADIENT_CACHE: "OrderedDict[tuple, tuple[pygame.Surface, int]]" = OrderedDict()
+_GRADIENT_CACHE_PIXELS = 0
+_GRADIENT_CACHE_PIXEL_LIMIT = 3_000_000
+_GRADIENT_CACHE_ENTRY_LIMIT = 64
+
+
+def _cached_gradient_surface(
+    width: int,
+    height: int,
+    top_col: tuple[int, int, int],
+    bot_col: tuple[int, int, int],
+    alpha: int,
+) -> pygame.Surface:
+    global _GRADIENT_CACHE_PIXELS
+
+    key = (
+        int(width),
+        int(height),
+        tuple(int(v) for v in top_col),
+        tuple(int(v) for v in bot_col),
+        int(alpha),
+    )
+    cached = _GRADIENT_CACHE.get(key)
+    if cached is not None:
+        _GRADIENT_CACHE.move_to_end(key)
+        return cached[0]
+
+    grad = pygame.Surface((int(width), int(height)), pygame.SRCALPHA)
+    for y in range(int(height)):
+        t = y / max(1, int(height) - 1)
+        r = int(top_col[0] * (1.0 - t) + bot_col[0] * t)
+        g = int(top_col[1] * (1.0 - t) + bot_col[1] * t)
+        b = int(top_col[2] * (1.0 - t) + bot_col[2] * t)
+        pygame.draw.line(grad, (r, g, b, int(alpha)), (0, y), (int(width), y))
+
+    area = int(width) * int(height)
+    if area <= 500_000:
+        _GRADIENT_CACHE[key] = (grad, area)
+        _GRADIENT_CACHE_PIXELS += area
+        while (
+            len(_GRADIENT_CACHE) > _GRADIENT_CACHE_ENTRY_LIMIT
+            or _GRADIENT_CACHE_PIXELS > _GRADIENT_CACHE_PIXEL_LIMIT
+        ):
+            _old_key, (_old_surface, old_area) = _GRADIENT_CACHE.popitem(last=False)
+            _GRADIENT_CACHE_PIXELS = max(0, _GRADIENT_CACHE_PIXELS - int(old_area))
+    return grad
+
+
+
 def _clamp_u8(v: int) -> int:
     return max(0, min(255, int(v)))
 
@@ -113,15 +163,13 @@ def _draw_vertical_gradient(
     if rect.width <= 0 or rect.height <= 0:
         return
 
-    grad = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-
-    for y in range(rect.height):
-        t = y / max(1, rect.height - 1)
-        r = int(top_col[0] * (1.0 - t) + bot_col[0] * t)
-        g = int(top_col[1] * (1.0 - t) + bot_col[1] * t)
-        b = int(top_col[2] * (1.0 - t) + bot_col[2] * t)
-        pygame.draw.line(grad, (r, g, b, alpha), (0, y), (rect.width, y))
-
+    grad = _cached_gradient_surface(
+        rect.width,
+        rect.height,
+        top_col,
+        bot_col,
+        alpha,
+    )
     surf.blit(grad, rect.topleft)
 
 
@@ -177,12 +225,12 @@ def _render_outlined_text(
     pad = max(1, int(outline_px))
     out = pygame.Surface((w + pad * 2, h + pad * 2), pygame.SRCALPHA)
 
+    outline = _fit_text(font, text, outline_color, max_width)
     for ox, oy in (
         (-pad, -pad), (0, -pad), (pad, -pad),
         (-pad, 0),                (pad, 0),
         (-pad, pad),  (0, pad),   (pad, pad),
     ):
-        outline = _fit_text(font, text, outline_color, max_width)
         out.blit(outline, (pad + ox, pad + oy))
 
     out.blit(base, (pad, pad))

@@ -1462,7 +1462,7 @@ class ProjectileScanner:
         return 0
 
     def dump(self, max_hits: int = 3) -> None:
-        print("[ProjectileScanner.dump] signature scan disabled — use NodeWatcher.dump() (F3) instead")
+        print("[ProjectileScanner.dump] signature scan disabled  -  use NodeWatcher.dump() (F3) instead")
 
     @property
     def radius_addrs(self) -> List[int]:

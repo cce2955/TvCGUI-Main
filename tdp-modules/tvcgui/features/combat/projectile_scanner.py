@@ -96,7 +96,7 @@ PROJ_MAP_FILE = "projectilemap.json"
 PROJ_IDS_FILE = "projectile_ids.json"
 
 # ---------------------------------------------------------------------------
-# Field offsets — corrected against MEM2 analysis notes
+# Field offsets  -  corrected against MEM2 analysis notes
 # ---------------------------------------------------------------------------
 # All offsets are relative to the record base (the 00 00 XX YY word; that is,
 # 4 bytes before _SUFFIX).
@@ -104,7 +104,7 @@ PROJ_IDS_FILE = "projectile_ids.json"
 # Notes-confirmed corrections vs. previous version:
 #   type     0x050 (u16) → 0x051 (u8)   [notes: u8 @ +0x51]
 #   lifetime 0x05A (u16) → 0x05B (u8)   [notes: u8 @ +0x5B]
-#   aerial_kb_x/y renamed kb_x/kb_y — the notes confirm these are general
+#   aerial_kb_x/y renamed kb_x/kb_y  -  the notes confirm these are general
 #     knockback components, not aerial-specific.
 #
 # Validation-gate constants (checked before any field is read):
@@ -120,19 +120,19 @@ PROJ_IDS_FILE = "projectile_ids.json"
 #   anything else       → "script(0xNN)"  where NN = high byte of c[0]
 
 FIELD_OFFSETS = {
-    "radius":   0x02C,  # f32 — hitbox radius (notes: consistently 1.0)
-    "kb_x":     0x024,  # f32 — knockback X component  (was aerial_kb_x)
-    "kb_y":     0x028,  # f32 — knockback Y component  (was aerial_kb_y)
-    "c042":     0x042,  # u16 — validation constant, always 10
-    "type":     0x051,  # u8  — type family: 3=Linear, 4=Physics  (CORRECTED +0x050→+0x051)
-    "id":       0x052,  # u16 — projectile type ID
-    "lifetime": 0x05B,  # u8  — active frames / lifetime           (CORRECTED +0x05A→+0x05B)
-    "hb_size":  0x06E,  # u16 — hitbox size (validation constant: 1024)
-    "speed":    0x080,  # f32 — speed scalar
-    "accel":    0x084,  # f32 — validation constant, always 1.0
-    "hitbox":   0x08C,  # f32 — hitbox radius (validation constant: 100.0)
-    "arc":      0x090,  # f32 — arc/gravity (Roll-specific)
-    "arc2":     0x094,  # f32 — arc modifier (Roll-specific)
+    "radius":   0x02C,  # f32  -  hitbox radius (notes: consistently 1.0)
+    "kb_x":     0x024,  # f32  -  knockback X component  (was aerial_kb_x)
+    "kb_y":     0x028,  # f32  -  knockback Y component  (was aerial_kb_y)
+    "c042":     0x042,  # u16  -  validation constant, always 10
+    "type":     0x051,  # u8   -  type family: 3=Linear, 4=Physics  (CORRECTED +0x050→+0x051)
+    "id":       0x052,  # u16  -  projectile type ID
+    "lifetime": 0x05B,  # u8   -  active frames / lifetime           (CORRECTED +0x05A→+0x05B)
+    "hb_size":  0x06E,  # u16  -  hitbox size (validation constant: 1024)
+    "speed":    0x080,  # f32  -  speed scalar
+    "accel":    0x084,  # f32  -  validation constant, always 1.0
+    "hitbox":   0x08C,  # f32  -  hitbox radius (validation constant: 100.0)
+    "arc":      0x090,  # f32  -  arc/gravity (Roll-specific)
+    "arc2":     0x094,  # f32  -  arc modifier (Roll-specific)
     "vel2_x":   0x0D4,
     "vel2_y":   0x0D8,
     "vel2_s":   0x0DC,
@@ -222,7 +222,7 @@ def _dmg_write_offset(fmt: str) -> int:
     return 2  # default for template / template2
 
 # ---------------------------------------------------------------------------
-# chr_tbl param table — authoritative damage addresses for script-mode hits
+# chr_tbl param table  -  authoritative damage addresses for script-mode hits
 #
 # Each slot has a 16-byte parameter-entry table at a fixed offset from its
 # chr_tbl_base.  The damage is a u32 big-endian at entry+0x00 (NOT u16 at +2).
@@ -255,7 +255,7 @@ _CHR_TBL_SLOT_SIZE = 0x80000
 # Frank West's character ID in the game's roster.
 FRANK_CHAR_ID = 30   # 0x1E
 
-# Fighter base addresses for each slot — char_id is read from base + 0x14.
+# Fighter base addresses for each slot  -  char_id is read from base + 0x14.
 # These are the same bases established in the slot/scanner work.
 _FIGHTER_BASES = [
     0x9246B9C0,   # slot 0
@@ -386,7 +386,7 @@ def _resolve_script_dmg_addr(hit_addr: int, dmg: int) -> int | None:
 
 
 def _write_u32(addr: int, val: int) -> bool:
-    """Write a big-endian u32 — used for the zombie param-table entries."""
+    """Write a big-endian u32  -  used for the zombie param-table entries."""
     if wbytes is None:
         return False
     try:
@@ -473,7 +473,7 @@ def _validate_template(data: bytes, base_off: int, relaxed: bool = False) -> boo
 # Clustering helpers
 #
 # Groups validated template records by (proj_id, type_family) first, then by
-# (damage, speed, kb_x, kb_y) to identify tiers/variants — exactly the
+# (damage, speed, kb_x, kb_y) to identify tiers/variants  -  exactly the
 # workflow described in the notes.
 # ---------------------------------------------------------------------------
 def _cluster_key(h: dict) -> tuple:
@@ -505,7 +505,7 @@ def _annotate_clusters(hits: list[dict]) -> None:
     'ID:0xNNNN TF:N tier:M/T' so the UI can show grouping without a
     separate column explosion.
 
-    Script/opcode hits are tagged 'script' — no cluster analysis.
+    Script/opcode hits are tagged 'script'  -  no cluster analysis.
     """
     from collections import defaultdict
 
@@ -2198,7 +2198,7 @@ class ProjScannerWindow:
             n_known = sum(1 for h in hits if h.get("key") != "?")
             n_unk   = sum(1 for h in hits if h.get("key") == "?" and h.get("move") == "Unknown")
             self._status.set(
-                f"Done — {len(hits)} match(es): {n_known} attributed, {n_unk} unknown."
+                f"Done  -  {len(hits)} match(es): {n_known} attributed, {n_unk} unknown."
             )
         try:
             self.root.after(0, _f)

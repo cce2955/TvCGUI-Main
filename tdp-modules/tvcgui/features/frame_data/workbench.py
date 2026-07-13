@@ -1040,13 +1040,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             if self._projectile_profiled:
                 self._projectile_status_var.set(f"Projectiles {count} ready")
             else:
-                self._projectile_status_var.set("Projectiles —")
+                self._projectile_status_var.set("Projectiles  - ")
         if self._super_status_var is not None:
             count = len(self._super_hits or [])
             if self._super_profiled:
                 self._super_status_var.set(f"Specials {count} ready")
             else:
-                self._super_status_var.set("Specials —")
+                self._super_status_var.set("Specials  - ")
 
     def _persist_optional_profile(self, *, projectile_hits=None, super_hits=None) -> bool:
         """Write completed discovery-pass rows into the existing character profile."""
@@ -2581,10 +2581,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _refresh_inspector_headline(self, item_id: str | None, mv: dict | None):
         """Update four constant-time headline stats from cached table cells."""
         for col, var in (getattr(self, "_headline_stat_vars", {}) or {}).items():
-            value = "—"
+            value = " - "
             try:
                 if item_id and self.tree and col in self.tree["columns"]:
-                    value = str(self.tree.set(item_id, col) or "").strip() or "—"
+                    value = str(self.tree.set(item_id, col) or "").strip() or " - "
             except Exception:
                 pass
             try:
@@ -2749,7 +2749,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._compare_summary_var.set("Pin a move to compare damage, timing, and stun as you browse.")
         for _var in (getattr(self, "_compare_delta_vars", {}) or {}).values():
             try:
-                _var.set("—")
+                _var.set(" - ")
             except Exception:
                 pass
 
@@ -2789,14 +2789,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             title_var.set("No pinned move")
             summary_var.set("Pin a move to compare damage, timing, and stun as you browse.")
             for key in ("damage", "startup", "active", "hitstop", "blockstun"):
-                _set_delta(key, "—")
+                _set_delta(key, " - ")
             return
         pinned_label = str(pinned.get("label") or "Pinned move")
         title_var.set(f"Pinned: {pinned_label}")
         if not item_id or not self.tree:
             summary_var.set("Choose another move to compare against the pinned snapshot.")
             for key in ("damage", "startup", "active", "hitstop", "blockstun"):
-                _set_delta(key, "—")
+                _set_delta(key, " - ")
             return
         if item_id == pinned.get("item_id"):
             summary_var.set("This is the pinned move. Select another row to see deltas.")
@@ -2819,7 +2819,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 _set_delta(delta_key, pretty)
                 parts.append(f"{label} {pretty}")
             else:
-                _set_delta(delta_key, "—")
+                _set_delta(delta_key, " - ")
         before_active = str((pinned.get("values") or {}).get("active") or "")
         after_active = str(current.get("active") or "")
         if before_active and after_active:
@@ -2839,7 +2839,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             else:
                 parts.append("Active same")
         else:
-            _set_delta("active", "—")
+            _set_delta("active", " - ")
         try:
             current_label = self.tree.set(item_id, "move")
         except Exception:

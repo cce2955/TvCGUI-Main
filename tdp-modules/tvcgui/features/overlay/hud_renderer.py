@@ -81,11 +81,42 @@ PASSIVE_LABELS = {
 REACTION_IDS = {48, 49, 50, 51, 52, 64, 65, 66, 73,75, 79, 80, 81, 
                 82, 83, 89, 90, 92, 95, 96, 98,
                 102,105,106,113, 114,115,116, 117, 118 ,119, 160}
+BLOCK_REACTION_IDS = {48, 49, 50, 51, 52, 53}
 BAROQUE_CANCEL_IDS = {162, 163, 164}
 INPUT_DIRECTION_MASK = 0x0F
-INPUT_BUTTON_MASK = 0xF0
+INPUT_FACE_BUTTON_MASK = 0xF0
+INPUT_TAUNT_MASK = 0x0C00
+INPUT_BUTTON_MASK = INPUT_FACE_BUTTON_MASK | INPUT_TAUNT_MASK
 INPUT_TRACK_MASK = INPUT_DIRECTION_MASK | INPUT_BUTTON_MASK
 
+_INPUT_DIRECTION_TEXT = {
+    0x0: "5",
+    0x1: "6",
+    0x2: "4",
+    0x4: "8",
+    0x5: "9",
+    0x6: "7",
+    0x8: "2",
+    0x9: "3",
+    0xA: "1",
+}
+
+
+def _format_overlay_input_token(direction_bits: int, button_bits: int = 0) -> str:
+    direction = _INPUT_DIRECTION_TEXT.get(int(direction_bits) & INPUT_DIRECTION_MASK, "5")
+    buttons: list[str] = []
+    word = int(button_bits) & INPUT_BUTTON_MASK
+    if word & 0x80:
+        buttons.append("A")
+    if word & 0x40:
+        buttons.append("B")
+    if word & 0x20:
+        buttons.append("C")
+    if word & 0x10:
+        buttons.append("P")
+    if (word & INPUT_TAUNT_MASK) == INPUT_TAUNT_MASK:
+        buttons.append("T")
+    return direction + "".join(buttons)
 
 
 # ---------------------------------------------------------------------------
@@ -180,11 +211,86 @@ def _snap_move(slot_label: str) -> str:
         return "Action"
 
 
+def _snap_attack_property_label(slot_label: str) -> str:
+    snap = _display_slots.get(slot_label) or {}
+    label = str(snap.get("attack_property_label") or "").strip().upper()
+    if label:
+        return label
+    try:
+        value = int(snap.get("attack_property")) & 0xFF
+    except (TypeError, ValueError):
+        return "UNKNOWN"
+    return {
+        0x04: "UNBLOCKABLE",
+        0x09: "MID", 0x0A: "MID", 0x0C: "MID",
+        0x11: "OVERHEAD", 0x12: "OVERHEAD", 0x14: "OVERHEAD",
+        0x21: "LOW", 0x22: "LOW", 0x24: "LOW",
+    }.get(value, "UNKNOWN")
+
+
+def _contact_is_block(victim_slot: str) -> bool:
+    victim_move = _mv(victim_slot)
+    if victim_move in BLOCK_REACTION_IDS:
+        return True
+    victim_label = str((_display_slots.get(victim_slot) or {}).get("mv_label") or "").strip().lower()
+    return "blockstun" in victim_label or victim_label.startswith("block ")
+
+
+def _emit_first_contact_badge(st: dict, attacker_slot: str, victim_slot: str) -> bool:
+    label = str(st.get("attack_guard_label") or "").strip().upper()
+    if not label or label == "UNKNOWN":
+        label = _snap_attack_property_label(attacker_slot)
+        if label and label != "UNKNOWN":
+            st["attack_guard_label"] = label
+    if not label or label == "UNKNOWN":
+        st["guard_indicator_pending"] = True
+        return False
+    hit = not bool(st.get("first_contact_blocked", False))
+    _set_guard_indicator(victim_slot, label, hit)
+    st["guard_indicator_pending"] = False
+    st["guard_indicator_emitted"] = True
+    return True
+
+
 def _begin_adv_contact(st: dict, attacker_slot: str, victim_slot: str) -> None:
+    current_contact_blocked = _contact_is_block(victim_slot)
+
+    # Hits lock to the first contacting move for the whole combo. Blocks should
+    # retrigger for each newly blocked move in a blockstring.
+    if bool(st.get("combo_property_locked", False)):
+        if current_contact_blocked:
+            st["victim_hp_start"] = _snap_int(victim_slot, "cur")
+            st["attack_move"] = _snap_move(attacker_slot)
+            st["attack_guard_label"] = _snap_attack_property_label(attacker_slot)
+            st["attacker_name"] = _snap_name(attacker_slot)
+            st["victim_name"] = _snap_name(victim_slot)
+            st["first_contact_blocked"] = True
+            st["guard_indicator_pending"] = False
+            st["guard_indicator_emitted"] = False
+            _emit_first_contact_badge(st, attacker_slot, victim_slot)
+            return
+        if bool(st.get("guard_indicator_pending", False)) and not bool(st.get("guard_indicator_emitted", False)):
+            _emit_first_contact_badge(st, attacker_slot, victim_slot)
+        return
     st["victim_hp_start"] = _snap_int(victim_slot, "cur")
     st["attack_move"] = _snap_move(attacker_slot)
+    st["attack_guard_label"] = _snap_attack_property_label(attacker_slot)
     st["attacker_name"] = _snap_name(attacker_slot)
     st["victim_name"] = _snap_name(victim_slot)
+    st["first_contact_blocked"] = current_contact_blocked
+    st["guard_indicator_pending"] = False
+    st["guard_indicator_emitted"] = False
+    st["combo_property_locked"] = True
+    _emit_first_contact_badge(st, attacker_slot, victim_slot)
+
+
+def _set_guard_indicator(slot_label: str, label: str, hit: bool) -> None:
+    slot_anim = _get_slot_anim(slot_label)
+    guard_label = str(label or "").strip().upper() or "UNKNOWN"
+    slot_anim["guard_indicator_label"] = guard_label
+    slot_anim["guard_indicator_result"] = "HIT" if hit else "BLOCK"
+    slot_anim["guard_indicator_life"] = 1.0
+    slot_anim["guard_indicator_flash"] = 1.0
 
 
 def _publish_interaction(attacker_slot: str, victim_slot: str, st: dict, advantage: int) -> None:
@@ -205,6 +311,12 @@ def _publish_interaction(attacker_slot: str, victim_slot: str, st: dict, advanta
         "color": (255, 126, 126) if hit else (128, 180, 255),
         "life": 1.0,
     })
+    st["combo_property_locked"] = False
+    st["attack_guard_label"] = ""
+    st["attack_move"] = ""
+    st["first_contact_blocked"] = False
+    st["guard_indicator_pending"] = False
+    st["guard_indicator_emitted"] = False
 
 
 def _combo_register_damage(victim_slot: str, damage: int) -> None:
@@ -269,6 +381,11 @@ def _update_adv() -> None:
             "prev_v": None,
             "victim_hp_start": None,
             "attack_move": "",
+            "attack_guard_label": "",
+            "combo_property_locked": False,
+            "first_contact_blocked": False,
+            "guard_indicator_pending": False,
+            "guard_indicator_emitted": False,
             "attacker_name": "",
             "victim_name": "",
         })
@@ -281,6 +398,13 @@ def _update_adv() -> None:
         st["prev_v"] = v_mv
 
         if st["state"] == 0:
+            if _is_actionable(a_mv) and _is_actionable(v_mv):
+                st["combo_property_locked"] = False
+                st["attack_guard_label"] = ""
+                st["attack_move"] = ""
+                st["first_contact_blocked"] = False
+                st["guard_indicator_pending"] = False
+                st["guard_indicator_emitted"] = False
             if _is_attacking(a_mv) and _is_stuck(v_mv):
                 st["state"]      = 1
                 st["first_end"]  = None
@@ -288,7 +412,10 @@ def _update_adv() -> None:
                 _begin_adv_contact(st, a_slot, v_slot)
 
         elif st["state"] == 1:
-            # New hit or move-id change — reset timer, stay tracking
+            if bool(st.get("guard_indicator_pending", False)) and not bool(st.get("guard_indicator_emitted", False)):
+                _emit_first_contact_badge(st, a_slot, v_slot)
+
+            # New hit or move-id change  -  reset timer, stay tracking
             if _is_attacking(a_mv) and _is_stuck(v_mv) and (
                 not _is_attacking(prev_a) or a_mv != prev_a
             ):
@@ -317,18 +444,18 @@ def _update_adv() -> None:
                 st["first_slot"] = "V"
 
         elif st["state"] == 2:
-            # Attacker hit again before adv resolved — discard stale timer, restart
+            # Attacker hit again before adv resolved  -  discard stale timer, restart
             if _is_attacking(a_mv) and _is_stuck(v_mv):
                 st["first_end"]  = None
                 st["first_slot"] = None
                 st["state"]      = 1 if _is_attacking(prev_a) else 0
                 continue
 
-            # Attacker went idle for a frame but victim still stuck — they're in a
+            # Attacker went idle for a frame but victim still stuck  -  they're in a
             # blockstring gap. Don't resolve yet; if they start attacking again,
             # state 1 above will catch it. If victim recovers first the module resolve below.
             if st["first_slot"] == "A" and _is_stuck(v_mv) and not _is_attacking(a_mv):
-                # attacker is in gap — wait, don't commit yet
+                # attacker is in gap  -  wait, don't commit yet
                 continue
 
             if st["first_slot"] == "A" and _is_actionable(v_mv):
@@ -387,14 +514,30 @@ def _get_slot_anim(slot_label: str):
         "prev_baroque_pct": None,
         "baroque_events": [],
         "input_history": [],
+        "input_chips": [],
+        "pending_input_chip_tokens": [],
+        "pending_input_chip_start_frame": None,
+        "pending_input_last_frame": None,
+        "input_chip_break": False,
+        "button_hold_active": {},
+        "button_hold_events": [],
+        "button_hold_seq": 0,
+        "qualified_hold_mask": 0,
+        "prev_input_state": None,
+        "prev_visible_input_state": None,
         "prev_input_key": None,
         "last_input_frame": -9999,
+        "last_input_sample_seq": 0,
         "hp_display_frac": None,
         "partner_hp_display_frac": None,
         "meter_display_value": None,
         "baroque_alpha": 0.0,
         "event_history": [],
         "prev_compact_move_key": "",
+        "guard_indicator_label": "",
+        "guard_indicator_result": "",
+        "guard_indicator_life": 0.0,
+        "guard_indicator_flash": 0.0,
         "ko_alpha": 0.0,
         "ko_scale": 0.90,
     })
@@ -411,6 +554,15 @@ def _get_team_anim(team: str):
         "move_history_signature": (),
         "move_history_prev": [],
         "move_history_slide": 0.0,
+        "input_history_signature": (),
+        "input_history_prev": [],
+        "input_history_current": [],
+        "input_history_slide": 0.0,
+        "hold_history_signature": (),
+        "hold_history_prev": [],
+        "hold_history_current": [],
+        "hold_history_slide": 0.0,
+        "hold_expand": 0.0,
         "log_history_signature": (),
         "log_history_prev": [],
         "log_history_slide": 0.0,
@@ -508,17 +660,25 @@ def sync_overlay_to_dolphin(dolphin_hwnd: int, overlay_hwnd: int):
 # Data reader
 # ---------------------------------------------------------------------------
 
-_last_data_mtime: float = 0.0
+_last_data_signature: tuple[int, int, int, int] | None = None
 _cached_slots: dict = {}
 
 def read_slot_data() -> dict:
-    global _last_data_mtime, _cached_slots
+    global _last_data_signature, _cached_slots
     try:
-        mt = os.path.getmtime(DATA_FILE)
-        if mt != _last_data_mtime:
-            _last_data_mtime = mt
-            with open(DATA_FILE) as f:
-                _cached_slots = json.load(f)
+        stat = os.stat(DATA_FILE)
+        signature = (
+            int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+            int(getattr(stat, "st_ctime_ns", int(stat.st_ctime * 1_000_000_000))),
+            int(stat.st_size),
+            int(getattr(stat, "st_ino", 0)),
+        )
+        if signature != _last_data_signature:
+            with open(DATA_FILE, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                _cached_slots = loaded
+                _last_data_signature = signature
     except Exception:
         pass
     return _cached_slots
@@ -1315,6 +1475,122 @@ def _compact_partner_state(snap: dict) -> str:
     return "READY"
 
 
+def _track_compact_input_packet(
+    slot_anim: dict,
+    input_held: int,
+    input_pressed: int,
+    input_released: int,
+    frame_number: int,
+) -> None:
+    """Record one raw input sample without dropping repeated direction taps."""
+    input_held = int(input_held) & 0xFFFF
+    input_pressed = int(input_pressed) & 0xFFFF
+    input_released = int(input_released) & 0xFFFF
+    frame_number = int(frame_number)
+
+    _update_button_hold_log(slot_anim, input_held, frame_number)
+
+    current_input_state = input_held & INPUT_TRACK_MASK
+    direction_key = current_input_state & INPUT_DIRECTION_MASK
+    held_buttons = current_input_state & INPUT_BUTTON_MASK
+    previous_input_state = slot_anim.get("prev_input_state")
+    previous_visible_state = slot_anim.get("prev_visible_input_state")
+    input_history = slot_anim["input_history"]
+
+    if previous_input_state is None:
+        previous_input_state_int = current_input_state
+    else:
+        previous_input_state_int = int(previous_input_state) & INPUT_TRACK_MASK
+
+    previous_qualified_mask = int(slot_anim.get("qualified_hold_mask", 0)) & INPUT_BUTTON_MASK
+    qualified_hold_mask = _qualified_button_hold_mask(slot_anim, frame_number)
+    newly_qualified_mask = qualified_hold_mask & ~previous_qualified_mask
+    slot_anim["qualified_hold_mask"] = qualified_hold_mask
+
+    # The game's pressed/released words can remain asserted for a complete game
+    # frame. The overlay may sample that frame more than once, so only accept the
+    # newly observed edge bits. A real second tap is still preserved because the
+    # edge word clears, or the held state returns to neutral, between taps.
+    previous_raw_pressed = int(slot_anim.get("prev_raw_pressed", 0) or 0) & INPUT_BUTTON_MASK
+    previous_raw_released = int(slot_anim.get("prev_raw_released", 0) or 0) & INPUT_BUTTON_MASK
+    raw_pressed = input_pressed & INPUT_BUTTON_MASK
+    raw_released = input_released & INPUT_BUTTON_MASK
+    fresh_raw_pressed = raw_pressed & ~previous_raw_pressed
+    fresh_raw_released = raw_released & ~previous_raw_released
+
+    derived_pressed = current_input_state & ~previous_input_state_int & INPUT_BUTTON_MASK
+    derived_released = previous_input_state_int & ~current_input_state & INPUT_BUTTON_MASK
+    pressed_buttons = (fresh_raw_pressed | derived_pressed) & INPUT_BUTTON_MASK
+    released_buttons = (fresh_raw_released | derived_released) & INPUT_BUTTON_MASK
+
+    visible_held_buttons = held_buttons & (~qualified_hold_mask & INPUT_BUTTON_MASK)
+    visible_input_state = direction_key | visible_held_buttons
+
+    if previous_visible_state is None:
+        previous_visible_state_int = visible_input_state
+    else:
+        previous_visible_state_int = int(previous_visible_state) & INPUT_TRACK_MASK
+
+    visible_pressed_buttons = pressed_buttons & (~qualified_hold_mask & INPUT_BUTTON_MASK)
+    hidden_hold_edges = previous_qualified_mask | qualified_hold_mask
+    visible_released_buttons = released_buttons & (~hidden_hold_edges & INPUT_BUTTON_MASK)
+
+    input_events: list[tuple[str, str]] = []
+    previous_direction = previous_visible_state_int & INPUT_DIRECTION_MASK
+    direction_changed = direction_key != previous_direction
+
+    if visible_pressed_buttons:
+        press_state = direction_key | visible_held_buttons | visible_pressed_buttons
+        input_events.append((
+            "press",
+            _format_overlay_input_token(
+                press_state & INPUT_DIRECTION_MASK,
+                press_state & INPUT_BUTTON_MASK,
+            ),
+        ))
+
+    if direction_changed:
+        if direction_key == 0 and not visible_held_buttons:
+            # Neutral is the separator between taps, not an input-history chip.
+            _freeze_active_input_chip(slot_anim, frame_number)
+        else:
+            direction_text = _format_overlay_input_token(
+                visible_input_state & INPUT_DIRECTION_MASK,
+                visible_input_state & INPUT_BUTTON_MASK,
+            )
+            if not input_events or input_events[-1][1] != direction_text:
+                input_events.append(("direction", direction_text))
+
+    if newly_qualified_mask or visible_released_buttons:
+        _freeze_active_input_chip(slot_anim, frame_number)
+
+    if previous_input_state is None and visible_input_state and not input_events:
+        input_events.append((
+            "initial",
+            _format_overlay_input_token(
+                visible_input_state & INPUT_DIRECTION_MASK,
+                visible_input_state & INPUT_BUTTON_MASK,
+            ),
+        ))
+
+    for event_kind, input_text in input_events:
+        if not input_text:
+            continue
+        # Keep every real state transition. A direction pressed on one frame and
+        # a button pressed later are two distinct inputs. Same-frame direction +
+        # button packets already arrive as one combined token above.
+        input_history.append(input_text)
+        _append_input_chip_token(slot_anim, input_text, frame_number)
+        slot_anim["last_input_frame"] = frame_number
+
+    slot_anim["prev_input_state"] = current_input_state
+    slot_anim["prev_visible_input_state"] = visible_input_state
+    slot_anim["prev_input_key"] = direction_key
+    slot_anim["prev_raw_pressed"] = raw_pressed
+    slot_anim["prev_raw_released"] = raw_released
+    del input_history[:-12]
+
+
 def _compact_track_slot(slot_label: str, snap: dict) -> None:
     """Update compact-overlay event state from the latest slot snapshot."""
     slot_anim = _get_slot_anim(slot_label)
@@ -1389,28 +1665,45 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
     slot_anim["prev_baroque_pct"] = baroque_cur
 
     try:
-        input_held = int(snap.get("input_held") or 0) & 0xFF
-        input_pressed = int(snap.get("input_pressed") or 0) & 0xFF
+        input_held = int(snap.get("input_held") or 0) & 0xFFFF
+        input_pressed = int(snap.get("input_pressed") or 0) & 0xFFFF
+        input_released = int(snap.get("input_released") or 0) & 0xFFFF
     except (TypeError, ValueError):
         input_held = 0
         input_pressed = 0
-    input_key = input_held & INPUT_TRACK_MASK
-    previous_input_key = slot_anim.get("prev_input_key")
-    input_history = slot_anim["input_history"]
-    input_text = str(snap.get("input_text") or "5").strip()
-    if input_key != previous_input_key:
-        if input_key and input_text and input_text != "5":
-            if not input_history or input_history[-1] != input_text:
-                input_history.append(input_text)
-                slot_anim["last_input_frame"] = _frame
-        elif previous_input_key not in (None, 0) and input_history and input_history[-1] != "·":
-            input_history.append("·")
-        slot_anim["prev_input_key"] = input_key
-    elif input_pressed & INPUT_BUTTON_MASK and input_text and input_text != "5":
-        if not input_history or input_history[-1] != input_text:
-            input_history.append(input_text)
-            slot_anim["last_input_frame"] = _frame
-    del input_history[:-12]
+        input_released = 0
+
+    raw_samples = snap.get("input_samples")
+    samples = [item for item in raw_samples if isinstance(item, dict)] if isinstance(raw_samples, list) else []
+    last_sample_seq = int(slot_anim.get("last_input_sample_seq", 0) or 0)
+    max_available_seq = max((int(item.get("seq", 0) or 0) for item in samples), default=0)
+    if max_available_seq and max_available_seq < last_sample_seq:
+        # Producer restarted, so its sequence counter began again.
+        last_sample_seq = 0
+
+    pending_samples = [
+        item for item in samples
+        if int(item.get("seq", 0) or 0) > last_sample_seq
+    ]
+    pending_samples.sort(key=lambda item: int(item.get("seq", 0) or 0))
+
+    if pending_samples:
+        sample_count = len(pending_samples)
+        for sample_index, sample in enumerate(pending_samples):
+            sample_frame = int(_frame) - (sample_count - sample_index - 1)
+            _track_compact_input_packet(
+                slot_anim,
+                int(sample.get("held", 0) or 0) & 0xFFFF,
+                int(sample.get("pressed", 0) or 0) & 0xFFFF,
+                int(sample.get("released", 0) or 0) & 0xFFFF,
+                sample_frame,
+            )
+        slot_anim["last_input_sample_seq"] = int(pending_samples[-1].get("seq", 0) or 0)
+    else:
+        # Continue active frame counters and hold qualification while unchanged.
+        _track_compact_input_packet(
+            slot_anim, input_held, input_pressed, input_released, int(_frame)
+        )
 
     move_id = snap.get("mv_id_display")
     move_label = _compact_move_label(snap)
@@ -1428,6 +1721,9 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
 
     if slot_anim.get("damage_timer", 0) > 0:
         slot_anim["damage_timer"] -= 1
+
+    slot_anim["guard_indicator_life"] = max(0.0, float(slot_anim.get("guard_indicator_life", 0.0)) - 0.008)
+    slot_anim["guard_indicator_flash"] = max(0.0, float(slot_anim.get("guard_indicator_flash", 0.0)) - 0.030)
 
 
 def _draw_compact_meter(screen, x: int, y: int, width: int, meter_value_visual, scale: float, is_dead: bool) -> int:
@@ -1702,12 +1998,80 @@ def _draw_compact_info_strip(
             _draw_compact_stat_chip(screen, font_sm, draw_x, y, action_kind, value, action_color, scale, 1.0)
 
 
+def _render_compact_text_chip(font_sm, primary: str, color: tuple[int, int, int], scale: float, alpha: float = 1.0, secondary: str = "", rainbow: bool = False, emphasis: float = 1.0) -> pygame.Surface:
+    pad_x = max(5, int(6 * scale))
+    pad_y = max(2, int(3 * scale))
+    inner_gap = max(3, int(4 * scale))
+    border_radius = max(5, int(6 * scale))
+
+    prim = str(primary or "").strip()
+    sec = str(secondary or "").strip()
+    if rainbow and prim:
+        prim_surf = _render_compact_rainbow_text(font_sm, prim, 0.24)
+    else:
+        prim_surf = font_sm.render(prim, True, color)
+    if emphasis != 1.0:
+        prim_surf = pygame.transform.smoothscale(prim_surf, (max(1, int(prim_surf.get_width() * emphasis)), max(1, int(prim_surf.get_height() * emphasis))))
+    if sec:
+        sec_surf = font_sm.render(sec, True, (156, 166, 184))
+    else:
+        sec_surf = None
+
+    width = prim_surf.get_width() + pad_x * 2
+    height = prim_surf.get_height() + pad_y * 2
+    if sec_surf is not None:
+        width += inner_gap + sec_surf.get_width()
+        height = max(height, sec_surf.get_height() + pad_y * 2)
+
+    surf = pygame.Surface((max(1, width), max(1, height)), pygame.SRCALPHA)
+    bg_alpha = max(0, min(255, int(168 * alpha)))
+    border_alpha = max(0, min(255, int(116 * alpha)))
+    pygame.draw.rect(surf, (26, 31, 40, bg_alpha), (0, 0, width, height), border_radius=border_radius)
+    pygame.draw.rect(surf, (70, 84, 104, border_alpha), (0, 0, width, height), 1, border_radius=border_radius)
+    pygame.draw.rect(
+        surf,
+        (*color, max(0, min(255, int(90 * alpha)))),
+        (1, 1, max(1, width - 2), max(2, int(2 * scale))),
+        border_top_left_radius=border_radius,
+        border_top_right_radius=border_radius,
+    )
+    if alpha < 0.999:
+        prim_surf.set_alpha(max(0, min(255, int(255 * alpha))))
+        if sec_surf is not None:
+            sec_surf.set_alpha(max(0, min(255, int(255 * alpha))))
+    dx = pad_x
+    surf.blit(prim_surf, (dx, (height - prim_surf.get_height()) // 2))
+    dx += prim_surf.get_width()
+    if sec_surf is not None:
+        dx += inner_gap
+        surf.blit(sec_surf, (dx, (height - sec_surf.get_height()) // 2))
+    return surf
+
+
+def _history_label_width(font_sm, scale: float) -> int:
+    labels = ("LOG", "INPUTS", "FRAMES", "HOLD", "MOVES")
+    return max(font_sm.size(label)[0] for label in labels) + max(16, int(20 * scale))
+
+
+def _draw_history_header_chip(screen, font_sm, title: str, x: int, y: int, scale: float) -> int:
+    label_w = _history_label_width(font_sm, scale)
+    label_h = max(font_sm.get_height() + max(4, int(5 * scale)), int(15 * scale))
+    radius = max(3, int(4 * scale))
+    chip = pygame.Surface((label_w, label_h), pygame.SRCALPHA)
+    pygame.draw.rect(chip, (22, 28, 36, 214), (0, 0, label_w, label_h), border_radius=radius)
+    pygame.draw.rect(chip, (66, 82, 108, 170), (0, 0, label_w, label_h), 1, border_radius=radius)
+    pygame.draw.rect(chip, (88, 128, 190, 120), (1, 1, max(1, label_w - 2), max(2, int(2 * scale))), border_top_left_radius=radius, border_top_right_radius=radius)
+    label_surface = font_sm.render(title, True, (176, 190, 214))
+    chip.blit(label_surface, ((label_w - label_surface.get_width()) // 2, (label_h - label_surface.get_height()) // 2))
+    screen.blit(chip, (x, y))
+    return label_w
+
+
 def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x: int, y: int, right: int, scale: float, prev_items: list[dict] | None = None, slide_progress: float = 0.0) -> None:
-    title_surface = font_sm.render(title, True, (110, 122, 142))
-    screen.blit(title_surface, (x, y))
-    draw_x = x + title_surface.get_width() + max(6, int(7 * scale))
+    label_w = _draw_history_header_chip(screen, font_sm, title, x, y, scale)
+    draw_x = x + label_w + max(6, int(7 * scale))
     gap = max(6, int(7 * scale))
-    clip_rect = pygame.Rect(draw_x, y - 1, max(1, right - draw_x), font_sm.get_height() + int(4 * scale))
+    clip_rect = pygame.Rect(draw_x, y - 1, max(1, right - draw_x), max(font_sm.get_height() + int(8 * scale), int(18 * scale)))
 
     def _norm(source) -> list[dict]:
         out = []
@@ -1733,29 +2097,22 @@ def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x
         rendered = []
         for idx, item in enumerate(source_items):
             alpha = max(0.35, min(1.0, alpha_override if alpha_override is not None else item.get("life", 1.0)))
-            txt = f"{item.get('label','')} {item.get('value','')}".strip()
-            if item.get("rainbow"):
-                surf = _render_compact_rainbow_text(font_sm, txt, 0.18 + idx * 0.14)
-            else:
-                surf = font_sm.render(txt, True, item.get("color") or (196, 205, 220))
-            surf.set_alpha(int(255 * alpha))
+            primary = f"{item.get('label','')} {item.get('value','')}".strip()
+            color = item.get("color") or (196, 205, 220)
+            surf = _render_compact_text_chip(font_sm, primary, color, scale, alpha, rainbow=item.get("rainbow", False), emphasis=1.04 if idx == 0 else 1.0)
             rendered.append(surf)
-            if idx < len(source_items) - 1:
-                dot = font_sm.render("•", True, (86, 96, 114))
-                dot.set_alpha(int(180 * alpha))
-                rendered.append(dot)
         return rendered
 
     current_items = _norm(items)
     previous_items = _norm(prev_items)
     if not current_items and not previous_items:
-        empty = font_sm.render("—", True, (86, 96, 114))
+        empty = font_sm.render(" - ", True, (86, 96, 114))
         screen.blit(empty, (draw_x, y))
         return
 
     current_parts = _render_parts(current_items, 1.0)
     previous_parts = _render_parts(previous_items, max(0.0, min(1.0, slide_progress))) if previous_items else []
-    inserted_shift = max(int(26 * scale), current_parts[0].get_width() + gap if current_parts else int(26 * scale))
+    inserted_shift = max(int(30 * scale), current_parts[0].get_width() + gap if current_parts else int(30 * scale))
 
     def _draw_parts(parts, base_x):
         dx = base_x
@@ -1777,39 +2134,696 @@ def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x
     screen.set_clip(old_clip)
 
 
-def _draw_compact_input_history(screen, font_sm, items: list[str], x: int, y: int, right: int, scale: float) -> None:
-    title_surface = font_sm.render("INPUT", True, (110, 122, 142))
-    screen.blit(title_surface, (x, y))
-    draw_x = x + title_surface.get_width() + max(6, int(7 * scale))
-    gap = max(4, int(5 * scale))
-    clip_rect = pygame.Rect(draw_x, y - 1, max(1, right - draw_x), font_sm.get_height() + int(4 * scale))
-    tokens = [str(item or "").strip() for item in (items or []) if str(item or "").strip()]
-    if not tokens:
-        empty = font_sm.render("—", True, (86, 96, 114))
+
+
+HOLD_LOG_LIFETIME_FRAMES = 80
+HOLD_LOG_MIN_FRAMES = 26
+
+_BUTTON_HOLD_SPECS = (
+    ("A", 0x0080),
+    ("B", 0x0040),
+    ("C", 0x0020),
+    ("P", 0x0010),
+    ("T", 0x0C00),
+)
+
+_BUTTON_HOLD_COLORS = {
+    "A": (92, 232, 146),
+    "B": (132, 204, 255),
+    "C": (255, 148, 112),
+    "P": (190, 132, 255),
+    "T": (242, 205, 92),
+}
+
+
+def _button_mask_is_held(input_word: int, mask: int) -> bool:
+    word = int(input_word) & 0xFFFF
+    if mask == INPUT_TAUNT_MASK:
+        return (word & mask) == mask
+    return bool(word & mask)
+
+
+def _qualified_button_hold_mask(slot_anim: dict, current_frame: int) -> int:
+    active = slot_anim.get("button_hold_active", {})
+    qualified = 0
+    for label, mask in _BUTTON_HOLD_SPECS:
+        hold = active.get(label)
+        if not isinstance(hold, dict):
+            continue
+        start_frame = int(hold.get("start_frame", current_frame))
+        held_frames = max(0, int(current_frame) - start_frame)
+        if held_frames >= HOLD_LOG_MIN_FRAMES:
+            qualified |= int(mask)
+    return qualified & INPUT_BUTTON_MASK
+
+
+def _update_button_hold_log(slot_anim: dict, input_held: int, frame_number: int) -> None:
+    active = slot_anim.setdefault("button_hold_active", {})
+    events = slot_anim.setdefault("button_hold_events", [])
+
+    for label, mask in _BUTTON_HOLD_SPECS:
+        held_now = _button_mask_is_held(input_held, mask)
+        if held_now and label not in active:
+            slot_anim["button_hold_seq"] = int(slot_anim.get("button_hold_seq", 0)) + 1
+            active[label] = {
+                "start_frame": int(frame_number),
+                "seq": int(slot_anim["button_hold_seq"]),
+            }
+        elif not held_now and label in active:
+            hold = active.pop(label)
+            start_frame = int(hold.get("start_frame", frame_number))
+            held_frames = max(0, int(frame_number) - start_frame)
+            if held_frames >= HOLD_LOG_MIN_FRAMES:
+                events.insert(0, {
+                    "label": label,
+                    "start_frame": start_frame,
+                    "end_frame": int(frame_number),
+                    "frames": held_frames,
+                    "seq": int(hold.get("seq", 0)),
+                })
+
+    events[:] = [
+        event
+        for event in events
+        if int(frame_number) - int(event.get("end_frame", frame_number)) < HOLD_LOG_LIFETIME_FRAMES
+    ]
+    del events[12:]
+
+
+def _display_button_holds(slot_anim: dict, current_frame: int, limit: int = 8) -> list[dict]:
+    out: list[dict] = []
+    active = slot_anim.get("button_hold_active", {})
+
+    active_rows = []
+    for label, hold in active.items():
+        start_frame = int(hold.get("start_frame", current_frame))
+        held_frames = max(0, int(current_frame) - start_frame)
+        if held_frames < HOLD_LOG_MIN_FRAMES:
+            continue
+        active_rows.append({
+            "id": f"active:{label}:{int(hold.get('seq', 0))}",
+            "label": label,
+            "frames": held_frames,
+            "active": True,
+            "alpha": 1.0,
+            "seq": int(hold.get("seq", 0)),
+        })
+    active_rows.sort(key=lambda item: item["seq"], reverse=True)
+    out.extend(active_rows)
+
+    for event in slot_anim.get("button_hold_events", []):
+        age = max(0, int(current_frame) - int(event.get("end_frame", current_frame)))
+        if age >= HOLD_LOG_LIFETIME_FRAMES:
+            continue
+        out.append({
+            "id": f"done:{event.get('label')}:{int(event.get('seq', 0))}",
+            "label": str(event.get("label") or "?"),
+            "frames": max(0, int(event.get("frames", 0))),
+            "active": False,
+            "alpha": max(0.0, 1.0 - age / HOLD_LOG_LIFETIME_FRAMES),
+            "seq": int(event.get("seq", 0)),
+        })
+        if len(out) >= limit:
+            break
+
+    return out[:limit]
+
+
+def _draw_compact_hold_history(
+    screen,
+    font_sm,
+    items: list[dict],
+    x: int,
+    y: int,
+    right: int,
+    scale: float,
+    prev_items: list[dict] | None = None,
+    slide_progress: float = 0.0,
+) -> None:
+    label_w = _draw_history_header_chip(screen, font_sm, "HOLD", x, y, scale)
+    draw_x = x + label_w + max(6, int(7 * scale))
+    gap = max(5, int(6 * scale))
+    clip_rect = pygame.Rect(
+        draw_x,
+        y - 1,
+        max(1, right - draw_x),
+        max(font_sm.get_height() + int(8 * scale), int(18 * scale)),
+    )
+
+    def _build_parts(source, alpha_override=None):
+        rendered = []
+        for index, item in enumerate(list(source or [])[:8]):
+            label = str(item.get("label") or "?")
+            frames = max(0, int(item.get("frames") or 0))
+            item_alpha = float(item.get("alpha", 1.0))
+            alpha = item_alpha if alpha_override is None else min(item_alpha, float(alpha_override))
+            color = _BUTTON_HOLD_COLORS.get(label, (196, 205, 220))
+            primary = f"{label} {frames}f"
+            secondary = "HELD" if item.get("active") else ""
+            rendered.append(
+                _render_compact_text_chip(
+                    font_sm,
+                    primary,
+                    color,
+                    scale,
+                    max(0.0, min(1.0, alpha)),
+                    secondary=secondary,
+                    emphasis=1.04 if index == 0 else 1.0,
+                )
+            )
+        return rendered
+
+    def _draw_parts(parts, base_x):
+        dx = base_x
+        for index, surf in enumerate(parts):
+            if dx > right:
+                break
+            screen.blit(surf, (dx, y))
+            dx += surf.get_width()
+            if index < len(parts) - 1:
+                dx += gap
+
+    current_parts = _build_parts(items)
+    previous_parts = _build_parts(prev_items, max(0.0, min(1.0, slide_progress))) if prev_items else []
+
+    if not current_parts and not previous_parts:
+        empty = font_sm.render(" - ", True, (86, 96, 114))
         screen.blit(empty, (draw_x, y))
         return
 
+    inserted_shift = max(
+        int(30 * scale),
+        current_parts[0].get_width() + gap if current_parts else int(30 * scale),
+    )
+
     old_clip = screen.get_clip()
     screen.set_clip(clip_rect)
-    widths = []
-    rendered = []
-    for index, token in enumerate(tokens[-12:]):
-        if token == "·":
-            color = (78, 88, 104)
+    if slide_progress > 0.001 and previous_parts:
+        _draw_parts(previous_parts, draw_x + int(inserted_shift * (1.0 - slide_progress)))
+        _draw_parts(current_parts, draw_x - int(inserted_shift * slide_progress))
+    else:
+        _draw_parts(current_parts, draw_x)
+    screen.set_clip(old_clip)
+
+
+def _freeze_active_input_chip(slot_anim: dict, frame_number: int) -> None:
+    """Stop the active frame counter without creating a new history entry."""
+    chips = slot_anim.setdefault("input_chips", [])
+    if chips and chips[-1].get("end_frame") is None:
+        chips[-1]["end_frame"] = int(frame_number)
+
+
+def _coalesce_recent_direction_chip(
+    slot_anim: dict,
+    input_history: list,
+    token: str,
+    frame_number: int,
+    *,
+    max_age_frames: int = 3,
+) -> bool:
+    """Fold a brief setup direction into the button input that immediately follows."""
+    token = str(token or "").strip()
+    if not token or not _input_token_has_buttons(token):
+        return False
+
+    chips = slot_anim.setdefault("input_chips", [])
+    if not chips:
+        return False
+
+    last = chips[-1]
+    if last.get("end_frame") is not None:
+        return False
+
+    previous_tokens = [
+        str(item or "").strip()
+        for item in last.get("tokens", [])
+        if str(item or "").strip()
+    ]
+    if len(previous_tokens) != 1:
+        return False
+
+    previous_token = previous_tokens[0]
+    if _input_token_has_buttons(previous_token):
+        return False
+
+    previous_direction, _previous_buttons, _previous_extra = _split_input_token(
+        previous_token
+    )
+    current_direction, _current_buttons, _current_extra = _split_input_token(token)
+    if previous_direction != current_direction:
+        return False
+
+    start_frame = int(last.get("start_frame") or frame_number)
+    age = max(0, int(frame_number) - start_frame)
+    if age > max(0, int(max_age_frames)):
+        return False
+
+    last["tokens"] = [token]
+    last["start_frame"] = int(frame_number)
+    last["end_frame"] = None
+
+    if input_history and str(input_history[-1] or "").strip() == previous_token:
+        input_history[-1] = token
+    else:
+        input_history.append(token)
+
+    return True
+
+
+def _append_input_chip_token(slot_anim: dict, token: str, frame_number: int) -> None:
+    """Create one timed chip per raw input change, including direction-only inputs."""
+    token = str(token or "").strip()
+    if not token or token == "·":
+        return
+
+    chips = slot_anim.setdefault("input_chips", [])
+
+    # Any new raw input freezes the previous chip's counter.
+    if chips and chips[-1].get("end_frame") is None:
+        chips[-1]["end_frame"] = frame_number
+
+    # Avoid double-appending the same token on the same frame from held+pressed paths.
+    if chips:
+        last = chips[-1]
+        if last.get("tokens") == [token] and int(last.get("start_frame") or -1) == int(frame_number):
+            return
+
+    chips.append({
+        "tokens": [token],
+        "start_frame": frame_number,
+        "end_frame": None,
+    })
+    del chips[:-12]
+
+    slot_anim["pending_input_chip_tokens"] = []
+    slot_anim["pending_input_chip_start_frame"] = None
+    slot_anim["pending_input_last_frame"] = None
+    slot_anim["input_chip_break"] = False
+
+
+def _display_input_chips(slot_anim: dict, current_frame: int, limit: int = 8) -> list[dict]:
+    visible: list[dict] = []
+
+    for chip in list(slot_anim.get("input_chips", [])):
+        tokens = [
+            str(tok).strip()
+            for tok in chip.get("tokens", [])
+            if str(tok).strip() and str(tok).strip() != "·"
+        ]
+        if not tokens:
+            continue
+
+        start_frame = chip.get("start_frame")
+        end_frame = chip.get("end_frame")
+        if start_frame is None:
+            frames = 0
         else:
-            age = len(tokens[-12:]) - 1 - index
-            color = (108, 166, 255) if age == 0 else (188, 204, 232) if age <= 3 else (126, 139, 160)
-        surf = font_sm.render(token, True, color)
-        rendered.append(surf)
-        widths.append(surf.get_width())
-    # Keep the input stream attached to its INPUT tag. Right-aligning the
-    # tokens placed short histories in the meter/Baroque column.
-    dx = draw_x
-    for index, surf in enumerate(rendered):
-        screen.blit(surf, (dx, y))
-        dx += surf.get_width()
-        if index < len(rendered) - 1:
+            stop = current_frame if end_frame is None else int(end_frame)
+            frames = max(0, int(stop) - int(start_frame))
+
+        item = {
+            "tokens": tokens,
+            "frames": frames,
+            "active": end_frame is None,
+        }
+
+        # Same-frame duplicates are rejected when chips are created. Keep every
+        # later chip here so a real repeated press remains a separate entry.
+        visible.append(item)
+
+    chips = visible[-max(1, int(limit)):]
+    chips.reverse()
+    return chips
+
+
+_INPUT_DIRECTION_VECTORS = {
+    "1": (-1.0, 1.0),
+    "2": (0.0, 1.0),
+    "3": (1.0, 1.0),
+    "4": (-1.0, 0.0),
+    "5": (0.0, 0.0),
+    "6": (1.0, 0.0),
+    "7": (-1.0, -1.0),
+    "8": (0.0, -1.0),
+    "9": (1.0, -1.0),
+}
+
+
+def _split_input_token(token: str) -> tuple[str, str, str]:
+    text = str(token or "").strip().upper()
+    if not text or text == "·":
+        return text, "", ""
+    direction = text[0] if text and text[0] in _INPUT_DIRECTION_VECTORS else "5"
+    rest = text[1:] if text[:1] == direction else text
+    extra = ""
+    if " +" in rest:
+        rest, extra = rest.split(" +", 1)
+        extra = f"+{extra}"
+    return direction, "".join(ch for ch in rest if ch.isalpha()), extra
+
+
+def _input_token_has_buttons(token: str) -> bool:
+    _direction, buttons, _extra = _split_input_token(token)
+    return bool(buttons)
+
+
+def _group_input_history_tokens(source, limit: int = 5) -> list[list[str]]:
+    tokens = [str(item or "").strip() for item in (source or []) if str(item or "").strip()]
+    groups: list[list[str]] = []
+    current: list[str] = []
+
+    for token in tokens:
+        if token == "·":
+            if current:
+                groups.append(current)
+                current = []
+            continue
+        direction, buttons, extra = _split_input_token(token)
+        if direction == "5" and not buttons and not extra:
+            continue
+        if current and current[-1] == token:
+            continue
+        if not buttons and not extra and current:
+            prev_dir, prev_buttons, prev_extra = _split_input_token(current[-1])
+            if not prev_buttons and not prev_extra and prev_dir == direction:
+                continue
+        current.append(token)
+        if buttons:
+            groups.append(current)
+            current = []
+
+    if current:
+        groups.append(current)
+
+    if not groups:
+        return []
+    trimmed = groups[-limit:]
+    trimmed.reverse()
+    return trimmed
+
+
+def _render_input_direction_icon(direction: str, color: tuple[int, int, int], scale: float, alpha: float = 1.0) -> pygame.Surface:
+    size = max(11, int(14 * scale))
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    rgba = (*color, max(0, min(255, int(255 * alpha))))
+    cx = size / 2.0
+    cy = size / 2.0
+    vec = _INPUT_DIRECTION_VECTORS.get(str(direction), (0.0, 0.0))
+    if vec == (0.0, 0.0):
+        pygame.draw.circle(surf, rgba, (round(cx), round(cy)), max(2, int(size * 0.18)), 0)
+        pygame.draw.circle(surf, (255, 255, 255, max(0, min(255, int(110 * alpha)))), (round(cx), round(cy)), max(3, int(size * 0.30)), 1)
+        return surf
+
+    vx, vy = vec
+    mag = math.hypot(vx, vy) or 1.0
+    ux = vx / mag
+    uy = vy / mag
+    start = (cx - ux * (size * 0.24), cy - uy * (size * 0.24))
+    end = (cx + ux * (size * 0.24), cy + uy * (size * 0.24))
+    shaft_w = max(2, int(size * 0.12))
+    pygame.draw.line(surf, rgba, start, end, shaft_w)
+    px = -uy
+    py = ux
+    tip = (cx + ux * (size * 0.40), cy + uy * (size * 0.40))
+    back = (cx + ux * (size * 0.12), cy + uy * (size * 0.12))
+    head_half = size * 0.16
+    points = [
+        (round(tip[0]), round(tip[1])),
+        (round(back[0] + px * head_half), round(back[1] + py * head_half)),
+        (round(back[0] - px * head_half), round(back[1] - py * head_half)),
+    ]
+    pygame.draw.polygon(surf, rgba, points)
+    return surf
+
+
+def _render_input_token_surface(font_sm, token: str, color: tuple[int, int, int], scale: float, alpha: float = 1.0) -> pygame.Surface:
+    text = str(token or "").strip()
+    if not text:
+        return pygame.Surface((1, max(1, font_sm.get_height())), pygame.SRCALPHA)
+    if text == "·":
+        dot = font_sm.render("•", True, color)
+        if alpha < 0.999:
+            dot.set_alpha(max(0, min(255, int(255 * alpha))))
+        return dot
+
+    direction, buttons, extra = _split_input_token(text)
+    icon = _render_input_direction_icon(direction, color, scale, alpha)
+    parts = [icon]
+    gap = max(3, int(4 * scale))
+    width = icon.get_width()
+    height = max(icon.get_height(), font_sm.get_height())
+
+    if buttons:
+        btn = font_sm.render(buttons, True, color)
+        if alpha < 0.999:
+            btn.set_alpha(max(0, min(255, int(255 * alpha))))
+        parts.append(btn)
+        width += gap + btn.get_width()
+        height = max(height, btn.get_height())
+    if extra:
+        extra_surf = font_sm.render(extra, True, (120, 128, 144))
+        if alpha < 0.999:
+            extra_surf.set_alpha(max(0, min(255, int(255 * alpha))))
+        parts.append(extra_surf)
+        width += gap + extra_surf.get_width()
+        height = max(height, extra_surf.get_height())
+
+    surf = pygame.Surface((max(1, width), max(1, height)), pygame.SRCALPHA)
+    dx = 0
+    for idx, part in enumerate(parts):
+        surf.blit(part, (dx, (height - part.get_height()) // 2))
+        dx += part.get_width()
+        if idx < len(parts) - 1:
             dx += gap
+    return surf
+
+
+def _render_input_group_surface(font_sm, chip: dict, color: tuple[int, int, int], scale: float, alpha: float = 1.0, emphasis: float = 1.0, show_counter: bool = True, dense: bool = False) -> pygame.Surface:
+    """Render an input chip, optionally with its frozen frame counter."""
+    tokens = list(chip.get("tokens") or [])
+    frames = max(0, int(chip.get("frames") or 0))
+
+    if dense:
+        inner_gap = max(2, int(3 * scale))
+        pad_x = max(3, int(4 * scale))
+        pad_y = max(1, int(2 * scale))
+        unit_gap = max(2, int(3 * scale))
+        border_radius = max(4, int(5 * scale))
+    else:
+        inner_gap = max(4, int(5 * scale))
+        pad_x = max(5, int(6 * scale))
+        pad_y = max(2, int(3 * scale))
+        unit_gap = max(3, int(4 * scale))
+        border_radius = max(5, int(6 * scale))
+
+    rendered_parts: list[pygame.Surface] = []
+    visible_tokens = [str(tok).strip() for tok in tokens if str(tok).strip()]
+    for idx, token in enumerate(visible_tokens):
+        rendered_parts.append(_render_input_token_surface(font_sm, token, color, scale * emphasis, alpha))
+        if idx < len(visible_tokens) - 1:
+            sep = font_sm.render(">", True, (90, 98, 114))
+            if alpha < 0.999:
+                sep.set_alpha(max(0, min(255, int(255 * alpha))))
+            rendered_parts.append(sep)
+
+    if not rendered_parts:
+        rendered_parts.append(font_sm.render(" - ", True, color))
+
+    content_w = sum(part.get_width() for part in rendered_parts) + inner_gap * max(0, len(rendered_parts) - 1)
+    content_h = max(part.get_height() for part in rendered_parts)
+    chip_w = content_w + pad_x * 2
+    chip_h = content_h + pad_y * 2
+
+    chip_surface = pygame.Surface((max(1, chip_w), max(1, chip_h)), pygame.SRCALPHA)
+    bg_alpha = max(0, min(255, int(168 * alpha)))
+    border_alpha = max(0, min(255, int(116 * alpha)))
+    pygame.draw.rect(chip_surface, (26, 31, 40, bg_alpha), (0, 0, chip_w, chip_h), border_radius=border_radius)
+    pygame.draw.rect(chip_surface, (70, 84, 104, border_alpha), (0, 0, chip_w, chip_h), 1, border_radius=border_radius)
+    pygame.draw.rect(chip_surface, (*color, max(0, min(255, int(90 * alpha)))), (1, 1, max(1, chip_w - 2), max(2, int(2 * scale))), border_top_left_radius=border_radius, border_top_right_radius=border_radius)
+
+    dx = pad_x
+    for idx, part in enumerate(rendered_parts):
+        chip_surface.blit(part, (dx, (chip_h - part.get_height()) // 2))
+        dx += part.get_width()
+        if idx < len(rendered_parts) - 1:
+            dx += inner_gap
+
+    if not show_counter:
+        return chip_surface
+
+    counter_text = f"{frames}f"
+    counter_color = (232, 240, 252) if bool(chip.get("active")) else (154, 165, 184)
+    counter_surface = font_sm.render(counter_text, True, counter_color)
+    if alpha < 0.999:
+        counter_surface.set_alpha(max(0, min(255, int(255 * alpha))))
+    counter_pad_x = max(5, int(6 * scale))
+    counter_w = counter_surface.get_width() + counter_pad_x * 2
+    counter_h = chip_h
+    counter_box = pygame.Surface((counter_w, counter_h), pygame.SRCALPHA)
+    active = bool(chip.get("active"))
+    counter_fill = (34, 44, 58, max(0, min(255, int((190 if active else 148) * alpha))))
+    counter_border = (*color, max(0, min(255, int((138 if active else 72) * alpha))))
+    pygame.draw.rect(counter_box, counter_fill, (0, 0, counter_w, counter_h), border_radius=border_radius)
+    pygame.draw.rect(counter_box, counter_border, (0, 0, counter_w, counter_h), 1, border_radius=border_radius)
+    counter_box.blit(counter_surface, ((counter_w - counter_surface.get_width()) // 2, (counter_h - counter_surface.get_height()) // 2))
+
+    unit_w = chip_w + unit_gap + counter_w
+    unit_h = max(chip_h, counter_h)
+    unit = pygame.Surface((unit_w, unit_h), pygame.SRCALPHA)
+    unit.blit(chip_surface, (0, (unit_h - chip_h) // 2))
+    unit.blit(counter_box, (chip_w + unit_gap, (unit_h - counter_h) // 2))
+    return unit
+
+
+def _draw_compact_input_history(
+    screen,
+    font_sm,
+    chips: list[dict],
+    x: int,
+    y: int,
+    right: int,
+    scale: float,
+    prev_chips: list[dict] | None = None,
+    slide_progress: float = 0.0,
+) -> None:
+    row_gap = max(2, int(2 * scale))
+    label_w = _history_label_width(font_sm, scale)
+    label_h = max(font_sm.get_height() + max(4, int(5 * scale)), int(15 * scale))
+    frame_y = y + label_h + row_gap
+    draw_x = x + label_w + max(5, int(6 * scale))
+    gap = max(2, int(3 * scale))
+
+    _draw_history_header_chip(screen, font_sm, "INPUTS", x, y, scale)
+    _draw_history_header_chip(screen, font_sm, "FRAMES", x, frame_y, scale)
+
+    recency_colors = [
+        (92, 232, 146),
+        (132, 204, 255),
+        (232, 236, 244),
+        (198, 207, 220),
+        (170, 181, 199),
+        (146, 158, 178),
+        (124, 137, 158),
+        (106, 119, 140),
+    ]
+
+    def _build_units(source, alpha: float):
+        rendered = []
+        for idx, chip in enumerate(list(source or [])[:8]):
+            color = recency_colors[min(idx, len(recency_colors) - 1)]
+            emphasis = 1.03 if idx == 0 else 1.0
+            input_surface = _render_input_group_surface(
+                font_sm,
+                chip,
+                color,
+                scale,
+                alpha,
+                emphasis,
+                show_counter=False,
+                dense=True,
+            )
+
+            frames = max(0, int(chip.get("frames") or 0))
+            frame_color = (232, 240, 252) if bool(chip.get("active")) else (154, 165, 184)
+            frame_surface = font_sm.render(f"{frames}f", True, frame_color)
+            if alpha < 0.999:
+                frame_surface.set_alpha(max(0, min(255, int(255 * alpha))))
+
+            counter_pad = max(2, int(3 * scale))
+            unit_width = max(
+                input_surface.get_width(),
+                frame_surface.get_width() + counter_pad * 2,
+            )
+            unit_height = (
+                input_surface.get_height()
+                + row_gap
+                + frame_surface.get_height()
+            )
+            unit = pygame.Surface(
+                (max(1, unit_width), max(1, unit_height)),
+                pygame.SRCALPHA,
+            )
+            unit.blit(
+                input_surface,
+                ((unit_width - input_surface.get_width()) // 2, 0),
+            )
+            unit.blit(
+                frame_surface,
+                (
+                    (unit_width - frame_surface.get_width()) // 2,
+                    input_surface.get_height() + row_gap,
+                ),
+            )
+            rendered.append(unit)
+        return rendered
+
+    def _draw_units(units, base_x: int):
+        dx = base_x
+        for idx, unit in enumerate(units):
+            if dx >= right:
+                break
+            screen.blit(unit, (dx, y))
+            dx += unit.get_width()
+            if idx < len(units) - 1:
+                dx += gap
+
+    if not chips and not prev_chips:
+        empty = font_sm.render(" - ", True, (86, 96, 114))
+        screen.blit(empty, (draw_x, y))
+        screen.blit(empty, (draw_x, frame_y))
+        return
+
+    current_units = _build_units(chips, 1.0)
+    previous_units = (
+        _build_units(prev_chips, max(0.0, min(1.0, slide_progress)))
+        if prev_chips
+        else []
+    )
+
+    if not current_units and not previous_units:
+        empty = font_sm.render(" - ", True, (86, 96, 114))
+        screen.blit(empty, (draw_x, y))
+        screen.blit(empty, (draw_x, frame_y))
+        return
+
+    input_height = current_units[0].get_height() if current_units else (
+        previous_units[0].get_height() if previous_units else font_sm.get_height() * 2
+    )
+    clip_rect = pygame.Rect(
+        draw_x,
+        y - 2,
+        max(1, right - draw_x),
+        max(input_height + int(4 * scale), int(32 * scale)),
+    )
+
+    inserted_shift = int(28 * scale)
+    if current_units:
+        inserted_shift = max(
+            inserted_shift,
+            current_units[0].get_width() + gap,
+        )
+
+    old_clip = screen.get_clip()
+    screen.set_clip(clip_rect)
+    if current_units:
+        screen.blit(current_units[0], (draw_x, y))
+        tail_x = draw_x + current_units[0].get_width() + gap
+        current_tail = current_units[1:]
+        previous_tail = previous_units
+        if slide_progress > 0.001 and previous_tail:
+            _draw_units(
+                previous_tail,
+                tail_x + int(inserted_shift * (1.0 - slide_progress)),
+            )
+            if current_tail:
+                _draw_units(
+                    current_tail,
+                    tail_x - int(inserted_shift * slide_progress),
+                )
+        elif current_tail:
+            _draw_units(current_tail, tail_x)
+    elif previous_units:
+        _draw_units(previous_units, draw_x)
     screen.set_clip(old_clip)
 
 
@@ -1835,11 +2849,10 @@ def _merge_move_history(*lists: list[dict]) -> list[dict]:
 
 
 def _draw_compact_move_history(screen, font_sm, items: list[dict], x: int, y: int, right: int, scale: float, prev_texts: list[str] | None = None, slide_progress: float = 0.0) -> None:
-    title_surface = font_sm.render("MOVES", True, (110, 122, 142))
-    screen.blit(title_surface, (x, y))
-    draw_x = x + title_surface.get_width() + max(6, int(7 * scale))
+    label_w = _draw_history_header_chip(screen, font_sm, "MOVES", x, y, scale)
+    draw_x = x + label_w + max(6, int(7 * scale))
     gap = max(5, int(6 * scale))
-    clip_rect = pygame.Rect(draw_x, y - 1, max(1, right - draw_x), font_sm.get_height() + int(4 * scale))
+    clip_rect = pygame.Rect(draw_x, y - 1, max(1, right - draw_x), max(font_sm.get_height() + int(8 * scale), int(18 * scale)))
 
     recency_colors = [
         (92, 232, 146),
@@ -1866,28 +2879,11 @@ def _draw_compact_move_history(screen, font_sm, items: list[dict], x: int, y: in
         rendered = []
         for idx, txt in enumerate(texts[:5]):
             color = recency_colors[min(idx, len(recency_colors) - 1)]
-            surf = font_sm.render(txt.upper(), True, color)
-            if alpha < 0.999:
-                surf.set_alpha(max(0, min(255, int(255 * alpha))))
+            surf = _render_compact_text_chip(font_sm, txt.upper(), color, scale, alpha, emphasis=1.04 if idx == 0 else 1.0)
             rendered.append(surf)
-            if idx < len(texts[:5]) - 1:
-                sep = font_sm.render(">", True, (82, 92, 108))
-                if alpha < 0.999:
-                    sep.set_alpha(max(0, min(255, int(255 * alpha))))
-                rendered.append(sep)
         return rendered
 
-    def _line_width(parts) -> int:
-        total = 0
-        move_index = 0
-        for part in parts:
-            total += part.get_width()
-            if part != parts[-1]:
-                total += gap if move_index % 2 == 0 else gap
-            move_index += 1
-        return total
-
-    def _draw_parts(parts, base_x: int, alpha: float):
+    def _draw_parts(parts, base_x: int):
         dx = base_x
         for idx, surf in enumerate(parts):
             if dx > right:
@@ -1901,7 +2897,7 @@ def _draw_compact_move_history(screen, font_sm, items: list[dict], x: int, y: in
     previous_texts = _normalize_texts(prev_texts)
 
     if not current_texts and not previous_texts:
-        empty = font_sm.render("—", True, (86, 96, 114))
+        empty = font_sm.render(" - ", True, (86, 96, 114))
         screen.blit(empty, (draw_x, y))
         return
 
@@ -1909,23 +2905,16 @@ def _draw_compact_move_history(screen, font_sm, items: list[dict], x: int, y: in
     previous_parts = _build_parts(previous_texts, max(0.0, min(1.0, slide_progress))) if previous_texts else []
 
     inserted_shift = 0
-    if current_texts:
-        newest = font_sm.render(current_texts[0].upper(), True, recency_colors[0])
-        inserted_shift = newest.get_width() + gap
-        if len(current_texts) > 1:
-            inserted_shift += font_sm.render(">", True, (82, 92, 108)).get_width() + gap
-        inserted_shift = max(inserted_shift, int(24 * scale))
+    if current_parts:
+        inserted_shift = max(current_parts[0].get_width() + gap, int(24 * scale))
 
     old_clip = screen.get_clip()
     screen.set_clip(clip_rect)
     if slide_progress > 0.001 and previous_parts:
-        old_alpha = max(0.0, min(1.0, slide_progress))
-        old_x = draw_x + int(inserted_shift * (1.0 - slide_progress))
-        _draw_parts(previous_parts, old_x, old_alpha)
-        new_x = draw_x - int(inserted_shift * slide_progress)
-        _draw_parts(current_parts, new_x, 1.0)
+        _draw_parts(previous_parts, draw_x + int(inserted_shift * (1.0 - slide_progress)))
+        _draw_parts(current_parts, draw_x - int(inserted_shift * slide_progress))
     else:
-        _draw_parts(current_parts, draw_x, 1.0)
+        _draw_parts(current_parts, draw_x)
     screen.set_clip(old_clip)
 
 
@@ -1949,6 +2938,65 @@ def _draw_compact_ko_badge(screen, font_sm, rect: pygame.Rect, scale: float, alp
     badge.blit(label, (badge.get_width() // 2 - label.get_width() // 2, badge.get_height() // 2 - label.get_height() // 2))
     screen.blit(badge, draw_rect.topleft)
 
+
+def _draw_compact_guard_indicator(screen, font_sm, rect: pygame.Rect, label: str, result: str, scale: float, life: float = 1.0, flash: float = 0.0) -> None:
+    life = max(0.0, min(1.0, float(life or 0.0)))
+    if life <= 0.01 or rect.width <= 2 or rect.height <= 2:
+        return
+
+    property_label = str(label or "UNKNOWN").strip().upper() or "UNKNOWN"
+    if property_label == "HIGH":
+        property_label = "OVERHEAD"
+    if property_label in {"UNBLK", "UNBLOCK"}:
+        property_label = "UNBLOCKABLE"
+
+    result = str(result or "").strip().upper()
+    blocked = result == "BLOCK"
+    result_text = "BLOCK" if blocked else "ATK HIT"
+
+    pulse = 0.62 + 0.38 * ((math.sin(time.time() * 16.0) + 1.0) * 0.5) if flash > 0.0 else 1.0
+    if blocked:
+        base_fill = (22, 48, 34)
+        base_border = (
+            min(255, int(92 + 36 * pulse)),
+            min(255, int(232 + 18 * pulse)),
+            min(255, int(146 + 28 * pulse)),
+        )
+        result_color = (220, 255, 232)
+        property_color = (148, 232, 176)
+        glow_alpha = int(34 * pulse)
+    else:
+        base_fill = (72, 20, 26)
+        base_border = (
+            min(255, int(220 + 35 * pulse)),
+            min(255, int(70 + 60 * pulse)),
+            min(255, int(82 + 60 * pulse)),
+        )
+        result_color = (255, 228, 232)
+        property_color = (255, 164, 174)
+        glow_alpha = int(42 * pulse)
+
+    alpha = max(0, min(255, int(255 * life)))
+    badge = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    radius = max(3, int(4 * scale))
+    pygame.draw.rect(badge, (*base_fill, min(230, int(210 * life))), badge.get_rect(), border_radius=radius)
+    pygame.draw.rect(badge, (*base_border, alpha), badge.get_rect(), 1, border_radius=radius)
+    if glow_alpha > 0:
+        pygame.draw.rect(badge, (*base_border, min(255, int(glow_alpha * life))), pygame.Rect(1, 1, max(1, rect.width - 2), max(2, int(2 * scale))), border_top_left_radius=radius, border_top_right_radius=radius)
+    else:
+        pygame.draw.rect(badge, (92, 232, 146, min(255, int(90 * life))), pygame.Rect(1, 1, max(1, rect.width - 2), max(2, int(2 * scale))), border_top_left_radius=radius, border_top_right_radius=radius)
+
+    max_text_width = rect.width - max(8, int(10 * scale))
+    result_surface = font_sm.render(_compact_fit_text(font_sm, result_text, max_text_width), True, result_color)
+    property_surface = font_sm.render(_compact_fit_text(font_sm, property_label, max_text_width), True, property_color)
+    result_surface.set_alpha(alpha)
+    property_surface.set_alpha(alpha)
+
+    total_h = result_surface.get_height() + property_surface.get_height() - max(1, int(2 * scale))
+    top_y = max(1, (rect.height - total_h) // 2)
+    badge.blit(result_surface, ((rect.width - result_surface.get_width()) // 2, top_y))
+    badge.blit(property_surface, ((rect.width - property_surface.get_width()) // 2, top_y + result_surface.get_height() - max(1, int(2 * scale))))
+    screen.blit(badge, rect.topleft)
 
 def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float) -> None:
     life = max(0.0, float(_interaction_ribbon.get("life") or 0.0) - dt * 0.72)
@@ -2113,8 +3161,21 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
         point_anim["meter_display_value"] = point_meter_target
     point_anim["meter_display_value"] = _approach(point_anim["meter_display_value"], point_meter_target, 32000.0, dt)
 
+    team_anim = _get_team_anim(team)
+    hold_items = _display_button_holds(point_anim, _frame)
+    hold_target = 1.0 if hold_items else 0.0
+    team_anim["hold_expand"] = _approach(
+        float(team_anim.get("hold_expand", 0.0)),
+        hold_target,
+        7.5 if hold_target else 4.5,
+        dt,
+    )
+    hold_expand = max(0.0, min(1.0, float(team_anim.get("hold_expand", 0.0))))
+
     width = max(430, int(470 * scale))
-    height = max(132, int(142 * scale))
+    collapsed_height = max(152, int(162 * scale))
+    hold_extra_height = max(18, int(20 * scale))
+    height = collapsed_height + int(hold_extra_height * hold_expand)
     margin_x = int(12 * scale)
     base_y = int(148 * scale)
     is_left = team == "P1"
@@ -2124,7 +3185,6 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     point_anim["ko_alpha"] = _approach(float(point_anim.get("ko_alpha", 0.0)), 1.0 if point_dead else 0.0, 6.5 if point_dead else 3.2, dt)
     point_anim["ko_scale"] = _approach(float(point_anim.get("ko_scale", 0.90)), 1.08 if point_dead else 0.92, 8.0 if point_dead else 4.0, dt)
 
-    team_anim = _get_team_anim(team)
     team_present = bool(_get_slot_anim(first_label).get("present") or _get_slot_anim(second_label).get("present"))
     if team_present and not team_anim.get("present"):
         team_anim["slide_y"] = -34.0
@@ -2207,7 +3267,17 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     strip_y = partner_hp_y + max(5, int(6 * scale)) + int(5 * scale)
     history_y = strip_y + max(17, int(18 * scale)) + int(3 * scale)
     input_y = history_y + max(12, int(13 * scale)) + int(2 * scale)
-    move_history_y = input_y + max(12, int(13 * scale)) + int(2 * scale)
+    input_row_h = max(15, int(17 * scale))
+    frames_y = input_y + input_row_h + int(2 * scale)
+    frames_row_h = max(13, int(15 * scale))
+    hold_y = frames_y + frames_row_h + int(2 * scale)
+    hold_row_h = max(15, int(17 * scale))
+    move_history_y = (
+        frames_y
+        + frames_row_h
+        + int((hold_row_h + int(2 * scale)) * hold_expand)
+        + int(2 * scale)
+    )
     # Preserve the old tag-swap motion: when the active point changes, the
     # incoming fighter rises from the reserve row while the outgoing fighter
     # drops into it.  The C1/C2 badges travel with their full character rows.
@@ -2282,10 +3352,29 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     meter_exact_y = meter_y + max(9, int(11 * scale))
     screen.blit(meter_exact, (meter_exact_x, meter_exact_y))
 
+    guard_y = strip_y + int(1 * scale)
     if show_baroque_badge:
         bq_h = max(14, int(16 * scale))
         bq_rect = pygame.Rect(power_left, strip_y + int(1 * scale), power_w, bq_h)
         _draw_compact_baroque_badge(screen, font_sm, bq_rect, float(point_anim.get("baroque_display_pct", point.get("baroque_red_pct_max") or 0.0)), scale, is_left, float(point_anim.get("baroque_alpha", 0.0)))
+        guard_y = bq_rect.bottom + max(3, int(4 * scale))
+
+    guard_label = str(point_anim.get("guard_indicator_label") or "")
+    guard_result = str(point_anim.get("guard_indicator_result") or "")
+    guard_life = float(point_anim.get("guard_indicator_life", 0.0) or 0.0)
+    if guard_label and guard_life > 0.01:
+        guard_h = max(25, int(28 * scale))
+        guard_rect = pygame.Rect(power_left, guard_y, power_w, guard_h)
+        _draw_compact_guard_indicator(
+            screen,
+            font_sm,
+            guard_rect,
+            guard_label,
+            guard_result,
+            scale,
+            guard_life,
+            float(point_anim.get("guard_indicator_flash", 0.0) or 0.0),
+        )
 
     hp_h = max(6, int(7 * scale))
     hp_text = font_sm.render(_compact_hp_text(point.get("cur"), point.get("max")), True, COL_DEAD if point_dead else (182, 192, 208))
@@ -2323,7 +3412,64 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
         team_anim["log_history_signature"] = log_signature
     team_anim["log_history_slide"] = _approach(float(team_anim.get("log_history_slide", 0.0)), 0.0, 6.0, dt)
     _draw_compact_history_line(screen, font_sm, "LOG", log_items, left, history_y, right, scale, team_anim.get("log_history_prev", []), float(team_anim.get("log_history_slide", 0.0)))
-    _draw_compact_input_history(screen, font_sm, point_anim.get("input_history", []), left, input_y, info_right, scale)
+    # Keep the raw input tail in chronological order. The grouped renderer
+    # builds commands from oldest to newest, then places the newest group first.
+    input_chips = _display_input_chips(point_anim, _frame)
+    input_signature = tuple("|".join(chip.get("tokens", [])) for chip in input_chips)
+    previous_input_signature = tuple(team_anim.get("input_history_signature", ()))
+    if input_signature != previous_input_signature:
+        if previous_input_signature:
+            team_anim["input_history_prev"] = [dict(chip) for chip in input_chips[1:]]
+            team_anim["input_history_slide"] = 1.0
+        team_anim["input_history_signature"] = input_signature
+    team_anim["input_history_current"] = [dict(chip) for chip in input_chips]
+    team_anim["input_history_slide"] = _approach(float(team_anim.get("input_history_slide", 0.0)), 0.0, 6.0, dt)
+    _draw_compact_input_history(
+        screen,
+        font_sm,
+        input_chips,
+        left,
+        input_y,
+        info_right,
+        scale,
+        team_anim.get("input_history_prev", []),
+        float(team_anim.get("input_history_slide", 0.0)),
+    )
+
+    hold_signature = tuple(str(item.get("id") or "") for item in hold_items)
+    previous_hold_signature = tuple(team_anim.get("hold_history_signature", ()))
+    if hold_signature != previous_hold_signature:
+        if previous_hold_signature:
+            team_anim["hold_history_prev"] = [
+                dict(item) for item in team_anim.get("hold_history_current", [])
+            ]
+            team_anim["hold_history_slide"] = 1.0
+        team_anim["hold_history_signature"] = hold_signature
+    team_anim["hold_history_current"] = [dict(item) for item in hold_items]
+    team_anim["hold_history_slide"] = _approach(
+        float(team_anim.get("hold_history_slide", 0.0)),
+        0.0,
+        6.0,
+        dt,
+    )
+    if hold_expand > 0.03:
+        faded_hold_items = []
+        for item in hold_items:
+            entry = dict(item)
+            entry["alpha"] = float(entry.get("alpha", 1.0)) * hold_expand
+            faded_hold_items.append(entry)
+        _draw_compact_hold_history(
+            screen,
+            font_sm,
+            faded_hold_items,
+            left,
+            hold_y,
+            info_right,
+            scale,
+            team_anim.get("hold_history_prev", []),
+            float(team_anim.get("hold_history_slide", 0.0)),
+        )
+
     merged_moves = _merge_move_history(point_anim.get("move_events", []), partner_anim.get("move_events", []))
     move_signature = tuple(str(item.get("text") or "").strip() for item in merged_moves[:5] if str(item.get("text") or "").strip())
     previous_signature = tuple(team_anim.get("move_history_signature", ()))
@@ -2396,6 +3542,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     if control is None or getattr(control, "show_combo_card", True):
         _draw_combo_ledger(screen, font_sm, team, x, y + height + int(38 * scale), width, scale, is_left)
 
+
 def draw_overlay(screen, font, font_sm, slots, scale, dt, control=None) -> None:
     if HUD_LAYOUT_MODE != "compact":
         _draw_overlay_detail(screen, font, font_sm, slots, scale, dt)
@@ -2466,7 +3613,7 @@ def main() -> None:
 
     dolphin_hwnd = find_dolphin_hwnd()
     if not dolphin_hwnd:
-        print("[hud_overlay] Dolphin window not found — exiting.")
+        print("[hud_overlay] Dolphin window not found  -  exiting.")
         return
 
     pygame.init()

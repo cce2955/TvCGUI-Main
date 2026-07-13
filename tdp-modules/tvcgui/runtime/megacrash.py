@@ -460,64 +460,29 @@ def _clear_megacrash_runtime_state(state: dict) -> None:
 
 
 def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
-    """Apply a mission-scoped unified Megacrash setup, then restore settings."""
+    """Keep Mission Mode and the Megacrash Trainer completely independent."""
     if not isinstance(state, dict):
         state = _load_megacrash_trainer_config()
 
-    setup = _extract_mission_megacrash_setup(payload)
-    mission_key = None
-    if setup:
-        mission_key = (
-            payload.get("slot"),
-            payload.get("character"),
-            payload.get("active_mission_id"),
-        )
-
+    # Older builds could apply a mission-scoped Megacrash override. If one is
+    # still active in this runtime, restore the user's saved trainer settings
+    # once, then discard all mission override state.
     current_key = state.get("mission_override_key")
-    if not setup:
-        if current_key is not None:
-            saved = state.pop("mission_saved_settings", {}) or {}
-            for key, value in saved.items():
-                state[key] = value
-            state.pop("mission_override_key", None)
-            state.pop("mission_override_name", None)
-            state["mission_override_active"] = False
-            _clear_megacrash_runtime_state(state)
-            print("[megacrash trainer] mission override restored saved settings")
-        return state
-
-    if current_key != mission_key:
-        saved = {
-            "enabled": bool(state.get("enabled", False)),
-            "chance": _clamp_megacrash_chance(state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
-            "delay_frames": _clamp_megacrash_delay_frames(state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)),
-            "cooldown_sec": _clamp_megacrash_cooldown_sec(state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)),
-            "target_label": _clean_megacrash_target_label(state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)),
-            "attacker_scope": _clean_megacrash_attacker_scope(state.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE)),
-            "target_occurrence": _clamp_megacrash_target_occurrence(state.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE)),
-        }
-        state["mission_saved_settings"] = saved
-        state["mission_override_key"] = mission_key
-        state["mission_override_name"] = str(payload.get("active_mission_name") or payload.get("active_mission_id") or "mission")
+    override_active = bool(state.get("mission_override_active")) or current_key is not None
+    if override_active:
+        saved = state.pop("mission_saved_settings", {}) or {}
+        for key, value in saved.items():
+            state[key] = value
         _clear_megacrash_runtime_state(state)
-        print(
-            "[megacrash trainer] mission override "
-            f"{payload.get('active_mission_id')}: label={setup.get('target_label') or 'any'} "
-            f"#{setup.get('target_occurrence')} {setup.get('chance')}% +{setup.get('delay_frames')}f "
-            f"cd={setup.get('cooldown_sec')}s"
-        )
+        print("[megacrash trainer] removed legacy mission override")
 
-    state["mission_override_active"] = True
-    state["enabled"] = bool(setup.get("enabled", True))
-    state["mode"] = MEGACRASH_TRAINER_DEFAULT_MODE
-    state["chance"] = _clamp_megacrash_chance(setup.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE))
-    state["delay_frames"] = _clamp_megacrash_delay_frames(setup.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES))
-    state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(
-        setup.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)
-    )
-    state["target_label"] = _clean_megacrash_target_label(setup.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL))
-    state["attacker_scope"] = _clean_megacrash_attacker_scope(setup.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE))
-    state["target_occurrence"] = _clamp_megacrash_target_occurrence(setup.get("target_occurrence", MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE))
+    state.pop("mission_override_key", None)
+    state.pop("mission_override_name", None)
+    state.pop("mission_saved_settings", None)
+    state["mission_override_active"] = False
+
+    # Mission Mode must never enable, disable, reconfigure, or trigger the
+    # Megacrash Trainer. Only the trainer's own controls may change it.
     return state
 
 

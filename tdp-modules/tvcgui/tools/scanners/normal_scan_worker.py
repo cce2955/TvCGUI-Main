@@ -84,6 +84,8 @@ class ScanNormalsWorker(threading.Thread):
                         self._rich_results.append((
                             int(self._rich_generation), res, now, mode
                         ))
+                        if len(self._rich_results) > 8:
+                            del self._rich_results[:-8]
             except Exception as e:
                 print("scan worker failed:", e)
             finally:

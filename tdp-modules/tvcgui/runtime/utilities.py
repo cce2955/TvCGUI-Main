@@ -72,9 +72,10 @@ FD_BUILD_MISSING_PROFILES = os.environ.get("TVC_FD_BUILD_MISSING_PROFILES", "1")
 FD_MISSING_PROFILE_BUILD_DELAY_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_DELAY_SEC", "0.75") or "0.75")
 FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC", "20.0") or "20.0")
 
-# Startup-sensitive frame-data jobs stay off unless explicitly enabled.
-FD_SHEET_EXPORT_ENABLED = os.environ.get("TVC_FD_SHEET_EXPORT", "0").strip().lower() in {"1", "true", "on", "yes"}
-FD_WORKBENCH_PREWARM_ENABLED = os.environ.get("TVC_FD_PREWARM_WORKBENCH", "0").strip().lower() in {"1", "true", "on", "yes"}
+# Runtime automatic frame-data jobs stay off during normal play.
+# Explicit Frame Data and full scans can still feed the background exporter.
+FD_SHEET_EXPORT_ENABLED = False
+FD_WORKBENCH_PREWARM_ENABLED = False
 
 
 def _perf_warn(label: str, start_perf: float, *, threshold_ms: float | None = None, min_interval: float = 1.0) -> None:

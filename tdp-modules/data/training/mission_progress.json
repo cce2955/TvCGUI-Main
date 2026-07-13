@@ -1,11 +1,47 @@
 {
-  "ryu": {
+  "chun_li": {
     "completed": {
-      "ryu_001": true,
-      "ryu_002": true,
-      "ryu_003": true,
-      "ryu_004": true
+      "chun_001": true
     },
-    "selected_mission_id": null
+    "selected_mission_id": "chun_004"
+  },
+  "morrigan": {
+    "completed": {},
+    "selected_mission_id": "morrigan_005"
+  },
+  "alex": {
+    "completed": {
+      "alex_005": true
+    },
+    "selected_mission_id": "alex_005"
+  },
+  "frank_west": {
+    "completed": {},
+    "selected_mission_id": "frank_west_004"
+  },
+  "ryu": {
+    "completed": {},
+    "selected_mission_id": "ryu_001"
+  },
+  "batsu": {
+    "completed": {
+      "batsu_002": true
+    },
+    "selected_mission_id": "batsu_002"
+  },
+  "volnutt": {
+    "completed": {},
+    "selected_mission_id": "volnutt_005"
+  },
+  "viewtiful_joe": {
+    "completed": {},
+    "selected_mission_id": "viewtiful_joe_005"
+  },
+  "saki": {
+    "completed": {
+      "saki_002": true,
+      "saki_003": true
+    },
+    "selected_mission_id": "saki_004"
   }
 }

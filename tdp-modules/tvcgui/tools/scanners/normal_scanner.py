@@ -3073,7 +3073,7 @@ _PREVIEW_MOVE_FIELDS = {
     "active2_end", "active2_start", "active_end", "active_start",
     "adv_block", "adv_block_derived", "adv_block_observed",
     "adv_hit", "adv_hit_derived", "animation_char_key", "animation_duration_seconds",
-    "animation_motion", "animation_total_frames", "blockstun", "damage",
+    "animation_motion", "animation_total_frames", "attack_property", "blockstun", "damage",
     "damage_flag", "ground_kb", "ground_kb_y", "hitstop", "hitstun", "id",
     "invuln", "invuln_confidence", "invuln_frames", "invuln_kind", "kb_type",
     "kind", "launch_profile", "meter", "move_name", "move_name_source",

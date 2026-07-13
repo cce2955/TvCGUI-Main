@@ -820,7 +820,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         cell = ttk.Frame(stats, style="InspectorSection.TFrame")
         cell.pack(side="left", fill="x", expand=True, padx=(0 if label == "Startup" else 5, 0))
         ttk.Label(cell, text=label, style="InspectorField.TLabel").pack(anchor="w")
-        var = tk.StringVar(master=win.root, value="—")
+        var = tk.StringVar(master=win.root, value=" - ")
         win._headline_stat_vars[key] = var
         value = ttk.Label(cell, textvariable=var, style="QuickImportant.TLabel", anchor="center", cursor="hand2", takefocus=True)
         value.pack(fill="x", pady=(2, 0))
@@ -864,7 +864,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         chip = ttk.Frame(delta_row, style="CompareDeltaChip.TFrame", padding=(7, 5))
         chip.pack(side="left", fill="x", expand=True, padx=(0 if not delta_row.winfo_children() else 5, 0))
         ttk.Label(chip, text=_label, style="CompareDeltaLabel.TLabel").pack(anchor="w")
-        _var = tk.StringVar(master=win.root, value="—")
+        _var = tk.StringVar(master=win.root, value=" - ")
         win._compare_delta_vars[key] = _var
         ttk.Label(chip, textvariable=_var, style="CompareDeltaNeutral.TLabel").pack(anchor="w", pady=(1, 0))
 
