@@ -88,6 +88,12 @@ class V19PackageContractTests(unittest.TestCase):
     def test_batch_disables_bytecode_writes(self):
         self.assertIn("PYTHONDONTWRITEBYTECODE", read("run_regression_tests.bat"))
 
+    def test_duplicate_hud_renderer_matches_primary(self):
+        self.assertEqual(
+            read("tvcgui/features/overlay/hud_renderer.py"),
+            read("tdp-modules/tvcgui/features/overlay/hud_renderer.py"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

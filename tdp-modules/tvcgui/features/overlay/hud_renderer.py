@@ -137,6 +137,7 @@ _interaction_ribbon = {
     "detail": "",
     "color": (130, 175, 255),
     "life": 0.0,
+    "age": 0.0,
 }
 _combo_ledgers: dict[str, dict] = {"P1": {}, "P2": {}}
 
@@ -316,6 +317,7 @@ def _publish_interaction(attacker_slot: str, victim_slot: str, st: dict, advanta
         "detail": detail,
         "color": (255, 126, 126) if hit else (128, 180, 255),
         "life": 1.0,
+        "age": 0.0,
     })
     st["combo_property_locked"] = False
     st["attack_guard_label"] = ""
@@ -352,20 +354,37 @@ def _combo_register_damage(victim_slot: str, damage: int) -> None:
             "baroque_start": _snap_float(attacker_slot, "baroque_red_pct_max"),
             "last_hit_frame": _frame,
             "life": 1.0,
+            "hit_sheen": 0.0,
+            "final_sheen": 0.0,
+            "final_confirmed": False,
         })
     ledger["hits"] = int(ledger.get("hits") or 0) + 1
     ledger["damage"] = int(ledger.get("damage") or 0) + int(damage)
     ledger["last_hit_frame"] = _frame
     ledger["life"] = 1.0
+    # Every registered hit restarts a restrained polish sweep. A late hit also
+    # cancels any pending final confirmation and keeps the chain visually live.
+    ledger["hit_sheen"] = 1.0
+    ledger["final_sheen"] = 0.0
+    ledger["final_confirmed"] = False
 
 
 def _tick_combo_ledgers(dt: float) -> None:
     for team, ledger in _combo_ledgers.items():
         if not ledger:
             continue
+        ledger["hit_sheen"] = max(0.0, float(ledger.get("hit_sheen") or 0.0) - dt * 5.0)
         age = _frame - int(ledger.get("last_hit_frame") or _frame)
-        if age > 75:
-            ledger["life"] = max(0.0, float(ledger.get("life") or 0.0) - dt * 1.45)
+        if age > 75 and not bool(ledger.get("final_confirmed", False)):
+            # The combo is settled. Hold the card at full opacity long enough
+            # for one deliberate confirmation sheen before beginning its fade.
+            ledger["final_confirmed"] = True
+            ledger["final_sheen"] = 1.0
+        if bool(ledger.get("final_confirmed", False)):
+            final_sheen = max(0.0, float(ledger.get("final_sheen") or 0.0) - dt * 2.05)
+            ledger["final_sheen"] = final_sheen
+            if final_sheen <= 0.01:
+                ledger["life"] = max(0.0, float(ledger.get("life") or 0.0) - dt * 1.45)
         if float(ledger.get("life") or 0.0) <= 0.01:
             ledger.clear()
 
@@ -3289,33 +3308,179 @@ def _draw_compact_guard_indicator(screen, font_sm, rect: pygame.Rect, label: str
 
 def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float) -> None:
     life = max(0.0, float(_interaction_ribbon.get("life") or 0.0) - dt * 0.72)
+    age = max(0.0, float(_interaction_ribbon.get("age") or 0.0) + dt)
     _interaction_ribbon["life"] = life
+    _interaction_ribbon["age"] = age
     if life <= 0.01 or not _interaction_ribbon.get("title"):
         return
-    fade = min(1.0, life * 2.6)
+
+    fade_out = min(1.0, life * 2.6)
+    panel_progress = _compact_smoothstep(age / 0.22)
+    slice_progress = _compact_smoothstep((age - 0.12) / 0.18)
+    divider_progress = _compact_smoothstep((age - 0.27) / 0.16)
+    sheen_progress = max(0.0, min(1.0, (age - 0.43) / 0.34))
+    sheen_alpha = math.sin(math.pi * sheen_progress) if 0.0 < sheen_progress < 1.0 else 0.0
+    fade = min(fade_out, panel_progress)
+
     title = str(_interaction_ribbon.get("title") or "")
     detail = str(_interaction_ribbon.get("detail") or "")
     accent = tuple(_interaction_ribbon.get("color") or (130, 175, 255))
-    title_s = font.render(title, True, (246, 248, 252))
+    title_left, title_separator, title_right = title.partition("  |  ")
+    if not title_separator:
+        title_left, title_right = title, ""
+    title_left_s = font.render(title_left, True, (246, 248, 252))
+    title_right_s = font.render(title_right, True, (246, 248, 252)) if title_right else None
     detail_s = font_sm.render(detail, True, (196, 208, 226))
-    width = max(int(280 * scale), title_s.get_width() + int(34 * scale), detail_s.get_width() + int(34 * scale))
-    height = max(int(42 * scale), title_s.get_height() + detail_s.get_height() + int(12 * scale))
-    x = screen.get_width() // 2 - width // 2
-    y = int(100 * scale - (1.0 - fade) * 14 * scale)
+    title_gap = max(7, int(8 * scale))
+    separator_gap = max(5, int(6 * scale))
+    title_width = title_left_s.get_width()
+    if title_right_s is not None:
+        title_width += title_gap + max(1, int(1 * scale)) + separator_gap + title_right_s.get_width()
+    width = max(int(280 * scale), title_width + int(28 * scale), detail_s.get_width() + int(34 * scale))
+    title_height = max(title_left_s.get_height(), title_right_s.get_height() if title_right_s is not None else 0)
+    height = max(int(42 * scale), title_height + detail_s.get_height() + int(12 * scale))
+    base_x = screen.get_width() // 2 - width // 2
+    base_y = int(100 * scale)
+    x = base_x + int((1.0 - panel_progress) * -34 * scale)
+    y = base_y + int((1.0 - panel_progress) * -10 * scale)
     radius = max(6, int(7 * scale))
+
     shadow = pygame.Surface((width + 10, height + 10), pygame.SRCALPHA)
     pygame.draw.rect(shadow, (0, 0, 0, int(88 * fade)), (5, 5, width, height), border_radius=radius + 2)
     screen.blit(shadow, (x - 5, y + 2))
+
     card = pygame.Surface((width, height), pygame.SRCALPHA)
     pygame.draw.rect(card, (10, 13, 19, int(232 * fade)), card.get_rect(), border_radius=radius)
     pygame.draw.rect(card, (34, 41, 55, int(216 * fade)), card.get_rect(), 1, border_radius=radius)
-    pygame.draw.rect(card, (*accent, int(220 * fade)), (0, 0, max(5, int(6 * scale)), height), border_top_left_radius=radius, border_bottom_left_radius=radius)
-    pygame.draw.polygon(card, (*accent, int(76 * fade)), [(max(5, int(6 * scale)), 0), (int(width * 0.40), 0), (int(width * 0.28), height - 1), (0, height - 1)])
-    pygame.draw.line(card, (248, 250, 254, int(58 * fade)), (max(8, int(9 * scale)), 1), (width - int(10 * scale), 1), 1)
-    title_s.set_alpha(int(255 * fade)); detail_s.set_alpha(int(240 * fade))
-    card.blit(title_s, (int(14 * scale), int(5 * scale)))
-    card.blit(detail_s, (int(14 * scale), height - detail_s.get_height() - int(5 * scale)))
+
+    rail_w = max(5, int(6 * scale))
+    pygame.draw.rect(
+        card,
+        (*accent, int(220 * fade * slice_progress)),
+        (0, 0, rail_w, height),
+        border_top_left_radius=radius,
+        border_bottom_left_radius=radius,
+    )
+
+    slice_width = max(1, int(width * 0.40 * slice_progress))
+    if slice_width > 1:
+        slice_layer = pygame.Surface((width, height), pygame.SRCALPHA)
+        pygame.draw.polygon(
+            slice_layer,
+            (*accent, int(76 * fade * slice_progress)),
+            [(rail_w, 0), (int(width * 0.40), 0), (int(width * 0.28), height - 1), (0, height - 1)],
+        )
+        old_clip = card.get_clip()
+        card.set_clip(pygame.Rect(0, 0, slice_width, height))
+        card.blit(slice_layer, (0, 0))
+        card.set_clip(old_clip)
+
+    top_line_start = max(8, int(9 * scale))
+    top_line_end = top_line_start + int((width - top_line_start - int(10 * scale)) * slice_progress)
+    if top_line_end > top_line_start:
+        pygame.draw.line(card, (248, 250, 254, int(58 * fade * slice_progress)), (top_line_start, 1), (top_line_end, 1), 1)
+
+    title_x = int(14 * scale)
+    title_y = int(5 * scale)
+    title_left_s.set_alpha(int(255 * fade))
+    card.blit(title_left_s, (title_x, title_y))
+
+    if title_right_s is not None:
+        separator_x = title_x + title_left_s.get_width() + title_gap
+        separator_target_h = max(int(12 * scale), title_height - int(2 * scale))
+        separator_h = max(0, int(separator_target_h * divider_progress))
+        separator_mid_y = title_y + title_height // 2
+        if separator_h > 0:
+            pygame.draw.line(
+                card,
+                (*accent, int(210 * fade * divider_progress)),
+                (separator_x, separator_mid_y - separator_h // 2),
+                (separator_x, separator_mid_y + separator_h // 2),
+                max(1, int(1 * scale)),
+            )
+            pygame.draw.line(
+                card,
+                (248, 250, 254, int(88 * fade * divider_progress)),
+                (separator_x + 1, separator_mid_y - separator_h // 3),
+                (separator_x + 1, separator_mid_y + separator_h // 3),
+                1,
+            )
+        title_right_s.set_alpha(int(255 * fade * divider_progress))
+        right_x = separator_x + separator_gap + int((1.0 - divider_progress) * 8 * scale)
+        card.blit(title_right_s, (right_x, title_y))
+
+    if sheen_alpha > 0.0:
+        sheen = pygame.Surface((width, height), pygame.SRCALPHA)
+        band_w = max(int(30 * scale), width // 7)
+        center_x = int(-band_w + sheen_progress * (width + band_w * 2))
+        pygame.draw.polygon(
+            sheen,
+            (255, 255, 255, int(46 * fade * sheen_alpha)),
+            [
+                (center_x - band_w, 0),
+                (center_x + max(2, band_w // 3), 0),
+                (center_x - max(2, band_w // 3), height - 1),
+                (center_x - band_w * 2, height - 1),
+            ],
+        )
+        pygame.draw.line(
+            sheen,
+            (255, 255, 255, int(82 * fade * sheen_alpha)),
+            (center_x, 1),
+            (center_x - band_w, height - 2),
+            1,
+        )
+        card.blit(sheen, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+    detail_s.set_alpha(int(240 * fade * divider_progress))
+    detail_x = int(14 * scale) + int((1.0 - divider_progress) * 6 * scale)
+    card.blit(detail_s, (detail_x, height - detail_s.get_height() - int(5 * scale)))
     screen.blit(card, (x, y))
+
+
+def _blit_combo_sheen(card, progress: float, fade: float, heavy: bool = False) -> None:
+    """Sweep a clipped additive polish band across the combo card."""
+    progress = max(0.0, min(1.0, float(progress)))
+    envelope = math.sin(math.pi * progress)
+    if envelope <= 0.001:
+        return
+    width, height = card.get_size()
+    band_fraction = 0.24 if heavy else 0.105
+    band_w = max(8, int(width * band_fraction))
+    travel = width + band_w * 2
+    center_x = int(-band_w + progress * travel)
+    sheen = pygame.Surface((width, height), pygame.SRCALPHA)
+    alpha = int((92 if heavy else 24) * fade * envelope)
+    core_alpha = int((148 if heavy else 38) * fade * envelope)
+    sheen_rgb = 118 if heavy else 28
+    core_rgb = 220 if heavy else 72
+    pygame.draw.polygon(
+        sheen,
+        (sheen_rgb, sheen_rgb, sheen_rgb, alpha),
+        [
+            (center_x - band_w, 0),
+            (center_x + max(2, band_w // 3), 0),
+            (center_x - max(2, band_w // 3), height - 1),
+            (center_x - band_w * 2, height - 1),
+        ],
+    )
+    pygame.draw.line(
+        sheen,
+        (core_rgb, core_rgb, core_rgb, core_alpha),
+        (center_x, 1),
+        (center_x - band_w, height - 2),
+        max(1, int(2 if heavy else 1)),
+    )
+    card.blit(sheen, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+    if heavy:
+        border_alpha = int(68 * fade * envelope)
+        pygame.draw.rect(
+            card,
+            (255, 255, 255, border_alpha),
+            card.get_rect(),
+            1,
+            border_radius=max(3, int(height * 0.16)),
+        )
 
 
 def _draw_combo_ledger(screen, font_sm, team: str, x: int, y: int, width: int, scale: float, is_left: bool) -> None:
@@ -3352,6 +3517,17 @@ def _draw_combo_ledger(screen, font_sm, team: str, x: int, y: int, width: int, s
     title_s.set_alpha(int(255 * fade)); resource_s.set_alpha(int(238 * fade))
     card.blit(title_s, (int(8 * scale), int(3 * scale)))
     card.blit(resource_s, (int(8 * scale), h - resource_s.get_height() - int(3 * scale)))
+
+    # A narrow low-alpha sweep acknowledges every hit without competing with
+    # the count. Once the chain times out, a wider brighter pass confirms the
+    # final total before the card fades away.
+    hit_sheen = float(ledger.get("hit_sheen") or 0.0)
+    if hit_sheen > 0.001:
+        _blit_combo_sheen(card, 1.0 - hit_sheen, fade, heavy=False)
+    final_sheen = float(ledger.get("final_sheen") or 0.0)
+    if final_sheen > 0.001:
+        _blit_combo_sheen(card, 1.0 - final_sheen, fade, heavy=True)
+
     screen.blit(shadow, (draw_x - 4, draw_y - 1))
     screen.blit(shadow, (draw_x - 4, draw_y + 1))
     screen.blit(card, (draw_x, draw_y))

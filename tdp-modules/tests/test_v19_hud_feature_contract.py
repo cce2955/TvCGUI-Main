@@ -129,6 +129,60 @@ class V19HudFeatureContractTests(unittest.TestCase):
     def test_v19_gradient_panel_language_is_preserved(self):
         self.assertIn("_draw_vertical_gradient", read(COMPONENTS))
 
+    def test_interaction_ribbon_tracks_animation_age(self):
+        source = read(HUD)
+        self.assertIn('"age": 0.0', source)
+        self.assertIn('_interaction_ribbon["age"] = age', source)
+
+    def test_interaction_publish_restarts_animation_sequence(self):
+        source = function_source(HUD, "_publish_interaction")
+        self.assertIn('"life": 1.0', source)
+        self.assertIn('"age": 0.0', source)
+
+    def test_interaction_panel_slides_into_position(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        self.assertIn('panel_progress = _compact_smoothstep(age / 0.22)', source)
+        self.assertIn('(1.0 - panel_progress) * -34 * scale', source)
+        self.assertIn('(1.0 - panel_progress) * -10 * scale', source)
+
+    def test_interaction_accent_slice_has_delayed_reveal(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        self.assertIn('slice_progress = _compact_smoothstep((age - 0.12) / 0.18)', source)
+        self.assertIn('slice_width = max(1, int(width * 0.40 * slice_progress))', source)
+        self.assertIn('card.set_clip(pygame.Rect(0, 0, slice_width, height))', source)
+
+    def test_interaction_title_separator_is_animated_separately(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        self.assertIn('title.partition("  |  ")', source)
+        self.assertIn('divider_progress = _compact_smoothstep((age - 0.27) / 0.16)', source)
+        self.assertIn('separator_h = max(0, int(separator_target_h * divider_progress))', source)
+
+    def test_interaction_right_title_waits_for_divider(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        self.assertIn('title_right_s.set_alpha(int(255 * fade * divider_progress))', source)
+        self.assertIn('(1.0 - divider_progress) * 8 * scale', source)
+
+    def test_interaction_detail_waits_for_divider(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        self.assertIn('detail_s.set_alpha(int(240 * fade * divider_progress))', source)
+        self.assertIn('(1.0 - divider_progress) * 6 * scale', source)
+
+    def test_interaction_sheen_runs_after_divider(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        self.assertIn('sheen_progress = max(0.0, min(1.0, (age - 0.43) / 0.34))', source)
+        self.assertIn('math.sin(math.pi * sheen_progress)', source)
+        self.assertIn('special_flags=pygame.BLEND_RGBA_ADD', source)
+
+    def test_interaction_animation_stages_are_ordered(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        panel = source.index('panel_progress =')
+        accent_slice = source.index('slice_progress =')
+        divider = source.index('divider_progress =')
+        sheen = source.index('sheen_progress =')
+        self.assertLess(panel, accent_slice)
+        self.assertLess(accent_slice, divider)
+        self.assertLess(divider, sheen)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -87,6 +87,33 @@ ACTIVE_PYTHON_ROOTS = (
     "tdp-modules/tvcgui",
 )
 
+MIRROR_FILES = (
+    ("tvcgui/ui/advantage_window.py", "tdp-modules/tvcgui/ui/advantage_window.py"),
+    ("tvcgui/runtime/ko_control.py", "tdp-modules/tvcgui/runtime/ko_control.py"),
+    ("tvcgui/features/overlay/hud_renderer.py", "tdp-modules/tvcgui/features/overlay/hud_renderer.py"),
+)
+
+
+def sync_mirror_files() -> list[str]:
+    """Restore derived nested mirrors from their protected primary files."""
+    problems: list[str] = []
+    for primary_relative, mirror_relative in MIRROR_FILES:
+        primary = APP_DIR / primary_relative
+        mirror = APP_DIR / mirror_relative
+        if not primary.is_file():
+            problems.append(f"mirror source missing: {primary_relative}")
+            continue
+        primary_bytes = primary.read_bytes()
+        try:
+            if mirror.is_file() and mirror.read_bytes() == primary_bytes:
+                continue
+            mirror.parent.mkdir(parents=True, exist_ok=True)
+            mirror.write_bytes(primary_bytes)
+            print(f"[regression] synchronized mirror: {mirror_relative} <- {primary_relative}")
+        except OSError as exc:
+            problems.append(f"could not synchronize mirror {mirror_relative}: {exc}")
+    return problems
+
 
 def install_offline_dolphin_stub() -> None:
     """Allow contract discovery without a live Dolphin package or process."""
@@ -304,6 +331,11 @@ def main(argv: list[str] | None = None) -> int:
 
     remove_cache_artifacts()
     print(f"[regression] Interpreter: {sys.executable}")
+
+    mirror_problems = sync_mirror_files()
+    if mirror_problems:
+        print_problems(mirror_problems)
+        return 7
 
     preflight_problems = dependency_problems()
     if preflight_problems:
