@@ -282,6 +282,8 @@ def _normalize_step_input_notation(
     notation: str,
     labels: List[str],
     display: str = "",
+    *,
+    expand_strength_variants: bool = True,
 ) -> str:
     if _mission_is_assist_step(labels, display):
         return "ATK+P"
@@ -298,7 +300,7 @@ def _normalize_step_input_notation(
     )
     raw = re.sub(r"^AIR\s+", "", raw, flags=re.IGNORECASE)
 
-    buttons = _mission_variant_buttons(labels, display)
+    buttons = _mission_variant_buttons(labels, display) if expand_strength_variants else []
     if buttons:
         replacement = "/".join(buttons)
         raw = re.sub(r"(?<!X)X(?!X)", replacement, raw)
@@ -472,6 +474,7 @@ def _load_mission_pack_uncached(character_name: str) -> MissionPack:
                 or step.get("directions")
                 or ""
             ).strip()
+            explicit_input_notation = bool(input_notation)
 
             display = _normalize_step_display(labels, display)
 
@@ -486,6 +489,7 @@ def _load_mission_pack_uncached(character_name: str) -> MissionPack:
                 input_notation,
                 labels,
                 display,
+                expand_strength_variants=not explicit_input_notation,
             )
 
             steps.append(

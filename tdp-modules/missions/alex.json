@@ -63,13 +63,16 @@
           "label": "2C"
         },
         {
-          "label": "Slash Elbow H"
+          "label": "Slash Elbow H",
+          "input": "[4]6X"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
-          "label": "Wild Stomp C"
+          "label": "Wild Stomp C",
+          "input": "[2]8X"
         }
       ]
     },
@@ -101,10 +104,12 @@
           "label": "6C"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
-          "label": "Wild Stomp C"
+          "label": "Wild Stomp C",
+          "input": "[2]8X"
         }
       ]
     },
@@ -120,10 +125,12 @@
           "label": "2C"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
-          "label": "Wild Stomp C"
+          "label": "Wild Stomp C",
+          "input": "[2]8X"
         }
       ]
     },
@@ -173,7 +180,8 @@
           "label": "Flash Chop B"
         },
         {
-          "label": "Stungun Near"
+          "label": "Stungun Near",
+          "input": "421L+M"
         },
         {
           "label": "2B"
@@ -182,10 +190,12 @@
           "label": "2C"
         },
         {
-          "label": "Slash Elbow H"
+          "label": "Slash Elbow H",
+          "input": "[4]6X"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         }
       ]
     },
@@ -204,7 +214,8 @@
           "label": "2C"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
           "label": "Baroque cancel"
@@ -216,13 +227,16 @@
           "label": "5B"
         },
         {
-          "label": "Slash Elbow H"
+          "label": "Slash Elbow H",
+          "input": "[4]6X"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
-          "label": "Wild Stomp C"
+          "label": "Wild Stomp C",
+          "input": "[2]8X"
         }
       ]
     },
@@ -238,7 +252,8 @@
           "label": "2C"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
           "label": "Baroque cancel"
@@ -250,7 +265,8 @@
           "label": "5B"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
           "label": "2A"
@@ -262,7 +278,8 @@
           "label": "2C"
         },
         {
-          "label": "Slash Elbow H"
+          "label": "Slash Elbow H",
+          "input": "[4]6X"
         },
         {
           "label": "5B"
@@ -274,10 +291,12 @@
           "label": "2C"
         },
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
-          "label": "Wild Stomp C"
+          "label": "Wild Stomp C",
+          "input": "[2]8X"
         }
       ]
     },
@@ -314,7 +333,8 @@
           "label": "Flash Chop B"
         },
         {
-          "label": "Hyperbomb"
+          "label": "Hyperbomb",
+          "input": "360"
         }
       ]
     },
@@ -324,7 +344,8 @@
       "notes": "Some moves are missing, fill in the blank",
       "steps": [
         {
-          "label": "Slash Elbow M"
+          "label": "Slash Elbow M",
+          "input": "[4]6X"
         },
         {
           "label": "j.C"
@@ -337,10 +358,12 @@
           "label": "j.C"
         },
         {
-          "label": "Slash Elbow H"
+          "label": "Slash Elbow H",
+          "input": "[4]6X"
         },
         {
-          "label": "Wild Stomp C"
+          "label": "Wild Stomp C",
+          "input": "[2]8X"
         }
       ]
     },
@@ -350,13 +373,15 @@
       "notes": "A hit after stungun always produces an airborne hit, but what if there was a way to cancel it out? Some moves are missing, fill in the blanks ",
       "steps": [
         {
-          "label": "Stungun Near"
+          "label": "Stungun Near",
+          "input": "421L+M"
         },
         {
           "label": "Flash Chop B"
         },
         {
-          "label": "Hyperbomb"
+          "label": "Hyperbomb",
+          "input": "360"
         }
       ]
     },

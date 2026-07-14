@@ -6,13 +6,27 @@
       "name": "Starter",
       "notes": "Basic launcher route.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -20,20 +34,47 @@
       "name": "Baroque Blaster",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Baroque cancel", "pass": true },
-        
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-                { "label": "j.B" },
-                { "label": "j.B (second hit)" },
-        { "label": "Air Hyper Zero Blaster" },
-        { "label": "Air DP C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Baroque cancel",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Air Hyper Zero Blaster"
+        },
+        {
+          "label": "Air DP C",
+          "input": "623X"
+        }
       ]
     },
     {
@@ -41,23 +82,56 @@
       "name": "Sentsuizan Extension",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Baroque cancel", "pass": true },
-        { "label": "Sentsuizan B" },
-        { "label": "Air Hyper Zero Blaster" },
-        { "label": "j.B" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-        
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Air Hyper Zero Blaster" },
-        { "label": "Air DP C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Baroque cancel",
+          "pass": true
+        },
+        {
+          "label": "Sentsuizan B"
+        },
+        {
+          "label": "Air Hyper Zero Blaster"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Air Hyper Zero Blaster"
+        },
+        {
+          "label": "Air DP C",
+          "input": "623X"
+        }
       ]
     },
     {
@@ -65,24 +139,60 @@
       "name": "DP Baroque Route",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "DP A" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Baroque cancel", "pass": true },
-        
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Air Hyper Zero Blaster" },
-        { "label": "Air DP C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "DP A",
+          "input": "623X"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Baroque cancel",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Air Hyper Zero Blaster"
+        },
+        {
+          "label": "Air DP C",
+          "input": "623X"
+        }
       ]
     },
     {
@@ -90,77 +200,165 @@
       "name": "Dark Hold Finish",
       "notes": "",
       "steps": [
-        
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        
-        { "label": "Air Hyper Zero Blaster" },
-        { "label": "Air Dash A" },
-        { "label": "2A" },
-        
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "2C" },
-        { "label": "6C" },
-        { "label": "Baroque cancel", "pass": true },
-        
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        { "label": "Air Hyper Zero Blaster" },
-        { "label": "Air Dash A" },
-        { "label": "2A" },
-        
-        
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Dark Hold" }
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Hyper Zero Blaster"
+        },
+        {
+          "label": "Air Dash A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Baroque cancel",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Hyper Zero Blaster"
+        },
+        {
+          "label": "Air Dash A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Dark Hold"
+        }
       ]
-    },   {
+    },
+    {
       "mission_id": "zero_006",
       "name": "Air Throw Followup",
       "notes": "Some moves are missing, see if you can figure it out",
-       "setup_debug_flags": {
-    "CpuAction": 2
-  },
+      "setup_debug_flags": {
+        "CpuAction": 2
+      },
       "steps": [
-        
-        { "label": "Air Forward Throw" },
-        
-        { "label": "Sentsuizan B" }     
+        {
+          "label": "Air Forward Throw"
+        },
+        {
+          "label": "Sentsuizan B"
+        }
       ]
-    }, {
+    },
+    {
       "mission_id": "zero_007",
       "name": "Challenge",
       "notes": "Some moves are missing, see if you can figure it out",
       "steps": [
-        
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "Hyper Zero Blaster" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "Hyper Zero Blaster" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "Hyper Zero Blaster" },
-        
-        { "label": "DP C" }     
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Hyper Zero Blaster"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Hyper Zero Blaster"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Hyper Zero Blaster"
+        },
+        {
+          "label": "DP C",
+          "input": "623X"
+        }
       ]
     }
   ]

@@ -35,7 +35,8 @@
       "notes": "Ends with Soki's back throw.",
       "steps": [
         {
-          "label": "Back Throw"
+          "label": "Back Throw",
+          "input": "4C"
         },
         {
           "label": "Finisher"
@@ -285,10 +286,12 @@
         {
           "label": "Counter A",
           "whiff": true
-        },{
+        },
+        {
           "label": "Counter",
           "pass": true
-        },{
+        },
+        {
           "label": "Issen"
         }
       ],
@@ -306,13 +309,15 @@
       "notes": "",
       "steps": [
         {
-          "label": "Oni Tactics"
+          "label": "Oni Tactics",
+          "input": "623XX"
         },
         {
           "label": "Issen"
         },
         {
-          "label": "Oni Tactics"
+          "label": "Oni Tactics",
+          "input": "623XX"
         },
         {
           "label": "Issen"

@@ -43,6 +43,8 @@ CRITICAL_MODULES = (
     "tvcgui/features/overlay/hud_renderer.py",
     "tvcgui/features/overlay/master_renderer.py",
     "tvcgui/features/training/mission_manager.py",
+    "tvcgui/features/training/mission_mode.py",
+    "tvcgui/features/training/wiki_input_catalog.py",
 )
 
 REQUIRED_FILES = (
@@ -53,6 +55,7 @@ REQUIRED_FILES = (
     "data/frame_data/observed_block_advantage_profiles.json",
     "tdp-modules/tvcgui/ui/advantage_window.py",
     "tdp-modules/tvcgui/runtime/ko_control.py",
+    "tdp-modules/tvcgui/features/training/mission_manager.py",
 )
 
 PROTECTED_FILES = (
@@ -68,9 +71,14 @@ PROTECTED_FILES = (
     "tvcgui/features/overlay/hud_renderer.py",
     "tvcgui/features/overlay/master_renderer.py",
     "tvcgui/features/training/mission_manager.py",
+    "tvcgui/features/training/mission_mode.py",
+    "tvcgui/features/training/wiki_input_catalog.py",
     "data/frame_data/frame_data_preview_profiles.json",
     "data/frame_data/observed_block_advantage_profiles.json",
     "tests/v19_contract_helpers.py",
+) + tuple(
+    path.relative_to(APP_DIR).as_posix()
+    for path in sorted((APP_DIR / "missions").glob("*.json"))
 ) + tuple(
     path.relative_to(APP_DIR).as_posix()
     for path in sorted(TEST_DIR.glob("test_*.py"))
@@ -91,6 +99,8 @@ MIRROR_FILES = (
     ("tvcgui/ui/advantage_window.py", "tdp-modules/tvcgui/ui/advantage_window.py"),
     ("tvcgui/runtime/ko_control.py", "tdp-modules/tvcgui/runtime/ko_control.py"),
     ("tvcgui/features/overlay/hud_renderer.py", "tdp-modules/tvcgui/features/overlay/hud_renderer.py"),
+    ("tvcgui/features/overlay/master_renderer.py", "tdp-modules/tvcgui/features/overlay/master_renderer.py"),
+    ("tvcgui/features/training/mission_manager.py", "tdp-modules/tvcgui/features/training/mission_manager.py"),
 )
 
 

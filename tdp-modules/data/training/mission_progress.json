@@ -3,7 +3,7 @@
     "completed": {
       "chun_001": true
     },
-    "selected_mission_id": "chun_004"
+    "selected_mission_id": "chun_002"
   },
   "morrigan": {
     "completed": {},
@@ -11,13 +11,17 @@
   },
   "alex": {
     "completed": {
-      "alex_005": true
+      "alex_005": true,
+      "alex_004": true,
+      "alex_003": true,
+      "alex_002": true,
+      "alex_001": true
     },
-    "selected_mission_id": "alex_005"
+    "selected_mission_id": "alex_001"
   },
   "frank_west": {
     "completed": {},
-    "selected_mission_id": "frank_west_004"
+    "selected_mission_id": "frank_west_006"
   },
   "ryu": {
     "completed": {},
@@ -27,7 +31,7 @@
     "completed": {
       "batsu_002": true
     },
-    "selected_mission_id": "batsu_002"
+    "selected_mission_id": "batsu_006"
   },
   "volnutt": {
     "completed": {},
@@ -43,5 +47,73 @@
       "saki_003": true
     },
     "selected_mission_id": "saki_004"
+  },
+  "tekkaman_blade": {
+    "completed": {
+      "tekkaman_blade_002": true,
+      "tekkaman_blade_008": true,
+      "tekkaman_blade_003": true
+    },
+    "selected_mission_id": "tekkaman_blade_009"
+  },
+  "polimar": {
+    "completed": {},
+    "selected_mission_id": "polimar_005"
+  },
+  "soki": {
+    "completed": {
+      "soki_003": true
+    },
+    "selected_mission_id": "soki_011"
+  },
+  "roll": {
+    "completed": {},
+    "selected_mission_id": "roll_007"
+  },
+  "zero": {
+    "completed": {},
+    "selected_mission_id": "zero_004"
+  },
+  "jun_the_swan": {
+    "completed": {},
+    "selected_mission_id": "jun_004"
+  },
+  "ken_the_eagle": {
+    "completed": {},
+    "selected_mission_id": "ken_005"
+  },
+  "casshan": {
+    "completed": {},
+    "selected_mission_id": "casshan_006"
+  },
+  "tekkaman": {
+    "completed": {},
+    "selected_mission_id": "tekkaman_005"
+  },
+  "yatterman_1": {
+    "completed": {},
+    "selected_mission_id": "yatterman_006"
+  },
+  "karas": {
+    "completed": {
+      "karas_002": true
+    },
+    "selected_mission_id": "karas_002"
+  },
+  "doronjo": {
+    "completed": {},
+    "selected_mission_id": "doronjo_001"
+  },
+  "ippatsuman": {
+    "completed": {},
+    "selected_mission_id": "ippatsuman_006"
+  },
+  "yatterman_2": {
+    "completed": {},
+    "selected_mission_id": "yatterman_2_007"
+  },
+  "joe_the_condor": {
+    "completed": {},
+    "selected_mission_id": "joe_the_condor_001"
   }
 }

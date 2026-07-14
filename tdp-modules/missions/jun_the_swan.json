@@ -6,14 +6,30 @@
       "name": "BnB",
       "notes": "Basic launcher route.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -21,18 +37,44 @@
       "name": "Kick Relaunch",
       "notes": "Lightning Kick B into relaunch. There's a bug with 6C, investigating",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "2C" },
-        { "label": "6C", "grace": 30 },
-        { "label": "Lightning Kick B" },
-        { "label": "j.B" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "6C",
+          "grace": 30
+        },
+        {
+          "label": "Lightning Kick B",
+          "input": "623X"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -40,24 +82,61 @@
       "name": "Corner Combo",
       "notes": "Corner only, you can repeat this with a partner",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "2C" },
-        { "label": "6C" },
-        { "label": "Lightning Kick B" },
-        { "label": "j.B" },
-        { "label": "Air Yoyo A" },
-        { "label": "j.B" },
-        { "label": "5C" },
-        { "label": "2A" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Lightning Kick B",
+          "input": "623X"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Yoyo A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -65,37 +144,87 @@
       "name": "Swan Finish",
       "notes": "Long route into Dancing Swan A, then Yoyo A into Bingo.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "2C" },
-        { "label": "6C" },
-        { "label": "Lightning Kick C" },
-        { "label": "j.B" },
-        { "label": "Air Yoyo A" },
-        { "label": "j.B" },
-        { "label": "5C" },
-        { "label": "2A" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "2A" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "Dancing Swan A" },
-        { "label": "Air Yoyo A" },
-        { "label": "Air Bingo" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Lightning Kick C",
+          "input": "623X"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Yoyo A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Dancing Swan A"
+        },
+        {
+          "label": "Air Yoyo A"
+        },
+        {
+          "label": "Air Bingo"
+        }
       ]
-    },{
-  "mission_id": "jun_005",
-  "name": "Challenge",
-  "notes": "???",
-  "steps": [
-    { "label": "Bingo" },
-    { "label": "Yoyo B" },
-    { "label": "5C" },
-    { "label": "Phoenix" }
-  ]
-}
+    },
+    {
+      "mission_id": "jun_005",
+      "name": "Challenge",
+      "notes": "???",
+      "steps": [
+        {
+          "label": "Bingo"
+        },
+        {
+          "label": "Yoyo B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Phoenix"
+        }
+      ]
+    }
   ]
 }

@@ -6,10 +6,19 @@
       "name": "Starter",
       "notes": "Basic chain.",
       "steps": [
-        { "label": "5C" },
-        { "label": "2C" , "pass": true},
-        { "label": "Baroque cancel" },
-        { "label": "2C" }
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C",
+          "pass": true
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "2C"
+        }
       ]
     },
     {
@@ -17,15 +26,35 @@
       "name": "Load Bullet C",
       "notes": "22C ",
       "steps": [
-        { "label": "Load Ammo C" , "pass": true, "grace": 500},
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "2C" }
+        {
+          "label": "Load Ammo C",
+          "pass": true,
+          "grace": 500
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        }
       ]
     },
     {
@@ -33,8 +62,12 @@
       "name": "Grenade BnB",
       "notes": "22C ",
       "steps": [
-        { "label": "j.C" },
-        { "label": "Air Grenade B" }
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Grenade B"
+        }
       ]
     },
     {
@@ -42,17 +75,39 @@
       "name": "Corner Setup",
       "notes": "22C ",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "6C" },
-        { "label": "Positron C" },
-        { "label": "Baroque cancel" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "Positron Storm" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Positron C"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Positron Storm"
+        }
       ]
     },
     {
@@ -60,10 +115,19 @@
       "name": "Throw Followup",
       "notes": "22C ",
       "steps": [
-        { "label": "Forward Throw" },
-        { "label": "2C" },
-        { "label": "Baroque cancel" },
-        { "label": "2C" }
+        {
+          "label": "Forward Throw",
+          "input": "6C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "2C"
+        }
       ]
     },
     {
@@ -74,8 +138,14 @@
         "CpuGuard": 2
       },
       "steps": [
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true, "grace": 500},
-        { "label": "5C" }
+        {
+          "label": "LOAD SUPER ARMOR PIERCING SHELL",
+          "pass": true,
+          "grace": 500
+        },
+        {
+          "label": "5C"
+        }
       ]
     },
     {
@@ -83,21 +153,54 @@
       "name": "Load Shell Route",
       "notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
       "steps": [
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true, "grace": 500 },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "Headbutt" },
-        { "label": "2A" },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)", "grace": 30 },
-        { "label": "j.C" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "LOAD SUPER ARMOR PIERCING SHELL",
+          "pass": true,
+          "grace": 500
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "Headbutt"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)",
+          "grace": 30
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -105,10 +208,18 @@
       "name": "Challenge",
       "notes": "Some moves are missing go ahead and fill them in ",
       "steps": [
-        { "label": "Headbutt" },
-        { "label": "Load Ammo C" },
-        { "label": "3C" },
-        { "label": "Positron Storm" }
+        {
+          "label": "Headbutt"
+        },
+        {
+          "label": "Load Ammo C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Positron Storm"
+        }
       ]
     },
     {
@@ -116,17 +227,43 @@
       "name": "Meter Challenge",
       "notes": "",
       "steps": [
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true, "grace": 300 },
-        { "label": "5C" },
-        
-        { "label": "Grenade B" , "pass": true},
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true , "grace": 200},
-        { "label": "5C" },
-        
-        { "label": "Grenade B", "pass": true},
-        { "label": "LOAD SUPER ARMOR PIERCING SHELL", "pass": true, "grace": 200 },
-        { "label": "5C","pass": true,"grace": 250 },
-        { "label": "Positron Storm" }
+        {
+          "label": "LOAD SUPER ARMOR PIERCING SHELL",
+          "pass": true,
+          "grace": 300
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Grenade B",
+          "pass": true
+        },
+        {
+          "label": "LOAD SUPER ARMOR PIERCING SHELL",
+          "pass": true,
+          "grace": 200
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Grenade B",
+          "pass": true
+        },
+        {
+          "label": "LOAD SUPER ARMOR PIERCING SHELL",
+          "pass": true,
+          "grace": 200
+        },
+        {
+          "label": "5C",
+          "pass": true,
+          "grace": 250
+        },
+        {
+          "label": "Positron Storm"
+        }
       ]
     }
   ]

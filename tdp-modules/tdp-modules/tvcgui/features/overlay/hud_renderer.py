@@ -136,6 +136,7 @@ _interaction_ribbon = {
     "title": "",
     "detail": "",
     "color": (130, 175, 255),
+    "stamp": "",
     "life": 0.0,
     "age": 0.0,
 }
@@ -260,6 +261,22 @@ def _emit_first_contact_badge(st: dict, attacker_slot: str, victim_slot: str) ->
 
 def _begin_adv_contact(st: dict, attacker_slot: str, victim_slot: str) -> None:
     current_contact_blocked = _contact_is_block(victim_slot)
+    victim_move = _mv(victim_slot)
+    victim_label = str((_display_slots.get(victim_slot) or {}).get("mv_label") or "").strip().lower()
+    attacker_label = str((_display_slots.get(attacker_slot) or {}).get("mv_label") or "").strip().lower()
+    st["victim_was_attacking"] = bool(_is_attacking(victim_move))
+    st["victim_was_committed"] = bool(
+        victim_move is not None
+        and not _is_actionable(victim_move)
+        and not _is_stuck(victim_move)
+        and not current_contact_blocked
+    )
+    st["attacker_called_reversal"] = bool(
+        "reversal" in attacker_label
+        or (_display_slots.get(attacker_slot) or {}).get("is_reversal")
+        or (_display_slots.get(attacker_slot) or {}).get("reversal")
+    )
+    st["victim_contact_label"] = victim_label
 
     # Hits lock to the first contacting move for the whole combo. Blocks should
     # retrigger for each newly blocked move in a blockstring.
@@ -300,6 +317,18 @@ def _set_guard_indicator(slot_label: str, label: str, hit: bool) -> None:
     _trigger_team_panel_fx(_team_from_slot(slot_label), (255, 110, 110) if hit else (92, 232, 146), 1.05 if hit else 0.85, 8 if hit else 6)
 
 
+def _interaction_stamp(st: dict, hit: bool) -> str:
+    if not hit:
+        return ""
+    if bool(st.get("attacker_called_reversal", False)):
+        return "REVERSAL"
+    if bool(st.get("victim_was_attacking", False)):
+        return "COUNTER"
+    if bool(st.get("victim_was_committed", False)):
+        return "PUNISH"
+    return ""
+
+
 def _publish_interaction(attacker_slot: str, victim_slot: str, st: dict, advantage: int) -> None:
     start_hp = int(st.get("victim_hp_start") or _snap_int(victim_slot, "cur"))
     current_hp = _snap_int(victim_slot, "cur")
@@ -316,6 +345,7 @@ def _publish_interaction(attacker_slot: str, victim_slot: str, st: dict, advanta
         "title": f"{kind}  |  {attacker}  {move}",
         "detail": detail,
         "color": (255, 126, 126) if hit else (128, 180, 255),
+        "stamp": _interaction_stamp(st, hit),
         "life": 1.0,
         "age": 0.0,
     })
@@ -357,6 +387,9 @@ def _combo_register_damage(victim_slot: str, damage: int) -> None:
             "hit_sheen": 0.0,
             "final_sheen": 0.0,
             "final_confirmed": False,
+            "milestone_sheen": 0.0,
+            "milestone_scale": 0.0,
+            "milestone_hit": 0,
         })
     ledger["hits"] = int(ledger.get("hits") or 0) + 1
     ledger["damage"] = int(ledger.get("damage") or 0) + int(damage)
@@ -367,6 +400,11 @@ def _combo_register_damage(victim_slot: str, damage: int) -> None:
     ledger["hit_sheen"] = 1.0
     ledger["final_sheen"] = 0.0
     ledger["final_confirmed"] = False
+    hit_count = int(ledger.get("hits") or 0)
+    if hit_count in (10, 20, 30):
+        ledger["milestone_sheen"] = 1.0
+        ledger["milestone_scale"] = 1.0
+        ledger["milestone_hit"] = hit_count
 
 
 def _tick_combo_ledgers(dt: float) -> None:
@@ -374,6 +412,8 @@ def _tick_combo_ledgers(dt: float) -> None:
         if not ledger:
             continue
         ledger["hit_sheen"] = max(0.0, float(ledger.get("hit_sheen") or 0.0) - dt * 5.0)
+        ledger["milestone_sheen"] = max(0.0, float(ledger.get("milestone_sheen") or 0.0) - dt * 2.65)
+        ledger["milestone_scale"] = max(0.0, float(ledger.get("milestone_scale") or 0.0) - dt * 3.8)
         age = _frame - int(ledger.get("last_hit_frame") or _frame)
         if age > 75 and not bool(ledger.get("final_confirmed", False)):
             # The combo is settled. Hold the card at full opacity long enough
@@ -508,6 +548,10 @@ _anim_state = {
     "overlay_alpha": 0.0,
     "slots": {},
     "teams": {},
+    "assembly_age": 0.0,
+    "assembly_active": False,
+    "match_reset_armed": False,
+    "last_match_reset_frame": -9999,
 }
 
 def _approach(current: float, target: float, speed: float, dt: float) -> float:
@@ -554,8 +598,12 @@ def _get_slot_anim(slot_label: str):
         "last_input_frame": -9999,
         "last_input_sample_seq": 0,
         "hp_display_frac": None,
+        "hp_trail_frac": None,
+        "hp_trail_delay": 0.0,
         "partner_hp_display_frac": None,
         "meter_display_value": None,
+        "meter_spend_sweep": 0.0,
+        "meter_spend_amount": 0,
         "baroque_alpha": 0.0,
         "baroque_fade_direction": 0,
         "event_history": [],
@@ -598,6 +646,12 @@ def _get_team_anim(team: str):
         "shake": 0.0,
         "sparks": [],
         "tag_card": None,
+        "tag_lock_pending": False,
+        "tag_lock_flash": 0.0,
+        "impact_recoil_age": 1.0,
+        "impact_recoil_power": 0.0,
+        "entrance_age": 0.0,
+        "entrance_active": False,
     })
 
 
@@ -646,8 +700,21 @@ def _trigger_team_panel_fx(team: str, color: tuple[int, int, int], strength: flo
         del sparks[:-24]
 
 
+def _trigger_impact_recoil(team: str, damage: int) -> None:
+    """Nudge only the struck HUD side outward, then settle it immediately."""
+    team_anim = _get_team_anim(team)
+    damage_i = max(0, int(damage or 0))
+    power = 2.0 + min(2.5, damage_i / 3200.0)
+    team_anim["impact_recoil_age"] = 0.0
+    team_anim["impact_recoil_power"] = max(float(team_anim.get("impact_recoil_power", 0.0)), power)
+
+
 def _tick_team_panel_fx(team_anim: dict, dt: float) -> None:
     team_anim["pulse_life"] = max(0.0, float(team_anim.get("pulse_life", 0.0)) - dt * 2.25)
+    team_anim["impact_recoil_age"] = min(1.0, float(team_anim.get("impact_recoil_age", 1.0)) + dt / 0.16)
+    if float(team_anim.get("impact_recoil_age", 1.0)) >= 1.0:
+        team_anim["impact_recoil_power"] = 0.0
+    team_anim["tag_lock_flash"] = max(0.0, float(team_anim.get("tag_lock_flash", 0.0)) - dt * 5.5)
     team_anim["shake"] = max(0.0, float(team_anim.get("shake", 0.0)) - dt * 5.4)
     team_anim["sweep_pos"] = min(1.20, float(team_anim.get("sweep_pos", -0.25)) + dt * 1.30)
     updated = []
@@ -1732,6 +1799,8 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
                 events.insert(0, {"value": damage, "life": 1.0, "age": 0.0, "x_offset": 0, "type": "self"})
                 _push_event_history(slot_anim, "DMG IN", _compact_short_number(damage), (255, 110, 110))
                 _trigger_team_panel_fx(_team_from_slot(slot_label), (255, 110, 110), min(1.35, 0.55 + damage / 2400.0), 10)
+                _trigger_impact_recoil(_team_from_slot(slot_label), damage)
+                slot_anim["hp_trail_delay"] = 0.16
                 _combo_register_damage(slot_label, damage)
                 opponent = _get_active_slot("P2" if slot_label.startswith("P1") else "P1")
                 if opponent:
@@ -1766,6 +1835,9 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
             })
             _push_event_history(slot_anim, "MTR", f"{'+' if meter_delta > 0 else '-'}{_compact_short_number(abs(meter_delta))}", (96, 182, 255) if meter_delta > 0 else (255, 164, 92))
             _trigger_team_panel_fx(_team_from_slot(slot_label), (96, 182, 255) if meter_delta > 0 else (255, 164, 92), 0.55, 4)
+            if meter_delta < 0:
+                slot_anim["meter_spend_sweep"] = 1.0
+                slot_anim["meter_spend_amount"] = abs(int(meter_delta))
             del meter_events[3:]
     slot_anim["prev_meter"] = meter_cur
 
@@ -1854,7 +1926,7 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
     slot_anim["guard_indicator_flash"] = max(0.0, float(slot_anim.get("guard_indicator_flash", 0.0)) - 0.030)
 
 
-def _draw_compact_meter(screen, x: int, y: int, width: int, meter_value_visual, scale: float, is_dead: bool) -> int:
+def _draw_compact_meter(screen, x: int, y: int, width: int, meter_value_visual, scale: float, is_dead: bool, spend_sweep: float = 0.0, spend_amount: int = 0) -> int:
     level = _compact_meter_level(meter_value_visual)
     height = max(8, int(10 * scale))
     rect = pygame.Rect(x, y, max(30, width), height)
@@ -1877,10 +1949,48 @@ def _draw_compact_meter(screen, x: int, y: int, width: int, meter_value_visual, 
                 base = tuple(min(255, int(component * pulse)) for component in base)
             pygame.draw.rect(screen, base, cell, border_radius=max(1, radius - 1))
             pygame.draw.line(screen, (242, 248, 255), (cell.x + 1, cell.y + 1), (cell.right - 2, cell.y + 1), 1)
+    spend_left = max(0.0, min(1.0, float(spend_sweep or 0.0)))
+    if spend_left > 0.001 and inner.width > 0 and inner.height > 0:
+        progress = 1.0 - spend_left
+        envelope = math.sin(math.pi * max(0.0, min(1.0, progress)))
+        band_w = max(10, int(rect.width * 0.22))
+        center_x = int(rect.right + band_w - progress * (rect.width + band_w * 2))
+        spend_layer = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+        local_center = center_x - rect.x
+        amount_strength = min(1.0, max(0.25, float(spend_amount or 0) / 20000.0))
+        pygame.draw.polygon(
+            spend_layer,
+            (255, 166, 82, int((40 + 36 * amount_strength) * envelope)),
+            [
+                (local_center - band_w, 0),
+                (local_center + band_w // 3, 0),
+                (local_center - band_w // 3, rect.height - 1),
+                (local_center - band_w * 2, rect.height - 1),
+            ],
+        )
+        pygame.draw.line(
+            spend_layer,
+            (255, 226, 178, int((72 + 60 * amount_strength) * envelope)),
+            (local_center, 1),
+            (local_center - band_w, rect.height - 2),
+            1,
+        )
+        screen.blit(spend_layer, rect.topleft, special_flags=pygame.BLEND_RGBA_ADD)
     return rect.width
 
 
-def _draw_compact_health(screen, x: int, y: int, width: int, height: int, cur, maximum, is_dead: bool, display_fraction=None) -> None:
+def _draw_compact_health(
+    screen,
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    cur,
+    maximum,
+    is_dead: bool,
+    display_fraction=None,
+    trail_fraction=None,
+) -> None:
     rect = pygame.Rect(x, y, width, height)
     pygame.draw.rect(screen, (24, 29, 38), rect, border_radius=max(2, height // 2))
     inner = rect.inflate(-2, -2)
@@ -1889,6 +1999,13 @@ def _draw_compact_health(screen, x: int, y: int, width: int, height: int, cur, m
     except (TypeError, ValueError):
         target_fraction = 0.0
     fraction = target_fraction if display_fraction is None else max(0.0, min(1.0, float(display_fraction)))
+    trail = fraction if trail_fraction is None else max(fraction, min(1.0, float(trail_fraction)))
+    if inner.width > 0 and inner.height > 0 and trail > fraction + 0.001:
+        trail_fill = max(1, int(inner.width * trail))
+        trail_color = (142, 75, 71) if not is_dead else (82, 58, 60)
+        pygame.draw.rect(screen, trail_color, (inner.x, inner.y, trail_fill, inner.height), border_radius=max(1, inner.height // 2))
+        edge_x = inner.x + trail_fill - 1
+        pygame.draw.line(screen, (255, 198, 151), (edge_x, inner.y), (edge_x, inner.bottom - 1), 1)
     if inner.width > 0 and inner.height > 0 and fraction > 0.0:
         fill = max(1, int(inner.width * fraction))
         color = COL_HP_DEAD if is_dead else (COL_HP_LOW if target_fraction <= 0.30 else COL_HP_HIGH)
@@ -2113,6 +2230,117 @@ def _compact_chip_color(color: tuple[int, int, int], life: float) -> tuple[int, 
 def _compact_smoothstep(value: float) -> float:
     value = max(0.0, min(1.0, float(value)))
     return value * value * (3.0 - 2.0 * value)
+
+
+def _compact_lock_ease(value: float) -> float:
+    """Ease into place with a restrained overshoot, then settle at one."""
+    value = max(0.0, min(1.0, float(value)))
+    overshoot = 0.56
+    shifted = value - 1.0
+    return 1.0 + (overshoot + 1.0) * shifted * shifted * shifted + overshoot * shifted * shifted
+
+
+def _hud_stage_progress(age: float, start: float, duration: float = 0.18) -> float:
+    if duration <= 0.0:
+        return 1.0 if age >= start else 0.0
+    return _compact_lock_ease((float(age) - float(start)) / float(duration))
+
+
+def _blit_hud_stage(
+    destination: pygame.Surface,
+    layer: pygame.Surface,
+    source_rect: pygame.Rect,
+    destination_x: int,
+    destination_y: int,
+    progress: float,
+    is_left: bool,
+    scale: float,
+    clip_rect: pygame.Rect | None = None,
+    vertical_lift: float = 2.0,
+) -> None:
+    if progress <= 0.001:
+        return
+    source_rect = pygame.Rect(source_rect).clip(layer.get_rect())
+    if source_rect.width <= 0 or source_rect.height <= 0:
+        return
+    alpha_progress = max(0.0, min(1.0, float(progress)))
+    staged = layer.subsurface(source_rect).copy()
+    staged.set_alpha(max(0, min(255, int(255 * alpha_progress))))
+    travel = max(14, int(24 * scale))
+    direction = -1 if is_left else 1
+    offset_x = int((1.0 - float(progress)) * travel * direction)
+    offset_y = int((1.0 - alpha_progress) * float(vertical_lift) * scale)
+    previous_clip = destination.get_clip()
+    if clip_rect is not None:
+        destination.set_clip(clip_rect)
+    destination.blit(
+        staged,
+        (destination_x + source_rect.x + offset_x, destination_y + source_rect.y + offset_y),
+    )
+    destination.set_clip(previous_clip)
+
+
+def _draw_match_assembly_spine(screen, scale: float, dt: float) -> None:
+    if not bool(_anim_state.get("assembly_active", False)):
+        return
+    age = max(0.0, float(_anim_state.get("assembly_age", 0.0)) + dt)
+    _anim_state["assembly_age"] = age
+    if age >= 0.72:
+        _anim_state["assembly_active"] = False
+        return
+    build = _compact_lock_ease(age / 0.24)
+    release = max(0.0, min(1.0, (age - 0.30) / 0.42))
+    fade = 1.0 - release
+    center_x = screen.get_width() // 2
+    y = int(138 * scale)
+    half_span = int((18 + 166 * build) * scale)
+    gap = max(5, int(7 * scale))
+    rail_alpha = int(112 * fade)
+    core_alpha = int(190 * fade * min(1.0, build * 1.4))
+    pygame.draw.line(screen, (154, 196, 255, rail_alpha), (center_x - half_span, y), (center_x - gap, y), max(1, int(2 * scale)))
+    pygame.draw.line(screen, (255, 135, 135, rail_alpha), (center_x + gap, y), (center_x + half_span, y), max(1, int(2 * scale)))
+    lock_h = max(8, int(17 * scale * build))
+    pygame.draw.line(screen, (242, 247, 255, core_alpha), (center_x, y - lock_h), (center_x, y + lock_h), max(1, int(2 * scale)))
+    if 0.18 <= age <= 0.44:
+        flash = math.sin(math.pi * ((age - 0.18) / 0.26))
+        pygame.draw.circle(screen, (255, 255, 255, int(86 * flash * fade)), (center_x, y), max(2, int(5 * scale)), 1)
+
+
+def _maybe_restart_match_assembly(slots: dict) -> None:
+    snapshots = [snap for snap in slots.values() if isinstance(snap, dict) and snap.get("max")]
+    if not snapshots:
+        return
+    ratios = []
+    for snap in snapshots:
+        try:
+            ratios.append(max(0.0, min(1.0, float(snap.get("cur") or 0.0) / max(1.0, float(snap.get("max") or 1.0)))))
+        except (TypeError, ValueError):
+            pass
+    if not ratios:
+        return
+    if min(ratios) <= 0.45:
+        _anim_state["match_reset_armed"] = True
+    reset_ready = bool(_anim_state.get("match_reset_armed", False)) and min(ratios) >= 0.95
+    enough_frames = (_frame - int(_anim_state.get("last_match_reset_frame", -9999))) > 120
+    if reset_ready and enough_frames:
+        _anim_state["last_match_reset_frame"] = _frame
+        _anim_state["match_reset_armed"] = False
+        _restart_hud_entrance()
+
+
+def _restart_hud_entrance() -> None:
+    _anim_state["overlay_alpha"] = 0.0
+    _anim_state["assembly_age"] = 0.0
+    _anim_state["assembly_active"] = True
+    for team_anim in _anim_state.get("teams", {}).values():
+        team_anim["present"] = False
+        team_anim["entrance_age"] = 0.0
+        team_anim["entrance_active"] = True
+        team_anim["alpha"] = 0.0
+        team_anim["tag_lock_pending"] = False
+        team_anim["tag_lock_flash"] = 0.0
+        team_anim["impact_recoil_age"] = 1.0
+        team_anim["impact_recoil_power"] = 0.0
 
 
 def _compact_event_fade(event: dict | None) -> float:
@@ -3315,16 +3543,18 @@ def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float
         return
 
     fade_out = min(1.0, life * 2.6)
-    panel_progress = _compact_smoothstep(age / 0.22)
-    slice_progress = _compact_smoothstep((age - 0.12) / 0.18)
-    divider_progress = _compact_smoothstep((age - 0.27) / 0.16)
-    sheen_progress = max(0.0, min(1.0, (age - 0.43) / 0.34))
+    panel_progress = _compact_lock_ease(age / 0.24)
+    slice_progress = _compact_lock_ease((age - 0.12) / 0.24)
+    slice_lock_pulse = math.sin(math.pi * max(0.0, min(1.0, (age - 0.34) / 0.18)))
+    divider_progress = _compact_lock_ease((age - 0.31) / 0.18)
+    sheen_progress = max(0.0, min(1.0, (age - 0.52) / 0.34))
     sheen_alpha = math.sin(math.pi * sheen_progress) if 0.0 < sheen_progress < 1.0 else 0.0
     fade = min(fade_out, panel_progress)
 
     title = str(_interaction_ribbon.get("title") or "")
     detail = str(_interaction_ribbon.get("detail") or "")
     accent = tuple(_interaction_ribbon.get("color") or (130, 175, 255))
+    stamp = str(_interaction_ribbon.get("stamp") or "").strip().upper()
     title_left, title_separator, title_right = title.partition("  |  ")
     if not title_separator:
         title_left, title_right = title, ""
@@ -3336,7 +3566,9 @@ def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float
     title_width = title_left_s.get_width()
     if title_right_s is not None:
         title_width += title_gap + max(1, int(1 * scale)) + separator_gap + title_right_s.get_width()
-    width = max(int(280 * scale), title_width + int(28 * scale), detail_s.get_width() + int(34 * scale))
+    stamp_s = font_sm.render(stamp, True, (255, 255, 255)) if stamp else None
+    stamp_reserve = (stamp_s.get_width() + int(34 * scale)) if stamp_s is not None else 0
+    width = max(int(280 * scale), title_width + int(28 * scale) + stamp_reserve, detail_s.get_width() + int(34 * scale))
     title_height = max(title_left_s.get_height(), title_right_s.get_height() if title_right_s is not None else 0)
     height = max(int(42 * scale), title_height + detail_s.get_height() + int(12 * scale))
     base_x = screen.get_width() // 2 - width // 2
@@ -3354,31 +3586,62 @@ def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float
     pygame.draw.rect(card, (34, 41, 55, int(216 * fade)), card.get_rect(), 1, border_radius=radius)
 
     rail_w = max(5, int(6 * scale))
+    slice_alpha = max(0.0, min(1.0, slice_progress))
     pygame.draw.rect(
         card,
-        (*accent, int(220 * fade * slice_progress)),
+        (*accent, int(220 * fade * slice_alpha)),
         (0, 0, rail_w, height),
         border_top_left_radius=radius,
         border_bottom_left_radius=radius,
     )
 
-    slice_width = max(1, int(width * 0.40 * slice_progress))
-    if slice_width > 1:
-        slice_layer = pygame.Surface((width, height), pygame.SRCALPHA)
-        pygame.draw.polygon(
+    slice_target_w = max(2, int(width * 0.40))
+    slice_bottom_w = max(1, int(width * 0.28))
+    slice_layer = pygame.Surface((slice_target_w, height), pygame.SRCALPHA)
+    highlight = tuple(min(255, int(channel + (255 - channel) * 0.30)) for channel in accent)
+    for gradient_x in range(slice_target_w):
+        ratio = gradient_x / max(1, slice_target_w - 1)
+        gradient_color = _lerp_color(highlight, accent, min(1.0, ratio * 0.88))
+        gradient_alpha = int((94.0 - 62.0 * ratio) * fade * slice_alpha)
+        if gradient_x <= slice_bottom_w:
+            bottom_y = height - 1
+        else:
+            tail = (slice_target_w - gradient_x) / max(1, slice_target_w - slice_bottom_w)
+            bottom_y = max(0, int((height - 1) * tail))
+        pygame.draw.line(
             slice_layer,
-            (*accent, int(76 * fade * slice_progress)),
-            [(rail_w, 0), (int(width * 0.40), 0), (int(width * 0.28), height - 1), (0, height - 1)],
+            (*gradient_color, max(0, gradient_alpha)),
+            (gradient_x, 0),
+            (gradient_x, bottom_y),
+            1,
         )
-        old_clip = card.get_clip()
-        card.set_clip(pygame.Rect(0, 0, slice_width, height))
-        card.blit(slice_layer, (0, 0))
-        card.set_clip(old_clip)
+    slice_offset_x = int((1.0 - slice_progress) * -slice_target_w * 0.92)
+    old_clip = card.get_clip()
+    card.set_clip(pygame.Rect(0, 0, slice_target_w, height))
+    card.blit(slice_layer, (slice_offset_x, 0))
+    card.set_clip(old_clip)
+
+    if slice_lock_pulse > 0.001:
+        lock_alpha = int(116 * fade * slice_lock_pulse)
+        pygame.draw.line(
+            card,
+            (232, 242, 255, lock_alpha),
+            (slice_target_w, 1),
+            (slice_bottom_w, height - 2),
+            max(1, int(2 * scale)),
+        )
+        pygame.draw.line(
+            card,
+            (*accent, int(72 * fade * slice_lock_pulse)),
+            (slice_target_w - max(2, int(3 * scale)), 1),
+            (slice_bottom_w - max(2, int(3 * scale)), height - 2),
+            1,
+        )
 
     top_line_start = max(8, int(9 * scale))
-    top_line_end = top_line_start + int((width - top_line_start - int(10 * scale)) * slice_progress)
+    top_line_end = top_line_start + int((width - top_line_start - int(10 * scale)) * slice_alpha)
     if top_line_end > top_line_start:
-        pygame.draw.line(card, (248, 250, 254, int(58 * fade * slice_progress)), (top_line_start, 1), (top_line_end, 1), 1)
+        pygame.draw.line(card, (248, 250, 254, int(58 * fade * slice_alpha)), (top_line_start, 1), (top_line_end, 1), 1)
 
     title_x = int(14 * scale)
     title_y = int(5 * scale)
@@ -3435,6 +3698,40 @@ def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float
     detail_s.set_alpha(int(240 * fade * divider_progress))
     detail_x = int(14 * scale) + int((1.0 - divider_progress) * 6 * scale)
     card.blit(detail_s, (detail_x, height - detail_s.get_height() - int(5 * scale)))
+
+    if stamp_s is not None:
+        stamp_in = _compact_lock_ease((age - 0.40) / 0.17)
+        stamp_out = max(0.0, min(1.0, (0.30 - life) / 0.30))
+        stamp_alpha = max(0.0, min(1.0, stamp_in * (1.0 - stamp_out) * fade))
+        if stamp_alpha > 0.001:
+            stamp_colors = {
+                "COUNTER": ((255, 119, 88), (72, 25, 18)),
+                "PUNISH": ((255, 203, 86), (62, 46, 15)),
+                "REVERSAL": ((190, 126, 255), (42, 24, 68)),
+            }
+            stamp_accent, stamp_fill = stamp_colors.get(stamp, (accent, (26, 32, 44)))
+            pad_x = max(7, int(8 * scale))
+            plate_w = stamp_s.get_width() + pad_x * 2
+            plate_h = max(stamp_s.get_height() + int(5 * scale), int(18 * scale))
+            plate = pygame.Surface((plate_w + int(8 * scale), plate_h), pygame.SRCALPHA)
+            slant = max(4, int(6 * scale))
+            pygame.draw.polygon(
+                plate,
+                (*stamp_fill, int(232 * stamp_alpha)),
+                [(slant, 0), (plate_w + slant, 0), (plate_w, plate_h - 1), (0, plate_h - 1)],
+            )
+            pygame.draw.polygon(
+                plate,
+                (*stamp_accent, int(230 * stamp_alpha)),
+                [(slant, 0), (plate_w + slant, 0), (plate_w, plate_h - 1), (0, plate_h - 1)],
+                1,
+            )
+            stamp_s.set_alpha(int(255 * stamp_alpha))
+            plate.blit(stamp_s, (pad_x + slant // 2, (plate_h - stamp_s.get_height()) // 2))
+            slam = int((1.0 - stamp_in) * 22 * scale) - int(stamp_out * 18 * scale)
+            plate_x = width - plate.get_width() - int(8 * scale) + slam
+            plate_y = max(2, int(4 * scale))
+            card.blit(plate, (plate_x, plate_y))
     screen.blit(card, (x, y))
 
 
@@ -3483,6 +3780,25 @@ def _blit_combo_sheen(card, progress: float, fade: float, heavy: bool = False) -
         )
 
 
+def _blit_combo_milestone(card: pygame.Surface, progress: float, fade: float) -> None:
+    progress = max(0.0, min(1.0, float(progress)))
+    envelope = math.sin(math.pi * progress)
+    if envelope <= 0.001:
+        return
+    width, height = card.get_size()
+    polish = pygame.Surface((width, height), pygame.SRCALPHA)
+    band_w = max(22, width // 6)
+    center_x = int(-band_w + progress * (width + band_w * 2))
+    pygame.draw.polygon(
+        polish,
+        (255, 230, 142, int(112 * envelope * fade)),
+        [(center_x - band_w, 0), (center_x + band_w // 3, 0), (center_x - band_w // 3, height - 1), (center_x - band_w * 2, height - 1)],
+    )
+    pygame.draw.line(polish, (255, 255, 255, int(190 * envelope * fade)), (center_x, 1), (center_x - band_w, height - 2), 2)
+    pygame.draw.rect(polish, (255, 211, 92, int(90 * envelope * fade)), polish.get_rect(), 2, border_radius=max(3, height // 4))
+    card.blit(polish, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+
 def _draw_combo_ledger(screen, font_sm, team: str, x: int, y: int, width: int, scale: float, is_left: bool) -> None:
     ledger = _combo_ledgers.get(team) or {}
     life = float(ledger.get("life") or 0.0)
@@ -3527,6 +3843,20 @@ def _draw_combo_ledger(screen, font_sm, team: str, x: int, y: int, width: int, s
     final_sheen = float(ledger.get("final_sheen") or 0.0)
     if final_sheen > 0.001:
         _blit_combo_sheen(card, 1.0 - final_sheen, fade, heavy=True)
+    milestone_sheen = float(ledger.get("milestone_sheen") or 0.0)
+    if milestone_sheen > 0.001:
+        _blit_combo_milestone(card, 1.0 - milestone_sheen, fade)
+
+    milestone_scale = max(0.0, min(1.0, float(ledger.get("milestone_scale") or 0.0)))
+    milestone_progress = 1.0 - milestone_scale
+    scale_envelope = math.sin(math.pi * milestone_progress) if milestone_scale > 0.001 else 0.0
+    scale_factor = 1.0 + 0.075 * scale_envelope
+    if scale_factor > 1.001:
+        scaled_size = (max(1, int(card.get_width() * scale_factor)), max(1, int(card.get_height() * scale_factor)))
+        card = pygame.transform.smoothscale(card, scaled_size)
+        shadow = pygame.transform.smoothscale(shadow, (scaled_size[0] + 8, scaled_size[1] + 8))
+        draw_x -= (scaled_size[0] - w) // 2
+        draw_y -= (scaled_size[1] - h) // 2
 
     screen.blit(shadow, (draw_x - 4, draw_y - 1))
     screen.blit(shadow, (draw_x - 4, draw_y + 1))
@@ -3681,7 +4011,16 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     point_hp_target = max(0.0, min(1.0, point_cur / point_max))
     if point_anim.get("hp_display_frac") is None:
         point_anim["hp_display_frac"] = point_hp_target
-    point_anim["hp_display_frac"] = _approach(point_anim["hp_display_frac"], point_hp_target, 2.4, dt)
+    if point_anim.get("hp_trail_frac") is None:
+        point_anim["hp_trail_frac"] = point_hp_target
+    point_anim["hp_display_frac"] = _approach(point_anim["hp_display_frac"], point_hp_target, 8.0 if point_hp_target < float(point_anim["hp_display_frac"]) else 4.5, dt)
+    if point_hp_target >= float(point_anim.get("hp_trail_frac") or 0.0):
+        point_anim["hp_trail_frac"] = point_hp_target
+        point_anim["hp_trail_delay"] = 0.0
+    else:
+        point_anim["hp_trail_delay"] = max(0.0, float(point_anim.get("hp_trail_delay", 0.0)) - dt)
+        if float(point_anim.get("hp_trail_delay", 0.0)) <= 0.0:
+            point_anim["hp_trail_frac"] = _approach(float(point_anim.get("hp_trail_frac") or point_hp_target), point_hp_target, 1.25, dt)
 
     try:
         partner_cur = max(0, int(partner.get("cur") or 0))
@@ -3691,7 +4030,16 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     partner_hp_target = max(0.0, min(1.0, partner_cur / partner_max))
     if partner_anim.get("hp_display_frac") is None:
         partner_anim["hp_display_frac"] = partner_hp_target
-    partner_anim["hp_display_frac"] = _approach(partner_anim["hp_display_frac"], partner_hp_target, 2.6, dt)
+    if partner_anim.get("hp_trail_frac") is None:
+        partner_anim["hp_trail_frac"] = partner_hp_target
+    partner_anim["hp_display_frac"] = _approach(partner_anim["hp_display_frac"], partner_hp_target, 7.5 if partner_hp_target < float(partner_anim["hp_display_frac"]) else 4.2, dt)
+    if partner_hp_target >= float(partner_anim.get("hp_trail_frac") or 0.0):
+        partner_anim["hp_trail_frac"] = partner_hp_target
+        partner_anim["hp_trail_delay"] = 0.0
+    else:
+        partner_anim["hp_trail_delay"] = max(0.0, float(partner_anim.get("hp_trail_delay", 0.0)) - dt)
+        if float(partner_anim.get("hp_trail_delay", 0.0)) <= 0.0:
+            partner_anim["hp_trail_frac"] = _approach(float(partner_anim.get("hp_trail_frac") or partner_hp_target), partner_hp_target, 1.15, dt)
 
     try:
         point_meter_target = max(0.0, float(point.get("meter") or 0.0))
@@ -3700,6 +4048,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     if point_anim.get("meter_display_value") is None:
         point_anim["meter_display_value"] = point_meter_target
     point_anim["meter_display_value"] = _approach(point_anim["meter_display_value"], point_meter_target, 32000.0, dt)
+    point_anim["meter_spend_sweep"] = max(0.0, float(point_anim.get("meter_spend_sweep", 0.0)) - dt * 2.75)
 
     team_anim = _get_team_anim(team)
     _tick_team_panel_fx(team_anim, dt)
@@ -3729,9 +4078,11 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
 
     team_present = bool(_get_slot_anim(first_label).get("present") or _get_slot_anim(second_label).get("present"))
     if team_present and not team_anim.get("present"):
-        team_anim["slide_y"] = -22.0
-        team_anim["slide_x"] = 0.0
-        team_anim["alpha"] = min(team_anim.get("alpha", 0.0), 0.45)
+        team_anim["entrance_age"] = -0.07 if not is_left else 0.0
+        team_anim["entrance_active"] = True
+        team_anim["slide_y"] = 10.0
+        team_anim["slide_x"] = -float(width + margin_x + 28) if is_left else float(width + margin_x + 28)
+        team_anim["alpha"] = 0.0
     if team_present:
         prior_point = team_anim.get("current_point_label")
         if prior_point is None:
@@ -3739,6 +4090,8 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
         elif prior_point != point_label:
             team_anim["current_point_label"] = point_label
             team_anim["swap_progress"] = 1.0
+            team_anim["tag_lock_pending"] = True
+            team_anim["tag_lock_flash"] = 0.0
             team_anim["tag_card"] = {
                 "name": str(point.get("name") or "---"),
                 "cur": point.get("cur"),
@@ -3749,10 +4102,31 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
             }
     team_anim["present"] = team_present
     if team_present:
-        team_anim["slide_y"] = _approach(float(team_anim.get("slide_y", -22.0)), 0.0, 176.0, dt)
-        team_anim["slide_x"] = _approach(float(team_anim.get("slide_x", 0.0)), 0.0, 1800.0, dt)
-        team_anim["alpha"] = _approach(float(team_anim.get("alpha", 0.0)), 1.0, 4.8, dt)
+        entrance_active = bool(team_anim.get("entrance_active", False))
+        if entrance_active:
+            entrance_age = float(team_anim.get("entrance_age", 0.0)) + dt
+            team_anim["entrance_age"] = entrance_age
+            shell_age = max(0.0, entrance_age - 0.12)
+            shell_progress = _compact_lock_ease(shell_age / 0.48)
+            shell_alpha = max(0.0, min(1.0, shell_progress))
+            shell_travel = float(width + margin_x + 28)
+            start_x = -shell_travel if is_left else shell_travel
+            team_anim["slide_x"] = start_x * (1.0 - shell_progress)
+            team_anim["slide_y"] = 10.0 * (1.0 - shell_alpha)
+            team_anim["alpha"] = shell_alpha
+            if entrance_age >= 1.32:
+                team_anim["entrance_active"] = False
+                team_anim["slide_x"] = 0.0
+                team_anim["slide_y"] = 0.0
+                team_anim["alpha"] = 1.0
+        else:
+            team_anim["slide_y"] = _approach(float(team_anim.get("slide_y", 0.0)), 0.0, 176.0, dt)
+            team_anim["slide_x"] = _approach(float(team_anim.get("slide_x", 0.0)), 0.0, 1800.0, dt)
+            team_anim["alpha"] = _approach(float(team_anim.get("alpha", 0.0)), 1.0, 4.8, dt)
         team_anim["swap_progress"] = _approach(float(team_anim.get("swap_progress", 0.0)), 0.0, 4.8, dt)
+        if bool(team_anim.get("tag_lock_pending", False)) and float(team_anim.get("swap_progress", 0.0)) <= 0.08:
+            team_anim["tag_lock_pending"] = False
+            team_anim["tag_lock_flash"] = 1.0
     else:
         off_target = -float(width + margin_x + 18) if is_left else float(width + margin_x + 18)
         team_anim["slide_x"] = _approach(float(team_anim.get("slide_x", 0.0)), off_target, 1700.0, dt)
@@ -3765,13 +4139,22 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     shake_dir = -1.0 if is_left else 1.0
     shake_x = math.sin(time.time() * 42.0) * (1.0 * shake) * shake_dir
     shake_y = math.sin(time.time() * 28.0 + (0.8 if is_left else 1.4)) * (0.5 * shake)
-    x = int(base_x + float(team_anim.get("slide_x", 0.0)) + shake_x)
+    impact_age = max(0.0, min(1.0, float(team_anim.get("impact_recoil_age", 1.0))))
+    impact_curve = math.sin(math.pi * impact_age) * (1.0 - 0.28 * impact_age) if impact_age < 1.0 else 0.0
+    impact_x = shake_dir * float(team_anim.get("impact_recoil_power", 0.0)) * impact_curve
+    x = int(base_x + float(team_anim.get("slide_x", 0.0)) + shake_x + impact_x)
     y = int(base_y + float(team_anim.get("slide_y", 0.0)) + shake_y)
 
     shadow, panel = _cached_compact_panel_shell(width, height, accent, is_left, scale, panel_alpha)
     screen.blit(shadow, (x - int(4 * scale), y + int(4 * scale)))
     screen.blit(panel, (x, y))
     _draw_team_panel_fx(screen, team_anim, x, y, width, height, accent, scale, panel_alpha)
+
+    root_screen = screen
+    panel_x, panel_y = x, y
+    content_extra_h = max(86, int(92 * scale))
+    screen = pygame.Surface((width, height + content_extra_h), pygame.SRCALPHA)
+    x, y = 0, 0
 
     outer_pad = int(10 * scale)
     left = x + outer_pad
@@ -3809,6 +4192,9 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     bottom_hp_y = int(partner_hp_y - hp_distance * swap_progress)
     top_row_alpha = max(0.55, 1.0 - 0.18 * swap_progress)
     bottom_row_alpha = max(0.55, 1.0 - 0.18 * swap_progress)
+    forward_sign = 1 if is_left else -1
+    incoming_row_dx = int(forward_sign * 18 * scale * swap_progress)
+    outgoing_row_dx = int(-forward_sign * 14 * scale * swap_progress)
 
     # Character identity stays attached to each character row.  C1 and C2 are
     # still directly one under the other, but each now carries its own name,
@@ -3820,12 +4206,17 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     badge_h = max(16, int(18 * scale))
     badge_radius = max(2, int(2 * scale))
 
-    badge_rect = pygame.Rect(left, top_row_y, badge_w, badge_h)
+    badge_rect = pygame.Rect(left + incoming_row_dx, top_row_y, badge_w, badge_h)
     pygame.draw.rect(screen, accent, badge_rect, border_radius=badge_radius)
     badge = font_sm.render(point_badge, True, (250, 250, 252))
     screen.blit(badge, (badge_rect.centerx - badge.get_width() // 2, badge_rect.centery - badge.get_height() // 2))
+    tag_lock_flash = max(0.0, min(1.0, float(team_anim.get("tag_lock_flash", 0.0))))
+    if tag_lock_flash > 0.001:
+        lock_rect = badge_rect.inflate(max(4, int(6 * scale)), max(4, int(5 * scale)))
+        pygame.draw.rect(screen, (255, 255, 255, int(130 * tag_lock_flash)), lock_rect, 1, border_radius=badge_radius + 2)
+        pygame.draw.line(screen, (*accent, int(190 * tag_lock_flash)), (lock_rect.left, lock_rect.top), (lock_rect.right, lock_rect.top), max(1, int(2 * scale)))
 
-    partner_badge_rect = pygame.Rect(left, bottom_row_y, badge_w, badge_h)
+    partner_badge_rect = pygame.Rect(left + outgoing_row_dx, bottom_row_y, badge_w, badge_h)
     partner_fill = tuple(max(24, int(channel * 0.24)) for channel in partner_color)
     pygame.draw.rect(screen, partner_fill, partner_badge_rect, border_radius=badge_radius)
     pygame.draw.rect(screen, partner_color, partner_badge_rect, 1, border_radius=badge_radius)
@@ -3864,7 +4255,17 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     screen.blit(meter_caption, (power_left, meter_label_y))
     screen.blit(meter_value, (right - meter_value.get_width(), meter_label_y))
     meter_y = primary_y + meter_caption.get_height() + max(1, int(1 * scale))
-    _draw_compact_meter(screen, power_left, meter_y, power_w, point_anim.get("meter_display_value", point.get("meter")), scale, point_dead)
+    _draw_compact_meter(
+        screen,
+        power_left,
+        meter_y,
+        power_w,
+        point_anim.get("meter_display_value", point.get("meter")),
+        scale,
+        point_dead,
+        float(point_anim.get("meter_spend_sweep", 0.0)),
+        int(point_anim.get("meter_spend_amount", 0) or 0),
+    )
     meter_exact_x = right - meter_exact.get_width()
     meter_exact_y = meter_y + max(9, int(11 * scale))
     screen.blit(meter_exact, (meter_exact_x, meter_exact_y))
@@ -3926,7 +4327,18 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     ko_h = max(14, int(16 * scale)) if point_dead else 0
     reserve_w = hp_text.get_width() + hp_gap + (ko_w + ko_gap if point_dead else 0)
     hp_w = max(84, min(max(140, int(164 * scale)), power_left - name_x - reserve_w - int(4 * scale)))
-    _draw_compact_health(screen, name_x, top_hp_y, hp_w, hp_h, point.get("cur"), point.get("max"), point_dead, point_anim.get("hp_display_frac"))
+    _draw_compact_health(
+        screen,
+        name_x,
+        top_hp_y,
+        hp_w,
+        hp_h,
+        point.get("cur"),
+        point.get("max"),
+        point_dead,
+        point_anim.get("hp_display_frac"),
+        point_anim.get("hp_trail_frac"),
+    )
     hp_text_x = name_x + hp_w + hp_gap
     hp_text.set_alpha(int(255 * top_row_alpha)); screen.blit(hp_text, (hp_text_x, top_hp_y - max(1, int(2 * scale))))
     if point_dead:
@@ -4059,7 +4471,8 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     partner_hp_w = max(54, min(max(98, int(118 * scale)), state_x - partner_name_x - partner_hp_reserve - int(6 * scale)))
     _draw_compact_health(
         screen, partner_name_x, bottom_hp_y, partner_hp_w, max(4, int(5 * scale)),
-        partner.get("cur"), partner.get("max"), partner_dead, partner_anim.get("hp_display_frac")
+        partner.get("cur"), partner.get("max"), partner_dead, partner_anim.get("hp_display_frac"),
+        partner_anim.get("hp_trail_frac")
     )
     partner_hp_text_x = partner_name_x + partner_hp_w + partner_hp_gap
     partner_hp_text.set_alpha(int(255 * bottom_row_alpha))
@@ -4075,6 +4488,54 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     if control is None or getattr(control, "show_combo_card", True):
         _draw_combo_ledger(screen, font_sm, team, x, y + height + int(38 * scale), width, scale, is_left)
 
+    entrance_age = max(0.0, float(team_anim.get("entrance_age", 1.32)))
+    panel_clip = pygame.Rect(panel_x, panel_y, width, height)
+    stage_bands = (
+        (pygame.Rect(0, 0, width, max(1, strip_y)), 0.30, 0.20),
+        (pygame.Rect(0, strip_y, width, max(1, history_y - strip_y)), 0.45, 0.18),
+        (pygame.Rect(0, history_y, width, max(1, input_y - history_y)), 0.58, 0.18),
+        (pygame.Rect(0, input_y, width, max(1, move_history_y - input_y)), 0.71, 0.19),
+        (pygame.Rect(0, move_history_y, width, max(1, height - move_history_y)), 0.86, 0.19),
+    )
+    for source_rect, start, duration in stage_bands:
+        _blit_hud_stage(
+            root_screen,
+            screen,
+            source_rect,
+            panel_x,
+            panel_y,
+            _hud_stage_progress(entrance_age, start, duration),
+            is_left,
+            scale,
+            panel_clip,
+        )
+
+    _blit_hud_stage(
+        root_screen,
+        screen,
+        pygame.Rect(0, height, width, min(screen.get_height() - height, max(34, int(37 * scale)))),
+        panel_x,
+        panel_y,
+        _hud_stage_progress(entrance_age, 1.00, 0.20),
+        is_left,
+        scale,
+        None,
+        6.0,
+    )
+    combo_start_y = height + max(32, int(35 * scale))
+    _blit_hud_stage(
+        root_screen,
+        screen,
+        pygame.Rect(0, combo_start_y, width, max(1, screen.get_height() - combo_start_y)),
+        panel_x,
+        panel_y,
+        _hud_stage_progress(entrance_age, 1.10, 0.22),
+        is_left,
+        scale,
+        None,
+        8.0,
+    )
+
 
 def draw_overlay(screen, font, font_sm, slots, scale, dt, control=None) -> None:
     if HUD_LAYOUT_MODE != "compact":
@@ -4088,6 +4549,8 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt, control=None) -> None:
         if isinstance(snap, dict):
             _compact_track_slot(slot_label, snap)
 
+    _maybe_restart_match_assembly(slots)
+    _draw_match_assembly_spine(screen, scale, dt)
     _draw_compact_team_panel(screen, font, font_sm, "P1", slots, scale, overlay_alpha, dt, control)
     _draw_compact_team_panel(screen, font, font_sm, "P2", slots, scale, overlay_alpha, dt, control)
     if control is None or getattr(control, "show_interaction_card", True):
@@ -4106,6 +4569,7 @@ class HudRenderer:
         self.scale = 1.0
         self.font = make_font(BASE_FONT_SIZE, bold=True)
         self.font_sm = make_font(int(BASE_FONT_SIZE * 0.78), bold=False)
+        self._hud_was_visible = False
 
     def on_resize(self, w: int, h: int) -> None:
         if w <= 0 or h <= 0:
@@ -4132,8 +4596,13 @@ class HudRenderer:
         _update_adv()
 
     def draw(self, screen: pygame.Surface, control=None) -> None:
-        if control is not None and not getattr(control, "show_hud", True):
+        hud_visible = control is None or getattr(control, "show_hud", True)
+        if not hud_visible:
+            self._hud_was_visible = False
             return
+        if not self._hud_was_visible:
+            _restart_hud_entrance()
+            self._hud_was_visible = True
 
         draw_overlay(screen, self.font, self.font_sm, _display_slots, self.scale, 1 / 60.0, control)
 

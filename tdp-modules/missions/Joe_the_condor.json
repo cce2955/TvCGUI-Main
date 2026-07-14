@@ -74,7 +74,8 @@
           "label": "j.C"
         },
         {
-          "label": "Wild Lasso A"
+          "label": "Wild Lasso A",
+          "input": "46A"
         }
       ]
     },
@@ -136,14 +137,16 @@
             "Cactus Bunker C"
           ],
           "whiff": true,
-          "grace": 45
+          "grace": 45,
+          "input": "63214X"
         },
         {
           "labels": [
             "Wild Lasso A",
             "Wild Lasso B",
             "Wild Lasso C"
-          ]
+          ],
+          "input": "46A"
         }
       ],
       "setup_megacrash_trainer": {
@@ -178,7 +181,8 @@
             "Cactus Bunker C"
           ],
           "whiff": true,
-          "grace": 45
+          "grace": 45,
+          "input": "63214X"
         },
         {
           "label": "Baroque cancel"
@@ -306,7 +310,8 @@
           "label": "Air Science Ninpo"
         },
         {
-          "label": "Wild Lasso A"
+          "label": "Wild Lasso A",
+          "input": "46A"
         }
       ]
     },
@@ -350,7 +355,8 @@
           "label": "Air Science Ninpo"
         },
         {
-          "label": "Wild Lasso A"
+          "label": "Wild Lasso A",
+          "input": "46A"
         }
       ]
     }

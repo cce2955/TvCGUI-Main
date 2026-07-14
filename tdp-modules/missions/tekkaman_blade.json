@@ -6,14 +6,30 @@
       "name": "Combo Trial 001",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -21,15 +37,32 @@
       "name": "Combo Trial 002",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        
-        { "label": "j.B" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        }
       ]
     },
     {
@@ -37,8 +70,13 @@
       "name": "Combo Trial 003",
       "notes": "",
       "steps": [
-        { "label": "Crash Intrude" },
-        { "label": "j.2C" }
+        {
+          "label": "Crash Intrude"
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        }
       ]
     },
     {
@@ -46,12 +84,24 @@
       "name": "Combo Trial 004",
       "notes": "",
       "steps": [
-        { "label": "Falchion C" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "2C" }
+        {
+          "label": "Falchion C"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        }
       ]
     },
     {
@@ -59,17 +109,43 @@
       "name": "Combo Trial 005",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" },
-        { "label": "Shamshir C" },
-        { "label": "Crash Intrude" },
-        { "label": "j.2C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Shamshir C",
+          "input": "MASH X"
+        },
+        {
+          "label": "Crash Intrude"
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        }
       ]
     },
     {
@@ -77,22 +153,59 @@
       "name": "Combo Trial 006",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" },
-        { "label": "Blitz C" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Air Baselard A" },
-        { "label": "Omnidirectional Voltekka" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Blitz C",
+          "input": "[2]8X"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Air Baselard A",
+          "input": "236X"
+        },
+        {
+          "label": "Omnidirectional Voltekka",
+          "input": "63214XX"
+        }
       ]
     },
     {
@@ -100,33 +213,94 @@
       "name": "Challenge",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-           { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        
-        { "label": "Baselard" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" },
-        { "label": "Blitz C" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.B (second hit)" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" },
-        { "label": "Sham Shir" },
-        { "label": "Baroque cancel", "pass": true },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "Air Baselard A" },
-        { "label": "Omnidirectional Voltekka" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Baselard",
+          "input": "236X"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Blitz C",
+          "input": "[2]8X"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B (second hit)"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Sham Shir",
+          "input": "MASH X"
+        },
+        {
+          "label": "Baroque cancel",
+          "pass": true
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Baselard A",
+          "input": "236X"
+        },
+        {
+          "label": "Omnidirectional Voltekka",
+          "input": "63214XX"
+        }
       ]
     },
     {
@@ -153,26 +327,50 @@
         "type": "combo_damage",
         "damage": 40000
       }
-    },{
-  "mission_id": "tekkaman_blade_010",
-  "name": "VAR Baselard Route",
-  "notes": "",
-  "steps": [
-    { "label": "VAR" },
-    { "label": "j.A" },
-    { "label": "j.B" },
-    { "label": "j.2C" },
-    { "label": "Blitz C" },
-    
-    { "label": "5B" },
-    
-    { "label": "3C" },
-    
-    { "label": "j.B" },
-    { "label": "Air Baselard A" },
-    { "label": "Crash Intrude" },
-    { "label": "j.2C" }
-  ]
-}
+    },
+    {
+      "mission_id": "tekkaman_blade_010",
+      "name": "VAR Baselard Route",
+      "notes": "",
+      "steps": [
+        {
+          "label": "VAR"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Blitz C",
+          "input": "[2]8X"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air Baselard A",
+          "input": "236X"
+        },
+        {
+          "label": "Crash Intrude"
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        }
+      ]
+    }
   ]
 }

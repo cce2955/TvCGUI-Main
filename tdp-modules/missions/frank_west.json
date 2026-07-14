@@ -6,13 +6,27 @@
       "name": "Starter",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -20,14 +34,32 @@
       "name": "Launcher Ender",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        }
       ]
     },
     {
@@ -35,26 +67,71 @@
       "name": "Giant Swing Loop",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "Giant Swing B", "pass": true },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "Giant Swing B", "pass": true },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "Giant Swing B", "pass": true },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "Giant Swing B", "pass": true },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "Giant Swing B", "pass": true },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Giant Swing B",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Giant Swing B",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Giant Swing B",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Giant Swing B",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Giant Swing B",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -62,50 +139,124 @@
       "name": "Zombie Spree Route",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "Giant Swing B", "pass": true },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" },
-        { "label": "Zombie Spree A" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.2C" },
-        { "label": "Zombie Spree A" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.2C" },
-        { "label": "Zombie Spree C" },
-        { "label": "Real Megabuster" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Giant Swing B",
+          "pass": true
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Zombie Spree A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Zombie Spree A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Zombie Spree C"
+        },
+        {
+          "label": "Real Megabuster"
+        }
       ]
     },
     {
       "mission_id": "frank_west_005",
       "name": "Giant Swing Dead Rising",
       "notes": "",
-        "setup_debug_flags": {
-    "CpuGuard": 1
-  },
+      "setup_debug_flags": {
+        "CpuGuard": 1
+      },
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "Giant Swing B", "pass": true },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "Zombie Grab B", "pass": true, "grace": 40, "grace_keeps_alive_only": true },
-
-        { "label": "Dead Rising" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Giant Swing B",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "Zombie Grab B",
+          "pass": true,
+          "grace": 40,
+          "grace_keeps_alive_only": true
+        },
+        {
+          "label": "Dead Rising"
+        }
       ]
     },
     {
@@ -113,13 +264,27 @@
       "name": "Midscreen Zombie Spree",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2C" },
-        { "label": "Zombie Spree C" },
-        { "label": "Roll B" },
-        { "label": "Zombie Spree A" },
-        { "label": "Real Megabuster" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Zombie Spree C"
+        },
+        {
+          "label": "Roll B"
+        },
+        {
+          "label": "Zombie Spree A"
+        },
+        {
+          "label": "Real Megabuster"
+        }
       ]
     },
     {
@@ -130,22 +295,57 @@
         "P1Meter": 2
       },
       "steps": [
-        { "label": "Dead Rising" },
-        { "label": "Zombie Spree A" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.2C" },
-        { "label": "Zombie Spree A" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" },
-        { "label": "Zombie Spree C" },
-        { "label": "5C" }
+        {
+          "label": "Dead Rising"
+        },
+        {
+          "label": "Zombie Spree A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Zombie Spree A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        },
+        {
+          "label": "Zombie Spree C"
+        },
+        {
+          "label": "5C"
+        }
       ]
     },
     {
@@ -156,18 +356,42 @@
         "P1Meter": 2
       },
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "2C" },
-        { "label": "Grand Slam B" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "Roundhouse B" },
-        { "label": "Zombie Charge" },
-        { "label": "5C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Grand Slam B"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Roundhouse B"
+        },
+        {
+          "label": "Zombie Charge"
+        },
+        {
+          "label": "5C"
+        }
       ]
     },
     {
@@ -175,9 +399,15 @@
       "name": "Challenge",
       "notes": "",
       "steps": [
-        { "label": "Dead Rising" },
-        { "label": "Zombie Charge" },
-        { "label": "Real Megabuster" }
+        {
+          "label": "Dead Rising"
+        },
+        {
+          "label": "Zombie Charge"
+        },
+        {
+          "label": "Real Megabuster"
+        }
       ]
     }
   ]

@@ -376,9 +376,20 @@
       "char_id": 26,
       "char_name": "Tekkaman Blade",
       "hit": {
-        "samples": {}
+        "freeze_samples": {
+          "0": 14,
+          "9": 17
+        },
+        "last_frame": 9176,
+        "last_freeze": 9,
+        "last_value": 21,
+        "samples": {
+          "17": 1,
+          "21": 30
+        }
       },
-      "last_frame": 6912,
+      "last_frame": 9176,
+      "last_freeze": 9,
       "last_recovery": 26,
       "move_label": "3C",
       "recovery": {
@@ -430,9 +441,22 @@
       "char_id": 26,
       "char_name": "Tekkaman Blade",
       "hit": {
-        "samples": {}
+        "freeze_samples": {
+          "0": 34,
+          "12": 11,
+          "7": 27
+        },
+        "last_frame": 9197,
+        "last_freeze": 7,
+        "last_value": 17,
+        "samples": {
+          "12": 1,
+          "17": 47,
+          "21": 24
+        }
       },
-      "last_frame": 230999,
+      "last_frame": 9197,
+      "last_freeze": 7,
       "last_recovery": 12,
       "move_label": "j.B",
       "recovery": {
@@ -457,23 +481,39 @@
       "char_id": 26,
       "char_name": "Tekkaman Blade",
       "hit": {
-        "samples": {}
+        "freeze_samples": {
+          "0": 2,
+          "12": 3,
+          "9": 1
+        },
+        "last_frame": 9206,
+        "last_freeze": 0,
+        "last_value": 21,
+        "samples": {
+          "17": 1,
+          "21": 5
+        }
       },
-      "last_frame": 1235,
-      "last_recovery": 8,
+      "last_frame": 9206,
+      "last_freeze": 0,
+      "last_recovery": 9,
       "move_label": "j.C",
       "recovery": {
-        "last_frame": 1235,
-        "last_value": 8,
+        "last_frame": 8793,
+        "last_value": 9,
         "samples": {
           "1": 1,
           "10": 2,
           "11": 3,
+          "12": 1,
+          "13": 1,
           "14": 4,
           "2": 2,
           "3": 2,
-          "5": 1,
-          "8": 3
+          "4": 1,
+          "5": 2,
+          "8": 3,
+          "9": 1
         }
       }
     },
@@ -1088,6 +1128,6 @@
       }
     }
   },
-  "updated_utc": "2026-07-13T20:59:04Z",
+  "updated_utc": "2026-07-14T02:11:04Z",
   "version": 2
 }

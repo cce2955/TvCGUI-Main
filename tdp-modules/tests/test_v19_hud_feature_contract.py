@@ -141,20 +141,20 @@ class V19HudFeatureContractTests(unittest.TestCase):
 
     def test_interaction_panel_slides_into_position(self):
         source = function_source(HUD, "_draw_live_interaction_ribbon")
-        self.assertIn('panel_progress = _compact_smoothstep(age / 0.22)', source)
+        self.assertIn('panel_progress = _compact_lock_ease(age / 0.24)', source)
         self.assertIn('(1.0 - panel_progress) * -34 * scale', source)
         self.assertIn('(1.0 - panel_progress) * -10 * scale', source)
 
     def test_interaction_accent_slice_has_delayed_reveal(self):
         source = function_source(HUD, "_draw_live_interaction_ribbon")
-        self.assertIn('slice_progress = _compact_smoothstep((age - 0.12) / 0.18)', source)
-        self.assertIn('slice_width = max(1, int(width * 0.40 * slice_progress))', source)
-        self.assertIn('card.set_clip(pygame.Rect(0, 0, slice_width, height))', source)
+        self.assertIn('slice_progress = _compact_lock_ease((age - 0.12) / 0.24)', source)
+        self.assertIn('slice_offset_x = int((1.0 - slice_progress) * -slice_target_w * 0.92)', source)
+        self.assertIn('card.set_clip(pygame.Rect(0, 0, slice_target_w, height))', source)
 
     def test_interaction_title_separator_is_animated_separately(self):
         source = function_source(HUD, "_draw_live_interaction_ribbon")
         self.assertIn('title.partition("  |  ")', source)
-        self.assertIn('divider_progress = _compact_smoothstep((age - 0.27) / 0.16)', source)
+        self.assertIn('divider_progress = _compact_lock_ease((age - 0.31) / 0.18)', source)
         self.assertIn('separator_h = max(0, int(separator_target_h * divider_progress))', source)
 
     def test_interaction_right_title_waits_for_divider(self):
@@ -169,9 +169,23 @@ class V19HudFeatureContractTests(unittest.TestCase):
 
     def test_interaction_sheen_runs_after_divider(self):
         source = function_source(HUD, "_draw_live_interaction_ribbon")
-        self.assertIn('sheen_progress = max(0.0, min(1.0, (age - 0.43) / 0.34))', source)
+        self.assertIn('sheen_progress = max(0.0, min(1.0, (age - 0.52) / 0.34))', source)
         self.assertIn('math.sin(math.pi * sheen_progress)', source)
         self.assertIn('special_flags=pygame.BLEND_RGBA_ADD', source)
+
+    def test_interaction_gradient_is_a_moving_layer(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        self.assertIn('slice_layer = pygame.Surface((slice_target_w, height), pygame.SRCALPHA)', source)
+        self.assertIn('for gradient_x in range(slice_target_w):', source)
+        self.assertIn('_lerp_color(highlight, accent', source)
+        self.assertIn('card.blit(slice_layer, (slice_offset_x, 0))', source)
+
+    def test_interaction_gradient_has_a_lock_confirmation(self):
+        source = function_source(HUD, "_draw_live_interaction_ribbon")
+        self.assertIn('slice_lock_pulse = math.sin(math.pi', source)
+        self.assertIn('lock_alpha = int(116 * fade * slice_lock_pulse)', source)
+        self.assertIn('(slice_target_w, 1)', source)
+        self.assertIn('(slice_bottom_w, height - 2)', source)
 
     def test_interaction_animation_stages_are_ordered(self):
         source = function_source(HUD, "_draw_live_interaction_ribbon")

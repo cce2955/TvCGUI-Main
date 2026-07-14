@@ -6,13 +6,27 @@
       "name": "Combo 1",
       "notes": "Basic launcher into air series.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        }
       ]
     },
     {
@@ -20,14 +34,32 @@
       "name": "Combo 2",
       "notes": "Launcher into downward air ender.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.2C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        }
       ]
     },
     {
@@ -35,15 +67,36 @@
       "name": "Combo 3",
       "notes": "Air special route.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "Windmill B Air" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "Windmill B Air" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Windmill B Air",
+          "input": "[2]8X"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "Windmill B Air",
+          "input": "[2]8X"
+        }
       ]
     },
     {
@@ -51,8 +104,13 @@
       "name": "Combo 4",
       "notes": "Megacrash into Gatling.",
       "steps": [
-        { "label": "Megacrash" },
-        { "label": "Gatling A" }
+        {
+          "label": "Megacrash",
+          "input": "ABCP"
+        },
+        {
+          "label": "Gatling A"
+        }
       ]
     },
     {
@@ -60,22 +118,54 @@
       "name": "Combo 5",
       "notes": "Extended route with Baroque into air super finish.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "6C" },
-        { "label": "Tek Lancer C" },
-        { "label": "Tek Win A" },
-        
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "Windmill C Air" },
-        { "label": "Windmill C Air" },
-        { "label": "Baroque cancel" },
-        { "label": "Windmill C Air" },
-        { "label": "voltekka air" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "6C"
+        },
+        {
+          "label": "Tek Lancer C"
+        },
+        {
+          "label": "Tek Win A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Windmill C Air",
+          "input": "[2]8X"
+        },
+        {
+          "label": "Windmill C Air",
+          "input": "[2]8X"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "Windmill C Air",
+          "input": "[2]8X"
+        },
+        {
+          "label": "voltekka air"
+        }
       ]
     },
     {
@@ -83,10 +173,19 @@
       "name": "Challenge",
       "notes": "Somemoves are missing good luck.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "Tek Lancer C" },
-        { "label": "j.2C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "Tek Lancer C"
+        },
+        {
+          "label": "j.2C",
+          "input": "j.2C"
+        }
       ]
     }
   ]

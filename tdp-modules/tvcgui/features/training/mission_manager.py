@@ -120,6 +120,9 @@ MISSION_SELF_VAR_MISSIONS = {"alex_011"}
 MISSION_METER_REFILL_MISSIONS = {"ryu_008", "saki_009", "alex_017"}
 
 MISSION_INPUT_DIRECTION_MASK = 0x0F
+MISSION_SELECTOR_DOWN_MASK = 0x08
+MISSION_SELECTOR_DOWN_DIRECTIONS = frozenset((0x08, 0x09, 0x0A))
+MISSION_SELECTOR_REPEAT_WINDOW = 1.35
 MISSION_INPUT_A = 0x80
 MISSION_INPUT_B = 0x40
 MISSION_INPUT_C = 0x20
@@ -127,6 +130,29 @@ MISSION_INPUT_P = 0x10
 MISSION_INPUT_TAUNT = 0x0C00
 MISSION_INPUT_ATTACK_MASK = MISSION_INPUT_A | MISSION_INPUT_B | MISSION_INPUT_C | MISSION_INPUT_P | MISSION_INPUT_TAUNT
 MISSION_INPUT_ABC_MASK = MISSION_INPUT_A | MISSION_INPUT_B | MISSION_INPUT_C
+MISSION_INPUT_BUTTON_MASKS = {
+    "A": MISSION_INPUT_A,
+    "B": MISSION_INPUT_B,
+    "C": MISSION_INPUT_C,
+    "L": MISSION_INPUT_A,
+    "M": MISSION_INPUT_B,
+    "H": MISSION_INPUT_C,
+    "P": MISSION_INPUT_P,
+    "T": MISSION_INPUT_TAUNT,
+}
+def _mission_selector_down_rising(direction: int, previous_direction: int, pressed: int) -> bool:
+    """Accept clean down taps and down diagonals for the selector shortcut."""
+    current = int(direction) & MISSION_INPUT_DIRECTION_MASK
+    previous = int(previous_direction) & MISSION_INPUT_DIRECTION_MASK
+    pressed_word = int(pressed) & 0xFFFF
+    if pressed_word & MISSION_SELECTOR_DOWN_MASK:
+        return True
+    return (
+        current in MISSION_SELECTOR_DOWN_DIRECTIONS
+        and previous not in MISSION_SELECTOR_DOWN_DIRECTIONS
+    )
+
+
 MISSION_INPUT_BAROQUE_PAIRS = (
     ("AP", MISSION_INPUT_A | MISSION_INPUT_P),
     ("BP", MISSION_INPUT_B | MISSION_INPUT_P),
@@ -186,6 +212,7 @@ def _new_mission_runtime(
         "mission_hit_serial": 0,
         "last_global_combo_count": None,
         "last_actual_hitstun": False,
+        "last_opponent_megacrash": False,
         "hitstun_grace": 0,
         "global_combo_count": 0,
         "pending_step_index": None,
@@ -783,7 +810,7 @@ class MissionManager:
         direction = held & MISSION_INPUT_DIRECTION_MASK
         previous_direction = int(self._selector.get("last_direction", 0) or 0)
 
-        down_rising = direction == 0x08 and previous_direction != 0x08
+        down_rising = _mission_selector_down_rising(direction, previous_direction, pressed)
         up_rising = direction == 0x04 and previous_direction != 0x04
 
         taunt_held = (held & MISSION_INPUT_TAUNT) == MISSION_INPUT_TAUNT
@@ -825,7 +852,7 @@ class MissionManager:
         else:
             if down_rising:
                 seq = self._selector["sequence"]
-                if not seq or (now - seq[-1]) <= 0.9:
+                if not seq or (now - seq[-1]) <= MISSION_SELECTOR_REPEAT_WINDOW:
                     seq.append(now)
                 else:
                     seq[:] = [now]
@@ -833,7 +860,7 @@ class MissionManager:
                     del seq[:-2]
 
             if taunt_rising and len(self._selector["sequence"]) >= 2:
-                if (self._selector["sequence"][-1] - self._selector["sequence"][-2]) <= 0.9:
+                if (self._selector["sequence"][-1] - self._selector["sequence"][-2]) <= MISSION_SELECTOR_REPEAT_WINDOW:
                     self._active_slot = selector_slot
                     self._runtime = _new_mission_runtime(slot=self._active_slot)
                     self._open_selector(character_name, now)
@@ -1249,6 +1276,110 @@ class MissionManager:
         direction = int((event or {}).get("direction") or 0) & MISSION_INPUT_DIRECTION_MASK
         return str({0: 5, 1: 6, 2: 4, 4: 8, 5: 9, 6: 7, 8: 2, 9: 3, 10: 1}.get(direction, 5))
 
+    def _neutral_button_input_matches(self, button: str, frame_idx: int) -> bool:
+        wanted = str(button or "").upper()
+        wanted_mask = MISSION_INPUT_BUTTON_MASKS.get(wanted, 0)
+        if not wanted_mask:
+            return False
+        for event in reversed(self._recent_mission_events(frame_idx, MISSION_INPUT_NORMAL_LATCH)):
+            if self._mission_event_direction_digit(event) != "5":
+                continue
+            pressed = int(event.get("pressed") or 0)
+            held = int(event.get("held_buttons") or pressed)
+            if pressed & wanted_mask and (held & wanted_mask) == wanted_mask:
+                self._mark_mission_input_match(event)
+                return True
+        return False
+
+    def _button_chord_input_matches(
+        self,
+        buttons: str,
+        frame_idx: int,
+        *,
+        neutral_only: bool = False,
+    ) -> bool:
+        required = 0
+        for button in str(buttons or "").upper():
+            required |= MISSION_INPUT_BUTTON_MASKS.get(button, 0)
+        if not required:
+            return False
+        for event in reversed(self._recent_mission_events(frame_idx, MISSION_INPUT_NORMAL_LATCH)):
+            if neutral_only and self._mission_event_direction_digit(event) != "5":
+                continue
+            pressed = int(event.get("pressed") or 0)
+            held = int(event.get("held_buttons") or pressed)
+            if pressed & required and (held & required) == required:
+                self._mark_mission_input_match(event)
+                return True
+        return False
+
+    def _double_attack_input_matches(self, frame_idx: int, *, neutral_only: bool = False) -> bool:
+        for event in reversed(self._recent_mission_events(frame_idx, MISSION_INPUT_NORMAL_LATCH)):
+            if neutral_only and self._mission_event_direction_digit(event) != "5":
+                continue
+            pressed = int(event.get("pressed") or 0) & MISSION_INPUT_ABC_MASK
+            held = int(event.get("held_buttons") or pressed) & MISSION_INPUT_ABC_MASK
+            if pressed and int(held).bit_count() >= 2:
+                self._mark_mission_input_match(event)
+                return True
+        return False
+
+    def _rotation_input_matches(
+        self,
+        frame_idx: int,
+        *,
+        button: str = "",
+        double_attack: bool = False,
+        any_attack: bool = False,
+        motion_only: bool = False,
+    ) -> bool:
+        events = self._recent_mission_events(frame_idx, MISSION_INPUT_COMMAND_WINDOW)
+        if not events:
+            return False
+        wanted_mask = MISSION_INPUT_BUTTON_MASKS.get(str(button or "").upper(), 0)
+        for final_index in range(len(events) - 1, -1, -1):
+            final_event = events[final_index]
+            pressed = int(final_event.get("pressed") or 0)
+            held = int(final_event.get("held_buttons") or pressed)
+            abc_pressed = pressed & MISSION_INPUT_ABC_MASK
+            abc_held = held & MISSION_INPUT_ABC_MASK
+            if motion_only:
+                pass
+            elif double_attack:
+                if not abc_pressed or int(abc_held).bit_count() < 2:
+                    continue
+            elif wanted_mask:
+                if not (pressed & wanted_mask):
+                    continue
+            elif any_attack:
+                if not abc_pressed:
+                    continue
+            else:
+                continue
+
+            directions: list[str] = []
+            for event in events[: final_index + 1]:
+                digit = self._mission_event_direction_digit(event)
+                if digit == "5":
+                    continue
+                cardinal = {
+                    "1": "2", "2": "2", "3": "6", "6": "6",
+                    "9": "8", "8": "8", "7": "4", "4": "4",
+                }.get(digit)
+                if cardinal and (not directions or directions[-1] != cardinal):
+                    directions.append(cardinal)
+            tail = directions[-8:]
+            clockwise = ["6", "2", "4", "8"]
+            counter = ["6", "8", "4", "2"]
+            doubled = tail + tail
+            if all(cardinal in tail for cardinal in clockwise):
+                for sequence in (clockwise, counter):
+                    for start in range(max(1, len(doubled) - len(sequence) + 1)):
+                        if doubled[start:start + len(sequence)] == sequence:
+                            self._mark_mission_input_match(final_event)
+                            return True
+        return False
+
     def _motion_input_matches(
         self,
         motion: str,
@@ -1265,11 +1396,10 @@ class MissionManager:
             return False
 
         mirrored_motion = "".join(_MISSION_DIRECTION_MIRROR.get(ch, ch) for ch in motion)
-        wanted_button_mask = {
-            "A": MISSION_INPUT_A,
-            "B": MISSION_INPUT_B,
-            "C": MISSION_INPUT_C,
-        }.get(str(button or "").upper(), 0)
+        wanted_button_mask = MISSION_INPUT_BUTTON_MASKS.get(
+            str(button or "").upper(),
+            0,
+        )
 
         events = self._recent_mission_events(frame_idx, MISSION_INPUT_COMMAND_WINDOW)
         for final_index in range(len(events) - 1, -1, -1):
@@ -1368,6 +1498,9 @@ class MissionManager:
                 if alternative.strip()
             )
 
+        if raw in {"TAUNT", "TAUNT(T)", "T"}:
+            return self._button_chord_input_matches("T", frame_idx)
+
         compact = raw.replace("AIR", "").replace("J.", "")
         compact = compact.replace("[", "").replace("]", "")
         compact = compact.replace("CHARGE", "").replace("HOLD", "")
@@ -1379,33 +1512,53 @@ class MissionManager:
         if "RELEASE" in compact:
             return False
 
-        mash_match = re.fullmatch(r"MASH([ABCX])", compact)
+        if compact == "ABCP":
+            return self._button_chord_input_matches("ABCP", frame_idx)
+        if compact == "XX":
+            return self._double_attack_input_matches(frame_idx, neutral_only=True)
+        if compact == "X":
+            return any(
+                self._neutral_button_input_matches(button, frame_idx)
+                for button in "ABC"
+            )
+        if re.fullmatch(r"[ABCLMHP]", compact):
+            return self._neutral_button_input_matches(compact, frame_idx)
+
+        rotation_match = re.fullmatch(r"360(?:(XX)|([ABCLMH])|(X))?", compact)
+        if rotation_match:
+            double_token, button_token, any_token = rotation_match.groups()
+            return self._rotation_input_matches(
+                frame_idx,
+                button=button_token or "",
+                double_attack=bool(double_token),
+                any_attack=bool(any_token),
+                motion_only=not any((double_token, button_token, any_token)),
+            )
+
+        mash_match = re.fullmatch(r"MASH([ABCLMHX])", compact)
         if mash_match:
-            return self._mash_input_matches(mash_match.group(1), frame_idx)
+            button = mash_match.group(1)
+            button = {"L": "A", "M": "B", "H": "C"}.get(button, button)
+            return self._mash_input_matches(button, frame_idx)
 
         sequence_match = re.fullmatch(r"[ABC]{3,}", compact)
         if sequence_match:
             return self._button_sequence_input_matches(compact, frame_idx)
 
-        pair_match = re.fullmatch(r"([1-9]+)([ABC])\+([ABC])", compact)
+        pair_match = re.fullmatch(r"([1-9]+)([ABCLMH])\+([ABCLMH])", compact)
         if pair_match:
             motion, first_button, second_button = pair_match.groups()
-            required_mask = {
-                "A": MISSION_INPUT_A,
-                "B": MISSION_INPUT_B,
-                "C": MISSION_INPUT_C,
-            }[first_button] | {
-                "A": MISSION_INPUT_A,
-                "B": MISSION_INPUT_B,
-                "C": MISSION_INPUT_C,
-            }[second_button]
+            required_mask = (
+                MISSION_INPUT_BUTTON_MASKS[first_button]
+                | MISSION_INPUT_BUTTON_MASKS[second_button]
+            )
             return self._motion_input_matches(
                 motion,
                 frame_idx,
                 required_attack_mask=required_mask,
             )
 
-        generic_list_match = re.fullmatch(r"([1-9]+)([ABC](?:/[ABC])+)", compact)
+        generic_list_match = re.fullmatch(r"([1-9]+)([ABCLMH](?:/[ABCLMH])+)", compact)
         if generic_list_match:
             motion, buttons = generic_list_match.groups()
             return any(
@@ -1413,7 +1566,7 @@ class MissionManager:
                 for button in buttons.split("/")
             )
 
-        exact_match = re.fullmatch(r"([1-9]+)([ABC])", compact)
+        exact_match = re.fullmatch(r"([1-9]+)([ABCLMH])", compact)
         if exact_match:
             motion, button = exact_match.groups()
             return self._motion_input_matches(motion, frame_idx, button=button)
@@ -1426,7 +1579,7 @@ class MissionManager:
                 double_attack=True,
             )
 
-        generic_match = re.fullmatch(r"([1-9]+)(?:A/B/C|X)", compact)
+        generic_match = re.fullmatch(r"([1-9]+)(?:A/B/C|L/M/H|X)", compact)
         if generic_match:
             return self._motion_input_matches(
                 generic_match.group(1),
@@ -1475,6 +1628,25 @@ class MissionManager:
                     self._mark_mission_input_match(serial)
                     return True
         return False
+
+    def _step_is_megacrash(self, expected_labels: list[str]) -> bool:
+        return any(
+            self._canonical_mission_label(label) == "megacrash"
+            for label in expected_labels
+        )
+
+    def _megacrash_step_matches(
+        self,
+        expected_labels: list[str],
+        opponent_in_megacrash: bool,
+        previous_opponent_megacrash: bool,
+    ) -> bool:
+        """Use the opponent's dedicated Megacrash state edge for this step."""
+        return bool(
+            self._step_is_megacrash(expected_labels)
+            and opponent_in_megacrash
+            and not previous_opponent_megacrash
+        )
 
     def _step_input_matches(
         self,
@@ -1868,6 +2040,9 @@ class MissionManager:
         }
         opponent_in_hitstun = self._opponent_in_hitstun(slot, snaps_dict)
         opponent_in_megacrash = self._opponent_in_megacrash(slot, snaps_dict)
+        previous_opponent_megacrash = bool(
+            self._runtime.get("last_opponent_megacrash", False)
+        )
         global_combo_count = self._global_combo_count()
         global_combo_active = bool(global_combo_count is not None and global_combo_count > 0)
         self._runtime["global_combo_count"] = int(global_combo_count or 0)
@@ -2119,6 +2294,11 @@ class MissionManager:
         partner_var_matched = generic_partner_var_step and self._partner_matches_generic_var(slot, snaps_dict)
 
         expected_norm = {str(label or "").strip().lower() for label in expected_labels}
+        dedicated_megacrash_match = self._megacrash_step_matches(
+            expected_labels,
+            opponent_in_megacrash,
+            previous_opponent_megacrash,
+        )
         current_matches_expected = self._mission_label_matches(
             current_label,
             expected_labels,
@@ -2201,6 +2381,7 @@ class MissionManager:
             expected_labels
             and (
                 partner_var_matched
+                or dedicated_megacrash_match
                 or (
                     (current_matches_expected or input_can_identify_expected)
                     and (input_can_identify_expected or not self._label_is_ignorable(current_label))
@@ -2450,6 +2631,7 @@ class MissionManager:
                 # new combo edge every frame while the global counter is nonzero.
                 "last_seen_hitstun": opponent_in_combo_state,
                 "last_actual_hitstun": opponent_in_hitstun or opponent_in_megacrash,
+                "last_opponent_megacrash": opponent_in_megacrash,
                 "last_inputs": dict(current_inputs),
             })
 
