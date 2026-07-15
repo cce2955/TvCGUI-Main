@@ -6,9 +6,13 @@
     "adv_block_derived": 78,
     "adv_block_observed": 78,
     "air_kb": 132,
+    "armor_probe": 200,
     "attack_property": 220,
+    "baroque_probe": 200,
     "blockstun": 100,
+    "cancel_probe": 200,
     "context": 360,
+    "custom_cancel_window": 200,
     "damage": 89,
     "dispatch_child_link": 126,
     "dispatch_child_target": 136,
@@ -98,7 +102,7 @@
     "superbg": 136
   },
   "density": "detailed",
-  "geometry": "1700x818+638+427",
+  "geometry": "1700x818+-12+216",
   "sash_pos": 1210,
   "view_mode": "all"
 }

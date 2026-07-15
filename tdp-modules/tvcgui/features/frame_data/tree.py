@@ -34,7 +34,7 @@ FD_COLUMNS = (
     "move", "kind", "hits", "link", "context",
     "damage",
     "meter",
-    "startup", "active", "active2",
+    "startup", "active", "active2", "custom_cancel_window",
     "hitstun", "invuln", "cancel_probe", "baroque_probe", "armor_probe", "blockstun", "hitstop",
     "adv_block_derived", "adv_block_observed",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
@@ -51,7 +51,7 @@ FD_COLUMNS = (
 FD_CORE_COLUMNS = (
     "move", "hits", "link",
     "damage", "meter",
-    "startup", "active",
+    "startup", "active", "custom_cancel_window",
     "hitstun", "invuln", "blockstun", "hitstop",
     "adv_block_derived", "adv_block_observed",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
@@ -112,6 +112,7 @@ FD_LABELS = {
     "startup": "Startup",
     "active": "Active",
     "active2": "Active 2",
+    "custom_cancel_window": "Custom Cancel",
     "hitstun": "Hitstun",
     "blockstun": "Blockstun",
     "hitstop": "Hitstop",
@@ -912,7 +913,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     win._headline_stat_widgets = {}
     stats = ttk.Frame(inner, style="InspectorSection.TFrame")
     stats.pack(fill="x", pady=(0, 10))
-    for label, key in (("Startup", "startup"), ("Active", "active"), ("Hitstop", "hitstop"), ("Blockstun", "blockstun")):
+    for label, key in (("Startup", "startup"), ("Active", "active"), ("Cancel", "custom_cancel_window"), ("Hitstop", "hitstop"), ("Blockstun", "blockstun")):
         cell = ttk.Frame(stats, style="InspectorSection.TFrame")
         cell.pack(side="left", fill="x", expand=True, padx=(0 if label == "Startup" else 5, 0))
         ttk.Label(cell, text=label, style="InspectorField.TLabel").pack(anchor="w")
@@ -932,15 +933,18 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     timeline = ttk.Frame(inner, style="Timeline.TFrame", padding=(10, 8))
     timeline.pack(fill="x", pady=(0, 10))
     ttk.Label(timeline, text="FRAME TIMELINE", style="TimelineTitle.TLabel").pack(anchor="w")
-    win._timeline_summary_var = tk.StringVar(master=win.root, value="Select a move to draw its cached startup and active frames.")
+    win._timeline_summary_var = tk.StringVar(master=win.root, value="Select a move to draw its cached startup, active, and custom cancel frames.")
     ttk.Label(timeline, textvariable=win._timeline_summary_var, style="TimelineSub.TLabel", wraplength=390).pack(anchor="w", pady=(2, 5))
     # Do not reuse the outer inspector Canvas variable here.  The inspector
     # scroll callbacks close over it; rebinding that name to the timeline Canvas
     # made scrollregion updates target the timeline instead of the sidebar.
-    timeline_canvas = tk.Canvas(timeline, height=62, bg="#0F1724", highlightthickness=0, bd=0)
+    timeline_canvas = tk.Canvas(timeline, height=88, bg="#0F1724", highlightthickness=0, bd=0)
     timeline_canvas.pack(fill="x")
+    timeline_canvas.configure(cursor="hand2")
     win._timeline_canvas = timeline_canvas
     timeline_canvas.bind("<Configure>", lambda _e: win._refresh_frame_timeline())
+    timeline_canvas.bind("<Button-1>", lambda _e: win._edit_selected_column("custom_cancel_window"))
+    Tooltip(timeline_canvas, "Click to edit the selected move's custom cancel window. This does not change or identify TvC's native cancel window.")
 
     compare = ttk.Frame(inner, style="Compare.TFrame", padding=(10, 8))
     compare.pack(fill="x", pady=(0, 10))
@@ -967,7 +971,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
     sections = [
         ("Move link", ["link"]),
         ("Impact", ["hits", "damage", "meter", "hitstop"]),
-        ("Timing", ["startup", "active", "active2", "speed_mod"]),
+        ("Timing", ["startup", "active", "active2", "custom_cancel_window", "speed_mod"]),
         ("Stun and pressure", ["hitstun", "invuln", "blockstun", "attack_property", "hit_reaction", "hit_result_flags"]),
         ("Experimental properties", ["cancel_probe", "baroque_probe", "armor_probe"]),
         ("Launch and knockback controls", ["kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb"]),
@@ -994,6 +998,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         "dispatch_group": "Display-only group of adjacent 00/23 dispatch rows.",
         "dispatch_child_target": "Display-only resolved child script target.",
         "invuln": "Display-only +0x1218 startup-phase signature.",
+        "custom_cancel_window": "Editable custom mailbox window. This is not a decoded native TvC cancel window. Use 8+ or 8-20.",
         "cancel_probe": "Focused cancel-window decoder. Left click copies the first window address. Right click lists every found window address.",
         "baroque_probe": "Experimental. The first address is the script packet. The second address is the current fighter field. Click to copy the script address.",
         "armor_probe": "Experimental. The first address is the script packet. The second address is the current fighter field. Click to copy the script address.",
@@ -1194,6 +1199,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "startup": 8,
         "active": 10,
         "active2": 10,
+        "custom_cancel_window": 12,
         "hitstun": 8,
         "blockstun": 8,
         "hitstop": 8,
@@ -1264,6 +1270,7 @@ def build_tree_widget(win) -> ttk.Frame:
         "startup": "Start",
         "active": "Active",
         "active2": "Active2",
+        "custom_cancel_window": "Cancel",
         "hitstun": "HS",
         "blockstun": "BS",
         "hitstop": "Stop",
@@ -1797,6 +1804,7 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("kb_hot", foreground="#9FCCFF")
     win.tree.tag_configure("combo_hot", foreground="#B7D6FF")
     win.tree.tag_configure("property_hot", foreground="#D6C8FF")
+    win.tree.tag_configure("cancel_hot", foreground="#DDB9FF")
     win.tree.tag_configure("super_on", foreground="#82E0B1")
     win.tree.tag_configure("missing_addr", foreground="#FF9A9A")
     win.tree.tag_configure("group_parent", foreground="#FFE3A3")
@@ -2176,6 +2184,7 @@ def _populate_tree_sync(win) -> None:
                 startup_txt,
                 active_txt,
                 active2_txt,
+                _fmt(mv.get("custom_cancel_window")),
                 U.fmt_stun(mv.get("hitstun")),
                 invuln_txt,
                 _fmt(mv.get("cancel_probe")),

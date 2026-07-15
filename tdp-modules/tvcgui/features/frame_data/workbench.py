@@ -17,6 +17,8 @@ from . import projectile_integration as FPI
 from . import super_integration as FSI
 from . import ui_prefs as FDUIPrefs
 from . import cancel_mapper as FCM
+from . import cancel_lab as FCL
+from . import cancel_windows as FCW
 try:
     import tvcgui.tools.scanners.normal_scanner as FDProfileCache
 except Exception:
@@ -133,6 +135,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # Preserve the raw scan order for optional view sorting.
         # Tag each move dict with a stable scan index so we can return to the scanner order.
         moves_scanned = filter_purged_moves_for_char(target_slot, list(target_slot.get("moves", []) or []))
+        FCW.apply_windows_to_moves(moves_scanned, target_slot.get("char_name", ""))
         try:
             target_slot["moves"] = moves_scanned
         except Exception:
@@ -2581,7 +2584,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._apply_inspector_context_layout(mv)
 
     def _refresh_inspector_headline(self, item_id: str | None, mv: dict | None):
-        """Update four constant-time headline stats from cached table cells."""
+        """Update constant-time headline stats from cached table cells."""
         for col, var in (getattr(self, "_headline_stat_vars", {}) or {}).items():
             value = " - "
             try:
@@ -2628,7 +2631,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
         if not item_id or not mv or not self.tree:
             if summary_var is not None:
-                summary_var.set("Select a move to draw its cached startup and active frames.")
+                summary_var.set("Select a move to draw its cached startup, active, and custom cancel frames.")
             return
         try:
             start = int(mv.get("active_start")) if mv.get("active_start") is not None else self._timeline_number(self.tree.set(item_id, "startup"))
@@ -2653,9 +2656,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             invuln_text = mv.get("invuln") or ""
         invuln_frames = self._timeline_number(invuln_text, 0) or 0
+        custom_window = FCW.get_window(self.target_slot.get("char_name", ""), mv.get("id"))
+        custom_start = int((custom_window or {}).get("earliest", 0) or 0)
+        custom_end = int((custom_window or {}).get("latest", 0) or 0)
         end = max(int(end or start), int(start))
         startup_frames = max(0, start - 1)
-        visible_end = max(end + 10, invuln_frames + 5, 22)
+        custom_visible_end = custom_end if custom_end else (custom_start + 10 if custom_start else 0)
+        visible_end = max(end + 10, invuln_frames + 5, custom_visible_end + 2, 22)
         try:
             width = max(240, int(canvas.winfo_width() or 360))
         except Exception:
@@ -2663,15 +2670,17 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         left, right = 7, max(8, width - 7)
         span = max(1, right - left)
         unit = span / float(visible_end)
+
         def x(frame):
             return int(left + ((max(0, frame - 1)) * unit))
 
         inv_y1, inv_y2 = 13, 23
         main_y1, main_y2 = 37, 54
+        cancel_y1, cancel_y2 = 68, 81
         canvas.create_text(left, 8, anchor="w", text="INVULN", fill="#7FBFC0", font=("Segoe UI", 7, "bold"))
         if invuln_frames:
             canvas.create_rectangle(x(1), inv_y1, max(x(invuln_frames + 1) - 1, x(1) + 3), inv_y2, fill="#3F9B95", outline="")
-            canvas.create_text(min(right - 3, max(left + 38, x(invuln_frames + 1))), 8, anchor="e", text=f"1–{invuln_frames}", fill="#9CDDD5", font=("Segoe UI", 7))
+            canvas.create_text(min(right - 3, max(left + 38, x(invuln_frames + 1))), 8, anchor="e", text=f"1-{invuln_frames}", fill="#9CDDD5", font=("Segoe UI", 7))
         else:
             canvas.create_rectangle(left, inv_y1, right, inv_y2, fill="#243446", outline="")
             canvas.create_text(left + 4, inv_y1 + 5, anchor="w", text="none", fill="#71869D", font=("Segoe UI", 7))
@@ -2685,10 +2694,79 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         canvas.create_text(left, 30, anchor="w", text="1", fill="#91A7C1", font=("Segoe UI", 7))
         canvas.create_text(max(left + 20, x(start)), 30, anchor="w", text=f"{start}", fill="#91A7C1", font=("Segoe UI", 7))
         canvas.create_text(max(left + 38, x(end + 1)), 30, anchor="w", text=f"{end + 1}", fill="#91A7C1", font=("Segoe UI", 7))
+
+        canvas.create_text(left, 63, anchor="w", text="CUSTOM CANCEL", fill="#D7B7FF", font=("Segoe UI", 7, "bold"))
+        if custom_start:
+            draw_end = custom_end if custom_end else visible_end
+            canvas.create_rectangle(
+                x(custom_start), cancel_y1, max(x(draw_end + 1) - 1, x(custom_start) + 3), cancel_y2,
+                fill="#7652A7", outline="",
+            )
+            label = FCW.format_window(custom_window)
+            canvas.create_text(right - 3, 63, anchor="e", text=label, fill="#E7D6FF", font=("Segoe UI", 7))
+        else:
+            canvas.create_rectangle(left, cancel_y1, right, cancel_y2, fill="#243446", outline="")
+            canvas.create_text(left + 4, cancel_y1 + 6, anchor="w", text="not set", fill="#71869D", font=("Segoe UI", 7))
+
         if summary_var is not None:
             active_count = (end - start) + 1
-            inv_summary = f"  |  Invuln 1–{invuln_frames} ({invuln_frames}f)" if invuln_frames else "  |  Invuln none"
-            summary_var.set(f"Startup 1–{startup_frames} ({startup_frames}f)  |  Active {start}–{end} ({active_count}f){inv_summary}  |  Recovery not profiled")
+            inv_summary = f"  |  Invuln 1-{invuln_frames} ({invuln_frames}f)" if invuln_frames else "  |  Invuln none"
+            cancel_summary = f"  |  Custom cancel {FCW.format_window(custom_window)}" if custom_start else "  |  Custom cancel not set"
+            summary_var.set(f"Startup 1-{startup_frames} ({startup_frames}f)  |  Active {start}-{end} ({active_count}f){inv_summary}{cancel_summary}  |  Recovery not profiled")
+
+    def _refresh_custom_cancel_profile(self, action_id: int | None = None):
+        char_name = self.target_slot.get("char_name", "")
+        for move in list(getattr(self, "moves", []) or []):
+            if action_id is not None and int(move.get("id") or -1) != int(action_id):
+                continue
+            window = FCW.get_window(char_name, move.get("id"))
+            move["custom_cancel_window_data"] = dict(window) if window else None
+            move["custom_cancel_window"] = FCW.format_window(window)
+        if self.tree:
+            for item_id, move in list((self.move_to_tree_item or {}).items()):
+                if action_id is not None and int(move.get("id") or -1) != int(action_id):
+                    continue
+                try:
+                    self.tree.set(item_id, "custom_cancel_window", str(move.get("custom_cancel_window") or ""))
+                    self._apply_row_tags(item_id, move)
+                except Exception:
+                    pass
+            try:
+                selected = self.tree.selection()
+                if selected:
+                    current_item = selected[0]
+                    current_move = self.move_to_tree_item.get(current_item)
+                    self._refresh_inspector(current_item, current_move)
+            except Exception:
+                pass
+
+    def _edit_custom_cancel_window(self, item_id: str, mv: dict):
+        current = FCW.format_window(FCW.get_window(self.target_slot.get("char_name", ""), mv.get("id")))
+        value = simpledialog.askstring(
+            "Custom cancel window",
+            "Enter a forced custom cancel window for this source move.\n\nExamples: 8+ for frame 8 through source end, 8-20 for a bounded window.\nUse clear or leave blank to remove it.\n\nThis is a custom mailbox window, not a decoded native TvC cancel window.",
+            initialvalue=current,
+            parent=self.root,
+        )
+        if value is None:
+            return
+        try:
+            parsed = FCW.parse_window_text(value)
+        except Exception as exc:
+            messagebox.showerror("Custom cancel window", str(exc), parent=self.root)
+            return
+        char_name = self.target_slot.get("char_name", "")
+        if parsed is None:
+            ok = FCW.clear_window(char_name, mv.get("id"))
+            message = "Custom cancel window cleared." if ok else "Could not clear the custom cancel window."
+        else:
+            saved = FCW.set_window(char_name, mv.get("id"), parsed[0], parsed[1], source="Frame Data Editor")
+            ok = saved is not None
+            message = f"Custom cancel window saved as {FCW.format_window(saved)}." if ok else "Could not save the custom cancel window."
+        self._refresh_custom_cancel_profile(int(mv.get("id") or 0))
+        if self._status_var is not None:
+            self._status_var.set(message)
+
 
     def _refresh_selected_row(self):
         if not self.tree:
@@ -3014,6 +3092,25 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             evidence_addr = row.get("evidence_addr")
             branch_addr = row.get("branch_addr")
             source_addr = source.get("abs")
+            target_move = row.get("target")
+            if isinstance(target_move, dict):
+                menu.add_command(
+                    label="Test this route in Live Cancel Lab...",
+                    command=lambda s=source, t=target_move: FCL.open_cancel_lab(
+                        parent=self.root,
+                        slot_label=self.slot_label,
+                        target_slot=self.target_slot,
+                        moves=self.moves,
+                        source_move=s,
+                        target_move=t,
+                        status_callback=(
+                            (lambda text: self._status_var.set(text))
+                            if self._status_var is not None else None
+                        ),
+                        profile_refresh_callback=lambda action_id=None: self._refresh_custom_cancel_profile(action_id),
+                    ),
+                )
+                menu.add_separator()
             if target_addr:
                 menu.add_command(
                     label=f"Copy Target Address (0x{int(target_addr):08X})",
@@ -3069,6 +3166,22 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         ttk.Button(bottom, text="Use workbench selection", command=use_current_selection).pack(side="left")
         ttk.Button(
             bottom,
+            text="Open Live Cancel Lab",
+            command=lambda: FCL.open_cancel_lab(
+                parent=self.root,
+                slot_label=self.slot_label,
+                target_slot=self.target_slot,
+                moves=self.moves,
+                source_move=current_source(),
+                status_callback=(
+                    (lambda text: self._status_var.set(text))
+                    if self._status_var is not None else None
+                ),
+                profile_refresh_callback=lambda action_id=None: self._refresh_custom_cancel_profile(action_id),
+            ),
+        ).pack(side="left", padx=(6, 0))
+        ttk.Button(
+            bottom,
             text="Copy source address",
             command=lambda: copy_value(
                 f"0x{int(current_source().get('abs')):08X}",
@@ -3077,7 +3190,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         ).pack(side="left", padx=(6, 0))
         ttk.Label(
             bottom,
-            text="Right click any row for its target address and any direct-route evidence addresses.",
+            text="Right click a row to test that source-to-target route live or copy its addresses.",
             style="Muted.Top.TLabel",
         ).pack(side="right")
 
@@ -3751,6 +3864,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not mv:
             return
 
+        if col_name == "custom_cancel_window":
+            self._edit_custom_cancel_window(item, mv)
+            return
         if col_name == "abs":
             self._copy_selected_address()
             return
@@ -3841,6 +3957,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         property_txt = self.tree.set(item_id, "attack_property").strip()
         if property_txt:
             tags.add("property_hot")
+
+        custom_cancel_txt = self.tree.set(item_id, "custom_cancel_window").strip() if "custom_cancel_window" in self.tree["columns"] else ""
+        if custom_cancel_txt:
+            tags.add("cancel_hot")
 
         super_txt = self.tree.set(item_id, "superbg").strip()
         if super_txt == "ON":

@@ -1,0 +1,43 @@
+{
+  "characters": {
+    "casshan": {
+      "moves": {
+        "0x0102": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            257
+          ],
+          "updated_at": 1784147946
+        },
+        "0x0143": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            314
+          ],
+          "updated_at": 1784147979
+        }
+      },
+      "name": "Casshan"
+    },
+    "ryu": {
+      "moves": {
+        "0x0161": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            257,
+            256
+          ],
+          "updated_at": 1784148739
+        }
+      },
+      "name": "Ryu"
+    }
+  },
+  "version": 1
+}
