@@ -226,6 +226,45 @@ INVULN_SCAN_RANGE = 0x700
 INVULN_TABLE_PREAMBLE = 0x80
 INVULN_HOLD_SENTINEL_FRAMES = 999
 
+# Cancel windows are decoded separately below. The broad field-family probe was
+# useful for reconnaissance, but it mixed generic move setup with real cancel
+# handling. Keep only the still-experimental Baroque and armor evidence here.
+EXPERIMENTAL_PROPERTY_FIELDS = {
+    "cancel": set(),
+    "baroque": {
+        0x0058, 0x005C, 0x0060, 0x01D0, 0x01D8, 0x02A8,
+        0x2120, 0x4438, 0x443C, 0x4440, 0x4444, 0x4450,
+        0x4454, 0x44BC, 0x44D8, 0x4548,
+    },
+    "armor": {
+        0x0058, 0x005C, 0x0060, 0x0064, 0x006C, 0x0074,
+        0x1218, 0x13CC, 0x4438, 0x4440, 0x4444, 0x4450,
+        0x4454, 0x4548,
+    },
+}
+EXPERIMENTAL_PROPERTY_FIELD_UNION = set().union(*EXPERIMENTAL_PROPERTY_FIELDS.values())
+EXPERIMENTAL_PROPERTY_SCAN_MAX = 0x1200
+EXPERIMENTAL_PROPERTY_DISPLAY_LIMIT = 8
+
+# Focused cancel-window signatures. Grounded attacks call the shared cancel
+# evaluator through ``01 3C 00 00 00 00 0B F0``. Normal-chain branches, when
+# present, follow that call as an input test plus a chr_tbl-relative 01/34 jump.
+# A move with the shared call but no matching normal branch is still special
+# cancelable, which is the important Casshan 6B case.
+CANCEL_SPECIAL_WINDOW_CALL = bytes([0x01, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x0B, 0xF0])
+CANCEL_INPUT_TEST_HDR = bytes([0x04, 0x03, 0x60, 0x00])
+CANCEL_BRANCH_HDR = bytes([0x01, 0x34, 0x00, 0x00])
+CANCEL_INPUT_MARKER = 0x3F000000
+CANCEL_ROUTE_LOOKAHEAD = 0x70
+CANCEL_DISPLAY_LIMIT = 8
+CANCEL_INPUT_FIELDS = {
+    0x13CC: "held",
+    0x13D0: "pressed",
+    0x13D4: "released",
+    0x13D8: "buffered",
+    0x13DC: "edge",
+}
+
 # A broad +0x1218 write is only a phase timer.  The normal-entry template
 # explicitly clears the field and arms it for 2f before handing off to the
 # next action; that is common bookkeeping, not invulnerability.  Protected
@@ -275,8 +314,8 @@ SLOT_REGION_PAD = 0x2000
 # read only the exact packets/fields the editor needs.  Delete
 # frame_data_profiles.json or set TVC_FD_PROFILE_CACHE=0 to force the legacy
 # dynamic path.
-PROFILE_CACHE_VERSION = 7
-PROFILE_SCANNER_BUILD = "fd-profile-v8-animation-mot-recovery"
+PROFILE_CACHE_VERSION = 9
+PROFILE_SCANNER_BUILD = "fd-profile-v11-cancel-windows"
 # Kept separate from the global profile format version so existing projectile
 # and super profiles remain intact.  A normal move profile simply refreshes
 # once when this resolver changes.
@@ -291,7 +330,7 @@ PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PROFILE_CACHE", "1")).strip()
 # Tiny read-only snapshot used by the always-on HUD and hitbox renderer. The
 # workbench cache can be ~100 MB / thousands of rows per fighter; loading and
 # refreshing that cache in the overlay is what made character changes stall.
-PREVIEW_PROFILE_CACHE_VERSION = 1
+PREVIEW_PROFILE_CACHE_VERSION = 3
 PREVIEW_PROFILE_CACHE_FILENAME = "frame_data_preview_profiles.json"
 PREVIEW_PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PREVIEW_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
@@ -370,7 +409,7 @@ _PREVIEW_PROFILE_LOCK = threading.RLock()
 _PREVIEW_PROFILE_DOC: Optional[Dict[str, Any]] = None
 
 _PROFILE_ADDRESS_KEYS = {
-    "abs", "parent_abs", "addr",
+    "abs", "parent_abs", "target_abs", "addr",
     # Extra-profile rows carry several resolved script/dispatch addresses that
     # do not use the usual *_addr spelling. Keep their cached values relative
     # to chr_tbl too, so the profile survives a new match/slot allocation.
@@ -898,6 +937,318 @@ def _has_field_write(
             continue
         return True
     return False
+
+
+def _experimental_property_owner_window(
+    moves: List[Dict[str, Any]],
+    mv: Dict[str, Any],
+    *,
+    base_abs: int,
+    buf_len: int,
+) -> Tuple[int, int]:
+    """Return a bounded script window owned by one move row."""
+    mv_abs = int(mv.get("abs") or 0)
+    start_abs, end_abs = _invuln_owner_window(
+        moves, mv_abs, mv_source=mv.get("source"),
+    )
+    if not start_abs:
+        start_abs = mv_abs - 8
+    start = max(0, int(start_abs) - int(base_abs))
+    if end_abs and int(end_abs) > int(start_abs):
+        end = min(int(buf_len), int(end_abs) - int(base_abs))
+    else:
+        end = min(int(buf_len), max(start + 16, mv_abs - int(base_abs) + EXPERIMENTAL_PROPERTY_SCAN_MAX))
+    end = min(end, start + EXPERIMENTAL_PROPERTY_SCAN_MAX)
+    return start, max(start, end)
+
+
+def _cancel_target_row_by_rel(
+    moves: Sequence[Dict[str, Any]],
+    target_rel: int,
+) -> Optional[Dict[str, Any]]:
+    """Resolve a chr_tbl-relative branch target to a scanned action row."""
+    try:
+        wanted = int(target_rel) & 0xFFFFFFFF
+    except Exception:
+        return None
+    for row in moves or []:
+        try:
+            if int(row.get("table_rel")) == wanted:
+                return row
+        except Exception:
+            continue
+    return None
+
+
+def _cancel_target_label(row: Optional[Dict[str, Any]], char_id: Optional[int] = None) -> str:
+    if not isinstance(row, dict):
+        return "unknown target"
+    aid = row.get("id")
+    name = str(row.get("move_name") or "").strip()
+    if not name and aid is not None:
+        try:
+            name = lookup_move_name(int(aid), char_id) if char_id is not None else lookup_move_name(int(aid))
+        except TypeError:
+            try:
+                name = lookup_move_name(int(aid))
+            except Exception:
+                name = ""
+        except Exception:
+            name = ""
+    if not name and aid is not None:
+        low = int(aid) & 0xFF
+        name = ANIM_MAP.get(low) or f"anim_{int(aid):04X}"
+    if aid is None:
+        return name or "unknown target"
+    return f"{name or 'action'} [0x{int(aid):04X}]"
+
+
+def collect_cancel_window_probes(
+    moves: List[Dict[str, Any]],
+    mv: Dict[str, Any],
+    buf: bytes,
+    base_abs: int,
+    *,
+    char_id: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Collect shared special-cancel windows and anchored normal-chain routes."""
+    try:
+        mv_abs = int(mv.get("abs") or 0)
+    except Exception:
+        mv_abs = 0
+    if mv_abs <= 0:
+        return []
+
+    start, end = _experimental_property_owner_window(
+        moves, mv, base_abs=base_abs, buf_len=len(buf),
+    )
+    probes: List[Dict[str, Any]] = []
+    seen: set[Tuple[Any, ...]] = set()
+    call_len = len(CANCEL_SPECIAL_WINDOW_CALL)
+
+    for pos in range(start, max(start, end - call_len + 1)):
+        if buf[pos:pos + call_len] != CANCEL_SPECIAL_WINDOW_CALL:
+            continue
+        call_addr = int(base_abs) + int(pos)
+        key = ("special", call_addr)
+        if key not in seen:
+            seen.add(key)
+            probes.append({
+                "kind": "special",
+                "addr": call_addr,
+                "offset": call_addr - mv_abs,
+                "label": "Special window",
+            })
+
+        route_start = pos + call_len
+        route_end = min(end, route_start + CANCEL_ROUTE_LOOKAHEAD)
+        scan = route_start
+        while scan + 20 <= route_end:
+            if buf[scan:scan + 4] != CANCEL_INPUT_TEST_HDR:
+                scan += 1
+                continue
+            field = int(rd_u32_be(buf, scan + 4))
+            if field not in CANCEL_INPUT_FIELDS or int(rd_u32_be(buf, scan + 8)) != CANCEL_INPUT_MARKER:
+                scan += 1
+                continue
+            input_mask = int(rd_u32_be(buf, scan + 12)) & 0xFFFFFFFF
+
+            branch_pos = None
+            branch_limit = min(route_end, scan + 0x28)
+            for candidate in range(scan + 16, max(scan + 16, branch_limit - 7)):
+                if buf[candidate:candidate + 4] == CANCEL_BRANCH_HDR:
+                    branch_pos = candidate
+                    break
+            if branch_pos is None:
+                scan += 1
+                continue
+
+            target_rel = int(rd_u32_be(buf, branch_pos + 4)) & 0xFFFFFFFF
+            target_row = _cancel_target_row_by_rel(moves, target_rel)
+            # Internal helper branches are common. Only promote a normal route
+            # when the target is an actual chr_tbl action root.
+            if target_row is None:
+                scan = branch_pos + 8
+                continue
+
+            test_addr = int(base_abs) + int(scan)
+            branch_addr = int(base_abs) + int(branch_pos)
+            target_abs = int(target_row.get("abs") or 0)
+            route_key = ("normal", test_addr, branch_addr, target_rel)
+            if route_key not in seen:
+                seen.add(route_key)
+                probes.append({
+                    "kind": "normal",
+                    "addr": test_addr,
+                    "branch_addr": branch_addr,
+                    "offset": test_addr - mv_abs,
+                    "input_field": field,
+                    "input_source": CANCEL_INPUT_FIELDS.get(field, f"+0x{field:04X}"),
+                    "input_mask": input_mask,
+                    "target_rel": target_rel,
+                    "target_abs": target_abs or None,
+                    "target_id": target_row.get("id"),
+                    "target_label": _cancel_target_label(target_row, char_id),
+                    "label": "Normal route",
+                })
+            scan = branch_pos + 8
+
+    probes.sort(key=lambda p: (int(p.get("addr") or 0), str(p.get("kind") or "")))
+    return probes
+
+
+def summarize_cancel_window_probes(probes: Sequence[Dict[str, Any]]) -> str:
+    if not probes:
+        return ""
+    parts: List[str] = []
+    for probe in list(probes)[:CANCEL_DISPLAY_LIMIT]:
+        try:
+            addr = int(probe.get("addr") or 0)
+            kind = str(probe.get("kind") or "")
+            if kind == "special":
+                parts.append(f"Special window @ 0x{addr:08X}")
+                continue
+            field = int(probe.get("input_field") or 0)
+            mask = int(probe.get("input_mask") or 0) & 0xFFFFFFFF
+            source = str(probe.get("input_source") or "input")
+            target = str(probe.get("target_label") or "unknown target")
+            branch_addr = int(probe.get("branch_addr") or 0)
+            parts.append(
+                f"Normal route @ 0x{addr:08X}: {source} [+0x{field:04X}] "
+                f"& 0x{mask:08X} -> {target} (branch 0x{branch_addr:08X})"
+            )
+        except Exception:
+            continue
+    if len(probes) > CANCEL_DISPLAY_LIMIT:
+        parts.append(f"+{len(probes) - CANCEL_DISPLAY_LIMIT} more")
+    return " / ".join(parts)
+
+
+def collect_experimental_property_probes(
+    moves: List[Dict[str, Any]],
+    mv: Dict[str, Any],
+    buf: bytes,
+    base_abs: int,
+) -> List[Dict[str, Any]]:
+    """Collect raw field writes used by suspected property evaluators."""
+    mv_abs = int(mv.get("abs") or 0)
+    if mv_abs <= 0:
+        return []
+    start, end = _experimental_property_owner_window(
+        moves, mv, base_abs=base_abs, buf_len=len(buf),
+    )
+    probes: List[Dict[str, Any]] = []
+    seen: set[Tuple[int, int, int, int]] = set()
+    for pos in range(start, max(start, end - 15)):
+        op = _field_write_at(buf, pos)
+        if not op:
+            continue
+        field = int(op.get("field", -1))
+        if field not in EXPERIMENTAL_PROPERTY_FIELD_UNION:
+            continue
+        addr = int(base_abs) + int(pos)
+        value = int(op.get("value", 0)) & 0xFFFFFFFF
+        op_type = int(op.get("op", 0)) & 0xFF
+        key = (addr, field, value, op_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        groups = [
+            name for name, fields in EXPERIMENTAL_PROPERTY_FIELDS.items()
+            if field in fields
+        ]
+        probes.append({
+            "addr": addr,
+            "offset": addr - mv_abs,
+            "field": field,
+            "value": value,
+            "op": op_type,
+            "groups": groups,
+        })
+    return probes
+
+
+def summarize_experimental_property_probes(
+    probes: Sequence[Dict[str, Any]],
+    group: str,
+) -> str:
+    """Render raw writes with script and optional live target addresses."""
+    selected = [
+        probe for probe in probes or []
+        if str(group) in set(probe.get("groups") or ())
+    ]
+    if not selected:
+        return ""
+    parts: List[str] = []
+    for probe in selected[:EXPERIMENTAL_PROPERTY_DISPLAY_LIMIT]:
+        try:
+            script_addr = int(probe.get("addr") or 0)
+            target_addr = int(probe.get("target_addr") or 0)
+            field = int(probe.get("field") or 0)
+            value = int(probe.get("value") or 0) & 0xFFFFFFFF
+            offset = int(probe.get("offset") or 0)
+            offset_text = f"+0x{offset:X}" if offset >= 0 else f"-0x{-offset:X}"
+            if target_addr:
+                parts.append(
+                    f"0x{script_addr:08X} -> 0x{target_addr:08X} "
+                    f"[+0x{field:04X}]={value:08X} (move{offset_text})"
+                )
+            else:
+                parts.append(
+                    f"0x{script_addr:08X} [+0x{field:04X}]={value:08X} "
+                    f"(move{offset_text})"
+                )
+        except Exception:
+            continue
+    if len(selected) > EXPERIMENTAL_PROPERTY_DISPLAY_LIMIT:
+        parts.append(f"+{len(selected) - EXPERIMENTAL_PROPERTY_DISPLAY_LIMIT} more")
+    return " / ".join(parts)
+
+
+def apply_experimental_property_live_addresses(
+    moves: Sequence[Dict[str, Any]],
+    fighter_base_abs: Optional[int],
+) -> None:
+    """Attach current fighter addresses and rebuild the visible summaries."""
+    try:
+        fighter_base = int(fighter_base_abs or 0)
+    except Exception:
+        fighter_base = 0
+    for mv in moves or []:
+        probes = list(mv.get("property_probes") or [])
+        for probe in probes:
+            try:
+                field = int(probe.get("field") or 0)
+                if fighter_base and field >= 0:
+                    probe["target_addr"] = fighter_base + field
+                else:
+                    probe.pop("target_addr", None)
+            except Exception:
+                probe.pop("target_addr", None)
+        mv["property_probes"] = probes
+        mv["cancel_probe"] = summarize_cancel_window_probes(mv.get("cancel_windows") or [])
+        mv["baroque_probe"] = summarize_experimental_property_probes(probes, "baroque")
+        mv["armor_probe"] = summarize_experimental_property_probes(probes, "armor")
+
+
+def attach_experimental_property_probes(
+    moves: List[Dict[str, Any]],
+    mv: Dict[str, Any],
+    buf: bytes,
+    base_abs: int,
+    *,
+    char_id: Optional[int] = None,
+) -> None:
+    """Attach provisional cancel, Baroque, and armor evidence to one row."""
+    probes = collect_experimental_property_probes(moves, mv, buf, base_abs)
+    cancel_windows = collect_cancel_window_probes(moves, mv, buf, base_abs, char_id=char_id)
+    mv["property_probes"] = probes
+    mv["property_probe_count"] = len(probes)
+    mv["cancel_windows"] = cancel_windows
+    mv["cancel_window_count"] = len(cancel_windows)
+    mv["cancel_probe"] = summarize_cancel_window_probes(cancel_windows)
+    mv["baroque_probe"] = summarize_experimental_property_probes(probes, "baroque")
+    mv["armor_probe"] = summarize_experimental_property_probes(probes, "armor")
 
 
 def _invuln_confidence_score(name: str) -> int:
@@ -2577,6 +2928,8 @@ def attach_move_fields(moves: List[Dict[str, Any]],
                     and str(mv.get("move_name") or "").strip().lower().replace(" ", "") == "6b"
                 )
 
+        attach_experimental_property_probes(moves, mv, buf, base_abs, char_id=char_id)
+
         if should_probe_invuln(mv, char_id):
             owner_start, owner_end = _invuln_owner_window(
                 moves, mv_abs, mv_source=mv.get("source"),
@@ -3076,6 +3429,7 @@ _PREVIEW_MOVE_FIELDS = {
     "animation_motion", "animation_total_frames", "attack_property", "blockstun", "damage",
     "damage_flag", "ground_kb", "ground_kb_y", "hitstop", "hitstun", "id",
     "invuln", "invuln_confidence", "invuln_frames", "invuln_kind", "kb_type",
+    "cancel_probe", "cancel_windows", "cancel_window_count", "baroque_probe", "armor_probe", "property_probe_count",
     "kind", "launch_profile", "meter", "move_name", "move_name_source",
     "multi_hit_count", "normal_confirmed", "recovery", "recovery_source",
     "runtime_profile_eligible", "stun_source",
@@ -3829,6 +4183,7 @@ def _load_profile_moves(
                 action_id = live_table_ids[root_abs]
                 rebased["id"] = action_id
                 rebased["kind"] = "normal" if ((action_id & 0xFF) in NORMAL_IDS) else "special"
+                rebased["table_rel"] = root_abs - int(chr_tbl_abs)
             rebased["_profile_fast_path"] = True
             moves.append(rebased)
     if not moves:
@@ -4218,6 +4573,7 @@ def scan_once(
                 tbl_move_entries=tbl_move_entries,
             )
             if profiled_moves is not None:
+                apply_experimental_property_live_addresses(profiled_moves, fighter_base_abs)
                 # MOT total frames are static FPK data, so layer them onto both
                 # cached and fresh SEQ rows after the live active window has
                 # been refreshed. This keeps Recovery deterministic per action.
@@ -4284,6 +4640,12 @@ def scan_once(
             tbl_move_addrs=in_slice,
             tbl_move_entries=in_entries,
         )
+        for _mv in moves:
+            try:
+                if str(_mv.get("source") or "") == "table":
+                    _mv["table_rel"] = int(_mv.get("abs") or 0) - int(chr_tbl_abs)
+            except Exception:
+                pass
         blocks = collect_blocks(region_buf, region_start)
         attach_move_fields(moves, region_buf, region_start, blocks, char_id=cid)
         # Join the SEQ action ID to chr/<character>/0000.mot.
@@ -4302,6 +4664,7 @@ def scan_once(
                 f"preview-save-deferred:{_profile_key(cid, cname)}",
                 f"[fd preview] save deferred for {cname}; current run still has the dynamic result",
             )
+        apply_experimental_property_live_addresses(sorted_moves, fighter_base_abs)
         _apply_runtime_stun_overlay(sorted_moves, cid)
 
         extras = load_profile_extras(

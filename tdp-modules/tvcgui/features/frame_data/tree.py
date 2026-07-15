@@ -35,7 +35,7 @@ FD_COLUMNS = (
     "damage",
     "meter",
     "startup", "active", "active2",
-    "hitstun", "invuln", "blockstun", "hitstop",
+    "hitstun", "invuln", "cancel_probe", "baroque_probe", "armor_probe", "blockstun", "hitstop",
     "adv_block_derived", "adv_block_observed",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
@@ -131,6 +131,9 @@ FD_LABELS = {
     "air_kb": "Arc",
     "speed_mod": "Speed Mod",
     "invuln": "Invuln",
+    "cancel_probe": "Cancel windows ?",
+    "baroque_probe": "Baroque ?",
+    "armor_probe": "Armor ?",
     "attack_property": "Attack Property",
     "hit_reaction": "Hit Reaction",
     "hit_result_flags": "Hit Result",
@@ -708,6 +711,21 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             except Exception:
                 pass
             return
+        if col in {"cancel_probe", "baroque_probe", "armor_probe"}:
+            try:
+                value_var = getattr(win, "_inspector_value_vars", {}).get(col)
+                text = str(value_var.get() if value_var is not None else "")
+                match = re.search(r"0x[0-9A-Fa-f]{8}", text)
+                if not match:
+                    win._status_var.set("No script packet address is available for this probe.")
+                    return
+                address = "0x" + match.group(0)[2:].upper()
+                win.root.clipboard_clear()
+                win.root.clipboard_append(address)
+                win._status_var.set(f"Copied probe script address {address}")
+            except Exception:
+                pass
+            return
         if col == "abs":
             win._copy_selected_address()
             return
@@ -719,22 +737,86 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             return
         win._edit_selected_column(col)
 
+    def _show_probe_copy_menu(event, col: str):
+        try:
+            value_var = getattr(win, "_inspector_value_vars", {}).get(col)
+            text = str(value_var.get() if value_var is not None else "")
+            entries = []
+            seen = set()
+            for segment in text.split(" / "):
+                match = re.search(r"0x[0-9A-Fa-f]{8}", segment)
+                if not match:
+                    continue
+                address = "0x" + match.group(0)[2:].upper()
+                if address in seen:
+                    continue
+                seen.add(address)
+                label = segment[:match.start()].strip().rstrip("@:") or "Probe"
+                entries.append((label, address))
+            if not entries:
+                win._status_var.set("No script packet address is available for this probe.")
+                return "break"
+
+            menu = tk.Menu(win.root, tearoff=False)
+            for label, address in entries:
+                def _copy_one(a=address):
+                    try:
+                        win.root.clipboard_clear()
+                        win.root.clipboard_append(a)
+                        win._status_var.set(f"Copied probe script address {a}")
+                    except Exception:
+                        pass
+                menu.add_command(label=f"Copy {label} {address}", command=_copy_one)
+            if len(entries) > 1:
+                menu.add_separator()
+                def _copy_all():
+                    try:
+                        payload = "\n".join(address for _label, address in entries)
+                        win.root.clipboard_clear()
+                        win.root.clipboard_append(payload)
+                        win._status_var.set(f"Copied {len(entries)} probe script addresses")
+                    except Exception:
+                        pass
+                menu.add_command(label="Copy all found addresses", command=_copy_all)
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                try:
+                    menu.grab_release()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return "break"
+
     def _make_chip(parent_widget, col: str, var: tk.StringVar):
-        editable = col not in {"kind", "hits", "link", "invuln"}
+        probe_cols = {"cancel_probe", "baroque_probe", "armor_probe"}
+        copyable_probe = col in probe_cols
+        editable = col not in ({"kind", "hits", "link", "invuln"} | probe_cols)
         style = "InspectorValue.TLabel" if editable else "InspectorReadOnly.TLabel"
-        chip = ttk.Label(parent_widget, textvariable=var, style=style, anchor="w")
+        chip = ttk.Label(
+            parent_widget,
+            textvariable=var,
+            style=style,
+            anchor="w",
+            justify="left",
+            wraplength=285 if copyable_probe else 0,
+        )
         chip.pack(side="left", fill="x", expand=True, padx=(4, 0))
         win._inspector_value_widgets[col] = chip
 
-        if editable:
+        if editable or copyable_probe:
             chip.configure(cursor="hand2")
             chip.bind("<Button-1>", lambda _e, c=col: _value_click(c))
+            if copyable_probe:
+                chip.bind("<Button-3>", lambda e, c=col: _show_probe_copy_menu(e, c))
             chip.bind("<Return>", lambda _e, c=col: _value_click(c))
             chip.bind("<space>", lambda _e, c=col: _value_click(c))
-            chip.bind("<Enter>", lambda _e, w=chip, c=col: getattr(win, "_configure_inspector_chip_style", lambda *_a, **_k: None)(w, c, True))
-            chip.bind("<Leave>", lambda _e, w=chip, c=col: getattr(win, "_configure_inspector_chip_style", lambda *_a, **_k: None)(w, c, False))
             chip.configure(takefocus=True)
-            win._inspector_editable_cols.add(col)
+            if editable:
+                chip.bind("<Enter>", lambda _e, w=chip, c=col: getattr(win, "_configure_inspector_chip_style", lambda *_a, **_k: None)(w, c, True))
+                chip.bind("<Leave>", lambda _e, w=chip, c=col: getattr(win, "_configure_inspector_chip_style", lambda *_a, **_k: None)(w, c, False))
+                win._inspector_editable_cols.add(col)
         return chip
 
     win._inspector_title_var = tk.StringVar(master=win.root, value="Select a move")
@@ -809,6 +891,20 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         lambda: win._copy_selected_address(),
         "Copy Address puts this move's table anchor (for example 0x908AFBE6) on the clipboard. It is the row anchor, not every individual field's write address.",
     )
+    cancel_mapper_help = (
+        "Cancel Mapper opens a move-by-move Allowed, Blocked, and Unknown map using the current ground-chain rules. "
+        "Right click its rows to copy target or direct-route addresses."
+    )
+    cancel_mapper_button = ttk.Button(
+        hero,
+        text="Open cancel mapper",
+        style="InspectorAction.TButton",
+        command=lambda: win._open_cancel_mapper(),
+    )
+    cancel_mapper_button.pack(fill="x", pady=(7, 0))
+    cancel_mapper_button.bind("<Enter>", lambda _e, t=cancel_mapper_help: _set_action_help(t), add=True)
+    cancel_mapper_button.bind("<FocusIn>", lambda _e, t=cancel_mapper_help: _set_action_help(t), add=True)
+    Tooltip(cancel_mapper_button, cancel_mapper_help)
     ttk.Label(hero, textvariable=win._inspector_hint_var, style="InspectorHeroSub.TLabel", wraplength=390).pack(anchor="w", pady=(9, 0))
 
     # These headline values are not merely decorative. They are the fastest
@@ -873,6 +969,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         ("Impact", ["hits", "damage", "meter", "hitstop"]),
         ("Timing", ["startup", "active", "active2", "speed_mod"]),
         ("Stun and pressure", ["hitstun", "invuln", "blockstun", "attack_property", "hit_reaction", "hit_result_flags"]),
+        ("Experimental properties", ["cancel_probe", "baroque_probe", "armor_probe"]),
         ("Launch and knockback controls", ["kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb"]),
         ("Hit FX and reach", ["hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time"]),
         ("Dangerous script links", ["post_link"]),
@@ -897,6 +994,9 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         "dispatch_group": "Display-only group of adjacent 00/23 dispatch rows.",
         "dispatch_child_target": "Display-only resolved child script target.",
         "invuln": "Display-only +0x1218 startup-phase signature.",
+        "cancel_probe": "Focused cancel-window decoder. Left click copies the first window address. Right click lists every found window address.",
+        "baroque_probe": "Experimental. The first address is the script packet. The second address is the current fighter field. Click to copy the script address.",
+        "armor_probe": "Experimental. The first address is the script packet. The second address is the current fighter field. Click to copy the script address.",
     }
 
     for section_title, fields in sections:
@@ -2078,6 +2178,9 @@ def _populate_tree_sync(win) -> None:
                 active2_txt,
                 U.fmt_stun(mv.get("hitstun")),
                 invuln_txt,
+                _fmt(mv.get("cancel_probe")),
+                _fmt(mv.get("baroque_probe")),
+                _fmt(mv.get("armor_probe")),
                 U.fmt_stun(mv.get("blockstun")),
                 hitstop_txt,
                 adv_block_derived_txt,

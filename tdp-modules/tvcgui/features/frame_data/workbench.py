@@ -16,6 +16,7 @@ from . import tree as fd_tree
 from . import projectile_integration as FPI
 from . import super_integration as FSI
 from . import ui_prefs as FDUIPrefs
+from . import cancel_mapper as FCM
 try:
     import tvcgui.tools.scanners.normal_scanner as FDProfileCache
 except Exception:
@@ -2563,7 +2564,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 continue
             try:
                 if static:
-                    widget.configure(cursor="", style="InspectorReadOnly.TLabel")
+                    probe_copyable = col in {"cancel_probe", "baroque_probe", "armor_probe"}
+                    widget.configure(cursor="hand2" if probe_copyable else "", style="InspectorReadOnly.TLabel")
                 elif dirty:
                     widget.configure(cursor="hand2", style="InspectorValueChanged.TLabel")
                 else:
@@ -2711,6 +2713,381 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         queued = self._request_optional_probe(item_id, mv, priority=True, force=True, announce=True)
         if self._status_var is not None:
             self._status_var.set("Refreshing selected row in the background..." if queued else "Selected row already has cached optional fields.")
+
+    def _open_cancel_mapper(self):
+        """Open a cached rule map for the move selected in the workbench."""
+        if not self.tree or not self.root:
+            return
+        try:
+            selected = self.tree.selection()
+        except Exception:
+            selected = ()
+        if not selected:
+            if self._status_var is not None:
+                self._status_var.set("Select a move before opening the Cancel Mapper.")
+            return
+        selected_move = self.move_to_tree_item.get(selected[0])
+        if not isinstance(selected_move, dict) or selected_move.get("id") is None:
+            if self._status_var is not None:
+                self._status_var.set("The selected row is not a mapped action.")
+            return
+
+        existing = getattr(self, "_cancel_mapper_window", None)
+        try:
+            if existing is not None and existing.winfo_exists():
+                existing.destroy()
+        except Exception:
+            pass
+
+        dlg = tk.Toplevel(self.root)
+        self._cancel_mapper_window = dlg
+        apply_titlebar_icon(dlg, self.root)
+        dlg.title("Cancel Mapper")
+        dlg.geometry("1180x700")
+        dlg.minsize(900, 520)
+        try:
+            dlg.configure(bg="#101722")
+        except Exception:
+            pass
+        dlg.transient(self.root)
+
+        candidates = FCM.canonical_moves(self.moves)
+        selected_id = selected_move.get("id")
+        if not any(mv is selected_move or mv.get("id") == selected_id for mv in candidates):
+            candidates.insert(0, selected_move)
+
+        source_by_label = {}
+        source_labels = []
+        for mv in candidates:
+            name = FCM.display_name(mv, self.target_slot.get("char_name", ""))
+            try:
+                aid_text = f"0x{int(mv.get('id')):04X}"
+            except Exception:
+                aid_text = "no ID"
+            try:
+                addr_text = f"0x{int(mv.get('abs')):08X}"
+            except Exception:
+                addr_text = "no address"
+            label = f"{name} [{aid_text}] @ {addr_text}"
+            if label in source_by_label:
+                label = f"{label} #{len(source_labels) + 1}"
+            source_by_label[label] = mv
+            source_labels.append(label)
+
+        selected_label = next(
+            (
+                label for label, mv in source_by_label.items()
+                if mv is selected_move
+                or (
+                    mv.get("id") == selected_move.get("id")
+                    and mv.get("abs") == selected_move.get("abs")
+                )
+            ),
+            source_labels[0] if source_labels else "",
+        )
+
+        shell = ttk.Frame(dlg, style="FD.TFrame", padding=(12, 12))
+        shell.pack(fill="both", expand=True)
+
+        hero = ttk.Frame(shell, style="Hero.TFrame", padding=(14, 12))
+        hero.pack(fill="x", pady=(0, 10))
+        ttk.Label(hero, text="CANCEL MAPPER", style="HeroTitle.TLabel").pack(anchor="w")
+        ttk.Label(
+            hero,
+            text=(
+                "Current rule model: 5A > 2A > 5B > 2B > 5C > 2C, "
+                "5C may also route to 3C, and direct command routes are honored. "
+                "Special and super targets are Category Eligible until their ground/air "
+                "and other execution requirements are decoded."
+            ),
+            style="HeroSub.TLabel",
+            wraplength=1100,
+            justify="left",
+        ).pack(anchor="w", pady=(3, 0))
+
+        controls = ttk.Frame(shell, style="Card.TFrame", padding=(10, 8))
+        controls.pack(fill="x", pady=(0, 10))
+        ttk.Label(controls, text="Source move", style="Card.TLabel").pack(side="left", padx=(0, 8))
+        source_var = tk.StringVar(master=dlg, value=selected_label)
+        source_combo = ttk.Combobox(
+            controls,
+            textvariable=source_var,
+            values=source_labels,
+            state="readonly",
+            width=58,
+        )
+        source_combo.pack(side="left", fill="x", expand=True)
+
+        filter_var = tk.StringVar(master=dlg, value="ALL")
+        search_var = tk.StringVar(master=dlg, value="")
+        summary_var = tk.StringVar(master=dlg, value="")
+        source_summary_var = tk.StringVar(master=dlg, value="")
+
+        action_bar = ttk.Frame(shell, style="FD.TFrame")
+        action_bar.pack(fill="x", pady=(0, 8))
+
+        def set_filter(value):
+            filter_var.set(value)
+            refresh_rows()
+
+        for label, value in (
+            ("All", "ALL"),
+            ("Allowed", "ALLOWED"),
+            ("Eligible", "ELIGIBLE"),
+            ("Blocked", "BLOCKED"),
+            ("Unknown", "UNKNOWN"),
+        ):
+            ttk.Button(action_bar, text=label, command=lambda v=value: set_filter(v)).pack(side="left", padx=(0, 5))
+
+        ttk.Label(action_bar, text="Search", style="Top.TLabel").pack(side="left", padx=(14, 6))
+        search_entry = ttk.Entry(action_bar, textvariable=search_var, width=28)
+        search_entry.pack(side="left")
+        ttk.Label(action_bar, textvariable=summary_var, style="Muted.Top.TLabel").pack(side="right")
+
+        source_line = ttk.Frame(shell, style="Card.TFrame", padding=(10, 7))
+        source_line.pack(fill="x", pady=(0, 8))
+        ttk.Label(source_line, textvariable=source_summary_var, style="Card.TLabel").pack(side="left", fill="x", expand=True)
+
+        columns = ("status", "target", "kind", "action", "rule", "address", "evidence")
+        table_frame = ttk.Frame(shell, style="FD.TFrame")
+        table_frame.pack(fill="both", expand=True)
+        mapper_tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
+        yscroll = ttk.Scrollbar(table_frame, orient="vertical", command=mapper_tree.yview)
+        xscroll = ttk.Scrollbar(table_frame, orient="horizontal", command=mapper_tree.xview)
+        mapper_tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+        mapper_tree.grid(row=0, column=0, sticky="nsew")
+        yscroll.grid(row=0, column=1, sticky="ns")
+        xscroll.grid(row=1, column=0, sticky="ew")
+        table_frame.grid_rowconfigure(0, weight=1)
+        table_frame.grid_columnconfigure(0, weight=1)
+
+        headings = {
+            "status": "Status",
+            "target": "Target move",
+            "kind": "Kind",
+            "action": "Action ID",
+            "rule": "Current rule",
+            "address": "Target address",
+            "evidence": "Route evidence",
+        }
+        widths = {
+            "status": 90,
+            "target": 190,
+            "kind": 80,
+            "action": 90,
+            "rule": 430,
+            "address": 115,
+            "evidence": 150,
+        }
+        for column in columns:
+            mapper_tree.heading(column, text=headings[column])
+            mapper_tree.column(column, width=widths[column], minwidth=60, stretch=(column in {"target", "rule"}))
+
+        mapper_tree.tag_configure("allowed", foreground="#91E5B0")
+        mapper_tree.tag_configure("eligible", foreground="#8FD5FF")
+        mapper_tree.tag_configure("blocked", foreground="#FFB0B7")
+        mapper_tree.tag_configure("unknown", foreground="#B8C6D8")
+        row_payloads = {}
+        current_rows = []
+
+        def current_source():
+            return source_by_label.get(source_var.get()) or selected_move
+
+        def copy_value(value, description):
+            try:
+                text = str(value)
+                dlg.clipboard_clear()
+                dlg.clipboard_append(text)
+                dlg.update_idletasks()
+                if self._status_var is not None:
+                    self._status_var.set(f"Copied {description}: {text}")
+            except Exception:
+                pass
+
+        def refresh_rows(*_args):
+            source = current_source()
+            current_rows[:] = FCM.build_cancel_rows(source, self.moves)
+            try:
+                source_name = FCM.display_name(source, self.target_slot.get("char_name", ""))
+                source_id = int(source.get("id"))
+                source_addr = int(source.get("abs"))
+                source_note = FCM.notation_for_move(source) or FCM.move_kind(source).title()
+                source_summary_var.set(
+                    f"Source: {source_name} [0x{source_id:04X}] at 0x{source_addr:08X} | Model class: {source_note}"
+                )
+                dlg.title(f"Cancel Mapper: {source_name}")
+            except Exception:
+                source_summary_var.set("Source move information is incomplete.")
+
+            for item in mapper_tree.get_children(""):
+                mapper_tree.delete(item)
+            row_payloads.clear()
+
+            wanted = filter_var.get().strip().upper()
+            needle = search_var.get().strip().lower()
+            visible_counts = {"ALLOWED": 0, "ELIGIBLE": 0, "BLOCKED": 0, "UNKNOWN": 0}
+            total_counts = {"ALLOWED": 0, "ELIGIBLE": 0, "BLOCKED": 0, "UNKNOWN": 0}
+            for row in current_rows:
+                status = str(row.get("status") or "UNKNOWN").upper()
+                total_counts[status] = total_counts.get(status, 0) + 1
+                searchable = " ".join(
+                    str(row.get(key) or "")
+                    for key in ("target_name", "target_kind", "target_notation", "reason")
+                ).lower()
+                if wanted != "ALL" and status != wanted:
+                    continue
+                if needle and needle not in searchable:
+                    continue
+
+                visible_counts[status] = visible_counts.get(status, 0) + 1
+                target_id = row.get("target_id")
+                target_addr = row.get("target_addr")
+                evidence_addr = row.get("evidence_addr")
+                branch_addr = row.get("branch_addr")
+                evidence_parts = []
+                if evidence_addr:
+                    evidence_parts.append(f"test 0x{int(evidence_addr):08X}")
+                if branch_addr:
+                    evidence_parts.append(f"branch 0x{int(branch_addr):08X}")
+                iid = mapper_tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        status,
+                        row.get("target_name") or "Unknown",
+                        str(row.get("target_kind") or "other").title(),
+                        f"0x{int(target_id):04X}" if target_id is not None else "",
+                        row.get("reason") or "",
+                        f"0x{int(target_addr):08X}" if target_addr else "",
+                        ", ".join(evidence_parts) if evidence_parts else (
+                            "category model" if status == "ELIGIBLE" else "rule model"
+                        ),
+                    ),
+                    tags=(status.lower(),),
+                )
+                row_payloads[iid] = row
+
+            summary_var.set(
+                f"Allowed {total_counts.get('ALLOWED', 0)} | "
+                f"Eligible {total_counts.get('ELIGIBLE', 0)} | "
+                f"Blocked {total_counts.get('BLOCKED', 0)} | "
+                f"Unknown {total_counts.get('UNKNOWN', 0)}"
+            )
+
+        def use_current_selection():
+            try:
+                live_selection = self.tree.selection()
+            except Exception:
+                live_selection = ()
+            if not live_selection:
+                return
+            live_move = self.move_to_tree_item.get(live_selection[0])
+            if not isinstance(live_move, dict):
+                return
+            match = next(
+                (
+                    label for label, mv in source_by_label.items()
+                    if mv is live_move
+                    or (
+                        mv.get("id") == live_move.get("id")
+                        and mv.get("abs") == live_move.get("abs")
+                    )
+                ),
+                None,
+            )
+            if match:
+                source_var.set(match)
+                refresh_rows()
+
+        def show_context_menu(event):
+            item = mapper_tree.identify_row(event.y)
+            if not item:
+                return
+            mapper_tree.selection_set(item)
+            row = row_payloads.get(item)
+            if not row:
+                return
+            source = current_source()
+            menu = tk.Menu(dlg, tearoff=0)
+            target_addr = row.get("target_addr")
+            target_id = row.get("target_id")
+            evidence_addr = row.get("evidence_addr")
+            branch_addr = row.get("branch_addr")
+            source_addr = source.get("abs")
+            if target_addr:
+                menu.add_command(
+                    label=f"Copy Target Address (0x{int(target_addr):08X})",
+                    command=lambda value=f"0x{int(target_addr):08X}": copy_value(value, "target address"),
+                )
+            if evidence_addr:
+                menu.add_command(
+                    label=f"Copy Route Test Address (0x{int(evidence_addr):08X})",
+                    command=lambda value=f"0x{int(evidence_addr):08X}": copy_value(value, "route test address"),
+                )
+            if branch_addr:
+                menu.add_command(
+                    label=f"Copy Route Branch Address (0x{int(branch_addr):08X})",
+                    command=lambda value=f"0x{int(branch_addr):08X}": copy_value(value, "route branch address"),
+                )
+            if target_id is not None:
+                menu.add_command(
+                    label=f"Copy Target Action ID (0x{int(target_id):04X})",
+                    command=lambda value=f"0x{int(target_id):04X}": copy_value(value, "target action ID"),
+                )
+            if source_addr:
+                menu.add_separator()
+                menu.add_command(
+                    label=f"Copy Source Address (0x{int(source_addr):08X})",
+                    command=lambda value=f"0x{int(source_addr):08X}": copy_value(value, "source address"),
+                )
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                try:
+                    menu.grab_release()
+                except Exception:
+                    pass
+
+        def copy_selected_target(_event=None):
+            selection = mapper_tree.selection()
+            if not selection:
+                return "break"
+            row = row_payloads.get(selection[0])
+            if row and row.get("target_addr"):
+                copy_value(f"0x{int(row['target_addr']):08X}", "target address")
+            return "break"
+
+        source_combo.bind("<<ComboboxSelected>>", refresh_rows)
+        search_var.trace_add("write", refresh_rows)
+        mapper_tree.bind("<Button-3>", show_context_menu)
+        mapper_tree.bind("<Double-Button-1>", copy_selected_target)
+        mapper_tree.bind("<Return>", copy_selected_target)
+        dlg.bind("<Escape>", lambda _event: dlg.destroy())
+
+        bottom = ttk.Frame(shell, style="FD.TFrame")
+        bottom.pack(fill="x", pady=(8, 0))
+        ttk.Button(bottom, text="Use workbench selection", command=use_current_selection).pack(side="left")
+        ttk.Button(
+            bottom,
+            text="Copy source address",
+            command=lambda: copy_value(
+                f"0x{int(current_source().get('abs')):08X}",
+                "source address",
+            ) if current_source().get("abs") else None,
+        ).pack(side="left", padx=(6, 0))
+        ttk.Label(
+            bottom,
+            text="Right click any row for its target address and any direct-route evidence addresses.",
+            style="Muted.Top.TLabel",
+        ).pack(side="right")
+
+        refresh_rows()
+        try:
+            source_combo.focus_set()
+        except Exception:
+            pass
+        if self._status_var is not None:
+            self._status_var.set("Opened Cancel Mapper for the selected move.")
 
     def _pin_current_move(self):
         if not self.tree:
@@ -2860,7 +3237,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         by_title = {title: (card, tuple(fields or ())) for title, card, fields in sections}
         default_order = [
             "Move link", "Impact", "Timing", "Stun and pressure",
-            "Launch and knockback controls", "Hit FX and reach",
+            "Experimental properties", "Launch and knockback controls", "Hit FX and reach",
             "Dangerous script links", "Flags and lookup",
             "Super dispatch", "Projectile emitter", "Projectile super", "Projectile data", "Super beam", "Final hit", "Projectile super probes",
         ]
@@ -5616,6 +5993,33 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         menu = tk.Menu(self.root, tearoff=0)
 
+        if col_name == "cancel_probe":
+            windows = list(mv.get("cancel_windows") or [])
+            added = 0
+            seen = set()
+            for probe in windows:
+                try:
+                    addr = int(probe.get("addr") or 0)
+                except Exception:
+                    addr = 0
+                if not addr or addr in seen:
+                    continue
+                seen.add(addr)
+                kind = str(probe.get("kind") or "window").strip().lower()
+                label = "Special window" if kind == "special" else "Normal route"
+                menu.add_command(
+                    label=f"Copy {label} Address (0x{addr:08X})",
+                    command=lambda a=addr: self._copy_address(a),
+                )
+                added += 1
+            if added > 1:
+                menu.add_command(
+                    label="Copy All Cancel Window Addresses",
+                    command=lambda values=tuple(sorted(seen)): self._copy_cancel_window_addresses(values),
+                )
+            if not added:
+                menu.add_command(label="No Cancel Window Address", state="disabled")
+
         addr_map = {
             "damage": ("damage_addr", "Damage"),
             "meter": ("meter_addr", "Meter"),
@@ -5702,6 +6106,20 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def _copy_cancel_window_addresses(self, addresses):
+        values = []
+        for addr in addresses or ():
+            try:
+                values.append(f"0x{int(addr):08X}")
+            except Exception:
+                continue
+        if not values:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(values))
+        if self._status_var is not None:
+            self._status_var.set(f"Copied {len(values)} cancel window addresses")
 
     def _copy_address(self, addr: int):
         self.root.clipboard_clear()
