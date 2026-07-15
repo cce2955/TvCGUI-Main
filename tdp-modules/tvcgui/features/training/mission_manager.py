@@ -61,9 +61,11 @@ MISSION_CROUCH_REACTION_STATES = {51, 67}
 MISSION_GLOBAL_COMBO_COUNTER_ADDR = 0x809BDDB3
 
 MISSION_REACTION_STATES = {
+    # 448 is Megacrash/burst. Mission routes classify the forced burst as a
+    # defender reaction so the next counter step remains valid.
     48, 49, 50, 52, 53, 60, 61, 62, 64, 65, 66, 73, 74, 75, 76, 79, 80,
     81, 82, 83, 88, 89, 90, 91, 92, 94, 95, 96, 97, 98, 101, 102, 105,
-    106, 142, 449,
+    106, 142, 448, 449,
     4608, 4609, 4610, 4611, 4613, 4614, 4615, 4616, 4617, 4618, 4619,
     4620, 4621, 4622, 4623, 4625,
     4562, 4565, 4568, 4571, 4573, 4631,
@@ -151,6 +153,43 @@ def _mission_selector_down_rising(direction: int, previous_direction: int, press
         current in MISSION_SELECTOR_DOWN_DIRECTIONS
         and previous not in MISSION_SELECTOR_DOWN_DIRECTIONS
     )
+
+
+def _mission_route_combo_live(
+    global_combo_active: bool,
+    opponent_in_hitstun: bool,
+    dedicated_megacrash_match: bool = False,
+) -> bool:
+    """Return whether the defender is in a real mission reaction state.
+
+    The global combo counter remains useful as hit-count evidence, but it can
+    stay nonzero after recovery and must not keep an ordered mission route alive.
+    Normal routes live only while the defender's primary action is a verified
+    reaction state. Megacrash gets its dedicated state-edge frame.
+    """
+    _ = global_combo_active
+    return bool(opponent_in_hitstun or dedicated_megacrash_match)
+
+
+def _mission_combo_reset_tick(
+    progress_index: int,
+    combo_live: bool,
+    grace_left: int,
+    grace_step_index,
+) -> tuple[bool, int]:
+    """Return ``(reset_now, remaining_grace)`` for one mission frame.
+
+    Grace is consumed only after both combo-counter and hitstun liveness end.
+    A step with N grace frames receives exactly N dropped-combo frames.
+    Without matching explicit grace, any dropped route resets immediately.
+    """
+    progress = max(0, int(progress_index or 0))
+    remaining = max(0, int(grace_left or 0))
+    if progress <= 0 or bool(combo_live):
+        return False, remaining
+    if remaining > 0 and grace_step_index == progress:
+        return False, remaining - 1
+    return True, 0
 
 
 MISSION_INPUT_BAROQUE_PAIRS = (
@@ -955,10 +994,11 @@ class MissionManager:
             if other_snap.get("teamtag") == my_team:
                 continue
 
+            # Only the primary live action is authoritative. ``attB`` can
+            # retain an old reaction value after recovery and previously kept
+            # missions alive long enough for late steps to count.
             att_a = other_snap.get("attA")
-            att_b = other_snap.get("attB")
-
-            if att_a in state_ids or att_b in state_ids:
+            if att_a in state_ids:
                 return True
 
         return False
@@ -2051,12 +2091,6 @@ class MissionManager:
         frame_damage = sum(int(x) for x in damage_values)
         self._record_mission_hit_events(global_combo_count, damage_values, frame_idx)
 
-        # A valid HP drop is authoritative evidence that the opponent was hit.
-        # Keep this as a same-frame Mission Mode fallback in addition to the
-        # action-state list: crouching characters can pass through a reaction
-        # state Mission Mode has not mapped yet, but their real hit still must
-        # be eligible to confirm the current mission step.
-        opponent_hit_confirmed_this_frame = opponent_took_damage
         baroque_pool_adjusted = bool(
             snap.get("baroque_cancel_raw")
             or snap.get("baroque_cancel_latched")
@@ -2077,16 +2111,8 @@ class MissionManager:
                 self._write_debug_flag("P1Meter", 1 if meter_val < 50000 else 0)
 
         progress_index = int(self._runtime.get("progress_index", 0))
-        previous_actual_hitstun = bool(self._runtime.get("last_actual_hitstun", False))
-        left_actual_hitstun = (
-            previous_actual_hitstun
-            and not opponent_in_hitstun
-            and not opponent_in_megacrash
-        )
-
-        # Keep the old action-state read as a fast local hint, but use the
-        # verified global counter for sustained combo liveness. This is what
-        # prevents crouching hitstun from looking like a one-frame HP event.
+        # Primary reaction state is the route authority. The global combo
+        # counter remains available only for hit-count evidence.
         self._runtime["hitstun_grace"] = 0
 
         # Shell release grace
@@ -2096,18 +2122,23 @@ class MissionManager:
 
         reset_grace_active_now = int(self._runtime.get("reset_grace_frames", 0)) > 0
 
-        opponent_real_combo_state = (
-            global_combo_active
-            or opponent_in_hitstun
-            or opponent_in_megacrash
-            or opponent_hit_confirmed_this_frame
-            or int(self._runtime.get("shell_release_grace", 0)) > 0
+        expected_step_for_reset = steps[progress_index] if progress_index < len(steps) else None
+        expected_labels_for_reset = self._step_labels(expected_step_for_reset)
+        dedicated_megacrash_reset_edge = self._megacrash_step_matches(
+            expected_labels_for_reset,
+            opponent_in_megacrash,
+            previous_opponent_megacrash,
+        )
+        opponent_real_combo_state = _mission_route_combo_live(
+            global_combo_active,
+            opponent_in_hitstun,
+            dedicated_megacrash_reset_edge,
         )
 
-        opponent_in_combo_state = (
-            opponent_real_combo_state
-            or reset_grace_active_now
-        )
+        # Grace may delay a route reset, but it must not make unrelated later
+        # steps count as if the combo were still active. Only real combo state
+        # keeps the route confirmable; grace is handled separately below.
+        opponent_in_combo_state = opponent_real_combo_state
 
         if (
             self._runtime.get("shell_installed")
@@ -2195,22 +2226,25 @@ class MissionManager:
                     })
                 return payload
 
-        # Step-list missions
-        expected_step_for_reset = steps[progress_index] if progress_index < len(steps) else None
-        expected_labels_for_reset = self._step_labels(expected_step_for_reset)
-
+        # Step-list missions. Route liveness is strict: once both the global
+        # combo counter and actual hitstun end, the route fails immediately
+        # unless the completed step supplied an explicit grace frame count.
         grace_left = int(self._runtime.get("reset_grace_frames", 0) or 0)
         grace_step_index = self._runtime.get("reset_grace_step_index")
-        previous_step = steps[progress_index - 1] if progress_index > 0 else None
-        grace_keep_alive_only = self._step_grace_keeps_alive_only(previous_step)
+        reset_now, grace_left = _mission_combo_reset_tick(
+            progress_index,
+            opponent_real_combo_state,
+            grace_left,
+            grace_step_index,
+        )
+        self._runtime["reset_grace_frames"] = grace_left
 
-        if (
-            progress_index > 0
-            and left_actual_hitstun
-            and not opponent_real_combo_state
-            and grace_left <= 0
-            and not self._runtime.get("shell_installed")
-        ):
+        if reset_now:
+            print(
+                f"[mission combo dropped] slot={slot} mission_id={mission_id} "
+                f"step={progress_index} reaction={int(opponent_in_hitstun)} "
+                f"combo_counter={int(global_combo_count or 0)}; resetting immediately"
+            )
             progress_index = 0
             self._runtime.update({
                 "progress_index": 0,
@@ -2224,53 +2258,14 @@ class MissionManager:
                 "reset_grace_keeps_alive_only": False,
                 "shell_installed": False,
                 "shell_release_grace": 0,
+                "last_seen_label": "",
+                "last_seen_anim": None,
+                "last_seen_hitstun": False,
+                "last_actual_hitstun": False,
+                "last_opponent_megacrash": False,
+                "last_inputs": {},
             })
             self._clear_trial_detection_buffers()
-
-        elif progress_index > 0 and grace_keep_alive_only and grace_step_index == progress_index:
-            if grace_left > 0:
-                grace_left -= 1
-                self._runtime["reset_grace_frames"] = grace_left
-
-            if grace_left <= 0:
-                progress_index = 0
-                self._runtime.update({
-                    "progress_index": 0,
-                    "pending_step_index": None,
-                    "pending_labels": [],
-                    "pending_anim": None,
-                    "pending_started_frame": -9999,
-                    "reset_grace_frames": 0,
-                    "reset_grace_labels": [],
-                    "reset_grace_step_index": None,
-                    "reset_grace_keeps_alive_only": False,
-                    "shell_installed": False,
-                    "shell_release_grace": 0,
-                })
-                self._clear_trial_detection_buffers()
-
-        elif progress_index > 0 and not opponent_real_combo_state:
-            if grace_left > 0 and grace_step_index == progress_index:
-                self._runtime["reset_grace_frames"] = grace_left - 1
-
-            elif self._runtime.get("shell_installed"):
-                pass  # don't reset until opponent first hit
-
-            else:
-                progress_index = 0
-                self._runtime.update({
-                    "progress_index": 0,
-                    "pending_step_index": None,
-                    "pending_labels": [],
-                    "pending_anim": None,
-                    "pending_started_frame": -9999,
-                    "reset_grace_frames": 0,
-                    "reset_grace_labels": [],
-                    "reset_grace_step_index": None,
-                    "shell_installed": False,
-                    "shell_release_grace": 0,
-                })
-                self._clear_trial_detection_buffers()
 
         last_seen_label = self._runtime.get("last_seen_label", "")
         last_seen_anim = self._runtime.get("last_seen_anim")

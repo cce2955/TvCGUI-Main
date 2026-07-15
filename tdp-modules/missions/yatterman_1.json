@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "yatterman_001",
-      "name": "Combo 1",
+      "name": "Basic",
       "notes": "Basic launcher into air special route.",
       "steps": [
         {
@@ -34,7 +34,7 @@
     },
     {
       "mission_id": "yatterman_002",
-      "name": "Combo 2",
+      "name": "Relaunch",
       "notes": "Air special loops into relaunch.",
       "steps": [
         {
@@ -71,7 +71,7 @@
     },
     {
       "mission_id": "yatterman_003",
-      "name": "Combo 3",
+      "name": "Capture",
       "notes": "Shock starter into air finish.",
       "steps": [
         {
@@ -97,7 +97,7 @@
     },
     {
       "mission_id": "yatterman_004",
-      "name": "Combo 4",
+      "name": "2B Loop",
       "notes": "Extended grounded route into flame finisher.",
       "steps": [
         {
@@ -160,7 +160,7 @@
     },
     {
       "mission_id": "yatterman_005",
-      "name": "Combo 5",
+      "name": "Corner Loop",
       "notes": "Baroque air loop route into flame finisher.",
       "steps": [
         {
@@ -223,7 +223,10 @@
         {
           "label": "yatter wan flame"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "yatterman_006",

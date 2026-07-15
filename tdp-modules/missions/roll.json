@@ -32,7 +32,7 @@
     {
       "mission_id": "roll_002",
       "name": "Super Ender",
-      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
+      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner.",
       "steps": [
         {
           "label": "5A"
@@ -63,7 +63,7 @@
     {
       "mission_id": "roll_003",
       "name": "Midscreen Relaunch",
-      "notes": "Basic launcher route to super, be careful the super is unsafe. And this works anywhere even outside the corner",
+      "notes": "Air dash forward after Baroque, then press j.B right before landing so you can link 3C.",
       "setup_debug_flags": {
         "BaroquePct": 1
       },
@@ -94,7 +94,11 @@
           "label": "Baroque cancel"
         },
         {
-          "label": "5B"
+          "label": "Air Dash Forward",
+          "pass": true
+        },
+        {
+          "label": "j.B"
         },
         {
           "label": "3C"
@@ -127,7 +131,7 @@
     {
       "mission_id": "roll_005",
       "name": "Relaunch",
-      "notes": "",
+      "notes": "Press j.B right before landing after Roll Swing B so you can link 3C.",
       "steps": [
         {
           "label": "5A"
@@ -155,7 +159,7 @@
           "input": "236X"
         },
         {
-          "label": "5B"
+          "label": "j.B"
         },
         {
           "label": "3C"
@@ -177,7 +181,7 @@
     },
     {
       "mission_id": "roll_006",
-      "name": "Quick confirm",
+      "name": "Quick Confirm",
       "notes": "",
       "steps": [
         {

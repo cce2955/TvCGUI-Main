@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "casshan_001",
-      "name": "Combo 1",
+      "name": "Basic",
       "notes": "Basic ground string into air series.",
       "steps": [
         {
@@ -34,7 +34,7 @@
     },
     {
       "mission_id": "casshan_002",
-      "name": "Combo 2",
+      "name": "Divekick Ender",
       "notes": "Basic ground string into air ender.",
       "steps": [
         {
@@ -62,7 +62,7 @@
     },
     {
       "mission_id": "casshan_003",
-      "name": "Combo 3",
+      "name": "Baroque BnB",
       "notes": "Baroque extension into launcher and air finish.",
       "setup_debug_flags": {
         "BaroquePct": 1
@@ -118,8 +118,8 @@
     },
     {
       "mission_id": "casshan_004",
-      "name": "Combo 4",
-      "notes": "Friender extension into relaunch finish.",
+      "name": "Friender Link",
+      "notes": "The Friender C into 5B link is difficult. This is mostly a style combo and is not very practical.",
       "setup_debug_flags": {
         "BaroquePct": 1
       },
@@ -165,7 +165,7 @@
     },
     {
       "mission_id": "casshan_005",
-      "name": "Combo 5",
+      "name": "Baroque Knee",
       "notes": "Knee starter into Baroque combo finish.",
       "setup_debug_flags": {
         "BaroquePct": 1
@@ -211,8 +211,8 @@
     },
     {
       "mission_id": "casshan_006",
-      "name": "Combo 6",
-      "notes": "Ground confirm into super finish.",
+      "name": "Destruction Beam Setup",
+      "notes": "Ground confirm into super finish. Super Destruction Beam is Mega Crash-safe.",
       "steps": [
         {
           "label": "5A"
@@ -235,8 +235,30 @@
       ]
     },
     {
+      "mission_id": "casshan_007",
+      "name": "Challenge",
+      "notes": "Some moves are missing. Good luck.",
+      "steps": [
+        {
+          "label": "Denko B"
+        },
+        {
+          "label": "6B"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Brutal Axe"
+        }
+      ]
+    },
+    {
       "mission_id": "casshan_008",
-      "name": "Megacrash Knee Route",
+      "name": "Mega Crash Knee",
       "notes": "Mission-scoped Megacrash route: 5A > 5B > 5C, forced Megacrash, Knee A, Brutal Axe.",
       "steps": [
         {
@@ -262,28 +284,6 @@
         "delay_frames": 5,
         "cooldown_sec": 2.0
       }
-    },
-    {
-      "mission_id": "casshan_007",
-      "name": "Challenge",
-      "notes": "Some moves are missing good luck.",
-      "steps": [
-        {
-          "label": "Denko B"
-        },
-        {
-          "label": "6B"
-        },
-        {
-          "label": "j.B"
-        },
-        {
-          "label": "3C"
-        },
-        {
-          "label": "Brutal Axe"
-        }
-      ]
     }
   ]
 }

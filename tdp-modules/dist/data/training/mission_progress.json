@@ -1,0 +1,10 @@
+{
+  "soki": {
+    "completed": {
+      "soki_004": true,
+      "soki_005": true,
+      "soki_006": true
+    },
+    "selected_mission_id": "soki_006"
+  }
+}

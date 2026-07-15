@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "karas_001",
-      "name": "Combo 1",
+      "name": "Basic",
       "notes": "Basic launcher into air series.",
       "steps": [
         {
@@ -31,7 +31,7 @@
     },
     {
       "mission_id": "karas_002",
-      "name": "Combo 2",
+      "name": "Narukami Ender",
       "notes": "Ground route into air special finisher.",
       "steps": [
         {
@@ -62,7 +62,7 @@
     },
     {
       "mission_id": "karas_003",
-      "name": "Combo 3",
+      "name": "Kasha Extension",
       "notes": "Kasha extension into launcher finish.",
       "steps": [
         {
@@ -103,7 +103,7 @@
     },
     {
       "mission_id": "karas_004",
-      "name": "Combo 4",
+      "name": "Tobimizuchi Extension",
       "notes": "Extended grounded route into air finish.",
       "steps": [
         {
@@ -124,7 +124,7 @@
         },
         {
           "label": "Ukifune",
-          "input": "236"
+          "input": "236X"
         },
         {
           "label": "5B"
@@ -138,7 +138,7 @@
         },
         {
           "label": "Yoinagi",
-          "input": "46C"
+          "input": "236X"
         },
         {
           "label": "Kasha Overhead",
@@ -166,7 +166,7 @@
     },
     {
       "mission_id": "karas_005",
-      "name": "Combo 5",
+      "name": "Super Setup",
       "notes": "Throw starter into super finish.",
       "steps": [
         {
@@ -183,7 +183,7 @@
     },
     {
       "mission_id": "karas_006",
-      "name": "Combo 6",
+      "name": "BnB",
       "notes": "Extended route into super finisher.",
       "steps": [
         {
@@ -204,7 +204,7 @@
         },
         {
           "label": "Ukifune",
-          "input": "236"
+          "input": "236X"
         },
         {
           "label": "5B"
@@ -218,7 +218,7 @@
         },
         {
           "label": "Yoinagi",
-          "input": "46C"
+          "input": "236X"
         },
         {
           "label": "Kasha Overhead",
@@ -239,10 +239,11 @@
         },
         {
           "label": "Yoinagi",
-          "input": "46C"
+          "input": "236X"
         },
         {
-          "label": "Yato"
+          "label": "Yato",
+          "input": "46C"
         },
         {
           "label": "Hiei Zangetsu"
@@ -259,14 +260,16 @@
           "input": "63214X"
         },
         {
-          "label": "Yato"
+          "label": "Yato",
+          "input": "46C"
         },
         {
           "label": "Kasha Overhead",
           "input": "6X"
         },
         {
-          "label": "Yato"
+          "label": "Yato",
+          "input": "46C"
         },
         {
           "label": "Hiei Zangetsu"

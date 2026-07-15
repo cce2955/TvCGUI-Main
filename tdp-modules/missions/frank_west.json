@@ -31,8 +31,8 @@
     },
     {
       "mission_id": "frank_west_002",
-      "name": "Launcher Ender",
-      "notes": "",
+      "name": "j.2C Ender",
+      "notes": "j.2C is special-cancelable on landing.",
       "steps": [
         {
           "label": "5A"
@@ -65,7 +65,7 @@
     {
       "mission_id": "frank_west_003",
       "name": "Giant Swing Loop",
-      "notes": "",
+      "notes": "Giant Swing has to whiff. A whiffed Giant Swing gives infinite hitstun until the opponent lands.",
       "steps": [
         {
           "label": "5A"
@@ -137,7 +137,7 @@
     {
       "mission_id": "frank_west_004",
       "name": "Zombie Spree Route",
-      "notes": "",
+      "notes": "3C has forward momentum, so you need to be close before it connects.",
       "steps": [
         {
           "label": "5A"
@@ -188,6 +188,10 @@
           "label": "j.B"
         },
         {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
           "label": "j.2C",
           "input": "j.2C"
         },
@@ -207,6 +211,10 @@
           "label": "j.B"
         },
         {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
           "label": "j.2C",
           "input": "j.2C"
         },
@@ -220,8 +228,8 @@
     },
     {
       "mission_id": "frank_west_005",
-      "name": "Giant Swing Dead Rising",
-      "notes": "",
+      "name": "Dead Rising Setup",
+      "notes": "Keep Frank close to the edge of the screen. The opponent can jump Dead Rising if they expect it; otherwise, it creates an ugly mix-up.",
       "setup_debug_flags": {
         "CpuGuard": 1
       },
@@ -262,7 +270,7 @@
     {
       "mission_id": "frank_west_006",
       "name": "Midscreen Zombie Spree",
-      "notes": "",
+      "notes": "Midscreen only.",
       "steps": [
         {
           "label": "5A"
@@ -314,6 +322,10 @@
           "label": "j.B"
         },
         {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
           "label": "j.2C",
           "input": "j.2C"
         },
@@ -350,7 +362,7 @@
     },
     {
       "mission_id": "frank_west_008",
-      "name": "Corner",
+      "name": "Corner Route",
       "notes": "",
       "setup_debug_flags": {
         "P1Meter": 2

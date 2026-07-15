@@ -6,146 +6,373 @@
       "name": "Sky Ladder",
       "notes": "Basic launcher route.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.A (second hit)" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Air Tensho C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.A (second hit)"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Tensho C"
+        }
       ]
     },
-{
-  "mission_id": "chun_002",
-  "name": "Baroque extension",
-  "notes": "No note",
-  "setup_debug_flags": {
-    "BaroquePct": 1
-  },
-  "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.A (second hit)" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Air Tensho C" },
-        { "label": "Baroque cancel", "pass": true },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.C" },
-        { "label": "Air Legs C" }
+    {
+      "mission_id": "chun_002",
+      "name": "Baroque Extension",
+      "notes": "No note.",
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      },
+      "steps": [
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.A (second hit)"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Tensho C"
+        },
+        {
+          "label": "Baroque cancel",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Legs C"
+        }
       ]
     },
     {
       "mission_id": "chun_003",
-      "name": "Legs cancel",
-      "notes": "You can just hold up to hop out of legs, start mashing during 5C",
+      "name": "Legs Cancel",
+      "notes": "You can just hold up to hop out of legs, start mashing during 5C.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" , "pass": true },
-        { "label": "Legs C" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "Air Dash Forward", "pass": true },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "Air Dash Forward", "pass": true },
-        { "label": "j.C" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.A (second hit)" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Air Tensho C" }
-        
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C",
+          "pass": true
+        },
+        {
+          "label": "Legs C"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "Air Dash Forward",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "Air Dash Forward",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.A (second hit)"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Tensho C"
+        }
       ]
     },
     {
       "mission_id": "chun_004",
       "name": "Double Legs",
-      "notes": "A bit tougher you got this",
+      "notes": "A bit tougher you got this.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "Legs C" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "Legs C" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Air Legs C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Legs C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Legs C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Legs C"
+        }
       ]
     },
     {
       "mission_id": "chun_005",
       "name": "Corner Loop",
-      "notes": "Corner only",
+      "notes": "Corner only.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "3C", "pass": true },
-        { "label": "Legs C" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.C" },
-        
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.C" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.C" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Air Legs C" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C",
+          "pass": true
+        },
+        {
+          "label": "Legs C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Legs C"
+        }
       ]
     },
     {
@@ -153,46 +380,107 @@
       "name": "SBK Route",
       "notes": "",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "2C" },
-        { "label": "SBK H" },
-        { "label": "Baroque cancel", "pass": true },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.C" },
-        { "label": "5B" },
-        { "label": "5C" },
-        { "label": "3C" },
-        { "label": "j.A" },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Jump Cancel", "pass": true },
-        { "label": "j.B" },
-        { "label": "j.C" },
-        { "label": "Air Legs C" }
-      ]
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "2C"
+        },
+        {
+          "label": "SBK H"
+        },
+        {
+          "label": "Baroque cancel",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.A"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Jump Cancel",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Legs C"
+        }
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "chun_007",
       "name": "Challenge",
-      "notes": "Some moves are missing, can you find the missing moves and link them together? ",
+      "notes": "Some moves are missing, can you find the missing moves and link them together?",
       "steps": [
-        { "label": "3C" },
-        { "label": "Shichei" },
-        { "label": "5B" },
-        { "label": "Air Legs C" }
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Shichei"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "Air Legs C"
+        }
       ]
     },
     {
       "mission_id": "chun_008",
       "name": "Special Challenge",
-      "notes": "Keep the opponent in blockstun for 1000 frames.",
+      "notes": "Keep the opponent in blockstun for 100 frames.",
       "setup_debug_flags": {
         "CpuGuard": 2,
         "CpuPushblock": 1
@@ -200,7 +488,7 @@
       "goal": {
         "type": "state_duration",
         "target_state": "blockstun",
-        "frames": 500
+        "frames": 100
       }
     }
   ]

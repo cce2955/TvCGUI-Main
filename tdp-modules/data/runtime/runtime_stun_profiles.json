@@ -10,16 +10,16 @@
       "hit": {
         "freeze_samples": {
           "0": 5,
-          "6": 7
+          "6": 8
         },
-        "last_frame": 1121,
+        "last_frame": 8498,
         "last_freeze": 6,
         "last_value": 12,
         "samples": {
-          "12": 12
+          "12": 13
         }
       },
-      "last_frame": 1121,
+      "last_frame": 8498,
       "last_freeze": 6,
       "last_recovery": 10,
       "move_label": "5A",
@@ -46,17 +46,17 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 4,
-          "9": 3
+          "0": 5,
+          "9": 7
         },
-        "last_frame": 1293,
+        "last_frame": 9746,
         "last_freeze": 9,
         "last_value": 17,
         "samples": {
-          "17": 7
+          "17": 12
         }
       },
-      "last_frame": 1293,
+      "last_frame": 9746,
       "last_freeze": 9,
       "last_recovery": 14,
       "move_label": "5B",
@@ -77,23 +77,23 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 16,
-          "12": 7,
+          "0": 24,
+          "12": 17,
           "3": 1,
           "7": 2
         },
-        "last_frame": 1302,
-        "last_freeze": 0,
+        "last_frame": 10543,
+        "last_freeze": 12,
         "last_value": 21,
         "samples": {
           "13": 2,
           "16": 1,
           "17": 3,
-          "21": 20
+          "21": 38
         }
       },
-      "last_frame": 1302,
-      "last_freeze": 0,
+      "last_frame": 10543,
+      "last_freeze": 12,
       "last_recovery": 26,
       "move_label": "5C",
       "recovery": {
@@ -120,29 +120,29 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 8,
-          "6": 6
+          "0": 13,
+          "6": 15
         },
-        "last_frame": 1262,
+        "last_frame": 10528,
         "last_freeze": 6,
         "last_value": 12,
         "samples": {
-          "12": 13,
+          "12": 27,
           "13": 1
         }
       },
-      "last_frame": 1262,
+      "last_frame": 10528,
       "last_freeze": 6,
-      "last_recovery": 12,
+      "last_recovery": 14,
       "move_label": "2A",
       "recovery": {
-        "last_frame": 2954,
-        "last_value": 12,
+        "last_frame": 9580,
+        "last_value": 14,
         "samples": {
           "1": 1,
           "12": 3,
           "13": 3,
-          "14": 3,
+          "14": 4,
           "15": 2
         }
       }
@@ -156,18 +156,18 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 10,
-          "9": 8
+          "0": 18,
+          "9": 15
         },
-        "last_frame": 1265,
+        "last_frame": 10534,
         "last_freeze": 9,
         "last_value": 17,
         "samples": {
           "12": 1,
-          "17": 17
+          "17": 32
         }
       },
-      "last_frame": 1265,
+      "last_frame": 10534,
       "last_freeze": 9,
       "last_recovery": 10,
       "move_label": "2B",
@@ -191,20 +191,20 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 4,
-          "12": 6,
+          "0": 9,
+          "12": 14,
           "7": 2
         },
-        "last_frame": 1280,
-        "last_freeze": 0,
+        "last_frame": 10080,
+        "last_freeze": 12,
         "last_value": 21,
         "samples": {
           "13": 2,
-          "21": 10
+          "21": 23
         }
       },
-      "last_frame": 1280,
-      "last_freeze": 0,
+      "last_frame": 10080,
+      "last_freeze": 12,
       "last_recovery": 22,
       "move_label": "2C",
       "recovery": {
@@ -231,20 +231,20 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 2,
-          "12": 1,
+          "0": 3,
+          "12": 2,
           "7": 1
         },
-        "last_frame": 2864,
-        "last_freeze": 12,
-        "last_value": 21,
+        "last_frame": 10098,
+        "last_freeze": 0,
+        "last_value": 13,
         "samples": {
-          "13": 1,
-          "21": 3
+          "13": 2,
+          "21": 4
         }
       },
-      "last_frame": 2864,
-      "last_freeze": 12,
+      "last_frame": 10098,
+      "last_freeze": 0,
       "last_recovery": 34,
       "move_label": "6C",
       "recovery": {
@@ -266,32 +266,32 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 4,
+          "0": 10,
           "7": 1,
-          "9": 10
+          "9": 12
         },
-        "last_frame": 1309,
-        "last_freeze": 9,
+        "last_frame": 10551,
+        "last_freeze": 0,
         "last_value": 21,
         "samples": {
-          "13": 2,
+          "13": 3,
           "17": 1,
-          "21": 12
+          "21": 19
         }
       },
-      "last_frame": 1309,
-      "last_freeze": 9,
-      "last_recovery": 15,
+      "last_frame": 10551,
+      "last_freeze": 0,
+      "last_recovery": 37,
       "move_label": "3C",
       "recovery": {
-        "last_frame": 3007,
-        "last_value": 15,
+        "last_frame": 10135,
+        "last_value": 37,
         "samples": {
           "15": 1,
           "33": 1,
           "35": 1,
           "36": 3,
-          "37": 1
+          "37": 2
         }
       }
     },
@@ -304,24 +304,24 @@
       "char_name": "Morrigan",
       "hit": {
         "freeze_samples": {
-          "0": 9,
-          "12": 2,
+          "0": 11,
+          "12": 4,
           "4": 2,
-          "6": 3,
-          "7": 3
+          "6": 7,
+          "7": 7
         },
-        "last_frame": 1477,
-        "last_freeze": 0,
-        "last_value": 21,
+        "last_frame": 10577,
+        "last_freeze": 7,
+        "last_value": 13,
         "samples": {
-          "12": 8,
-          "13": 6,
-          "18": 3,
-          "21": 2
+          "12": 12,
+          "13": 11,
+          "18": 5,
+          "21": 3
         }
       },
-      "last_frame": 1477,
-      "last_freeze": 0,
+      "last_frame": 10577,
+      "last_freeze": 7,
       "last_recovery": 19,
       "move_label": "j.A",
       "recovery": {
@@ -377,18 +377,16 @@
       "char_name": "Tekkaman Blade",
       "hit": {
         "freeze_samples": {
-          "0": 14,
-          "9": 17
+          "9": 2
         },
-        "last_frame": 9176,
+        "last_frame": 55780,
         "last_freeze": 9,
         "last_value": 21,
         "samples": {
-          "17": 1,
-          "21": 30
+          "21": 2
         }
       },
-      "last_frame": 9176,
+      "last_frame": 55780,
       "last_freeze": 9,
       "last_recovery": 26,
       "move_label": "3C",
@@ -409,9 +407,18 @@
       "char_id": 26,
       "char_name": "Tekkaman Blade",
       "hit": {
-        "samples": {}
+        "freeze_samples": {
+          "0": 1
+        },
+        "last_frame": 55417,
+        "last_freeze": 0,
+        "last_value": 12,
+        "samples": {
+          "12": 1
+        }
       },
-      "last_frame": 646,
+      "last_frame": 55417,
+      "last_freeze": 0,
       "last_recovery": 7,
       "move_label": "j.A",
       "recovery": {
@@ -442,21 +449,20 @@
       "char_name": "Tekkaman Blade",
       "hit": {
         "freeze_samples": {
-          "0": 34,
-          "12": 11,
-          "7": 27
-        },
-        "last_frame": 9197,
-        "last_freeze": 7,
-        "last_value": 17,
-        "samples": {
+          "0": 1,
           "12": 1,
-          "17": 47,
-          "21": 24
+          "7": 1
+        },
+        "last_frame": 55798,
+        "last_freeze": 12,
+        "last_value": 21,
+        "samples": {
+          "17": 2,
+          "21": 1
         }
       },
-      "last_frame": 9197,
-      "last_freeze": 7,
+      "last_frame": 55798,
+      "last_freeze": 12,
       "last_recovery": 12,
       "move_label": "j.B",
       "recovery": {
@@ -482,38 +488,35 @@
       "char_name": "Tekkaman Blade",
       "hit": {
         "freeze_samples": {
-          "0": 2,
-          "12": 3,
+          "12": 2,
+          "6": 1,
           "9": 1
         },
-        "last_frame": 9206,
-        "last_freeze": 0,
-        "last_value": 21,
+        "last_frame": 55489,
+        "last_freeze": 9,
+        "last_value": 17,
         "samples": {
+          "12": 1,
           "17": 1,
-          "21": 5
+          "21": 2
         }
       },
-      "last_frame": 9206,
-      "last_freeze": 0,
-      "last_recovery": 9,
+      "last_frame": 55489,
+      "last_freeze": 9,
+      "last_recovery": 8,
       "move_label": "j.C",
       "recovery": {
-        "last_frame": 8793,
-        "last_value": 9,
+        "last_frame": 1235,
+        "last_value": 8,
         "samples": {
           "1": 1,
           "10": 2,
           "11": 3,
-          "12": 1,
-          "13": 1,
           "14": 4,
           "2": 2,
           "3": 2,
-          "4": 1,
-          "5": 2,
-          "8": 3,
-          "9": 1
+          "5": 1,
+          "8": 3
         }
       }
     },
@@ -526,17 +529,19 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 1,
-          "12": 1
+          "0": 5,
+          "12": 10,
+          "9": 1
         },
-        "last_frame": 11882,
+        "last_frame": 37591,
         "last_freeze": 12,
         "last_value": 21,
         "samples": {
-          "21": 2
+          "21": 15,
+          "24": 1
         }
       },
-      "last_frame": 11882,
+      "last_frame": 37591,
       "last_freeze": 12,
       "last_recovery": 31,
       "move_label": "5C",
@@ -582,16 +587,17 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 1
+          "0": 3,
+          "9": 9
         },
-        "last_frame": 11888,
+        "last_frame": 37602,
         "last_freeze": 0,
         "last_value": 21,
         "samples": {
-          "21": 1
+          "21": 12
         }
       },
-      "last_frame": 11888,
+      "last_frame": 37602,
       "last_freeze": 0,
       "last_recovery": 31,
       "move_label": "3C",
@@ -612,20 +618,20 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 1,
+          "0": 5,
           "4": 1,
-          "6": 1
+          "6": 11
         },
-        "last_frame": 11892,
-        "last_freeze": 6,
+        "last_frame": 37618,
+        "last_freeze": 0,
         "last_value": 12,
         "samples": {
-          "12": 1,
+          "12": 15,
           "21": 2
         }
       },
-      "last_frame": 12632,
-      "last_freeze": 6,
+      "last_frame": 37618,
+      "last_freeze": 0,
       "last_recovery": 12,
       "move_label": "j.A",
       "recovery": {
@@ -652,24 +658,29 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "7": 2
+          "0": 7,
+          "12": 2,
+          "2": 10,
+          "7": 10
         },
-        "last_frame": 11901,
-        "last_freeze": 7,
-        "last_value": 17,
+        "last_frame": 37639,
+        "last_freeze": 2,
+        "last_value": 21,
         "samples": {
-          "17": 2
+          "17": 14,
+          "21": 15
         }
       },
-      "last_frame": 11901,
-      "last_freeze": 7,
-      "last_recovery": 2,
+      "last_frame": 37639,
+      "last_freeze": 2,
+      "last_recovery": 9,
       "move_label": "j.B",
       "recovery": {
-        "last_frame": 33838,
-        "last_value": 2,
+        "last_frame": 33976,
+        "last_value": 9,
         "samples": {
-          "2": 1
+          "2": 1,
+          "9": 1
         }
       }
     },
@@ -696,15 +707,17 @@
           "24": 1
         }
       },
-      "last_frame": 12711,
+      "last_frame": 37399,
       "last_freeze": 9,
-      "last_recovery": 4,
+      "last_recovery": 22,
       "move_label": "j.C",
       "recovery": {
-        "last_frame": 12026,
-        "last_value": 4,
+        "last_frame": 37399,
+        "last_value": 22,
         "samples": {
           "10": 1,
+          "12": 1,
+          "22": 1,
           "3": 1,
           "4": 1
         }
@@ -1128,6 +1141,6 @@
       }
     }
   },
-  "updated_utc": "2026-07-14T02:11:04Z",
+  "updated_utc": "2026-07-15T14:26:43Z",
   "version": 2
 }

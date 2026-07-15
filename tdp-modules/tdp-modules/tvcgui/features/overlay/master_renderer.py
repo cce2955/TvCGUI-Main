@@ -87,6 +87,50 @@ def _mission_panel_intro_progress(phase: float, duration: float = 0.30) -> float
     return _mission_intro_ease(float(phase) / float(duration))
 
 
+def _mission_pip_intensity(index: int, total: int, fill_ratio: float = 1.0) -> float:
+    """Return a deliberately back-loaded progress-pip brightness.
+
+    Early pips remain only slightly brighter than the empty rail. The curve
+    accelerates near the end so the final few pips become progressively more
+    intense, with the last pip reaching full brightness.
+    """
+    total = max(1, int(total))
+    index = max(0, min(total - 1, int(index)))
+    fill_ratio = max(0.0, min(1.0, float(fill_ratio)))
+    position = 1.0 if total <= 1 else float(index) / float(total - 1)
+    return fill_ratio * (0.14 + 0.86 * pow(position, 2.4))
+
+
+def _mission_pip_stage_intensity(completed: int, total: int) -> float:
+    """Return the shared brightness for every completed pip at one route stage."""
+    total = max(1, int(total))
+    completed = max(0, min(total, int(completed)))
+    if completed <= 0:
+        return 0.0
+    position = 1.0 if total <= 1 else float(completed - 1) / float(total - 1)
+    return 0.08 + 0.92 * pow(position, 2.4)
+
+
+def _mission_pip_wave_progress(
+    elapsed: float,
+    order_index: int,
+    stagger: float = 0.055,
+    duration: float = 0.18,
+) -> float:
+    """Stagger one cumulative pip catch-up step."""
+    local = float(elapsed) - max(0, int(order_index)) * max(0.0, float(stagger))
+    if duration <= 0.0:
+        return 1.0 if local >= 0.0 else 0.0
+    return _mission_intro_ease(local / float(duration))
+
+
+def _mission_pip_sheen_progress(phase: float, duration: float = 0.38) -> float:
+    """Move one short polish pass across a pip after it fully locks."""
+    if duration <= 0.0:
+        return 1.0
+    return _mission_intro_ease(max(0.0, min(1.0, float(phase) / float(duration))))
+
+
 def _mission_row_intro_progress(
     phase: float,
     row_order: int,
@@ -100,6 +144,30 @@ def _mission_row_intro_progress(
     return _mission_intro_ease(local / float(duration))
 
 
+def _mission_element_intro_progress(
+    phase: float,
+    delay: float = 0.0,
+    duration: float = 0.18,
+) -> float:
+    """Return a quick delayed fade-and-slide progress for one HUD element."""
+    local = float(phase) - max(0.0, float(delay))
+    if duration <= 0.0:
+        return 1.0 if local >= 0.0 else 0.0
+    return _mission_intro_ease(local / float(duration))
+
+
+def _mission_element_exit_progress(
+    progress: float,
+    order: int = 0,
+    stagger: float = 0.055,
+) -> float:
+    """Return staggered exit progress from a normalized mission transition."""
+    progress = max(0.0, min(1.0, float(progress)))
+    delay = max(0, int(order)) * max(0.0, float(stagger))
+    available = max(0.12, 1.0 - delay)
+    return _mission_intro_ease((progress - delay) / available)
+
+
 def _mission_complete_plate_progress(phase: float) -> tuple[float, float, float]:
     """Return plate alpha, bracket lock, and sheen progress for the completion graphic."""
     phase = max(0.0, float(phase))
@@ -109,6 +177,23 @@ def _mission_complete_plate_progress(phase: float) -> tuple[float, float, float]
     lock = _mission_intro_ease((phase - 0.08) / 0.30)
     sheen = max(0.0, min(1.0, (phase - 0.38) / 0.52))
     return alpha, lock, sheen
+
+
+def _mission_complete_badge_progress(
+    elapsed_frames: float,
+    total_frames: int = 90,
+) -> tuple[float, float, float, float]:
+    """Return alpha, slide, title lock, and sheen progress for the in-panel badge."""
+    total_frames = max(1, int(total_frames))
+    elapsed = max(0.0, min(float(total_frames), float(elapsed_frames)))
+    enter = _mission_intro_ease(elapsed / 9.0)
+    slide = _mission_intro_ease(elapsed / 13.0)
+    title_lock = _mission_intro_ease(max(0.0, elapsed - 4.0) / 11.0)
+    exit_start = max(0.0, float(total_frames) - 16.0)
+    exit_t = _mission_intro_ease((elapsed - exit_start) / 16.0)
+    alpha = max(0.0, min(1.0, enter * (1.0 - exit_t)))
+    sheen = max(0.0, min(1.0, (elapsed - 16.0) / 28.0))
+    return alpha, slide, title_lock, sheen
 
 
 def _draw_mission_completion_wipe(
@@ -525,6 +610,7 @@ class MasterOverlay:
         self.mission_hint_rect: Optional[pygame.Rect] = None
         self.mission_show_all: bool = False
         self.mission_show_hint: bool = False
+        self._mission_hint_fold: float = 0.0
 
         self.hud_renderer: Renderer = NullHudRenderer()
         self.hitbox_renderer: Renderer = NullHitboxRenderer()
@@ -547,7 +633,7 @@ class MasterOverlay:
         self._last_mission_id_seen: str = ""
         self._mission_hold_frames: int = 0
         self._mission_hold_data: dict = {}
-        self._mission_hold_duration_frames: int = 120
+        self._mission_hold_duration_frames: int = 90
 
         # Lightweight mission polish state
         self._toast_phase: float = 0.0
@@ -569,6 +655,37 @@ class MasterOverlay:
         self._mission_intro_mission_id: str = ""
         self._mission_intro_was_active: bool = False
         self._mission_intro_generation: int = 0
+
+        # Mission-to-mission transition state. The live payload can change
+        # instantly when a point character tags or the selected trial changes,
+        # while the renderer briefly keeps the previous payload on screen so
+        # its rows and chips can slide and fade away before the new set enters.
+        self._mission_visible_data: dict = {}
+        self._mission_visible_key: tuple[str, str, str, str] | None = None
+        self._mission_last_active_data: dict = {}
+        self._mission_transition_old_data: dict = {}
+        self._mission_transition_new_data: dict = {}
+        self._mission_transition_new_key: tuple[str, str, str, str] | None = None
+        self._mission_transition_state: str = "idle"
+        self._mission_transition_phase: float = 1.0
+        self._mission_transition_out_duration: float = 0.22
+        self._mission_transition_in_duration: float = 0.34
+
+        # Header progress strip animation. This is a float so the pips can
+        # light up and power down one by one instead of snapping.
+        self._mission_progress_display: float = 0.0
+        self._mission_progress_mission_id: str = ""
+        self._mission_progress_last_completed: int = 0
+        self._mission_pip_sheen_pending_index: int = -1
+        self._mission_pip_sheen_index: int = -1
+        self._mission_pip_sheen_phase: float = 1.0
+        self._mission_strip_complete_sheen_phase: float = 1.0
+        self._mission_pip_levels: list[float] = []
+        self._mission_pip_wave_order: list[int] = []
+        self._mission_pip_wave_starts: dict[int, float] = {}
+        self._mission_pip_wave_target: float = 0.0
+        self._mission_pip_wave_elapsed: float = 0.0
+        self._mission_pip_wave_completed_count: int = 0
         
 
     def init(self) -> None:
@@ -695,18 +812,38 @@ class MasterOverlay:
 
         return (170, 120, 255)
     def _wrap_text_lines(self, text: str, font: pygame.font.Font, max_width: int) -> list[str]:
+        """Wrap text to a pixel width, including unusually long single tokens."""
         if not text:
             return []
 
         out: list[str] = []
         max_width = max(32, int(max_width))
 
+        def split_oversized_word(word: str) -> list[str]:
+            if font.size(word)[0] <= max_width:
+                return [word]
+
+            chunks: list[str] = []
+            chunk = ""
+            for char in word:
+                trial = chunk + char
+                if chunk and font.size(trial)[0] > max_width:
+                    chunks.append(chunk)
+                    chunk = char
+                else:
+                    chunk = trial
+            if chunk:
+                chunks.append(chunk)
+            return chunks or [word]
+
         for paragraph in str(text).splitlines():
             paragraph = paragraph.strip()
             if not paragraph:
                 continue
 
-            words = paragraph.split()
+            words: list[str] = []
+            for word in paragraph.split():
+                words.extend(split_oversized_word(word))
             if not words:
                 continue
 
@@ -799,15 +936,140 @@ class MasterOverlay:
             self.mission_active = False
             self.mission_slot = None
 
+    def _mission_payload_key(self, data: dict) -> tuple[str, str, str, str]:
+        data = data if isinstance(data, dict) else {}
+        return (
+            str(data.get("character") or ""),
+            str(data.get("active_mission_id") or ""),
+            str(data.get("active_mission_name") or ""),
+            str(self.mission_slot or data.get("slot") or ""),
+        )
+
+    def _reset_mission_entry_animation(self) -> None:
+        """Reset only visual state when a newly selected mission takes over."""
+        self.step_anim = {}
+        self._row_bump = {}
+        self._last_completed_for_bump = 0
+        self._mission_scroll_initialized = False
+        self._mission_scroll_mission_id = ""
+        self._mission_intro_phase = 0.0
+        self._mission_intro_mission_id = ""
+        self._mission_intro_was_active = False
+        self._mission_progress_mission_id = ""
+        self._mission_progress_display = 0.0
+        self._mission_progress_last_completed = 0
+        self._mission_pip_levels = []
+        self._mission_pip_wave_order = []
+        self._mission_pip_wave_starts = {}
+        self._mission_pip_sheen_pending_index = -1
+        self._mission_pip_sheen_index = -1
+        self._mission_pip_sheen_phase = 1.0
+        self._mission_strip_complete_sheen_phase = 1.0
+
+    def _stage_mission_overlay_payload(self, data: dict) -> None:
+        """Accept live mission data while preserving a short visual handoff."""
+        self.mission_overlay_data = data
+        new_key = self._mission_payload_key(data)
+        selector_open = bool(data.get("selector_open", False))
+
+        if not self._mission_visible_data:
+            self._mission_visible_data = dict(data)
+            self._mission_visible_key = new_key
+            if not selector_open:
+                self._mission_last_active_data = dict(data)
+            return
+
+        if self._mission_transition_state == "out":
+            self._mission_transition_new_data = dict(data)
+            self._mission_transition_new_key = new_key
+            return
+
+        if self._mission_transition_state == "in":
+            if new_key == self._mission_visible_key:
+                self._mission_visible_data = dict(data)
+                return
+
+            self._mission_transition_old_data = dict(
+                self._mission_last_active_data or self._mission_visible_data
+            )
+            self._mission_transition_new_data = dict(data)
+            self._mission_transition_new_key = new_key
+            self._mission_transition_state = "out"
+            self._mission_transition_phase = 0.0
+            self._mission_hold_frames = 0
+            self._mission_hold_data = {}
+            return
+
+        if new_key != self._mission_visible_key:
+            self._mission_transition_old_data = dict(
+                self._mission_last_active_data or self._mission_visible_data
+            )
+            self._mission_transition_new_data = dict(data)
+            self._mission_transition_new_key = new_key
+            self._mission_transition_state = "out"
+            self._mission_transition_phase = 0.0
+            self._mission_hold_frames = 0
+            self._mission_hold_data = {}
+        else:
+            self._mission_visible_data = dict(data)
+            if not selector_open:
+                self._mission_last_active_data = dict(data)
+
+    def _update_mission_transition(self, dt: float) -> None:
+        dt = max(0.0, float(dt))
+        if self._mission_transition_state == "out":
+            duration = max(0.01, self._mission_transition_out_duration)
+            self._mission_transition_phase = min(
+                1.0,
+                self._mission_transition_phase + dt / duration,
+            )
+            if self._mission_transition_phase >= 1.0:
+                incoming = self._mission_transition_new_data or self.mission_overlay_data
+                self._mission_visible_data = dict(incoming or {})
+                if not bool(self._mission_visible_data.get("selector_open", False)):
+                    self._mission_last_active_data = dict(self._mission_visible_data)
+                self._mission_visible_key = (
+                    self._mission_transition_new_key
+                    or self._mission_payload_key(self._mission_visible_data)
+                )
+                self._mission_transition_old_data = {}
+                self._mission_transition_new_data = {}
+                self._mission_transition_new_key = None
+                self._mission_transition_state = "in"
+                self._mission_transition_phase = 0.0
+                self._reset_mission_entry_animation()
+
+        elif self._mission_transition_state == "in":
+            duration = max(0.01, self._mission_transition_in_duration)
+            self._mission_transition_phase = min(
+                1.0,
+                self._mission_transition_phase + dt / duration,
+            )
+            if self._mission_transition_phase >= 1.0:
+                self._mission_transition_state = "idle"
+                self._mission_transition_phase = 1.0
+
+    def _mission_display_payload(self) -> dict:
+        if self._mission_transition_state == "out" and self._mission_transition_old_data:
+            return self._mission_transition_old_data
+        if self._mission_visible_data:
+            return self._mission_visible_data
+        return self.mission_overlay_data or {}
+
     def _read_mission_overlay_file(self) -> None:
         try:
+            mt = os.path.getmtime(MISSION_OVERLAY_FILE)
+            if mt == self._last_mission_overlay_mtime:
+                return
+            self._last_mission_overlay_mtime = mt
+
             with open(MISSION_OVERLAY_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
 
             if not isinstance(data, dict):
                 return
 
-            self.mission_overlay_data = data
+            self._stage_mission_overlay_payload(data)
 
         except Exception:
             pass
@@ -1272,9 +1534,11 @@ class MasterOverlay:
 
     def update_mission_animations(self, dt: float) -> None:
         """Drive per-step metallic gradient animations each frame and fire celebration on final-step completion."""
+        self._update_mission_transition(dt)
         live_data = self.mission_overlay_data or {}
+        display_data = self._mission_display_payload()
         holding = self._mission_hold_frames > 0
-        data = self._mission_hold_data if holding else live_data
+        data = self._mission_hold_data if holding else display_data
 
         steps = data.get("active_mission_steps") or []
         completed_count = int(data.get("completed_step_count", 0))
@@ -1297,6 +1561,160 @@ class MasterOverlay:
         else:
             self._mission_intro_was_active = False
             self._mission_intro_phase = 0.0
+
+        hint_target = 1.0 if self.mission_show_hint and self.mission_active else 0.0
+        hint_speed = 7.5
+        if self._mission_hint_fold < hint_target:
+            self._mission_hint_fold = min(
+                hint_target,
+                self._mission_hint_fold + max(0.0, dt) * hint_speed,
+            )
+        else:
+            self._mission_hint_fold = max(
+                hint_target,
+                self._mission_hint_fold - max(0.0, dt) * hint_speed,
+            )
+
+        progress_target = float(max(0, min(len(steps), completed_count)))
+        step_total = len(steps)
+        if len(self._mission_pip_levels) != step_total:
+            self._mission_pip_levels = [0.0] * step_total
+            self._mission_pip_wave_order = []
+            self._mission_pip_wave_starts = {}
+
+        if mission_id != self._mission_progress_mission_id:
+            self._mission_progress_mission_id = mission_id
+            self._mission_progress_display = progress_target
+            self._mission_progress_last_completed = completed_count
+            stage_strength = _mission_pip_stage_intensity(completed_count, step_total)
+            self._mission_pip_levels = [
+                stage_strength if index < completed_count else 0.0
+                for index in range(step_total)
+            ]
+            self._mission_pip_wave_order = []
+            self._mission_pip_wave_starts = {}
+            self._mission_pip_wave_target = stage_strength
+            self._mission_pip_wave_elapsed = 0.0
+            self._mission_pip_wave_completed_count = completed_count
+            self._mission_pip_sheen_pending_index = -1
+            self._mission_pip_sheen_index = -1
+            self._mission_pip_sheen_phase = 1.0
+            self._mission_strip_complete_sheen_phase = 1.0
+        else:
+            previous_completed = self._mission_progress_last_completed
+            if completed_count > previous_completed:
+                newest_index = completed_count - 1
+                # Existing pips and the newly earned pip all end at the same
+                # stage brightness for the current route depth. New pips enter
+                # at the previous stage brightness, then the whole completed
+                # run brightens from left to right.
+                previous_stage_strength = _mission_pip_stage_intensity(
+                    previous_completed,
+                    step_total,
+                )
+                self._mission_pip_wave_order = list(range(0, completed_count))
+                self._mission_pip_wave_starts = {
+                    index: (
+                        previous_stage_strength if index >= previous_completed
+                        else float(self._mission_pip_levels[index])
+                    )
+                    for index in self._mission_pip_wave_order
+                    if 0 <= index < step_total
+                }
+                for index in range(previous_completed, completed_count):
+                    if 0 <= index < len(self._mission_pip_levels):
+                        self._mission_pip_levels[index] = previous_stage_strength
+                self._mission_pip_wave_target = _mission_pip_stage_intensity(
+                    completed_count,
+                    step_total,
+                )
+                self._mission_pip_wave_elapsed = 0.0
+                self._mission_pip_wave_completed_count = completed_count
+                self._mission_pip_sheen_pending_index = newest_index
+            elif completed_count < previous_completed:
+                # Failure powers the filled pips down from newest to oldest.
+                self._mission_pip_wave_order = list(range(previous_completed - 1, -1, -1))
+                self._mission_pip_wave_starts = {
+                    index: float(self._mission_pip_levels[index])
+                    for index in self._mission_pip_wave_order
+                    if 0 <= index < step_total
+                }
+                self._mission_pip_wave_target = _mission_pip_stage_intensity(
+                    completed_count,
+                    step_total,
+                )
+                self._mission_pip_wave_elapsed = 0.0
+                self._mission_pip_wave_completed_count = completed_count
+                self._mission_pip_sheen_pending_index = -1
+                self._mission_pip_sheen_index = -1
+                self._mission_pip_sheen_phase = 1.0
+                self._mission_strip_complete_sheen_phase = 1.0
+            self._mission_progress_last_completed = completed_count
+
+            progress_speed = 8.0 if progress_target >= self._mission_progress_display else 10.0
+            if self._mission_progress_display < progress_target:
+                self._mission_progress_display = min(
+                    progress_target,
+                    self._mission_progress_display + max(0.0, dt) * progress_speed,
+                )
+            else:
+                self._mission_progress_display = max(
+                    progress_target,
+                    self._mission_progress_display - max(0.0, dt) * progress_speed,
+                )
+
+        if self._mission_pip_wave_order:
+            self._mission_pip_wave_elapsed += max(0.0, dt)
+            wave_completed_count = self._mission_pip_wave_completed_count
+            for order_index, pip_index in enumerate(self._mission_pip_wave_order):
+                if not 0 <= pip_index < len(self._mission_pip_levels):
+                    continue
+                target = (
+                    self._mission_pip_wave_target
+                    if pip_index < wave_completed_count
+                    else 0.0
+                )
+                start_level = float(self._mission_pip_wave_starts.get(pip_index, 0.0))
+                wave_progress = _mission_pip_wave_progress(
+                    self._mission_pip_wave_elapsed,
+                    order_index,
+                    stagger=0.045,
+                    duration=0.15,
+                )
+                self._mission_pip_levels[pip_index] = (
+                    start_level + (target - start_level) * wave_progress
+                )
+
+            wave_duration = 0.18 + 0.055 * max(0, len(self._mission_pip_wave_order) - 1)
+            if self._mission_pip_wave_elapsed >= wave_duration:
+                for pip_index in range(len(self._mission_pip_levels)):
+                    self._mission_pip_levels[pip_index] = (
+                        self._mission_pip_wave_target
+                        if pip_index < wave_completed_count
+                        else 0.0
+                    )
+                self._mission_pip_wave_order = []
+                self._mission_pip_wave_starts = {}
+                if self._mission_pip_sheen_pending_index >= 0:
+                    self._mission_pip_sheen_index = self._mission_pip_sheen_pending_index
+                    self._mission_pip_sheen_phase = 0.0
+                    self._mission_pip_sheen_pending_index = -1
+                if step_total > 0 and wave_completed_count >= step_total:
+                    self._mission_strip_complete_sheen_phase = 0.0
+
+        if self._mission_pip_sheen_phase < 1.0:
+            self._mission_pip_sheen_phase = min(
+                1.0,
+                self._mission_pip_sheen_phase + max(0.0, dt),
+            )
+            if self._mission_pip_sheen_phase >= 1.0:
+                self._mission_pip_sheen_index = -1
+
+        if self._mission_strip_complete_sheen_phase < 1.0:
+            self._mission_strip_complete_sheen_phase = min(
+                1.0,
+                self._mission_strip_complete_sheen_phase + max(0.0, dt) * 0.9,
+            )
 
         ANIM_SPEED = 4.0
 
@@ -1329,8 +1747,8 @@ class MasterOverlay:
             if self._row_bump[bump_idx] <= 0.0:
                 del self._row_bump[bump_idx]
 
-        if self._celebrate_active:
-            self._toast_phase += dt
+        if holding or self._mission_hold_frames > 0:
+            self._toast_phase += max(0.0, dt)
         else:
             self._toast_phase = 0.0
 
@@ -1345,6 +1763,14 @@ class MasterOverlay:
             celebrate_pending
             and celebrate_token > 0
             and celebrate_token != self._last_clear_seq_seen
+        )
+        should_celebrate = should_celebrate or (
+            live_step_total > 0
+            and live_completed_count >= live_step_total
+            and (
+                live_mission_id != self._prev_live_mission_id
+                or self._prev_live_completed_count < live_step_total
+            )
         )
 
         if should_celebrate:
@@ -1361,9 +1787,11 @@ class MasterOverlay:
             )
 
             self._toast_phase = 0.0
-            self._trigger_celebration()
-            self._last_clear_seq_seen = celebrate_token
-            self._write_mission_celebrate_ack(celebrate_token)
+            self._celebrate_active = False
+            self._celebrate_particles = []
+            if celebrate_token > 0:
+                self._last_clear_seq_seen = celebrate_token
+                self._write_mission_celebrate_ack(celebrate_token)
 
         self._prev_live_mission_id = live_mission_id
         self._prev_live_completed_count = live_completed_count
@@ -1546,6 +1974,8 @@ class MasterOverlay:
         goal_current_frames: int,
         goal_needed_frames: int,
         goal_timer_active: bool,
+        transition_mode: str = "idle",
+        transition_progress: float = 1.0,
     ) -> None:
         """Draw the flatter, spaced V19 Mission Mode panel with staged row entry."""
         if self.screen is None or self.font is None or self.smallfont is None:
@@ -1556,18 +1986,193 @@ class MasterOverlay:
         total_steps = len(steps)
         mission_done = total_steps > 0 and completed_count >= total_steps
 
-        pad = 14
-        row_gap = 6
-        visible_limit = 6
-        panel_w = max(620, min(int(self.w * 0.52), 900))
-        inner_w = panel_w - pad * 2
+        transition_mode = str(transition_mode or "idle").lower()
+        transition_progress = max(0.0, min(1.0, float(transition_progress)))
+        is_exiting = transition_mode == "out"
+        exit_progress = _mission_intro_ease(transition_progress) if is_exiting else 0.0
 
-        collapsed_scroll = not self.mission_show_all and total_steps > visible_limit
-        max_start = max(0, total_steps - visible_limit)
+        def entry_progress(delay: float, duration: float = 0.18) -> float:
+            if is_exiting:
+                return 1.0
+            return _mission_element_intro_progress(
+                self._mission_intro_phase,
+                delay,
+                duration,
+            )
+
+        def exit_visibility(order: int = 0) -> float:
+            if not is_exiting:
+                return 1.0
+            return 1.0 - _mission_element_exit_progress(
+                transition_progress,
+                order,
+                0.045,
+            )
+
+        def blit_faded(
+            target: pygame.Surface,
+            source: pygame.Surface,
+            position: tuple[int, int],
+            visibility: float,
+            offset: tuple[int, int] = (0, 0),
+        ) -> None:
+            visibility = max(0.0, min(1.0, float(visibility)))
+            if visibility <= 0.0:
+                return
+            layer = source.copy()
+            layer.set_alpha(int(round(255 * visibility)))
+            px = int(position[0] + (1.0 - visibility) * offset[0])
+            py = int(position[1] + (1.0 - visibility) * offset[1])
+            target.blit(layer, (px, py))
+
+        pad = 9
+        row_gap = 3
+
+        # Keep the mission panel compact while still leaving enough room for
+        # move labels and input chips. Long guidance now wraps vertically.
+        horizontal_margin = max(10, min(24, self.w // 36))
+        panel_w = min(
+            700,
+            max(360, int(self.w * 0.40)),
+            max(260, self.w - horizontal_margin * 2),
+        )
+        inner_w = max(140, panel_w - pad * 2)
+
+        header_chip_h = max(27, self.font.get_height() + 8)
+        header_h = header_chip_h + 6
+        row_h = max(27, self.smallfont.get_height() + 9)
+        timer_h = 44 if (
+            goal_progress_type == "state_duration"
+            and goal_target_state == "blockstun"
+            and goal_needed_frames > 0
+        ) else 0
+
+        hint_button_text = "Hide Hint" if self.mission_show_hint else "Show Hint"
+        all_button_text = "Show Less" if self.mission_show_all else "Show All"
+        challenge_button_specs = [
+            (all_button_text, "all"),
+            (hint_button_text, "hint"),
+        ]
+        challenge_button_h = 28
+        challenge_button_widths = [
+            max(82, self.smallfont.size(text)[0] + 20)
+            for text, _kind in challenge_button_specs
+        ]
+        challenge_buttons_w = sum(challenge_button_widths) + 7
+
+        mission_chip_text = str(mission_name or "No mission loaded").strip()
+        mission_chip_max_w = max(92, inner_w - challenge_buttons_w - 18)
+        mission_chip_display = mission_chip_text
+        while (
+            self.font.size(mission_chip_display)[0] + 22 > mission_chip_max_w
+            and len(mission_chip_display) > 4
+        ):
+            mission_chip_display = mission_chip_display[:-4].rstrip() + "..."
+        mission_chip_surf = self.font.render(
+            mission_chip_display,
+            True,
+            (232, 239, 249),
+        )
+        mission_chip_h = max(28, mission_chip_surf.get_height() + 8)
+
+        instruction_text = str(
+            selector_hint or "Down, Down, Taunt: Open Mission Select"
+        ).strip()
+        instruction_lines = self._wrap_text_lines(
+            instruction_text,
+            self.smallfont,
+            max(96, inner_w - 20),
+        )
+        instruction_surfs = [
+            self.smallfont.render(line, True, (202, 213, 230))
+            for line in instruction_lines
+        ]
+        instruction_gap = 2
+        challenge_top_h = max(mission_chip_h, challenge_button_h)
+        instruction_block_h = (
+            6
+            + sum(surf.get_height() for surf in instruction_surfs)
+            + instruction_gap * max(0, len(instruction_surfs) - 1)
+            if instruction_surfs
+            else 0
+        )
+        challenge_h = 8 + challenge_top_h + instruction_block_h + 8
+
+        hint_text = str(mission_notes or "").strip()
+        note_lines = self._wrap_text_lines(
+            hint_text or "No hint text is available for this challenge.",
+            self.smallfont,
+            max(80, inner_w - 34),
+        )
+
+        # Measure the exact rendered surfaces instead of estimating with
+        # Font.get_height(). Consolas can return a rendered surface one or two
+        # pixels taller than get_height(), which previously made the final
+        # wrapped line fail the note box boundary check and disappear.
+        note_line_gap = 2
+        hint_label_surf = self.smallfont.render("HINT", True, (112, 166, 238))
+        note_line_surfs = [
+            self.smallfont.render(line, True, (215, 224, 239))
+            for line in note_lines
+        ]
+        note_h_full = (
+            8
+            + hint_label_surf.get_height()
+            + 4
+            + sum(surf.get_height() for surf in note_line_surfs)
+            + note_line_gap * max(0, len(note_line_surfs) - 1)
+            + 8
+        )
+        note_fold = max(0.0, min(1.0, self._mission_hint_fold))
+        note_h = int(round(note_h_full * note_fold))
+        note_gap = 8 if note_h > 0 else 0
+
+        # Reserve room for the full expanded hint before choosing how many
+        # route rows can be shown. At short resolutions, route rows collapse
+        # first instead of allowing the hint to fall below the screen.
+        outer_margin = max(8, min(18, self.h // 40))
+        available_total_h = max(120, self.h - outer_margin * 2)
+        base_panel_h = pad + header_h + 7 + challenge_h + 8 + timer_h + pad
+        requested_limit = total_steps if self.mission_show_all else min(6, total_steps)
+
+        # A footer is needed whenever physical space forces a shortened view.
+        provisional_footer_h = 18 if total_steps > requested_limit else 6
+        row_budget = (
+            available_total_h
+            - note_h
+            - note_gap
+            - base_panel_h
+            - provisional_footer_h
+        )
+        max_rows_fit = max(
+            0 if note_fold > 0.01 else 1,
+            int((row_budget + row_gap) // max(1, row_h + row_gap)),
+        )
+        visible_limit = min(requested_limit, max_rows_fit)
+        if total_steps > 0 and visible_limit <= 0 and note_fold <= 0.01:
+            visible_limit = 1
+
+        collapsed_scroll = total_steps > visible_limit
+        max_start = max(0, total_steps - max(1, visible_limit))
         if collapsed_scroll:
-            scroll_pos = max(0.0, min(float(max_start), float(self._mission_scroll_pos)))
+            if not self.mission_show_all and visible_limit == 6:
+                scroll_pos = max(
+                    0.0,
+                    min(float(max_start), float(self._mission_scroll_pos)),
+                )
+            else:
+                scroll_pos = float(
+                    _mission_scroll_target(
+                        current_index,
+                        total_steps,
+                        max(1, visible_limit),
+                    )
+                )
             visible_start = max(0, int(math.floor(scroll_pos)))
-            visible_end = min(total_steps, visible_start + visible_limit + 1)
+            visible_end = min(
+                total_steps,
+                visible_start + max(1, visible_limit) + 1,
+            )
             visible_rows = visible_limit
             footer_start = min(max_start, max(0, int(round(scroll_pos))))
             footer_end = min(total_steps, footer_start + visible_limit)
@@ -1579,34 +2184,30 @@ class MasterOverlay:
             footer_start = 0
             footer_end = total_steps
 
-        visible_steps = list(enumerate(steps[visible_start:visible_end], start=visible_start))
-
-        title_h = max(self.font.get_height(), 23)
-        header_h = max(40, title_h + 12)
-        challenge_h = 64
-        row_h = max(34, self.smallfont.get_height() + 16)
-        timer_h = 44 if (
-            goal_progress_type == "state_duration"
-            and goal_target_state == "blockstun"
-            and goal_needed_frames > 0
-        ) else 0
-
-        note_lines = (
-            self._wrap_text_lines(mission_notes, self.smallfont, inner_w - 18)
-            if self.mission_show_hint and mission_notes else []
+        visible_steps = list(
+            enumerate(steps[visible_start:visible_end], start=visible_start)
         )
-        note_h = 0
-        if note_lines:
-            note_h = len(note_lines) * self.smallfont.get_height() + 16
 
-        list_h = max(0, visible_rows * row_h + max(0, visible_rows - 1) * row_gap)
-        footer_h = 24 if collapsed_scroll else 10
-        panel_h = pad + header_h + 9 + challenge_h + 10 + timer_h + note_h + list_h + footer_h + pad
+        list_h = max(
+            0,
+            visible_rows * row_h + max(0, visible_rows - 1) * row_gap,
+        )
+        footer_h = 18 if collapsed_scroll else 6
+        panel_h = base_panel_h + note_h + note_gap + list_h + footer_h
 
         panel_intro = _mission_panel_intro_progress(self._mission_intro_phase)
-        panel_y_final = max(20, int(self.h * 0.065))
-        panel_x = (self.w - panel_w) // 2
-        panel_y = panel_y_final + int(round((1.0 - panel_intro) * 18.0))
+        if is_exiting:
+            panel_intro = 1.0
+        total_draw_h = panel_h
+        max_panel_y = max(outer_margin, self.h - total_draw_h - outer_margin)
+        preferred_y = max(outer_margin, int(self.h * 0.06))
+        panel_y_final = min(preferred_y, max_panel_y)
+        panel_x = max(horizontal_margin, (self.w - panel_w) // 2)
+        panel_x -= int(round(exit_progress * 24.0))
+        panel_y = min(
+            max_panel_y,
+            panel_y_final + int(round((1.0 - panel_intro) * 18.0)),
+        )
         self.mission_panel_rect = pygame.Rect(panel_x, panel_y, panel_w, panel_h)
 
         panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
@@ -1621,84 +2222,499 @@ class MasterOverlay:
         pygame.draw.line(panel, (75, 138, 225, 220), (cut + 16, 3), (panel_w // 2 - 8, 3), 2)
         pygame.draw.line(panel, (104, 77, 171, 205), (panel_w // 2 + 8, 3), (panel_w - cut - 16, 3), 2)
 
-        # Header and completion counter.
-        title_text = f"{character} Mission Mode - {self.mission_slot}"
-        title_surf = self.font.render(title_text, True, (235, 239, 247))
-        panel.blit(title_surf, (pad, pad))
+        # Styled character identity and compact completion status.
+        progress_value = self.font.render(
+            f"{completed_count}/{total_steps}",
+            True,
+            (115, 187, 255),
+        )
+        progress_label = self.smallfont.render(
+            "COMPLETED",
+            True,
+            (198, 211, 229),
+        )
+        progress_chip_w = (
+            progress_value.get_width()
+            + progress_label.get_width()
+            + 25
+        )
+        progress_chip_rect = pygame.Rect(
+            panel_w - pad - progress_chip_w,
+            pad,
+            progress_chip_w,
+            header_chip_h,
+        )
+        progress_chip_layer = pygame.Surface(
+            progress_chip_rect.size,
+            pygame.SRCALPHA,
+        )
+        pygame.draw.rect(
+            progress_chip_layer,
+            (9, 24, 42, 235),
+            progress_chip_layer.get_rect(),
+            border_radius=6,
+        )
+        pygame.draw.rect(
+            progress_chip_layer,
+            (69, 125, 194),
+            progress_chip_layer.get_rect(),
+            1,
+            border_radius=6,
+        )
+        pygame.draw.rect(
+            progress_chip_layer,
+            (91, 172, 246),
+            (0, 3, 3, progress_chip_rect.height - 6),
+            border_radius=2,
+        )
+        progress_text_x = 10
+        progress_chip_layer.blit(
+            progress_value,
+            (
+                progress_text_x,
+                progress_chip_rect.height // 2 - progress_value.get_height() // 2,
+            ),
+        )
+        progress_chip_layer.blit(
+            progress_label,
+            (
+                progress_text_x + progress_value.get_width() + 7,
+                progress_chip_rect.height // 2 - progress_label.get_height() // 2,
+            ),
+        )
+        progress_chip_vis = min(
+            entry_progress(0.035, 0.17),
+            exit_visibility(4),
+        )
+        blit_faded(
+            panel,
+            progress_chip_layer,
+            progress_chip_rect.topleft,
+            progress_chip_vis,
+            (18, 0),
+        )
 
-        progress_value = self.font.render(f"{completed_count}/{total_steps}", True, (89, 151, 238))
-        progress_label = self.smallfont.render("COMPLETED", True, (164, 174, 192))
-        progress_x = panel_w - pad - progress_value.get_width()
-        panel.blit(progress_value, (progress_x, pad - 1))
-        label_x = panel_w - pad - progress_label.get_width()
-        panel.blit(progress_label, (label_x, pad + 21))
+        mode_surf = self.smallfont.render(
+            "MISSION MODE",
+            True,
+            (174, 190, 215),
+        )
+        slot_surf = self.smallfont.render(
+            str(self.mission_slot or ""),
+            True,
+            (221, 229, 241),
+        )
+        slot_chip_w = slot_surf.get_width() + 14
+        reserved_left_w = (
+            progress_chip_rect.x
+            - pad
+            - mode_surf.get_width()
+            - slot_chip_w
+            - 22
+        )
+        character_display = str(character or "Unknown")
+        while (
+            self.font.size(character_display)[0] + 20 > max(70, reserved_left_w)
+            and len(character_display) > 4
+        ):
+            character_display = character_display[:-4].rstrip() + "..."
+        character_surf = self.font.render(
+            character_display.upper(),
+            True,
+            theme_color,
+        )
+        character_chip_w = min(
+            max(74, character_surf.get_width() + 20),
+            max(74, reserved_left_w),
+        )
+        character_chip_rect = pygame.Rect(
+            pad,
+            pad,
+            character_chip_w,
+            header_chip_h,
+        )
+        character_chip_layer = pygame.Surface(
+            character_chip_rect.size,
+            pygame.SRCALPHA,
+        )
+        pygame.draw.rect(
+            character_chip_layer,
+            (10, 22, 38, 236),
+            character_chip_layer.get_rect(),
+            border_radius=6,
+        )
+        pygame.draw.rect(
+            character_chip_layer,
+            theme_color,
+            character_chip_layer.get_rect(),
+            1,
+            border_radius=6,
+        )
+        pygame.draw.rect(
+            character_chip_layer,
+            theme_color,
+            (0, 3, 4, character_chip_rect.height - 6),
+            border_radius=2,
+        )
+        character_chip_layer.blit(
+            character_surf,
+            (
+                11,
+                character_chip_rect.height // 2 - character_surf.get_height() // 2,
+            ),
+        )
+        character_chip_vis = min(
+            entry_progress(0.0, 0.17),
+            exit_visibility(5),
+        )
+        blit_faded(
+            panel,
+            character_chip_layer,
+            character_chip_rect.topleft,
+            character_chip_vis,
+            (-18, 0),
+        )
+
+        mode_x = character_chip_rect.right + 9
+        available_mode_right = progress_chip_rect.x - 8
+        meta_vis = min(entry_progress(0.055, 0.16), exit_visibility(4))
+        if mode_x + mode_surf.get_width() + slot_chip_w + 7 <= available_mode_right:
+            blit_faded(
+                panel,
+                mode_surf,
+                (
+                    mode_x,
+                    pad + header_chip_h // 2 - mode_surf.get_height() // 2,
+                ),
+                meta_vis,
+                (0, -6),
+            )
+            slot_x = mode_x + mode_surf.get_width() + 7
+        else:
+            slot_x = mode_x
+
+        slot_chip_rect = pygame.Rect(
+            slot_x,
+            pad + (header_chip_h - max(20, slot_surf.get_height() + 6)) // 2,
+            slot_chip_w,
+            max(20, slot_surf.get_height() + 6),
+        )
+        if slot_chip_rect.right <= available_mode_right:
+            slot_chip_layer = pygame.Surface(slot_chip_rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(
+                slot_chip_layer,
+                (23, 34, 52),
+                slot_chip_layer.get_rect(),
+                border_radius=5,
+            )
+            pygame.draw.rect(
+                slot_chip_layer,
+                (65, 81, 111),
+                slot_chip_layer.get_rect(),
+                1,
+                border_radius=5,
+            )
+            slot_chip_layer.blit(
+                slot_surf,
+                (
+                    slot_chip_rect.width // 2 - slot_surf.get_width() // 2,
+                    slot_chip_rect.height // 2 - slot_surf.get_height() // 2,
+                ),
+            )
+            blit_faded(
+                panel,
+                slot_chip_layer,
+                slot_chip_rect.topleft,
+                meta_vis,
+                (0, -6),
+            )
 
         segment_y = pad + header_h
-        segment_gap = 3
+        segment_gap = 2
         segment_count = max(1, total_steps)
         segment_w = max(4, (inner_w - segment_gap * (segment_count - 1)) // segment_count)
+        progress_display = max(0.0, min(float(segment_count), float(self._mission_progress_display)))
+        strip_h = 10
+        strip_rect = pygame.Rect(pad, segment_y - 2, inner_w, strip_h)
+        pygame.draw.rect(panel, (21, 28, 40), strip_rect, border_radius=3)
+        pygame.draw.rect(panel, (49, 62, 87), strip_rect, 1, border_radius=3)
+
+        pip_levels = list(self._mission_pip_levels[:segment_count])
+        if len(pip_levels) < segment_count:
+            fallback = _mission_pip_stage_intensity(completed_count, segment_count)
+            pip_levels.extend(
+                fallback if index < completed_count else 0.0
+                for index in range(len(pip_levels), segment_count)
+            )
+
+        complete_level = pip_levels[-1] if mission_done and pip_levels else 0.0
+        bright_base = (29, 37, 52)
+        bright_peak = (98, 181, 255)
+        if complete_level > 0.0:
+            strip_fill = tuple(
+                int(bright_base[i] + (bright_peak[i] - bright_base[i]) * complete_level)
+                for i in range(3)
+            )
+            pygame.draw.rect(panel, strip_fill, strip_rect.inflate(-2, -2), border_radius=3)
+            strip_glow = pygame.Surface((strip_rect.width, strip_rect.height + 8), pygame.SRCALPHA)
+            pygame.draw.rect(
+                strip_glow,
+                (130, 205, 255, int(90 * complete_level)),
+                strip_glow.get_rect(),
+                border_radius=4,
+            )
+            panel.blit(strip_glow, (strip_rect.x, strip_rect.y - 4), special_flags=pygame.BLEND_RGBA_ADD)
+
         sx = pad
         for seg in range(segment_count):
-            seg_rect = pygame.Rect(sx, segment_y, segment_w, 4)
-            fill = (76, 139, 228) if seg < completed_count else (38, 47, 66)
-            pygame.draw.rect(panel, fill, seg_rect, border_radius=1)
+            seg_rect = pygame.Rect(sx, segment_y, segment_w, 5)
+            strength = max(0.0, min(1.0, float(pip_levels[seg])))
+            if strength > 0.001:
+                base = (29, 37, 52)
+                bright = (98, 181, 255)
+                fill = tuple(int(base[i] + (bright[i] - base[i]) * strength) for i in range(3))
+                pygame.draw.rect(panel, fill, seg_rect, border_radius=2)
+
+                glow_strength = max(0.0, (strength - 0.42) / 0.58)
+                if glow_strength > 0.0:
+                    glow = pygame.Surface((seg_rect.width, seg_rect.height + 6), pygame.SRCALPHA)
+                    pygame.draw.rect(
+                        glow,
+                        (115, 190, 255, int(115 * glow_strength)),
+                        glow.get_rect(),
+                        border_radius=2,
+                    )
+                    panel.blit(glow, (seg_rect.x, seg_rect.y - 3), special_flags=pygame.BLEND_RGBA_ADD)
+
+                if seg == self._mission_pip_sheen_index and strength >= 0.001:
+                    sheen_t = _mission_pip_sheen_progress(self._mission_pip_sheen_phase)
+                    if sheen_t < 1.0:
+                        sheen = pygame.Surface((seg_rect.width + 14, seg_rect.height + 8), pygame.SRCALPHA)
+                        ridge_x = int(round(-8 + (seg_rect.width + 18) * sheen_t))
+                        ridge_w = max(4, seg_rect.width // 5)
+                        alpha = int(110 + 120 * strength)
+                        pygame.draw.polygon(sheen, (215, 240, 255, alpha // 3), [
+                            (ridge_x - ridge_w, 0),
+                            (ridge_x + 1, 0),
+                            (ridge_x + ridge_w, sheen.get_height()),
+                            (ridge_x - 1, sheen.get_height()),
+                        ])
+                        pygame.draw.line(
+                            sheen,
+                            (245, 252, 255, alpha),
+                            (ridge_x, 0),
+                            (ridge_x + ridge_w, sheen.get_height()),
+                            2,
+                        )
+                        panel.blit(
+                            sheen,
+                            (seg_rect.x - 7, seg_rect.y - 4),
+                            special_flags=pygame.BLEND_RGBA_ADD,
+                        )
+            else:
+                pygame.draw.rect(panel, (28, 34, 47), seg_rect, border_radius=2)
             sx += segment_w + segment_gap
 
-        # Flat challenge information block with separated controls.
-        challenge_y = segment_y + 13
+        if mission_done and complete_level >= 0.999:
+            strip_sheen_t = _mission_pip_sheen_progress(self._mission_strip_complete_sheen_phase)
+            if strip_sheen_t < 1.0:
+                sheen = pygame.Surface((strip_rect.width + 24, strip_rect.height + 10), pygame.SRCALPHA)
+                ridge_x = int(round(-12 + (strip_rect.width + 24) * strip_sheen_t))
+                ridge_w = max(10, strip_rect.width // 10)
+                pygame.draw.polygon(sheen, (220, 241, 255, 70), [
+                    (ridge_x - ridge_w, 0),
+                    (ridge_x + 2, 0),
+                    (ridge_x + ridge_w, sheen.get_height()),
+                    (ridge_x - 2, sheen.get_height()),
+                ])
+                pygame.draw.line(
+                    sheen,
+                    (250, 253, 255, 190),
+                    (ridge_x, 0),
+                    (ridge_x + ridge_w, sheen.get_height()),
+                    3,
+                )
+                panel.blit(sheen, (strip_rect.x - 12, strip_rect.y - 5), special_flags=pygame.BLEND_RGBA_ADD)
+
+            badge_progress = _mission_intro_ease(
+                (self._mission_strip_complete_sheen_phase - 0.18) / 0.22
+            )
+            if badge_progress > 0.0:
+                badge_font = pygame.font.SysFont("consolas", 11, bold=True)
+                badge_text = badge_font.render("MISSION COMPLETE", True, (233, 243, 252))
+                badge_w = min(inner_w - 12, badge_text.get_width() + 18)
+                badge_h = 12
+                badge_rect = pygame.Rect(0, 0, badge_w, badge_h)
+                badge_rect.center = strip_rect.center
+                badge_layer = pygame.Surface((badge_rect.width, badge_rect.height), pygame.SRCALPHA)
+                pygame.draw.rect(badge_layer, (8, 35, 49, int(215 * badge_progress)), badge_layer.get_rect(), border_radius=5)
+                pygame.draw.rect(badge_layer, (93, 193, 224, int(210 * badge_progress)), badge_layer.get_rect(), 1, border_radius=5)
+                badge_layer.blit(
+                    badge_text,
+                    (
+                        badge_layer.get_width() // 2 - badge_text.get_width() // 2,
+                        badge_layer.get_height() // 2 - badge_text.get_height() // 2,
+                    ),
+                )
+                badge_layer.set_alpha(int(255 * badge_progress))
+                panel.blit(badge_layer, badge_rect.topleft)
+
+        strip_vis = min(entry_progress(0.075, 0.17), exit_visibility(3))
+        if strip_vis < 0.999:
+            strip_cover = pygame.Surface((strip_rect.width, strip_rect.height + 8), pygame.SRCALPHA)
+            strip_cover.fill((7, 14, 27, int(round(255 * (1.0 - strip_vis)))))
+            panel.blit(strip_cover, (strip_rect.x, strip_rect.y - 4))
+
+        # Mission identity chip, controls, and a full-width wrapped command hint.
+        challenge_y = segment_y + 14
         challenge_rect = pygame.Rect(pad, challenge_y, inner_w, challenge_h)
-        pygame.draw.rect(panel, (11, 22, 39, 230), challenge_rect, border_radius=4)
-        pygame.draw.rect(panel, (50, 65, 93, 220), challenge_rect, 1, border_radius=4)
-        pygame.draw.rect(panel, (74, 135, 219), (challenge_rect.x, challenge_rect.y, 3, challenge_rect.height), border_radius=2)
+        pygame.draw.rect(panel, (11, 22, 39, 230), challenge_rect, border_radius=5)
+        pygame.draw.rect(panel, (50, 65, 93, 220), challenge_rect, 1, border_radius=5)
+        pygame.draw.rect(
+            panel,
+            (74, 135, 219),
+            (challenge_rect.x, challenge_rect.y, 3, challenge_rect.height),
+            border_radius=2,
+        )
 
-        label_surf = self.smallfont.render("CHALLENGE", True, (105, 151, 228))
-        panel.blit(label_surf, (challenge_rect.x + 12, challenge_rect.y + 8))
+        button_y = challenge_rect.y + 8
+        button_x = (
+            challenge_rect.right
+            - 8
+            - sum(challenge_button_widths)
+            - 7
+        )
+        mission_chip_rect = pygame.Rect(
+            challenge_rect.x + 8,
+            challenge_rect.y + 8,
+            max(80, button_x - challenge_rect.x - 16),
+            mission_chip_h,
+        )
+        mission_chip_layer = pygame.Surface(mission_chip_rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(
+            mission_chip_layer,
+            (16, 31, 52),
+            mission_chip_layer.get_rect(),
+            border_radius=5,
+        )
+        pygame.draw.rect(
+            mission_chip_layer,
+            theme_color,
+            mission_chip_layer.get_rect(),
+            1,
+            border_radius=5,
+        )
+        pygame.draw.rect(
+            mission_chip_layer,
+            theme_color,
+            (0, 3, 4, mission_chip_rect.height - 6),
+            border_radius=2,
+        )
+        mission_chip_layer.blit(
+            mission_chip_surf,
+            (
+                11,
+                mission_chip_rect.height // 2 - mission_chip_surf.get_height() // 2,
+            ),
+        )
+        mission_chip_vis = min(
+            entry_progress(0.095, 0.17),
+            exit_visibility(2),
+        )
+        blit_faded(
+            panel,
+            mission_chip_layer,
+            mission_chip_rect.topleft,
+            mission_chip_vis,
+            (-16, 0),
+        )
 
-        button_y = challenge_rect.y + 15
-        hint_text = "Hide Hint" if self.mission_show_hint else "Show Hint"
-        all_text = "Show Less" if self.mission_show_all else "Show All"
-        button_specs = [(all_text, "all"), (hint_text, "hint")]
-        button_widths = [max(88, self.smallfont.size(text)[0] + 24) for text, _kind in button_specs]
-        button_x = challenge_rect.right - 10 - sum(button_widths) - 8
-
-        detail_text = selector_hint or mission_name or "No mission loaded"
-        if mission_name and mission_name.strip().lower() not in {"challenge", detail_text.strip().lower()}:
-            detail_text = f"{mission_name}: {detail_text}" if detail_text else mission_name
-        detail_left = challenge_rect.x + 12
-        max_detail_w = max(80, button_x - detail_left - 12)
-        while self.smallfont.size(detail_text)[0] > max_detail_w and len(detail_text) > 4:
-            detail_text = detail_text[:-4].rstrip() + "..."
-        detail_surf = self.smallfont.render(detail_text, True, (218, 224, 235))
-        panel.blit(detail_surf, (detail_left, challenge_rect.y + 31))
-
-        for (text, kind), button_w in zip(button_specs, button_widths):
-            rect = pygame.Rect(button_x, button_y, button_w, 30)
-            hovered = rect.move(panel_x, panel_y).collidepoint(pygame.mouse.get_pos())
+        for (text, kind), button_w in zip(
+            challenge_button_specs,
+            challenge_button_widths,
+        ):
+            rect = pygame.Rect(
+                button_x,
+                button_y,
+                button_w,
+                challenge_button_h,
+            )
+            hovered = rect.move(panel_x, panel_y).collidepoint(
+                pygame.mouse.get_pos()
+            )
             active = self.mission_show_all if kind == "all" else self.mission_show_hint
             fill = (23, 39, 63) if not active else (37, 45, 78)
             if hovered:
                 fill = tuple(min(255, c + 12) for c in fill)
-            pygame.draw.rect(panel, fill, rect, border_radius=4)
-            pygame.draw.rect(panel, (91, 111, 148), rect, 1, border_radius=4)
+            button_layer = pygame.Surface(rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(button_layer, fill, button_layer.get_rect(), border_radius=4)
+            pygame.draw.rect(
+                button_layer,
+                (91, 111, 148),
+                button_layer.get_rect(),
+                1,
+                border_radius=4,
+            )
             text_surf = self.smallfont.render(text, True, (228, 233, 242))
-            panel.blit(text_surf, (rect.centerx - text_surf.get_width() // 2, rect.centery - text_surf.get_height() // 2))
-            global_rect = rect.move(panel_x, panel_y)
-            if kind == "all":
-                self.mission_toggle_rect = global_rect
+            button_layer.blit(
+                text_surf,
+                (
+                    rect.width // 2 - text_surf.get_width() // 2,
+                    rect.height // 2 - text_surf.get_height() // 2,
+                ),
+            )
+            button_order = 0 if kind == "hint" else 1
+            button_vis = min(
+                entry_progress(0.115 + button_order * 0.035, 0.16),
+                exit_visibility(1 + button_order),
+            )
+            animated_button_x = rect.x + int(round((1.0 - button_vis) * 14.0))
+            blit_faded(
+                panel,
+                button_layer,
+                (rect.x, rect.y),
+                button_vis,
+                (14, 0),
+            )
+            global_rect = pygame.Rect(
+                panel_x + animated_button_x,
+                panel_y + rect.y,
+                rect.width,
+                rect.height,
+            )
+            if not is_exiting and button_vis >= 0.90:
+                if kind == "all":
+                    self.mission_toggle_rect = global_rect
+                else:
+                    self.mission_hint_rect = global_rect
+            button_x += button_w + 7
+
+        instruction_y = challenge_rect.y + 8 + challenge_top_h + 6
+        instruction_x = challenge_rect.x + 10
+        instruction_vis = min(
+            entry_progress(0.15, 0.18),
+            exit_visibility(1),
+        )
+        for instruction_index, instruction_surf in enumerate(instruction_surfs):
+            if is_exiting:
+                line_vis = instruction_vis
             else:
-                self.mission_hint_rect = global_rect
-            button_x += button_w + 8
+                line_vis = instruction_vis * _mission_element_intro_progress(
+                    self._mission_intro_phase,
+                    0.15 + instruction_index * 0.025,
+                    0.16,
+                )
+            line_vis = max(0.0, min(1.0, line_vis))
+            blit_faded(
+                panel,
+                instruction_surf,
+                (instruction_x, instruction_y),
+                line_vis,
+                (0, 6),
+            )
+            instruction_y += instruction_surf.get_height() + instruction_gap
 
-        if mission_done:
-            done_text = self.smallfont.render("DONE", True, (105, 214, 158))
-            done_w = done_text.get_width() + 20
-            done_rect = pygame.Rect(challenge_rect.x + 100, challenge_rect.y + 5, done_w, 21)
-            pygame.draw.rect(panel, (12, 44, 37), done_rect, border_radius=4)
-            pygame.draw.rect(panel, (56, 141, 105), done_rect, 1, border_radius=4)
-            pygame.draw.circle(panel, (105, 214, 158), (done_rect.x + 9, done_rect.centery), 3)
-            panel.blit(done_text, (done_rect.x + 15, done_rect.centery - done_text.get_height() // 2))
-
-        cursor_y = challenge_rect.bottom + 10
+        cursor_y = challenge_rect.bottom + 8
 
         if timer_h:
             timer_rect = pygame.Rect(pad, cursor_y, inner_w, timer_h - 8)
@@ -1718,141 +2734,325 @@ class MasterOverlay:
                 pygame.draw.rect(panel, color, (bar.x, bar.y, int(bar.width * frac), bar.height), border_radius=2)
             cursor_y += timer_h
 
-        if note_lines:
-            note_rect = pygame.Rect(pad, cursor_y, inner_w, note_h - 6)
-            pygame.draw.rect(panel, (12, 21, 37), note_rect, border_radius=4)
-            pygame.draw.rect(panel, (55, 69, 97), note_rect, 1, border_radius=4)
-            ny = note_rect.y + 7
-            for line in note_lines:
-                surf = self.smallfont.render(line, True, (190, 200, 216))
-                panel.blit(surf, (note_rect.x + 9, ny))
-                ny += self.smallfont.get_height()
-            cursor_y += note_h
+        if note_h > 0:
+            note_rect = pygame.Rect(pad, cursor_y, inner_w, note_h)
+            note_layer = pygame.Surface(note_rect.size, pygame.SRCALPHA)
+            pygame.draw.rect(note_layer, (8, 17, 31, 242), note_layer.get_rect(), border_radius=6)
+            pygame.draw.rect(note_layer, (58, 78, 111, 225), note_layer.get_rect(), 1, border_radius=6)
+            pygame.draw.line(
+                note_layer,
+                (78, 142, 225, 220),
+                (12, 1),
+                (note_rect.width - 12, 1),
+                2,
+            )
+            note_layer.blit(hint_label_surf, (12, 8))
+            note_y = 8 + hint_label_surf.get_height() + 4
+            for surf in note_line_surfs:
+                note_layer.blit(surf, (12, note_y))
+                note_y += surf.get_height() + note_line_gap
+            note_vis = min(
+                entry_progress(0.175, 0.18),
+                exit_visibility(0),
+            )
+            blit_faded(
+                panel,
+                note_layer,
+                note_rect.topleft,
+                note_vis,
+                (0, 8),
+            )
+            cursor_y += note_h + note_gap
 
         list_y = cursor_y
         list_h = max(0, visible_rows * row_h + max(0, visible_rows - 1) * row_gap)
         old_clip = panel.get_clip()
-        if collapsed_scroll:
+        compact_complete = bool(mission_done and (self._mission_hold_frames > 0 or self._toast_phase > 0.0))
+        if collapsed_scroll and not compact_complete:
             panel.set_clip(pygame.Rect(pad, list_y, inner_w, list_h))
 
-        for display_order, (idx, step) in enumerate(visible_steps):
-            if collapsed_scroll:
-                row_y = list_y + int(round((idx - scroll_pos) * (row_h + row_gap)))
-            else:
-                row_y = list_y + display_order * (row_h + row_gap)
+        if compact_complete:
+            hold_elapsed_frames = max(
+                0,
+                self._mission_hold_duration_frames - self._mission_hold_frames,
+            )
+            badge_alpha, slide_progress, title_lock, sheen_progress = _mission_complete_badge_progress(
+                hold_elapsed_frames,
+                self._mission_hold_duration_frames,
+            )
+            complete_rect = pygame.Rect(pad, list_y, inner_w, max(84, list_h + footer_h - 2))
+            complete_layer = pygame.Surface((complete_rect.width, complete_rect.height), pygame.SRCALPHA)
 
-            row_intro = _mission_row_intro_progress(self._mission_intro_phase, display_order)
-            row_shift = int(round((1.0 - row_intro) * 32.0))
-            row_layer = pygame.Surface((inner_w, row_h), pygame.SRCALPHA)
-            is_done = idx < completed_count
-            is_current = idx == current_index and not mission_done
-
-            if isinstance(step, dict):
-                move_text = str(step.get("display") or "").strip() or " / ".join(step.get("labels", []))
-                input_text = str(step.get("input") or "").strip()
-                step_color_name = str(step.get("color") or "").lower()
-            elif isinstance(step, list):
-                move_text = " / ".join(str(v) for v in step)
-                input_text = ""
-                step_color_name = ""
-            else:
-                move_text = str(step)
-                input_text = ""
-                step_color_name = ""
-
-            accent = {
-                "yellow": (201, 174, 88),
-                "green": (85, 190, 137),
-                "blue": (78, 139, 225),
-            }.get(step_color_name, (90, 119, 170))
-
-            if is_done:
-                row_fill = (9, 20, 31, 236)
-                border = (49, 77, 87)
-            elif is_current:
-                row_fill = (13, 29, 52, 242)
-                border = (91, 84, 159)
-            else:
-                row_fill = (10, 19, 33, 224)
-                border = (43, 56, 79)
-
-            pygame.draw.rect(row_layer, row_fill, row_layer.get_rect(), border_radius=4)
-            pygame.draw.rect(row_layer, border, row_layer.get_rect(), 1, border_radius=4)
-            pygame.draw.rect(row_layer, accent, (0, 3, 4, row_h - 6), border_radius=2)
-
-            # The wipe darkens the row body, while status and labels remain
-            # readable afterward so completed work is still obvious.
-            if is_done:
-                t = self.step_anim.get(idx, 0.0)
-                _draw_mission_completion_wipe(
-                    row_layer,
-                    1.0 - max(0.0, min(1.0, t)),
-                    theme_color,
+            # A restrained navy-to-blue gradient gives the badge depth without
+            # taking over the whole HUD.
+            height = max(1, complete_layer.get_height())
+            for row_y in range(height):
+                frac = row_y / max(1, height - 1)
+                center = max(0.0, 1.0 - abs(frac - 0.48) * 2.25)
+                r = int(7 + 8 * frac + 4 * center)
+                g = int(15 + 18 * frac + 8 * center)
+                b = int(30 + 25 * frac + 14 * center)
+                pygame.draw.line(
+                    complete_layer,
+                    (r, g, b, int(242 * badge_alpha)),
+                    (0, row_y),
+                    (complete_layer.get_width(), row_y),
                 )
 
-            status_cx = 20
-            status_cy = row_h // 2
-            if is_done:
-                pygame.draw.circle(row_layer, (22, 66, 55), (status_cx, status_cy), 9)
-                pygame.draw.circle(row_layer, (83, 189, 137), (status_cx, status_cy), 9, 1)
-                pygame.draw.lines(row_layer, (113, 222, 164), False, [
-                    (status_cx - 4, status_cy), (status_cx - 1, status_cy + 3), (status_cx + 5, status_cy - 4)
-                ], 2)
-            elif is_current:
-                pygame.draw.polygon(row_layer, (103, 157, 235), [
-                    (status_cx - 4, status_cy - 6),
-                    (status_cx + 6, status_cy),
-                    (status_cx - 4, status_cy + 6),
-                ])
-            else:
-                pygame.draw.circle(row_layer, (62, 79, 106), (status_cx, status_cy), 8, 1)
+            pygame.draw.rect(
+                complete_layer,
+                (65, 88, 124, int(220 * badge_alpha)),
+                complete_layer.get_rect(),
+                1,
+                border_radius=7,
+            )
 
-            number_surf = self.font.render(str(idx + 1), True, accent if not is_done else (125, 146, 158))
-            row_layer.blit(number_surf, (39, status_cy - number_surf.get_height() // 2))
-            pygame.draw.line(row_layer, (44, 57, 79), (76, 6), (76, row_h - 6), 1)
+            # Side wings slide inward and lock around the title.
+            wing_offset = int(round((1.0 - slide_progress) * 34.0))
+            wing_y = complete_layer.get_height() // 2
+            left_end = complete_layer.get_width() // 2 - 118
+            right_start = complete_layer.get_width() // 2 + 118
+            pygame.draw.line(
+                complete_layer,
+                (87, 162, 238, int(230 * badge_alpha)),
+                (18 - wing_offset, wing_y),
+                (left_end - wing_offset, wing_y),
+                3,
+            )
+            pygame.draw.line(
+                complete_layer,
+                (125, 92, 205, int(220 * badge_alpha)),
+                (right_start + wing_offset, wing_y),
+                (complete_layer.get_width() - 18 + wing_offset, wing_y),
+                3,
+            )
 
-            move_color = (224, 231, 241) if not is_done else (145, 158, 171)
-            max_move_w = max(80, inner_w - 270)
-            shown_move = move_text
-            while self.font.size(shown_move)[0] > max_move_w and len(shown_move) > 4:
-                shown_move = shown_move[:-4].rstrip() + "..."
-            move_surf = self.font.render(shown_move, True, move_color)
-            row_layer.blit(move_surf, (89, status_cy - move_surf.get_height() // 2))
+            accent_y = complete_layer.get_height() - 8
+            accent_half = int((complete_layer.get_width() // 2 - 28) * slide_progress)
+            pygame.draw.line(
+                complete_layer,
+                (75, 138, 225, int(220 * badge_alpha)),
+                (complete_layer.get_width() // 2 - accent_half, accent_y),
+                (complete_layer.get_width() // 2 - 10, accent_y),
+                2,
+            )
+            pygame.draw.line(
+                complete_layer,
+                (104, 77, 171, int(205 * badge_alpha)),
+                (complete_layer.get_width() // 2 + 10, accent_y),
+                (complete_layer.get_width() // 2 + accent_half, accent_y),
+                2,
+            )
 
-            input_surf = self._render_mission_input_notation(input_text, accent)
-            input_right = inner_w - 10
-            if input_surf is not None:
-                row_layer.blit(input_surf, (input_right - input_surf.get_width(), status_cy - input_surf.get_height() // 2))
-                input_right -= input_surf.get_width() + 10
+            title_font = pygame.font.SysFont("consolas", 24, bold=True)
+            subtitle_font = pygame.font.SysFont("consolas", 15, bold=True)
+            title = title_font.render("MISSION COMPLETE", True, (236, 243, 252))
+            title_scale = 0.90 + 0.10 * title_lock
+            pulse = 1.0 + 0.025 * max(0.0, 1.0 - abs(float(hold_elapsed_frames) - 18.0) / 8.0)
+            title_scale *= pulse
+            scaled_title = pygame.transform.smoothscale(
+                title,
+                (
+                    max(1, int(round(title.get_width() * title_scale))),
+                    max(1, int(round(title.get_height() * title_scale))),
+                ),
+            )
+            title_x = complete_layer.get_width() // 2 - scaled_title.get_width() // 2
+            title_y = max(10, complete_layer.get_height() // 2 - scaled_title.get_height() - 4)
+            scaled_title.set_alpha(int(255 * badge_alpha * title_lock))
+            complete_layer.blit(scaled_title, (title_x, title_y))
 
-            if is_done:
-                done = self.smallfont.render("DONE", True, (102, 205, 151))
-                chip = pygame.Rect(input_right - done.get_width() - 20, status_cy - 10, done.get_width() + 18, 20)
-                pygame.draw.rect(row_layer, (12, 42, 35), chip, border_radius=4)
-                pygame.draw.rect(row_layer, (50, 116, 90), chip, 1, border_radius=4)
-                row_layer.blit(done, (chip.x + 9, chip.centery - done.get_height() // 2))
-            elif is_current:
-                current = self.smallfont.render("CURRENT", True, (151, 139, 226))
-                chip = pygame.Rect(input_right - current.get_width() - 20, status_cy - 10, current.get_width() + 18, 20)
-                pygame.draw.rect(row_layer, (30, 26, 56), chip, border_radius=4)
-                pygame.draw.rect(row_layer, (84, 72, 140), chip, 1, border_radius=4)
-                row_layer.blit(current, (chip.x + 9, chip.centery - current.get_height() // 2))
+            subline = mission_name.upper() + " CLEARED" if mission_name else "CHALLENGE CLEARED"
+            subtitle = subtitle_font.render(subline, True, (110, 178, 245))
+            subtitle_alpha = badge_alpha * _mission_intro_ease(max(0.0, hold_elapsed_frames - 8.0) / 10.0)
+            subtitle.set_alpha(int(255 * subtitle_alpha))
+            subtitle_x = complete_layer.get_width() // 2 - subtitle.get_width() // 2
+            subtitle_y = complete_layer.get_height() // 2 + 5 + int(round((1.0 - slide_progress) * 8.0))
+            complete_layer.blit(subtitle, (subtitle_x, subtitle_y))
 
-            row_layer.set_alpha(int(255 * row_intro))
-            panel.blit(row_layer, (pad + row_shift, row_y))
+            # One diagonal polish pass crosses the whole badge after it locks.
+            if 0.0 < sheen_progress < 1.0:
+                sheen = pygame.Surface(
+                    (complete_layer.get_width() + 40, complete_layer.get_height() + 16),
+                    pygame.SRCALPHA,
+                )
+                ridge_x = int(round(-24 + (complete_layer.get_width() + 56) * sheen_progress))
+                ridge_w = max(18, complete_layer.get_width() // 14)
+                pygame.draw.polygon(
+                    sheen,
+                    (215, 239, 255, int(55 * badge_alpha)),
+                    [
+                        (ridge_x - ridge_w, 0),
+                        (ridge_x + 2, 0),
+                        (ridge_x + ridge_w, sheen.get_height()),
+                        (ridge_x - 2, sheen.get_height()),
+                    ],
+                )
+                pygame.draw.line(
+                    sheen,
+                    (248, 253, 255, int(170 * badge_alpha)),
+                    (ridge_x, 0),
+                    (ridge_x + ridge_w, sheen.get_height()),
+                    2,
+                )
+                complete_layer.blit(sheen, (-20, -8), special_flags=pygame.BLEND_RGBA_ADD)
 
-        if collapsed_scroll:
+            # Small deterministic glints add impact without turning into confetti.
+            glint_phase = min(1.0, max(0.0, (hold_elapsed_frames - 10.0) / 16.0))
+            glint_alpha = int(150 * badge_alpha * glint_phase)
+            for index, x_frac in enumerate((0.18, 0.32, 0.68, 0.82)):
+                gx = int(complete_layer.get_width() * x_frac)
+                gy = 15 + (index % 2) * max(6, complete_layer.get_height() - 34)
+                pygame.draw.circle(complete_layer, (175, 220, 255, glint_alpha), (gx, gy), 2)
+
+            slide_x = int(round((1.0 - slide_progress) * 18.0))
+            panel.blit(complete_layer, (complete_rect.x + slide_x, complete_rect.y))
+        else:
+            for display_order, (idx, step) in enumerate(visible_steps):
+                if collapsed_scroll:
+                    row_y = list_y + int(round((idx - scroll_pos) * (row_h + row_gap)))
+                else:
+                    row_y = list_y + display_order * (row_h + row_gap)
+
+                if is_exiting:
+                    exit_order = max(0, visible_rows - 1 - display_order)
+                    row_exit = _mission_element_exit_progress(
+                        transition_progress,
+                        exit_order,
+                        0.055,
+                    )
+                    row_intro = 1.0 - row_exit
+                    row_shift = -int(round(row_exit * 38.0))
+                else:
+                    row_intro = _mission_row_intro_progress(
+                        self._mission_intro_phase,
+                        display_order,
+                    )
+                    row_shift = int(round((1.0 - row_intro) * 32.0))
+                row_layer = pygame.Surface((inner_w, row_h), pygame.SRCALPHA)
+                is_done = idx < completed_count
+                is_current = idx == current_index and not mission_done
+
+                if isinstance(step, dict):
+                    move_text = str(step.get("display") or "").strip() or " / ".join(step.get("labels", []))
+                    input_text = str(step.get("input") or "").strip()
+                    step_color_name = str(step.get("color") or "").lower()
+                elif isinstance(step, list):
+                    move_text = " / ".join(str(v) for v in step)
+                    input_text = ""
+                    step_color_name = ""
+                else:
+                    move_text = str(step)
+                    input_text = ""
+                    step_color_name = ""
+
+                accent = {
+                    "yellow": (201, 174, 88),
+                    "green": (85, 190, 137),
+                    "blue": (78, 139, 225),
+                }.get(step_color_name, (90, 119, 170))
+
+                if is_done:
+                    row_fill = (9, 20, 31, 236)
+                    border = (49, 77, 87)
+                elif is_current:
+                    row_fill = (13, 29, 52, 242)
+                    border = (91, 84, 159)
+                else:
+                    row_fill = (10, 19, 33, 224)
+                    border = (43, 56, 79)
+
+                pygame.draw.rect(row_layer, row_fill, row_layer.get_rect(), border_radius=4)
+                pygame.draw.rect(row_layer, border, row_layer.get_rect(), 1, border_radius=4)
+                pygame.draw.rect(row_layer, accent, (0, 3, 4, row_h - 6), border_radius=2)
+
+                # The wipe darkens the row body, while status and labels remain
+                # readable afterward so completed work is still obvious.
+                if is_done:
+                    t = self.step_anim.get(idx, 0.0)
+                    _draw_mission_completion_wipe(
+                        row_layer,
+                        1.0 - max(0.0, min(1.0, t)),
+                        theme_color,
+                    )
+
+                status_cx = 20
+                status_cy = row_h // 2
+                if is_done:
+                    pygame.draw.circle(row_layer, (22, 66, 55), (status_cx, status_cy), 9)
+                    pygame.draw.circle(row_layer, (83, 189, 137), (status_cx, status_cy), 9, 1)
+                    pygame.draw.lines(row_layer, (113, 222, 164), False, [
+                        (status_cx - 4, status_cy), (status_cx - 1, status_cy + 3), (status_cx + 5, status_cy - 4)
+                    ], 2)
+                elif is_current:
+                    pygame.draw.polygon(row_layer, (103, 157, 235), [
+                        (status_cx - 4, status_cy - 6),
+                        (status_cx + 6, status_cy),
+                        (status_cx - 4, status_cy + 6),
+                    ])
+                else:
+                    pygame.draw.circle(row_layer, (62, 79, 106), (status_cx, status_cy), 8, 1)
+
+                number_surf = self.font.render(str(idx + 1), True, accent if not is_done else (125, 146, 158))
+                row_layer.blit(number_surf, (39, status_cy - number_surf.get_height() // 2))
+                pygame.draw.line(row_layer, (44, 57, 79), (72, 5), (72, row_h - 5), 1)
+
+                move_color = (224, 231, 241) if not is_done else (145, 158, 171)
+                max_move_w = max(80, inner_w - 270)
+                shown_move = move_text
+                while self.font.size(shown_move)[0] > max_move_w and len(shown_move) > 4:
+                    shown_move = shown_move[:-4].rstrip() + "..."
+                move_surf = self.font.render(shown_move, True, move_color)
+                row_layer.blit(move_surf, (84, status_cy - move_surf.get_height() // 2))
+
+                input_surf = self._render_mission_input_notation(input_text, accent)
+                input_right = inner_w - 10
+                if input_surf is not None:
+                    row_layer.blit(input_surf, (input_right - input_surf.get_width(), status_cy - input_surf.get_height() // 2))
+                    input_right -= input_surf.get_width() + 10
+
+                if is_done:
+                    done = self.smallfont.render("DONE", True, (102, 205, 151))
+                    chip = pygame.Rect(input_right - done.get_width() - 20, status_cy - 10, done.get_width() + 18, 20)
+                    pygame.draw.rect(row_layer, (12, 42, 35), chip, border_radius=4)
+                    pygame.draw.rect(row_layer, (50, 116, 90), chip, 1, border_radius=4)
+                    row_layer.blit(done, (chip.x + 9, chip.centery - done.get_height() // 2))
+                elif is_current:
+                    current = self.smallfont.render("CURRENT", True, (151, 139, 226))
+                    chip = pygame.Rect(input_right - current.get_width() - 20, status_cy - 10, current.get_width() + 18, 20)
+                    pygame.draw.rect(row_layer, (30, 26, 56), chip, border_radius=4)
+                    pygame.draw.rect(row_layer, (84, 72, 140), chip, 1, border_radius=4)
+                    row_layer.blit(current, (chip.x + 9, chip.centery - current.get_height() // 2))
+
+                row_layer.set_alpha(int(255 * row_intro))
+                panel.blit(row_layer, (pad + row_shift, row_y))
+
+        if collapsed_scroll and not compact_complete:
             panel.set_clip(old_clip)
 
-        if collapsed_scroll:
+        if collapsed_scroll and not compact_complete:
             footer = self.smallfont.render(
                 f"Showing {footer_start + 1}-{footer_end} of {total_steps}",
                 True,
                 (126, 139, 159),
             )
-            panel.blit(footer, (pad, panel_h - pad - footer.get_height()))
+            footer_vis = min(entry_progress(0.20, 0.15), exit_visibility(0))
+            blit_faded(
+                panel,
+                footer,
+                (pad, panel_h - pad - footer.get_height()),
+                footer_vis,
+                (0, 5),
+            )
 
-        panel.set_alpha(int(255 * panel_intro))
+        panel_exit_alpha = 1.0
+        if is_exiting:
+            panel_exit_alpha = 1.0 - _mission_intro_ease(
+                (transition_progress - 0.52) / 0.48
+            )
+        panel.set_alpha(
+            int(255 * panel_intro * max(0.0, min(1.0, panel_exit_alpha)))
+        )
         self.screen.blit(panel, (panel_x, panel_y))
 
     def draw_mission_overlay(self) -> None:
@@ -1866,7 +3066,8 @@ class MasterOverlay:
         if self.screen is None or self.font is None or self.smallfont is None:
             return
 
-        data = self._mission_hold_data if self._mission_hold_frames > 0 else (self.mission_overlay_data or {})
+        display_payload = self._mission_display_payload()
+        data = self._mission_hold_data if self._mission_hold_frames > 0 else display_payload
         character = data.get("character") or "Unknown"
         theme_color = self._char_theme_color(character)
         mission_name = data.get("active_mission_name") or "No mission loaded"
@@ -2030,6 +3231,8 @@ class MasterOverlay:
                 goal_current_frames=goal_current_frames,
                 goal_needed_frames=goal_needed_frames,
                 goal_timer_active=goal_timer_active,
+                transition_mode=self._mission_transition_state,
+                transition_progress=self._mission_transition_phase,
             )
 
 
@@ -2106,7 +3309,6 @@ class MasterOverlay:
                     self.hud_renderer.on_resize(self.w, self.h)
 
                 self.draw_mission_overlay()
-                self.draw_celebration()
                 self.draw_master_debug(dt)
 
                 self.present()

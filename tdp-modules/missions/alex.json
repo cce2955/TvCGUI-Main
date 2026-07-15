@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "alex_001",
-      "name": "Power Reset",
+      "name": "Powerbomb Reset",
       "notes": "You can get more damage off a Powerbomb for the reset.",
       "steps": [
         {
@@ -50,7 +50,7 @@
     },
     {
       "mission_id": "alex_003",
-      "name": "Stomp Route",
+      "name": "Low Chain Stomp",
       "notes": "Double low into elbow chain.",
       "steps": [
         {
@@ -79,7 +79,7 @@
     {
       "mission_id": "alex_004",
       "name": "Machine Gun Chop",
-      "notes": "Yes I see the bug on this one and I wanted to fix it, but also lke.....I don't",
+      "notes": "Yes I see the bug on this one and I wanted to fix it, but also lke.....I don't.",
       "setup_debug_flags": {
         "CpuGuard": 2
       },
@@ -91,7 +91,7 @@
     },
     {
       "mission_id": "alex_005",
-      "name": "Low Stomp",
+      "name": "6C Confirm",
       "notes": "Low starter into stomp ender.",
       "steps": [
         {
@@ -115,7 +115,7 @@
     },
     {
       "mission_id": "alex_006",
-      "name": "Heavy Stomp",
+      "name": "Charge Practice",
       "notes": "Heavy starter into stomp ender.",
       "steps": [
         {
@@ -136,7 +136,7 @@
     },
     {
       "mission_id": "alex_007",
-      "name": "Suplex",
+      "name": "Suplex Setup",
       "notes": "Flash Chop B into Baroque extension, then Powerbomb.",
       "steps": [
         {
@@ -160,11 +160,14 @@
         {
           "label": "Powerbomb"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "alex_008",
-      "name": "Stungun Loop",
+      "name": "Stungun Followup",
       "notes": "",
       "steps": [
         {
@@ -181,7 +184,8 @@
         },
         {
           "label": "Stungun Near",
-          "input": "421L+M"
+          "input": "421L+M",
+          "pass": true
         },
         {
           "label": "2B"
@@ -202,7 +206,7 @@
     {
       "mission_id": "alex_009",
       "name": "Baroque BnB",
-      "notes": "Baroque route into Wild Stomp C.The beginning needs some space of the elbow slash won't work, also the j.B should be used with an IAD",
+      "notes": "Start with some space so Slash Elbow connects properly. Immediately after the Baroque Cancel, use an IAD j.B.",
       "steps": [
         {
           "label": "2A"
@@ -238,12 +242,15 @@
           "label": "Wild Stomp C",
           "input": "[2]8X"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "alex_010",
       "name": "Corner Damage",
-      "notes": "Corner only. As you may have noticed by looking at this hint if you're too close to the corner they'll fly away from it, this engine is a rollercoaster",
+      "notes": "Corner only. As you may have noticed by looking at this hint if you're too close to the corner they'll fly away from it, this engine is a rollercoaster.",
       "steps": [
         {
           "label": "2B"
@@ -298,12 +305,15 @@
           "label": "Wild Stomp C",
           "input": "[2]8X"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "alex_011",
       "name": "Hyper Route",
-      "notes": "Get Hype",
+      "notes": "Get Hype.",
       "steps": [
         {
           "label": "5A"
@@ -336,12 +346,15 @@
           "label": "Hyperbomb",
           "input": "360"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "alex_012",
       "name": "Challenge",
-      "notes": "Some moves are missing, fill in the blank",
+      "notes": "Some moves are missing, fill in the blank.",
       "steps": [
         {
           "label": "Slash Elbow M",
@@ -370,11 +383,12 @@
     {
       "mission_id": "alex_013",
       "name": "Challenge 2",
-      "notes": "A hit after stungun always produces an airborne hit, but what if there was a way to cancel it out? Some moves are missing, fill in the blanks ",
+      "notes": "A hit after stungun always produces an airborne hit, but what if there was a way to cancel it out? Some moves are missing, fill in the blanks.",
       "steps": [
         {
           "label": "Stungun Near",
-          "input": "421L+M"
+          "input": "421L+M",
+          "pass": true
         },
         {
           "label": "Flash Chop B"
@@ -388,7 +402,7 @@
     {
       "mission_id": "alex_014",
       "name": "Special Challenge",
-      "notes": "Do 30000 damage in a single combo. Baroque is locked to 20%.",
+      "notes": "Do 45,000 damage in a single combo. Baroque is locked to 20%.",
       "setup_debug_flags": {
         "BaroquePct": 2
       },
@@ -400,7 +414,7 @@
     {
       "mission_id": "alex_015",
       "name": "Special Challenge",
-      "notes": "Do 30000 damage in a single combo. Baroque is locked to 10%.",
+      "notes": "Do 45,000 damage in a single combo. Baroque is locked to 10%.",
       "setup_debug_flags": {
         "BaroquePct": 1
       },
@@ -412,7 +426,7 @@
     {
       "mission_id": "alex_016",
       "name": "VAR Powerbomb",
-      "notes": "",
+      "notes": "This mission starts with your non-Alex character. Use VAR to bring Alex in, then complete the route.",
       "steps": [
         {
           "label": "VAR"
@@ -427,8 +441,8 @@
     },
     {
       "mission_id": "alex_017",
-      "name": "Flash Chop Loop",
-      "notes": "",
+      "name": "Challenge 3",
+      "notes": "Some moves are missing. Fill in the blanks.",
       "steps": [
         {
           "label": "Flash Chop B"

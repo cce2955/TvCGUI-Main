@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "jun_001",
-      "name": "BnB",
+      "name": "Basic",
       "notes": "Basic launcher route.",
       "steps": [
         {
@@ -34,8 +34,8 @@
     },
     {
       "mission_id": "jun_002",
-      "name": "Kick Relaunch",
-      "notes": "Lightning Kick B into relaunch. There's a bug with 6C, investigating",
+      "name": "Midscreen BnB",
+      "notes": "Lightning Kick B into relaunch. There's a bug with 6C, investigating.",
       "steps": [
         {
           "label": "5A"
@@ -79,8 +79,8 @@
     },
     {
       "mission_id": "jun_003",
-      "name": "Corner Combo",
-      "notes": "Corner only, you can repeat this with a partner",
+      "name": "Corner BnB",
+      "notes": "Corner only, you can repeat this with a partner.",
       "steps": [
         {
           "label": "5A"
@@ -141,7 +141,7 @@
     },
     {
       "mission_id": "jun_004",
-      "name": "Swan Finish",
+      "name": "Corner Loop",
       "notes": "Long route into Dancing Swan A, then Yoyo A into Bingo.",
       "steps": [
         {

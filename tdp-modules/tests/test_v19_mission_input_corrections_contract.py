@@ -134,10 +134,11 @@ class V19MissionInputCorrectionContractTests(unittest.TestCase):
         found = self._step_inputs("karas.json")
         expected = {
             "Tobimizuchi": "63214X",
-            "Ukifune": "236",
+            "Ukifune": "236X",
             "Kasha C": "[4]6X",
             "Kasha Overhead": "6X",
-            "Yoinagi": "46C",
+            "Yoinagi": "236X",
+            "Yato": "46C",
         }
         for label, notation in expected.items():
             self.assertEqual(found[label], {notation})
@@ -165,6 +166,38 @@ class V19MissionInputCorrectionContractTests(unittest.TestCase):
         found = self._step_inputs("Joe_the_condor.json")
         self.assertEqual(found["Wild Lasso A"], {"46A"})
         self.assertEqual(found["Cactus Bunker A"], {"63214X"})
+        self.assertNotIn("Air Savage Shot A", found)
+        self.assertIn("Air Savage Shot B", found)
+
+    def test_soki_added_challenge_has_explicit_notation(self):
+        data = json.loads((APP_DIR / "missions" / "soki.json").read_text(encoding="utf-8"))
+        missions = data.get("missions", [])
+        mission = next(
+            item for item in missions
+            if item.get("mission_id") == "soki_012_combo"
+        )
+        block_index = next(
+            index for index, item in enumerate(missions)
+            if item.get("mission_id") == "soki_012"
+        )
+        self.assertLess(missions.index(mission), block_index)
+        self.assertEqual(
+            [(step.get("label"), step.get("input")) for step in mission.get("steps", [])],
+            [
+                ("5A", "A"),
+                ("5B", "B"),
+                ("6C", "6C"),
+                ("Issen", "B+C"),
+                ("Oni Tactics", "623XX"),
+                ("5A", "A"),
+                ("5B", "B"),
+                ("2B", "2B"),
+                ("5C", "C"),
+                ("6C", "6C"),
+                ("Slam A", "623A"),
+                ("Purification", "236XX"),
+            ],
+        )
 
     def test_non_giant_ground_throw_inputs_are_exact(self):
         self.assertEqual(self._step_inputs("soki.json")["Back Throw"], {"4C"})

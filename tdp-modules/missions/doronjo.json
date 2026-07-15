@@ -3,8 +3,8 @@
   "missions": [
     {
       "mission_id": "doronjo_001",
-      "name": "Combo Trial 001",
-      "notes": "A, 2A, A, B, 2C, C, 3C, j.A, j.B, j.C",
+      "name": "Basic",
+      "notes": "",
       "steps": [
         {
           "label": "5A"
@@ -16,10 +16,10 @@
           "label": "5A"
         },
         {
-          "label": "2B"
+          "label": "5B"
         },
         {
-          "label": "5C"
+          "label": "2B"
         },
         {
           "label": "3C"
@@ -40,8 +40,8 @@
     },
     {
       "mission_id": "doronjo_002",
-      "name": "Combo Trial 002",
-      "notes": "",
+      "name": "Resourceless Combo",
+      "notes": "This is a beginner setup. At best, it gives you oki.",
       "steps": [
         {
           "label": "5A"
@@ -69,8 +69,8 @@
     },
     {
       "mission_id": "doronjo_003",
-      "name": "Combo Trial 003",
-      "notes": "",
+      "name": "Pummel Route",
+      "notes": "Pummel does not combo, but Doronjo is free to set up Clutch, Rock, or an IAD during Pummel.",
       "steps": [
         {
           "label": "5A"
@@ -95,8 +95,8 @@
     },
     {
       "mission_id": "doronjo_004",
-      "name": "Combo Trial 004",
-      "notes": "This is for facing right",
+      "name": "Taunt Route",
+      "notes": "Start while facing right.",
       "setup_debug_flags": {
         "BaroquePct": 1
       },
@@ -152,8 +152,8 @@
     },
     {
       "mission_id": "doronjo_005",
-      "name": "Combo Trial 005",
-      "notes": "",
+      "name": "Tree Loop",
+      "notes": "You can call the second Tree as Rock is being thrown, then mash out 5B.",
       "setup_debug_flags": {
         "BaroquePct": 1
       },
@@ -220,7 +220,7 @@
     },
     {
       "mission_id": "doronjo_006",
-      "name": "Combo Trial 006",
+      "name": "Taunt Setup",
       "notes": "",
       "setup_debug_flags": {
         "BaroquePct": 1
@@ -292,7 +292,7 @@
     },
     {
       "mission_id": "doronjo_007",
-      "name": "Combo Trial 007",
+      "name": "Super Oki",
       "notes": "",
       "steps": [
         {
@@ -338,17 +338,25 @@
         {
           "label": "j.C"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "doronjo_008",
-      "name": "Combo Trial 008",
-      "notes": "Facing Corner",
-      "setup_debug_flags": {
-        "CpuAction": 4,
-        "P1Meter": 2
-      },
+      "name": "Doronjo Counter",
+      "notes": "",
       "steps": [
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "5C"
+        },
         {
           "label": "Doronjo Counter"
         },
@@ -367,12 +375,19 @@
         {
           "label": "j.C"
         }
-      ]
+      ],
+      "setup_megacrash_trainer": {
+        "enabled": true,
+        "mode": "targeted",
+        "target_label": "5C",
+        "delay_frames": 5,
+        "cooldown_sec": 2.0
+      }
     },
     {
       "mission_id": "doronjo_009",
       "name": "Challenge",
-      "notes": "",
+      "notes": "The first 3C must hit at the opponent's maximum jump height so Rock Abandon C hits earlier. After Rock Abandon, you can link 5A.",
       "setup_debug_flags": {
         "BaroquePct": 1
       },
@@ -414,6 +429,10 @@
         },
         {
           "label": "3C"
+        },
+        {
+          "label": "Rock Abandon C",
+          "input": "j.214C"
         },
         {
           "label": "5A"

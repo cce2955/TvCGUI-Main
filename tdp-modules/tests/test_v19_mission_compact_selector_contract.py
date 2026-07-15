@@ -42,15 +42,15 @@ class V19MissionCompactSelectorContractTests(unittest.TestCase):
 
     def test_compact_panel_has_smaller_width_cap(self):
         source = function_source(MASTER, "_draw_active_mission_panel")
-        self.assertIn("panel_w = max(560, min(int(self.w * 0.48), 820))", source)
-        self.assertNotIn("min(int(self.w * 0.52), 900)", source)
+        self.assertIn("panel_w = max(520, min(int(self.w * 0.43), 760))", source)
+        self.assertNotIn("min(int(self.w * 0.48), 820)", source)
 
     def test_compact_panel_reduces_vertical_spacing(self):
         source = function_source(MASTER, "_draw_active_mission_panel")
-        self.assertIn("pad = 11", source)
-        self.assertIn("row_gap = 4", source)
-        self.assertIn("challenge_h = 56", source)
-        self.assertIn("row_h = max(30", source)
+        self.assertIn("pad = 9", source)
+        self.assertIn("row_gap = 3", source)
+        self.assertIn("challenge_h = 48", source)
+        self.assertIn("row_h = max(27", source)
 
     def test_primary_and_nested_mission_managers_match(self):
         self.assertEqual(read(MANAGER), read(MANAGER_DUPLICATE))

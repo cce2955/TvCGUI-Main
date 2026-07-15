@@ -417,6 +417,171 @@ def _save_megacrash_trainer_config(state: dict) -> None:
         print(f"[megacrash trainer] config save failed: {e!r}")
 
 
+def _mission_megacrash_step_labels(step) -> list[str]:
+    if not isinstance(step, dict):
+        return []
+    labels = [str(value or "").strip() for value in (step.get("labels") or [])]
+    display = str(step.get("display") or "").strip()
+    if display:
+        labels.append(display)
+    return [label for label in labels if label]
+
+
+def _mission_megacrash_target_step_index(payload: dict, setup: dict) -> int | None:
+    target = _megacrash_norm_label((setup or {}).get("target_label", ""))
+    if not target:
+        return None
+    for index, step in enumerate((payload or {}).get("active_mission_steps") or []):
+        for label in _mission_megacrash_step_labels(step):
+            if _megacrash_norm_label(label) == target:
+                return index
+    return None
+
+
+def _mission_megacrash_victim_slot(payload: dict, snaps: dict) -> str | None:
+    slot = str((payload or {}).get("slot") or "")
+    attacker_team = "P1" if slot.startswith("P1") else "P2" if slot.startswith("P2") else ""
+    if not attacker_team:
+        snap = (snaps or {}).get(slot) or {}
+        attacker_team = str(snap.get("teamtag") or "")
+    if attacker_team not in {"P1", "P2"}:
+        return None
+    return _team_point_slot_for_megacrash(_opponent_teamtag(attacker_team), snaps or {})
+
+
+def _mission_megacrash_write_action(vic_snap: dict, key: str) -> list[int]:
+    try:
+        base = int((vic_snap or {}).get("base") or 0)
+    except Exception:
+        base = 0
+    if not base:
+        return []
+    written: list[int] = []
+    for off in MEGACRASH_TRAINER_WRITE_OFFSETS:
+        addr = base + int(off)
+        if not addr_in_ram(addr):
+            continue
+        if runtime_pm is not None:
+            ok = runtime_pm.write_u32(addr, MEGACRASH_MOVE_ID, key=key, dirty=False, force=True)
+        else:
+            ok = wd32(addr, MEGACRASH_MOVE_ID)
+        if ok:
+            written.append(addr)
+    return written
+
+
+def _tick_mission_megacrash_light(
+    state: dict,
+    payload: dict,
+    snaps: dict,
+    now: float,
+    frame_idx: int,
+) -> dict:
+    """Run a deterministic mission-only Megacrash trigger.
+
+    This path does not use the full trainer label, occurrence, combo-counter, or
+    cooldown machinery. The mission manager already knows when its configured
+    target step completed, so the light trigger watches that progress edge,
+    waits the mission-defined delay, then pins action 448 on the opposing point
+    until the game accepts it.
+    """
+    if not isinstance(state, dict):
+        state = {}
+    light = state.setdefault("mission_light", {})
+    setup = _extract_mission_megacrash_setup(payload)
+    mission_key = (
+        (payload or {}).get("slot"),
+        (payload or {}).get("character"),
+        (payload or {}).get("active_mission_id"),
+    ) if setup else None
+
+    pulse = light.get("pulse") if isinstance(light.get("pulse"), dict) else None
+    if pulse:
+        base = int(pulse.get("base") or 0)
+        live_snap = next(
+            (
+                snap for snap in (snaps or {}).values()
+                if isinstance(snap, dict) and int(snap.get("base") or 0) == base
+            ),
+            None,
+        )
+        accepted = _snap_primary_action_id(live_snap) == MEGACRASH_MOVE_ID if live_snap else False
+        if accepted or now >= float(pulse.get("end", 0.0) or 0.0):
+            light.pop("pulse", None)
+        elif live_snap:
+            _mission_megacrash_write_action(live_snap, "megacrash:mission-light-pulse")
+
+    if not setup or not bool(setup.get("enabled", True)):
+        if light.get("mission_key") is not None:
+            light.clear()
+        return state
+
+    if light.get("mission_key") != mission_key:
+        light.clear()
+        light["mission_key"] = mission_key
+        light["last_completed"] = 0
+        light["triggered"] = False
+
+    target_index = _mission_megacrash_target_step_index(payload, setup)
+    if target_index is None:
+        light["last_error"] = "target step not found"
+        return state
+
+    completed = max(0, int((payload or {}).get("completed_step_count", 0) or 0))
+    last_completed = max(0, int(light.get("last_completed", 0) or 0))
+
+    # A mission failure or retry re-arms the exact configured step.
+    if completed <= target_index and completed < last_completed:
+        light.pop("fire_frame", None)
+        light["triggered"] = False
+        light.pop("pulse", None)
+
+    crossed = last_completed <= target_index < completed
+    if crossed and not bool(light.get("triggered", False)):
+        delay = _clamp_megacrash_delay_frames(setup.get("delay_frames", 0))
+        light["fire_frame"] = int(frame_idx) + delay
+        light["triggered"] = True
+        light["target_index"] = target_index
+        print(
+            f"[mission megacrash] armed {mission_key[2]} "
+            f"after {setup.get('target_label')} +{delay}f"
+        )
+
+    fire_frame = light.get("fire_frame")
+    if fire_frame is not None and int(frame_idx) >= int(fire_frame):
+        victim_slot = _mission_megacrash_victim_slot(payload, snaps)
+        victim = (snaps or {}).get(victim_slot) if victim_slot else None
+        if isinstance(victim, dict):
+            addrs = _mission_megacrash_write_action(victim, "megacrash:mission-light-start")
+            if addrs:
+                try:
+                    base = int(victim.get("base") or 0)
+                except Exception:
+                    base = 0
+                light["pulse"] = {
+                    "base": base,
+                    "slot": victim_slot,
+                    "addrs": addrs,
+                    "end": float(now) + 0.20,
+                }
+                light["last_trigger"] = {
+                    "frame": int(frame_idx),
+                    "slot": victim_slot,
+                    "mission_id": mission_key[2],
+                    "target_label": setup.get("target_label"),
+                }
+                light.pop("fire_frame", None)
+                print(
+                    f"[mission megacrash] trigger {victim_slot}: "
+                    f"{mission_key[2]} after {setup.get('target_label')}"
+                )
+        # If the point snapshot is momentarily unavailable, keep the schedule
+        # alive and retry next frame instead of silently losing the burst.
+
+    light["last_completed"] = completed
+    return state
+
+
 def _extract_mission_megacrash_setup(payload: dict) -> dict:
     if not isinstance(payload, dict) or not payload.get("active"):
         return {}
@@ -460,31 +625,121 @@ def _clear_megacrash_runtime_state(state: dict) -> None:
 
 
 def _sync_mission_megacrash_trainer(state: dict, payload: dict) -> dict:
-    """Keep Mission Mode and the Megacrash Trainer completely independent."""
+    """Apply mission-scoped Megacrash setup and restore user settings afterward.
+
+    Mission JSON may define ``setup_megacrash_trainer`` for routes that require
+    a deterministic forced burst. The override exists only while that exact
+    mission is active, never persists as enabled, and restores the operator's
+    prior trainer settings when Mission Mode closes or changes missions.
+    """
     if not isinstance(state, dict):
         state = _load_megacrash_trainer_config()
 
-    # Older builds could apply a mission-scoped Megacrash override. If one is
-    # still active in this runtime, restore the user's saved trainer settings
-    # once, then discard all mission override state.
+    setup = _extract_mission_megacrash_setup(payload)
+    mission_key = None
+    if setup:
+        mission_key = (
+            payload.get("slot"),
+            payload.get("character"),
+            payload.get("active_mission_id"),
+        )
+
     current_key = state.get("mission_override_key")
-    override_active = bool(state.get("mission_override_active")) or current_key is not None
-    if override_active:
-        saved = state.pop("mission_saved_settings", {}) or {}
-        for key, value in saved.items():
-            state[key] = value
+
+    if not setup:
+        if current_key is not None or state.get("mission_override_active"):
+            saved = state.pop("mission_saved_settings", {}) or {}
+            for key, value in saved.items():
+                state[key] = value
+            state.pop("mission_override_key", None)
+            state.pop("mission_override_name", None)
+            state["mission_override_active"] = False
+            _clear_megacrash_runtime_state(state)
+            print("[megacrash trainer] mission override restored saved settings")
+        return state
+
+    if current_key != mission_key:
+        # Switching directly between two mission-scoped setups must preserve
+        # the original operator settings, not save the outgoing mission's
+        # temporary values as the new baseline.
+        if current_key is not None or state.get("mission_override_active"):
+            prior_saved = state.pop("mission_saved_settings", {}) or {}
+            for key, value in prior_saved.items():
+                state[key] = value
+            state.pop("mission_override_key", None)
+            state.pop("mission_override_name", None)
+            state["mission_override_active"] = False
+            _clear_megacrash_runtime_state(state)
+
+        saved = {
+            "enabled": bool(state.get("enabled", False)),
+            "mode": _normalize_megacrash_mode(
+                state.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)
+            ),
+            "chance": _clamp_megacrash_chance(
+                state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)
+            ),
+            "delay_frames": _clamp_megacrash_delay_frames(
+                state.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)
+            ),
+            "cooldown_sec": _clamp_megacrash_cooldown_sec(
+                state.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)
+            ),
+            "target_label": _clean_megacrash_target_label(
+                state.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)
+            ),
+            "attacker_scope": _clean_megacrash_attacker_scope(
+                state.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE)
+            ),
+            "target_occurrence": _clamp_megacrash_target_occurrence(
+                state.get(
+                    "target_occurrence",
+                    MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE,
+                )
+            ),
+        }
+        state["mission_saved_settings"] = saved
+        state["mission_override_key"] = mission_key
+        state["mission_override_name"] = str(
+            payload.get("active_mission_name")
+            or payload.get("active_mission_id")
+            or "mission"
+        )
         _clear_megacrash_runtime_state(state)
-        print("[megacrash trainer] removed legacy mission override")
+        print(
+            "[megacrash trainer] mission override "
+            f"{payload.get('active_mission_id')}: "
+            f"label={setup.get('target_label') or 'any'} "
+            f"+{setup.get('delay_frames')}f cd={setup.get('cooldown_sec')}s"
+        )
 
-    state.pop("mission_override_key", None)
-    state.pop("mission_override_name", None)
-    state.pop("mission_saved_settings", None)
-    state["mission_override_active"] = False
-
-    # Mission Mode must never enable, disable, reconfigure, or trigger the
-    # Megacrash Trainer. Only the trainer's own controls may change it.
+    state["mission_override_active"] = True
+    state["enabled"] = bool(setup.get("enabled", True))
+    state["mode"] = _normalize_megacrash_mode(
+        setup.get("mode", MEGACRASH_TRAINER_DEFAULT_MODE)
+    )
+    state["chance"] = _clamp_megacrash_chance(
+        setup.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)
+    )
+    state["delay_frames"] = _clamp_megacrash_delay_frames(
+        setup.get("delay_frames", MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES)
+    )
+    state["cooldown_sec"] = _clamp_megacrash_cooldown_sec(
+        setup.get("cooldown_sec", MEGACRASH_TRAINER_DEFAULT_COOLDOWN_SEC)
+    )
+    state["target_label"] = _clean_megacrash_target_label(
+        setup.get("target_label", MEGACRASH_TRAINER_DEFAULT_TARGET_LABEL)
+    )
+    state["attacker_scope"] = _clean_megacrash_attacker_scope(
+        setup.get("attacker_scope", MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE)
+    )
+    state["target_occurrence"] = _clamp_megacrash_target_occurrence(
+        setup.get(
+            "target_occurrence",
+            MEGACRASH_TRAINER_DEFAULT_TARGET_OCCURRENCE,
+        )
+    )
     return state
-
 
 def _cycle_megacrash_chance(current: int) -> int:
     cur = _clamp_megacrash_chance(current)
@@ -1470,6 +1725,11 @@ __all__ = [
     '_megacrash_mode_summary',
     '_load_megacrash_trainer_config',
     '_save_megacrash_trainer_config',
+    '_mission_megacrash_step_labels',
+    '_mission_megacrash_target_step_index',
+    '_mission_megacrash_victim_slot',
+    '_mission_megacrash_write_action',
+    '_tick_mission_megacrash_light',
     '_extract_mission_megacrash_setup',
     '_clear_megacrash_runtime_state',
     '_sync_mission_megacrash_trainer',

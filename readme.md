@@ -1,3 +1,12 @@
+# Downloads
+
+The Download for Continuo is through the release page
+
+- https://github.com/cce2955/TvCGUI-Main/releases
+
+Download it through here, this page is just for developers who want to fork or PR
+
+Download 
 # TvC Continuo
 
 A Python-based live memory overlay for Tatsunoko vs. Capcom: Ultimate All-Stars (Wii), running on Dolphin Emulator.

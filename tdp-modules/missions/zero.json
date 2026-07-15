@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "zero_001",
-      "name": "Starter",
+      "name": "Basic",
       "notes": "Basic launcher route.",
       "steps": [
         {
@@ -31,7 +31,7 @@
     },
     {
       "mission_id": "zero_002",
-      "name": "Baroque Blaster",
+      "name": "BnB",
       "notes": "",
       "steps": [
         {
@@ -75,11 +75,14 @@
           "label": "Air DP C",
           "input": "623X"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "zero_003",
-      "name": "Sentsuizan Extension",
+      "name": "Zero Blaster Stall",
       "notes": "",
       "steps": [
         {
@@ -132,11 +135,14 @@
           "label": "Air DP C",
           "input": "623X"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "zero_004",
-      "name": "DP Baroque Route",
+      "name": "DP Extension",
       "notes": "",
       "steps": [
         {
@@ -193,12 +199,15 @@
           "label": "Air DP C",
           "input": "623X"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "zero_005",
-      "name": "Dark Hold Finish",
-      "notes": "",
+      "name": "Zero Loop",
+      "notes": "Zero players have more optimal routes and button holds. This is a basic combo, so make sure you can maintain a charge on A.",
       "steps": [
         {
           "label": "5B"
@@ -296,12 +305,15 @@
         {
           "label": "Dark Hold"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "zero_006",
-      "name": "Air Throw Followup",
-      "notes": "Some moves are missing, see if you can figure it out",
+      "name": "Throw OTG",
+      "notes": "Some moves are missing, see if you can figure it out.",
       "setup_debug_flags": {
         "CpuAction": 2
       },
@@ -317,7 +329,7 @@
     {
       "mission_id": "zero_007",
       "name": "Challenge",
-      "notes": "Some moves are missing, see if you can figure it out",
+      "notes": "Some moves are missing, see if you can figure it out.",
       "steps": [
         {
           "label": "5A"

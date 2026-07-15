@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "yatterman_2_001",
-      "name": "Combo Trial 001",
+      "name": "Basic",
       "notes": "",
       "steps": [
         {
@@ -41,10 +41,11 @@
     },
     {
       "mission_id": "yatterman_2_002",
-      "name": "Combo Trial 002",
+      "name": "Guard Break",
       "notes": "",
       "setup_debug_flags": {
-        "CpuGuard": 2
+        "CpuGuard": 2,
+        "BaroquePct": 1
       },
       "steps": [
         {
@@ -88,7 +89,7 @@
     },
     {
       "mission_id": "yatterman_2_003",
-      "name": "Combo Trial 003",
+      "name": "Robot Setup",
       "notes": "",
       "steps": [
         {
@@ -116,7 +117,7 @@
     },
     {
       "mission_id": "yatterman_2_004",
-      "name": "Combo Trial 004",
+      "name": "Shield Extension",
       "notes": "",
       "steps": [
         {
@@ -166,8 +167,8 @@
     },
     {
       "mission_id": "yatterman_2_005",
-      "name": "Combo Trial 005",
-      "notes": "Don't forget to mash",
+      "name": "Level 3 Setup",
+      "notes": "Don't forget to mash.",
       "steps": [
         {
           "label": "5A"
@@ -207,7 +208,7 @@
     },
     {
       "mission_id": "yatterman_2_006",
-      "name": "Combo Trial 006",
+      "name": "Step Extension",
       "notes": "",
       "steps": [
         {
@@ -276,7 +277,10 @@
         {
           "label": "j.C"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "yatterman_2_007",

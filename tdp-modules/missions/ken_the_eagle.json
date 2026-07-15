@@ -126,7 +126,7 @@
     {
       "mission_id": "ken_004",
       "name": "Corner Flight",
-      "notes": "Corner only",
+      "notes": "Corner only.",
       "steps": [
         {
           "label": "5A"
@@ -169,7 +169,7 @@
     {
       "mission_id": "ken_005",
       "name": "Challenge",
-      "notes": "Sorry, but this one is mean, so you get a hint, Ken should be facing to the left. Also Stage position is very important here",
+      "notes": "Sorry, but this one is mean, so you get a hint, Ken should be facing to the left. Also Stage position is very important here.",
       "steps": [
         {
           "label": "Air Bird Shoot A",

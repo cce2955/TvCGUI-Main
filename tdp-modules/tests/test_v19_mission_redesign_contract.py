@@ -118,9 +118,9 @@ class V19MissionRedesignContractTests(unittest.TestCase):
 
     def test_panel_uses_wider_responsive_layout(self):
         source = function_source(MASTER, "_draw_active_mission_panel")
-        self.assertIn("panel_w = max(560", source)
-        self.assertIn("int(self.w * 0.48)", source)
-        self.assertIn(", 820)", source)
+        self.assertIn("panel_w = max(520", source)
+        self.assertIn("int(self.w * 0.43)", source)
+        self.assertIn(", 760)", source)
 
     def test_panel_uses_flat_angular_body(self):
         source = function_source(MASTER, "_draw_active_mission_panel")
@@ -129,16 +129,246 @@ class V19MissionRedesignContractTests(unittest.TestCase):
         self.assertNotIn("_draw_vertical_gradient", source)
         self.assertNotIn("scan_period", source)
 
+    def test_progress_pip_curve_starts_genuinely_dim(self):
+        self.assertLess(mission_hud._mission_pip_intensity(0, 12), 0.20)
+
+    def test_progress_pip_curve_reaches_full_intensity_at_the_end(self):
+        self.assertAlmostEqual(mission_hud._mission_pip_intensity(11, 12), 1.0, places=5)
+
+    def test_progress_pip_curve_accelerates_toward_last_pips(self):
+        first_gap = (
+            mission_hud._mission_pip_intensity(2, 12)
+            - mission_hud._mission_pip_intensity(1, 12)
+        )
+        last_gap = (
+            mission_hud._mission_pip_intensity(11, 12)
+            - mission_hud._mission_pip_intensity(10, 12)
+        )
+        self.assertGreater(last_gap, first_gap * 4.0)
+
+    def test_progress_pip_fill_ratio_controls_partial_light_up(self):
+        full = mission_hud._mission_pip_intensity(8, 12, 1.0)
+        half = mission_hud._mission_pip_intensity(8, 12, 0.5)
+        self.assertAlmostEqual(half, full * 0.5, places=5)
+
+    def test_progress_stage_brightness_is_shared_by_completed_pips(self):
+        second = mission_hud._mission_pip_stage_intensity(2, 10)
+        third = mission_hud._mission_pip_stage_intensity(3, 10)
+        fourth = mission_hud._mission_pip_stage_intensity(4, 10)
+        self.assertGreater(third, second)
+        self.assertGreater(fourth, third)
+
+    def test_progress_wave_is_staggered(self):
+        first = mission_hud._mission_pip_wave_progress(0.10, 0)
+        second = mission_hud._mission_pip_wave_progress(0.10, 1)
+        third = mission_hud._mission_pip_wave_progress(0.10, 2)
+        self.assertGreater(first, second)
+        self.assertGreater(second, third)
+
+    def test_newly_filled_pip_waits_for_lock_then_starts_sheen(self):
+        overlay = self._overlay()
+        overlay.mission_overlay_data = {
+            "active_mission_id": "ryu-c1",
+            "active_mission_steps": self._steps(),
+            "completed_step_count": 0,
+            "current_step_index": 0,
+        }
+        overlay.update_mission_animations(0.016)
+        overlay.mission_overlay_data["completed_step_count"] = 1
+        overlay.update_mission_animations(0.05)
+        self.assertEqual(overlay._mission_pip_sheen_pending_index, 0)
+        for _ in range(4):
+            overlay.update_mission_animations(0.05)
+        self.assertEqual(overlay._mission_pip_sheen_pending_index, -1)
+        self.assertEqual(overlay._mission_pip_sheen_index, 0)
+        self.assertLess(overlay._mission_pip_sheen_phase, 1.0)
+
+    def test_final_completion_arms_full_strip_sheen(self):
+        overlay = self._overlay()
+        overlay.mission_overlay_data = {
+            "active_mission_id": "ryu-c1",
+            "active_mission_steps": self._steps(),
+            "completed_step_count": len(self._steps()) - 1,
+            "current_step_index": len(self._steps()) - 1,
+        }
+        overlay.update_mission_animations(0.016)
+        overlay.mission_overlay_data["completed_step_count"] = len(self._steps())
+        for _ in range(20):
+            overlay.update_mission_animations(0.05)
+        self.assertLess(overlay._mission_strip_complete_sheen_phase, 1.0)
+
+    def test_newest_pip_enters_at_previous_stage_then_all_brighten_left_to_right(self):
+        overlay = self._overlay()
+        overlay.mission_overlay_data = {
+            "active_mission_id": "ryu-c1",
+            "active_mission_steps": self._steps(),
+            "completed_step_count": 2,
+            "current_step_index": 2,
+        }
+        overlay.update_mission_animations(0.016)
+        previous_stage = mission_hud._mission_pip_stage_intensity(2, len(self._steps()))
+        target_stage = mission_hud._mission_pip_stage_intensity(3, len(self._steps()))
+        overlay.mission_overlay_data["completed_step_count"] = 3
+        overlay.update_mission_animations(0.001)
+        self.assertAlmostEqual(overlay._mission_pip_levels[2], previous_stage, places=4)
+        self.assertGreaterEqual(overlay._mission_pip_levels[0], previous_stage)
+        overlay.update_mission_animations(0.06)
+        self.assertGreater(overlay._mission_pip_levels[0], previous_stage)
+        self.assertLess(overlay._mission_pip_levels[0], target_stage)
+        self.assertLessEqual(overlay._mission_pip_levels[1], overlay._mission_pip_levels[0])
+        self.assertLessEqual(overlay._mission_pip_levels[2], overlay._mission_pip_levels[1])
+        overlay.update_mission_animations(0.06)
+        self.assertGreaterEqual(overlay._mission_pip_levels[1], previous_stage)
+        self.assertLessEqual(overlay._mission_pip_levels[2], overlay._mission_pip_levels[1])
+        overlay.update_mission_animations(0.08)
+        self.assertGreater(overlay._mission_pip_levels[2], previous_stage)
+        for _ in range(20):
+            overlay.update_mission_animations(0.05)
+        for index in range(3):
+            self.assertAlmostEqual(overlay._mission_pip_levels[index], target_stage, places=4)
+
+    def test_failure_clears_pending_sheen_and_powers_pips_down(self):
+        overlay = self._overlay()
+        overlay.mission_overlay_data = {
+            "active_mission_id": "ryu-c1",
+            "active_mission_steps": self._steps(),
+            "completed_step_count": 3,
+            "current_step_index": 3,
+        }
+        overlay.update_mission_animations(0.016)
+        overlay.mission_overlay_data["completed_step_count"] = 0
+        overlay.update_mission_animations(0.05)
+        self.assertEqual(overlay._mission_pip_sheen_pending_index, -1)
+        self.assertEqual(overlay._mission_pip_sheen_index, -1)
+        self.assertLess(overlay._mission_progress_display, 3.0)
+
     def test_header_has_segmented_progress_strip(self):
         source = function_source(MASTER, "_draw_active_mission_panel")
         self.assertIn("segment_count = max(1, total_steps)", source)
         self.assertIn("for seg in range(segment_count)", source)
         self.assertIn('progress_label = self.smallfont.render("COMPLETED"', source)
+        self.assertIn("progress_display = max(0.0", source)
+        self.assertIn("self._mission_progress_display", source)
+        self.assertIn("_mission_pip_stage_intensity", source)
+        self.assertIn("_mission_pip_sheen_progress", source)
+        self.assertIn("pygame.BLEND_RGBA_ADD", source)
 
-    def test_completed_challenge_gets_done_badge(self):
+    def test_completed_challenge_moves_badge_to_progress_strip(self):
         source = function_source(MASTER, "_draw_active_mission_panel")
         self.assertIn("mission_done = total_steps > 0", source)
-        self.assertIn('done_text = self.smallfont.render("DONE"', source)
+        self.assertIn('badge_text = badge_font.render("MISSION COMPLETE"', source)
+        self.assertIn("strip_rect = pygame.Rect", source)
+        self.assertIn("complete_level = pip_levels[-1]", source)
+        self.assertIn("compact_complete = bool(mission_done and (self._mission_hold_frames > 0 or self._toast_phase > 0.0))", source)
+        self.assertNotIn('done_text = self.smallfont.render("DONE"', source)
+
+    def test_completion_hold_duration_is_90_frames(self):
+        source = read(MASTER)
+        self.assertIn("self._mission_hold_duration_frames: int = 90", source)
+
+    def test_completion_can_fall_back_without_token(self):
+        source = function_source(MASTER, "update_mission_animations")
+        self.assertIn("live_completed_count >= live_step_total", source)
+        self.assertIn("self._prev_live_completed_count < live_step_total", source)
+
+    def test_completion_hides_rows_within_panel(self):
+        source = function_source(MASTER, "_draw_active_mission_panel")
+        self.assertIn("if compact_complete:", source)
+        self.assertIn('title_font.render("MISSION COMPLETE"', source)
+        self.assertIn("compact_complete = bool(mission_done and (self._mission_hold_frames > 0 or self._toast_phase > 0.0))", source)
+        self.assertIn("for display_order, (idx, step) in enumerate(visible_steps):", source)
+
+    def test_completion_overlay_uses_slide_fade_lock_and_sheen_phases(self):
+        source = function_source(MASTER, "_draw_active_mission_panel")
+        self.assertIn("_mission_complete_badge_progress", source)
+        self.assertIn("badge_alpha, slide_progress, title_lock, sheen_progress", source)
+        self.assertIn("pygame.transform.smoothscale", source)
+        self.assertIn("pygame.BLEND_RGBA_ADD", source)
+
+    def test_completion_badge_phase_enters_holds_and_exits(self):
+        start = mission_hud._mission_complete_badge_progress(0, 90)
+        entered = mission_hud._mission_complete_badge_progress(14, 90)
+        held = mission_hud._mission_complete_badge_progress(45, 90)
+        exiting = mission_hud._mission_complete_badge_progress(86, 90)
+        self.assertEqual(start[0], 0.0)
+        self.assertGreater(entered[0], 0.9)
+        self.assertGreater(held[0], 0.9)
+        self.assertLess(exiting[0], held[0])
+        self.assertGreater(held[3], 0.0)
+
+    def test_completion_badge_draws_gradient_wings_and_glints(self):
+        source = function_source(MASTER, "_draw_active_mission_panel")
+        self.assertIn("for row_y in range(height)", source)
+        self.assertIn("wing_offset = int(round((1.0 - slide_progress) * 34.0))", source)
+        self.assertIn("Small deterministic glints", source)
+
+    def test_hint_fold_animates_from_bottom_of_main_panel(self):
+        source = function_source(MASTER, "_draw_active_mission_panel")
+        update_source = function_source(MASTER, "update_mission_animations")
+        self.assertIn("self._mission_hint_fold", update_source)
+        self.assertIn("fold_y = panel_y + panel_h - 1", source)
+        self.assertIn('hint_label = self.smallfont.render("HINT"', source)
+        self.assertNotIn("panel_h = pad + header_h + 7 + challenge_h + 8 + timer_h + note_h", source)
+
+    def test_empty_authored_hint_still_folds_out_with_fallback_text(self):
+        overlay = self._overlay()
+        overlay.mission_show_hint = True
+        overlay.mission_overlay_data = {
+            "active_mission_id": "ryu-c1",
+            "active_mission_steps": self._steps(),
+            "active_mission_notes": "",
+            "completed_step_count": 0,
+            "current_step_index": 0,
+        }
+        overlay.update_mission_animations(0.10)
+        self.assertGreater(overlay._mission_hint_fold, 0.0)
+        source = function_source(MASTER, "_draw_active_mission_panel")
+        self.assertIn("No hint text is available for this challenge.", source)
+
+    def test_open_hint_extends_panel_rect_below_main_box(self):
+        steps = self._steps()
+        base = self._overlay()
+        base._mission_hint_fold = 0.0
+        base._draw_active_mission_panel(
+            data={"completed_step_count": 0, "current_step_index": 0},
+            character="Ryu",
+            theme_color=(76, 139, 228),
+            mission_name="Challenge",
+            mission_notes="A real hint that should fold below the panel.",
+            steps=steps,
+            selector_hint="Down, Down, Taunt: Open Mission",
+            goal_progress_type=None,
+            goal_target_state=None,
+            goal_current_frames=0,
+            goal_needed_frames=0,
+            goal_timer_active=False,
+        )
+        closed_height = base.mission_panel_rect.height
+
+        opened = self._overlay()
+        opened.mission_show_hint = True
+        opened._mission_hint_fold = 1.0
+        opened._draw_active_mission_panel(
+            data={"completed_step_count": 0, "current_step_index": 0},
+            character="Ryu",
+            theme_color=(76, 139, 228),
+            mission_name="Challenge",
+            mission_notes="A real hint that should fold below the panel.",
+            steps=steps,
+            selector_hint="Down, Down, Taunt: Open Mission",
+            goal_progress_type=None,
+            goal_target_state=None,
+            goal_current_frames=0,
+            goal_needed_frames=0,
+            goal_timer_active=False,
+        )
+        self.assertGreater(opened.mission_panel_rect.height, closed_height)
+
+    def test_large_centered_completion_plate_is_not_invoked(self):
+        update_source = function_source(MASTER, "update_mission_animations")
+        run_source = function_source(MASTER, "run")
+        self.assertNotIn("self._trigger_celebration()", update_source)
+        self.assertNotIn("self.draw_celebration()", run_source)
 
     def test_completed_steps_keep_visible_done_chip(self):
         source = function_source(MASTER, "_draw_active_mission_panel")
@@ -158,6 +388,23 @@ class V19MissionRedesignContractTests(unittest.TestCase):
         source = function_source(MASTER, "_draw_active_mission_panel")
         self.assertIn("row_shift = int(round((1.0 - row_intro) * 32.0))", source)
         self.assertIn("row_layer.set_alpha(int(255 * row_intro))", source)
+
+    def test_progress_strip_animation_tracks_completion_changes(self):
+        overlay = self._overlay()
+        overlay.mission_overlay_data = {
+            "active_mission_id": "ryu-c1",
+            "active_mission_steps": self._steps(),
+            "completed_step_count": 0,
+            "current_step_index": 0,
+        }
+        overlay.update_mission_animations(0.016)
+        overlay.mission_overlay_data["completed_step_count"] = 3
+        overlay.update_mission_animations(0.05)
+        self.assertGreater(overlay._mission_progress_display, 0.0)
+        self.assertLess(overlay._mission_progress_display, 3.1)
+        overlay.mission_overlay_data["completed_step_count"] = 1
+        overlay.update_mission_animations(0.05)
+        self.assertGreater(overlay._mission_progress_display, 0.0)
 
     def test_activation_restarts_intro_sequence(self):
         overlay = mission_hud.MasterOverlay()
@@ -204,8 +451,8 @@ class V19MissionRedesignContractTests(unittest.TestCase):
     def test_rendered_panel_is_wider_and_buttons_stay_inside(self):
         overlay = self._draw_panel()
         self.assertIsNotNone(overlay.mission_panel_rect)
-        self.assertGreaterEqual(overlay.mission_panel_rect.width, 560)
-        self.assertLessEqual(overlay.mission_panel_rect.width, 820)
+        self.assertGreaterEqual(overlay.mission_panel_rect.width, 520)
+        self.assertLessEqual(overlay.mission_panel_rect.width, 760)
         self.assertTrue(overlay.mission_panel_rect.contains(overlay.mission_toggle_rect))
         self.assertTrue(overlay.mission_panel_rect.contains(overlay.mission_hint_rect))
 

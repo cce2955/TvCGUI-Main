@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "joe_the_condor_001",
-      "name": "Combo Trial 001",
+      "name": "Basic",
       "notes": "",
       "steps": [
         {
@@ -40,7 +40,7 @@
     },
     {
       "mission_id": "joe_the_condor_002",
-      "name": "Combo Trial 002",
+      "name": "OTG Follow Up",
       "notes": "",
       "steps": [
         {
@@ -81,8 +81,8 @@
     },
     {
       "mission_id": "joe_the_condor_003",
-      "name": "Combo Trial 003",
-      "notes": "",
+      "name": "BnB",
+      "notes": "Shuriken A takes 50 frames to charge.",
       "steps": [
         {
           "label": "5A"
@@ -118,8 +118,8 @@
     },
     {
       "mission_id": "joe_the_condor_004",
-      "name": "Combo Trial 004",
-      "notes": "Megacrash Trainer arms this trial automatically: hit 5C, then counter the forced burst with Cactus Bunker and finish with Wild Lasso. Cactus Bunker is treated as a whiff-confirm step because the counter causes a reset.",
+      "name": "Mega Crash Counter",
+      "notes": "Cactus Bunker counters Mega Crash.",
       "steps": [
         {
           "label": "5A"
@@ -159,8 +159,8 @@
     },
     {
       "mission_id": "joe_the_condor_005",
-      "name": "Combo Trial 005",
-      "notes": "Megacrash Trainer arms this trial automatically on 5C so Cactus Bunker has a reliable burst/counter target. Cactus Bunker is treated as a whiff-confirm step because the counter causes a reset.",
+      "name": "Bunker Follow Up",
+      "notes": "",
       "setup_debug_flags": {
         "BaroquePct": 1
       },
@@ -217,7 +217,7 @@
           "label": "Air Shuriken A"
         },
         {
-          "label": "Air Savage Shot A"
+          "label": "Air Savage Shot B"
         },
         {
           "label": "Air Condor Magnum"
@@ -233,8 +233,8 @@
     },
     {
       "mission_id": "joe_the_condor_006",
-      "name": "Neat Stuff",
-      "notes": "",
+      "name": "Corner Route",
+      "notes": "Remember: one jump cancel per airborne state and two special actions per jump. Shuriken charge times: A 50f, B 70f, C 100f.",
       "steps": [
         {
           "label": "5A"
@@ -275,7 +275,7 @@
           "label": "Air Shuriken A"
         },
         {
-          "label": "Air Savage Shot A"
+          "label": "Air Savage Shot B"
         },
         {
           "label": "j.B"
@@ -284,7 +284,7 @@
           "label": "Air Shuriken A"
         },
         {
-          "label": "Air Savage Shot A"
+          "label": "Air Savage Shot B"
         },
         {
           "label": "Baroque cancel"
@@ -313,7 +313,10 @@
           "label": "Wild Lasso A",
           "input": "46A"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "joe_the_condor_007",

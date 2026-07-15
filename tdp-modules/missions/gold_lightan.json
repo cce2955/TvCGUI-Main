@@ -3,95 +3,173 @@
   "missions": [
     {
       "mission_id": "gold_lightan_001",
-      "name": "Combo Trial 001",
-      "notes": "",
+      "name": "Launcher Setup",
+      "notes": "This is a basic setup. Aside from jabs, it is one of Lightan's only other safe blockstrings, since teching puts both players at neutral. If the opponent does not tech, you get damage. You're Lightan, so take what you can get.",
       "steps": [
-        { "label": "3C" },
-        { "label": "Gold Press" }
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Gold Press"
+        }
       ]
     },
     {
       "mission_id": "gold_lightan_002",
-      "name": "Combo Trial 002",
-      "notes": "",
+      "name": "Damage Route",
+      "notes": "This is incredible damage for almost no effort. If your opponent makes a bad jump, this takes about half their health. It is somewhat Mega Crash-safe, but horribly unsafe even on hit.",
       "setup_debug_flags": {
-        "CpuAction": 2
+        "CpuAction": 2,
+        "BaroquePct": 1
       },
       "steps": [
-        { "label": "5B" },
-        { "label": "4B" },
-        { "label": "Baroque cancel" },
-        { "label": "5B" },
-        { "label": "4B" }
+        {
+          "label": "5B"
+        },
+        {
+          "label": "4B"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "4B"
+        }
       ]
     },
     {
       "mission_id": "gold_lightan_003",
-      "name": "Combo Trial 003",
-      "notes": "",
+      "name": "OTG Setup",
+      "notes": "Another damage route, but it is hard to confirm.",
       "steps": [
-        { "label": "2C" },
-        { "label": "Baroque cancel" },
-        { "label": "6B" }
-      ]
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "6B"
+        }
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "gold_lightan_004",
-      "name": "Combo Trial 004",
-      "notes": "",
+      "name": "OTG Setup",
+      "notes": "Another damage route, but it is hard to confirm.",
       "steps": [
-        { "label": "2C" },
-        { "label": "Baroque cancel" },
-        { "label": "2B" }
-      ]
+        {
+          "label": "2C"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "2B"
+        }
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "gold_lightan_005",
-      "name": "Combo Trial 005",
+      "name": "Tank Slice Follow Up",
       "notes": "",
       "steps": [
-        { "label": "Tank Slice B" },
-        { "label": "Gold Crash" }
+        {
+          "label": "Tank Slice B"
+        },
+        {
+          "label": "Gold Crash"
+        }
       ]
     },
     {
       "mission_id": "gold_lightan_006",
       "name": "Challenge",
-      "notes": "",
-               "setup_debug_flags": {
-        
-        "P1Meter": 2
+      "notes": "This is Lightan's only real combo, so it is more of a BnB than a challenge.",
+      "setup_debug_flags": {
+        "P1Meter": 2,
+        "BaroquePct": 1
       },
       "steps": [
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "5A" },
-        { "label": "5B" },
-        
-        { "label": "3C" },
-        { "label": "Battleship Breaker B" },
-        { "label": "Baroque cancel" },
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "5C" },
-        { "label": "Tank Slice C" },
-        { "label": "Gold Crash" },
-        { "label": "Gold Finger Crash" }
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "Battleship Breaker B"
+        },
+        {
+          "label": "Baroque cancel"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Tank Slice C"
+        },
+        {
+          "label": "Gold Crash"
+        },
+        {
+          "label": "Gold Finger Crash"
+        }
       ]
     },
     {
       "mission_id": "gold_lightan_007",
       "name": "Challenge",
-      "notes": "sorry, I don't have a challenge for him there's not much to work with here",
+      "notes": "Sorry, I don't have a challenge for him there's not much to work with here.",
       "steps": [
-        { "label": "j.C" },
-        { "label": "Air Gold Crash" },
-        { "label": "Gold Finger Crash" }
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Air Gold Crash"
+        },
+        {
+          "label": "Gold Finger Crash"
+        }
       ]
     }
   ]

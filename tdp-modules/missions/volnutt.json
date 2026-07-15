@@ -4,182 +4,469 @@
     {
       "mission_id": "volnutt_001",
       "name": "Volnutt BnB Fist Starter",
-      "notes": "Basic BnB",
+      "notes": "Basic BnB.",
       "steps": [
-        { "label": "5A" },
-        { "label": "5B" },
-        { "label": "2B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.6B" },
-        { "label": "Air Weapon Switch Forward B", "pass": true },
-        { "label": "j.B" },
-        { "label": "j.6B" },
-        { "label": "Air Weapon Switch Forward C" },
-        { "label": "5B" },
-        { "label": "3B" },
-        { "label": "Weapon Switch Forwards C", "pass": true },
-        { "label": "5B" },
-        { "label": "3C" },
-        { "label": "j.B" },
-        { "label": "j.6B" },
-        { "label": "air machine gun super" }
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "Air Weapon Switch Forward B",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "Air Weapon Switch Forward C",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3B"
+        },
+        {
+          "label": "Weapon Switch Forwards C",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "air machine gun super"
+        }
       ]
-    },{
-  "mission_id": "volnutt_002",
-  "name": "Volnutt BnB Fist Starter 2",
-  "notes": "Man this looks confusing reading it, but it's simple, just break it down.",
-  "steps": [
-    { "label": "5A" },
-    { "label": "5B" },
-    { "label": "2B" },
-    { "label": "6B" },
-    { "label": "Weapon Switch Backwards C", "pass": true },
-    { "label": "5B" },
-    { "label": "3B" },
-    { "label": "Weapon Switch Forwards B" },
-    { "label": "5B" },
-    { "label": "3C" },
-    { "label": "j.B" },
-    { "label": "j.6B" },
-    { "label": "Air Weapon Switch Forward C" },
-    { "label": "5B" },
-    { "label": "3B" },
-    { "label": "Weapon Switch Forwards C", "pass": true },
-    { "label": "5B" },
-    { "label": "3C" },
-    { "label": "j.B" },
-    { "label": "j.6B" },
-    { "label": "air machine gun super" }
-  ]
-},{
-  "mission_id": "volnutt_003",
-  "name": "Volnutt BnB Fist Starter 3",
-  "notes": "",
-  "steps": [
-    { "label": "5A" },
-    { "label": "5B" },
-    { "label": "2B" },
-    { "label": "6B" },
-    { "label": "Weapon Switch Backwards C", "pass": true },
-    { "label": "j.B" },
-    { "label": "Air 3B" },
-    { "label": "Air Weapon Switch Forward B", "pass": true },
-    { "label": "j.B" },
-    { "label": "j.B" },
-    { "label": "j.6B" },
-    { "label": "Air Weapon Switch Forward C" },
-    { "label": "5B" },
-    { "label": "3B" },
-    { "label": "Weapon Switch Forwards C", "pass": true },
-    { "label": "5B" },
-    { "label": "3C" },
-    { "label": "j.B" },
-    { "label": "j.6B" },
-    { "label": "air machine gun super" }
-  ]
-},{
-  "mission_id": "volnutt_004",
-  "name": "Volnutt Drill Starter",
-  "notes": "",
-  "steps": [
-    { "label": "5A" },
-    { "label": "5B" },
-    { "label": "2B" },
-    { "label": "6B" },
-    { "label": "Weapon Switch Forwards B" },
-    { "label": "5B" },
-    { "label": "3C" },
-    { "label": "j.B" },
-    { "label": "j.6B" },
-    { "label": "Air Weapon Switch Forward C" },
-    { "label": "6B" }
-  ]
-},{
-  "mission_id": "volnutt_005",
-  "name": "Volnutt Charged Ender",
-  "notes": "Fist starter route into Charged C, then air machine gun super.",
-  "steps": [
-    { "label": "5A" },
-    { "label": "5B" },
-    { "label": "2B" },
-    { "label": "6B" },
-    { "label": "Weapon Switch Forwards C", "pass": true },
-    { "label": "5B" },
-    { "label": "3C" },
-    { "label": "j.B" },
-    { "label": "Air 3B" },
-    { "label": "Air Weapon Switch Forward B", "pass": true },
-    { "label": "j.B" },
-    { "label": "j.6B" },
-    { "label": "Air Weapon Switch Forward B", "pass": true },
-    { "label": "j.B" },
-    { "label": "j.B" },
-    
-    { "label": "Charged j.C" },
-    { "label": "air machine gun super" }
-  ]
-},{
-  "mission_id": "volnutt_006",
-  "name": "Challenge",
-  "notes": "You're probably thinking this is a joke or a typo, I assure you it's not and this is legtimately possible to do. This is corner only and make sure volnutt is chosen first at character select",
-  "steps": [
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-       { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5A" },
-    { "label": "2A" },
-    { "label": "5B" },
-    { "label": "max drill upper" }
-    
-  ]
-},{
-  "mission_id": "volnutt_007",
-  "name": "Challenge 2",
-  "notes": "Another impossible challenge, So impossible I'll give you a hint, have soki, casshan or zero as assist to make this easier, if you have hitbox display on, you'll notice Volnutt has three hitboxes. That's your only hint. If you truly want to cheat then do this on PTX",
-  "steps": [
-    { "label": "max drill upper" },
-    { "label": "5B" },
-    { "label": "max drill upper" }
-    
-  ]
-}
+    },
+    {
+      "mission_id": "volnutt_002",
+      "name": "Volnutt BnB Fist Starter 2",
+      "notes": "It looks confusing when written out, but it is simple if you break it into chunks.",
+      "steps": [
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "6B"
+        },
+        {
+          "label": "Weapon Switch Backwards C",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3B"
+        },
+        {
+          "label": "Weapon Switch Forwards B",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "Air Weapon Switch Forward C",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3B"
+        },
+        {
+          "label": "Weapon Switch Forwards C",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "air machine gun super"
+        }
+      ]
+    },
+    {
+      "mission_id": "volnutt_003",
+      "name": "Volnutt BnB Fist Starter 3",
+      "notes": "",
+      "steps": [
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "6B"
+        },
+        {
+          "label": "Weapon Switch Backwards C",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air 3B"
+        },
+        {
+          "label": "Air Weapon Switch Forward B",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "Air Weapon Switch Forward C",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3B"
+        },
+        {
+          "label": "Weapon Switch Forwards C",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "air machine gun super"
+        }
+      ]
+    },
+    {
+      "mission_id": "volnutt_004",
+      "name": "Volnutt Drill Starter",
+      "notes": "",
+      "steps": [
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "6B"
+        },
+        {
+          "label": "Weapon Switch Forwards B",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "Air Weapon Switch Forward C",
+          "pass": true
+        },
+        {
+          "label": "6B"
+        }
+      ]
+    },
+    {
+      "mission_id": "volnutt_005",
+      "name": "Volnutt Charged Ender",
+      "notes": "Fist starter route into Charged C, then Air Machine Gun Super.",
+      "steps": [
+        {
+          "label": "5A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "2B"
+        },
+        {
+          "label": "6B"
+        },
+        {
+          "label": "Weapon Switch Forwards C",
+          "pass": true
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Air 3B"
+        },
+        {
+          "label": "Air Weapon Switch Forward B",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.6B"
+        },
+        {
+          "label": "Air Weapon Switch Forward B",
+          "pass": true
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "j.B"
+        },
+        {
+          "label": "Charged j.C"
+        },
+        {
+          "label": "air machine gun super"
+        }
+      ]
+    },
+    {
+      "mission_id": "volnutt_006",
+      "name": "Challenge",
+      "notes": "This is not a joke or a typo. It is legitimately possible. This is corner-only, and Volnutt must be selected first at character select. I'm sorry for giving you an annoying task, but we all have chains we must bear in life.",
+      "steps": [
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5A"
+        },
+        {
+          "label": "2A"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "max drill upper"
+        }
+      ]
+    },
+    {
+      "mission_id": "volnutt_007",
+      "name": "Challenge 2",
+      "notes": "Another nearly impossible challenge. Use Soki, Casshan, or Zero as an assist to make it easier. With hitbox display enabled, you will notice that Volnutt has three hitboxes. That is your only hint. If you truly want to cheat, do this against PTX.",
+      "steps": [
+        {
+          "label": "max drill upper"
+        },
+        {
+          "label": "5B"
+        },
+        {
+          "label": "max drill upper"
+        }
+      ]
+    }
   ]
 }

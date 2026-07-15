@@ -2,9 +2,9 @@
   "enabled": false,
   "cooldown_schema": 1,
   "chance": 100,
-  "delay_frames": 5,
+  "delay_frames": 8,
   "cooldown_sec": 3.0,
-  "target_label": "",
-  "attacker_scope": "any",
+  "target_label": "5B",
+  "attacker_scope": "slot:P1-C1",
   "target_occurrence": 1
 }

@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "tekkaman_blade_001",
-      "name": "Combo Trial 001",
+      "name": "Basic",
       "notes": "",
       "steps": [
         {
@@ -34,7 +34,7 @@
     },
     {
       "mission_id": "tekkaman_blade_002",
-      "name": "Combo Trial 002",
+      "name": "j.2C Ender",
       "notes": "",
       "steps": [
         {
@@ -67,7 +67,7 @@
     },
     {
       "mission_id": "tekkaman_blade_003",
-      "name": "Combo Trial 003",
+      "name": "Crash Intrude Follow Up",
       "notes": "",
       "steps": [
         {
@@ -81,7 +81,7 @@
     },
     {
       "mission_id": "tekkaman_blade_004",
-      "name": "Combo Trial 004",
+      "name": "Falchion Link",
       "notes": "",
       "steps": [
         {
@@ -106,7 +106,7 @@
     },
     {
       "mission_id": "tekkaman_blade_005",
-      "name": "Combo Trial 005",
+      "name": "Basic Follow Up",
       "notes": "",
       "steps": [
         {
@@ -150,7 +150,7 @@
     },
     {
       "mission_id": "tekkaman_blade_006",
-      "name": "Combo Trial 006",
+      "name": "BnB",
       "notes": "",
       "steps": [
         {
@@ -301,12 +301,15 @@
           "label": "Omnidirectional Voltekka",
           "input": "63214XX"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "tekkaman_blade_008",
       "name": "Special Challenge",
-      "notes": "Do 10000 damage in 3 hits or less. Baroque is locked. But a certain settings in training mode may help......",
+      "notes": "Deal 10,000 damage in three hits or fewer. Baroque is locked, but a certain training mode setting may help.",
       "setup_debug_flags": {
         "BaroquePct": 0
       },
@@ -319,7 +322,7 @@
     {
       "mission_id": "tekkaman_blade_009",
       "name": "Special Challenge 2",
-      "notes": "Do 40000 damage in a single combo. Baroque is locked to 10%.",
+      "notes": "Deal 40,000 damage in a single combo. Baroque is locked to 10%.",
       "setup_debug_flags": {
         "BaroquePct": 1
       },

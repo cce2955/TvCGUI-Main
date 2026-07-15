@@ -134,12 +134,15 @@
         {
           "label": "j.C"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "soki_006",
       "name": "Double Issen",
-      "notes": "Try a reverse IAD for that j.B",
+      "notes": "Try a reverse IAD for that j.B.",
       "steps": [
         {
           "label": "5A"
@@ -180,7 +183,10 @@
         {
           "label": "Issen"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "soki_007",
@@ -232,7 +238,10 @@
         {
           "label": "Issen"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "soki_008",
@@ -272,7 +281,7 @@
     {
       "mission_id": "soki_010",
       "name": "Megacrash Counter Issen",
-      "notes": "Mission-scoped Megacrash route: 5A > 5B > 5C, forced Megacrash, Counter Issen.",
+      "notes": "",
       "steps": [
         {
           "label": "5A"
@@ -320,10 +329,66 @@
           "input": "623XX"
         },
         {
-          "label": "Issen"
+          "label": "Issen",
+          "pass": true
         },
         {
           "label": "Purification"
+        }
+      ]
+    },
+    {
+      "mission_id": "soki_012_combo",
+      "name": "Challenge",
+      "notes": "Some moves missing have fun.",
+      "steps": [
+        {
+          "label": "5A",
+          "input": "A"
+        },
+        {
+          "label": "5B",
+          "input": "B"
+        },
+        {
+          "label": "6C",
+          "input": "6C"
+        },
+        {
+          "label": "Issen",
+          "input": "B+C"
+        },
+        {
+          "label": "Oni Tactics",
+          "input": "623XX"
+        },
+        {
+          "label": "5A",
+          "input": "A"
+        },
+        {
+          "label": "5B",
+          "input": "B"
+        },
+        {
+          "label": "2B",
+          "input": "2B"
+        },
+        {
+          "label": "5C",
+          "input": "C"
+        },
+        {
+          "label": "6C",
+          "input": "6C"
+        },
+        {
+          "label": "Slam A",
+          "input": "623A"
+        },
+        {
+          "label": "Purification",
+          "input": "236XX"
         }
       ]
     },
@@ -337,7 +402,7 @@
       "goal": {
         "type": "state_duration",
         "target_state": "blockstun",
-        "frames": 500
+        "frames": 100
       }
     }
   ]

@@ -140,6 +140,13 @@ try:
 except Exception as _frame_data_export_import_error:
     FrameDataSpreadsheetExporter = None
 
+# Continuous CSV export is a research-only operation. Keeping it off by default
+# prevents workbench scans and master CSV compilation from stalling live HUD and
+# Mission Mode frames. Set TVC_FD_AUTO_EXPORT=1 for an intentional export run.
+FD_AUTO_EXPORT_ENABLED = str(os.environ.get("TVC_FD_AUTO_EXPORT", "0")).strip().lower() in {
+    "1", "true", "yes", "on",
+}
+
 
 from tvcgui.runtime.ko_control import (
     KO_GLOBAL_HOLD_GROUPS,
@@ -335,7 +342,7 @@ from tvcgui.runtime.megacrash import (
     _megacrash_mode_summary,
     _megacrash_roster_context,
     _save_megacrash_trainer_config,
-    _sync_mission_megacrash_trainer,
+    _tick_mission_megacrash_light,
     _tick_megacrash_trainer,
 )
 
@@ -1278,7 +1285,7 @@ def legacy_main():
     # Every scanner result is mirrored into one persistent CSV spreadsheet.
     # It is observation-only and does not affect in-game frame-data behavior.
     frame_data_exporter = None
-    if FrameDataSpreadsheetExporter is not None:
+    if FrameDataSpreadsheetExporter is not None and FD_AUTO_EXPORT_ENABLED:
         try:
             frame_data_exporter = FrameDataSpreadsheetExporter()
             print(
@@ -2171,15 +2178,18 @@ def legacy_main():
         mission_mgr.update(snaps, render_snap_by_slot, frame_idx, now)
         _perf_warn("mission_tick", _perf_section_start)
 
-        # Mission-scoped Megacrash setup.  Joe Condor's counter trials can now
-        # temporarily arm a targeted burst on 5C without making Megacrash stay
-        # enabled globally or on the next launch.
-        megacrash_trainer_state = _sync_mission_megacrash_trainer(
+        # Mission-only deterministic burst path. The mission's completed-step
+        # edge is authoritative, so Condor and Casshan burst trials do not
+        # depend on the full trainer's label, occurrence, or combo heuristics.
+        megacrash_trainer_state = _tick_mission_megacrash_light(
             megacrash_trainer_state,
             mission_mgr.last_overlay_payload,
+            snaps,
+            now,
+            frame_idx,
         )
 
-        # Megacrash Trainer tick: point-only, hitstun-only, per-new-combo-label dice roll.
+        # Operator-controlled Megacrash Trainer remains independent.
         _perf_section_start = time.perf_counter()
         megacrash_trainer_state = _tick_megacrash_trainer(megacrash_trainer_state, snaps, now, frame_idx)
         _perf_warn("megacrash_tick", _perf_section_start)

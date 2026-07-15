@@ -19,12 +19,15 @@
         {
           "label": "2C"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "saki_002",
       "name": "Load Bullet C",
-      "notes": "22C ",
+      "notes": "22C.",
       "steps": [
         {
           "label": "Load Ammo C",
@@ -60,7 +63,7 @@
     {
       "mission_id": "saki_003",
       "name": "Grenade BnB",
-      "notes": "22C ",
+      "notes": "",
       "steps": [
         {
           "label": "j.C"
@@ -73,7 +76,7 @@
     {
       "mission_id": "saki_004",
       "name": "Corner Setup",
-      "notes": "22C ",
+      "notes": "",
       "steps": [
         {
           "label": "5A"
@@ -108,12 +111,15 @@
         {
           "label": "Positron Storm"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "saki_005",
       "name": "Throw Followup",
-      "notes": "22C ",
+      "notes": "",
       "steps": [
         {
           "label": "Forward Throw",
@@ -128,12 +134,15 @@
         {
           "label": "2C"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "saki_006",
       "name": "LOAD SUPER ARMOR PIERCING SHELL",
-      "notes": "Read the title",
+      "notes": "Read the title.",
       "setup_debug_flags": {
         "CpuGuard": 2
       },
@@ -151,7 +160,7 @@
     {
       "mission_id": "saki_007",
       "name": "Load Shell Route",
-      "notes": "This mission is bugged, piercing shell is a pain to work with, so imagine I did this right",
+      "notes": "The j.C after the second j.B is a reset.",
       "steps": [
         {
           "label": "LOAD SUPER ARMOR PIERCING SHELL",
@@ -184,7 +193,7 @@
         },
         {
           "label": "j.B (second hit)",
-          "grace": 30
+          "grace": 15
         },
         {
           "label": "j.C"
@@ -206,7 +215,7 @@
     {
       "mission_id": "saki_008",
       "name": "Challenge",
-      "notes": "Some moves are missing go ahead and fill them in ",
+      "notes": "Some moves are missing go ahead and fill them in.",
       "steps": [
         {
           "label": "Headbutt"

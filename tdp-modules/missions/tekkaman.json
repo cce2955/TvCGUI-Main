@@ -3,7 +3,7 @@
   "missions": [
     {
       "mission_id": "tekkaman_001",
-      "name": "Combo 1",
+      "name": "Basic",
       "notes": "Basic launcher into air series.",
       "steps": [
         {
@@ -31,7 +31,7 @@
     },
     {
       "mission_id": "tekkaman_002",
-      "name": "Combo 2",
+      "name": "Hard Knockdown",
       "notes": "Launcher into downward air ender.",
       "steps": [
         {
@@ -64,7 +64,7 @@
     },
     {
       "mission_id": "tekkaman_003",
-      "name": "Combo 3",
+      "name": "Windmill Extension",
       "notes": "Air special route.",
       "steps": [
         {
@@ -96,12 +96,16 @@
         {
           "label": "Windmill B Air",
           "input": "[2]8X"
+        },
+        {
+          "label": "voltekka air",
+          "pass": true
         }
       ]
     },
     {
       "mission_id": "tekkaman_004",
-      "name": "Combo 4",
+      "name": "Burst Punish",
       "notes": "Megacrash into Gatling.",
       "steps": [
         {
@@ -115,8 +119,8 @@
     },
     {
       "mission_id": "tekkaman_005",
-      "name": "Combo 5",
-      "notes": "Extended route with Baroque into air super finish.",
+      "name": "BnB",
+      "notes": "Midscreen combo.",
       "steps": [
         {
           "label": "5A"
@@ -131,7 +135,8 @@
           "label": "Tek Lancer C"
         },
         {
-          "label": "Tek Win A"
+          "label": "Tek Win A",
+          "pass": true
         },
         {
           "label": "5B"
@@ -166,12 +171,15 @@
         {
           "label": "voltekka air"
         }
-      ]
+      ],
+      "setup_debug_flags": {
+        "BaroquePct": 1
+      }
     },
     {
       "mission_id": "tekkaman_006",
       "name": "Challenge",
-      "notes": "Somemoves are missing good luck.",
+      "notes": "Some moves are missing. Good luck.",
       "steps": [
         {
           "label": "5A"
