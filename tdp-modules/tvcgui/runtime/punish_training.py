@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import os
-import struct
+import random
+import re
 import time
 from typing import Any
 
@@ -10,33 +11,33 @@ try:
     from tvcgui.core.paths import user_data_path
 except Exception:
     def user_data_path(*parts: str) -> str:
-        base = os.path.join(os.path.expanduser("~"), "TvCGUI")
-        return os.path.join(base, *parts)
+        return os.path.join(os.path.expanduser("~"), "TvCGUI", *parts)
 
 try:
-    from tvcgui.platform.dolphin import addr_in_ram, rd32, wd32, rbytes, wbytes
+    from tvcgui.platform.dolphin import addr_in_ram, rd32, wd32
 except Exception:
     addr_in_ram = None
     rd32 = None
     wd32 = None
-    rbytes = None
-    wbytes = None
-
-try:
-    import tvcgui.platform.patch_manager as runtime_pm
-except Exception:
-    runtime_pm = None
 
 PUNISH_TRAINER_CONFIG_FILE = user_data_path("training", "punish_trainer.json")
 
 PUNISH_TARGET_SLOT_PTRS = {
-    "P1": 0x803C9FCC,
-    "P2": 0x803C9FD4,
     "P1-C1": 0x803C9FCC,
     "P2-C1": 0x803C9FD4,
     "P1-C2": 0x803C9FDC,
     "P2-C2": 0x803C9FE4,
 }
+
+OFF_ACTION_ID = 0x1E8
+OFF_ACTION_REQUEST = 0x200
+
+PUNISH_DEFAULT_SLOT = "P2-C1"
+PUNISH_DEFAULT_COOLDOWN_SEC = 3.0
+PUNISH_DEFAULT_RANDOM_MIN_SEC = 5.0
+PUNISH_DEFAULT_RANDOM_MAX_SEC = 10.0
+PUNISH_DEFAULT_MOVE_LABEL = "5A [0x100]"
+PUNISH_DEFAULT_ACTION_ID = 0x100
 
 PUNISH_LABEL_ACTIONS = {
     "5A": 0x100,
@@ -46,710 +47,611 @@ PUNISH_LABEL_ACTIONS = {
     "2B": 0x104,
     "2C": 0x105,
 }
-PUNISH_NORMAL_LABELS = tuple(PUNISH_LABEL_ACTIONS.keys())
 
-PUNISH_DEFAULT_ENABLED = False
-PUNISH_DEFAULT_TARGET_SIDE = "P2"
-PUNISH_DEFAULT_RESPONSE_LABEL = "5A"
-PUNISH_DEFAULT_MODE = "interval"
-PUNISH_DEFAULT_INTERVAL_SEC = 3.0
-PUNISH_DEFAULT_COOLDOWN_SEC = 0.25
-
-# Names imported by main.py and used by the Punish Trainer window.
-PUNISH_TRAINING_DEFAULT_MODE = "interval"
-PUNISH_TRAINING_DEFAULT_OPPONENT_TEAM = "P2"
-PUNISH_TRAINING_DEFAULT_INTERVAL_SEC = 3.0
-PUNISH_TRAINING_DEFAULT_RELEASE_DELAY_FRAMES = 0
-PUNISH_TRAINING_DEFAULT_RESPONSE_LABEL = "5A"
-
-PUNISH_DIRECT_HOOK_ADDR = 0x80049078
-PUNISH_DIRECT_HOOK_ORIGINAL = 0x4BFFF1F9
-PUNISH_DIRECT_CAVE_ADDR = 0x812A5500
-PUNISH_DIRECT_MAILBOX_ADDR = 0x812A55C0
-PUNISH_DIRECT_CAVE_SIZE = 0x80
-PUNISH_RETIRED_CALLSITE_ADDR = 0x80054A78
-PUNISH_RETIRED_CALLSITE_ORIGINAL = 0x4BFF45ED
-
-PUNISH_SELECTOR_HOOK_ADDR = 0x80049078
-PUNISH_SELECTOR_ORIGINAL = 0x4BFFF1F9
-PUNISH_SELECTOR_OLD_PATCH = 0x4925BF09
-PUNISH_SELECTOR_OLD_CAVE_ADDR = 0x812A4F80
-PUNISH_SELECTOR_OLD_MAILBOX_ADDR = 0x812A4FE0
-
-MAIL_ENABLED = 0x00
-MAIL_TARGET_BASE = 0x04
-MAIL_ACTION_ID = 0x08
-MAIL_HIT_COUNT = 0x0C
-MAIL_LAST_BASE = 0x10
-MAIL_LAST_PATH = 0x14
-MAIL_LAST_OLD_ACTION = 0x20
-
-_LAST = {
-    "installed": False,
-    "last_error": "",
-    "last_trigger": "",
-    "last_readback": {},
-    "next_interval_time": 0.0,
-    "prev_reaction": {},
-    "last_fire_time": 0.0,
-}
-
-# Reaction families used only for the release trigger. They are intentionally broad.
-PUNISH_REACTION_STATES = {
-    48, 49, 50, 51, 52, 53, 60, 61, 62, 64, 65, 66, 73, 74, 75, 76,
-    79, 80, 81, 82, 83, 88, 89, 90, 91, 92, 94, 95, 96, 97, 98,
-    101, 102, 105, 106, 142, 449,
-    4562, 4565, 4568, 4571, 4573, 4608, 4609, 4610, 4611, 4613, 4614,
-    4615, 4616, 4617, 4618, 4619, 4620, 4621, 4622, 4623, 4625, 4631,
+_RUNTIME_KEYS = {
+    "phase",
+    "next_fire_at",
+    "request_deadline",
+    "request_attempts",
+    "target_base",
+    "last_request_addr",
+    "last_mailbox_value",
+    "last_seen_action",
+    "manual_only",
+    "last_status",
+    "last_status_at",
+    "last_trigger",
+    "trigger_count",
+    "scheduled_cooldown_sec",
+    "countdown_flash_until",
 }
 
 
-def _u32_bytes(value: int) -> bytes:
-    return struct.pack(">I", int(value) & 0xFFFFFFFF)
+def _now() -> float:
+    return time.monotonic()
 
 
-def _read_u32(addr: int) -> int | None:
+def _read_u32(addr: int, default: int = 0) -> int:
     if rd32 is None:
-        return None
+        return int(default) & 0xFFFFFFFF
     try:
-        val = rd32(int(addr))
+        value = rd32(int(addr))
     except Exception:
-        return None
-    if val is None:
-        return None
-    return int(val) & 0xFFFFFFFF
+        value = None
+    if value is None:
+        return int(default) & 0xFFFFFFFF
+    return int(value) & 0xFFFFFFFF
 
 
-def _write_bytes(addr: int, payload: bytes, *, key: str, force: bool = True) -> bool:
-    data = bytes(payload)
-    if runtime_pm is not None:
-        try:
-            return bool(runtime_pm.write_bytes(int(addr), data, key=key, dirty=False, force=force))
-        except Exception:
-            pass
-    if wbytes is None:
-        return False
-    try:
-        return bool(wbytes(int(addr), data))
-    except Exception:
-        return False
-
-
-def _write_u32(addr: int, value: int, *, key: str, force: bool = True) -> bool:
-    if runtime_pm is not None:
-        try:
-            return bool(runtime_pm.write_u32(int(addr), int(value), key=key, dirty=False, force=force))
-        except Exception:
-            pass
+def _write_u32(addr: int, value: int) -> bool:
     if wd32 is None:
         return False
     try:
-        wd32(int(addr), int(value) & 0xFFFFFFFF)
-        return True
+        result = wd32(int(addr), int(value) & 0xFFFFFFFF)
+        return result is not False
     except Exception:
         return False
 
 
-def _ppc_bl(src: int, dst: int) -> int:
-    off = int(dst) - int(src)
-    if off < -0x02000000 or off > 0x01FFFFFC or (off & 0x3):
-        raise ValueError(f"branch out of range 0x{src:08X}->0x{dst:08X}")
-    return 0x48000000 | (off & 0x03FFFFFC) | 1
-
-
-def _build_direct_cave() -> bytes:
-    # This hook is deliberately inside 0x80049064, replacing the call to
-    # 0x80048270. The cave still calls the real resolver first, then optionally
-    # replaces r3 with the requested normal. The rest of 0x80049064 then runs
-    # untouched: store to +0x1E8, clear +0x5C, update +0x60, call 0x80046F24.
-    words = [
-        0x9421FFE0,  # stwu r1,-0x20(r1)
-        0x7C0802A6,  # mflr r0
-        0x90010024,  # stw r0,0x24(r1)
-        0x60000000,  # bl 0x80048270, filled below
-        0x3D80812A,  # lis r12,0x812A
-        0x618C55C0,  # ori r12,r12,0x55C0
-        0x906C0020,  # stw r3,0x20(r12), original resolver output
-        0x93EC0010,  # stw r31,0x10(r12), last fighter base seen here
-        0x816C0000,  # lwz r11,0(r12), enabled
-        0x2C0B0000,  # cmpwi r11,0
-        0x4182003C,  # beq done
-        0x816C0004,  # lwz r11,4(r12), target base
-        0x7C1F5800,  # cmpw r31,r11
-        0x40820030,  # bne done
-        0x816C0008,  # lwz r11,8(r12), forced action
-        0x2C0B0000,  # cmpwi r11,0
-        0x41820024,  # beq done
-        0x7D635B78,  # mr r3,r11
-        0x39600000,  # li r11,0
-        0x916C0000,  # stw r11,0(r12), consume
-        0x816C000C,  # lwz r11,0x0C(r12), hit count
-        0x396B0001,  # addi r11,r11,1
-        0x916C000C,  # stw r11,0x0C(r12)
-        0x39600002,  # li r11,2
-        0x916C0014,  # stw r11,0x14(r12), last path consumed
-        0x80010024,  # done: lwz r0,0x24(r1)
-        0x7C0803A6,  # mtlr r0
-        0x38210020,  # addi r1,r1,0x20
-        0x4E800020,  # blr
-    ]
-    words[3] = _ppc_bl(PUNISH_DIRECT_CAVE_ADDR + 0x0C, 0x80048270)
-    return b"".join(_u32_bytes(w) for w in words)
-
-
-def _zero_direct_mailbox(keep_hits: bool = True) -> bool:
-    hit_count = _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_HIT_COUNT) if keep_hits else 0
-    data = bytearray(0x40)
-    if keep_hits and hit_count is not None:
-        data[MAIL_HIT_COUNT:MAIL_HIT_COUNT + 4] = _u32_bytes(hit_count)
-    return _write_bytes(PUNISH_DIRECT_MAILBOX_ADDR, bytes(data), key="punish:mailbox:zero")
-
-
-def punish_readback() -> dict[str, Any]:
-    cave = []
-    if rbytes is not None:
+def _valid_base(base: int) -> bool:
+    base = int(base or 0)
+    if not base:
+        return False
+    if addr_in_ram is not None:
         try:
-            raw = rbytes(PUNISH_DIRECT_CAVE_ADDR, 0x20) or b""
-            for i in range(0, min(len(raw), 0x20), 4):
-                cave.append(struct.unpack_from(">I", raw, i)[0])
+            return bool(addr_in_ram(base))
         except Exception:
-            cave = []
-    data = {
-        "direct_site": _read_u32(PUNISH_DIRECT_HOOK_ADDR),
-        "direct_site_expected": _ppc_bl(PUNISH_DIRECT_HOOK_ADDR, PUNISH_DIRECT_CAVE_ADDR),
-        "direct_original": PUNISH_DIRECT_HOOK_ORIGINAL,
-        "selector_site": _read_u32(PUNISH_SELECTOR_HOOK_ADDR),
-        "selector_original": PUNISH_SELECTOR_ORIGINAL,
-        "selector_old_patch": PUNISH_SELECTOR_OLD_PATCH,
-        "cave_first_words": cave,
-        "mail_enabled": _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_ENABLED),
-        "mail_target": _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_TARGET_BASE),
-        "mail_action": _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_ACTION_ID),
-        "mail_hits": _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_HIT_COUNT),
-        "mail_last_base": _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_LAST_BASE),
-        "mail_last_path": _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_LAST_PATH),
-        "old_selector_enabled": _read_u32(PUNISH_SELECTOR_OLD_MAILBOX_ADDR),
-        "old_selector_target": _read_u32(PUNISH_SELECTOR_OLD_MAILBOX_ADDR + 4),
-        "old_selector_action": _read_u32(PUNISH_SELECTOR_OLD_MAILBOX_ADDR + 8),
-    }
-    _LAST["last_readback"] = data
-    return data
+            pass
+    return 0x90000000 <= base < 0x94000000
 
 
-def _fmt_u32(value: Any) -> str:
-    if value is None:
-        return "None"
+def _clamp_float(value: Any, default: float, low: float, high: float) -> float:
     try:
-        return f"0x{int(value) & 0xFFFFFFFF:08X}"
+        value = float(value)
     except Exception:
-        return str(value)
+        value = default
+    return round(max(low, min(high, value)), 2)
 
 
-def print_punish_readback(prefix: str = "[punish trainer]") -> dict[str, Any]:
-    rb = punish_readback()
+def _clamp_int(value: Any, default: int, low: int, high: int) -> int:
     try:
-        cave_s = " ".join(_fmt_u32(v) for v in rb.get("cave_first_words", [])[:8])
-        print(
-            f"{prefix} readback direct@0x{PUNISH_DIRECT_HOOK_ADDR:08X}={_fmt_u32(rb.get('direct_site'))} "
-            f"expected={_fmt_u32(rb.get('direct_site_expected'))} original={_fmt_u32(rb.get('direct_original'))}; "
-            f"selector@0x{PUNISH_SELECTOR_HOOK_ADDR:08X}={_fmt_u32(rb.get('selector_site'))} "
-            f"orig={_fmt_u32(rb.get('selector_original'))} old={_fmt_u32(rb.get('selector_old_patch'))}; "
-            f"cave={cave_s}",
-            flush=True,
-        )
-        print(
-            f"{prefix} mailbox enabled={_fmt_u32(rb.get('mail_enabled'))} "
-            f"target={_fmt_u32(rb.get('mail_target'))} action={_fmt_u32(rb.get('mail_action'))} "
-            f"hits={_fmt_u32(rb.get('mail_hits'))} last_base={_fmt_u32(rb.get('mail_last_base'))} "
-            f"last_path={_fmt_u32(rb.get('mail_last_path'))}; "
-            f"old_selector_enabled={_fmt_u32(rb.get('old_selector_enabled'))}",
-            flush=True,
-        )
+        value = int(value)
+    except Exception:
+        value = default
+    return max(low, min(high, value))
+
+
+def _clean_text(value: Any) -> str:
+    return " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split())[:128]
+
+
+def _mailbox_value_for_action(action_id: int) -> int:
+    # The resolver adds 0x4000 before returning the action. Pre-adjust the
+    # mailbox so the committed action is the requested action exactly.
+    return (int(action_id) - 0x4000) & 0xFFFFFFFF
+
+
+def parse_action_id(value: Any, fallback: int | None = None) -> int | None:
+    if value is None:
+        return fallback
+    if isinstance(value, int):
+        return int(value) & 0xFFFF
+    text = _clean_text(value).upper()
+    if not text:
+        return fallback
+    bracket = re.search(r"\[\s*0X([0-9A-F]+)\s*\]", text)
+    if bracket:
+        return int(bracket.group(1), 16) & 0xFFFF
+    direct = re.search(r"0X([0-9A-F]+)", text)
+    if direct:
+        return int(direct.group(1), 16) & 0xFFFF
+    compact = text.replace(" ", "")
+    if compact in PUNISH_LABEL_ACTIONS:
+        return PUNISH_LABEL_ACTIONS[compact]
+    try:
+        return int(compact, 10) & 0xFFFF
+    except Exception:
+        return fallback
+
+
+def _normalize_slot(value: Any) -> str:
+    text = str(value or PUNISH_DEFAULT_SLOT).strip().upper()
+    aliases = {
+        "P1": "P1-C1",
+        "P2": "P2-C1",
+        "1": "P1-C1",
+        "2": "P2-C1",
+        "P1C1": "P1-C1",
+        "P1C2": "P1-C2",
+        "P2C1": "P2-C1",
+        "P2C2": "P2-C2",
+    }
+    text = aliases.get(text, text)
+    return text if text in PUNISH_TARGET_SLOT_PTRS else PUNISH_DEFAULT_SLOT
+
+
+def normalize_punish_trainer_state(state: dict[str, Any] | None) -> dict[str, Any]:
+    raw = dict(state or {})
+    slot = _normalize_slot(raw.get("target_slot") or raw.get("opponent_team") or raw.get("target_side"))
+    move_label = _clean_text(raw.get("move_label") or raw.get("response_label") or PUNISH_DEFAULT_MOVE_LABEL)
+    action_id = parse_action_id(raw.get("action_id"), None)
+    if action_id is None:
+        action_id = parse_action_id(move_label, PUNISH_DEFAULT_ACTION_ID)
+    cooldown_sec = _clamp_float(
+        raw.get("cooldown_sec", raw.get("interval_sec")),
+        PUNISH_DEFAULT_COOLDOWN_SEC,
+        0.25,
+        30.0,
+    )
+    random_min_sec = _clamp_float(
+        raw.get("random_min_sec", raw.get("interval_min_sec")),
+        PUNISH_DEFAULT_RANDOM_MIN_SEC,
+        0.25,
+        30.0,
+    )
+    random_max_sec = _clamp_float(
+        raw.get("random_max_sec", raw.get("interval_max_sec")),
+        PUNISH_DEFAULT_RANDOM_MAX_SEC,
+        0.25,
+        30.0,
+    )
+    if random_min_sec > random_max_sec:
+        random_min_sec, random_max_sec = random_max_sec, random_min_sec
+
+    out = {
+        "enabled": bool(raw.get("enabled", False)),
+        "target_slot": slot,
+        "move_label": move_label or PUNISH_DEFAULT_MOVE_LABEL,
+        "action_id": int(action_id or PUNISH_DEFAULT_ACTION_ID) & 0xFFFF,
+        "cooldown_sec": cooldown_sec,
+        "random_interval": bool(raw.get("random_interval", False)),
+        "random_min_sec": random_min_sec,
+        "random_max_sec": random_max_sec,
+        "show_countdown": bool(raw.get("show_countdown", False)),
+        "manual_test_requested": bool(raw.get("manual_test_requested", False)),
+    }
+    for key in _RUNTIME_KEYS:
+        if key in raw:
+            out[key] = raw[key]
+    out.setdefault("phase", "off")
+    out.setdefault("next_fire_at", 0.0)
+    out.setdefault("request_deadline", 0.0)
+    out.setdefault("request_attempts", 0)
+    out.setdefault("target_base", 0)
+    out.setdefault("last_request_addr", 0)
+    out.setdefault("last_mailbox_value", 0)
+    out.setdefault("last_seen_action", 0)
+    out.setdefault("manual_only", False)
+    out.setdefault("last_status", "Punish Trainer off.")
+    out.setdefault("last_status_at", 0.0)
+    out.setdefault("last_trigger", None)
+    out.setdefault("trigger_count", 0)
+    out.setdefault("scheduled_cooldown_sec", 0.0)
+    out.setdefault("countdown_flash_until", 0.0)
+    return out
+
+
+def load_punish_trainer_config() -> dict[str, Any]:
+    loaded: dict[str, Any] = {}
+    try:
+        with open(PUNISH_TRAINER_CONFIG_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            loaded = data
     except Exception:
         pass
-    return rb
 
-
-def install_punish_direct_action_hook(*, restore_stale_selector: bool = True, verbose: bool = True) -> bool:
-    expected_hook = _ppc_bl(PUNISH_DIRECT_HOOK_ADDR, PUNISH_DIRECT_CAVE_ADDR)
-    cave = _build_direct_cave()
-    ok = True
-
-    # Clean up the abandoned v21/v22 per-frame callsite hook if it is present.
-    retired_site = _read_u32(PUNISH_RETIRED_CALLSITE_ADDR)
-    if retired_site is not None and retired_site != PUNISH_RETIRED_CALLSITE_ORIGINAL:
-        ok = _write_u32(PUNISH_RETIRED_CALLSITE_ADDR, PUNISH_RETIRED_CALLSITE_ORIGINAL, key="punish:restore-retired-callsite") and ok
-
-    # Clear the retired v20 mailbox. The new hook owns 0x80049078 and uses a
-    # new mailbox so stale enabled/action values cannot fire unexpectedly.
-    if restore_stale_selector:
-        _write_bytes(PUNISH_SELECTOR_OLD_MAILBOX_ADDR, b"\x00" * 0x20, key="punish:old-selector-mailbox")
-
-    ok = _write_bytes(PUNISH_DIRECT_CAVE_ADDR, cave, key="punish:resolver-cave") and ok
-    _zero_direct_mailbox(keep_hits=True)
-    ok = _write_u32(PUNISH_DIRECT_HOOK_ADDR, expected_hook, key="punish:resolver-hook") and ok
-
-    rb = punish_readback()
-    installed = bool(
-        ok
-        and rb.get("direct_site") == expected_hook
-        and (rb.get("cave_first_words") or [None])[0] == 0x9421FFE0
+    state = normalize_punish_trainer_state(loaded)
+    # Timing and move choices persist, but the trainer never auto-arms on launch.
+    state.update(
+        {
+            "enabled": False,
+            "phase": "off",
+            "next_fire_at": 0.0,
+            "request_deadline": 0.0,
+            "request_attempts": 0,
+            "manual_only": False,
+            "manual_test_requested": False,
+            "scheduled_cooldown_sec": 0.0,
+            "countdown_flash_until": 0.0,
+        }
     )
-    _LAST["installed"] = installed
-    _LAST["last_error"] = "" if installed else "resolver hook readback failed"
-    if verbose:
-        print_punish_readback()
-        if installed:
-            print("[punish trainer] resolver action hook installed", flush=True)
-        else:
-            print("[punish trainer] resolver action hook install failed", flush=True)
-    return installed
+    return state
 
 
-def uninstall_punish_direct_action_hook(verbose: bool = True) -> bool:
-    ok = _write_u32(PUNISH_DIRECT_HOOK_ADDR, PUNISH_DIRECT_HOOK_ORIGINAL, key="punish:direct-unhook")
-    _zero_direct_mailbox(keep_hits=False)
-    _LAST["installed"] = False
-    if verbose:
-        print_punish_readback()
-    return bool(ok)
-
-
-def punish_label_to_action(label: Any) -> int | None:
-    text = str(label or "").strip().upper().replace(" ", "")
-    text = text.replace("J.", "J")
-    if not text:
-        return None
-    if text in PUNISH_LABEL_ACTIONS:
-        return int(PUNISH_LABEL_ACTIONS[text])
+def save_punish_trainer_config(state: dict[str, Any]) -> None:
+    clean = normalize_punish_trainer_state(state)
+    for key in _RUNTIME_KEYS:
+        clean.pop(key, None)
+    clean.pop("manual_test_requested", None)
+    # Save preferences, not an armed state. Every new app session starts off.
+    clean["enabled"] = False
     try:
-        if text.startswith("0X"):
-            return int(text, 16) & 0xFFFF
-        return int(text, 10) & 0xFFFF
-    except Exception:
-        return None
+        os.makedirs(os.path.dirname(PUNISH_TRAINER_CONFIG_FILE), exist_ok=True)
+        with open(PUNISH_TRAINER_CONFIG_FILE, "w", encoding="utf-8") as handle:
+            json.dump(clean, handle, indent=2, sort_keys=True)
+    except Exception as exc:
+        print(f"[punish trainer] config save failed: {exc!r}", flush=True)
 
 
-def _snap_base(snap: Any) -> int | None:
+def _set_status(state: dict[str, Any], text: str, now: float | None = None) -> None:
+    state["last_status"] = _clean_text(text)[:180]
+    state["last_status_at"] = float(_now() if now is None else now)
+
+
+def _snap_base(snap: Any) -> int:
     if not isinstance(snap, dict):
-        return None
+        return 0
     for key in ("base", "fighter_base", "ea"):
         try:
             base = int(snap.get(key) or 0)
         except Exception:
             base = 0
-        if base and (addr_in_ram is None or bool(addr_in_ram(base))):
+        if _valid_base(base):
             return base
-    return None
+    return 0
 
 
-def punish_target_base(target_side: str = PUNISH_DEFAULT_TARGET_SIDE, snaps: dict | None = None) -> int | None:
-    side = str(target_side or PUNISH_DEFAULT_TARGET_SIDE).strip().upper()
-    if side in {"1", "PLAYER1"}:
-        side = "P1"
-    elif side in {"2", "PLAYER2", "CPU"}:
-        side = "P2"
-    if snaps:
-        for key in (side, f"{side}-C1"):
-            base = _snap_base(snaps.get(key))
-            if base:
-                return base
-    ptr = PUNISH_TARGET_SLOT_PTRS.get(side) or PUNISH_TARGET_SLOT_PTRS.get(f"{side}-C1")
-    if ptr is None:
-        return None
-    base = _read_u32(ptr)
-    if base and (addr_in_ram is None or bool(addr_in_ram(base))):
-        return int(base)
-    return None
+def punish_target_base(target_slot: str, snaps: dict | None = None) -> int:
+    slot = _normalize_slot(target_slot)
+    base = _snap_base((snaps or {}).get(slot))
+    if base:
+        return base
+    ptr = PUNISH_TARGET_SLOT_PTRS[slot]
+    base = _read_u32(ptr, 0)
+    return base if _valid_base(base) else 0
 
 
-def arm_punish_direct_action(target_base: int, action_id: int, *, reason: str = "manual", verbose: bool = True) -> bool:
-    try:
-        base = int(target_base) & 0xFFFFFFFF
-        action = int(action_id) & 0xFFFF
-    except Exception as e:
-        _LAST["last_error"] = f"bad trigger args: {e!r}"
-        return False
-    if not base or not action:
-        _LAST["last_error"] = f"bad trigger base/action base=0x{base:08X} action=0x{action:04X}"
-        return False
-    if not _LAST.get("installed"):
-        if not install_punish_direct_action_hook(verbose=verbose):
-            return False
-
-    # Write target and action first, then arm enabled last so the cave cannot
-    # observe a half-written packet.
-    ok = True
-    ok = _write_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_TARGET_BASE, base, key="punish:mail-target") and ok
-    ok = _write_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_ACTION_ID, action, key="punish:mail-action") and ok
-    ok = _write_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_LAST_PATH, 0, key="punish:mail-path") and ok
-    ok = _write_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_ENABLED, 1, key="punish:mail-enable") and ok
-    _LAST["last_trigger"] = f"{reason}: base=0x{base:08X} action=0x{action:04X}"
-    if verbose:
-        print(f"[punish trainer] armed direct action {reason}: base=0x{base:08X} action=0x{action:04X}", flush=True)
-        print_punish_readback()
-    return bool(ok)
+def _clear_our_request(state: dict[str, Any]) -> None:
+    addr = int(state.get("last_request_addr") or 0)
+    value = int(state.get("last_mailbox_value") or 0) & 0xFFFFFFFF
+    if addr and value and _read_u32(addr, 0) == value:
+        _write_u32(addr, 0)
+    state["last_request_addr"] = 0
+    state["last_mailbox_value"] = 0
 
 
-def trigger_punish_direct_action(target_side: str = PUNISH_DEFAULT_TARGET_SIDE, label: str = PUNISH_DEFAULT_RESPONSE_LABEL, snaps: dict | None = None, *, verbose: bool = True) -> bool:
-    base = punish_target_base(target_side, snaps)
-    action = punish_label_to_action(label)
-    if base is None:
-        _LAST["last_error"] = f"no live target base for {target_side}"
-        if verbose:
-            print(f"[punish trainer] {_LAST['last_error']}", flush=True)
-        return False
-    if action is None:
-        _LAST["last_error"] = f"unknown response label {label!r}"
-        if verbose:
-            print(f"[punish trainer] {_LAST['last_error']}", flush=True)
-        return False
-    return arm_punish_direct_action(base, action, reason=f"{target_side} {label}", verbose=verbose)
-
-
-def punish_direct_action_consumed() -> bool:
-    return _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_ENABLED) == 0 and _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_LAST_PATH) == 2
-
-
-def get_punish_training_debug_state() -> dict[str, Any]:
-    rb = punish_readback()
-    return {
-        "installed": bool(_LAST.get("installed")),
-        "last_error": str(_LAST.get("last_error") or ""),
-        "last_trigger": str(_LAST.get("last_trigger") or ""),
-        "readback": rb,
-    }
-
-
-def _clean_label(value: Any) -> str:
-    text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
-    while "  " in text:
-        text = text.replace("  ", " ")
-    return text[:96]
-
-
-def _normalize_response_label(value: Any, *, allow_blank: bool = True) -> str:
-    label = _clean_label(value).upper().replace(" ", "")
-    if label in {"CHOOSEMOVE", "ANY", "NONE"}:
-        label = ""
-    if not label:
-        return "" if allow_blank else PUNISH_TRAINING_DEFAULT_RESPONSE_LABEL
-    if punish_label_to_action(label) is None:
-        return "" if allow_blank else PUNISH_TRAINING_DEFAULT_RESPONSE_LABEL
-    return label
-
-
-def _clamp_float(value: Any, default: float, low: float, high: float) -> float:
-    try:
-        out = float(value)
-    except Exception:
-        out = float(default)
-    return round(max(float(low), min(float(high), out)), 3)
-
-
-def _clamp_int(value: Any, default: int, low: int, high: int) -> int:
-    try:
-        out = int(round(float(value)))
-    except Exception:
-        out = int(default)
-    return max(int(low), min(int(high), out))
-
-
-def _normalize_punish_training_state(state: dict[str, Any] | None) -> dict[str, Any]:
-    raw = dict(state or {})
-
-    mode = str(raw.get("mode") or PUNISH_TRAINING_DEFAULT_MODE).strip().lower()
-    if mode in {"repeat", "timer", "timed"}:
-        mode = "interval"
-    elif mode in {"release", "after_blockstun", "after_stun_release", "stun_release"}:
-        mode = "after_stun"
-    if mode not in {"interval", "after_stun"}:
-        mode = PUNISH_TRAINING_DEFAULT_MODE
-
-    team = str(raw.get("opponent_team") or raw.get("target_side") or raw.get("target") or PUNISH_TRAINING_DEFAULT_OPPONENT_TEAM).strip().upper()
-    if team in {"1", "PLAYER1"}:
-        team = "P1"
-    elif team in {"2", "PLAYER2", "CPU"}:
-        team = "P2"
-    if team not in {"P1", "P2"}:
-        team = PUNISH_TRAINING_DEFAULT_OPPONENT_TEAM
-
-    interval = _clamp_float(raw.get("interval_sec"), PUNISH_TRAINING_DEFAULT_INTERVAL_SEC, 0.25, 60.0)
-    release_delay = _clamp_int(raw.get("release_delay_frames"), PUNISH_TRAINING_DEFAULT_RELEASE_DELAY_FRAMES, 0, 300)
-
-    out = {
-        "enabled": bool(raw.get("enabled", PUNISH_DEFAULT_ENABLED)),
-        "mode": mode,
-        "opponent_team": team,
-        "target_side": team,
-        "response_label": _normalize_response_label(raw.get("response_label") or raw.get("label"), allow_blank=True),
-        "source_label": _clean_label(raw.get("source_label") or ""),
-        "interval_sec": interval,
-        "release_delay_frames": release_delay,
-        "pulses": raw.get("pulses") if isinstance(raw.get("pulses"), dict) else {},
-        "scheduled": raw.get("scheduled") if isinstance(raw.get("scheduled"), dict) else None,
-        "release_watch": raw.get("release_watch") if isinstance(raw.get("release_watch"), dict) else {},
-        "next_interval_at": _clamp_float(raw.get("next_interval_at"), 0.0, 0.0, 999999999.0),
-        "last_trigger": raw.get("last_trigger"),
-        "last_status": str(raw.get("last_status") or ""),
-        "trigger_count": _clamp_int(raw.get("trigger_count"), 0, 0, 999999),
-    }
-    if raw.get("manual_test_requested"):
-        out["manual_test_requested"] = True
-        out["manual_test_requested_at"] = raw.get("manual_test_requested_at")
-    return out
-
-
-def _load_punish_training_config() -> dict[str, Any]:
-    state = {
-        "enabled": PUNISH_DEFAULT_ENABLED,
-        "mode": PUNISH_TRAINING_DEFAULT_MODE,
-        "opponent_team": PUNISH_TRAINING_DEFAULT_OPPONENT_TEAM,
-        "target_side": PUNISH_TRAINING_DEFAULT_OPPONENT_TEAM,
-        "response_label": "",
-        "source_label": "",
-        "interval_sec": PUNISH_TRAINING_DEFAULT_INTERVAL_SEC,
-        "release_delay_frames": PUNISH_TRAINING_DEFAULT_RELEASE_DELAY_FRAMES,
-        "pulses": {},
-        "scheduled": None,
-        "release_watch": {},
-        "next_interval_at": 0.0,
-        "last_trigger": None,
-        "last_status": "",
-        "trigger_count": 0,
-    }
-    try:
-        with open(PUNISH_TRAINER_CONFIG_FILE, "r", encoding="utf-8") as f:
-            loaded = json.load(f)
-        if isinstance(loaded, dict):
-            state.update(loaded)
-    except Exception:
-        pass
-    return _normalize_punish_training_state(state)
-
-
-def _save_punish_training_config(state: dict[str, Any]) -> None:
-    try:
-        path = PUNISH_TRAINER_CONFIG_FILE
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        clean = _normalize_punish_training_state(state)
-        # Runtime-only fields should not make the saved config noisy.
-        for key in ("pulses", "scheduled", "release_watch", "last_trigger", "last_status", "manual_test_requested", "manual_test_requested_at"):
-            clean.pop(key, None)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(clean, f, indent=2, sort_keys=True)
-    except Exception as e:
-        print(f"[punish trainer] config save failed: {e!r}", flush=True)
-
-
-def _clear_punish_training_runtime(state: dict[str, Any] | None = None) -> dict[str, Any]:
-    if isinstance(state, dict):
-        state["pulses"] = {}
-        state["scheduled"] = None
-        state["release_watch"] = {}
-        state["next_interval_at"] = 0.0
-        state["manual_test_requested"] = False
-        state["last_status"] = ""
-    try:
-        _zero_direct_mailbox(keep_hits=True)
-    except Exception:
-        pass
-    _LAST["next_interval_time"] = 0.0
-    _LAST["prev_reaction"] = {}
-    return state if isinstance(state, dict) else {}
-
-
-def _snap_label_text(snap: Any) -> str:
-    if not isinstance(snap, dict):
-        return ""
-    parts = []
-    for key in ("move_label", "label", "move", "name", "display", "attack_label", "att_label"):
-        val = snap.get(key)
-        if val:
-            parts.append(str(val))
-    return " ".join(parts)
-
-
-def _label_matches_snap(label: str, snap: Any) -> bool:
-    label = _clean_label(label)
-    if not label:
-        return True
-    want = "".join(ch for ch in label.casefold() if ch.isalnum())
-    if not want:
-        return True
-    have = "".join(ch for ch in _snap_label_text(snap).casefold() if ch.isalnum())
-    if want and have and want in have:
-        return True
-    action = punish_label_to_action(label)
-    if action is None or not isinstance(snap, dict):
-        return False
-    for key in ("action", "action_id", "move_id", "att_id", "id"):
-        try:
-            if int(snap.get(key)) == int(action):
-                return True
-        except Exception:
-            pass
-    return False
-
-
-def _punish_training_roster_context(snaps: dict | None) -> dict[str, dict[str, Any]]:
-    out: dict[str, dict[str, Any]] = {}
-    for team in ("P1", "P2"):
-        snap = (snaps or {}).get(f"{team}-C1") or (snaps or {}).get(team) or {}
-        base = _snap_base(snap) or punish_target_base(team, snaps)
-        name = ""
-        if isinstance(snap, dict):
-            name = str(snap.get("name") or snap.get("char_name") or snap.get("character") or "")
-        out[team] = {
-            "team": team,
-            "side": team,
-            "slot": f"{team}-C1",
-            "slot_label": f"{team}-C1",
-            "base": base,
-            "name": name,
-            "labels": list(PUNISH_NORMAL_LABELS),
+def clear_punish_trainer_runtime(state: dict[str, Any] | None = None) -> dict[str, Any]:
+    target = normalize_punish_trainer_state(state)
+    _clear_our_request(target)
+    target.update(
+        {
+            "phase": "off",
+            "next_fire_at": 0.0,
+            "request_deadline": 0.0,
+            "request_attempts": 0,
+            "target_base": 0,
+            "manual_only": False,
+            "manual_test_requested": False,
+            "scheduled_cooldown_sec": 0.0,
+            "countdown_flash_until": 0.0,
         }
-    return out
-
-
-def _punish_training_mode_summary(state: dict[str, Any] | None) -> str:
-    s = _normalize_punish_training_state(state)
-    label = s.get("response_label") or "choose move"
-    team = s.get("opponent_team") or PUNISH_TRAINING_DEFAULT_OPPONENT_TEAM
-    if s.get("mode") == "after_stun":
-        delay = int(s.get("release_delay_frames") or 0)
-        return f"{team} {label} after stun +{delay}f"
-    return f"{team} {label} every {float(s.get('interval_sec') or PUNISH_TRAINING_DEFAULT_INTERVAL_SEC):g}s"
-
-
-def _punish_training_status(state: dict[str, Any] | None, now: float | None = None) -> str:
-    if not isinstance(state, dict):
-        return ""
-    status = str(state.get("last_status") or "")
-    if status:
-        return status
-    rb = _LAST.get("last_readback") or {}
-    hits = rb.get("mail_hits")
-    if hits not in (None, 0):
-        try:
-            return f"Punish hook hits {int(hits)}"
-        except Exception:
-            return ""
-    return ""
-
-
-def _set_status(state: dict[str, Any], text: str) -> None:
-    state["last_status"] = str(text or "")[:160]
-
-
-def _trigger_punish_training_now(state: dict[str, Any], snaps: dict | None, *, reason: str, verbose: bool = True) -> bool:
-    label = str(state.get("response_label") or "")
-    team = str(state.get("opponent_team") or PUNISH_TRAINING_DEFAULT_OPPONENT_TEAM)
-    if not label:
-        _set_status(state, "Punish: choose a response move")
-        return False
-    before_hits = _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_HIT_COUNT) or 0
-    ok = trigger_punish_direct_action(team, label, snaps, verbose=verbose)
-    after_hits = _read_u32(PUNISH_DIRECT_MAILBOX_ADDR + MAIL_HIT_COUNT) or before_hits
-    if ok:
-        state["trigger_count"] = int(state.get("trigger_count") or 0) + 1
-        state["last_trigger"] = {
-            "time": time.monotonic(),
-            "team": team,
-            "label": label,
-            "reason": reason,
-            "hook_hits_before": before_hits,
-            "hook_hits_after": after_hits,
-        }
-        _set_status(state, f"Punish armed {team} {label} ({reason})")
-    else:
-        _set_status(state, f"Punish failed: {_LAST.get('last_error') or 'not armed'}")
-    return ok
-
-
-def _tick_punish_training(state: dict[str, Any] | None, snaps: dict | None = None, now: float | None = None, frame_idx: int | None = None) -> dict[str, Any]:
-    s = _normalize_punish_training_state(state)
-    now_f = float(now if now is not None else time.monotonic())
-    frame_i = int(frame_idx or 0)
-
+    )
     if isinstance(state, dict):
         state.clear()
-        state.update(s)
-        s = state
+        state.update(target)
+        return state
+    return target
 
-    if s.pop("manual_test_requested", False):
-        s["manual_test_requested"] = False
-        _trigger_punish_training_now(s, snaps, reason="manual", verbose=True)
-        return s
 
-    if not bool(s.get("enabled", False)):
-        return s
 
-    mode = str(s.get("mode") or PUNISH_TRAINING_DEFAULT_MODE)
-    if mode == "interval":
-        due = float(s.get("next_interval_at") or 0.0)
+def _selected_interval(state: dict[str, Any]) -> float:
+    if bool(state.get("random_interval", False)):
+        low = float(state.get("random_min_sec") or PUNISH_DEFAULT_RANDOM_MIN_SEC)
+        high = float(state.get("random_max_sec") or PUNISH_DEFAULT_RANDOM_MAX_SEC)
+        if low > high:
+            low, high = high, low
+        return round(random.uniform(low, high), 2)
+    return float(state.get("cooldown_sec") or PUNISH_DEFAULT_COOLDOWN_SEC)
+
+
+def _schedule_cooldown(state: dict[str, Any], now: float, *, initial: bool = False) -> float:
+    # The selected interval always leads into the next move, including the first
+    # move after arming. A fixed 3-second interval therefore shows 3, 2, 1,
+    # then executes the move.
+    duration = _selected_interval(state)
+    duration = max(0.05, float(duration))
+    state["phase"] = "cooldown"
+    state["scheduled_cooldown_sec"] = duration
+    state["next_fire_at"] = now + duration
+    state["countdown_flash_until"] = 0.0
+    if bool(state.get("random_interval", False)):
+        _set_status(state, f"Next move in a random {duration:g}s interval.", now)
+    elif initial:
+        _set_status(state, f"Armed. {state['move_label']} in {duration:g}s.", now)
+    else:
+        _set_status(state, f"Next {state['move_label']} in {duration:g}s.", now)
+    return duration
+
+
+def punish_trainer_overlay_payload(
+    state: dict[str, Any] | None,
+    now: float | None = None,
+) -> dict[str, Any]:
+    if not isinstance(state, dict):
+        return {}
+    now_f = float(_now() if now is None else now)
+    # The trainer schedules against time.monotonic(). Some older main-loop
+    # builds passed wall-clock time here, which made every countdown appear
+    # expired and left only the brief NOW cue visible. Detect a mismatched
+    # clock domain and fall back to the trainer clock.
+    next_fire_at = float(state.get("next_fire_at") or 0.0)
+    if next_fire_at > 0.0 and abs(now_f - next_fire_at) > 86400.0:
+        now_f = _now()
+    enabled = bool(state.get("enabled", False))
+    show = bool(state.get("show_countdown", False))
+    phase = str(state.get("phase") or "off")
+    flash_until = float(state.get("countdown_flash_until") or 0.0)
+    remaining = max(0.0, float(state.get("next_fire_at") or 0.0) - now_f)
+    visible = enabled and show and (phase == "cooldown" or now_f < flash_until)
+    return {
+        "enabled": enabled,
+        "show": show,
+        "visible": visible,
+        "phase": phase,
+        "remaining": remaining,
+        "slot": str(state.get("target_slot") or PUNISH_DEFAULT_SLOT),
+        "move_label": _clean_text(state.get("move_label")),
+        "random_interval": bool(state.get("random_interval", False)),
+        "scheduled_interval": float(state.get("scheduled_cooldown_sec") or 0.0),
+        "flash_until": flash_until,
+        "now": now_f,
+    }
+
+def _request_action(state: dict[str, Any], base: int, now: float, reason: str) -> bool:
+    action_id = int(state.get("action_id") or 0) & 0xFFFF
+    if action_id <= 0:
+        _set_status(state, "Choose a move before arming the trainer.", now)
+        return False
+
+    action_addr = base + OFF_ACTION_ID
+    request_addr = base + OFF_ACTION_REQUEST
+    current_action = _read_u32(action_addr, 0)
+    mailbox = _read_u32(request_addr, 0)
+
+    # Attacks and reactions are 0x100 or higher. Waiting below that range keeps
+    # the trainer from cancelling another action or forcing through hitstun.
+    if current_action >= 0x100:
+        _set_status(state, f"Waiting for {state['target_slot']} to regain control.", now)
+        return False
+    if mailbox != 0:
+        _set_status(state, f"Waiting for {state['target_slot']} action mailbox.", now)
+        return False
+
+    mailbox_value = _mailbox_value_for_action(action_id)
+    if not _write_u32(request_addr, mailbox_value):
+        _set_status(state, f"Could not write action mailbox at 0x{request_addr:08X}.", now)
+        return False
+
+    attempts = int(state.get("request_attempts") or 0) + 1
+    state.update(
+        {
+            "phase": "requested",
+            "request_deadline": now + 0.75,
+            "request_attempts": attempts,
+            "target_base": base,
+            "last_request_addr": request_addr,
+            "last_mailbox_value": mailbox_value,
+            "countdown_flash_until": now + 0.45 if bool(state.get("enabled", False)) else 0.0,
+            "last_trigger": {
+                "time": now,
+                "slot": state["target_slot"],
+                "move": state["move_label"],
+                "action_id": action_id,
+                "reason": reason,
+            },
+        }
+    )
+    _set_status(
+        state,
+        f"Requested {state['target_slot']} {state['move_label']}.",
+        now,
+    )
+    return True
+
+
+def tick_punish_trainer(
+    state: dict[str, Any] | None,
+    snaps: dict | None = None,
+    now: float | None = None,
+    frame_idx: int | None = None,
+) -> dict[str, Any]:
+    del frame_idx
+    now_f = float(_now() if now is None else now)
+    clean = normalize_punish_trainer_state(state)
+    if isinstance(state, dict):
+        state.clear()
+        state.update(clean)
+        clean = state
+
+    manual_requested = bool(clean.pop("manual_test_requested", False))
+    enabled = bool(clean.get("enabled", False))
+    slot = _normalize_slot(clean.get("target_slot"))
+    clean["target_slot"] = slot
+    base = punish_target_base(slot, snaps)
+
+    previous_base = int(clean.get("target_base") or 0)
+    if previous_base and base and previous_base != base:
+        _clear_our_request(clean)
+        clean["phase"] = "off"
+        clean["request_attempts"] = 0
+    clean["target_base"] = base
+
+    if not base:
+        clean["phase"] = "off"
+        _set_status(clean, f"Waiting for {slot} to appear in a match.", now_f)
+        return clean
+
+    action_id = int(clean.get("action_id") or 0) & 0xFFFF
+    current_action = _read_u32(base + OFF_ACTION_ID, 0)
+    clean["last_seen_action"] = current_action
+    phase = str(clean.get("phase") or "off")
+
+    if manual_requested:
+        clean["manual_only"] = True
+        clean["request_attempts"] = 0
+        if not _request_action(clean, base, now_f, "manual test"):
+            clean["phase"] = "manual_wait"
+        phase = str(clean.get("phase") or "manual_wait")
+
+    if not enabled and not bool(clean.get("manual_only", False)):
+        _clear_our_request(clean)
+        clean["phase"] = "off"
+        clean["next_fire_at"] = 0.0
+        return clean
+
+    if phase == "off":
+        _clear_our_request(clean)
+        _schedule_cooldown(clean, now_f, initial=True)
+        return clean
+
+    if phase == "manual_wait":
+        if _request_action(clean, base, now_f, "manual test"):
+            return clean
+        return clean
+
+    if phase == "requested":
+        if current_action == action_id:
+            clean["phase"] = "performing"
+            clean["request_attempts"] = 0
+            clean["trigger_count"] = int(clean.get("trigger_count") or 0) + 1
+            clean["last_request_addr"] = 0
+            clean["last_mailbox_value"] = 0
+            _set_status(clean, f"{slot} performing {clean['move_label']}.", now_f)
+            return clean
+
+        if now_f >= float(clean.get("request_deadline") or 0.0):
+            attempts = int(clean.get("request_attempts") or 0)
+            if attempts >= 8:
+                _clear_our_request(clean)
+                if bool(clean.get("manual_only", False)):
+                    clean["manual_only"] = False
+                    clean["phase"] = "off"
+                    _set_status(clean, f"{clean['move_label']} was not accepted.", now_f)
+                else:
+                    clean["phase"] = "cooldown"
+                    clean["next_fire_at"] = now_f + 0.5
+                    _set_status(clean, f"Move rejected. Retrying when neutral.", now_f)
+                return clean
+            if current_action < 0x100 and _read_u32(base + OFF_ACTION_REQUEST, 0) == 0:
+                _request_action(clean, base, now_f, "retry")
+            else:
+                clean["request_deadline"] = now_f + 0.1
+        return clean
+
+    if phase == "performing":
+        if current_action == action_id:
+            return clean
+        if current_action < 0x100:
+            if bool(clean.get("manual_only", False)):
+                clean["manual_only"] = False
+                clean["phase"] = "off"
+                clean["next_fire_at"] = 0.0
+                _set_status(clean, f"Manual {clean['move_label']} complete.", now_f)
+            else:
+                _schedule_cooldown(clean, now_f)
+        return clean
+
+    if phase == "cooldown":
+        due = float(clean.get("next_fire_at") or 0.0)
         if now_f >= due:
-            if _trigger_punish_training_now(s, snaps, reason="interval", verbose=True):
-                s["next_interval_at"] = now_f + float(s.get("interval_sec") or PUNISH_TRAINING_DEFAULT_INTERVAL_SEC)
-            else:
-                s["next_interval_at"] = now_f + 0.5
-        return s
+            if not _request_action(clean, base, now_f, "cooldown"):
+                clean["next_fire_at"] = now_f + 0.1
+        return clean
 
-    if mode == "after_stun":
-        target = str(s.get("opponent_team") or PUNISH_TRAINING_DEFAULT_OPPONENT_TEAM)
-        source_team = "P2" if target == "P1" else "P1"
-        source_snap = (snaps or {}).get(f"{source_team}-C1") or (snaps or {}).get(source_team) or {}
-        release_watch = s.setdefault("release_watch", {})
-        in_reaction = _is_reaction_snap(source_snap)
-        label_ok = _label_matches_snap(str(s.get("source_label") or ""), source_snap)
-        prior = bool(release_watch.get("in_reaction", False))
-        prior_label = bool(release_watch.get("label_ok", False))
-        release_watch["in_reaction"] = bool(in_reaction)
-        release_watch["label_ok"] = bool(label_ok)
-
-        if prior and not in_reaction and (prior_label or not s.get("source_label")):
-            delay = int(s.get("release_delay_frames") or 0)
-            if delay <= 0:
-                _trigger_punish_training_now(s, snaps, reason="stun release", verbose=True)
-            else:
-                s["scheduled"] = {"fire_frame": frame_i + delay, "reason": "stun release"}
-
-        scheduled = s.get("scheduled")
-        if isinstance(scheduled, dict):
-            fire_frame = int(scheduled.get("fire_frame") or 0)
-            if frame_i >= fire_frame:
-                s["scheduled"] = None
-                _trigger_punish_training_now(s, snaps, reason=str(scheduled.get("reason") or "scheduled"), verbose=True)
-        return s
-
-    return s
+    clean["phase"] = "off"
+    return clean
 
 
-# Compatibility aliases for older scratch builds and the public window/main imports.
-def _load_punish_trainer_config() -> dict[str, Any]:
-    return _load_punish_training_config()
+def punish_trainer_status(state: dict[str, Any] | None, now: float | None = None) -> str:
+    if not isinstance(state, dict):
+        return ""
+    now_f = float(_now() if now is None else now)
+    if bool(state.get("enabled", False)) and str(state.get("phase")) == "cooldown":
+        remaining = max(0.0, float(state.get("next_fire_at") or 0.0) - now_f)
+        return f"Punish {state.get('target_slot', PUNISH_DEFAULT_SLOT)} {state.get('move_label', '')} in {remaining:.1f}s"
+    return _clean_text(state.get("last_status"))
 
 
-def _save_punish_trainer_config(state: dict[str, Any]) -> None:
-    _save_punish_training_config(state)
+def _move_sort_key(item: tuple[int, str]) -> tuple[int, int, str]:
+    action_id, label = item
+    if 0x100 <= action_id <= 0x10F:
+        group = 0
+    elif action_id < 0x180:
+        group = 1
+    elif action_id < 0x300:
+        group = 2
+    else:
+        group = 3
+    return group, action_id, label.casefold()
 
 
-def _tick_punish_trainer(state: dict[str, Any] | None, snaps: dict | None = None, frame_idx: int | None = None) -> dict[str, Any]:
-    return _tick_punish_training(state, snaps, time.monotonic(), frame_idx)
+def punish_roster_context(snaps: dict | None, move_map: dict | None = None) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    mapping = move_map if isinstance(move_map, dict) else {}
+    for slot in ("P1-C1", "P1-C2", "P2-C1", "P2-C2"):
+        snap = (snaps or {}).get(slot) or {}
+        base = _snap_base(snap) or punish_target_base(slot, snaps)
+        name = _clean_text(snap.get("name") if isinstance(snap, dict) else "")
+        try:
+            char_id = int((snap or {}).get("csv_char_id"))
+        except Exception:
+            char_id = -1
+        bucket = mapping.get(char_id, {}) if char_id >= 0 else {}
+        moves: list[dict[str, Any]] = []
+        seen: set[tuple[int, str]] = set()
+        if isinstance(bucket, dict):
+            pairs = []
+            for raw_id, raw_label in bucket.items():
+                try:
+                    action_id = int(raw_id) & 0xFFFF
+                except Exception:
+                    continue
+                label = _clean_text(raw_label)
+                if not label or label.upper().startswith("FLAG_"):
+                    continue
+                if action_id < 0x100 or action_id >= 0x4000:
+                    continue
+                pairs.append((action_id, label))
+            for action_id, label in sorted(pairs, key=_move_sort_key):
+                key = (action_id, label.casefold())
+                if key in seen:
+                    continue
+                seen.add(key)
+                moves.append(
+                    {
+                        "label": label,
+                        "action_id": action_id,
+                        "display": f"{label} [0x{action_id:03X}]",
+                    }
+                )
+        if not moves:
+            for label, action_id in PUNISH_LABEL_ACTIONS.items():
+                moves.append(
+                    {
+                        "label": label,
+                        "action_id": action_id,
+                        "display": f"{label} [0x{action_id:03X}]",
+                    }
+                )
+        out[slot] = {
+            "slot": slot,
+            "base": base,
+            "name": name or "Waiting",
+            "char_id": char_id,
+            "moves": moves,
+        }
+    return out
 
 
-def _punish_roster_context(snaps: dict | None) -> dict[str, dict[str, Any]]:
-    return _punish_training_roster_context(snaps)
-
-
-def _sync_mission_punish_trainer(*_args: Any, **_kwargs: Any) -> None:
-    return None
-
-
-load_punish_trainer_config = _load_punish_training_config
-save_punish_trainer_config = _save_punish_training_config
-tick_punish_trainer = _tick_punish_trainer
-punish_roster_context = _punish_training_roster_context
-install_direct_action_hook = install_punish_direct_action_hook
-trigger_direct_action = trigger_punish_direct_action
-manual_test_punish_response = trigger_punish_direct_action
+# Compatibility names retained for older imports.
+_load_punish_training_config = load_punish_trainer_config
+_save_punish_training_config = save_punish_trainer_config
+_tick_punish_training = tick_punish_trainer
+_punish_training_roster_context = punish_roster_context
+_clear_punish_training_runtime = clear_punish_trainer_runtime
+_load_punish_trainer_config = load_punish_trainer_config
+_save_punish_trainer_config = save_punish_trainer_config
+_tick_punish_trainer = tick_punish_trainer
+_punish_roster_context = punish_roster_context
+_punish_trainer_overlay_payload = punish_trainer_overlay_payload

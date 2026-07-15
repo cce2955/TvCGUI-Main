@@ -129,6 +129,15 @@ from tvcgui.features.training.flags import read_training_flags
 from tvcgui.ui.debug_panel import read_debug_flags, draw_debug_overlay
 
 from tvcgui.platform.dolphin import hook, rd8, rd32, wd8, wd32, wbytes, addr_in_ram, rbytes, prime_mem2_latch, set_emulated_write_quarantine
+from tvcgui.runtime.punish_training import (
+    load_punish_trainer_config,
+    save_punish_trainer_config,
+    tick_punish_trainer,
+    punish_roster_context,
+    punish_trainer_status,
+    punish_trainer_overlay_payload,
+)
+from tvcgui.features.training.punish_training_window import open_punish_training_window
 
 try:
     from tvcgui.features.training.stun_profiler import RuntimeStunProfiler
@@ -986,6 +995,7 @@ def legacy_main():
     print("HUD: hooked Dolphin.")
 
     move_map, global_map = load_move_map(GENERIC_MAPPING_CSV, PAIR_MAPPING_CSV)
+    punish_trainer_state = load_punish_trainer_config()
 
     screen, font, smallfont = init_pygame()
     clock = pygame.time.Clock()
@@ -2113,6 +2123,20 @@ def legacy_main():
         if p1_giant_solo or p2_giant_solo:
             snaps = reassign_slots_for_giants(snaps)
 
+        # Punish Trainer uses the game's own one-shot action mailbox. It waits
+        # for the selected fighter to return to a non-attack state, requests the
+        # chosen move, then starts the cooldown after the move finishes.
+        try:
+            punish_trainer_state = tick_punish_trainer(
+                punish_trainer_state,
+                snaps,
+                now=time.monotonic(),
+                frame_idx=frame_idx,
+            )
+        except Exception as _punish_tick_error:
+            if frame_idx % 120 == 0:
+                print(f"[punish trainer] tick failed: {_punish_tick_error!r}", flush=True)
+
         # Character-select write quarantine blocks battle-only tool writes while
         # Extra Characters and Solo Team are inactive. The barrier is global so
         # direct and managed memory writers share the same scene gate.
@@ -2520,7 +2544,9 @@ def legacy_main():
         _check_master_overlay_proc()
         mx_h, my_h = pygame.mouse.get_pos()
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        punish_trainer_active = bool(punish_trainer_state.get("enabled", False))
+
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -2543,6 +2569,7 @@ def legacy_main():
             ko_control_enabled=bool(ko_control_full_enabled),
             ko_control_live_active=bool(ko_control_live_active),
             solo_team_active=_solo_team_active_for_dock(),
+            action_spoof_active=punish_trainer_active,
             tools_open=bool(dock_tools_open),
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
@@ -2867,7 +2894,12 @@ def legacy_main():
 
         # Write data files for subprocesses
         mission_mgr.write_overlay_data(render_snap_by_slot)
-        hud_mgr.write_data(render_snap_by_slot, last_scan_normals, mission_mgr)
+        hud_mgr.write_data(
+            render_snap_by_slot,
+            last_scan_normals,
+            mission_mgr,
+            punish_overlay=punish_trainer_overlay_payload(punish_trainer_state, time.monotonic()),
+        )
         hud_mgr.check_proc()
 
         status_parts = []
@@ -2927,6 +2959,9 @@ def legacy_main():
                     status_parts.append("Solo team ON")
             except Exception:
                 pass
+        punish_status = punish_trainer_status(punish_trainer_state)
+        if punish_status and (bool(punish_trainer_state.get("enabled", False)) or time.monotonic() - float(punish_trainer_state.get("last_status_at", 0.0) or 0.0) < 6.0):
+            status_parts.append(punish_status)
         if bool(ko_control_full_enabled):
             status_parts.append("KO Ctrl ON")
         if float(idle_restore_status.get("until", 0.0) or 0.0) > now:
@@ -3085,6 +3120,16 @@ def legacy_main():
                     print("[stage select] window opened", flush=True)
                 else:
                     print("[stage select] window unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
+            elif action_spoof_btn_rect.collidepoint(mx, my):
+                open_punish_training_window(
+                    punish_trainer_state,
+                    save_punish_trainer_config,
+                    lambda: punish_roster_context(render_snap_by_slot, move_map),
+                )
+                print("[punish trainer] window opened", flush=True)
                 mouse_clicked_pos = None
                 continue
 

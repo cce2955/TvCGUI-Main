@@ -1,12 +1,11 @@
 {
-  "enabled": true,
-  "interval_sec": 3.0,
-  "mode": "interval",
-  "next_interval_at": 0.0,
-  "opponent_team": "P2",
-  "release_delay_frames": 0,
-  "response_label": "",
-  "source_label": "",
-  "target_side": "P2",
-  "trigger_count": 0
+  "action_id": 353,
+  "cooldown_sec": 3.0,
+  "enabled": false,
+  "move_label": "Bird Smash [0x161]",
+  "random_interval": false,
+  "random_max_sec": 10.0,
+  "random_min_sec": 5.0,
+  "show_countdown": true,
+  "target_slot": "P2-C1"
 }

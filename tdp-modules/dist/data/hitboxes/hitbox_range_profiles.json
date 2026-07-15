@@ -16475,7 +16475,7 @@
         },
         "ruler_mismatches": 1,
         "truth_events": 1,
-        "unresolved_events": 2,
+        "unresolved_events": 1,
         "version": 2,
         "witnesses": [
           {
@@ -16588,109 +16588,6 @@
         "upper_shape_index": 0,
         "upper_y_from_start": 2.5249340385198593,
         "upper_z_from_start": 0.0,
-        "version": 1
-      },
-      "vertical_geometry_source": "full_active_envelope"
-    },
-    "21:259": {
-      "advance_at_tip": -0.0,
-      "anchor": "fighter_root",
-      "calibration": {
-        "false_negative_hits": 0,
-        "false_positive_adjustments": 0,
-        "false_positive_streak": 0,
-        "pips": 0
-      },
-      "char_id": 21,
-      "display_mode": "ground_ruler",
-      "dynamic_sweep": {
-        "frame_count": 1,
-        "frames": [
-          {
-            "frame": 10,
-            "root": [
-              -0.0,
-              0.0,
-              0.0
-            ],
-            "shapes": [
-              [
-                1.1929746866226196,
-                0.12207689881324768,
-                4.744529724121094e-05,
-                0.2199999988079071
-              ],
-              [
-                0.760540246963501,
-                0.2496790736913681,
-                4.744529724121094e-05,
-                0.2199999988079071
-              ],
-              [
-                -0.15152883529663086,
-                0.4745631217956543,
-                4.744529724121094e-05,
-                0.23999999463558197
-              ]
-            ]
-          }
-        ],
-        "shape_count": 3,
-        "version": 2
-      },
-      "horizontal_envelope": {
-        "active_frame": 10,
-        "advance_at_tip": -0.0,
-        "reach_from_start": 1.4129746854305267,
-        "shape_index": 0,
-        "tip_center_from_active_root": 1.1929746866226196,
-        "tip_center_from_start": 1.1929746866226196,
-        "tip_radius": 0.2199999988079071,
-        "tip_y_from_start": 0.12207689881324768,
-        "tip_z_from_start": 4.744529724121094e-05,
-        "version": 1
-      },
-      "last_sample": {
-        "active_root": [
-          2.9819839000701904,
-          0.0,
-          -4.744529724121094e-05
-        ],
-        "advance_at_tip": -0.0,
-        "reach_from_start": 1.4129746854305267,
-        "start_root": [
-          2.9819839000701904,
-          0.0,
-          -4.744529724121094e-05
-        ],
-        "tip_center_from_active_root": 1.1929746866226196
-      },
-      "move_id": 259,
-      "move_kind": "ground_normal",
-      "move_name": "2A",
-      "profile_schema": 5,
-      "reach_from_start": 1.4129746854305267,
-      "ruler_geometry_source": "max_horizontal_active_envelope",
-      "samples": 1,
-      "tip_center_from_active_root": 1.1929746866226196,
-      "tip_center_from_start": 1.1929746866226196,
-      "tip_radius": 0.2199999988079071,
-      "tip_y_from_start": 0.12207689881324768,
-      "tip_z_from_start": 4.744529724121094e-05,
-      "updated_ms": 57090,
-      "vertical_envelope": {
-        "lower_active_frame": 10,
-        "lower_forward_from_start": 1.1929746866226196,
-        "lower_radius": 0.2199999988079071,
-        "lower_shape_index": 0,
-        "lower_y_from_start": -0.09792309999465942,
-        "lower_z_from_start": 4.744529724121094e-05,
-        "upper_active_frame": 10,
-        "upper_forward_from_start": -0.15152883529663086,
-        "upper_radius": 0.23999999463558197,
-        "upper_shape_index": 2,
-        "upper_y_from_start": 0.7145631164312363,
-        "upper_z_from_start": 4.744529724121094e-05,
         "version": 1
       },
       "vertical_geometry_source": "full_active_envelope"
@@ -16912,25 +16809,25 @@
       },
       "char_id": 21,
       "contact_audit": {
-        "confirmed_events": 5,
+        "confirmed_events": 1,
         "last_mismatch": true,
-        "last_signal": "damage",
-        "last_update_ms": 30464,
+        "last_signal": "impact",
+        "last_update_ms": 164441,
         "latest": {
           "action_frame": 18,
           "hitbox_index": 0,
-          "hurtbox_index": 6,
+          "hurtbox_index": 3,
           "predicted_touch": false,
           "samples": 1,
-          "signal": "damage",
-          "surface_gap": 0.4782571286164998,
-          "target_char_id": 12,
+          "signal": "impact",
+          "surface_gap": 0.25882592513214,
+          "target_char_id": 14,
           "truth": false,
-          "updated_ms": 30464
+          "updated_ms": 164441
         },
-        "ruler_mismatches": 5,
-        "truth_events": 5,
-        "unresolved_events": 11,
+        "ruler_mismatches": 1,
+        "truth_events": 1,
+        "unresolved_events": 4,
         "version": 2,
         "witnesses": [
           {
@@ -16950,82 +16847,6 @@
             "signal": "impact",
             "surface_gap": 0.25882592513214,
             "target_char_id": 14,
-            "truth": false
-          },
-          {
-            "action_frame": 18,
-            "confidence": "nearest_geometry",
-            "hitbox_index": 0,
-            "hurtbox_index": 6,
-            "last_seen_ms": 30464,
-            "local_x": 3.0699427127838135,
-            "local_y": 0.9480381608009338,
-            "local_z": 4.744529724121094e-05,
-            "mismatch_count": 1,
-            "overlap": 0.0,
-            "predicted_touch_last": false,
-            "radius": 0.23999999463558197,
-            "samples": 1,
-            "signal": "damage",
-            "surface_gap": 0.4782571286164998,
-            "target_char_id": 12,
-            "truth": false
-          },
-          {
-            "action_frame": 18,
-            "confidence": "nearest_geometry",
-            "hitbox_index": 0,
-            "hurtbox_index": 14,
-            "last_seen_ms": 30347,
-            "local_x": 3.0699427127838135,
-            "local_y": 0.9480381608009338,
-            "local_z": 4.744529724121094e-05,
-            "mismatch_count": 1,
-            "overlap": 0.0,
-            "predicted_touch_last": false,
-            "radius": 0.23999999463558197,
-            "samples": 1,
-            "signal": "impact",
-            "surface_gap": 0.4515852111673432,
-            "target_char_id": 12,
-            "truth": false
-          },
-          {
-            "action_frame": 18,
-            "confidence": "nearest_geometry",
-            "hitbox_index": 0,
-            "hurtbox_index": 5,
-            "last_seen_ms": 9872,
-            "local_x": 3.0818357467651367,
-            "local_y": 0.9480427503585815,
-            "local_z": 4.744529360323213e-05,
-            "mismatch_count": 1,
-            "overlap": 0.0,
-            "predicted_touch_last": false,
-            "radius": 0.23999999463558197,
-            "samples": 1,
-            "signal": "damage",
-            "surface_gap": 0.1478760296538547,
-            "target_char_id": 12,
-            "truth": false
-          },
-          {
-            "action_frame": 18,
-            "confidence": "nearest_geometry",
-            "hitbox_index": 0,
-            "hurtbox_index": 13,
-            "last_seen_ms": 9741,
-            "local_x": 3.0818357467651367,
-            "local_y": 0.9480427503585815,
-            "local_z": 4.744529360323213e-05,
-            "mismatch_count": 1,
-            "overlap": 0.0,
-            "predicted_touch_last": false,
-            "radius": 0.23999999463558197,
-            "samples": 1,
-            "signal": "impact",
-            "surface_gap": 0.11753930027435577,
-            "target_char_id": 12,
             "truth": false
           }
         ]
@@ -17133,7 +16954,7 @@
       "tip_radius": 0.23999999463558197,
       "tip_y_from_start": 0.9814017415046692,
       "tip_z_from_start": 4.744529360323213e-05,
-      "updated_ms": 30464,
+      "updated_ms": 164441,
       "vertical_envelope": {
         "lower_active_frame": 19,
         "lower_forward_from_start": 3.129758834838867,
@@ -17168,7 +16989,7 @@
         "last_update_ms": 0,
         "ruler_mismatches": 0,
         "truth_events": 0,
-        "unresolved_events": 6,
+        "unresolved_events": 1,
         "version": 2,
         "witnesses": []
       },
@@ -17852,7 +17673,7 @@
         },
         "ruler_mismatches": 2,
         "truth_events": 2,
-        "unresolved_events": 17,
+        "unresolved_events": 9,
         "version": 2,
         "witnesses": [
           {

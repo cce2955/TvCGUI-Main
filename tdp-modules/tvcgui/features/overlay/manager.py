@@ -228,6 +228,7 @@ class HudOverlayManager:
         render_snap_by_slot: dict,
         last_scan_normals,
         mission_mgr: "MissionManager",
+        punish_overlay: dict | None = None,
     ) -> None:
         """
         Build and write hud_overlay_data.json from the current frame's
@@ -332,6 +333,8 @@ class HudOverlayManager:
                     and slot_label == partner_slot
                 ),
             }
+
+        payload["_punish_trainer"] = dict(punish_overlay or {})
 
         try:
             serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

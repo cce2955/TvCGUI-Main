@@ -439,6 +439,7 @@ def draw_top_command_dock(
     ko_control_enabled: bool = False,
     ko_control_live_active: bool = False,
     solo_team_active: bool = False,
+    action_spoof_active: bool = False,
     tools_open: bool = False,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
@@ -660,11 +661,12 @@ def draw_top_command_dock(
     select_probe_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     yami_stage_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     ko_control_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    action_spoof_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     megacrash_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
     overseer_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
 
     if tools_open:
-        drawer_rect = pygame.Rect(8, y_tools - 2, min(w - 16, 1160), btn_h + 4)
+        drawer_rect = pygame.Rect(8, y_tools - 2, min(w - 16, 1280), btn_h + 4)
         draw_group(drawer_rect)
         x = drawer_rect.x + 4
 
@@ -718,6 +720,16 @@ def draw_top_command_dock(
         )
 
         x = ko_control_btn_rect.right + 4
+        action_spoof_btn_rect = pygame.Rect(x, y_tools, 112, btn_h)
+        draw_glass_button(
+            screen, action_spoof_btn_rect,
+            "Punish Trainer: ON" if action_spoof_active else "Punish Trainer",
+            dockfont, active=bool(action_spoof_active),
+            hover=action_spoof_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+            fill=(52, 42, 76) if action_spoof_active else (31, 33, 42), align="center",
+        )
+
+        x = action_spoof_btn_rect.right + 4
         megacrash_btn_rect = pygame.Rect(x, y_tools, 190, btn_h)
         draw_glass_button(
             screen, megacrash_btn_rect,
@@ -731,7 +743,7 @@ def draw_top_command_dock(
         draw_glass_button(screen, overseer_btn_rect, "Tool Status", dockfont, active=False,
                           hover=overseer_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
     else:
-        help_tip = "Visual controls stay here. Tools holds memory dumps, assists, extra characters, stage control, KO control, Megacrash training, and tool status."
+        help_tip = "Visual controls stay here. Tools holds memory dumps, assists, extra characters, stage control, KO control, Punish training, Megacrash training, and tool status."
         help_accent = GUI_APP_ACCENT
         if hb_btn_rect.collidepoint(mx, my):
             help_tip = "Hitboxes: master attack/projectile boxes. Turning them on also turns on the ground-normal range ruler."
@@ -784,7 +796,7 @@ def draw_top_command_dock(
         hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect,
         megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect,
         overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect,
-        solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect,
+        action_spoof_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect,
         tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects,
         ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,
     )

@@ -141,6 +141,8 @@ _interaction_ribbon = {
     "age": 0.0,
 }
 _combo_ledgers: dict[str, dict] = {"P1": {}, "P2": {}}
+_punish_overlay: dict = {}
+_COUNTDOWN_FONT_CACHE: dict[tuple[int, bool], pygame.font.Font] = {}
 
 _HISTORY_HEADER_CHIP_CACHE: dict[tuple, pygame.Surface] = {}
 _COMPACT_PANEL_SHELL_CACHE: dict[tuple, tuple[pygame.Surface, pygame.Surface]] = {}
@@ -889,6 +891,86 @@ def make_font(size: int, bold: bool = True) -> pygame.font.Font:
         return pygame.font.SysFont("consolas", max(8, size), bold=bold)
     except Exception:
         return pygame.font.Font(None, max(8, size))
+
+def _countdown_font(size: int, bold: bool = True) -> pygame.font.Font:
+    key = (max(8, int(size)), bool(bold))
+    font = _COUNTDOWN_FONT_CACHE.get(key)
+    if font is None:
+        font = make_font(key[0], bold=key[1])
+        _COUNTDOWN_FONT_CACHE[key] = font
+    return font
+
+
+def _draw_punish_countdown(screen: pygame.Surface, scale: float) -> None:
+    data = _punish_overlay if isinstance(_punish_overlay, dict) else {}
+    if not bool(data.get("visible", False)):
+        return
+
+    phase = str(data.get("phase") or "off")
+    try:
+        remaining = max(0.0, float(data.get("remaining") or 0.0))
+    except Exception:
+        remaining = 0.0
+    try:
+        scheduled = max(0.0, float(data.get("scheduled_interval") or 0.0))
+    except Exception:
+        scheduled = 0.0
+
+    is_now = phase != "cooldown" or remaining <= 0.02
+    value_text = "NOW" if is_now else str(max(1, int(math.ceil(remaining))))
+    title_text = "PUNISH" if is_now else "PUNISH IN"
+    slot = str(data.get("slot") or "").strip()
+    move = str(data.get("move_label") or "Move").strip()
+    random_mode = bool(data.get("random_interval", False))
+
+    pulse = 1.0
+    if is_now:
+        pulse = 1.0 + 0.045 * math.sin(float(_frame) * 0.42)
+
+    panel_w = max(220, int(254 * scale * pulse))
+    panel_h = max(102, int(126 * scale * pulse))
+    panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
+    panel.fill((9, 14, 24, 226))
+
+    accent = (255, 103, 78) if is_now else (91, 181, 255)
+    pygame.draw.rect(panel, (*accent, 235), panel.get_rect(), width=max(2, int(2 * scale)), border_radius=max(8, int(10 * scale)))
+    pygame.draw.rect(panel, (255, 255, 255, 22), (3, 3, panel_w - 6, max(12, int(18 * scale))), border_radius=max(5, int(7 * scale)))
+
+    title_font = _countdown_font(max(10, int(13 * scale)), True)
+    value_font = _countdown_font(max(28, int((48 if not is_now else 42) * scale)), True)
+    detail_font = _countdown_font(max(9, int(11 * scale)), False)
+
+    title_surf = title_font.render(title_text, True, accent)
+    value_surf = value_font.render(value_text, True, (245, 249, 255))
+    detail = f"{slot}  {move}".strip()
+    detail_surf = detail_font.render(detail, True, (190, 207, 228))
+
+    panel.blit(title_surf, ((panel_w - title_surf.get_width()) // 2, max(8, int(10 * scale))))
+    panel.blit(value_surf, ((panel_w - value_surf.get_width()) // 2, max(25, int(27 * scale))))
+    panel.blit(detail_surf, ((panel_w - detail_surf.get_width()) // 2, panel_h - detail_surf.get_height() - max(9, int(10 * scale))))
+
+    if not is_now and scheduled > 0.0:
+        track_x = max(14, int(17 * scale))
+        track_w = panel_w - track_x * 2
+        track_y = panel_h - detail_surf.get_height() - max(19, int(23 * scale))
+        track_h = max(3, int(4 * scale))
+        pygame.draw.rect(panel, (37, 50, 69, 210), (track_x, track_y, track_w, track_h), border_radius=track_h // 2)
+        elapsed_frac = max(0.0, min(1.0, 1.0 - remaining / scheduled))
+        fill_w = max(1, int(track_w * elapsed_frac))
+        pygame.draw.rect(panel, (*accent, 235), (track_x, track_y, fill_w, track_h), border_radius=track_h // 2)
+
+    if random_mode and not is_now:
+        random_font = _countdown_font(max(8, int(9 * scale)), True)
+        random_text = random_font.render(f"RANDOM  {scheduled:g}s", True, (144, 219, 190))
+        panel.blit(random_text, (panel_w - random_text.get_width() - max(10, int(12 * scale)), max(8, int(10 * scale))))
+
+    shadow = pygame.Surface((panel_w + 14, panel_h + 14), pygame.SRCALPHA)
+    pygame.draw.rect(shadow, (0, 0, 0, 110), (7, 7, panel_w, panel_h), border_radius=max(9, int(11 * scale)))
+    x = (screen.get_width() - panel_w) // 2
+    y = max(24, int(70 * scale))
+    screen.blit(shadow, (x - 7, y - 7))
+    screen.blit(panel, (x, y))
+
 
 def _draw_hp_bar(screen, x, y, bar_w, bar_h, hp_cur, hp_max, is_dead):
     pygame.draw.rect(screen, COL_HP_BG, (x, y, bar_w, bar_h), border_radius=2)
@@ -4581,15 +4663,19 @@ class HudRenderer:
         self.font_sm = make_font(int(BASE_FONT_SIZE * self.scale * 0.78), bold=False)
 
     def update(self, dt: float, control=None) -> None:
-        global _frame
+        global _frame, _punish_overlay
         _frame += 1
 
         new_slots = read_slot_data()
+        punish_data = new_slots.get("_punish_trainer") if isinstance(new_slots, dict) else None
+        _punish_overlay = dict(punish_data) if isinstance(punish_data, dict) else {}
 
         for slot_label in SLOT_LAYOUT.keys():
             _get_slot_anim(slot_label)["present"] = slot_label in new_slots
 
         for k, v in new_slots.items():
+            if str(k).startswith("_"):
+                continue
             if isinstance(v, dict):
                 _display_slots[k] = v
 
@@ -4605,13 +4691,14 @@ class HudRenderer:
             self._hud_was_visible = True
 
         draw_overlay(screen, self.font, self.font_sm, _display_slots, self.scale, 1 / 60.0, control)
+        _draw_punish_countdown(screen, self.scale)
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global _frame
+    global _frame, _punish_overlay
 
     dolphin_hwnd = find_dolphin_hwnd()
     if not dolphin_hwnd:
@@ -4652,17 +4739,22 @@ def main() -> None:
         _frame += 1
 
         new_slots = read_slot_data()
+        punish_data = new_slots.get("_punish_trainer") if isinstance(new_slots, dict) else None
+        _punish_overlay = dict(punish_data) if isinstance(punish_data, dict) else {}
 
         for slot_label in SLOT_LAYOUT.keys():
             _get_slot_anim(slot_label)["present"] = slot_label in new_slots
 
         for k, v in new_slots.items():
+            if str(k).startswith("_"):
+                continue
             if isinstance(v, dict):
                 _display_slots[k] = v
 
         _update_adv()
 
         draw_overlay(screen, font, font_sm, _display_slots, scale, dt)
+        _draw_punish_countdown(screen, scale)
         pygame.display.flip()
 
     pygame.quit()

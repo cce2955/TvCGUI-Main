@@ -141,6 +141,17 @@ _interaction_ribbon = {
     "age": 0.0,
 }
 _combo_ledgers: dict[str, dict] = {"P1": {}, "P2": {}}
+_punish_overlay: dict = {}
+_COUNTDOWN_FONT_CACHE: dict[tuple[int, bool], pygame.font.Font] = {}
+_PUNISH_BADGE_ANIM = {
+    "alpha": 0.0,
+    "slide_px": 0.0,
+    "pop": 0.0,
+    "shine": 0.0,
+    "last_token": "",
+    "last_slot": "P2-C1",
+    "last_payload": {},
+}
 
 _HISTORY_HEADER_CHIP_CACHE: dict[tuple, pygame.Surface] = {}
 _COMPACT_PANEL_SHELL_CACHE: dict[tuple, tuple[pygame.Surface, pygame.Surface]] = {}
@@ -889,6 +900,194 @@ def make_font(size: int, bold: bool = True) -> pygame.font.Font:
         return pygame.font.SysFont("consolas", max(8, size), bold=bold)
     except Exception:
         return pygame.font.Font(None, max(8, size))
+
+def _countdown_font(size: int, bold: bool = True) -> pygame.font.Font:
+    key = (max(8, int(size)), bool(bold))
+    font = _COUNTDOWN_FONT_CACHE.get(key)
+    if font is None:
+        font = make_font(key[0], bold=key[1])
+        _COUNTDOWN_FONT_CACHE[key] = font
+    return font
+
+
+def _punish_badge_anchor(
+    screen: pygame.Surface,
+    scale: float,
+    slot: str,
+    badge_w: int,
+    badge_h: int,
+) -> tuple[int, int, int]:
+    team = "P1" if str(slot).upper().startswith("P1") else "P2"
+    is_left = team == "P1"
+    margin_x = max(8, int(12 * scale))
+    panel_y = int(144 * scale)
+    gap = max(5, int(7 * scale))
+    x = margin_x if is_left else screen.get_width() - margin_x - badge_w
+    y = max(8, panel_y - badge_h - gap)
+    direction = -1 if is_left else 1
+    return x, y, direction
+
+
+def _draw_punish_countdown(screen: pygame.Surface, scale: float) -> None:
+    data = _punish_overlay if isinstance(_punish_overlay, dict) else {}
+    anim = _PUNISH_BADGE_ANIM
+    dt = 1.0 / 60.0
+
+    requested_visible = bool(data.get("visible", False))
+    if requested_visible:
+        anim["last_payload"] = dict(data)
+        anim["last_slot"] = str(data.get("slot") or anim.get("last_slot") or "P2-C1")
+    payload = data if requested_visible else anim.get("last_payload", {})
+    if not isinstance(payload, dict):
+        payload = {}
+
+    target_alpha = 1.0 if requested_visible else 0.0
+    anim["alpha"] = _approach(float(anim.get("alpha", 0.0)), target_alpha, 8.5 if requested_visible else 6.8, dt)
+    if float(anim["alpha"]) <= 0.01 and not requested_visible:
+        anim["last_token"] = ""
+        anim["pop"] = 0.0
+        anim["shine"] = 0.0
+        return
+
+    phase = str(payload.get("phase") or "off")
+    try:
+        remaining = max(0.0, float(payload.get("remaining") or 0.0))
+    except Exception:
+        remaining = 0.0
+    try:
+        scheduled = max(0.0, float(payload.get("scheduled_interval") or 0.0))
+    except Exception:
+        scheduled = 0.0
+
+    attacking = phase != "cooldown" or remaining <= 0.02
+    count_text = "" if attacking else str(max(1, int(math.ceil(remaining))))
+    slot = str(payload.get("slot") or anim.get("last_slot") or "P2-C1").strip()
+    move = str(payload.get("move_label") or "Move").strip()
+    random_mode = bool(payload.get("random_interval", False))
+    token = f"{slot}|{move}|{phase}|{count_text}|{int(attacking)}"
+
+    if requested_visible and token != str(anim.get("last_token") or ""):
+        anim["last_token"] = token
+        anim["pop"] = 1.0
+        anim["shine"] = 1.0
+        _x, _y, direction = _punish_badge_anchor(screen, scale, slot, 1, 1)
+        anim["slide_px"] = float(direction * max(12, int(18 * scale)))
+
+    anim["slide_px"] = _approach(float(anim.get("slide_px", 0.0)), 0.0 if requested_visible else (8.0 if slot.startswith("P2") else -8.0), 125.0, dt)
+    anim["pop"] = _approach(float(anim.get("pop", 0.0)), 0.0, 4.8, dt)
+    anim["shine"] = _approach(float(anim.get("shine", 0.0)), 0.0, 2.7, dt)
+
+    badge_w = max(184, int(218 * scale))
+    badge_h = max(42, int(50 * scale))
+    accent = (255, 111, 82) if attacking else SLOT_COLORS.get(slot, (91, 181, 255))
+    bg_top = (14, 20, 31, 242)
+    bg_bottom = (7, 12, 21, 238)
+
+    badge = pygame.Surface((badge_w, badge_h), pygame.SRCALPHA)
+    radius = max(7, int(9 * scale))
+    pygame.draw.rect(badge, bg_bottom, badge.get_rect(), border_radius=radius)
+    pygame.draw.rect(badge, bg_top, (1, 1, badge_w - 2, max(16, badge_h // 2)), border_radius=radius)
+    pygame.draw.rect(badge, (*accent, 235), badge.get_rect(), width=max(1, int(1.5 * scale)), border_radius=radius)
+
+    strip_w = max(4, int(5 * scale))
+    pygame.draw.rect(badge, (*accent, 245), (0, radius, strip_w, badge_h - radius * 2), border_radius=max(2, strip_w // 2))
+
+    title_font = _countdown_font(max(9, int(10 * scale)), True)
+    move_font = _countdown_font(max(8, int(9 * scale)), False)
+    count_font = _countdown_font(max(18, int(24 * scale)), True)
+    chip_font = _countdown_font(max(7, int(8 * scale)), True)
+
+    pad_x = max(10, int(12 * scale))
+    number_area_w = max(42, int(48 * scale))
+    text_right = badge_w - number_area_w - max(7, int(8 * scale))
+
+    chip_text = slot.replace("-", " ")
+    chip_surf = chip_font.render(chip_text, True, (205, 218, 235))
+    chip_pad_x = max(5, int(6 * scale))
+    chip_pad_y = max(2, int(2 * scale))
+    chip_rect = pygame.Rect(pad_x, max(5, int(6 * scale)), chip_surf.get_width() + chip_pad_x * 2, chip_surf.get_height() + chip_pad_y * 2)
+    pygame.draw.rect(badge, (255, 255, 255, 18), chip_rect, border_radius=max(4, int(5 * scale)))
+    badge.blit(chip_surf, (chip_rect.x + chip_pad_x, chip_rect.y + chip_pad_y))
+
+    title_text = "ATTACKING" if attacking else "PUNISH IN"
+    title_surf = title_font.render(title_text, True, accent)
+    title_x = chip_rect.right + max(6, int(7 * scale))
+    title_y = max(6, int(7 * scale))
+    if title_x + title_surf.get_width() > text_right:
+        title_x = pad_x
+        title_y = chip_rect.bottom + 1
+    badge.blit(title_surf, (title_x, title_y))
+
+    move_max_w = max(60, text_right - pad_x)
+    move_text = _compact_fit_text(move_font, move, move_max_w)
+    move_surf = move_font.render(move_text, True, (194, 207, 225))
+    move_y = badge_h - move_surf.get_height() - max(6, int(7 * scale))
+    badge.blit(move_surf, (pad_x, move_y))
+
+    orb_size = max(32, int(38 * scale))
+    orb = pygame.Rect(badge_w - orb_size - max(7, int(8 * scale)), (badge_h - orb_size) // 2, orb_size, orb_size)
+    pygame.draw.ellipse(badge, (*accent, 32), orb)
+    pygame.draw.ellipse(badge, (*accent, 210), orb, width=max(1, int(1.5 * scale)))
+
+    if attacking:
+        attack_font = _countdown_font(max(13, int(15 * scale)), True)
+        attack_surf = attack_font.render("!", True, (250, 252, 255))
+        badge.blit(attack_surf, attack_surf.get_rect(center=orb.center))
+        sweep = (float(_frame) * 2.7) % (orb.width + max(8, int(10 * scale)))
+        for offset in (-9, 0, 9):
+            sx = int(orb.x + sweep + offset)
+            pygame.draw.line(badge, (*accent, 100), (sx, orb.bottom - 5), (sx + 7, orb.y + 5), max(1, int(2 * scale)))
+    else:
+        count_surf = count_font.render(count_text, True, (248, 251, 255))
+        badge.blit(count_surf, count_surf.get_rect(center=(orb.centerx, orb.centery - 1)))
+
+    if scheduled > 0.0 and not attacking:
+        progress = max(0.0, min(1.0, 1.0 - remaining / scheduled))
+        track_x = pad_x
+        track_w = max(20, text_right - pad_x)
+        track_h = max(2, int(3 * scale))
+        track_y = badge_h - track_h
+        pygame.draw.rect(badge, (39, 52, 71, 220), (track_x, track_y, track_w, track_h), border_radius=track_h // 2)
+        fill_w = max(1, int(track_w * progress))
+        pygame.draw.rect(badge, (*accent, 235), (track_x, track_y, fill_w, track_h), border_radius=track_h // 2)
+
+    if random_mode and not attacking:
+        dot_r = max(2, int(2 * scale))
+        dot_x = max(pad_x, text_right - max(4, int(5 * scale)))
+        pygame.draw.circle(badge, (124, 231, 184), (dot_x, max(7, int(8 * scale))), dot_r)
+
+    shine_strength = max(0.0, min(1.0, float(anim.get("shine", 0.0))))
+    if shine_strength > 0.01:
+        shine_w = max(18, int(30 * scale))
+        shine_x = int((1.0 - shine_strength) * (badge_w + shine_w)) - shine_w
+        shine = pygame.Surface((shine_w, badge_h), pygame.SRCALPHA)
+        for px in range(shine_w):
+            dist = abs(px - shine_w / 2) / max(1.0, shine_w / 2)
+            alpha = int(45 * (1.0 - dist) * shine_strength)
+            pygame.draw.line(shine, (255, 255, 255, alpha), (px, 0), (px, badge_h))
+        badge.blit(shine, (shine_x, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+    pop = max(0.0, min(1.0, float(anim.get("pop", 0.0))))
+    pulse = 1.0 + (0.055 if attacking else 0.035) * math.sin(float(_frame) * 0.42) * min(1.0, pop + (0.45 if attacking else 0.0))
+    pulse += 0.045 * pop
+    draw_w = max(1, int(badge_w * pulse))
+    draw_h = max(1, int(badge_h * pulse))
+    if draw_w != badge_w or draw_h != badge_h:
+        badge = pygame.transform.smoothscale(badge, (draw_w, draw_h))
+
+    alpha = max(0, min(255, int(255 * float(anim.get("alpha", 0.0)))))
+    badge.set_alpha(alpha)
+
+    anchor_x, anchor_y, _direction = _punish_badge_anchor(screen, scale, slot, badge_w, badge_h)
+    x = anchor_x + int(float(anim.get("slide_px", 0.0))) - (draw_w - badge_w) // 2
+    y = anchor_y - (draw_h - badge_h) // 2
+
+    shadow = pygame.Surface((draw_w + 10, draw_h + 10), pygame.SRCALPHA)
+    shadow_alpha = int(88 * float(anim.get("alpha", 0.0)))
+    pygame.draw.rect(shadow, (0, 0, 0, shadow_alpha), (5, 5, draw_w, draw_h), border_radius=radius + 2)
+    screen.blit(shadow, (x - 5, y - 5))
+    screen.blit(badge, (x, y))
+
 
 def _draw_hp_bar(screen, x, y, bar_w, bar_h, hp_cur, hp_max, is_dead):
     pygame.draw.rect(screen, COL_HP_BG, (x, y, bar_w, bar_h), border_radius=2)
@@ -4581,15 +4780,19 @@ class HudRenderer:
         self.font_sm = make_font(int(BASE_FONT_SIZE * self.scale * 0.78), bold=False)
 
     def update(self, dt: float, control=None) -> None:
-        global _frame
+        global _frame, _punish_overlay
         _frame += 1
 
         new_slots = read_slot_data()
+        punish_data = new_slots.get("_punish_trainer") if isinstance(new_slots, dict) else None
+        _punish_overlay = dict(punish_data) if isinstance(punish_data, dict) else {}
 
         for slot_label in SLOT_LAYOUT.keys():
             _get_slot_anim(slot_label)["present"] = slot_label in new_slots
 
         for k, v in new_slots.items():
+            if str(k).startswith("_"):
+                continue
             if isinstance(v, dict):
                 _display_slots[k] = v
 
@@ -4605,13 +4808,14 @@ class HudRenderer:
             self._hud_was_visible = True
 
         draw_overlay(screen, self.font, self.font_sm, _display_slots, self.scale, 1 / 60.0, control)
+        _draw_punish_countdown(screen, self.scale)
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    global _frame
+    global _frame, _punish_overlay
 
     dolphin_hwnd = find_dolphin_hwnd()
     if not dolphin_hwnd:
@@ -4652,17 +4856,22 @@ def main() -> None:
         _frame += 1
 
         new_slots = read_slot_data()
+        punish_data = new_slots.get("_punish_trainer") if isinstance(new_slots, dict) else None
+        _punish_overlay = dict(punish_data) if isinstance(punish_data, dict) else {}
 
         for slot_label in SLOT_LAYOUT.keys():
             _get_slot_anim(slot_label)["present"] = slot_label in new_slots
 
         for k, v in new_slots.items():
+            if str(k).startswith("_"):
+                continue
             if isinstance(v, dict):
                 _display_slots[k] = v
 
         _update_adv()
 
         draw_overlay(screen, font, font_sm, _display_slots, scale, dt)
+        _draw_punish_countdown(screen, scale)
         pygame.display.flip()
 
     pygame.quit()
