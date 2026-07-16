@@ -37,6 +37,29 @@
         }
       },
       "name": "Ryu"
+    },
+    "yatterman_1": {
+      "moves": {
+        "0x0160": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            264
+          ],
+          "updated_at": 1784150438
+        },
+        "0x0161": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            259
+          ],
+          "updated_at": 1784150542
+        }
+      },
+      "name": "Yatterman-1"
     }
   },
   "version": 1

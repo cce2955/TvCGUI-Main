@@ -18,47 +18,43 @@ from tvcgui.runtime.megacrash import (
     MEGACRASH_TRAINER_DEFAULT_MODE,
 )
 
-TOP_UI_RESERVED = 66
+TOP_UI_RESERVED = 94
 
-# GUI polish helpers
-# ---------------------------------------------------------------------------
+# Calm broadcast palette shared by the main window, Mission Mode, and master HUD.
+# Strong color is reserved for identity, active state, and important feedback.
+GUI_BG_DARK = (6, 10, 17)
+GUI_PANEL = (10, 17, 28)
+GUI_PANEL_2 = (14, 24, 38)
+GUI_PANEL_3 = (18, 31, 49)
 
-GUI_BG_DARK = (10, 11, 16)
-GUI_PANEL = (20, 22, 30)
-GUI_PANEL_2 = (28, 31, 42)
-GUI_PANEL_3 = (36, 41, 56)
+GUI_BORDER = (43, 59, 77)
+GUI_BORDER_HOT = (104, 178, 218)
 
-GUI_BORDER = (80, 88, 112)
-GUI_BORDER_HOT = (145, 165, 205)
+GUI_TEXT = (232, 240, 248)
+GUI_TEXT_MUTED = (157, 174, 194)
+GUI_TEXT_DIM = (101, 119, 141)
 
-GUI_TEXT = (226, 230, 238)
-GUI_TEXT_MUTED = (150, 158, 176)
-GUI_TEXT_DIM = (110, 116, 132)
-
-# Cohesive accent system.
-# Most of the UI uses the same steel-blue accent. Slot/player identity stays
-# mostly in the slim side rails so the app feels unified instead of rainbow.
-GUI_APP_ACCENT = (105, 145, 210)
-GUI_CONFIRM = (95, 205, 165)
-GUI_WARNING = (205, 170, 90)
-GUI_DANGER = (205, 80, 90)
+GUI_APP_ACCENT = (53, 170, 220)
+GUI_CONFIRM = (67, 201, 156)
+GUI_WARNING = (232, 183, 86)
+GUI_DANGER = (223, 82, 102)
 
 GUI_ACCENT_BLUE = GUI_APP_ACCENT
-GUI_ACCENT_PURPLE = (125, 135, 185)
-GUI_ACCENT_GOLD = GUI_APP_ACCENT
+GUI_ACCENT_PURPLE = (158, 109, 216)
+GUI_ACCENT_GOLD = GUI_WARNING
 GUI_ACCENT_GREEN = GUI_CONFIRM
 GUI_ACCENT_RED = GUI_DANGER
 
-GUI_P1 = (205, 75, 82)
-GUI_P2 = (82, 135, 215)
-GUI_P3 = (180, 90, 175)
-GUI_P4 = (92, 185, 135)
+GUI_P1 = (230, 72, 94)
+GUI_P2 = (62, 157, 222)
+GUI_P3 = (176, 92, 214)
+GUI_P4 = (69, 201, 149)
 
 GUI_SLOT_MUTED = {
-    "P1": (185, 78, 86),
-    "P2": (82, 128, 200),
-    "P3": (165, 82, 160),
-    "P4": (82, 165, 122),
+    "P1": (190, 76, 94),
+    "P2": (67, 134, 190),
+    "P3": (148, 83, 183),
+    "P4": (67, 166, 127),
 }
 
 
@@ -170,6 +166,48 @@ def _draw_vertical_gradient(
         bot_col,
         alpha,
     )
+    surf.blit(grad, rect.topleft)
+
+
+def _draw_horizontal_gradient(
+    surf: pygame.Surface,
+    rect: pygame.Rect,
+    left_col: tuple[int, int, int],
+    right_col: tuple[int, int, int],
+    alpha: int = 255,
+) -> None:
+    """Draw a broad horizontal color sweep used by the calmer broadcast skin."""
+    global _GRADIENT_CACHE_PIXELS
+    if rect.width <= 0 or rect.height <= 0:
+        return
+    key = (
+        "horizontal", int(rect.width), int(rect.height),
+        tuple(int(v) for v in left_col), tuple(int(v) for v in right_col), int(alpha),
+    )
+    cached = _GRADIENT_CACHE.get(key)
+    if cached is not None:
+        _GRADIENT_CACHE.move_to_end(key)
+        grad = cached[0]
+    else:
+        grad = pygame.Surface((int(rect.width), int(rect.height)), pygame.SRCALPHA)
+        for x in range(int(rect.width)):
+            t = x / max(1, int(rect.width) - 1)
+            # Smoothstep produces a longer, softer sweep than a linear split.
+            t = t * t * (3.0 - 2.0 * t)
+            r = int(left_col[0] * (1.0 - t) + right_col[0] * t)
+            g = int(left_col[1] * (1.0 - t) + right_col[1] * t)
+            b = int(left_col[2] * (1.0 - t) + right_col[2] * t)
+            pygame.draw.line(grad, (r, g, b, int(alpha)), (x, 0), (x, int(rect.height)))
+        area = int(rect.width) * int(rect.height)
+        if area <= 500_000:
+            _GRADIENT_CACHE[key] = (grad, area)
+            _GRADIENT_CACHE_PIXELS += area
+            while (
+                len(_GRADIENT_CACHE) > _GRADIENT_CACHE_ENTRY_LIMIT
+                or _GRADIENT_CACHE_PIXELS > _GRADIENT_CACHE_PIXEL_LIMIT
+            ):
+                _old_key, (_old_surface, old_area) = _GRADIENT_CACHE.popitem(last=False)
+                _GRADIENT_CACHE_PIXELS = max(0, _GRADIENT_CACHE_PIXELS - int(old_area))
     surf.blit(grad, rect.topleft)
 
 
@@ -299,65 +337,48 @@ def draw_glass_button(
     fill: tuple[int, int, int] | None = None,
     align: str = "center",
 ) -> None:
-    """Shared button renderer with stronger hover/elevation feedback.
+    """Draw a restrained broadcast control with one clear state accent."""
+    if rect.width <= 0 or rect.height <= 0:
+        return
 
-    The goal is to make the GUI feel a little more premium without changing any
-    interaction logic. Hovered buttons lift slightly with a brighter shell and a
-    faint shadow. Active buttons keep the accent rail.
-    """
-    base = fill if fill is not None else (GUI_PANEL_3 if active else GUI_PANEL_2)
+    base = fill if fill is not None else GUI_PANEL_2
+    tint = 0.16 if active else (0.07 if hover else 0.025)
+    left = _mix_col(base, accent, tint)
+    right = _darken(base, 4)
     if hover:
-        base = _brighten(base, 16)
+        left = _brighten(left, 7)
+        right = _brighten(right, 4)
 
-    border = GUI_BORDER_HOT if hover else (accent if active else GUI_BORDER)
-    text_col = GUI_TEXT if active or hover else GUI_TEXT_MUTED
+    shell = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+    _draw_horizontal_gradient(shell, shell.get_rect(), left, right, 246)
 
-    # Soft shadow/elevation on hover/active.
-    if hover or active:
-        shadow = pygame.Surface((rect.width + 6, rect.height + 6), pygame.SRCALPHA)
-        pygame.draw.rect(shadow, (0, 0, 0, 45 if hover else 32), shadow.get_rect(), border_radius=6)
-        surf.blit(shadow, (rect.x - 1, rect.y + 2))
+    border = _mix_col(GUI_BORDER, accent, 0.55 if active else (0.28 if hover else 0.08))
+    pygame.draw.rect(shell, border, shell.get_rect(), 1, border_radius=4)
 
-    draw_rect = rect.move(0, -1 if hover else 0)
-
-    _draw_vertical_gradient(
-        surf,
-        draw_rect,
-        _brighten(base, 12),
-        _darken(base, 6),
-        235,
+    # One slim rail is enough to communicate state without turning every control
+    # into a separate neon card.
+    rail_alpha = 230 if active else (120 if hover else 55)
+    pygame.draw.rect(
+        shell,
+        (*accent, rail_alpha),
+        pygame.Rect(1, 3, 3 if active else 2, max(1, shell.get_height() - 6)),
+        border_radius=2,
     )
-
-    pygame.draw.rect(surf, border, draw_rect, 1, border_radius=4)
-
-    shine = pygame.Rect(draw_rect.x + 2, draw_rect.y + 2, draw_rect.width - 4, max(2, draw_rect.height // 6))
-    shine_col = (150, 165, 190, 16) if active or hover else (118, 128, 150, 11)
-    pygame.draw.rect(surf, shine_col, shine, border_radius=3)
-
     if active:
-        accent_rect = pygame.Rect(draw_rect.x + 4, draw_rect.bottom - 3, draw_rect.width - 8, 2)
-        pygame.draw.rect(surf, accent, accent_rect, border_radius=1)
+        pygame.draw.line(shell, (*_brighten(accent, 20), 105), (7, shell.get_height() - 2), (shell.get_width() - 7, shell.get_height() - 2))
 
-    label_surf = _render_outlined_text(
-        font,
-        label,
-        text_col,
-        (0, 0, 0),
-        draw_rect.width - 12,
-        outline_px=1,
-    )
+    surf.blit(shell, rect.topleft)
 
+    text_col = GUI_TEXT if active or hover else GUI_TEXT_MUTED
+    label_surf = _fit_text(font, label, text_col, rect.width - 14)
     if align == "left":
-        tx = draw_rect.x + 7
+        tx = rect.x + 9
     elif align == "right":
-        tx = draw_rect.right - label_surf.get_width() - 7
+        tx = rect.right - label_surf.get_width() - 9
     else:
-        tx = draw_rect.x + (draw_rect.width - label_surf.get_width()) // 2
-
-    ty = draw_rect.y + (draw_rect.height - label_surf.get_height()) // 2
+        tx = rect.x + (rect.width - label_surf.get_width()) // 2
+    ty = rect.y + (rect.height - label_surf.get_height()) // 2
     surf.blit(label_surf, (tx, ty))
-
-
 
 def draw_slot_chip(
     surf: pygame.Surface,
@@ -370,40 +391,27 @@ def draw_slot_chip(
     hover: bool,
     compact: bool = False,
 ) -> None:
-    fill = (28, 31, 42) if enabled else (22, 24, 31)
-    border = accent if enabled else (62, 68, 84)
-    text_col = GUI_TEXT if enabled else GUI_TEXT_DIM
-
+    base = (16, 27, 42) if enabled else (13, 21, 33)
+    left = _mix_col(base, accent, 0.13 if enabled else 0.025)
+    right = _darken(base, 3)
     if hover:
-        fill = _brighten(fill, 12)
-        border = _brighten(border, 18)
+        left = _brighten(left, 6)
+        right = _brighten(right, 4)
 
-    _draw_vertical_gradient(
+    _draw_horizontal_gradient(surf, rect, left, right, 240)
+    pygame.draw.rect(
         surf,
+        _mix_col(GUI_BORDER, accent, 0.48 if enabled else (0.22 if hover else 0.05)),
         rect,
-        _brighten(fill, 8),
-        _darken(fill, 7),
-        235,
+        1,
+        border_radius=4,
     )
-
-    pygame.draw.rect(surf, border, rect, 1, border_radius=4)
-
-    # Slot identity is a tiny left rail, not a full loud badge.
     if enabled:
-        pygame.draw.rect(surf, accent, pygame.Rect(rect.x + 2, rect.y + 3, 2, rect.height - 6), border_radius=1)
+        pygame.draw.rect(surf, (*accent, 205), pygame.Rect(rect.x + 2, rect.y + 4, 2, max(1, rect.height - 8)), border_radius=1)
 
     state = "ON" if enabled else "OFF"
     text = str(label) if compact else f"{label} {state}"
-
-    label_surf = _render_outlined_text(
-        font,
-        text,
-        text_col,
-        (0, 0, 0),
-        rect.width - 10,
-        outline_px=1,
-    )
-
+    label_surf = _fit_text(font, text, GUI_TEXT if enabled else GUI_TEXT_DIM, rect.width - 10)
     surf.blit(
         label_surf,
         (
@@ -411,6 +419,128 @@ def draw_slot_chip(
             rect.y + (rect.height - label_surf.get_height()) // 2,
         ),
     )
+
+
+def _layout_command_section(
+    width: int,
+    y: int,
+    label: str,
+    specs: list[tuple[str, int]],
+    *,
+    button_h: int = 22,
+    row_gap: int = 5,
+    item_gap: int = 5,
+) -> tuple[pygame.Rect, dict[str, pygame.Rect]]:
+    """Lay out one responsive command section.
+
+    Each section owns a fixed label rail and lets its buttons wrap inside the
+    remaining width. The same helper is used by the height probe and renderer,
+    so resizing never makes the panel layout and click targets disagree.
+    """
+    pad_x = 8
+    label_w = 84 if width >= 760 else 68
+    section_w = max(220, int(width) - pad_x * 2)
+    content_x = pad_x + label_w
+    content_right = pad_x + section_w - 7
+    x = content_x
+    row_y = int(y) + 5
+    rows = 1
+    rects: dict[str, pygame.Rect] = {}
+
+    for key, raw_w in specs:
+        item_w = max(20, int(raw_w))
+        if x + item_w > content_right and x > content_x:
+            rows += 1
+            x = content_x
+            row_y += button_h + row_gap
+        rects[key] = pygame.Rect(x, row_y, item_w, button_h)
+        x += item_w + item_gap
+
+    height = 10 + rows * button_h + (rows - 1) * row_gap
+    return pygame.Rect(pad_x, int(y), section_w, height), rects
+
+
+def _command_dock_layout(width: int, tools_open: bool) -> tuple[dict[str, tuple[pygame.Rect, dict[str, pygame.Rect]]], int]:
+    width_i = max(320, int(width))
+    sections: dict[str, tuple[pygame.Rect, dict[str, pygame.Rect]]] = {}
+    y = 6
+    section_gap = 5
+
+    hud_specs = [
+        ("hud_btn", 100),
+        ("interaction_btn", 84),
+        ("combo_btn", 58),
+        ("tag_btn", 46),
+        ("clear_btn", 54),
+        ("tools_btn", 76),
+    ]
+    section, rects = _layout_command_section(width_i, y, "HUD", hud_specs)
+    sections["hud"] = (section, rects)
+    y = section.bottom + section_gap
+
+    visual_specs = [("hb_btn", 104)]
+    visual_specs.extend((f"hb_{slot}", 22) for slot in ("P1", "P2", "P3", "P4"))
+    visual_specs.append(("hurt_btn", 112))
+    visual_specs.extend((f"hurt_{slot}", 22) for slot in ("P1", "P2", "P3", "P4"))
+    visual_specs.extend([
+        ("ruler_btn", 84),
+        ("ruler_h", 82),
+        ("ruler_v", 70),
+    ])
+    visual_specs.extend((f"ruler_{slot}", 22) for slot in ("P1", "P2", "P3", "P4"))
+    section, rects = _layout_command_section(width_i, y, "VISUALS", visual_specs)
+    sections["visuals"] = (section, rects)
+    y = section.bottom + section_gap
+
+    if tools_open:
+        training_specs = [
+            ("cancel_mapper", 114),
+            ("cancel_lab", 106),
+            ("punish", 132),
+            ("megacrash", 176),
+        ]
+        section, rects = _layout_command_section(width_i, y, "TRAINING", training_specs)
+        sections["training"] = (section, rects)
+        y = section.bottom + section_gap
+
+        lab_specs = [
+            ("assist", 106),
+            ("stage", 116),
+            ("extra", 172),
+            ("ko", 122),
+            ("dump", 120),
+            ("win", 124),
+            ("status", 112),
+        ]
+        section, rects = _layout_command_section(width_i, y, "LAB / SETUP", lab_specs)
+        sections["lab"] = (section, rects)
+        y = section.bottom + 6
+    else:
+        help_rect = pygame.Rect(8, y, max(220, width_i - 16), 28)
+        sections["help"] = (help_rect, {})
+        y = help_rect.bottom + 6
+
+    return sections, max(72, int(y))
+
+
+def _dock_smoothstep(value: float) -> float:
+    value = max(0.0, min(1.0, float(value)))
+    return value * value * (3.0 - 2.0 * value)
+
+
+def get_top_dock_height(
+    width: int,
+    tools_open: bool = False,
+    *,
+    tools_progress: float | None = None,
+) -> int:
+    """Return the animated vertical space reserved by the command dock."""
+    _closed_sections, closed_height = _command_dock_layout(width, False)
+    _open_sections, open_height = _command_dock_layout(width, True)
+    if tools_progress is None:
+        tools_progress = 1.0 if tools_open else 0.0
+    eased = _dock_smoothstep(tools_progress)
+    return int(round(closed_height + (open_height - closed_height) * eased))
 
 
 def draw_top_command_dock(
@@ -441,364 +571,318 @@ def draw_top_command_dock(
     solo_team_active: bool = False,
     action_spoof_active: bool = False,
     tools_open: bool = False,
+    tools_progress: float | None = None,
     mouse_pos: tuple[int, int],
     t_ms: int = 0,
 ) -> tuple:
-    """Draw the compact command dock with routine visuals up front and lab tools in a drawer.
+    """Draw a responsive command dock using the same glass-card language as the HUD."""
+    del megacrash_trainer_chance, megacrash_trainer_mode, megacrash_trainer_delay_frames
+    del megacrash_trainer_cooldown_sec, megacrash_trainer_cooldown_remaining
+    del ko_control_live_active, solo_team_active
 
-    The dock is intentionally split into two layers:
-      * always-visible: overlay/cards and collision visualization controls;
-      * optional drawer: tooling that is used occasionally rather than every match.
-
-    This keeps the in-match strip readable without removing an existing tool.
-    """
     mx, my = mouse_pos
-    w, _h = screen.get_size()
+    width, _height = screen.get_size()
+    if tools_progress is None:
+        tools_progress = 1.0 if tools_open else 0.0
+    tools_progress = max(0.0, min(1.0, float(tools_progress)))
+    eased_tools = _dock_smoothstep(tools_progress)
+    closed_sections, closed_h = _command_dock_layout(width, False)
+    open_sections, open_h = _command_dock_layout(width, True)
+    dock_h = int(round(closed_h + (open_h - closed_h) * eased_tools))
+    sections = open_sections if tools_progress > 0.001 else closed_sections
 
-    dock_rect = pygame.Rect(0, 0, w, TOP_UI_RESERVED - 4)
-    _draw_vertical_gradient(screen, dock_rect, (12, 13, 19), (8, 9, 13), 255)
-    pygame.draw.line(screen, (58, 64, 82), (0, dock_rect.bottom - 1), (w, dock_rect.bottom - 1))
+    if tools_progress > 0.001:
+        reveal_shift = int(round((1.0 - eased_tools) * 14.0))
+        for section_key in ("training", "lab"):
+            if section_key not in sections:
+                continue
+            section_rect, button_rects = sections[section_key]
+            section_rect = section_rect.move(0, -reveal_shift)
+            button_rects = {key: value.move(0, -reveal_shift) for key, value in button_rects.items()}
+            sections[section_key] = (section_rect, button_rects)
 
-    gap = 8
-    y_top = 7
-    y_tools = 35
-    btn_h = 22
+    dock_rect = pygame.Rect(0, 0, width, dock_h)
+    _draw_horizontal_gradient(screen, dock_rect, (12, 25, 40), (5, 10, 18), 255)
+    pygame.draw.line(screen, (49, 132, 174), (0, 0), (width, 0), 1)
+    pygame.draw.line(screen, (31, 49, 67), (0, dock_rect.bottom - 1), (width, dock_rect.bottom - 1))
 
-    # The main dock favors complete labels over abbreviations.  A compact
-    # dedicated font lets "Horizontal", "Vertical", and "Hit and Block"
-    # remain readable without crowding the live match controls.
     try:
-        dockfont = pygame.font.SysFont("consolas", 11)
+        dockfont = pygame.font.SysFont("consolas", 11 if width >= 760 else 10)
     except Exception:
         dockfont = smallfont
 
-    # Dummy rect kept for the older projectile-scanner click path.
-    ps_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    solo_team_btn_rect = pygame.Rect(-10000, -10000, 0, 0)
+    off = pygame.Rect(-10000, -10000, 0, 0)
+    ps_btn_rect = off.copy()
+    solo_team_btn_rect = off.copy()
+    as_btn_rect = off.copy()
+    megacrash_btn_rect = off.copy()
+    memdump_btn_rect = off.copy()
+    win_counter_btn_rect = off.copy()
+    overseer_btn_rect = off.copy()
+    select_probe_btn_rect = off.copy()
+    yami_stage_btn_rect = off.copy()
+    ko_control_btn_rect = off.copy()
+    action_spoof_btn_rect = off.copy()
+    cancel_mapper_btn_rect = off.copy()
+    cancel_lab_btn_rect = off.copy()
 
-    def draw_group(rect: pygame.Rect) -> None:
-        _draw_vertical_gradient(screen, rect, (22, 26, 37), (15, 18, 27), 235)
-        pygame.draw.rect(screen, (55, 66, 88), rect, 1, border_radius=5)
+    section_accents = {
+        "hud": GUI_APP_ACCENT,
+        "visuals": GUI_CONFIRM,
+        "training": GUI_ACCENT_PURPLE,
+        "lab": GUI_WARNING,
+        "help": GUI_APP_ACCENT,
+    }
+    section_labels = {
+        "hud": "HUD",
+        "visuals": "VISUALS",
+        "training": "TRAINING",
+        "lab": "LAB / SETUP",
+    }
 
-    # ------------------------------------------------------------------
-    # Row 1: things worth seeing/changing in the middle of a match.
-    # ------------------------------------------------------------------
-    x = 8
+    def draw_section(key: str) -> dict[str, pygame.Rect]:
+        section_rect, rects = sections[key]
+        accent = section_accents.get(key, GUI_APP_ACCENT)
+        left = _mix_col((13, 24, 38), accent, 0.10)
+        _draw_horizontal_gradient(screen, section_rect, left, (7, 13, 22), 250)
+        pygame.draw.rect(screen, (38, 55, 73), section_rect, 1, border_radius=5)
+        pygame.draw.rect(screen, (*accent, 180), pygame.Rect(section_rect.x + 1, section_rect.y + 4, 3, max(1, section_rect.height - 8)), border_radius=2)
 
-    # Overlay/card cluster.  It is outlined as one block so card switches no
-    # longer look like unrelated free-floating buttons.
-    hud_group_rect = pygame.Rect(x, y_top - 2, 356, btn_h + 4)
-    draw_group(hud_group_rect)
+        label_w = 75 if width >= 760 else 61
+        label = section_labels.get(key, key.upper())
+        label_surf = _fit_text(dockfont, label, _brighten(accent, 28), label_w - 14)
+        screen.blit(label_surf, (section_rect.x + 10, section_rect.centery - label_surf.get_height() // 2))
+        pygame.draw.line(screen, (43, 59, 77), (section_rect.x + label_w, section_rect.y + 5), (section_rect.x + label_w, section_rect.bottom - 5))
+        return rects
 
-    hud_btn_rect = pygame.Rect(hud_group_rect.x + 4, y_top, 100, btn_h)
+    hud = draw_section("hud")
+    hud_btn_rect = hud["hud_btn"]
+    interaction_card_btn_rect = hud["interaction_btn"]
+    combo_card_btn_rect = hud["combo_btn"]
+    tag_card_btn_rect = hud["tag_btn"]
+    clear_card_btn_rect = hud["clear_btn"]
+    tools_btn_rect = hud["tools_btn"]
+
     draw_glass_button(
-        screen, hud_btn_rect,
-        "Overlay: ON" if overlay_enabled else "Overlay: OFF",
-        dockfont, active=overlay_enabled,
-        hover=hud_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
-        fill=(44, 56, 82) if overlay_enabled else (31, 33, 42), align="center",
+        screen, hud_btn_rect, "Overlay: ON" if overlay_enabled else "Overlay: OFF", dockfont,
+        active=bool(overlay_enabled), hover=hud_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
+        fill=(43, 58, 86) if overlay_enabled else (27, 33, 45), align="center",
     )
-
-    interaction_card_btn_rect = pygame.Rect(hud_btn_rect.right + 4, y_top, 82, btn_h)
     draw_glass_button(
         screen, interaction_card_btn_rect, "Hit / Block", dockfont,
-        active=bool(show_interaction_card),
-        hover=interaction_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
-        fill=(44, 56, 82) if show_interaction_card else (31, 33, 42), align="center",
+        active=bool(show_interaction_card), hover=interaction_card_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_BLUE, fill=(43, 58, 86) if show_interaction_card else (27, 33, 45), align="center",
     )
-
-    combo_card_btn_rect = pygame.Rect(interaction_card_btn_rect.right + 4, y_top, 55, btn_h)
     draw_glass_button(
         screen, combo_card_btn_rect, "Combo", dockfont,
-        active=bool(show_combo_card),
-        hover=combo_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
-        fill=(44, 56, 82) if show_combo_card else (31, 33, 42), align="center",
+        active=bool(show_combo_card), hover=combo_card_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_BLUE, fill=(43, 58, 86) if show_combo_card else (27, 33, 45), align="center",
     )
-
-    tag_card_btn_rect = pygame.Rect(combo_card_btn_rect.right + 4, y_top, 43, btn_h)
     draw_glass_button(
         screen, tag_card_btn_rect, "Tag", dockfont,
-        active=bool(show_tag_card),
-        hover=tag_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_BLUE,
-        fill=(44, 56, 82) if show_tag_card else (31, 33, 42), align="center",
+        active=bool(show_tag_card), hover=tag_card_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_BLUE, fill=(43, 58, 86) if show_tag_card else (27, 33, 45), align="center",
     )
-
-    # This clears the three optional live cards without shutting down the
-    # master HUD itself.  That lets the player declutter instantly while
-    # keeping name/health/meter information visible.
     cards_active = bool(show_interaction_card or show_combo_card or show_tag_card)
-    clear_card_btn_rect = pygame.Rect(tag_card_btn_rect.right + 4, y_top, 52, btn_h)
     draw_glass_button(
         screen, clear_card_btn_rect, "Clear", dockfont,
-        active=cards_active,
-        hover=clear_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_RED,
-        fill=(59, 38, 43) if cards_active else (31, 33, 42), align="center",
+        active=cards_active, hover=clear_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_RED,
+        fill=(59, 38, 43) if cards_active else (27, 33, 45), align="center",
     )
-
-    # Collision cluster.  Master buttons say what each row controls; the slot
-    # chips are compact raw-slot numbers because the parent label supplies the
-    # context.  A small divider preserves the P1/P2 vs P3/P4 pairing at a
-    # glance without treating P1/P3 as a team.
-    x = hud_group_rect.right + gap
-    visual_group_rect = pygame.Rect(x, y_top - 2, 450, btn_h + 4)
-    draw_group(visual_group_rect)
-
-    hb_on = any(hitbox_slots.values())
-    hb_btn_rect = pygame.Rect(visual_group_rect.x + 4, y_top, 100, btn_h)
     draw_glass_button(
-        screen, hb_btn_rect, "Hitboxes: ON" if hb_on else "Hitboxes: OFF", dockfont,
-        active=hb_on, hover=hb_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
-        align="center",
+        screen, tools_btn_rect, "Tools  ▴" if tools_open else "Tools  ▾", dockfont,
+        active=bool(tools_open), hover=tools_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
+        fill=(43, 58, 86) if tools_open else (27, 33, 45), align="center",
     )
 
-    chip_y = y_top + 2
-    chip_w = 22
-    chip_h = 18
-    chip_gap = 2
-    pair_gap = 6
-    chip_x = hb_btn_rect.right + 5
-    slot_colors = dict(GUI_SLOT_MUTED)
-    hb_filter_rects = {}
-    for index, slot_name in enumerate(("P1", "P2", "P3", "P4")):
-        if index == 2:
-            chip_x += pair_gap
-        chip_rect = pygame.Rect(chip_x, chip_y, chip_w, chip_h)
-        draw_slot_chip(
-            screen, chip_rect, slot_name[-1], smallfont,
-            enabled=bool(hitbox_slots.get(slot_name, False)),
-            accent=slot_colors.get(slot_name, GUI_ACCENT_BLUE),
-            hover=chip_rect.collidepoint(mx, my), compact=True,
-        )
-        hb_filter_rects[slot_name] = chip_rect.inflate(4, 4)
-        chip_x += chip_w + chip_gap
+    visual = draw_section("visuals")
+    hb_btn_rect = visual["hb_btn"]
+    hurt_btn_rect = visual["hurt_btn"]
+    ruler_btn_rect = visual["ruler_btn"]
+    ruler_axis_h_rect = visual["ruler_h"]
+    ruler_axis_v_rect = visual["ruler_v"]
 
-    hurt_on = any(hurtbox_slots.values())
-    hurt_btn_rect = pygame.Rect(chip_x + 8, y_top, 110, btn_h)
-    draw_glass_button(
-        screen, hurt_btn_rect, "Hurtboxes: ON" if hurt_on else "Hurtboxes: OFF", dockfont,
-        active=hurt_on, hover=hurt_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN,
-        align="center",
-    )
-
-    hurt_chip_x = hurt_btn_rect.right + 5
-    hurt_filter_rects = {}
-    for index, slot_name in enumerate(("P1", "P2", "P3", "P4")):
-        if index == 2:
-            hurt_chip_x += pair_gap
-        chip_rect = pygame.Rect(hurt_chip_x, chip_y, chip_w, chip_h)
-        draw_slot_chip(
-            screen, chip_rect, slot_name[-1], smallfont,
-            enabled=bool(hurtbox_slots.get(slot_name, False)),
-            accent=slot_colors.get(slot_name, GUI_ACCENT_GREEN),
-            hover=chip_rect.collidepoint(mx, my), compact=True,
-        )
-        hurt_filter_rects[slot_name] = chip_rect.inflate(4, 4)
-        hurt_chip_x += chip_w + chip_gap
-
-    # Ruler sources deliberately live in their own cluster.  Hitbox chips
-    # filter only live attack-box drawings; they no longer decide which of the
-    # four saved-profile rulers can appear.
-    x = visual_group_rect.right + gap
-    ruler_group_rect = pygame.Rect(x, y_top - 2, 358, btn_h + 4)
-    draw_group(ruler_group_rect)
-
-    ruler_btn_rect = pygame.Rect(ruler_group_rect.x + 4, y_top, 82, btn_h)
-    draw_glass_button(
-        screen, ruler_btn_rect, "Ruler: ON" if ruler_enabled else "Ruler: OFF", dockfont,
-        active=bool(ruler_enabled), hover=ruler_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
-        fill=(44, 48, 76) if ruler_enabled else (31, 33, 42), align="center",
-    )
-
-    # Horizontal and Vertical are independent layers. The old Dynamic ghost
-    # display is retired: active-frame samples build the two compact rulers.
-    # Keeping both on is intentional: Horizontal answers reach, Vertical
-    # answers height.
+    hb_on = any(bool(v) for v in hitbox_slots.values())
+    hurt_on = any(bool(v) for v in hurtbox_slots.values())
     ruler_axes = ruler_axes if isinstance(ruler_axes, dict) else {}
     ruler_horz_on = bool(ruler_axes.get("horizontal", True))
     ruler_vert_on = bool(ruler_axes.get("vertical", False))
-    ruler_axis_h_rect = pygame.Rect(ruler_btn_rect.right + 5, y_top, 80, btn_h)
+
+    draw_glass_button(
+        screen, hb_btn_rect, "Hitboxes: ON" if hb_on else "Hitboxes: OFF", dockfont,
+        active=hb_on, hover=hb_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center",
+    )
+    draw_glass_button(
+        screen, hurt_btn_rect, "Hurtboxes: ON" if hurt_on else "Hurtboxes: OFF", dockfont,
+        active=hurt_on, hover=hurt_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN, align="center",
+    )
+    draw_glass_button(
+        screen, ruler_btn_rect, "Ruler: ON" if ruler_enabled else "Ruler: OFF", dockfont,
+        active=bool(ruler_enabled), hover=ruler_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+        fill=(48, 43, 76) if ruler_enabled else (27, 33, 45), align="center",
+    )
     draw_glass_button(
         screen, ruler_axis_h_rect, "Horizontal", dockfont,
         active=ruler_horz_on, hover=ruler_axis_h_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
-        fill=(52, 42, 76) if ruler_horz_on else (31, 33, 42), align="center",
+        fill=(48, 43, 76) if ruler_horz_on else (27, 33, 45), align="center",
     )
-    ruler_axis_v_rect = pygame.Rect(ruler_axis_h_rect.right + 2, y_top, 66, btn_h)
     draw_glass_button(
         screen, ruler_axis_v_rect, "Vertical", dockfont,
         active=ruler_vert_on, hover=ruler_axis_v_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
-        fill=(52, 42, 76) if ruler_vert_on else (31, 33, 42), align="center",
+        fill=(48, 43, 76) if ruler_vert_on else (27, 33, 45), align="center",
     )
 
-    ruler_chip_x = ruler_axis_v_rect.right + 5
-    ruler_filter_rects = {}
-    for index, slot_name in enumerate(("P1", "P2", "P3", "P4")):
-        if index == 2:
-            ruler_chip_x += pair_gap
-        chip_rect = pygame.Rect(ruler_chip_x, chip_y, chip_w, chip_h)
+    slot_colors = dict(GUI_SLOT_MUTED)
+    hb_filter_rects: dict[str, pygame.Rect] = {}
+    hurt_filter_rects: dict[str, pygame.Rect] = {}
+    ruler_filter_rects: dict[str, pygame.Rect] = {}
+    for slot_name in ("P1", "P2", "P3", "P4"):
+        hb_rect = visual[f"hb_{slot_name}"]
+        hurt_rect = visual[f"hurt_{slot_name}"]
+        ruler_rect = visual[f"ruler_{slot_name}"]
         draw_slot_chip(
-            screen, chip_rect, slot_name[-1], smallfont,
-            enabled=bool(ruler_slots.get(slot_name, True)),
-            accent=slot_colors.get(slot_name, GUI_ACCENT_PURPLE),
-            hover=chip_rect.collidepoint(mx, my), compact=True,
+            screen, hb_rect, slot_name[-1], smallfont,
+            enabled=bool(hitbox_slots.get(slot_name, False)), accent=slot_colors.get(slot_name, GUI_ACCENT_BLUE),
+            hover=hb_rect.collidepoint(mx, my), compact=True,
         )
-        ruler_filter_rects[slot_name] = chip_rect.inflate(4, 4)
-        ruler_chip_x += chip_w + chip_gap
+        draw_slot_chip(
+            screen, hurt_rect, slot_name[-1], smallfont,
+            enabled=bool(hurtbox_slots.get(slot_name, False)), accent=slot_colors.get(slot_name, GUI_ACCENT_GREEN),
+            hover=hurt_rect.collidepoint(mx, my), compact=True,
+        )
+        draw_slot_chip(
+            screen, ruler_rect, slot_name[-1], smallfont,
+            enabled=bool(ruler_slots.get(slot_name, True)), accent=slot_colors.get(slot_name, GUI_ACCENT_PURPLE),
+            hover=ruler_rect.collidepoint(mx, my), compact=True,
+        )
+        hb_filter_rects[slot_name] = hb_rect.inflate(4, 4)
+        hurt_filter_rects[slot_name] = hurt_rect.inflate(4, 4)
+        ruler_filter_rects[slot_name] = ruler_rect.inflate(4, 4)
 
-    x = ruler_group_rect.right + gap
-    tools_btn_rect = pygame.Rect(x, y_top, 70, btn_h)
-    draw_glass_button(
-        screen, tools_btn_rect, "Tools  ▾" if not tools_open else "Tools  ▴", dockfont,
-        active=bool(tools_open), hover=tools_btn_rect.collidepoint(mx, my),
-        accent=GUI_APP_ACCENT, fill=(38, 49, 70) if tools_open else (31, 33, 42), align="center",
-    )
+    previous_clip = screen.get_clip()
+    screen.set_clip(dock_rect)
 
-    # ------------------------------------------------------------------
-    # Row 2: explicit lab drawer or a quiet single-line contextual hint.
-    # ------------------------------------------------------------------
-    as_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    memdump_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    win_counter_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    select_probe_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    yami_stage_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    ko_control_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    action_spoof_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    megacrash_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
-    overseer_btn_rect = pygame.Rect(-9999, -9999, 0, 0)
+    if tools_progress > 0.001:
+        training = draw_section("training")
+        cancel_mapper_btn_rect = training["cancel_mapper"]
+        cancel_lab_btn_rect = training["cancel_lab"]
+        action_spoof_btn_rect = training["punish"]
+        megacrash_btn_rect = training["megacrash"]
 
-    if tools_open:
-        drawer_rect = pygame.Rect(8, y_tools - 2, min(w - 16, 1280), btn_h + 4)
-        draw_group(drawer_rect)
-        x = drawer_rect.x + 4
-
-        win_counter_btn_rect = pygame.Rect(x, y_tools, 122, btn_h)
         draw_glass_button(
-            screen, win_counter_btn_rect,
-            "Win Score: ON" if win_score_enabled else "Win Score: OFF",
-            dockfont, active=bool(win_score_enabled), hover=win_counter_btn_rect.collidepoint(mx, my),
-            accent=GUI_APP_ACCENT, fill=(44, 56, 82) if win_score_enabled else (31, 33, 42), align="center",
+            screen, cancel_mapper_btn_rect, "Cancel Mapper", dockfont, active=False,
+            hover=cancel_mapper_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+            fill=(43, 38, 68), align="center",
+        )
+        draw_glass_button(
+            screen, cancel_lab_btn_rect, "Cancel Lab", dockfont, active=False,
+            hover=cancel_lab_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+            fill=(43, 38, 68), align="center",
+        )
+        draw_glass_button(
+            screen, action_spoof_btn_rect, "Punish Trainer: ON" if action_spoof_active else "Punish Trainer", dockfont,
+            active=bool(action_spoof_active), hover=action_spoof_btn_rect.collidepoint(mx, my),
+            accent=GUI_ACCENT_PURPLE, fill=(48, 43, 76) if action_spoof_active else (27, 33, 45), align="center",
+        )
+        draw_glass_button(
+            screen, megacrash_btn_rect, "Megacrash Trainer: ON" if megacrash_trainer_enabled else "Megacrash Trainer", dockfont,
+            active=bool(megacrash_trainer_enabled), hover=megacrash_btn_rect.collidepoint(mx, my),
+            accent=GUI_APP_ACCENT, fill=(43, 58, 86) if megacrash_trainer_enabled else (27, 33, 45), align="center",
         )
 
-        x = win_counter_btn_rect.right + 4
-        as_btn_rect = pygame.Rect(x, y_tools, 106, btn_h)
-        draw_glass_button(screen, as_btn_rect, "Assist Setup", dockfont, active=False,
-                          hover=as_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
+        lab = draw_section("lab")
+        as_btn_rect = lab["assist"]
+        yami_stage_btn_rect = lab["stage"]
+        select_probe_btn_rect = lab["extra"]
+        ko_control_btn_rect = lab["ko"]
+        memdump_btn_rect = lab["dump"]
+        win_counter_btn_rect = lab["win"]
+        overseer_btn_rect = lab["status"]
 
-        x = as_btn_rect.right + 4
-        memdump_btn_rect = pygame.Rect(x, y_tools, 118, btn_h)
+        draw_glass_button(screen, as_btn_rect, "Assist Setup", dockfont, hover=as_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
+        draw_glass_button(screen, yami_stage_btn_rect, "Stage Control", dockfont, hover=yami_stage_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
+        draw_glass_button(
+            screen, select_probe_btn_rect, "Extra Characters: ON" if char_test_active else "Extra Characters: OFF", dockfont,
+            active=bool(char_test_active), hover=select_probe_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
+            fill=(43, 58, 86) if char_test_active else (27, 33, 45), align="center",
+        )
+        draw_glass_button(
+            screen, ko_control_btn_rect, "KO Control: ON" if ko_control_enabled else "KO Control: OFF", dockfont,
+            active=bool(ko_control_enabled), hover=ko_control_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN,
+            fill=(31, 46, 40) if ko_control_enabled else (27, 33, 45), align="center",
+        )
         dump_label = mem_dump_label if mem_dump_active and mem_dump_label else "Dump Memory"
         draw_glass_button(
             screen, memdump_btn_rect, dump_label, dockfont, active=bool(mem_dump_active),
             hover=memdump_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
-            fill=(44, 56, 82) if mem_dump_active else (31, 33, 42), align="center",
+            fill=(43, 58, 86) if mem_dump_active else (27, 33, 45), align="center",
         )
-
-        x = memdump_btn_rect.right + 4
-        select_probe_btn_rect = pygame.Rect(x, y_tools, 174, btn_h)
         draw_glass_button(
-            screen, select_probe_btn_rect,
-            "Extra Characters: ON" if char_test_active else "Extra Characters: OFF", dockfont,
-            active=bool(char_test_active), hover=select_probe_btn_rect.collidepoint(mx, my),
-            accent=GUI_APP_ACCENT, fill=(44, 56, 82) if char_test_active else (31, 33, 42), align="center",
+            screen, win_counter_btn_rect, "Win Score: ON" if win_score_enabled else "Win Score: OFF", dockfont,
+            active=bool(win_score_enabled), hover=win_counter_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
+            fill=(43, 58, 86) if win_score_enabled else (27, 33, 45), align="center",
         )
-
-        x = select_probe_btn_rect.right + 4
-        yami_stage_btn_rect = pygame.Rect(x, y_tools, 112, btn_h)
-        draw_glass_button(
-            screen, yami_stage_btn_rect,
-            "Stage Control", dockfont, active=False,
-            hover=yami_stage_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center",
-        )
-
-        x = yami_stage_btn_rect.right + 4
-        ko_control_btn_rect = pygame.Rect(x, y_tools, 160, btn_h)
-        ko_label = "KO Ctrl: ON" if ko_control_enabled else "KO Ctrl: OFF"
-        draw_glass_button(
-            screen, ko_control_btn_rect, ko_label, dockfont, active=bool(ko_control_enabled),
-            hover=ko_control_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_GREEN,
-            fill=((31, 42, 36) if ko_control_enabled else (31, 33, 42)),
-            align="center",
-        )
-
-        x = ko_control_btn_rect.right + 4
-        action_spoof_btn_rect = pygame.Rect(x, y_tools, 112, btn_h)
-        draw_glass_button(
-            screen, action_spoof_btn_rect,
-            "Punish Trainer: ON" if action_spoof_active else "Punish Trainer",
-            dockfont, active=bool(action_spoof_active),
-            hover=action_spoof_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
-            fill=(52, 42, 76) if action_spoof_active else (31, 33, 42), align="center",
-        )
-
-        x = action_spoof_btn_rect.right + 4
-        megacrash_btn_rect = pygame.Rect(x, y_tools, 190, btn_h)
-        draw_glass_button(
-            screen, megacrash_btn_rect,
-            "Megacrash Trainer: ON" if megacrash_trainer_enabled else "Megacrash Trainer",
-            dockfont, active=bool(megacrash_trainer_enabled), hover=megacrash_btn_rect.collidepoint(mx, my),
-            accent=GUI_APP_ACCENT, fill=(44, 56, 82) if megacrash_trainer_enabled else (31, 33, 42), align="center",
-        )
-
-        x = megacrash_btn_rect.right + 4
-        overseer_btn_rect = pygame.Rect(x, y_tools, 110, btn_h)
-        draw_glass_button(screen, overseer_btn_rect, "Tool Status", dockfont, active=False,
-                          hover=overseer_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
+        draw_glass_button(screen, overseer_btn_rect, "Tool Status", dockfont, hover=overseer_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
     else:
-        help_tip = "Visual controls stay here. Tools holds memory dumps, assists, extra characters, stage control, KO control, Punish training, Megacrash training, and tool status."
+        help_rect, _ = sections["help"]
+        help_tip = "Each in-game HUD layer is independent. Open Tools for training, research, and setup controls."
         help_accent = GUI_APP_ACCENT
-        if hb_btn_rect.collidepoint(mx, my):
-            help_tip = "Hitboxes: master attack/projectile boxes. Turning them on also turns on the ground-normal range ruler."
-        elif any(rect.collidepoint(mx, my) for rect in hb_filter_rects.values()):
-            help_tip = "Hit slots: raw P1 / P2 / P3 / P4 visibility. The gap separates Team 1 (1/2) from Team 2 (3/4)."
+        if hud_btn_rect.collidepoint(mx, my):
+            help_tip = "Overlay controls only the core team HUD. Every other in-game layer can remain on or off independently."
+        elif interaction_card_btn_rect.collidepoint(mx, my):
+            help_tip = "Hit and Block controls only the live interaction ribbon."
+        elif combo_card_btn_rect.collidepoint(mx, my):
+            help_tip = "Combo controls only the live combo ledger."
+        elif tag_card_btn_rect.collidepoint(mx, my):
+            help_tip = "Tag controls only the incoming tag resource card."
+        elif clear_card_btn_rect.collidepoint(mx, my):
+            help_tip = "Clear turns off Hit and Block, Combo, and Tag without touching other layers."
+            help_accent = GUI_ACCENT_RED
+        elif hb_btn_rect.collidepoint(mx, my):
+            help_tip = "Hitboxes control only attack and projectile box drawings."
         elif hurt_btn_rect.collidepoint(mx, my):
-            help_tip = "Hurtboxes: master defender/body bubbles. The profile ruler uses these to determine whether its saved reach touches."
-            help_accent = GUI_ACCENT_GREEN
-        elif any(rect.collidepoint(mx, my) for rect in hurt_filter_rects.values()):
-            help_tip = "Hurt slots: raw P1 / P2 / P3 / P4 visibility. The gap separates Team 1 (1/2) from Team 2 (3/4)."
+            help_tip = "Hurtboxes control only body and defender bubble drawings."
             help_accent = GUI_ACCENT_GREEN
         elif ruler_btn_rect.collidepoint(mx, my):
-            help_tip = "Ruler: saved active-frame reach guides. Horizontal and Vertical are independent; turn on either or both. Each missing envelope is sampled once and saved. Chips only filter eligible sources. Hurtboxes are required for Horizontal touch checks."
+            help_tip = "Ruler controls saved active-frame reach guides and does not require visible hitboxes or hurtboxes."
             help_accent = GUI_ACCENT_PURPLE
         elif ruler_axis_h_rect.collidepoint(mx, my):
-            help_tip = "Horizontal: toggle the furthest forward active hitbox edge across the whole move. Can be on with Vertical."
+            help_tip = "Horizontal toggles the furthest forward active hitbox edge."
             help_accent = GUI_ACCENT_PURPLE
         elif ruler_axis_v_rect.collidepoint(mx, my):
-            help_tip = "Vertical: toggle the full highest-to-lowest active hitbox envelope across the whole move. Can be on with Horizontal."
+            help_tip = "Vertical toggles the full active hitbox height envelope."
             help_accent = GUI_ACCENT_PURPLE
-        elif any(rect.collidepoint(mx, my) for rect in ruler_filter_rects.values()):
-            help_tip = "Ruler slots: choose which raw fighters can show a saved-profile ruler. Independent from Hitboxes. Off-stage partners are naturally hidden."
-            help_accent = GUI_ACCENT_PURPLE
-        elif hud_btn_rect.collidepoint(mx, my):
-            help_tip = "Overlay: starts or stops the master HUD process."
-        elif clear_card_btn_rect.collidepoint(mx, my):
-            help_tip = "Clear: turn off Hit and Block, Combo, and Tag together while leaving the main HUD on."
-            help_accent = GUI_ACCENT_RED
-        elif interaction_card_btn_rect.collidepoint(mx, my):
-            help_tip = "Hit and Block: show or hide the live hit/block interaction ribbon."
-        elif combo_card_btn_rect.collidepoint(mx, my):
-            help_tip = "Combo: show or hide the live combo ledger."
-        elif tag_card_btn_rect.collidepoint(mx, my):
-            help_tip = "Tag: show or hide the incoming tag resource card."
         elif tools_btn_rect.collidepoint(mx, my):
-            help_tip = "Tools: open occasional tools without keeping them in the match-time strip."
+            help_tip = "Tools opens dedicated Training and Lab / Setup sections."
 
-        help_rect = pygame.Rect(8, y_tools, max(120, w - 16), btn_h)
-        _draw_vertical_gradient(screen, help_rect, (21, 24, 34), (15, 17, 25), 230)
-        pygame.draw.rect(screen, (49, 57, 75), help_rect, 1, border_radius=4)
-        pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 4.0)
-        dot_col = _brighten(help_accent, int(35 * pulse))
-        dot = pygame.Surface((8, 8), pygame.SRCALPHA)
-        pygame.draw.circle(dot, (*dot_col, int(115 + 75 * pulse)), (4, 4), 3)
-        screen.blit(dot, (help_rect.x + 8, help_rect.y + 7))
-        help_surf = _fit_text(smallfont, help_tip, GUI_TEXT_DIM, help_rect.width - 28)
-        screen.blit(help_surf, (help_rect.x + 22, help_rect.y + (help_rect.height - help_surf.get_height()) // 2))
+        _draw_horizontal_gradient(screen, help_rect, _mix_col((12, 23, 36), help_accent, 0.06), (7, 13, 22), 248)
+        pygame.draw.rect(screen, (38, 55, 73), help_rect, 1, border_radius=5)
+        pygame.draw.rect(screen, (*help_accent, 135), pygame.Rect(help_rect.x + 6, help_rect.centery - 2, 4, 4), border_radius=2)
+        help_surf = _fit_text(smallfont, help_tip, GUI_TEXT_DIM, help_rect.width - 30)
+        screen.blit(help_surf, (help_rect.x + 18, help_rect.centery - help_surf.get_height() // 2))
+
+    screen.set_clip(previous_clip)
+    if tools_progress < 0.88:
+        as_btn_rect = off.copy()
+        megacrash_btn_rect = off.copy()
+        memdump_btn_rect = off.copy()
+        win_counter_btn_rect = off.copy()
+        overseer_btn_rect = off.copy()
+        select_probe_btn_rect = off.copy()
+        yami_stage_btn_rect = off.copy()
+        ko_control_btn_rect = off.copy()
+        action_spoof_btn_rect = off.copy()
+        cancel_mapper_btn_rect = off.copy()
+        cancel_lab_btn_rect = off.copy()
 
     return (
         hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect,
         megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect,
         overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect,
-        action_spoof_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect,
-        tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects,
-        ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,
+        action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, solo_team_btn_rect,
+        interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect,
+        tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect,
+        ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,
     )
 
 
@@ -837,86 +921,72 @@ def draw_bottom_workspace_tabs(
     active_tab: str,
     mouse_pos: tuple[int, int],
 ) -> tuple[pygame.Rect, dict[str, pygame.Rect]]:
-    """Draw the lower inspector as a tabbed workspace.
-
-    This keeps the tabbed layout, but upgrades the presentation: active tabs
-    feel raised, get a clearer accent underline, and visually match the more
-    polished card language used elsewhere in the GUI.
-    """
+    """Draw a responsive lower workspace with one calm active accent."""
     mx, my = mouse_pos
-    tab_h = 24
-    pad = 4
+    tab_h = 27
+    pad = 5
 
     if rect.width <= 0 or rect.height <= tab_h + 8:
         return rect, {}
 
     panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-    _draw_vertical_gradient(
-        panel,
-        panel.get_rect(),
-        (14, 16, 23),
-        (10, 11, 16),
-        245,
-    )
-    pygame.draw.rect(panel, (52, 58, 76), panel.get_rect(), 1, border_radius=4)
+    _draw_horizontal_gradient(panel, panel.get_rect(), (10, 20, 32), (5, 10, 18), 250)
+    pygame.draw.rect(panel, (37, 53, 70), panel.get_rect(), 1, border_radius=5)
     screen.blit(panel, rect.topleft)
 
     tabs = [
-        ("scan", "Normals Preview", GUI_APP_ACCENT),
-        ("advantage", "Advantage", GUI_APP_ACCENT),
-        ("events", "Events", GUI_APP_ACCENT),
-        ("debug", "Debug Flags", GUI_APP_ACCENT),
-        ("activity", "Activity", GUI_APP_ACCENT),
+        ("scan", "NORMALS", GUI_APP_ACCENT),
+        ("advantage", "ADVANTAGE", GUI_WARNING),
+        ("events", "EVENTS", GUI_CONFIRM),
+        ("debug", "DEBUG", GUI_ACCENT_PURPLE),
+        ("activity", "ACTIVITY", GUI_DANGER),
     ]
 
     tab_rects: dict[str, pygame.Rect] = {}
     x = rect.x + pad
     y = rect.y + pad
-    gap = 6
+    gap = 5
+    natural_widths = [max(80, min(156, smallfont.size(label)[0] + 30)) for _key, label, _accent in tabs]
+    total_natural = sum(natural_widths) + gap * (len(tabs) - 1)
+    available = max(120, rect.width - pad * 2)
+    if total_natural > available:
+        shared = max(58, (available - gap * (len(tabs) - 1)) // len(tabs))
+        tab_widths = [shared for _ in tabs]
+    else:
+        tab_widths = natural_widths
 
-    for key, label, accent in tabs:
-        width = max(96, min(160, smallfont.size(label)[0] + 26))
+    for (key, label, accent), width in zip(tabs, tab_widths):
         tr = pygame.Rect(x, y, width, tab_h)
         tab_rects[key] = tr
         is_active = key == active_tab
-        is_hover = tr.collidepoint(mx, my)
-
-        # Active tabs feel slightly raised and have a stronger accent cue.
-        fill = (31, 38, 56) if is_active else (21, 24, 34)
         draw_glass_button(
             screen,
             tr,
             label,
             smallfont,
             active=is_active,
-            hover=is_hover,
-            accent=accent,
-            fill=fill,
+            hover=tr.collidepoint(mx, my),
+            accent=accent if is_active else GUI_APP_ACCENT,
+            fill=(15, 25, 39),
             align="center",
         )
-
-        if is_active:
-            top_rail = pygame.Rect(tr.x + 5, tr.y + 2, tr.width - 10, 2)
-            pygame.draw.rect(screen, (*accent, 220), top_rail, border_radius=1)
-            glow = pygame.Surface((tr.width - 8, 8), pygame.SRCALPHA)
-            pygame.draw.rect(glow, (*accent, 34), glow.get_rect(), border_radius=4)
-            screen.blit(glow, (tr.x + 4, tr.bottom - 4))
-
         x += width + gap
 
     content = pygame.Rect(
         rect.x + pad,
-        rect.y + tab_h + pad + 5,
+        rect.y + tab_h + pad + 6,
         rect.width - pad * 2,
-        rect.height - tab_h - pad * 2 - 5,
+        rect.height - tab_h - pad * 2 - 6,
     )
     if content.height < 16:
         content.height = 16
 
-    pygame.draw.rect(screen, (18, 20, 28), content, border_radius=4)
-    pygame.draw.rect(screen, (45, 52, 72), content, 1, border_radius=4)
-
+    content_layer = pygame.Surface(content.size, pygame.SRCALPHA)
+    _draw_horizontal_gradient(content_layer, content_layer.get_rect(), (8, 16, 27), (4, 9, 16), 250)
+    pygame.draw.rect(content_layer, (34, 49, 66), content_layer.get_rect(), 1, border_radius=4)
+    screen.blit(content_layer, content.topleft)
     return content, tab_rects
+
 
 __all__ = [
     'TOP_UI_RESERVED',
@@ -949,11 +1019,13 @@ __all__ = [
     '_mix_col',
     '_slot_accent_for_label',
     '_draw_vertical_gradient',
+    '_draw_horizontal_gradient',
     '_fit_text',
     '_render_outlined_text',
     '_render_rainbow_outlined_text',
     'draw_glass_button',
     'draw_slot_chip',
+    'get_top_dock_height',
     'draw_top_command_dock',
     'draw_status_rail',
     'draw_bottom_workspace_tabs'

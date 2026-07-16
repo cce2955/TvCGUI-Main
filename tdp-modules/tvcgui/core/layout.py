@@ -6,68 +6,58 @@ import pygame
 
 
 def compute_layout(w, h, snaps):
-    """
-    Compute all main HUD rects (panels, activity bar, events, debug, scan).
-    Adjusts layout when giants are detected (they have no partners).
-    """
-    pad = 10
-    gap_x = 20
-    gap_y = 10
+    """Compute a responsive broadcast layout for the main window.
 
-    panel_w = (w - pad * 2 - gap_x) // 2
-    panel_h = 155
+    The fighter cards retain enough room for portraits and quick assists, while
+    the active lower workspace receives a real minimum height. This prevents
+    the Normals Preview rows from being compressed into unreadable strips.
+    """
+    w = max(560, int(w))
+    h = max(360, int(h))
+    pad = 8
+    gap_x = 18
+    gap_y = 8
+
+    panel_w = max(230, (w - pad * 2 - gap_x) // 2)
+
+    # Reserve roughly the lower 43 percent for the tabbed workspace. The cap
+    # keeps tall monitors from making the fighter cards unnecessarily small.
+    desired_workspace_h = max(330, min(390, int(h * 0.53)))
+    fixed_vertical = pad * 2 + gap_y + 14
+    panel_h = (h - desired_workspace_h - fixed_vertical) // 2
+    panel_h = max(126, min(158, panel_h))
 
     row1_y = pad
     row2_y = row1_y + panel_h + gap_y
 
-    # Check for giants (IDs 11 = Gold Lightan, 22 = PTX-40A)
     GIANT_IDS = {11, 22}
     p1_is_giant = snaps.get("P1-C1", {}).get("id") in GIANT_IDS
     p2_is_giant = snaps.get("P2-C1", {}).get("id") in GIANT_IDS
 
-    # Default positions
     r_p1c1 = pygame.Rect(pad, row1_y, panel_w, panel_h)
     r_p2c1 = pygame.Rect(pad + panel_w + gap_x, row1_y, panel_w, panel_h)
     r_p1c2 = pygame.Rect(pad, row2_y, panel_w, panel_h)
     r_p2c2 = pygame.Rect(pad + panel_w + gap_x, row2_y, panel_w, panel_h)
 
-    # If P1 is a giant, move P2-C1 down to row 2 (where P2-C2 would be)
     if p1_is_giant:
         r_p2c1 = pygame.Rect(pad + panel_w + gap_x, row2_y, panel_w, panel_h)
-        # P1-C2 stays in row 2 left but will be hidden/empty
 
-    # If P2 is a giant, P2-C1 stays top right, P2-C2 hidden/empty
-    # (layout rectangles themselves don't change further)
-
-    act_rect = pygame.Rect(pad, r_p1c2.bottom + 30, w - pad * 2, 32)
-
-    events_y = act_rect.bottom + 8
-    events_h = 150
-
-    # split row into left (events) and right (debug) halves
-    row_w = w - pad * 2
-    half_w = (row_w - gap_x) // 2
-
-    events_rect = pygame.Rect(pad, events_y, half_w, events_h)
-    debug_rect = pygame.Rect(pad + half_w + gap_x, events_y, half_w, events_h)
-
-    scan_y = events_rect.bottom + 8
-    scan_h = max(90, h - scan_y - pad)
-    scan_rect = pygame.Rect(pad, scan_y, w - pad * 2, scan_h)
+    workspace_y = row2_y + panel_h + 14
+    workspace_h = max(90, h - workspace_y - pad)
+    workspace_rect = pygame.Rect(0, workspace_y, w, workspace_h)
 
     return {
         "p1c1": r_p1c1,
         "p2c1": r_p2c1,
         "p1c2": r_p1c2,
         "p2c2": r_p2c2,
-        "act": act_rect,
-        "events": events_rect,
-        "debug": debug_rect,
-        "scan": scan_rect,
+        "act": workspace_rect.copy(),
+        "events": workspace_rect.copy(),
+        "debug": workspace_rect.copy(),
+        "scan": workspace_rect.copy(),
         "p1_is_giant": p1_is_giant,
         "p2_is_giant": p2_is_giant,
     }
-
 
 def reassign_slots_for_giants(snaps):
     """

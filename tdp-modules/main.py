@@ -221,6 +221,12 @@ from tvcgui.features.frame_data.window import (
     open_frame_data_window,
     open_frame_data_loading_window,
     close_frame_data_loading_window,
+    open_cancel_mapper_window,
+    open_cancel_mapper_loading_window,
+    close_cancel_mapper_loading_window,
+    open_cancel_lab_window,
+    open_cancel_lab_loading_window,
+    close_cancel_lab_loading_window,
 )
 from tvcgui.features.combat.projectile_scanner import open_proj_scanner_window
 try:
@@ -392,12 +398,15 @@ from tvcgui.ui.components import (
     _brighten,
     _darken,
     _draw_vertical_gradient,
+    _draw_horizontal_gradient,
+    _mix_col,
     _render_outlined_text,
     _render_rainbow_outlined_text,
     _slot_accent_for_label,
     draw_bottom_workspace_tabs,
     draw_glass_button,
     draw_status_rail,
+    get_top_dock_height,
     draw_top_command_dock,
 )
 
@@ -470,6 +479,27 @@ def safe_read_fighter(base: int, yoff: int) -> dict | None:
     return snap if snap else None
 
 
+
+def _responsive_fonts(size: tuple[int, int]):
+    """Build readable fonts that track the resized main window."""
+    try:
+        width, height = int(size[0]), int(size[1])
+    except Exception:
+        width, height = SCREEN_W, SCREEN_H
+    scale = min(max(width / 1280.0, 0.74), max(height / 800.0, 0.74))
+    scale = max(0.74, min(1.22, scale))
+    main_size = max(10, int(round(FONT_MAIN_SIZE * scale)))
+    small_size = max(9, int(round(FONT_SMALL_SIZE * scale)))
+    try:
+        main_font = pygame.font.SysFont("consolas", main_size)
+    except Exception:
+        main_font = pygame.font.Font(None, main_size)
+    try:
+        compact_font = pygame.font.SysFont("consolas", small_size)
+    except Exception:
+        compact_font = pygame.font.Font(None, small_size)
+    return main_font, compact_font
+
 def init_pygame():
     if sys.platform == "win32":
         import ctypes
@@ -477,17 +507,8 @@ def init_pygame():
 
     pygame.init()
 
-    try:
-        font = pygame.font.SysFont("consolas", FONT_MAIN_SIZE)
-    except Exception:
-        font = pygame.font.Font(None, FONT_MAIN_SIZE)
-
-    try:
-        smallfont = pygame.font.SysFont("consolas", FONT_SMALL_SIZE)
-    except Exception:
-        smallfont = pygame.font.Font(None, FONT_SMALL_SIZE)
-
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H), pygame.RESIZABLE)
+    font, smallfont = _responsive_fonts(screen.get_size())
     pygame.display.set_caption("TvC Continuo Tool")
 
     icon_path = resource_path("assets", "portraits", "Placeholder.png")
@@ -743,7 +764,14 @@ def draw_panel_polished_stats(
             return 0.0
         return max(0.0, min(1.0, (now - start) / dur))
 
-    _draw_vertical_gradient(surf, rect, (20, 22, 30), (14, 15, 22), 255)
+    panel_accent = _slot_accent_for_label(header, muted=False)
+    _draw_horizontal_gradient(
+        surf,
+        rect,
+        _mix_col((13, 24, 38), panel_accent, 0.10),
+        (5, 11, 19),
+        255,
+    )
     if not isinstance(snap, dict):
         pygame.draw.rect(surf, (55, 63, 84), rect, 1, border_radius=5)
         title = _render_outlined_text(smallfont, f"{header}  empty", GUI_TEXT_DIM, (0, 0, 0), rect.width - 20, 1)
@@ -766,10 +794,10 @@ def draw_panel_polished_stats(
     is_support = (("assist" in move_preview) or ("tag out" in move_preview) or ("tag in taunt" in move_preview) or ko_state or (early_move_id in assist_state_ids))
     is_active_panel = not is_support
 
-    border_col = (84, 74, 74) if ko_state else (_brighten(accent, 22) if is_active_panel else (55, 63, 84))
+    border_col = (116, 69, 78) if ko_state else _mix_col((42, 58, 76), accent, 0.22 if is_active_panel else 0.08)
     pygame.draw.rect(surf, border_col, rect, 1, border_radius=5)
     side_accent = (116, 92, 92) if ko_state else accent
-    pygame.draw.rect(surf, side_accent, pygame.Rect(0, 0, 3, rect.height), border_radius=2)
+    pygame.draw.rect(surf, (*side_accent, 210), pygame.Rect(0, 5, 3, max(1, rect.height - 10)), border_radius=2)
 
     victory_pulse_live = bool(panel_fx.get("victory_pulse_live")) and not ko_state
     if victory_pulse_live:
@@ -781,35 +809,24 @@ def draw_panel_polished_stats(
         pygame.draw.rect(pulse_rail, (*_brighten(accent, 30), int(55 + 55 * vp)), pulse_rail.get_rect(), border_radius=3)
         surf.blit(pulse_rail, (0, 0))
 
-    # Active point panels get a very faint moving scanline.
+    # Keep live identity clear without a constantly animated panel treatment.
     if is_active_panel:
-        pulse = 0.5 + 0.5 * math.sin((t_ms / 1000.0) * 2.2)
-        glow = pygame.Surface((rect.width - 4, rect.height - 4), pygame.SRCALPHA)
-        pygame.draw.rect(glow, (*accent, int(18 + 10 * pulse)), glow.get_rect(), 2, border_radius=6)
-        surf.blit(glow, (2, 2))
-        sweep_x = int((rect.width + 60) * (((t_ms / 1000.0) * 0.16) % 1.0)) - 30
-        scanline = pygame.Surface((18, rect.height - 10), pygame.SRCALPHA)
-        pygame.draw.rect(scanline, (*_brighten(accent, 24), 16), pygame.Rect(0, 0, 8, rect.height - 10), border_radius=3)
-        pygame.draw.rect(scanline, (*_brighten(accent, 40), 8), pygame.Rect(8, 0, 10, rect.height - 10), border_radius=3)
-        surf.blit(scanline, (sweep_x, 5))
+        pygame.draw.line(surf, (*accent, 62), (7, 2), (rect.width - 8, 2))
     elif ko_state:
-        glow = pygame.Surface((rect.width - 4, rect.height - 4), pygame.SRCALPHA)
-        pygame.draw.rect(glow, (180, 90, 90, 22), glow.get_rect(), 1, border_radius=6)
-        surf.blit(glow, (2, 2))
+        pygame.draw.rect(surf, (180, 90, 90, 34), rect.inflate(-4, -4), 1, border_radius=6)
 
     pad = 8
     portrait_size = max(48, min(64, rect.height - 58))
     portrait_rect = pygame.Rect(pad, pad + 8, portrait_size, portrait_size)
-    shadow = pygame.Surface((portrait_rect.width + 12, portrait_rect.height + 12), pygame.SRCALPHA)
-    pygame.draw.rect(shadow, (0, 0, 0, 52), shadow.get_rect(), border_radius=8)
-    surf.blit(shadow, (portrait_rect.x - 4, portrait_rect.y + 4))
-    glow = pygame.Surface((portrait_rect.width + 8, portrait_rect.height + 8), pygame.SRCALPHA)
-    glow_alpha = 18 if ko_state else (46 if is_active_panel else 22)
-    pygame.draw.rect(glow, (*accent, glow_alpha), glow.get_rect(), 2, border_radius=7)
-    surf.blit(glow, (portrait_rect.x - 4, portrait_rect.y - 4))
     frame_rect = portrait_rect.inflate(6, 6)
-    pygame.draw.rect(surf, (11, 13, 19), frame_rect, border_radius=6)
-    pygame.draw.rect(surf, _brighten(accent, 10) if is_active_panel else (62, 70, 94), frame_rect, 1, border_radius=6)
+    pygame.draw.rect(surf, (7, 12, 20), frame_rect, border_radius=6)
+    pygame.draw.rect(
+        surf,
+        _mix_col((54, 66, 82), accent, 0.42 if is_active_panel else 0.10),
+        frame_rect,
+        1,
+        border_radius=6,
+    )
     if portrait is not None:
         try:
             p = pygame.transform.smoothscale(portrait, (portrait_rect.width, portrait_rect.height))
@@ -1066,6 +1083,10 @@ def legacy_main():
     # slot -> immutable identity requested by the click. This prevents a stale
     # Ryu/Chun cache row from opening after the user loads Jun/Polimar.
     fd_pending_window_targets = {}
+    cancel_mapper_pending = False
+    cancel_mapper_dynamic_requested = False
+    cancel_lab_pending = False
+    cancel_lab_dynamic_requested = False
     fd_workbench_prewarmed = False
     last_scan_time    = 0.0
     scan_anim         = None
@@ -1099,6 +1120,19 @@ def legacy_main():
 
     render_snap_by_slot    = {}
     render_portrait_by_slot = {}
+
+    def _cancel_mapper_ready_rows():
+        rows = []
+        for _slot_label in ("P1-C1", "P1-C2", "P2-C1", "P2-C2"):
+            _row = _fd_live_editable_row(
+                _slot_label,
+                last_workbench_scan_normals,
+                last_scan_normals,
+                render_snap_by_slot,
+            )
+            if _row is not None:
+                rows.append(_row)
+        return rows
 
     panel_anim            = {}
     anim_queue_after_scan = set()
@@ -1439,7 +1473,7 @@ def legacy_main():
     except Exception:
         pass
 
-    def _write_hitbox_filter(*, enable_range_ruler: bool = False):
+    def _write_hitbox_filter():
         nonlocal ruler_enabled, ruler_axes
         # Keep P1/P2/P3/P4 at top-level for older overlay builds, and add
         # separate hurtbox controls for the new split layer.  The saved range
@@ -1460,10 +1494,7 @@ def legacy_main():
         except Exception:
             pass
         payload["show_hitboxes"] = any(hitbox_slots.values())
-        if enable_range_ruler:
-            # A fresh Hitboxes ON action begins with saved-profile rulers on.
-            # Later writes respect Ruler OFF and the separate source chips.
-            ruler_enabled = True
+        # Ruler is a separate layer. Toggling hitboxes never changes it.
         payload["show_range_ruler"] = bool(ruler_enabled)
         # Dynamic ghosts are retired.  Active-frame samples remain internal
         # profile data for the Horz/Vert rulers, never a second display layer.
@@ -1503,19 +1534,24 @@ def legacy_main():
             pass
 
     def _sync_master_overlay_state():
-        want_hitboxes = any(hitbox_slots.values())
-        want_hurtboxes = any(hurtbox_slots.values())
-        want_process  = overlay_enabled or want_hitboxes or want_hurtboxes
-        if want_process and not master_overlay_active:
+        """Keep the transparent master compositor alive independently of its layers.
+
+        Overlay, cards, collisions, rulers, mission mode, and trainer prompts all
+        draw into the same transparent window. The process itself is therefore
+        infrastructure, not the Overlay toggle. Individual feature flags decide
+        what is visible while the compositor remains ready for any one layer.
+        """
+        if not master_overlay_active:
             _launch_master_overlay()
-        elif not want_process and master_overlay_active:
-            _stop_master_overlay()
 
     try:
         if os.path.exists(MASTER_CONTROL_FILE):
             with open(MASTER_CONTROL_FILE, "r", encoding="utf-8") as f:
                 _existing_master = json.load(f)
-            overlay_enabled = bool(_existing_master.get("show_hud", overlay_enabled))
+            # The core Overlay intentionally starts ON every app launch. The
+            # saved file still preserves the independent card switches below,
+            # but a prior session's Overlay OFF state is not restored.
+            overlay_enabled = True
             show_interaction_card = bool(_existing_master.get("show_interaction_card", show_interaction_card))
             show_combo_card = bool(_existing_master.get("show_combo_card", show_combo_card))
             show_tag_card = bool(_existing_master.get("show_tag_card", show_tag_card))
@@ -1546,6 +1582,8 @@ def legacy_main():
     normal_preview_ui = {"controls": {}, "rows": []}
     normal_preview_offset = (0, 0)
     normal_preview_advanced_open = False
+    normal_preview_focus_slot = "P1-C1"
+    normal_preview_compact_view = "full"
 
     # Momentary write restore
     hype_restore_addr  = None
@@ -1713,6 +1751,8 @@ def legacy_main():
     # Occasional tooling stays tucked behind the compact Lab drawer so the
     # top strip remains focused on live overlay/collision controls.
     dock_tools_open = False
+    dock_tools_progress = 0.0
+    dock_tools_anim_last = time.perf_counter()
 
     # Extra Characters used to tick every HUD frame.  That is too aggressive
     # for character select: the game can render the wheel while the external
@@ -1742,10 +1782,12 @@ def legacy_main():
                 running = False
             elif ev.type == pygame.VIDEORESIZE:
                 screen = pygame.display.set_mode(ev.size, pygame.RESIZABLE)
+                font, smallfont = _responsive_fonts(screen.get_size())
             elif ev.type in {getattr(pygame, "WINDOWRESIZED", -1), getattr(pygame, "WINDOWSIZECHANGED", -2)}:
                 try:
                     size = getattr(ev, "size", None) or pygame.display.get_window_size()
                     screen = pygame.display.set_mode(size, pygame.RESIZABLE)
+                    font, smallfont = _responsive_fonts(screen.get_size())
                 except Exception:
                     pass
             elif ev.type == pygame.MOUSEBUTTONDOWN:
@@ -1809,6 +1851,62 @@ def legacy_main():
                     last_workbench_scan_normals = res
                     if _mode == "full":
                         print("[fd profile] full dynamic profile build completed")
+
+                    if cancel_mapper_pending:
+                        _mapper_rows = _cancel_mapper_ready_rows()
+                        if _mapper_rows:
+                            _initial_slot = next(
+                                (
+                                    str(_row.get("slot_label") or "")
+                                    for _row in _mapper_rows
+                                    if str(_row.get("slot_label") or "") == "P1-C1"
+                                ),
+                                str(_mapper_rows[0].get("slot_label") or "P1-C1"),
+                            )
+                            close_cancel_mapper_loading_window()
+                            open_cancel_mapper_window(_mapper_rows, _initial_slot)
+                            cancel_mapper_pending = False
+                            cancel_mapper_dynamic_requested = False
+                        elif not cancel_mapper_dynamic_requested:
+                            cancel_mapper_dynamic_requested = True
+                            try:
+                                scan_worker.request(force_dynamic=True)
+                            except TypeError:
+                                scan_worker.request()
+                            print("[cancel mapper] no rich row yet; requested one dynamic profile pass", flush=True)
+                        elif _mode == "full":
+                            close_cancel_mapper_loading_window()
+                            cancel_mapper_pending = False
+                            cancel_mapper_dynamic_requested = False
+                            print("[cancel mapper] no live rich profile was available after the dynamic pass", flush=True)
+
+                    if cancel_lab_pending:
+                        _lab_rows = _cancel_mapper_ready_rows()
+                        if _lab_rows:
+                            _initial_slot = next(
+                                (
+                                    str(_row.get("slot_label") or "")
+                                    for _row in _lab_rows
+                                    if str(_row.get("slot_label") or "") == "P1-C1"
+                                ),
+                                str(_lab_rows[0].get("slot_label") or "P1-C1"),
+                            )
+                            close_cancel_lab_loading_window()
+                            open_cancel_lab_window(_lab_rows, _initial_slot)
+                            cancel_lab_pending = False
+                            cancel_lab_dynamic_requested = False
+                        elif not cancel_lab_dynamic_requested:
+                            cancel_lab_dynamic_requested = True
+                            try:
+                                scan_worker.request(force_dynamic=True)
+                            except TypeError:
+                                scan_worker.request()
+                            print("[cancel lab] no rich row yet; requested one dynamic profile pass", flush=True)
+                        elif _mode == "full":
+                            close_cancel_lab_loading_window()
+                            cancel_lab_pending = False
+                            cancel_lab_dynamic_requested = False
+                            print("[cancel lab] no live rich profile was available after the dynamic pass", flush=True)
 
                     # A click already opened a native loading shell. Never
                     # replace it merely because this result has the same *slot*
@@ -2427,19 +2525,43 @@ def legacy_main():
         # Rendering
         # ------------------------------------------------------------------
         screen.fill(COL_BG)
-        w, h  = screen.get_size()
-        layout = compute_layout(w, h - TOP_UI_RESERVED, snaps)
+        w, h = screen.get_size()
+
+        dock_anim_now = time.perf_counter()
+        dock_anim_dt = max(0.0, min(0.05, dock_anim_now - dock_tools_anim_last))
+        dock_tools_anim_last = dock_anim_now
+        dock_target = 1.0 if dock_tools_open else 0.0
+        dock_step = dock_anim_dt / 0.22 if dock_anim_dt > 0.0 else 0.0
+        if dock_tools_progress < dock_target:
+            dock_tools_progress = min(dock_target, dock_tools_progress + dock_step)
+        elif dock_tools_progress > dock_target:
+            dock_tools_progress = max(dock_target, dock_tools_progress - dock_step)
+
+        top_ui_reserved = get_top_dock_height(
+            w,
+            bool(dock_tools_open),
+            tools_progress=dock_tools_progress,
+        )
+        if h > top_ui_reserved:
+            _draw_horizontal_gradient(
+                screen,
+                pygame.Rect(0, top_ui_reserved, w, h - top_ui_reserved),
+                (9, 19, 31),
+                (3, 8, 15),
+                255,
+            )
+        layout = compute_layout(w, max(240, h - top_ui_reserved), snaps)
 
         for key, value in layout.items():
             if isinstance(value, pygame.Rect):
-                value.y += TOP_UI_RESERVED
+                value.y += top_ui_reserved
 
         # Give the character panels a dedicated footer area for Quick Assists.
         # This keeps the assist buttons from crowding the move text or the
         # Frame Data / Mission Mode buttons, without making main.py own any
         # assist logic. The lower HUD areas are shifted down and the scan
         # preview absorbs the height loss.
-        qa_panel_extra = 26 if h >= 700 else 18
+        qa_panel_extra = 8 if (h - top_ui_reserved) >= 700 else (5 if (h - top_ui_reserved) >= 560 else 0)
         if qa_panel_extra > 0:
             for _key in ("p1c1", "p2c1"):
                 _rect = layout.get(_key)
@@ -2540,13 +2662,15 @@ def legacy_main():
             r.y = int(y)
             return r, max(0, min(255, alpha))
 
-        # Top command dock
+        # Top command dock. The master process is a transparent compositor and
+        # stays alive even when every individual HUD layer is currently hidden.
         _check_master_overlay_proc()
+        _sync_master_overlay_state()
         mx_h, my_h = pygame.mouse.get_pos()
 
         punish_trainer_active = bool(punish_trainer_state.get("enabled", False))
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -2571,6 +2695,7 @@ def legacy_main():
             solo_team_active=_solo_team_active_for_dock(),
             action_spoof_active=punish_trainer_active,
             tools_open=bool(dock_tools_open),
+            tools_progress=dock_tools_progress,
             mouse_pos=(mx_h, my_h),
             t_ms=t_ms,
         )
@@ -2647,18 +2772,15 @@ def legacy_main():
                 panel_fx=slot_panel_fx,
             )
 
-            btn_h          = 20
-            frame_btn_w    = 98
-            mission_btn_w  = 124
-            btn_gap        = 7
-            bottom_pad     = 8
-            total_btn_w    = frame_btn_w + btn_gap + mission_btn_w
-            btn_x          = panel_rect.width - total_btn_w - 10
-            if btn_x < 10:
-                # Very narrow window fallback: keep the buttons visible instead
-                # of letting them disappear off the left edge.
-                btn_x = 10
-            btn_y          = panel_rect.height - btn_h - bottom_pad
+            btn_h = 20
+            btn_gap = 7
+            bottom_pad = 8
+            available_btn_w = max(168, panel_rect.width - 20)
+            frame_btn_w = max(72, min(98, int(available_btn_w * 0.43)))
+            mission_btn_w = max(88, min(124, available_btn_w - frame_btn_w - btn_gap))
+            total_btn_w = frame_btn_w + btn_gap + mission_btn_w
+            btn_x = max(10, panel_rect.width - total_btn_w - 10)
+            btn_y = panel_rect.height - btn_h - bottom_pad
 
             frame_btn_local   = pygame.Rect(btn_x, btn_y, frame_btn_w, btn_h)
             mission_btn_local = pygame.Rect(frame_btn_local.right + btn_gap, btn_y, mission_btn_w, btn_h)
@@ -2774,7 +2896,7 @@ def legacy_main():
         # and Activity one click away.
         lower_keys = ("act", "events", "debug", "scan")
         lower_tops = [layout[k].y for k in lower_keys if isinstance(layout.get(k), pygame.Rect)]
-        lower_top = min(lower_tops) if lower_tops else max(TOP_UI_RESERVED, int(h * 0.62))
+        lower_top = min(lower_tops) if lower_tops else max(top_ui_reserved, int(h * 0.62))
         status_rail_h = 22
         bottom_workspace_rect = pygame.Rect(
             0,
@@ -2860,6 +2982,8 @@ def legacy_main():
                 selection=normal_preview_selection,
                 mouse_pos=local_mouse,
                 advanced_open=bool(normal_preview_advanced_open),
+                focus_slot=normal_preview_focus_slot,
+                compact_view=normal_preview_compact_view,
             )
             normal_preview_offset = (scan_rect.x, int(y))
             scan_surf.set_alpha(255)
@@ -2993,7 +3117,7 @@ def legacy_main():
                 new_state = not had_hitboxes
                 for k in hitbox_slots:
                     hitbox_slots[k] = new_state
-                _write_hitbox_filter(enable_range_ruler=(new_state and not had_hitboxes))
+                _write_hitbox_filter()
                 _write_master_control()
                 _sync_master_overlay_state()
                 mouse_clicked_pos = None
@@ -3123,6 +3247,62 @@ def legacy_main():
                 mouse_clicked_pos = None
                 continue
 
+            elif cancel_mapper_btn_rect.collidepoint(mx, my):
+                _mapper_rows = _cancel_mapper_ready_rows()
+                if _mapper_rows:
+                    _initial_slot = next(
+                        (
+                            str(_row.get("slot_label") or "")
+                            for _row in _mapper_rows
+                            if str(_row.get("slot_label") or "") == "P1-C1"
+                        ),
+                        str(_mapper_rows[0].get("slot_label") or "P1-C1"),
+                    )
+                    open_cancel_mapper_window(_mapper_rows, _initial_slot)
+                    cancel_mapper_pending = False
+                    cancel_mapper_dynamic_requested = False
+                elif scan_worker:
+                    cancel_mapper_pending = True
+                    cancel_mapper_dynamic_requested = False
+                    open_cancel_mapper_loading_window()
+                    try:
+                        scan_worker.request(workbench=True)
+                    except TypeError:
+                        scan_worker.request()
+                    print("[cancel mapper] rich profile requested", flush=True)
+                else:
+                    print("[cancel mapper] scan worker unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
+            elif cancel_lab_btn_rect.collidepoint(mx, my):
+                _lab_rows = _cancel_mapper_ready_rows()
+                if _lab_rows:
+                    _initial_slot = next(
+                        (
+                            str(_row.get("slot_label") or "")
+                            for _row in _lab_rows
+                            if str(_row.get("slot_label") or "") == "P1-C1"
+                        ),
+                        str(_lab_rows[0].get("slot_label") or "P1-C1"),
+                    )
+                    open_cancel_lab_window(_lab_rows, _initial_slot)
+                    cancel_lab_pending = False
+                    cancel_lab_dynamic_requested = False
+                elif scan_worker:
+                    cancel_lab_pending = True
+                    cancel_lab_dynamic_requested = False
+                    open_cancel_lab_loading_window()
+                    try:
+                        scan_worker.request(workbench=True)
+                    except TypeError:
+                        scan_worker.request()
+                    print("[cancel lab] rich profile requested", flush=True)
+                else:
+                    print("[cancel lab] scan worker unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
             elif action_spoof_btn_rect.collidepoint(mx, my):
                 open_punish_training_window(
                     punish_trainer_state,
@@ -3165,9 +3345,8 @@ def legacy_main():
                 clicked_filter = False
                 for slot_name, cb_rect in hb_filter_rects.items():
                     if cb_rect.collidepoint(mx, my):
-                        had_hitboxes = any(hitbox_slots.values())
                         hitbox_slots[slot_name] = not hitbox_slots[slot_name]
-                        _write_hitbox_filter(enable_range_ruler=(any(hitbox_slots.values()) and not had_hitboxes))
+                        _write_hitbox_filter()
                         _write_master_control()
                         _sync_master_overlay_state()
                         clicked_filter = True
@@ -3217,6 +3396,12 @@ def legacy_main():
                         if isinstance(_local_rect, pygame.Rect) and _local_rect.move(_off_x, _off_y).collidepoint(mx, my):
                             if _mode_key == "__more__":
                                 normal_preview_advanced_open = not bool(normal_preview_advanced_open)
+                            elif str(_mode_key).startswith("__slot__:"):
+                                normal_preview_focus_slot = str(_mode_key).split(":", 1)[1]
+                                if isinstance(normal_preview_selection, dict):
+                                    normal_preview_selection = None
+                            elif str(_mode_key).startswith("__view__:"):
+                                normal_preview_compact_view = str(_mode_key).split(":", 1)[1]
                             else:
                                 normal_preview_mode = "none" if normal_preview_mode == _mode_key else str(_mode_key)
                                 if _mode_key in {"fast", "damage", "adv_block", "safe", "unsafe"}:
@@ -3235,6 +3420,8 @@ def legacy_main():
                                 "slot_label": str(_row_meta.get("slot_label") or ""),
                                 "key": str(_row_meta.get("key") or ""),
                             }
+                            if _new_selection["slot_label"]:
+                                normal_preview_focus_slot = _new_selection["slot_label"]
                             if (
                                 isinstance(normal_preview_selection, dict)
                                 and str(normal_preview_selection.get("slot_label") or "") == _new_selection["slot_label"]
@@ -3331,15 +3518,10 @@ def legacy_main():
                 if btn_rect.collidepoint(mx, my):
                     mission_mgr.toggle_active_slot(slot_label)
 
-                    # Mission Mode is drawn by the master overlay process. If
-                    # both HUD overlay and hitboxes are off, there is no process
-                    # alive to display the mission route. Auto-enable Overlay
-                    # for active missions so Mission Mode works from a fully
-                    # quiet/off state.
-                    if mission_mgr.active_slot and (not overlay_enabled) and (not any(hitbox_slots.values())) and (not any(hurtbox_slots.values())):
-                        overlay_enabled = True
-                        _write_master_control()
-                        _sync_master_overlay_state()
+                    # Mission Mode is its own master-compositor layer. It must
+                    # never toggle the core Overlay, hitboxes, hurtboxes, ruler,
+                    # or any other sibling feature.
+                    _sync_master_overlay_state()
 
                     mouse_clicked_pos = None
                     break

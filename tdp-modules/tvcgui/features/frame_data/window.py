@@ -256,3 +256,162 @@ def _close_loading_on_tk(slot_label):
 def close_frame_data_loading_window(slot_label):
     """Close the transient launcher after a writable workbench is ready."""
     tk_call(lambda _root: _close_loading_on_tk(slot_label))
+
+
+# ---------------------------------------------------------------------------
+# Main-GUI Cancel Mapper launcher
+# ---------------------------------------------------------------------------
+_CANCEL_MAPPER_LOADING_WINDOW = None
+
+
+def open_cancel_mapper_window(scan_data, initial_slot="P1-C1"):
+    """Open the standalone Cancel Mapper from rich scan rows."""
+    rows = [row for row in (scan_data or []) if isinstance(row, dict) and row.get("moves")]
+    if not rows:
+        return False
+
+    def create(master_root):
+        close_cancel_mapper_loading_window()
+        from .cancel_mapper import open_standalone_cancel_mapper
+
+        open_standalone_cancel_mapper(
+            parent=master_root,
+            slot_rows=rows,
+            initial_slot=str(initial_slot or "P1-C1"),
+            status_callback=lambda text: print(f"[cancel mapper] {text}", flush=True),
+        )
+
+    tk_call(create)
+    return True
+
+
+def open_cancel_mapper_loading_window():
+    """Show immediate feedback while the rich frame-data profile is prepared."""
+    def create(master_root):
+        global _CANCEL_MAPPER_LOADING_WINDOW
+        old = _CANCEL_MAPPER_LOADING_WINDOW
+        try:
+            if old is not None and bool(old.winfo_exists()):
+                old.destroy()
+        except Exception:
+            pass
+        win = tk.Toplevel(master_root)
+        _CANCEL_MAPPER_LOADING_WINDOW = win
+        win.title("Cancel Mapper")
+        try:
+            win.geometry("620x145")
+            win.minsize(560, 130)
+        except Exception:
+            pass
+        frame = tk.Frame(win, padx=20, pady=18)
+        frame.pack(fill="both", expand=True)
+        tk.Label(frame, text="Opening Cancel Mapper...", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        tk.Label(
+            frame,
+            text="Loading the rich move profile so normals, specials, supers, addresses, and route evidence are available.",
+            justify="left",
+            wraplength=570,
+        ).pack(anchor="w", pady=(9, 0))
+        win.protocol("WM_DELETE_WINDOW", close_cancel_mapper_loading_window)
+
+    tk_call(create)
+
+
+def close_cancel_mapper_loading_window():
+    def close(_root=None):
+        global _CANCEL_MAPPER_LOADING_WINDOW
+        win = _CANCEL_MAPPER_LOADING_WINDOW
+        _CANCEL_MAPPER_LOADING_WINDOW = None
+        try:
+            if win is not None and bool(win.winfo_exists()):
+                win.destroy()
+        except Exception:
+            pass
+
+    tk_call(close)
+
+
+# ---------------------------------------------------------------------------
+# Main-GUI Cancel Lab launcher
+# ---------------------------------------------------------------------------
+_CANCEL_LAB_LOADING_WINDOW = None
+_CANCEL_LAB_PICKER_WINDOW = None
+
+
+def open_cancel_lab_window(scan_data, initial_slot="P1-C1"):
+    """Open Live Cancel Lab immediately on the first fighter slot.
+
+    The lab owns its fighter-slot selector, so the main GUI never opens a
+    separate picker. P1-C1 is preferred whenever its rich profile is ready;
+    otherwise the first available profile is used.
+    """
+    rows = [row for row in (scan_data or []) if isinstance(row, dict) and row.get("moves")]
+    if not rows:
+        return False
+
+    def create(master_root):
+        close_cancel_lab_loading_window()
+        from .cancel_lab import open_cancel_lab
+
+        def slot_name(row):
+            return str(row.get("slot_label") or row.get("slot") or "P1-C1").strip().upper()
+
+        # The main-GUI button always starts on the first fighter slot. Slot
+        # changes happen inside Live Cancel Lab itself.
+        selected_row = next((row for row in rows if slot_name(row) == "P1-C1"), rows[0])
+        open_cancel_lab(
+            parent=master_root,
+            slot_label=slot_name(selected_row),
+            target_slot=selected_row,
+            moves=list(selected_row.get("moves") or []),
+            profiles=rows,
+            status_callback=lambda text: print(f"[cancel lab] {text}", flush=True),
+        )
+
+    tk_call(create)
+    return True
+
+def open_cancel_lab_loading_window():
+    """Show immediate feedback while the rich profile for Cancel Lab is prepared."""
+    def create(master_root):
+        global _CANCEL_LAB_LOADING_WINDOW
+        old = _CANCEL_LAB_LOADING_WINDOW
+        try:
+            if old is not None and bool(old.winfo_exists()):
+                old.destroy()
+        except Exception:
+            pass
+        win = tk.Toplevel(master_root)
+        _CANCEL_LAB_LOADING_WINDOW = win
+        win.title("Cancel Lab")
+        try:
+            win.geometry("620x145")
+            win.minsize(560, 130)
+        except Exception:
+            pass
+        frame = tk.Frame(win, padx=20, pady=18)
+        frame.pack(fill="both", expand=True)
+        tk.Label(frame, text="Opening Cancel Lab...", font=("Segoe UI", 12, "bold")).pack(anchor="w")
+        tk.Label(
+            frame,
+            text="Loading the rich move profile so the live source and target action lists are available.",
+            justify="left",
+            wraplength=570,
+        ).pack(anchor="w", pady=(9, 0))
+        win.protocol("WM_DELETE_WINDOW", close_cancel_lab_loading_window)
+
+    tk_call(create)
+
+
+def close_cancel_lab_loading_window():
+    def close(_root=None):
+        global _CANCEL_LAB_LOADING_WINDOW
+        win = _CANCEL_LAB_LOADING_WINDOW
+        _CANCEL_LAB_LOADING_WINDOW = None
+        try:
+            if win is not None and bool(win.winfo_exists()):
+                win.destroy()
+        except Exception:
+            pass
+
+    tk_call(close)

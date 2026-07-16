@@ -17,7 +17,6 @@ from . import projectile_integration as FPI
 from . import super_integration as FSI
 from . import ui_prefs as FDUIPrefs
 from . import cancel_mapper as FCM
-from . import cancel_lab as FCL
 from . import cancel_windows as FCW
 try:
     import tvcgui.tools.scanners.normal_scanner as FDProfileCache
@@ -3092,25 +3091,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             evidence_addr = row.get("evidence_addr")
             branch_addr = row.get("branch_addr")
             source_addr = source.get("abs")
-            target_move = row.get("target")
-            if isinstance(target_move, dict):
-                menu.add_command(
-                    label="Test this route in Live Cancel Lab...",
-                    command=lambda s=source, t=target_move: FCL.open_cancel_lab(
-                        parent=self.root,
-                        slot_label=self.slot_label,
-                        target_slot=self.target_slot,
-                        moves=self.moves,
-                        source_move=s,
-                        target_move=t,
-                        status_callback=(
-                            (lambda text: self._status_var.set(text))
-                            if self._status_var is not None else None
-                        ),
-                        profile_refresh_callback=lambda action_id=None: self._refresh_custom_cancel_profile(action_id),
-                    ),
-                )
-                menu.add_separator()
             if target_addr:
                 menu.add_command(
                     label=f"Copy Target Address (0x{int(target_addr):08X})",
@@ -3164,22 +3144,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         bottom = ttk.Frame(shell, style="FD.TFrame")
         bottom.pack(fill="x", pady=(8, 0))
         ttk.Button(bottom, text="Use workbench selection", command=use_current_selection).pack(side="left")
-        ttk.Button(
-            bottom,
-            text="Open Live Cancel Lab",
-            command=lambda: FCL.open_cancel_lab(
-                parent=self.root,
-                slot_label=self.slot_label,
-                target_slot=self.target_slot,
-                moves=self.moves,
-                source_move=current_source(),
-                status_callback=(
-                    (lambda text: self._status_var.set(text))
-                    if self._status_var is not None else None
-                ),
-                profile_refresh_callback=lambda action_id=None: self._refresh_custom_cancel_profile(action_id),
-            ),
-        ).pack(side="left", padx=(6, 0))
         ttk.Button(
             bottom,
             text="Copy source address",

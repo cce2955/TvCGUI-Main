@@ -18,19 +18,46 @@ except Exception:
 from tvcgui.features.combat.move_filters import is_purged_move_label
 
 from tvcgui.ui.components import (
+    GUI_APP_ACCENT,
     GUI_ACCENT_BLUE,
+    GUI_ACCENT_PURPLE,
     GUI_CONFIRM,
+    GUI_DANGER,
+    GUI_WARNING,
     GUI_TEXT,
     GUI_TEXT_DIM,
     GUI_TEXT_MUTED,
     _brighten,
     _darken,
     _draw_vertical_gradient,
+    _draw_horizontal_gradient,
     _fit_text,
+    _mix_col,
     _render_outlined_text,
     _slot_accent_for_label,
     draw_glass_button,
 )
+
+
+_PREVIEW_FONT_CACHE: dict[tuple[int, bool], pygame.font.Font] = {}
+
+
+def _preview_font(size: int, *, bold: bool = False) -> pygame.font.Font:
+    """Return a cached proportional UI font for the preview tables."""
+    key = (max(8, int(size)), bool(bold))
+    cached = _PREVIEW_FONT_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        font_obj = pygame.font.SysFont("Segoe UI", key[0], bold=key[1])
+    except Exception:
+        font_obj = pygame.font.Font(None, key[0] + 2)
+        try:
+            font_obj.set_bold(key[1])
+        except Exception:
+            pass
+    _PREVIEW_FONT_CACHE[key] = font_obj
+    return font_obj
 
 def _normal_button_accent(label: str) -> tuple[int, int, int]:
     text = str(label or "").upper()
@@ -806,6 +833,108 @@ def _draw_scan_metric_chip(
     )
 
 
+
+def _normal_preview_focus_slot(
+    slots: list[dict],
+    requested: str | None,
+    selection: dict | None,
+) -> str:
+    """Resolve the compact preview slot without losing the user's last choice."""
+    labels = [str(slot.get("slot_label") or slot.get("slot") or "") for slot in slots]
+    requested_label = str(requested or "").strip()
+    if requested_label in labels:
+        return requested_label
+
+    selected_label = ""
+    if isinstance(selection, dict):
+        selected_label = str(selection.get("slot_label") or "").strip()
+    if selected_label in labels:
+        return selected_label
+
+    for slot, label in zip(slots, labels):
+        moves = slot.get("moves") if isinstance(slot, dict) else None
+        if label and isinstance(moves, list) and moves:
+            return label
+    return labels[0] if labels else "P1-C1"
+
+
+def _normal_preview_essential_choices(slot: dict) -> list[dict]:
+    """Build a compact coaching list from one fighter's visible normals."""
+    moves = _normal_visible_moves(slot.get("moves") or [], slot)
+    if not moves:
+        return []
+
+    def startup(move: dict) -> int:
+        value = _normal_int(move, "startup", "start", "active_start")
+        return int(value) if value is not None else 9999
+
+    def damage(move: dict) -> int:
+        value = _normal_damage(move)
+        return int(value) if value is not None else -1
+
+    def block_adv(move: dict) -> int:
+        value = _normal_advantage(move, "block", prefer_observed=True)
+        return int(value) if value is not None else -9999
+
+    def by_label(*wanted: str) -> dict | None:
+        for preferred in wanted:
+            preferred_low = str(preferred).lower()
+            for move in moves:
+                canon = _normal_canonical_label(_normal_move_label(move))
+                if canon and canon.lower() == preferred_low:
+                    return move
+        return None
+
+    ground = [move for move in moves if not _normal_preview_is_air_move(move)]
+    lows = [move for move in ground if str(_normal_canonical_label(_normal_move_label(move)) or "").startswith("2")]
+    air = [move for move in moves if _normal_preview_is_air_move(move)]
+    punish_pool = [move for move in ground if startup(move) <= 10]
+
+    fastest = min(ground or moves, key=lambda move: (startup(move), -damage(move)))
+    fastest_low = min(lows, key=lambda move: (startup(move), -damage(move))) if lows else None
+    best_damage = max(ground or moves, key=lambda move: (damage(move), -startup(move)))
+    safest = max(ground or moves, key=lambda move: (block_adv(move), -startup(move)))
+    best_punish = max(punish_pool or ground or moves, key=lambda move: (damage(move), -startup(move)))
+    air_check = min(air, key=lambda move: (startup(move), -damage(move))) if air else None
+    launcher = by_label("3c", "2c", "6c")
+
+    candidates = [
+        ("FASTEST", fastest, "Quickest interruption"),
+        ("FASTEST LOW", fastest_low, "Low check"),
+        ("PUNISH", best_punish, "Damage at 10f or faster"),
+        ("DAMAGE", best_damage, "Highest listed damage"),
+        ("PRESSURE", safest, "Best block advantage"),
+        ("AIR CHECK", air_check, "Fastest air normal"),
+        ("LAUNCHER", launcher, "Launcher option"),
+    ]
+
+    out = []
+    for role, move, hint in candidates:
+        if not isinstance(move, dict):
+            continue
+        label = _normal_move_label(move)
+        start = _normal_int(move, "startup", "start", "active_start")
+        dmg = _normal_damage(move)
+        adv = _normal_advantage(move, "block", prefer_observed=True)
+        details = []
+        if start is not None:
+            details.append(f"{start}f")
+        if dmg is not None:
+            details.append(f"{dmg} dmg")
+        if adv is not None:
+            details.append(f"{adv:+d} block")
+        out.append(
+            {
+                "role": role,
+                "move": move,
+                "label": label,
+                "hint": hint,
+                "details": "  |  ".join(details) if details else "Data unavailable",
+                "key": _normal_preview_key(move),
+            }
+        )
+    return out[:6]
+
 def draw_scan_normals_polished(
     surf: pygame.Surface,
     rect: pygame.Rect,
@@ -819,25 +948,39 @@ def draw_scan_normals_polished(
     selection: dict | None = None,
     mouse_pos: tuple[int, int] | None = None,
     advanced_open: bool = False,
+    focus_slot: str = "P1-C1",
+    compact_view: str = "full",
 ) -> dict:
     """Draw the normals preview and return local click targets."""
     interaction = {"controls": {}, "rows": []}
     if rect.width <= 0 or rect.height <= 0:
         return interaction
 
+    preview_title_font = _preview_font(14 if rect.width >= 760 else 13, bold=True)
+    preview_ui_font = _preview_font(11 if rect.width >= 760 else 10)
+    preview_ui_bold = _preview_font(11 if rect.width >= 760 else 10, bold=True)
+
     scan_fx_by_slot = scan_fx_by_slot or {}
     highlight_mode = str(highlight_mode or "none")
     mouse_pos = mouse_pos or (-10000, -10000)
 
     panel = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-    _draw_vertical_gradient(panel, panel.get_rect(), (14, 17, 26), (10, 12, 18), 255)
+    _draw_horizontal_gradient(panel, panel.get_rect(), (9, 19, 31), (3, 8, 15), 255)
     surf.blit(panel, rect.topleft)
 
-    title = smallfont.render("Normals Preview", True, GUI_TEXT)
-    legend = smallfont.render("Attack | S startup | A active | HS hitstun | BS blockstun | BA observed block adv | DMG damage", True, GUI_TEXT_DIM)
-    surf.blit(title, (rect.x + 10, rect.y + 7))
-    surf.blit(legend, (rect.right - legend.get_width() - 10, rect.y + 7))
-    pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, rect.y + 24), (rect.right - 8, rect.y + 24))
+    hero = pygame.Rect(rect.x + 6, rect.y + 5, rect.width - 12, 30)
+    hero_layer = pygame.Surface(hero.size, pygame.SRCALPHA)
+    _draw_horizontal_gradient(hero_layer, hero_layer.get_rect(), (15, 31, 48), (7, 14, 24), 248)
+    pygame.draw.rect(hero_layer, (44, 61, 80), hero_layer.get_rect(), 1, border_radius=4)
+    pygame.draw.rect(hero_layer, (*GUI_APP_ACCENT, 190), pygame.Rect(1, 5, 3, max(1, hero.height - 10)), border_radius=2)
+    surf.blit(hero_layer, hero.topleft)
+
+    title = _fit_text(preview_title_font, "Normals Preview", GUI_TEXT, 220)
+    surf.blit(title, (hero.x + 12, hero.centery - title.get_height() // 2))
+
+    legend_text = "S STARTUP   A ACTIVE   HS HITSTUN   BS BLOCKSTUN   BA BLOCK ADV   DMG DAMAGE"
+    legend = _fit_text(preview_ui_font, legend_text, GUI_TEXT_DIM, max(120, hero.width - 220))
+    surf.blit(legend, (hero.right - legend.get_width() - 12, hero.centery - legend.get_height() // 2))
 
     try:
         slots = list(scan_data or [])
@@ -851,27 +994,29 @@ def draw_scan_normals_polished(
         if _lbl and _lbl not in slot_map:
             slot_map[_lbl] = _s
     slots = [slot_map.get(lbl, {"slot_label": lbl, "char_name": "No character", "moves": []}) for lbl in ordered_labels]
+    resolved_focus_slot = _normal_preview_focus_slot(slots, focus_slot, selection)
+    compact_view = "essentials" if str(compact_view or "full").lower().startswith("essential") else "full"
 
     highlight_keys, highlight_roles, _punish_adv, _punish_source_slot = _normal_preview_highlight_keys(slots, highlight_mode, selection)
     status_text = _normal_preview_status(slots, highlight_mode, selection)
 
-    control_y = rect.y + 28
-    control_h = 17
-    control_row_gap = 20
+    control_y = rect.y + 39
+    control_h = 19
+    control_row_gap = 22
     advanced_modes = {"safe", "unsafe"}
     highlight_more_active = highlight_mode in advanced_modes
-    label_s = smallfont.render("Highlight", True, GUI_TEXT_DIM)
+    label_s = preview_ui_font.render("Highlight", True, GUI_TEXT_DIM)
     surf.blit(label_s, (rect.x + 10, control_y + (control_h - label_s.get_height()) // 2))
     control_x = rect.x + 10 + label_s.get_width() + 7
     for control_key in ("fast", "damage", "adv_block", "matchup"):
         meta = _NORMAL_PREVIEW_MODE_META[control_key]
-        control_w = max(38, smallfont.size(meta["label"])[0] + 14)
+        control_w = max(38, preview_ui_font.size(meta["label"])[0] + 14)
         control_rect = pygame.Rect(control_x, control_y, control_w, control_h)
         draw_glass_button(
             surf,
             control_rect,
             meta["label"],
-            smallfont,
+            preview_ui_font,
             active=(highlight_mode == control_key),
             hover=control_rect.collidepoint(mouse_pos),
             accent=meta["color"],
@@ -881,13 +1026,13 @@ def draw_scan_normals_polished(
         control_x += control_w + 4
 
     more_label = "Advanced ▴" if advanced_open else "Advanced ▾"
-    more_w = max(44, smallfont.size(more_label)[0] + 14)
+    more_w = max(44, preview_ui_font.size(more_label)[0] + 14)
     more_rect = pygame.Rect(control_x, control_y, more_w, control_h)
     draw_glass_button(
         surf,
         more_rect,
         more_label,
-        smallfont,
+        preview_ui_font,
         active=(advanced_open or highlight_more_active),
         hover=more_rect.collidepoint(mouse_pos),
         accent=(146, 162, 192),
@@ -899,18 +1044,18 @@ def draw_scan_normals_polished(
     if advanced_open:
         adv_x = rect.x + 10 + label_s.get_width() + 7
         adv_y = control_y + control_row_gap
-        adv_hint = smallfont.render("Advanced", True, GUI_TEXT_DIM)
+        adv_hint = preview_ui_font.render("Advanced", True, GUI_TEXT_DIM)
         surf.blit(adv_hint, (rect.x + 10, adv_y + (control_h - adv_hint.get_height()) // 2))
         adv_x = rect.x + 10 + adv_hint.get_width() + 7
         for control_key in ("safe", "unsafe"):
             meta = _NORMAL_PREVIEW_MODE_META[control_key]
-            control_w = max(42, smallfont.size(meta["label"])[0] + 14)
+            control_w = max(42, preview_ui_font.size(meta["label"])[0] + 14)
             control_rect = pygame.Rect(adv_x, adv_y, control_w, control_h)
             draw_glass_button(
                 surf,
                 control_rect,
                 meta["label"],
-                smallfont,
+                preview_ui_font,
                 active=(highlight_mode == control_key),
                 hover=control_rect.collidepoint(mouse_pos),
                 accent=meta["color"],
@@ -923,12 +1068,12 @@ def draw_scan_normals_polished(
     pygame.draw.line(surf, (62, 73, 99), (divider_x, control_y + 2), (divider_x, control_y + control_h - 2))
     control_x = divider_x + 6
     punish_meta = _NORMAL_PREVIEW_MODE_META["punish"]
-    punish_rect = pygame.Rect(control_x, control_y, max(48, smallfont.size(punish_meta["label"])[0] + 14), control_h)
+    punish_rect = pygame.Rect(control_x, control_y, max(48, preview_ui_font.size(punish_meta["label"])[0] + 14), control_h)
     draw_glass_button(
         surf,
         punish_rect,
         punish_meta["label"],
-        smallfont,
+        preview_ui_font,
         active=(highlight_mode == "punish"),
         hover=punish_rect.collidepoint(mouse_pos),
         accent=punish_meta["color"],
@@ -938,12 +1083,12 @@ def draw_scan_normals_polished(
     control_x = punish_rect.right + 4
 
     live_meta = _NORMAL_PREVIEW_MODE_META["live_punish"]
-    live_rect = pygame.Rect(control_x, control_y, max(38, smallfont.size(live_meta["label"])[0] + 14), control_h)
+    live_rect = pygame.Rect(control_x, control_y, max(38, preview_ui_font.size(live_meta["label"])[0] + 14), control_h)
     draw_glass_button(
         surf,
         live_rect,
         live_meta["label"],
-        smallfont,
+        preview_ui_font,
         active=(highlight_mode == "live_punish"),
         hover=live_rect.collidepoint(mouse_pos),
         accent=live_meta["color"],
@@ -953,23 +1098,36 @@ def draw_scan_normals_polished(
     control_x = live_rect.right + 9
     status_w = max(0, rect.right - control_x - 10)
     if status_w >= 48:
-        status_s = _fit_text(smallfont, status_text, GUI_TEXT_MUTED, status_w)
+        status_s = _fit_text(preview_ui_font, status_text, GUI_TEXT_MUTED, status_w)
         surf.blit(status_s, (control_x, control_y + (control_h - status_s.get_height()) // 2))
 
-    controls_bottom_y = rect.y + (69 if advanced_open else 49)
-    pygame.draw.line(surf, (52, 61, 82), (rect.x + 8, controls_bottom_y), (rect.right - 8, controls_bottom_y))
+    controls_bottom_y = rect.y + (83 if advanced_open else 61)
 
-    pad, gap = 8, 10
-    top = controls_bottom_y + 5
-    card_h = max(44, rect.bottom - top - 8)
-    count = 4
-    card_w = max(140, (rect.width - pad * 2 - gap * (count - 1)) // count)
-    dense = rect.height < 260 or rect.width < 930
-    header_h = 24 if not dense else 22
-    table_header_h = 16 if not dense else 14
-    # Compact labels are deliberate here: these are six narrow
-    # combat-data columns, so the full wording belongs in the legend above.
-    table_header_font = smallfont
+    # The comparison view always keeps all four fighters visible. At smaller
+    # window sizes the table becomes denser, but it never switches to a single
+    # fighter or team page. The in-game overlay already covers focused live use;
+    # this workspace remains the four-character comparison surface.
+    preview_layout = "wide"
+    effective_compact_view = "full"
+
+    pygame.draw.line(surf, (33, 91, 132), (rect.x + 8, controls_bottom_y), (rect.right - 8, controls_bottom_y))
+
+    pad, gap = 8, 8
+    top = controls_bottom_y + 7
+    available_cards_h = max(44, rect.bottom - top - 8)
+
+    render_slots = list(slots)
+    columns = 4
+    essentials_mode = False
+    rows = max(1, (len(render_slots) + columns - 1) // columns)
+    card_w = max(132, (rect.width - pad * 2 - gap * (columns - 1)) // columns)
+    card_h = max(74, (available_cards_h - gap * (rows - 1)) // rows)
+    dense = card_h < 250 or card_w < 300
+    header_h = 27 if not dense else 25
+    table_header_h = 20 if not dense else 18
+    table_header_font = _preview_font(11 if card_w >= 330 else 10, bold=True)
+    card_slot_font = _preview_font(10 if dense else 11, bold=True)
+    card_name_font = _preview_font(12 if dense else 13, bold=True)
 
     def _section_for_label(label: str) -> str:
         low = str(label or "").lower()
@@ -981,29 +1139,38 @@ def draw_scan_normals_polished(
             return "Command"
         return "Stand"
 
-    for si, slot in enumerate(slots):
-        card_x = rect.x + pad + si * (card_w + gap)
-        card = pygame.Rect(card_x, top, card_w, card_h)
+    for si, slot in enumerate(render_slots):
+        grid_col = si % columns
+        grid_row = si // columns
+        card_x = rect.x + pad + grid_col * (card_w + gap)
+        card_y = top + grid_row * (card_h + gap)
+        card = pygame.Rect(card_x, card_y, card_w, card_h)
         slot_label = str(slot.get("slot_label") or slot.get("slot") or f"S{si + 1}")
         slot_fx = scan_fx_by_slot.get(slot_label, {}) if isinstance(scan_fx_by_slot, dict) else {}
 
+        char_name = str(slot.get("char_name") or slot.get("character") or slot.get("name") or "No character")
+        accent = _slot_accent_for_label(slot_label, muted=False)
         card_fill = pygame.Surface((card.width, card.height), pygame.SRCALPHA)
-        _draw_vertical_gradient(card_fill, card_fill.get_rect(), (18, 22, 32), (12, 14, 21), 238)
+        _draw_horizontal_gradient(card_fill, card_fill.get_rect(), _mix_col((13, 24, 38), accent, 0.10), (5, 11, 19), 248)
         surf.blit(card_fill, card.topleft)
 
-        char_name = str(slot.get("char_name") or slot.get("character") or slot.get("name") or "No character")
-        accent = _slot_accent_for_label(slot_label, muted=True)
-        pygame.draw.rect(surf, (43, 52, 72), card, 1, border_radius=6)
-        pygame.draw.rect(surf, accent, pygame.Rect(card.x, card.y, 3, card.height), border_radius=2)
+        pygame.draw.rect(surf, _mix_col((40, 57, 75), accent, 0.18), card, 1, border_radius=5)
+        pygame.draw.rect(surf, (*accent, 210), pygame.Rect(card.x, card.y + 5, 3, max(1, card.height - 10)), border_radius=2)
 
         header_rect = pygame.Rect(card.x + 1, card.y + 1, card.width - 2, header_h)
-        _draw_vertical_gradient(surf, header_rect, (25, 30, 43), (17, 20, 30), 236)
-        pygame.draw.rect(surf, (180, 205, 245, 16), pygame.Rect(header_rect.x + 4, header_rect.y + 2, header_rect.width - 8, max(2, header_rect.height // 5)), border_radius=3)
-        pygame.draw.line(surf, (44, 52, 72), (header_rect.x + 6, header_rect.bottom), (header_rect.right - 6, header_rect.bottom))
-        slot_s = _render_outlined_text(font, slot_label, accent, (0, 0, 0), 76, outline_px=1)
-        surf.blit(slot_s, (card.x + 9, card.y + 4))
-        name_s = _fit_text(smallfont, char_name, GUI_TEXT_MUTED, card.width - 90)
-        surf.blit(name_s, (card.x + 72, card.y + 6))
+        header_layer = pygame.Surface(header_rect.size, pygame.SRCALPHA)
+        _draw_horizontal_gradient(header_layer, header_layer.get_rect(), _mix_col((15, 29, 44), accent, 0.14), (7, 15, 25), 248)
+        surf.blit(header_layer, header_rect.topleft)
+        pygame.draw.line(surf, _mix_col((47, 64, 82), accent, 0.20), (header_rect.x + 6, header_rect.bottom), (header_rect.right - 6, header_rect.bottom))
+        # Treat the slot and character as one left-aligned heading instead of a
+        # centered scoreboard title. The slot remains the compact color key,
+        # while the character name carries the visual hierarchy.
+        slot_s = _fit_text(card_slot_font, slot_label, _brighten(accent, 20), 54)
+        title_y = card.y + (header_h - max(slot_s.get_height(), card_name_font.get_height())) // 2
+        surf.blit(slot_s, (card.x + 10, title_y))
+        name_x = card.x + 10 + slot_s.get_width() + 9
+        name_s = _fit_text(card_name_font, char_name, GUI_TEXT, max(24, card.right - name_x - 8))
+        surf.blit(name_s, (name_x, card.y + (header_h - name_s.get_height()) // 2))
 
         moves = slot.get("moves") or []
         if not isinstance(moves, list):
@@ -1018,6 +1185,63 @@ def draw_scan_normals_polished(
             cur_id = None
         cur_label = str(slot.get("cur_label") or slot.get("current_move") or slot.get("mv_label") or "").strip().lower()
 
+        if essentials_mode and not is_empty_card:
+            essentials = _normal_preview_essential_choices(slot)
+            body = pygame.Rect(card.x + 8, card.y + header_h + 7, card.width - 16, card.height - header_h - 15)
+            pygame.draw.rect(surf, (5, 11, 19), body, border_radius=5)
+            pygame.draw.rect(surf, (35, 50, 66), body, 1, border_radius=5)
+
+            tile_gap = 7
+            tile_columns = 2 if body.width >= 520 else 1
+            tile_rows = max(1, (len(essentials) + tile_columns - 1) // tile_columns)
+            tile_w = max(110, (body.width - tile_gap * (tile_columns + 1)) // tile_columns)
+            tile_h = max(42, (body.height - tile_gap * (tile_rows + 1)) // tile_rows)
+
+            for essential_index, essential in enumerate(essentials):
+                tile_col = essential_index % tile_columns
+                tile_row = essential_index // tile_columns
+                tile = pygame.Rect(
+                    body.x + tile_gap + tile_col * (tile_w + tile_gap),
+                    body.y + tile_gap + tile_row * (tile_h + tile_gap),
+                    tile_w,
+                    tile_h,
+                )
+                role = str(essential.get("role") or "ESSENTIAL")
+                move = essential.get("move") or {}
+                move_label = str(essential.get("label") or "?")
+                details = str(essential.get("details") or "")
+                hint = str(essential.get("hint") or "")
+                key = str(essential.get("key") or "")
+                is_selected = _normal_preview_selection_matches(selection, slot_label, move)
+                tile_accent = _normal_button_accent(move_label)
+
+                tile_layer = pygame.Surface(tile.size, pygame.SRCALPHA)
+                _draw_horizontal_gradient(
+                    tile_layer,
+                    tile_layer.get_rect(),
+                    _mix_col((14, 27, 41), tile_accent, 0.12 if is_selected else 0.06),
+                    (7, 14, 24),
+                    250,
+                )
+                surf.blit(tile_layer, tile.topleft)
+                pygame.draw.rect(surf, _mix_col((42, 58, 76), tile_accent, 0.20), tile, 1, border_radius=5)
+                pygame.draw.rect(surf, (*tile_accent, 180), pygame.Rect(tile.x + 1, tile.y + 5, 3, max(1, tile.height - 10)), border_radius=2)
+                if is_selected:
+                    pygame.draw.rect(surf, (*GUI_WARNING, 210), tile.inflate(-3, -3), 1, border_radius=4)
+
+                role_s = _fit_text(preview_ui_bold, role.title(), _brighten(tile_accent, 18), tile.width - 18)
+                surf.blit(role_s, (tile.x + 10, tile.y + 6))
+                move_s = _fit_text(preview_title_font, move_label, GUI_TEXT, max(40, tile.width // 3))
+                surf.blit(move_s, (tile.x + 10, tile.y + 22))
+                details_s = _fit_text(preview_ui_font, details, GUI_TEXT_MUTED, tile.width - move_s.get_width() - 28)
+                surf.blit(details_s, (tile.right - details_s.get_width() - 9, tile.y + 24))
+                if tile.height >= 62:
+                    hint_s = _fit_text(smallfont, hint, GUI_TEXT_DIM, tile.width - 20)
+                    surf.blit(hint_s, (tile.x + 10, tile.bottom - hint_s.get_height() - 6))
+
+                interaction["rows"].append({"rect": tile.copy(), "slot_label": slot_label, "key": key})
+            continue
+
         table_x = card.x + 6
         table_y = card.y + header_h + 4
         table_w = card.width - 12
@@ -1026,33 +1250,76 @@ def draw_scan_normals_polished(
         # the top stroke of the first normal row can visually merge with the
         # header separator on compact cards.
         first_row_gap = 3
-        metric_headers = ("S", "A", "HS", "BS", "BA", "DMG")
+        if card.width >= 560:
+            metric_headers = ("Start", "Active", "Hit", "Block", "Adv", "Damage")
+        else:
+            metric_headers = ("S", "A", "HS", "BS", "BA", "Dmg")
         metric_count = len(metric_headers)
-        # The preview mirrors the compact wiki-facing order: attack name,
-        # startup, active, hitstun, blockstun, block advantage, and damage.
-        preferred_move_col_w = 54 if card.width >= 260 else 48
-        metric_col_w = max(1, (table_w - preferred_move_col_w) // metric_count)
-        move_col_w = table_w - metric_col_w * metric_count
+        # Four cards stay visible, so use intentional proportional columns rather
+        # than six equal numeric buckets. Active, block advantage, and damage
+        # receive extra room because they carry ranges, signs, and four digits.
+        move_col_w = max(50, min(68, int(table_w * 0.205)))
+        metric_room = max(metric_count, table_w - move_col_w)
+        metric_weights = (0.13, 0.22, 0.14, 0.14, 0.16, 0.21)
+        metric_col_widths = [max(1, int(metric_room * weight)) for weight in metric_weights]
+        width_delta = metric_room - sum(metric_col_widths)
+        metric_col_widths[-1] += width_delta
         grid_x, grid_y = table_x, table_y
         grid_w, grid_h = table_w, table_h
 
         table_bg = pygame.Rect(grid_x, grid_y, grid_w, grid_h)
-        pygame.draw.rect(surf, (13, 16, 24), table_bg, border_radius=4)
-        pygame.draw.rect(surf, (49, 59, 82), table_bg, 1, border_radius=4)
+        pygame.draw.rect(surf, (5, 11, 19), table_bg, border_radius=4)
+        pygame.draw.rect(surf, (35, 50, 66), table_bg, 1, border_radius=4)
+
+        # Keep the values easy to scan without turning the table into a rainbow.
+        # Each metric gets a restrained near-white tint, while the most important
+        # columns also receive a very faint vertical lane in the table body.
+        metric_value_colors = (
+            (210, 232, 247),  # startup
+            (238, 226, 195),  # active
+            (207, 235, 218),  # hitstun
+            (205, 223, 239),  # blockstun
+            (223, 215, 238),  # block advantage
+            (242, 222, 181),  # damage
+        )
+        metric_lane_colors = (
+            (95, 180, 226),
+            (211, 179, 102),
+            (95, 190, 142),
+            (91, 151, 205),
+            (151, 116, 196),
+            (214, 164, 78),
+        )
 
         hdr = pygame.Rect(grid_x, grid_y, grid_w, table_header_h)
-        pygame.draw.rect(surf, (18, 22, 31), hdr, border_radius=4)
-        header_labels = ("Attack",) + metric_headers
-        header_widths = (move_col_w,) + (metric_col_w,) * metric_count
+        _draw_horizontal_gradient(surf, hdr, _mix_col((13, 25, 39), accent, 0.08), (8, 16, 27), 248)
+        header_labels = ("Move",) + metric_headers
+        header_widths = (move_col_w,) + tuple(metric_col_widths)
         cell_x = grid_x
         for i, (txt, cell_w) in enumerate(zip(header_labels, header_widths)):
             header_cell = pygame.Rect(cell_x, grid_y, cell_w, table_header_h)
-            header_fill = (29, 35, 49) if i % 2 == 0 else (23, 28, 40)
-            pygame.draw.rect(surf, header_fill, header_cell)
-            pygame.draw.rect(surf, (57, 68, 94), header_cell, 1)
-            hdr_s = table_header_font.render(txt, True, GUI_TEXT_DIM)
-            surf.blit(hdr_s, (header_cell.x + (header_cell.width - hdr_s.get_width()) // 2, header_cell.y + (header_cell.height - hdr_s.get_height()) // 2))
+            hdr_col = GUI_TEXT if i == 0 else metric_value_colors[i - 1]
+            hdr_s = table_header_font.render(txt, True, hdr_col)
+            if i == 0:
+                header_x = header_cell.x + 7
+            else:
+                header_x = header_cell.x + (header_cell.width - hdr_s.get_width()) // 2
+            surf.blit(hdr_s, (header_x, header_cell.y + (header_cell.height - hdr_s.get_height()) // 2 - 1))
             cell_x += cell_w
+        pygame.draw.line(surf, (*accent, 105), (grid_x + 3, hdr.bottom - 1), (grid_x + grid_w - 3, hdr.bottom - 1))
+
+        body_lane_top = grid_y + table_header_h + first_row_gap
+        body_lane_h = max(1, grid_h - table_header_h - first_row_gap - 1)
+        lane_left = grid_x + move_col_w
+        for lane_i, lane_w in enumerate(metric_col_widths):
+            # Startup, advantage, and damage are the quickest decision columns.
+            # Give them slightly stronger lanes, while the remaining columns stay
+            # almost invisible until the viewer looks directly at the table.
+            lane_alpha = 13 if lane_i in {0, 4, 5} else 6
+            lane = pygame.Surface((max(1, lane_w), body_lane_h), pygame.SRCALPHA)
+            lane.fill((*metric_lane_colors[lane_i], lane_alpha))
+            surf.blit(lane, (lane_left, body_lane_top))
+            lane_left += lane_w
 
         if is_empty_card:
             empty_body = pygame.Rect(
@@ -1118,15 +1385,36 @@ def draw_scan_normals_polished(
                 air_start_indexes.add(_index)
             previous_air = _is_air
         divider_count = len(air_start_indexes)
-        desired_divider_h = 10 if divider_count else 0
-        row_h = max(9, min(18, (available_h - desired_divider_h * divider_count) // row_count))
+        desired_divider_h = 8 if divider_count else 0
+        row_h = max(10, min(21, (available_h - desired_divider_h * divider_count) // row_count))
         divider_h = 0
         if divider_count:
-            divider_h = max(5, min(10, (available_h - row_h * row_count) // divider_count))
+            divider_h = max(5, min(8, (available_h - row_h * row_count) // divider_count))
         # The last line remains inside the grid even on compact layouts.
-        while divider_count and row_h * row_count + divider_h * divider_count > available_h and row_h > 8:
+        while divider_count and row_h * row_count + divider_h * divider_count > available_h and row_h > 9:
             row_h -= 1
-            divider_h = max(5, min(10, (available_h - row_h * row_count) // divider_count))
+            divider_h = max(5, min(8, (available_h - row_h * row_count) // divider_count))
+
+        # Segoe UI remains readable at a larger point size than the old compact
+        # mono face. Use the row height directly instead of subtracting five.
+        row_font_size = 12 if row_h >= 15 else (11 if row_h >= 12 else 10)
+        numeric_font_size = 13 if row_h >= 16 else (12 if row_h >= 13 else 11)
+        move_row_font = _preview_font(row_font_size, bold=True)
+        data_row_font = _preview_font(numeric_font_size, bold=True)
+
+        startup_candidates = []
+        damage_candidates = []
+        for _candidate in visible_moves:
+            if not isinstance(_candidate, dict):
+                continue
+            _startup = _normal_int(_candidate, "startup", "start", "active_start")
+            _damage = _normal_damage(_candidate)
+            if _startup is not None:
+                startup_candidates.append(int(_startup))
+            if _damage is not None:
+                damage_candidates.append(int(_damage))
+        fastest_startup = min(startup_candidates) if startup_candidates else None
+        highest_damage = max(damage_candidates) if damage_candidates else None
 
         y = grid_y + table_header_h + first_row_gap
         sweep_frac = float(slot_fx.get("row_sweep", 0.0) or 0.0)
@@ -1136,19 +1424,21 @@ def draw_scan_normals_polished(
             label = _normal_move_label(mv)
             is_air_row = _normal_preview_is_air_move(mv)
             if mi in air_start_indexes and divider_h > 0:
-                band = pygame.Rect(grid_x + 2, y, max(1, grid_w - 4), divider_h)
-                pygame.draw.rect(surf, (15, 28, 44), band)
-                pygame.draw.line(surf, (86, 132, 185), (band.x, band.y), (band.right, band.y))
-                pygame.draw.line(surf, (41, 69, 103), (band.x, band.bottom - 1), (band.right, band.bottom - 1))
-                air_tag = _render_outlined_text(smallfont, "AIR", (144, 202, 255), (0, 0, 0), band.width - 14, outline_px=1)
+                band = pygame.Rect(grid_x + 1, y, max(1, grid_w - 2), divider_h)
+                band_layer = pygame.Surface(band.size, pygame.SRCALPHA)
+                band_layer.fill((*_mix_col((12, 24, 35), accent, 0.06), 220))
+                surf.blit(band_layer, band.topleft)
+                pygame.draw.line(surf, _mix_col((46, 61, 76), accent, 0.12), (band.x + 5, band.y), (band.right - 5, band.y))
+                air_font = _preview_font(9, bold=True)
+                air_tag = _fit_text(air_font, "Air", _mix_col(GUI_TEXT_MUTED, accent, 0.22), band.width - 14)
                 surf.blit(air_tag, (band.x + 7, band.y + (band.height - air_tag.get_height()) // 2))
                 y += divider_h
 
             row = pygame.Rect(grid_x, y, grid_w, row_h)
-            if is_air_row:
-                row_fill = (14, 20, 31) if mi % 2 == 0 else (12, 18, 28)
-            else:
-                row_fill = (16, 19, 28) if mi % 2 == 0 else (13, 16, 24)
+            # Quiet alternating bands provide scan rhythm without turning the
+            # card back into a spreadsheet. Air identity comes from the section
+            # band, not a different color on every aerial row.
+            row_fill = (8, 18, 29) if mi % 2 == 0 else (5, 13, 23)
             mv_id = mv.get("id") or mv.get("anim") or mv.get("move_id")
             try:
                 mv_id = int(mv_id) if mv_id is not None else None
@@ -1169,33 +1459,24 @@ def draw_scan_normals_polished(
                 is_current = (cur_id is not None and mv_id == cur_id)
             if is_current:
                 glow = pygame.Surface((row.width, row.height), pygame.SRCALPHA)
-                glow.fill((*accent, 48))
+                _draw_horizontal_gradient(glow, glow.get_rect(), _mix_col((14, 25, 39), accent, 0.22), (8, 16, 27), 255)
                 surf.blit(glow, row.topleft)
-                pygame.draw.rect(surf, (*accent, 130), row, 1)
-                pygame.draw.line(surf, (*accent, 95), (row.x + 1, row.bottom - 1), (row.right - 1, row.bottom - 1))
-                if sweep_frac > 0.0:
-                    sweep_x = row.x - 20 + int((row.width + 40) * sweep_frac)
-                    sweep = pygame.Surface((24, row.height + 6), pygame.SRCALPHA)
-                    pygame.draw.rect(sweep, (*_brighten(accent, 28), 70), pygame.Rect(0, 0, 10, row.height + 6), border_radius=4)
-                    pygame.draw.rect(sweep, (*_brighten(accent, 48), 28), pygame.Rect(8, 0, 16, row.height + 6), border_radius=4)
-                    surf.blit(sweep, (sweep_x, row.y - 3), special_flags=pygame.BLEND_ALPHA_SDL2 if hasattr(pygame, 'BLEND_ALPHA_SDL2') else 0)
+                pygame.draw.rect(surf, (*accent, 96), pygame.Rect(row.x + 1, row.y + 1, 3, max(1, row.height - 2)), border_radius=1)
             else:
                 pygame.draw.rect(surf, row_fill, row)
-                pygame.draw.rect(surf, (34, 41, 58), row, 1)
-            pygame.draw.line(surf, (28, 34, 48), (row.x + 1, row.bottom), (row.right - 1, row.bottom))
+            pygame.draw.line(surf, (25, 39, 53), (row.x + 1, row.bottom - 1), (row.right - 1, row.bottom - 1))
 
             if is_highlighted:
                 highlight_col = _NORMAL_PREVIEW_MODE_META.get(highlight_mode, {}).get("color", GUI_ACCENT_BLUE)
                 highlight_fill = pygame.Surface((row.width, row.height), pygame.SRCALPHA)
                 highlight_fill.fill((*highlight_col, 28))
                 surf.blit(highlight_fill, row.topleft)
-                pygame.draw.rect(surf, (*highlight_col, 178), pygame.Rect(row.x + 1, row.y + 1, 3, max(1, row.height - 2)), border_radius=1)
-                pygame.draw.line(surf, (*highlight_col, 108), (row.x + 5, row.bottom - 2), (row.right - 3, row.bottom - 2))
+                pygame.draw.rect(surf, (*highlight_col, 165), pygame.Rect(row.x + 1, row.y + 1, 3, max(1, row.height - 2)), border_radius=1)
 
-            if is_ladder_fast:
-                pygame.draw.line(surf, (102, 218, 255), (row.x + 5, row.y + 2), (row.right - 5, row.y + 2), 1)
-            if is_ladder_damage:
-                pygame.draw.line(surf, (244, 194, 98), (row.x + 5, row.bottom - 3), (row.right - 5, row.bottom - 3), 1)
+            if is_ladder_fast and not is_highlighted:
+                pygame.draw.rect(surf, (102, 198, 228, 105), pygame.Rect(row.x + 2, row.y + 2, 2, max(1, row.height - 4)), border_radius=1)
+            if is_ladder_damage and not is_highlighted:
+                pygame.draw.rect(surf, (224, 174, 88, 105), pygame.Rect(row.x + 4, row.y + 2, 2, max(1, row.height - 4)), border_radius=1)
             if is_matchup:
                 pygame.draw.rect(surf, (104, 211, 227, 180), row.inflate(-4, -4), 1, border_radius=2)
 
@@ -1223,18 +1504,11 @@ def draw_scan_normals_polished(
             # j.B, and j.C to "j." on the compact four-card layout.  Render
             # the full label first; draw a role marker only when it can fit in
             # the remaining space without touching the label.
-            label_s = _render_outlined_text(
-                smallfont,
-                label,
-                label_col,
-                (0, 0, 0),
-                max(1, move_col_w - 10),
-                outline_px=1,
-            )
-            surf.blit(label_s, (row.x + 6, row.y + (row.height - label_s.get_height()) // 2))
+            label_s = _fit_text(move_row_font, label, label_col, max(1, move_col_w - 10))
+            surf.blit(label_s, (row.x + 7, row.y + (row.height - label_s.get_height()) // 2))
 
             if role_tag:
-                tag_s = smallfont.render(role_tag, True, role_col)
+                tag_s = move_row_font.render(role_tag, True, role_col)
                 available_after_label = move_col_w - 10
                 if label_s.get_width() + tag_s.get_width() <= available_after_label:
                     surf.blit(
@@ -1307,29 +1581,66 @@ def draw_scan_normals_polished(
                     except Exception:
                         pass
             metric_groups = ("startup", "active", "hitstun", "blockstun", "adv_block", "damage")
-            value_col = GUI_TEXT if is_current else (205, 211, 224)
             patched_col = _brighten(accent, 52) if is_current else (145, 194, 255)
+            col_left = grid_x + move_col_w
             for i, value in enumerate(values):
-                col_left = grid_x + move_col_w + i * metric_col_w
+                col_w = metric_col_widths[i]
                 is_patched_metric = metric_groups[i] in patch_fields
-                if is_patched_metric:
-                    chip_rect = pygame.Rect(col_left + 2, row.y + 2, metric_col_w - 4, max(1, row.height - 4))
+                key_value = False
+                key_color = metric_lane_colors[i]
+                if i == 0 and startup is not None and fastest_startup is not None:
+                    key_value = int(startup) == int(fastest_startup)
+                elif i == 4 and adv_block is not None:
+                    key_value = int(adv_block) > 0
+                    key_color = GUI_CONFIRM if int(adv_block) > 0 else GUI_DANGER
+                elif i == 5 and damage is not None and highest_damage is not None:
+                    key_value = int(damage) == int(highest_damage)
+
+                if is_patched_metric or key_value:
+                    chip_rect = pygame.Rect(col_left + 2, row.y + 2, max(1, col_w - 4), max(1, row.height - 4))
                     chip = pygame.Surface((chip_rect.width, chip_rect.height), pygame.SRCALPHA)
-                    pygame.draw.rect(chip, (*patched_col, 28), chip.get_rect(), border_radius=3)
-                    pygame.draw.rect(chip, (*patched_col, 92), chip.get_rect(), 1, border_radius=3)
+                    chip_col = patched_col if is_patched_metric else key_color
+                    fill_alpha = 30 if is_patched_metric else 22
+                    border_alpha = 92 if is_patched_metric else 72
+                    pygame.draw.rect(chip, (*chip_col, fill_alpha), chip.get_rect(), border_radius=3)
+                    pygame.draw.rect(chip, (*chip_col, border_alpha), chip.get_rect(), 1, border_radius=3)
                     surf.blit(chip, chip_rect.topleft)
-                draw_col = patched_col if is_patched_metric else value_col
-                val_s = _render_outlined_text(smallfont, value, draw_col, (0, 0, 0), metric_col_w - 6, outline_px=1)
-                surf.blit(val_s, (col_left + (metric_col_w - val_s.get_width()) // 2, row.y + (row.height - val_s.get_height()) // 2))
+
+                draw_col = patched_col if is_patched_metric else metric_value_colors[i]
+                if not is_patched_metric and i == 4 and adv_block is not None:
+                    if adv_block > 0:
+                        draw_col = _brighten(GUI_CONFIRM, 22)
+                    elif adv_block < 0:
+                        draw_col = (226, 181, 187)
+                    else:
+                        draw_col = metric_value_colors[i]
+                if key_value and not is_patched_metric and i in {0, 5}:
+                    draw_col = _brighten(key_color, 34)
+                if is_current or is_selected:
+                    draw_col = _mix_col(draw_col, (255, 255, 255), 0.16)
+
+                cell_pad = 7 if i >= 4 else 5
+                val_s = _fit_text(data_row_font, value, draw_col, max(1, col_w - cell_pad * 2))
+                value_x = col_left + col_w - val_s.get_width() - cell_pad
+                surf.blit(val_s, (value_x, row.y + (row.height - val_s.get_height()) // 2))
+                col_left += col_w
             y += row_h
 
-        # Full-height separators are drawn after the row fills so each column
-        # remains visible across the complete data grid.
-        for i in range(metric_count + 1):
-            vx = grid_x + move_col_w + metric_col_w * i
-            pygame.draw.line(surf, (62, 73, 99), (vx, grid_y + 1), (vx, grid_y + grid_h - 2))
-        pygame.draw.line(surf, (62, 73, 99), (grid_x, grid_y + table_header_h), (grid_x + grid_w, grid_y + table_header_h))
+        # Keep only the separators that help scanning. The fixed cell geometry
+        # already aligns the values, so a full spreadsheet grid is unnecessary.
+        metric_edges = []
+        _edge_x = grid_x + move_col_w
+        for _metric_w in metric_col_widths:
+            metric_edges.append(_edge_x)
+            _edge_x += _metric_w
+        # Move boundary plus restrained breathing separators before BA and Dmg.
+        for vx in (metric_edges[0], metric_edges[4], metric_edges[5]):
+            pygame.draw.line(surf, (24, 38, 52), (vx, grid_y + 1), (vx, grid_y + grid_h - 2))
+        pygame.draw.line(surf, (42, 58, 76), (grid_x, grid_y + table_header_h), (grid_x + grid_w, grid_y + table_header_h))
 
+    interaction["layout_mode"] = preview_layout
+    interaction["focus_slot"] = resolved_focus_slot
+    interaction["compact_view"] = effective_compact_view
     return interaction
 
 

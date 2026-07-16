@@ -77,11 +77,15 @@ class CancelLabContractTests(unittest.TestCase):
         finally:
             lab._read_u32 = old_read
 
-    def test_cancel_mapper_exposes_live_lab(self):
+    def test_cancel_lab_is_separate_from_cancel_mapper(self):
         workbench = (ROOT / "tvcgui" / "features" / "frame_data" / "workbench.py").read_text(encoding="utf-8")
-        self.assertIn("from . import cancel_lab as FCL", workbench)
-        self.assertIn("Test this route in Live Cancel Lab", workbench)
-        self.assertIn("Open Live Cancel Lab", workbench)
+        mapper = (ROOT / "tvcgui" / "features" / "frame_data" / "cancel_mapper.py").read_text(encoding="utf-8")
+        main = (ROOT / "main.py").read_text(encoding="utf-8")
+        self.assertNotIn("from . import cancel_lab as FCL", workbench)
+        self.assertNotIn("Test this route in Live Cancel Lab", workbench)
+        self.assertNotIn("Open Live Cancel Lab", workbench)
+        self.assertNotIn("Open Live Cancel Lab", mapper)
+        self.assertIn("elif cancel_lab_btn_rect.collidepoint(mx, my):", main)
         lab = (ROOT / "tvcgui" / "features" / "frame_data" / "cancel_lab.py").read_text(encoding="utf-8")
         self.assertIn("DEFAULT_EARLIEST_FRAME = 8", lab)
         self.assertIn("Armed {mode_text} route", lab)

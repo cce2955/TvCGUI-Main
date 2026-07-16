@@ -304,6 +304,7 @@ class CancelLabWindow:
         slot_label: str,
         target_slot: dict[str, Any] | None,
         moves: Sequence[dict[str, Any]],
+        profiles: Sequence[dict[str, Any]] | None = None,
         source_move: dict[str, Any] | None = None,
         target_move: dict[str, Any] | None = None,
         status_callback: Callable[[str], None] | None = None,
@@ -312,6 +313,36 @@ class CancelLabWindow:
         self.parent = parent
         self.slot_label = normalize_slot_label(slot_label)
         self.target_slot = target_slot if isinstance(target_slot, dict) else {}
+
+        # Cancel Lab owns slot selection. Keep every ready rich profile in one
+        # window, ordered by the standard fighter-slot order.
+        self.profile_by_slot: dict[str, dict[str, Any]] = {}
+        for row in list(profiles or []):
+            if not isinstance(row, dict) or not row.get("moves"):
+                continue
+            row_slot = normalize_slot_label(row.get("slot_label") or row.get("slot") or "P1-C1")
+            self.profile_by_slot[row_slot] = row
+        if self.target_slot.get("moves"):
+            self.profile_by_slot[self.slot_label] = self.target_slot
+        if not self.profile_by_slot:
+            self.profile_by_slot[self.slot_label] = self.target_slot
+
+        ordered_slots = [slot for slot in SLOT_POINTERS if slot in self.profile_by_slot]
+        ordered_slots.extend(slot for slot in self.profile_by_slot if slot not in ordered_slots)
+        self.profile_slots = ordered_slots
+        if self.slot_label not in self.profile_by_slot and self.profile_slots:
+            self.slot_label = self.profile_slots[0]
+            self.target_slot = self.profile_by_slot[self.slot_label]
+
+        self.profile_label_to_slot: dict[str, str] = {}
+        self.profile_labels: list[str] = []
+        for row_slot in self.profile_slots:
+            row = self.profile_by_slot[row_slot]
+            char_name = str(row.get("char_name") or row.get("name") or "Unknown")
+            label = f"{row_slot} | {char_name}"
+            self.profile_label_to_slot[label] = row_slot
+            self.profile_labels.append(label)
+
         self.status_callback = status_callback
         self.profile_refresh_callback = profile_refresh_callback
         self._after_id: str | None = None
@@ -382,14 +413,19 @@ class CancelLabWindow:
         self.window = tk.Toplevel(parent)
         apply_titlebar_icon(self.window, parent)
         self.window.title("Live Cancel Lab")
-        self.window.geometry("940x720")
-        self.window.minsize(780, 590)
+        self.window.geometry("1040x760")
+        self.window.minsize(720, 600)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         try:
             self.window.configure(bg="#101722")
         except Exception:
             pass
 
+        current_profile_label = next(
+            (label for label, row_slot in self.profile_label_to_slot.items() if row_slot == self.slot_label),
+            self.profile_labels[0] if self.profile_labels else self.slot_label,
+        )
+        self.slot_var = tk.StringVar(master=self.window, value=current_profile_label)
         self.source_var = tk.StringVar(master=self.window, value=source_label)
         self.target_var = tk.StringVar(master=self.window, value=target_label)
         self.earliest_var = tk.StringVar(master=self.window, value=str(DEFAULT_EARLIEST_FRAME))
@@ -401,16 +437,110 @@ class CancelLabWindow:
         self.telemetry_var = tk.StringVar(master=self.window, value="Waiting for live fighter data...")
         self.status_var = tk.StringVar(master=self.window, value=self.last_result)
         self.counts_var = tk.StringVar(master=self.window, value="Attempts 0 | Accepted 0 | Rejected 0")
+        self.attempts_badge_var = tk.StringVar(master=self.window, value="0")
+        self.accepted_badge_var = tk.StringVar(master=self.window, value="0")
+        self.rejected_badge_var = tk.StringVar(master=self.window, value="0")
+        self.route_summary_var = tk.StringVar(master=self.window, value="")
         self.arm_button_text = tk.StringVar(master=self.window, value="Arm manual cancel")
+        self._layout_after_id: str | None = None
+        self._last_layout_mode = ""
+        self._last_action_layout = ""
 
+        self._configure_styles()
         self._build_ui()
+        self.window.bind("<Configure>", self._on_window_configure, add="+")
         self._sync_mode_text()
+        self._refresh_route_summary()
+        self.window.after_idle(self._apply_responsive_layout)
         self._load_saved_window_for_source(announce=False)
         self._log(
             "Live Cancel Lab opened. Manual mode waits for the selected target input, then uses the action mailbox. "
             "Auto mode remains a timing probe."
         )
         self._schedule_poll()
+
+    def _label_for_action_id(self, action_id: int) -> str:
+        target = int(action_id) & 0xFFFF
+        for label, move in self.move_by_label.items():
+            if _as_int(move.get("id"), -1) == target:
+                return label
+        return ""
+
+    def _switch_slot_from_ui(self, _event=None) -> None:
+        selected_label = str(self.slot_var.get() or "")
+        new_slot = self.profile_label_to_slot.get(selected_label)
+        if not new_slot or new_slot == self.slot_label:
+            return
+        row = self.profile_by_slot.get(new_slot)
+        if not isinstance(row, dict):
+            return
+
+        previous_source = self._selected_move(self.source_var)
+        previous_target = self._selected_move(self.target_var)
+        previous_source_id = _as_int((previous_source or {}).get("id"), -1)
+        previous_target_id = _as_int((previous_target or {}).get("id"), -1)
+        old_slot = self.slot_label
+
+        if self.armed:
+            self.disarm(f"Cancel route disarmed before switching from {old_slot} to {new_slot}.")
+        else:
+            self._clear_request(announce=False)
+
+        self.was_in_source = False
+        self.completed_for_source = False
+        self.source_started_at = 0.0
+        self.pulses_this_source = 0
+        self._last_trigger_signature = None
+        self._source_special_baseline.clear()
+        self._source_pressed_baseline = 0
+
+        self.slot_label = new_slot
+        self.target_slot = row
+        self.char_name = str(row.get("char_name") or row.get("name") or "")
+
+        canonical = FCM.canonical_moves(list(row.get("moves") or []))
+        canonical.sort(
+            key=lambda move: (
+                {"normal": 0, "special": 1, "super": 2}.get(FCM.move_kind(move), 9),
+                _as_int(move.get("id"), 0xFFFF),
+            )
+        )
+        self.moves = canonical
+        self.move_by_label = {}
+        self.labels = []
+        for move in self.moves:
+            label = _move_label(move, self.char_name)
+            if label in self.move_by_label:
+                label = f"{label} @ 0x{_as_int(move.get('abs'), 0):08X}"
+            self.move_by_label[label] = move
+            self.labels.append(label)
+
+        source_label = self._label_for_action_id(previous_source_id)
+        if not source_label:
+            source_label = self.labels[0] if self.labels else ""
+        target_label = self._label_for_action_id(previous_target_id)
+        if not target_label or target_label == source_label:
+            target_label = next((label for label in self.labels if label != source_label), source_label)
+
+        self.source_combo.configure(values=self.labels)
+        self.target_combo.configure(values=self.labels)
+        self.source_var.set(source_label)
+        self.target_var.set(target_label)
+        self._load_saved_window_for_source(announce=False)
+
+        for active_slot, active_window in list(_ACTIVE_BY_SLOT.items()):
+            if active_window is self:
+                _ACTIVE_BY_SLOT.pop(active_slot, None)
+        _ACTIVE_BY_SLOT[self.slot_label] = self
+
+        try:
+            self.window.title(f"Live Cancel Lab | {self.slot_label} | {self.char_name or 'Unknown'}")
+        except Exception:
+            pass
+        self._refresh_route_summary()
+        message = f"Switched Cancel Lab from {old_slot} to {self.slot_label} ({self.char_name or 'Unknown'})."
+        self._announce(message)
+        self._log(message)
 
     def _label_for_move(self, move: dict[str, Any] | None) -> str:
         if not isinstance(move, dict):
@@ -425,119 +555,299 @@ class CancelLabWindow:
                     return label
         return ""
 
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self.window)
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+
+        bg = "#080D15"
+        panel = "#111A28"
+        panel_hi = "#162237"
+        border = "#2E4466"
+        text = "#E7F0FA"
+        muted = "#8FA3BA"
+        accent = "#6F9FE8"
+        green = "#6ED8AA"
+        red = "#F0808A"
+
+        style.configure("CancelLab.Root.TFrame", background=bg)
+        style.configure("CancelLab.Card.TFrame", background=panel, borderwidth=1, relief="solid")
+        style.configure("CancelLab.Hero.TFrame", background=panel_hi, borderwidth=1, relief="solid")
+        style.configure("CancelLab.Title.TLabel", background=panel_hi, foreground=text, font=("Segoe UI Semibold", 15))
+        style.configure("CancelLab.Kicker.TLabel", background=panel_hi, foreground=accent, font=("Segoe UI Semibold", 9))
+        style.configure("CancelLab.Subtitle.TLabel", background=panel_hi, foreground=muted, font=("Segoe UI", 9))
+        style.configure("CancelLab.Section.TLabel", background=panel, foreground=accent, font=("Segoe UI Semibold", 9))
+        style.configure("CancelLab.Label.TLabel", background=panel, foreground=text, font=("Segoe UI", 9))
+        style.configure("CancelLab.Muted.TLabel", background=panel, foreground=muted, font=("Segoe UI", 8))
+        style.configure("CancelLab.Status.TLabel", background=panel, foreground=text, font=("Segoe UI Semibold", 9))
+        style.configure("CancelLab.Success.TLabel", background=panel, foreground=green, font=("Segoe UI Semibold", 9))
+        style.configure("CancelLab.Error.TLabel", background=panel, foreground=red, font=("Segoe UI Semibold", 9))
+        style.configure("CancelLab.Badge.TLabel", background="#17243A", foreground=text, font=("Consolas", 13, "bold"), anchor="center")
+        style.configure("CancelLab.BadgeLabel.TLabel", background=panel, foreground=muted, font=("Segoe UI", 8), anchor="center")
+        style.configure("CancelLab.TCombobox", fieldbackground="#0B121E", background="#0B121E", foreground=text, arrowcolor=accent)
+        style.map("CancelLab.TCombobox", fieldbackground=[("readonly", "#0B121E")], foreground=[("readonly", text)])
+        style.configure("CancelLab.TEntry", fieldbackground="#0B121E", foreground=text, insertcolor=text)
+        style.configure("CancelLab.TRadiobutton", background=panel, foreground=text, font=("Segoe UI", 9))
+        style.map("CancelLab.TRadiobutton", background=[("active", panel)], foreground=[("active", text)])
+        style.configure("CancelLab.TCheckbutton", background=panel, foreground=text, font=("Segoe UI", 9))
+        style.map("CancelLab.TCheckbutton", background=[("active", panel)], foreground=[("active", text)])
+        style.configure("CancelLab.Primary.TButton", background="#355F9F", foreground="#FFFFFF", padding=(12, 7), borderwidth=0, font=("Segoe UI Semibold", 9))
+        style.map("CancelLab.Primary.TButton", background=[("active", "#4776BC"), ("pressed", "#294D83")])
+        style.configure("CancelLab.Secondary.TButton", background="#1A2940", foreground=text, padding=(10, 7), borderwidth=1, font=("Segoe UI", 9))
+        style.map("CancelLab.Secondary.TButton", background=[("active", "#263A59"), ("pressed", "#142033")])
+        style.configure("CancelLab.Danger.TButton", background="#542F39", foreground="#FFDDE1", padding=(10, 7), borderwidth=1, font=("Segoe UI", 9))
+        style.map("CancelLab.Danger.TButton", background=[("active", "#6B3B48"), ("pressed", "#40242C")])
+
     def _build_ui(self) -> None:
-        shell = ttk.Frame(self.window, style="FD.TFrame", padding=(12, 12))
-        shell.pack(fill="both", expand=True)
+        self.window.configure(bg="#080D15")
+        self.window.grid_rowconfigure(0, weight=1)
+        self.window.grid_columnconfigure(0, weight=1)
 
-        hero = ttk.Frame(shell, style="Hero.TFrame", padding=(14, 12))
-        hero.pack(fill="x", pady=(0, 10))
-        ttk.Label(hero, text="LIVE CANCEL LAB", style="HeroTitle.TLabel").pack(anchor="w")
-        ttk.Label(
-            hero,
+        self.shell = ttk.Frame(self.window, style="CancelLab.Root.TFrame", padding=(14, 14))
+        self.shell.grid(row=0, column=0, sticky="nsew")
+        self.shell.grid_columnconfigure(0, weight=1)
+        self.shell.grid_rowconfigure(1, weight=0)
+        self.shell.grid_rowconfigure(2, weight=1)
+
+        self.hero = ttk.Frame(self.shell, style="CancelLab.Hero.TFrame", padding=(18, 14))
+        self.hero.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        self.hero.grid_columnconfigure(0, weight=1)
+        ttk.Label(self.hero, text="TRAINING SYSTEM", style="CancelLab.Kicker.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(self.hero, text="Live Cancel Lab", style="CancelLab.Title.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
+        self.hero_subtitle = ttk.Label(
+            self.hero,
             text=(
-                "Manual input mode waits for TvC to recognize the selected target command, then routes it through "
-                "the action mailbox during the custom frame window. Normal inputs come from the live 24-byte command "
-                "table. Special and super inputs come from TvC's recognized-command candidate fields. Auto force remains "
-                "available only as a timing probe."
+                "Choose a source, target, and frame window. Manual input mode waits for TvC to recognize "
+                "the real target command, then routes it through the action mailbox."
             ),
-            style="HeroSub.TLabel",
-            wraplength=880,
+            style="CancelLab.Subtitle.TLabel",
             justify="left",
-        ).pack(anchor="w", pady=(3, 0))
-
-        route = ttk.Frame(shell, style="Card.TFrame", padding=(12, 10))
-        route.pack(fill="x", pady=(0, 10))
-        route.grid_columnconfigure(1, weight=1)
-
-        ttk.Label(route, text="Source action", style="Card.TLabel").grid(row=0, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.source_combo = ttk.Combobox(route, textvariable=self.source_var, values=self.labels, state="readonly")
-        self.source_combo.grid(row=0, column=1, columnspan=5, sticky="ew", pady=4)
-        self.source_combo.bind("<<ComboboxSelected>>", lambda _event: self._load_saved_window_for_source())
-
-        ttk.Label(route, text="Target action", style="Card.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
-        self.target_combo = ttk.Combobox(route, textvariable=self.target_var, values=self.labels, state="readonly")
-        self.target_combo.grid(row=1, column=1, columnspan=5, sticky="ew", pady=4)
-
-        ttk.Label(route, text="Earliest frame", style="Card.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(8, 4))
-        self.earliest_entry = ttk.Entry(route, textvariable=self.earliest_var, width=8)
-        self.earliest_entry.grid(row=2, column=1, sticky="w", pady=(8, 4))
-        ttk.Label(route, text="Latest frame", style="Card.TLabel").grid(row=2, column=2, sticky="w", padx=(18, 8), pady=(8, 4))
-        self.latest_entry = ttk.Entry(route, textvariable=self.latest_var, width=8)
-        self.latest_entry.grid(row=2, column=3, sticky="w", pady=(8, 4))
-        ttk.Label(route, text="0 = until source ends", style="CardMuted.TLabel").grid(row=2, column=4, columnspan=2, sticky="w", padx=(8, 0), pady=(8, 4))
-
-        ttk.Label(route, text="Trigger mode", style="Card.TLabel").grid(
-            row=3, column=0, sticky="w", padx=(0, 8), pady=(8, 2)
         )
+        self.hero_subtitle.grid(row=2, column=0, sticky="ew", pady=(5, 0))
+        self.route_summary_label = ttk.Label(
+            self.hero,
+            textvariable=self.route_summary_var,
+            style="CancelLab.Kicker.TLabel",
+            justify="right",
+        )
+        self.route_summary_label.grid(row=0, column=1, rowspan=3, sticky="e", padx=(16, 0))
+
+        self.body = ttk.Frame(self.shell, style="CancelLab.Root.TFrame")
+        self.body.grid(row=1, column=0, sticky="nsew", pady=(0, 10))
+
+        self.route_card = ttk.Frame(self.body, style="CancelLab.Card.TFrame", padding=(14, 12))
+        self.route_card.grid_columnconfigure(1, weight=1)
+        self.route_card.grid_columnconfigure(3, weight=1)
+        ttk.Label(self.route_card, text="ROUTE SETUP", style="CancelLab.Section.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
+
+        ttk.Label(self.route_card, text="Fighter slot", style="CancelLab.Label.TLabel").grid(row=1, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.slot_combo = ttk.Combobox(
+            self.route_card,
+            textvariable=self.slot_var,
+            values=self.profile_labels,
+            state="readonly",
+            style="CancelLab.TCombobox",
+        )
+        self.slot_combo.grid(row=1, column=1, columnspan=3, sticky="ew", pady=4)
+        self.slot_combo.bind("<<ComboboxSelected>>", self._switch_slot_from_ui)
+
+        ttk.Label(self.route_card, text="Source action", style="CancelLab.Label.TLabel").grid(row=2, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.source_combo = ttk.Combobox(self.route_card, textvariable=self.source_var, values=self.labels, state="readonly", style="CancelLab.TCombobox")
+        self.source_combo.grid(row=2, column=1, columnspan=3, sticky="ew", pady=4)
+        self.source_combo.bind("<<ComboboxSelected>>", self._on_source_changed)
+
+        ttk.Label(self.route_card, text="Target action", style="CancelLab.Label.TLabel").grid(row=3, column=0, sticky="w", padx=(0, 8), pady=4)
+        self.target_combo = ttk.Combobox(self.route_card, textvariable=self.target_var, values=self.labels, state="readonly", style="CancelLab.TCombobox")
+        self.target_combo.grid(row=3, column=1, columnspan=3, sticky="ew", pady=4)
+        self.target_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_route_summary())
+
+        ttk.Label(self.route_card, text="Earliest frame", style="CancelLab.Label.TLabel").grid(row=4, column=0, sticky="w", padx=(0, 8), pady=(8, 4))
+        self.earliest_entry = ttk.Entry(self.route_card, textvariable=self.earliest_var, width=8, style="CancelLab.TEntry")
+        self.earliest_entry.grid(row=4, column=1, sticky="w", pady=(8, 4))
+        ttk.Label(self.route_card, text="Latest frame", style="CancelLab.Label.TLabel").grid(row=4, column=2, sticky="w", padx=(16, 8), pady=(8, 4))
+        self.latest_entry = ttk.Entry(self.route_card, textvariable=self.latest_var, width=8, style="CancelLab.TEntry")
+        self.latest_entry.grid(row=4, column=3, sticky="w", pady=(8, 4))
+        ttk.Label(self.route_card, text="Use 0 for source end", style="CancelLab.Muted.TLabel").grid(row=5, column=1, columnspan=3, sticky="w", pady=(0, 6))
+
+        ttk.Label(self.route_card, text="Trigger", style="CancelLab.Label.TLabel").grid(row=6, column=0, sticky="w", padx=(0, 8), pady=(6, 2))
         self.manual_radio = ttk.Radiobutton(
-            route,
-            text="Manual target input",
-            variable=self.mode_var,
-            value="manual",
-            command=self._sync_mode_text,
+            self.route_card, text="Manual target input", variable=self.mode_var, value="manual",
+            command=self._sync_mode_text, style="CancelLab.TRadiobutton",
         )
-        self.manual_radio.grid(row=3, column=1, columnspan=2, sticky="w", pady=(8, 2))
+        self.manual_radio.grid(row=6, column=1, sticky="w", pady=(6, 2))
         self.auto_radio = ttk.Radiobutton(
-            route,
-            text="Auto force timing probe",
-            variable=self.mode_var,
-            value="auto",
-            command=self._sync_mode_text,
+            self.route_card, text="Auto timing probe", variable=self.mode_var, value="auto",
+            command=self._sync_mode_text, style="CancelLab.TRadiobutton",
         )
-        self.auto_radio.grid(row=3, column=3, columnspan=3, sticky="w", pady=(8, 2))
+        self.auto_radio.grid(row=6, column=2, columnspan=2, sticky="w", pady=(6, 2))
 
-        self.pulse_check = ttk.Checkbutton(route, text="Pulse request through the window (auto only)", variable=self.pulse_var)
-        self.pulse_check.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 2))
-        self.repeat_check = ttk.Checkbutton(route, text="Repeat on every source use", variable=self.repeat_var)
-        self.repeat_check.grid(row=4, column=3, columnspan=3, sticky="w", pady=(6, 2))
-        self.auto_save_check = ttk.Checkbutton(route, text="Save accepted window to Frame Data", variable=self.auto_save_var)
-        self.auto_save_check.grid(row=5, column=0, columnspan=6, sticky="w", pady=(4, 2))
+        self.pulse_check = ttk.Checkbutton(
+            self.route_card, text="Pulse through window (auto only)", variable=self.pulse_var,
+            style="CancelLab.TCheckbutton",
+        )
+        self.pulse_check.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 2))
+        self.repeat_check = ttk.Checkbutton(
+            self.route_card, text="Repeat on every source use", variable=self.repeat_var,
+            style="CancelLab.TCheckbutton",
+        )
+        self.repeat_check.grid(row=7, column=2, columnspan=2, sticky="w", pady=(6, 2))
+        self.auto_save_check = ttk.Checkbutton(
+            self.route_card, text="Save accepted window to Frame Data", variable=self.auto_save_var,
+            style="CancelLab.TCheckbutton",
+        )
+        self.auto_save_check.grid(row=8, column=0, columnspan=4, sticky="w", pady=(4, 8))
+
+        self.actions_frame = ttk.Frame(self.route_card, style="CancelLab.Card.TFrame")
+        self.actions_frame.grid(row=9, column=0, columnspan=4, sticky="ew", pady=(4, 0))
+        self.action_buttons = []
+        self.arm_button = ttk.Button(self.actions_frame, textvariable=self.arm_button_text, command=self.toggle_arm, style="CancelLab.Primary.TButton")
+        self.force_button = ttk.Button(self.actions_frame, text="Force target now", command=self.request_now, style="CancelLab.Secondary.TButton")
+        self.save_button = ttk.Button(self.actions_frame, text="Save window to Frame Data", command=self.save_window_to_profile, style="CancelLab.Secondary.TButton")
+        self.clear_button = ttk.Button(self.actions_frame, text="Clear request", command=lambda: self._clear_request("Request cleared manually."), style="CancelLab.Danger.TButton")
+        self.reset_button = ttk.Button(self.actions_frame, text="Reset counts", command=self.reset_counts, style="CancelLab.Secondary.TButton")
+        self.close_button = ttk.Button(self.actions_frame, text="Close", command=self.close, style="CancelLab.Secondary.TButton")
+        self.action_buttons = [self.arm_button, self.force_button, self.save_button, self.clear_button, self.reset_button, self.close_button]
+
         self._route_controls = [
             self.source_combo, self.target_combo, self.earliest_entry, self.latest_entry,
             self.manual_radio, self.auto_radio, self.pulse_check, self.repeat_check, self.auto_save_check,
         ]
 
-        actions = ttk.Frame(shell, style="FD.TFrame")
-        actions.pack(fill="x", pady=(0, 10))
-        self.arm_button = ttk.Button(actions, textvariable=self.arm_button_text, command=self.toggle_arm)
-        self.arm_button.pack(side="left")
-        ttk.Button(actions, text="Force target now", command=self.request_now).pack(side="left", padx=(6, 0))
-        ttk.Button(actions, text="Save window to Frame Data", command=self.save_window_to_profile).pack(side="left", padx=(6, 0))
-        ttk.Button(actions, text="Clear request", command=lambda: self._clear_request("Request cleared manually.")).pack(side="left", padx=(6, 0))
-        ttk.Button(actions, text="Reset counts", command=self.reset_counts).pack(side="left", padx=(6, 0))
-        ttk.Button(actions, text="Close", command=self.close).pack(side="right")
+        self.live_card = ttk.Frame(self.body, style="CancelLab.Card.TFrame", padding=(14, 12))
+        self.live_card.grid_columnconfigure((0, 1, 2), weight=1, uniform="stats")
+        ttk.Label(self.live_card, text="LIVE MONITOR", style="CancelLab.Section.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
-        live = ttk.Frame(shell, style="Card.TFrame", padding=(12, 10))
-        live.pack(fill="x", pady=(0, 10))
-        ttk.Label(live, text="LIVE STATE", style="Section.TLabel").pack(anchor="w")
-        ttk.Label(live, textvariable=self.telemetry_var, style="Card.TLabel", wraplength=880, justify="left").pack(anchor="w", pady=(6, 0))
-        ttk.Label(live, textvariable=self.status_var, style="HeroSub.TLabel", wraplength=880, justify="left").pack(anchor="w", pady=(6, 0))
-        ttk.Label(live, textvariable=self.counts_var, style="CardMuted.TLabel").pack(anchor="w", pady=(5, 0))
+        for column, label, variable in (
+            (0, "ATTEMPTS", self.attempts_badge_var),
+            (1, "ACCEPTED", self.accepted_badge_var),
+            (2, "REJECTED", self.rejected_badge_var),
+        ):
+            badge = ttk.Label(self.live_card, textvariable=variable, style="CancelLab.Badge.TLabel", padding=(8, 7))
+            badge.grid(row=1, column=column, sticky="ew", padx=(0 if column == 0 else 4, 0 if column == 2 else 4))
+            ttk.Label(self.live_card, text=label, style="CancelLab.BadgeLabel.TLabel").grid(row=2, column=column, sticky="ew", pady=(3, 9))
 
-        log_frame = ttk.Frame(shell, style="Card.TFrame", padding=(10, 8))
-        log_frame.pack(fill="both", expand=True)
-        ttk.Label(log_frame, text="TEST LOG", style="Section.TLabel").pack(anchor="w", pady=(0, 6))
-        text_frame = ttk.Frame(log_frame, style="Card.TFrame")
-        text_frame.pack(fill="both", expand=True)
+        ttk.Label(self.live_card, text="FIGHTER STATE", style="CancelLab.Muted.TLabel").grid(row=3, column=0, columnspan=3, sticky="w")
+        self.telemetry_label = ttk.Label(self.live_card, textvariable=self.telemetry_var, style="CancelLab.Label.TLabel", justify="left")
+        self.telemetry_label.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(4, 10))
+        ttk.Label(self.live_card, text="RESULT", style="CancelLab.Muted.TLabel").grid(row=5, column=0, columnspan=3, sticky="w")
+        self.status_label = ttk.Label(self.live_card, textvariable=self.status_var, style="CancelLab.Status.TLabel", justify="left")
+        self.status_label.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(4, 0))
+
+        self.log_frame = ttk.Frame(self.shell, style="CancelLab.Card.TFrame", padding=(12, 10))
+        self.log_frame.grid(row=2, column=0, sticky="nsew")
+        self.log_frame.grid_rowconfigure(1, weight=1)
+        self.log_frame.grid_columnconfigure(0, weight=1)
+        ttk.Label(self.log_frame, text="SESSION LOG", style="CancelLab.Section.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 7))
         self.log_text = tk.Text(
-            text_frame,
-            height=14,
+            self.log_frame,
+            height=12,
             wrap="word",
-            bg="#0B111A",
-            fg="#D9E7F5",
-            insertbackground="#D9E7F5",
+            bg="#060B12",
+            fg="#D8E5F2",
+            insertbackground="#D8E5F2",
+            selectbackground="#31527E",
             relief="flat",
             borderwidth=0,
+            padx=10,
+            pady=8,
             font=("Consolas", 9),
             state="disabled",
         )
-        scroll = ttk.Scrollbar(text_frame, orient="vertical", command=self.log_text.yview)
+        scroll = ttk.Scrollbar(self.log_frame, orient="vertical", command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scroll.set)
-        self.log_text.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
+        self.log_text.grid(row=1, column=0, sticky="nsew")
+        scroll.grid(row=1, column=1, sticky="ns")
+        self.log_text.tag_configure("time", foreground="#6F8EAE")
+        self.log_text.tag_configure("normal", foreground="#D8E5F2")
+        self.log_text.tag_configure("info", foreground="#83B7F2")
+        self.log_text.tag_configure("success", foreground="#72DDAF")
+        self.log_text.tag_configure("error", foreground="#F28B95")
+
+        for variable in (self.earliest_var, self.latest_var):
+            variable.trace_add("write", lambda *_args: self._refresh_route_summary())
+
+    def _on_source_changed(self, _event=None) -> None:
+        self._load_saved_window_for_source()
+        self._refresh_route_summary()
+
+    def _on_window_configure(self, event=None) -> None:
+        if event is not None and getattr(event, "widget", None) is not self.window:
+            return
+        if self._layout_after_id is not None:
+            try:
+                self.window.after_cancel(self._layout_after_id)
+            except Exception:
+                pass
+        try:
+            self._layout_after_id = self.window.after(45, self._apply_responsive_layout)
+        except Exception:
+            self._layout_after_id = None
+
+    def _apply_responsive_layout(self) -> None:
+        self._layout_after_id = None
+        try:
+            width = max(1, int(self.window.winfo_width()))
+        except Exception:
+            width = 1040
+        mode = "wide" if width >= 900 else "stacked"
+        if mode != self._last_layout_mode:
+            self.route_card.grid_forget()
+            self.live_card.grid_forget()
+            for column in range(2):
+                self.body.grid_columnconfigure(column, weight=0)
+            for row in range(2):
+                self.body.grid_rowconfigure(row, weight=0)
+            if mode == "wide":
+                self.body.grid_columnconfigure(0, weight=3, uniform="body")
+                self.body.grid_columnconfigure(1, weight=2, uniform="body")
+                self.route_card.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+                self.live_card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+            else:
+                self.body.grid_columnconfigure(0, weight=1)
+                self.route_card.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+                self.live_card.grid(row=1, column=0, sticky="ew")
+            self._last_layout_mode = mode
+
+        wrap = max(260, width - 90)
+        self.hero_subtitle.configure(wraplength=wrap if mode == "stacked" else max(420, int(width * 0.64)))
+        self.telemetry_label.configure(wraplength=max(260, int(width * (0.36 if mode == "wide" else 0.88))))
+        self.status_label.configure(wraplength=max(260, int(width * (0.36 if mode == "wide" else 0.88))))
+        if mode == "stacked":
+            self.route_summary_label.grid_configure(row=3, column=0, rowspan=1, sticky="w", padx=(0, 0), pady=(8, 0))
+        else:
+            self.route_summary_label.grid_configure(row=0, column=1, rowspan=3, sticky="e", padx=(16, 0), pady=(0, 0))
+        self._reflow_action_buttons(width)
+
+    def _reflow_action_buttons(self, window_width: int) -> None:
+        layout = "single" if window_width >= 1350 else ("double" if window_width >= 800 else "triple")
+        if layout == self._last_action_layout:
+            return
+        self._last_action_layout = layout
+        for button in self.action_buttons:
+            button.grid_forget()
+        columns = 6 if layout == "single" else (3 if layout == "double" else 2)
+        for index, button in enumerate(self.action_buttons):
+            row, column = divmod(index, columns)
+            button.grid(row=row, column=column, sticky="ew", padx=(0 if column == 0 else 4, 0), pady=(0 if row == 0 else 5, 0))
+        for column in range(6):
+            self.actions_frame.grid_columnconfigure(column, weight=1 if column < columns else 0)
+
+    def _refresh_route_summary(self) -> None:
+        source = self._selected_move(self.source_var)
+        target = self._selected_move(self.target_var)
+        source_name = FCM.display_name(source or {}, self.char_name) if source else "Source"
+        target_name = FCM.display_name(target or {}, self.char_name) if target else "Target"
+        earliest = str(self.earliest_var.get() or "0").strip()
+        latest = str(self.latest_var.get() or "0").strip()
+        window = f"{earliest}-{latest}" if latest not in {"", "0"} else f"{earliest}+"
+        mode = "Manual" if str(self.mode_var.get() or "manual").lower() == "manual" else "Auto probe"
+        self.route_summary_var.set(f"{self.slot_label}  |  {source_name} > {target_name}  |  {window}  |  {mode}")
 
     def _sync_mode_text(self) -> None:
         mode = str(self.mode_var.get() or "manual").strip().lower()
+        self._refresh_route_summary()
         if not self.armed:
             self.arm_button_text.set("Arm manual cancel" if mode == "manual" else "Arm auto force")
         try:
@@ -671,6 +981,16 @@ class CancelLabWindow:
     def _announce(self, text: str) -> None:
         self.last_result = str(text)
         self.status_var.set(self.last_result)
+        upper = self.last_result.upper()
+        style_name = "CancelLab.Status.TLabel"
+        if "ACCEPTED" in upper or "SAVED" in upper:
+            style_name = "CancelLab.Success.TLabel"
+        elif any(token in upper for token in ("REJECTED", "FAILED", "ERROR", "BLOCKED", "COULD NOT")):
+            style_name = "CancelLab.Error.TLabel"
+        try:
+            self.status_label.configure(style=style_name)
+        except Exception:
+            pass
         if callable(self.status_callback):
             try:
                 self.status_callback(self.last_result)
@@ -679,9 +999,18 @@ class CancelLabWindow:
 
     def _log(self, text: str) -> None:
         stamp = time.strftime("%H:%M:%S")
+        upper = str(text).upper()
+        tag = "normal"
+        if "ACCEPTED" in upper or "SAVED" in upper:
+            tag = "success"
+        elif any(token in upper for token in ("REJECTED", "FAILED", "ERROR", "BLOCKED", "COULD NOT")):
+            tag = "error"
+        elif any(token in upper for token in ("ARMED", "OPENED", "SWITCHED", "REQUEST")):
+            tag = "info"
         try:
             self.log_text.configure(state="normal")
-            self.log_text.insert("end", f"[{stamp}] {text}\n")
+            self.log_text.insert("end", f"[{stamp}] ", "time")
+            self.log_text.insert("end", f"{text}\n", tag)
             self.log_text.see("end")
             self.log_text.configure(state="disabled")
         except Exception:
@@ -691,6 +1020,9 @@ class CancelLabWindow:
         self.counts_var.set(
             f"Attempts {self.attempt_count} | Accepted {self.accept_count} | Rejected {self.reject_count}"
         )
+        self.attempts_badge_var.set(str(self.attempt_count))
+        self.accepted_badge_var.set(str(self.accept_count))
+        self.rejected_badge_var.set(str(self.reject_count))
 
     def _clear_request(self, reason: str = "", announce: bool = True) -> bool:
         cleared = False
@@ -1091,8 +1423,9 @@ class CancelLabWindow:
         except Exception:
             pass
         self._clear_request(announce=False)
-        if _ACTIVE_BY_SLOT.get(self.slot_label) is self:
-            _ACTIVE_BY_SLOT.pop(self.slot_label, None)
+        for active_slot, active_window in list(_ACTIVE_BY_SLOT.items()):
+            if active_window is self:
+                _ACTIVE_BY_SLOT.pop(active_slot, None)
         try:
             self.window.destroy()
         except Exception:
@@ -1104,14 +1437,16 @@ def open_cancel_lab(
     slot_label: str,
     target_slot: dict[str, Any] | None,
     moves: Sequence[dict[str, Any]],
+    profiles: Sequence[dict[str, Any]] | None = None,
     source_move: dict[str, Any] | None = None,
     target_move: dict[str, Any] | None = None,
     status_callback: Callable[[str], None] | None = None,
     profile_refresh_callback: Callable[[int | None], None] | None = None,
 ) -> CancelLabWindow:
     normalized_slot = normalize_slot_label(slot_label)
-    existing = _ACTIVE_BY_SLOT.get(normalized_slot)
-    if existing is not None:
+    # Cancel Lab is one slot-switchable window. Close any prior instance rather
+    # than leaving one window open per fighter slot.
+    for existing in list(dict.fromkeys(_ACTIVE_BY_SLOT.values())):
         try:
             existing.close()
         except Exception:
@@ -1121,6 +1456,7 @@ def open_cancel_lab(
         slot_label=normalized_slot,
         target_slot=target_slot,
         moves=moves,
+        profiles=profiles,
         source_move=source_move,
         target_move=target_move,
         status_callback=status_callback,

@@ -5561,7 +5561,11 @@ class HitboxRenderer:
         return bool(getattr(control, "show_hurtboxes", True)) and _hurtbox_layer_requested()
 
     def _any_collision_layer_enabled(self, control=None) -> bool:
-        return self._hitboxes_enabled(control) or self._hurtboxes_enabled(control)
+        return (
+            self._hitboxes_enabled(control)
+            or self._hurtboxes_enabled(control)
+            or _range_ruler_enabled()
+        )
 
     def _clear_runtime_hitbox_state(self) -> None:
         self.cached_projectiles.clear()
@@ -5647,8 +5651,9 @@ class HitboxRenderer:
     def update(self, dt: float, control=None) -> None:
         hitboxes_on = self._hitboxes_enabled(control)
         hurtboxes_on = self._hurtboxes_enabled(control)
-        set_legend_window_visible(hitboxes_on or hurtboxes_on)
-        if not (hitboxes_on or hurtboxes_on):
+        ruler_on = _range_ruler_enabled()
+        set_legend_window_visible(hitboxes_on or hurtboxes_on or ruler_on)
+        if not (hitboxes_on or hurtboxes_on or ruler_on):
             self._clear_runtime_hitbox_state()
             return
 
@@ -5726,7 +5731,7 @@ class HitboxRenderer:
         # Cache skeletal hurtboxes in update(), not draw().  The same tiny
         # geometry pass also tells us whether a partner slot is actually on-stage
         # so stale standby hitboxes can be culled even when hurtbox display is off.
-        if (hitboxes_on or hurtboxes_on) and now_ms - self._last_hurt_update_ms >= 16:
+        if (hitboxes_on or hurtboxes_on or ruler_on) and now_ms - self._last_hurt_update_ms >= 16:
             hurt_filter = _read_hurtbox_filter()
             hurt_counts: Dict[str, int] = {}
             sample_bits = []
@@ -5741,7 +5746,9 @@ class HitboxRenderer:
                     hurt_counts[hurt_slot] = 0
                     sample_bits.append(f"{hurt_slot}[0]={'STANDBY' if raw_hlist and not live_rig else 'OFF'}")
                     continue
-                cached[hurt_slot] = raw_hlist if hurtboxes_on else []
+                # The ruler needs body geometry for touch/gap calculations,
+                # but keeping that geometry cached does not make hurtboxes visible.
+                cached[hurt_slot] = raw_hlist if (hurtboxes_on or ruler_on) else []
                 hurt_counts[hurt_slot] = len(raw_hlist) if hurtboxes_on else 0
                 # Saved body profiles are deliberately not updated from this
                 # live hurtbox cache.  The cache is display/target geometry only.
@@ -5781,7 +5788,8 @@ class HitboxRenderer:
     def draw(self, screen: pygame.Surface, control=None) -> None:
         hitboxes_on = self._hitboxes_enabled(control)
         hurtboxes_on = self._hurtboxes_enabled(control)
-        if not (hitboxes_on or hurtboxes_on):
+        ruler_on = _range_ruler_enabled()
+        if not (hitboxes_on or hurtboxes_on or ruler_on):
             return
 
         camx, camy, camz, camw = read_camera_pos(CAMERA)
@@ -5803,7 +5811,9 @@ class HitboxRenderer:
         hitbox_view_mode = _read_hitbox_view_mode()
         # The saved-profile ruler needs target/body geometry, not live attack
         # geometry.  It can run with the hitbox drawing layer disabled.
-        range_ruler_on = _range_ruler_enabled() and hurtboxes_on
+        # Ruler visibility is independent from the hurtbox display layer.
+        # Hidden body geometry is still sampled above for touch/gap math.
+        range_ruler_on = bool(ruler_on)
         range_ruler_axes = _range_ruler_axes_enabled()
         now_ms = pygame.time.get_ticks()
         hp_drops: Dict[str, int] = {}
