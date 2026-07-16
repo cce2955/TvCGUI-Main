@@ -230,6 +230,11 @@ from tvcgui.features.frame_data.window import (
 )
 from tvcgui.features.combat.projectile_scanner import open_proj_scanner_window
 try:
+    from tvcgui.features.training.action_recorder_window import open_action_recorder_window
+except Exception as e:
+    open_action_recorder_window = None
+    print(f"WARNING: Action Recorder window not available ({e!r})")
+try:
     from tvcgui.features.training.megacrash_window import open_megacrash_trainer_window
 except Exception as e:
     open_megacrash_trainer_window = None
@@ -2670,7 +2675,7 @@ def legacy_main():
 
         punish_trainer_active = bool(punish_trainer_state.get("enabled", False))
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, solo_team_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -3300,6 +3305,15 @@ def legacy_main():
                     print("[cancel lab] rich profile requested", flush=True)
                 else:
                     print("[cancel lab] scan worker unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
+            elif action_recorder_btn_rect.collidepoint(mx, my):
+                if open_action_recorder_window is not None:
+                    open_action_recorder_window(move_map, global_map, "P1-C1")
+                    print("[action recorder] window opened", flush=True)
+                else:
+                    print("[action recorder] window unavailable", flush=True)
                 mouse_clicked_pos = None
                 continue
 

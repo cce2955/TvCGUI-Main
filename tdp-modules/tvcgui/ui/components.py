@@ -496,6 +496,7 @@ def _command_dock_layout(width: int, tools_open: bool) -> tuple[dict[str, tuple[
         training_specs = [
             ("cancel_mapper", 114),
             ("cancel_lab", 106),
+            ("action_recorder", 132),
             ("punish", 132),
             ("megacrash", 176),
         ]
@@ -766,6 +767,7 @@ def draw_top_command_dock(
         training = draw_section("training")
         cancel_mapper_btn_rect = training["cancel_mapper"]
         cancel_lab_btn_rect = training["cancel_lab"]
+        solo_team_btn_rect = training["action_recorder"]
         action_spoof_btn_rect = training["punish"]
         megacrash_btn_rect = training["megacrash"]
 
@@ -778,6 +780,11 @@ def draw_top_command_dock(
             screen, cancel_lab_btn_rect, "Cancel Lab", dockfont, active=False,
             hover=cancel_lab_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
             fill=(43, 38, 68), align="center",
+        )
+        draw_glass_button(
+            screen, solo_team_btn_rect, "Action Recorder", dockfont, active=False,
+            hover=solo_team_btn_rect.collidepoint(mx, my), accent=GUI_CONFIRM,
+            fill=(27, 33, 45), align="center",
         )
         draw_glass_button(
             screen, action_spoof_btn_rect, "Punish Trainer: ON" if action_spoof_active else "Punish Trainer", dockfont,
@@ -874,6 +881,7 @@ def draw_top_command_dock(
         action_spoof_btn_rect = off.copy()
         cancel_mapper_btn_rect = off.copy()
         cancel_lab_btn_rect = off.copy()
+        solo_team_btn_rect = off.copy()
 
     return (
         hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect,

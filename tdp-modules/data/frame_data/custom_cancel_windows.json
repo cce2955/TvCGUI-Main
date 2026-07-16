@@ -24,7 +24,61 @@
       "name": "Casshan"
     },
     "ryu": {
+      "cancel_profile": {
+        "rules": {
+          "0x0101": {
+            "earliest": 8,
+            "latest": 0,
+            "source": "Live Cancel Lab",
+            "source_id": 257,
+            "targets": [
+              256
+            ],
+            "updated_at": 1784168674
+          },
+          "0x0102": {
+            "earliest": 8,
+            "latest": 0,
+            "source": "Live Cancel Lab",
+            "source_id": 258,
+            "targets": [
+              256,
+              257
+            ],
+            "updated_at": 1784168720
+          }
+        },
+        "updated_at": 1784168720
+      },
       "moves": {
+        "0x0101": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            256
+          ],
+          "updated_at": 1784168702
+        },
+        "0x0102": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            256,
+            257
+          ],
+          "updated_at": 1784168748
+        },
+        "0x0105": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            256
+          ],
+          "updated_at": 1784168166
+        },
         "0x0161": {
           "earliest": 8,
           "latest": 0,
@@ -40,6 +94,16 @@
     },
     "yatterman_1": {
       "moves": {
+        "0x010B": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            353,
+            309
+          ],
+          "updated_at": 1784163158
+        },
         "0x0160": {
           "earliest": 8,
           "latest": 0,

@@ -9,7 +9,7 @@ from typing import Any, Iterable
 from tvcgui.core.paths import user_data_path
 
 PROFILE_PATH = user_data_path("frame_data", "custom_cancel_windows.json")
-_PROFILE_VERSION = 1
+_PROFILE_VERSION = 2
 _CACHE: dict[str, Any] | None = None
 _CACHE_MTIME: float | None = None
 
@@ -190,6 +190,122 @@ def clear_window(char_name: Any, action_id: Any) -> bool:
     return save_profile(profile)
 
 
+
+def get_cancel_profile(char_name: Any) -> list[dict[str, Any]]:
+    """Return every persistent manual cancel rule for one character."""
+    profile = load_profile()
+    char_key = normalize_character_key(char_name)
+    char_entry = ((profile.get("characters") or {}).get(char_key) or {})
+    raw_profile = char_entry.get("cancel_profile") if isinstance(char_entry, dict) else None
+    raw_rules = raw_profile.get("rules") if isinstance(raw_profile, dict) else None
+    if not isinstance(raw_rules, dict):
+        return []
+    rules: list[dict[str, Any]] = []
+    for key, raw in raw_rules.items():
+        if not isinstance(raw, dict):
+            continue
+        try:
+            source_id = int(str(key), 0) if str(key).lower().startswith("0x") else int(raw.get("source_id", key))
+        except Exception:
+            source_id = _as_int(raw.get("source_id"), -1)
+        if source_id < 0:
+            continue
+        earliest, latest = normalize_window(raw.get("earliest", 0), raw.get("latest", 0))
+        targets: list[int] = []
+        for value in list(raw.get("targets") or raw.get("target_ids") or []):
+            target_id = _as_int(value, -1)
+            if target_id >= 0 and target_id != source_id and target_id not in targets:
+                targets.append(target_id & 0xFFFF)
+        if not targets:
+            continue
+        rules.append({
+            "source_id": source_id & 0xFFFF,
+            "earliest": earliest,
+            "latest": latest,
+            "targets": targets,
+            "updated_at": _as_int(raw.get("updated_at"), 0),
+            "source": str(raw.get("source") or "Live Cancel Lab"),
+        })
+    rules.sort(key=lambda row: int(row.get("source_id", 0)))
+    return rules
+
+
+def set_cancel_profile_rule(
+    char_name: Any,
+    source_id: Any,
+    earliest: Any,
+    latest: Any,
+    target_ids: Iterable[Any],
+    *,
+    source: str = "Live Cancel Lab",
+) -> dict[str, Any] | None:
+    """Create or replace one source rule inside the character cancel profile."""
+    sid = _as_int(source_id, -1)
+    if sid < 0:
+        return None
+    sid &= 0xFFFF
+    start, end = normalize_window(earliest, latest)
+    targets: list[int] = []
+    for raw in target_ids or []:
+        target_id = _as_int(raw, -1)
+        if target_id >= 0:
+            target_id &= 0xFFFF
+            if target_id != sid and target_id not in targets:
+                targets.append(target_id)
+    if not targets:
+        return None
+
+    profile = load_profile(force=True)
+    characters = profile.setdefault("characters", {})
+    char_key = normalize_character_key(char_name)
+    char_entry = characters.setdefault(char_key, {"name": str(char_name or "Unknown"), "moves": {}})
+    char_entry["name"] = str(char_name or char_entry.get("name") or "Unknown")
+    cancel_profile = char_entry.setdefault("cancel_profile", {"rules": {}})
+    if not isinstance(cancel_profile, dict):
+        cancel_profile = {"rules": {}}
+        char_entry["cancel_profile"] = cancel_profile
+    rules = cancel_profile.setdefault("rules", {})
+    if not isinstance(rules, dict):
+        rules = {}
+        cancel_profile["rules"] = rules
+    entry = {
+        "source_id": sid,
+        "earliest": start,
+        "latest": end,
+        "targets": targets,
+        "source": str(source or "Live Cancel Lab"),
+        "updated_at": int(time.time()),
+    }
+    rules[f"0x{sid:04X}"] = entry
+    cancel_profile["updated_at"] = entry["updated_at"]
+    return dict(entry) if save_profile(profile) else None
+
+
+def remove_cancel_profile_rule(char_name: Any, source_id: Any) -> bool:
+    sid = _as_int(source_id, -1)
+    if sid < 0:
+        return False
+    profile = load_profile(force=True)
+    char_key = normalize_character_key(char_name)
+    char_entry = ((profile.get("characters") or {}).get(char_key) or {})
+    cancel_profile = char_entry.get("cancel_profile") if isinstance(char_entry, dict) else None
+    rules = cancel_profile.get("rules") if isinstance(cancel_profile, dict) else None
+    if not isinstance(rules, dict):
+        return True
+    rules.pop(f"0x{sid & 0xFFFF:04X}", None)
+    if not rules:
+        char_entry.pop("cancel_profile", None)
+    return save_profile(profile)
+
+
+def clear_cancel_profile(char_name: Any) -> bool:
+    profile = load_profile(force=True)
+    char_key = normalize_character_key(char_name)
+    char_entry = ((profile.get("characters") or {}).get(char_key) or {})
+    if isinstance(char_entry, dict):
+        char_entry.pop("cancel_profile", None)
+    return save_profile(profile)
+
 def apply_windows_to_moves(moves: Iterable[dict[str, Any]], char_name: Any) -> None:
     for move in moves or []:
         if not isinstance(move, dict):
@@ -212,4 +328,8 @@ __all__ = [
     "set_window",
     "clear_window",
     "apply_windows_to_moves",
+    "get_cancel_profile",
+    "set_cancel_profile_rule",
+    "remove_cancel_profile_rule",
+    "clear_cancel_profile",
 ]
