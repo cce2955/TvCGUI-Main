@@ -229,6 +229,7 @@ class HudOverlayManager:
         last_scan_normals,
         mission_mgr: "MissionManager",
         punish_overlay: dict | None = None,
+        timing_payload: dict | None = None,
     ) -> None:
         """
         Build and write hud_overlay_data.json from the current frame's
@@ -332,9 +333,17 @@ class HudOverlayManager:
                     mission_var.get("partner_varing", False)
                     and slot_label == partner_slot
                 ),
+                "timing_action_frame":     int(snap.get("timing_action_frame") or 0),
+                "timing_blockstun":        int(snap.get("timing_blockstun") or 0),
+                "timing_hitstun_total":    int(snap.get("timing_hitstun_total") or 0),
+                "timing_hitstun_remaining": int(snap.get("timing_hitstun_remaining") or 0),
+                "timing_hitstop_active":   int(snap.get("timing_hitstop_active") or 0),
+                "timing_hitstop_pending":  int(snap.get("timing_hitstop_pending") or 0),
+                "timing_hitstop":          int(snap.get("timing_hitstop") or 0),
             }
 
         payload["_punish_trainer"] = dict(punish_overlay or {})
+        payload["_timing_engine"] = dict(timing_payload or {})
 
         try:
             serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))

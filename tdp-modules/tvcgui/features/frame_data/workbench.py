@@ -16,8 +16,7 @@ from . import tree as fd_tree
 from . import projectile_integration as FPI
 from . import super_integration as FSI
 from . import ui_prefs as FDUIPrefs
-from . import cancel_mapper as FCM
-from . import cancel_windows as FCW
+from .timing_observations import apply_observations_to_scan_data
 try:
     import tvcgui.tools.scanners.normal_scanner as FDProfileCache
 except Exception:
@@ -83,6 +82,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.root.minsize(1280, 640)
         self._opening_cancelled = False
         self._opening_after_id = None
+        self._timing_observation_after_id = None
         self._launch_status_var = tk.StringVar(
             master=self.root,
             value="Opening saved profile… no scan is running.",
@@ -134,7 +134,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # Preserve the raw scan order for optional view sorting.
         # Tag each move dict with a stable scan index so we can return to the scanner order.
         moves_scanned = filter_purged_moves_for_char(target_slot, list(target_slot.get("moves", []) or []))
-        FCW.apply_windows_to_moves(moves_scanned, target_slot.get("char_name", ""))
         try:
             target_slot["moves"] = moves_scanned
         except Exception:
@@ -931,6 +930,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             pass
         self._opening_after_id = None
         try:
+            if self.root is not None and self._timing_observation_after_id is not None:
+                self.root.after_cancel(self._timing_observation_after_id)
+        except Exception:
+            pass
+        self._timing_observation_after_id = None
+        try:
             with self._optional_probe_lock:
                 self._optional_probe_stop = True
                 self._optional_probe_queue.clear()
@@ -983,6 +988,100 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             src = "profile cache" if self._profile_fast_path else "scanner snapshot"
             self._status_var.set(f"Frame rows loaded from {src}. Building any missing profile passes automatically.")
         self._queue_auto_profile_build()
+        self._schedule_live_timing_observation_refresh()
+
+    @staticmethod
+    def _format_live_timing_tree_value(field_name: str, value) -> str:
+        try:
+            number = int(value)
+        except Exception:
+            return str(value or "")
+        if field_name in {"hitstun", "blockstun", "hitstop"}:
+            return U.fmt_stun(number)
+        if field_name == "adv_block_observed":
+            return f"+{number}" if number > 0 else str(number)
+        return str(number)
+
+    def _schedule_live_timing_observation_refresh(self) -> None:
+        if self._opening_cancelled or not self.root:
+            return
+        if self._timing_observation_after_id is not None:
+            return
+        try:
+            self._timing_observation_after_id = self.root.after(750, self._refresh_live_timing_observations)
+        except Exception:
+            self._timing_observation_after_id = None
+
+    def _refresh_live_timing_observations(self) -> None:
+        self._timing_observation_after_id = None
+        if self._opening_cancelled or not self.root:
+            return
+        try:
+            if not bool(self.root.winfo_exists()):
+                return
+        except Exception:
+            return
+
+        changes: list[dict] = []
+        try:
+            changed_count = apply_observations_to_scan_data(
+                [self.target_slot],
+                change_log=changes,
+            )
+        except Exception:
+            changed_count = 0
+            changes = []
+
+        if changed_count and self.tree:
+            touched_items: set[str] = set()
+            columns = set(self.tree["columns"] or ())
+            by_action: dict[int, list[dict]] = {}
+            for change in changes:
+                try:
+                    by_action.setdefault(int(change.get("action_id") or 0), []).append(change)
+                except Exception:
+                    continue
+
+            for item_id, move in list((self.move_to_tree_item or {}).items()):
+                try:
+                    action_id = int(move.get("id") or 0)
+                except Exception:
+                    continue
+                for change in by_action.get(action_id, ()):
+                    field_name = str(change.get("field") or "")
+                    if field_name not in columns:
+                        continue
+                    try:
+                        self.tree.set(
+                            item_id,
+                            field_name,
+                            self._format_live_timing_tree_value(field_name, change.get("value")),
+                        )
+                        touched_items.add(item_id)
+                    except Exception:
+                        pass
+
+            for item_id in touched_items:
+                try:
+                    self._apply_row_tags(item_id, self.move_to_tree_item.get(item_id) or {})
+                except Exception:
+                    pass
+
+            try:
+                selected = self.tree.selection()
+                if selected and selected[0] in touched_items:
+                    self._refresh_inspector(selected[0], self.move_to_tree_item.get(selected[0]))
+            except Exception:
+                pass
+
+            if self._status_var is not None:
+                confirmed = sum(1 for change in changes if str(change.get("confidence") or "") == "confirmed")
+                message = f"Applied {changed_count} live timing field{'s' if changed_count != 1 else ''}."
+                if confirmed:
+                    message += f" {confirmed} confirmed by 3 or more matching samples."
+                self._status_var.set(message)
+
+        self._schedule_live_timing_observation_refresh()
 
     def _queue_auto_profile_build(self):
         """Build missing projectile/special passes once, after the window paints."""
@@ -2583,7 +2682,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._apply_inspector_context_layout(mv)
 
     def _refresh_inspector_headline(self, item_id: str | None, mv: dict | None):
-        """Update constant-time headline stats from cached table cells."""
+        """Update four constant-time headline stats from cached table cells."""
         for col, var in (getattr(self, "_headline_stat_vars", {}) or {}).items():
             value = " - "
             try:
@@ -2630,7 +2729,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
         if not item_id or not mv or not self.tree:
             if summary_var is not None:
-                summary_var.set("Select a move to draw its cached startup, active, and custom cancel frames.")
+                summary_var.set("Select a move to draw its cached startup and active frames.")
             return
         try:
             start = int(mv.get("active_start")) if mv.get("active_start") is not None else self._timeline_number(self.tree.set(item_id, "startup"))
@@ -2655,13 +2754,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             invuln_text = mv.get("invuln") or ""
         invuln_frames = self._timeline_number(invuln_text, 0) or 0
-        custom_window = FCW.get_window(self.target_slot.get("char_name", ""), mv.get("id"))
-        custom_start = int((custom_window or {}).get("earliest", 0) or 0)
-        custom_end = int((custom_window or {}).get("latest", 0) or 0)
         end = max(int(end or start), int(start))
         startup_frames = max(0, start - 1)
-        custom_visible_end = custom_end if custom_end else (custom_start + 10 if custom_start else 0)
-        visible_end = max(end + 10, invuln_frames + 5, custom_visible_end + 2, 22)
+        visible_end = max(end + 10, invuln_frames + 5, 22)
         try:
             width = max(240, int(canvas.winfo_width() or 360))
         except Exception:
@@ -2669,17 +2764,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         left, right = 7, max(8, width - 7)
         span = max(1, right - left)
         unit = span / float(visible_end)
-
         def x(frame):
             return int(left + ((max(0, frame - 1)) * unit))
 
         inv_y1, inv_y2 = 13, 23
         main_y1, main_y2 = 37, 54
-        cancel_y1, cancel_y2 = 68, 81
         canvas.create_text(left, 8, anchor="w", text="INVULN", fill="#7FBFC0", font=("Segoe UI", 7, "bold"))
         if invuln_frames:
             canvas.create_rectangle(x(1), inv_y1, max(x(invuln_frames + 1) - 1, x(1) + 3), inv_y2, fill="#3F9B95", outline="")
-            canvas.create_text(min(right - 3, max(left + 38, x(invuln_frames + 1))), 8, anchor="e", text=f"1-{invuln_frames}", fill="#9CDDD5", font=("Segoe UI", 7))
+            canvas.create_text(min(right - 3, max(left + 38, x(invuln_frames + 1))), 8, anchor="e", text=f"1–{invuln_frames}", fill="#9CDDD5", font=("Segoe UI", 7))
         else:
             canvas.create_rectangle(left, inv_y1, right, inv_y2, fill="#243446", outline="")
             canvas.create_text(left + 4, inv_y1 + 5, anchor="w", text="none", fill="#71869D", font=("Segoe UI", 7))
@@ -2693,79 +2786,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         canvas.create_text(left, 30, anchor="w", text="1", fill="#91A7C1", font=("Segoe UI", 7))
         canvas.create_text(max(left + 20, x(start)), 30, anchor="w", text=f"{start}", fill="#91A7C1", font=("Segoe UI", 7))
         canvas.create_text(max(left + 38, x(end + 1)), 30, anchor="w", text=f"{end + 1}", fill="#91A7C1", font=("Segoe UI", 7))
-
-        canvas.create_text(left, 63, anchor="w", text="CUSTOM CANCEL", fill="#D7B7FF", font=("Segoe UI", 7, "bold"))
-        if custom_start:
-            draw_end = custom_end if custom_end else visible_end
-            canvas.create_rectangle(
-                x(custom_start), cancel_y1, max(x(draw_end + 1) - 1, x(custom_start) + 3), cancel_y2,
-                fill="#7652A7", outline="",
-            )
-            label = FCW.format_window(custom_window)
-            canvas.create_text(right - 3, 63, anchor="e", text=label, fill="#E7D6FF", font=("Segoe UI", 7))
-        else:
-            canvas.create_rectangle(left, cancel_y1, right, cancel_y2, fill="#243446", outline="")
-            canvas.create_text(left + 4, cancel_y1 + 6, anchor="w", text="not set", fill="#71869D", font=("Segoe UI", 7))
-
         if summary_var is not None:
             active_count = (end - start) + 1
-            inv_summary = f"  |  Invuln 1-{invuln_frames} ({invuln_frames}f)" if invuln_frames else "  |  Invuln none"
-            cancel_summary = f"  |  Custom cancel {FCW.format_window(custom_window)}" if custom_start else "  |  Custom cancel not set"
-            summary_var.set(f"Startup 1-{startup_frames} ({startup_frames}f)  |  Active {start}-{end} ({active_count}f){inv_summary}{cancel_summary}  |  Recovery not profiled")
-
-    def _refresh_custom_cancel_profile(self, action_id: int | None = None):
-        char_name = self.target_slot.get("char_name", "")
-        for move in list(getattr(self, "moves", []) or []):
-            if action_id is not None and int(move.get("id") or -1) != int(action_id):
-                continue
-            window = FCW.get_window(char_name, move.get("id"))
-            move["custom_cancel_window_data"] = dict(window) if window else None
-            move["custom_cancel_window"] = FCW.format_window(window)
-        if self.tree:
-            for item_id, move in list((self.move_to_tree_item or {}).items()):
-                if action_id is not None and int(move.get("id") or -1) != int(action_id):
-                    continue
-                try:
-                    self.tree.set(item_id, "custom_cancel_window", str(move.get("custom_cancel_window") or ""))
-                    self._apply_row_tags(item_id, move)
-                except Exception:
-                    pass
-            try:
-                selected = self.tree.selection()
-                if selected:
-                    current_item = selected[0]
-                    current_move = self.move_to_tree_item.get(current_item)
-                    self._refresh_inspector(current_item, current_move)
-            except Exception:
-                pass
-
-    def _edit_custom_cancel_window(self, item_id: str, mv: dict):
-        current = FCW.format_window(FCW.get_window(self.target_slot.get("char_name", ""), mv.get("id")))
-        value = simpledialog.askstring(
-            "Custom cancel window",
-            "Enter a forced custom cancel window for this source move.\n\nExamples: 8+ for frame 8 through source end, 8-20 for a bounded window.\nUse clear or leave blank to remove it.\n\nThis is a custom mailbox window, not a decoded native TvC cancel window.",
-            initialvalue=current,
-            parent=self.root,
-        )
-        if value is None:
-            return
-        try:
-            parsed = FCW.parse_window_text(value)
-        except Exception as exc:
-            messagebox.showerror("Custom cancel window", str(exc), parent=self.root)
-            return
-        char_name = self.target_slot.get("char_name", "")
-        if parsed is None:
-            ok = FCW.clear_window(char_name, mv.get("id"))
-            message = "Custom cancel window cleared." if ok else "Could not clear the custom cancel window."
-        else:
-            saved = FCW.set_window(char_name, mv.get("id"), parsed[0], parsed[1], source="Frame Data Editor")
-            ok = saved is not None
-            message = f"Custom cancel window saved as {FCW.format_window(saved)}." if ok else "Could not save the custom cancel window."
-        self._refresh_custom_cancel_profile(int(mv.get("id") or 0))
-        if self._status_var is not None:
-            self._status_var.set(message)
-
+            inv_summary = f"  |  Invuln 1–{invuln_frames} ({invuln_frames}f)" if invuln_frames else "  |  Invuln none"
+            summary_var.set(f"Startup 1–{startup_frames} ({startup_frames}f)  |  Active {start}–{end} ({active_count}f){inv_summary}  |  Recovery not profiled")
 
     def _refresh_selected_row(self):
         if not self.tree:
@@ -2790,381 +2814,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         queued = self._request_optional_probe(item_id, mv, priority=True, force=True, announce=True)
         if self._status_var is not None:
             self._status_var.set("Refreshing selected row in the background..." if queued else "Selected row already has cached optional fields.")
-
-    def _open_cancel_mapper(self):
-        """Open a cached rule map for the move selected in the workbench."""
-        if not self.tree or not self.root:
-            return
-        try:
-            selected = self.tree.selection()
-        except Exception:
-            selected = ()
-        if not selected:
-            if self._status_var is not None:
-                self._status_var.set("Select a move before opening the Cancel Mapper.")
-            return
-        selected_move = self.move_to_tree_item.get(selected[0])
-        if not isinstance(selected_move, dict) or selected_move.get("id") is None:
-            if self._status_var is not None:
-                self._status_var.set("The selected row is not a mapped action.")
-            return
-
-        existing = getattr(self, "_cancel_mapper_window", None)
-        try:
-            if existing is not None and existing.winfo_exists():
-                existing.destroy()
-        except Exception:
-            pass
-
-        dlg = tk.Toplevel(self.root)
-        self._cancel_mapper_window = dlg
-        apply_titlebar_icon(dlg, self.root)
-        dlg.title("Cancel Mapper")
-        dlg.geometry("1180x700")
-        dlg.minsize(900, 520)
-        try:
-            dlg.configure(bg="#101722")
-        except Exception:
-            pass
-        dlg.transient(self.root)
-
-        candidates = FCM.canonical_moves(self.moves)
-        selected_id = selected_move.get("id")
-        if not any(mv is selected_move or mv.get("id") == selected_id for mv in candidates):
-            candidates.insert(0, selected_move)
-
-        source_by_label = {}
-        source_labels = []
-        for mv in candidates:
-            name = FCM.display_name(mv, self.target_slot.get("char_name", ""))
-            try:
-                aid_text = f"0x{int(mv.get('id')):04X}"
-            except Exception:
-                aid_text = "no ID"
-            try:
-                addr_text = f"0x{int(mv.get('abs')):08X}"
-            except Exception:
-                addr_text = "no address"
-            label = f"{name} [{aid_text}] @ {addr_text}"
-            if label in source_by_label:
-                label = f"{label} #{len(source_labels) + 1}"
-            source_by_label[label] = mv
-            source_labels.append(label)
-
-        selected_label = next(
-            (
-                label for label, mv in source_by_label.items()
-                if mv is selected_move
-                or (
-                    mv.get("id") == selected_move.get("id")
-                    and mv.get("abs") == selected_move.get("abs")
-                )
-            ),
-            source_labels[0] if source_labels else "",
-        )
-
-        shell = ttk.Frame(dlg, style="FD.TFrame", padding=(12, 12))
-        shell.pack(fill="both", expand=True)
-
-        hero = ttk.Frame(shell, style="Hero.TFrame", padding=(14, 12))
-        hero.pack(fill="x", pady=(0, 10))
-        ttk.Label(hero, text="CANCEL MAPPER", style="HeroTitle.TLabel").pack(anchor="w")
-        ttk.Label(
-            hero,
-            text=(
-                "Current rule model: 5A > 2A > 5B > 2B > 5C > 2C, "
-                "5C may also route to 3C, and direct command routes are honored. "
-                "Special and super targets are Category Eligible until their ground/air "
-                "and other execution requirements are decoded."
-            ),
-            style="HeroSub.TLabel",
-            wraplength=1100,
-            justify="left",
-        ).pack(anchor="w", pady=(3, 0))
-
-        controls = ttk.Frame(shell, style="Card.TFrame", padding=(10, 8))
-        controls.pack(fill="x", pady=(0, 10))
-        ttk.Label(controls, text="Source move", style="Card.TLabel").pack(side="left", padx=(0, 8))
-        source_var = tk.StringVar(master=dlg, value=selected_label)
-        source_combo = ttk.Combobox(
-            controls,
-            textvariable=source_var,
-            values=source_labels,
-            state="readonly",
-            width=58,
-        )
-        source_combo.pack(side="left", fill="x", expand=True)
-
-        filter_var = tk.StringVar(master=dlg, value="ALL")
-        search_var = tk.StringVar(master=dlg, value="")
-        summary_var = tk.StringVar(master=dlg, value="")
-        source_summary_var = tk.StringVar(master=dlg, value="")
-
-        action_bar = ttk.Frame(shell, style="FD.TFrame")
-        action_bar.pack(fill="x", pady=(0, 8))
-
-        def set_filter(value):
-            filter_var.set(value)
-            refresh_rows()
-
-        for label, value in (
-            ("All", "ALL"),
-            ("Allowed", "ALLOWED"),
-            ("Eligible", "ELIGIBLE"),
-            ("Blocked", "BLOCKED"),
-            ("Unknown", "UNKNOWN"),
-        ):
-            ttk.Button(action_bar, text=label, command=lambda v=value: set_filter(v)).pack(side="left", padx=(0, 5))
-
-        ttk.Label(action_bar, text="Search", style="Top.TLabel").pack(side="left", padx=(14, 6))
-        search_entry = ttk.Entry(action_bar, textvariable=search_var, width=28)
-        search_entry.pack(side="left")
-        ttk.Label(action_bar, textvariable=summary_var, style="Muted.Top.TLabel").pack(side="right")
-
-        source_line = ttk.Frame(shell, style="Card.TFrame", padding=(10, 7))
-        source_line.pack(fill="x", pady=(0, 8))
-        ttk.Label(source_line, textvariable=source_summary_var, style="Card.TLabel").pack(side="left", fill="x", expand=True)
-
-        columns = ("status", "target", "kind", "action", "rule", "address", "evidence")
-        table_frame = ttk.Frame(shell, style="FD.TFrame")
-        table_frame.pack(fill="both", expand=True)
-        mapper_tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
-        yscroll = ttk.Scrollbar(table_frame, orient="vertical", command=mapper_tree.yview)
-        xscroll = ttk.Scrollbar(table_frame, orient="horizontal", command=mapper_tree.xview)
-        mapper_tree.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
-        mapper_tree.grid(row=0, column=0, sticky="nsew")
-        yscroll.grid(row=0, column=1, sticky="ns")
-        xscroll.grid(row=1, column=0, sticky="ew")
-        table_frame.grid_rowconfigure(0, weight=1)
-        table_frame.grid_columnconfigure(0, weight=1)
-
-        headings = {
-            "status": "Status",
-            "target": "Target move",
-            "kind": "Kind",
-            "action": "Action ID",
-            "rule": "Current rule",
-            "address": "Target address",
-            "evidence": "Route evidence",
-        }
-        widths = {
-            "status": 90,
-            "target": 190,
-            "kind": 80,
-            "action": 90,
-            "rule": 430,
-            "address": 115,
-            "evidence": 150,
-        }
-        for column in columns:
-            mapper_tree.heading(column, text=headings[column])
-            mapper_tree.column(column, width=widths[column], minwidth=60, stretch=(column in {"target", "rule"}))
-
-        mapper_tree.tag_configure("allowed", foreground="#91E5B0")
-        mapper_tree.tag_configure("eligible", foreground="#8FD5FF")
-        mapper_tree.tag_configure("blocked", foreground="#FFB0B7")
-        mapper_tree.tag_configure("unknown", foreground="#B8C6D8")
-        row_payloads = {}
-        current_rows = []
-
-        def current_source():
-            return source_by_label.get(source_var.get()) or selected_move
-
-        def copy_value(value, description):
-            try:
-                text = str(value)
-                dlg.clipboard_clear()
-                dlg.clipboard_append(text)
-                dlg.update_idletasks()
-                if self._status_var is not None:
-                    self._status_var.set(f"Copied {description}: {text}")
-            except Exception:
-                pass
-
-        def refresh_rows(*_args):
-            source = current_source()
-            current_rows[:] = FCM.build_cancel_rows(source, self.moves)
-            try:
-                source_name = FCM.display_name(source, self.target_slot.get("char_name", ""))
-                source_id = int(source.get("id"))
-                source_addr = int(source.get("abs"))
-                source_note = FCM.notation_for_move(source) or FCM.move_kind(source).title()
-                source_summary_var.set(
-                    f"Source: {source_name} [0x{source_id:04X}] at 0x{source_addr:08X} | Model class: {source_note}"
-                )
-                dlg.title(f"Cancel Mapper: {source_name}")
-            except Exception:
-                source_summary_var.set("Source move information is incomplete.")
-
-            for item in mapper_tree.get_children(""):
-                mapper_tree.delete(item)
-            row_payloads.clear()
-
-            wanted = filter_var.get().strip().upper()
-            needle = search_var.get().strip().lower()
-            visible_counts = {"ALLOWED": 0, "ELIGIBLE": 0, "BLOCKED": 0, "UNKNOWN": 0}
-            total_counts = {"ALLOWED": 0, "ELIGIBLE": 0, "BLOCKED": 0, "UNKNOWN": 0}
-            for row in current_rows:
-                status = str(row.get("status") or "UNKNOWN").upper()
-                total_counts[status] = total_counts.get(status, 0) + 1
-                searchable = " ".join(
-                    str(row.get(key) or "")
-                    for key in ("target_name", "target_kind", "target_notation", "reason")
-                ).lower()
-                if wanted != "ALL" and status != wanted:
-                    continue
-                if needle and needle not in searchable:
-                    continue
-
-                visible_counts[status] = visible_counts.get(status, 0) + 1
-                target_id = row.get("target_id")
-                target_addr = row.get("target_addr")
-                evidence_addr = row.get("evidence_addr")
-                branch_addr = row.get("branch_addr")
-                evidence_parts = []
-                if evidence_addr:
-                    evidence_parts.append(f"test 0x{int(evidence_addr):08X}")
-                if branch_addr:
-                    evidence_parts.append(f"branch 0x{int(branch_addr):08X}")
-                iid = mapper_tree.insert(
-                    "",
-                    "end",
-                    values=(
-                        status,
-                        row.get("target_name") or "Unknown",
-                        str(row.get("target_kind") or "other").title(),
-                        f"0x{int(target_id):04X}" if target_id is not None else "",
-                        row.get("reason") or "",
-                        f"0x{int(target_addr):08X}" if target_addr else "",
-                        ", ".join(evidence_parts) if evidence_parts else (
-                            "category model" if status == "ELIGIBLE" else "rule model"
-                        ),
-                    ),
-                    tags=(status.lower(),),
-                )
-                row_payloads[iid] = row
-
-            summary_var.set(
-                f"Allowed {total_counts.get('ALLOWED', 0)} | "
-                f"Eligible {total_counts.get('ELIGIBLE', 0)} | "
-                f"Blocked {total_counts.get('BLOCKED', 0)} | "
-                f"Unknown {total_counts.get('UNKNOWN', 0)}"
-            )
-
-        def use_current_selection():
-            try:
-                live_selection = self.tree.selection()
-            except Exception:
-                live_selection = ()
-            if not live_selection:
-                return
-            live_move = self.move_to_tree_item.get(live_selection[0])
-            if not isinstance(live_move, dict):
-                return
-            match = next(
-                (
-                    label for label, mv in source_by_label.items()
-                    if mv is live_move
-                    or (
-                        mv.get("id") == live_move.get("id")
-                        and mv.get("abs") == live_move.get("abs")
-                    )
-                ),
-                None,
-            )
-            if match:
-                source_var.set(match)
-                refresh_rows()
-
-        def show_context_menu(event):
-            item = mapper_tree.identify_row(event.y)
-            if not item:
-                return
-            mapper_tree.selection_set(item)
-            row = row_payloads.get(item)
-            if not row:
-                return
-            source = current_source()
-            menu = tk.Menu(dlg, tearoff=0)
-            target_addr = row.get("target_addr")
-            target_id = row.get("target_id")
-            evidence_addr = row.get("evidence_addr")
-            branch_addr = row.get("branch_addr")
-            source_addr = source.get("abs")
-            if target_addr:
-                menu.add_command(
-                    label=f"Copy Target Address (0x{int(target_addr):08X})",
-                    command=lambda value=f"0x{int(target_addr):08X}": copy_value(value, "target address"),
-                )
-            if evidence_addr:
-                menu.add_command(
-                    label=f"Copy Route Test Address (0x{int(evidence_addr):08X})",
-                    command=lambda value=f"0x{int(evidence_addr):08X}": copy_value(value, "route test address"),
-                )
-            if branch_addr:
-                menu.add_command(
-                    label=f"Copy Route Branch Address (0x{int(branch_addr):08X})",
-                    command=lambda value=f"0x{int(branch_addr):08X}": copy_value(value, "route branch address"),
-                )
-            if target_id is not None:
-                menu.add_command(
-                    label=f"Copy Target Action ID (0x{int(target_id):04X})",
-                    command=lambda value=f"0x{int(target_id):04X}": copy_value(value, "target action ID"),
-                )
-            if source_addr:
-                menu.add_separator()
-                menu.add_command(
-                    label=f"Copy Source Address (0x{int(source_addr):08X})",
-                    command=lambda value=f"0x{int(source_addr):08X}": copy_value(value, "source address"),
-                )
-            try:
-                menu.tk_popup(event.x_root, event.y_root)
-            finally:
-                try:
-                    menu.grab_release()
-                except Exception:
-                    pass
-
-        def copy_selected_target(_event=None):
-            selection = mapper_tree.selection()
-            if not selection:
-                return "break"
-            row = row_payloads.get(selection[0])
-            if row and row.get("target_addr"):
-                copy_value(f"0x{int(row['target_addr']):08X}", "target address")
-            return "break"
-
-        source_combo.bind("<<ComboboxSelected>>", refresh_rows)
-        search_var.trace_add("write", refresh_rows)
-        mapper_tree.bind("<Button-3>", show_context_menu)
-        mapper_tree.bind("<Double-Button-1>", copy_selected_target)
-        mapper_tree.bind("<Return>", copy_selected_target)
-        dlg.bind("<Escape>", lambda _event: dlg.destroy())
-
-        bottom = ttk.Frame(shell, style="FD.TFrame")
-        bottom.pack(fill="x", pady=(8, 0))
-        ttk.Button(bottom, text="Use workbench selection", command=use_current_selection).pack(side="left")
-        ttk.Button(
-            bottom,
-            text="Copy source address",
-            command=lambda: copy_value(
-                f"0x{int(current_source().get('abs')):08X}",
-                "source address",
-            ) if current_source().get("abs") else None,
-        ).pack(side="left", padx=(6, 0))
-        ttk.Label(
-            bottom,
-            text="Right click a row to test that source-to-target route live or copy its addresses.",
-            style="Muted.Top.TLabel",
-        ).pack(side="right")
-
-        refresh_rows()
-        try:
-            source_combo.focus_set()
-        except Exception:
-            pass
-        if self._status_var is not None:
-            self._status_var.set("Opened Cancel Mapper for the selected move.")
 
     def _pin_current_move(self):
         if not self.tree:
@@ -3828,9 +3477,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not mv:
             return
 
-        if col_name == "custom_cancel_window":
-            self._edit_custom_cancel_window(item, mv)
-            return
         if col_name == "abs":
             self._copy_selected_address()
             return
@@ -3921,10 +3567,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         property_txt = self.tree.set(item_id, "attack_property").strip()
         if property_txt:
             tags.add("property_hot")
-
-        custom_cancel_txt = self.tree.set(item_id, "custom_cancel_window").strip() if "custom_cancel_window" in self.tree["columns"] else ""
-        if custom_cancel_txt:
-            tags.add("cancel_hot")
 
         super_txt = self.tree.set(item_id, "superbg").strip()
         if super_txt == "ON":
@@ -6077,33 +5719,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         menu = tk.Menu(self.root, tearoff=0)
 
-        if col_name == "cancel_probe":
-            windows = list(mv.get("cancel_windows") or [])
-            added = 0
-            seen = set()
-            for probe in windows:
-                try:
-                    addr = int(probe.get("addr") or 0)
-                except Exception:
-                    addr = 0
-                if not addr or addr in seen:
-                    continue
-                seen.add(addr)
-                kind = str(probe.get("kind") or "window").strip().lower()
-                label = "Special window" if kind == "special" else "Normal route"
-                menu.add_command(
-                    label=f"Copy {label} Address (0x{addr:08X})",
-                    command=lambda a=addr: self._copy_address(a),
-                )
-                added += 1
-            if added > 1:
-                menu.add_command(
-                    label="Copy All Cancel Window Addresses",
-                    command=lambda values=tuple(sorted(seen)): self._copy_cancel_window_addresses(values),
-                )
-            if not added:
-                menu.add_command(label="No Cancel Window Address", state="disabled")
-
         addr_map = {
             "damage": ("damage_addr", "Damage"),
             "meter": ("meter_addr", "Meter"),
@@ -6191,20 +5806,6 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         finally:
             menu.grab_release()
 
-    def _copy_cancel_window_addresses(self, addresses):
-        values = []
-        for addr in addresses or ():
-            try:
-                values.append(f"0x{int(addr):08X}")
-            except Exception:
-                continue
-        if not values:
-            return
-        self.root.clipboard_clear()
-        self.root.clipboard_append("\n".join(values))
-        if self._status_var is not None:
-            self._status_var.set(f"Copied {len(values)} cancel window addresses")
-
     def _copy_address(self, addr: int):
         self.root.clipboard_clear()
         self.root.clipboard_append(f"0x{addr:08X}")
@@ -6291,6 +5892,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 def open_editable_frame_data_window(slot_label, scan_data):
     if not scan_data:
         return
+    try:
+        apply_observations_to_scan_data(scan_data)
+    except Exception:
+        pass
     target = None
     for s in scan_data:
         if s.get("slot_label") == slot_label:

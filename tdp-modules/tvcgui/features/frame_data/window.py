@@ -2,6 +2,7 @@
 
 import tkinter as tk
 from tvcgui.core.tk_host import tk_call
+from .timing_observations import apply_observations_to_scan_data
 
 try:
     from .workbench import open_editable_frame_data_window as _open_new_editor
@@ -176,6 +177,10 @@ def open_frame_data_window(slot_label, scan_data):
     """
     if not scan_data:
         return
+    try:
+        apply_observations_to_scan_data(scan_data)
+    except Exception:
+        pass
 
     # Prefer NEW modular editor
     if HAVE_NEW_EDITOR and _open_new_editor is not None:

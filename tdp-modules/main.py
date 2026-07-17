@@ -191,6 +191,11 @@ from tvcgui.tools.scanners.fighter_resolver import RESOLVER, pick_posy_off_no_ju
 from tvcgui.features.combat.meter import read_meter, METER_CACHE
 from tvcgui.tools.scanners.fighter_state import read_fighter, dist2
 from tvcgui.features.combat.advantage import ADV_TRACK
+from tvcgui.features.combat.timing_engine import TIMING_ENGINE
+from tvcgui.features.frame_data.timing_observations import (
+    apply_observations_to_scan_data,
+    record_timing_result,
+)
 from tvcgui.features.combat.moves import (
     load_move_map,
     move_label_for,
@@ -234,6 +239,11 @@ try:
 except Exception as e:
     open_action_recorder_window = None
     print(f"WARNING: Action Recorder window not available ({e!r})")
+try:
+    from tvcgui.features.training.timing_probe_window import open_timing_probe_window
+except Exception as e:
+    open_timing_probe_window = None
+    print(f"WARNING: Timing Probe window not available ({e!r})")
 try:
     from tvcgui.features.training.megacrash_window import open_megacrash_trainer_window
 except Exception as e:
@@ -2226,6 +2236,33 @@ def legacy_main():
         if p1_giant_solo or p2_giant_solo:
             snaps = reassign_slots_for_giants(snaps)
 
+        # Shared timing engine. One read-only timing pass now feeds the live
+        # monitor, observed block advantage, the HUD interaction card, and the
+        # persistent frame-data observation cache.
+        timing_results = []
+        try:
+            timing_results = TIMING_ENGINE.update(frame_idx, snaps)
+            TIMING_ENGINE.decorate_snapshots(render_snap_by_slot)
+            TIMING_ENGINE.decorate_snapshots(snaps)
+            for _timing_result in timing_results:
+                record_timing_result(_timing_result)
+                if last_scan_normals:
+                    apply_observations_to_scan_data(last_scan_normals)
+                if _timing_result.kind == "block" and _timing_result.block_advantage is not None:
+                    _atk_obj = render_snap_by_slot.get(_timing_result.attacker_slot) or snaps.get(_timing_result.attacker_slot)
+                    _vic_obj = render_snap_by_slot.get(_timing_result.defender_slot) or snaps.get(_timing_result.defender_slot)
+                    last_adv_display = (
+                        f"{_timing_result.attacker_slot}({_timing_result.attacker_name}) vs "
+                        f"{_timing_result.defender_slot}({_timing_result.defender_name}): "
+                        f"{int(_timing_result.block_advantage):+d}f observed, "
+                        f"BS {_timing_result.blockstun}, Stop {_timing_result.hitstop}"
+                    )
+                    if _atk_obj and _vic_obj:
+                        log_frame_advantage(_atk_obj, _vic_obj, int(_timing_result.block_advantage))
+        except Exception as _timing_engine_error:
+            if frame_idx % 300 == 0:
+                print(f"[timing engine] update failed: {_timing_engine_error!r}", flush=True)
+
         # Punish Trainer uses the game's own one-shot action mailbox. It waits
         # for the selected fighter to return to a non-attack state, requests the
         # chosen move, then starts the cooldown after the move finishes.
@@ -2479,11 +2516,6 @@ def legacy_main():
                 atk_move_id    = atk_snap.get("attA") or atk_snap.get("attB")
                 atk_move_label = atk_snap.get("mv_label")
 
-                ADV_TRACK.start_contact(
-                    atk_snap["base"], vic_snap["base"],
-                    frame_idx, atk_move_id, vic_move_id,
-                )
-
                 base      = vic_snap["base"]
                 hp_now    = vic_snap["cur"]
                 hp_prev   = prev_hp.get(base, hp_now)
@@ -2493,38 +2525,10 @@ def legacy_main():
                     log_engaged(atk_snap, vic_snap, frame_idx)
                     log_hit(atk_snap, vic_snap, dmg, frame_idx, atk_move_label, atk_move_id)
 
-        if frame_idx % ADV_EVERY_FRAMES == 0:
-            pairs = [
-                ("P1-C1", "P2-C1"), ("P1-C1", "P2-C2"),
-                ("P1-C2", "P2-C1"), ("P1-C2", "P2-C2"),
-                ("P2-C1", "P1-C1"), ("P2-C1", "P1-C2"),
-                ("P2-C2", "P1-C1"), ("P2-C2", "P1-C2"),
-            ]
-            for atk_slot, vic_slot in pairs:
-                atk_snap = snaps.get(atk_slot)
-                vic_snap = snaps.get(vic_slot)
-                if atk_snap and vic_snap:
-                    ADV_TRACK.update_pair(
-                        atk_snap["base"], vic_snap["base"], frame_idx,
-                        atk_snap.get("attA") or atk_snap.get("attB"),
-                        vic_snap.get("attA") or vic_snap.get("attB"),
-                    )
-
-            freshest = ADV_TRACK.get_freshest_final_info()
-            if freshest:
-                atk_b, vic_b, plusf, fin_frame = freshest
-                if abs(plusf) <= 64:
-                    atk_obj = next((s for s in snaps.values() if s["base"] == atk_b), None)
-                    vic_obj = next((s for s in snaps.values() if s["base"] == vic_b), None)
-                    if atk_obj and vic_obj:
-                        last_adv_display = (
-                            f"{atk_obj['slotname']}({atk_obj['name']}) vs "
-                            f"{vic_obj['slotname']}({vic_obj['name']}): "
-                            f"{plusf:+.1f}f"
-                        )
-                        log_frame_advantage(atk_obj, vic_obj, plusf)
-                    else:
-                        last_adv_display = f"Frame adv: {plusf:+.1f}f"
+        # Observed block advantage is finalized by TIMING_ENGINE above from
+        # the decoded blockstun countdown and each fighter's actionable edge.
+        # The legacy move-ID tracker remains imported for older partial source
+        # overlays, but no longer drives the live result in this build.
 
         # ------------------------------------------------------------------
         # Rendering
@@ -2675,7 +2679,7 @@ def legacy_main():
 
         punish_trainer_active = bool(punish_trainer_state.get("enabled", False))
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -3028,6 +3032,7 @@ def legacy_main():
             last_scan_normals,
             mission_mgr,
             punish_overlay=punish_trainer_overlay_payload(punish_trainer_state, time.monotonic()),
+            timing_payload=TIMING_ENGINE.overlay_payload(),
         )
         hud_mgr.check_proc()
 
@@ -3314,6 +3319,15 @@ def legacy_main():
                     print("[action recorder] window opened", flush=True)
                 else:
                     print("[action recorder] window unavailable", flush=True)
+                mouse_clicked_pos = None
+                continue
+
+            elif timing_probe_btn_rect.collidepoint(mx, my):
+                if open_timing_probe_window is not None:
+                    open_timing_probe_window(move_map, global_map, "P1-C1")
+                    print("[timing probe] window opened", flush=True)
+                else:
+                    print("[timing probe] window unavailable", flush=True)
                 mouse_clicked_pos = None
                 continue
 

@@ -142,7 +142,18 @@ _interaction_ribbon = {
 }
 _combo_ledgers: dict[str, dict] = {"P1": {}, "P2": {}}
 _punish_overlay: dict = {}
+_timing_engine_payload: dict = {}
+_last_timing_sequence: int = 0
 _COUNTDOWN_FONT_CACHE: dict[tuple[int, bool], pygame.font.Font] = {}
+_PUNISH_BADGE_ANIM = {
+    "alpha": 0.0,
+    "slide_px": 0.0,
+    "pop": 0.0,
+    "shine": 0.0,
+    "last_token": "",
+    "last_slot": "P2-C1",
+    "last_payload": {},
+}
 
 _HISTORY_HEADER_CHIP_CACHE: dict[tuple, pygame.Surface] = {}
 _COMPACT_PANEL_SHELL_CACHE: dict[tuple, tuple[pygame.Surface, pygame.Surface]] = {}
@@ -187,6 +198,59 @@ def _push_adv(slot_label: str, value: int) -> None:
     events.insert(0, {"value": value, "life": 1.0, "age": 0.0, "x_offset": 20})
     if len(events) > 3:
         events.pop()
+
+
+def _consume_timing_engine_result() -> bool:
+    """Publish one authoritative timing-engine result to the block counter."""
+    global _last_timing_sequence
+    latest = (_timing_engine_payload or {}).get("latest")
+    if not isinstance(latest, dict):
+        return False
+    try:
+        sequence = int(latest.get("sequence") or 0)
+    except Exception:
+        sequence = 0
+    if sequence <= _last_timing_sequence:
+        return False
+    _last_timing_sequence = sequence
+    if str(latest.get("kind") or "").lower() != "block":
+        return False
+    if latest.get("block_advantage") is None:
+        return False
+
+    attacker_slot = str(latest.get("attacker_slot") or "")
+    defender_slot = str(latest.get("defender_slot") or "")
+    try:
+        advantage = int(latest.get("block_advantage"))
+    except Exception:
+        return False
+    _push_adv(attacker_slot, advantage)
+    _push_adv(defender_slot, -advantage)
+
+    attacker = str(latest.get("attacker_name") or _snap_name(attacker_slot))
+    defender = str(latest.get("defender_name") or _snap_name(defender_slot))
+    move = str(latest.get("action_name") or _snap_move(attacker_slot))
+    blockstun = int(latest.get("blockstun") or 0)
+    hitstop = int(latest.get("hitstop") or 0)
+    attacker_ready = latest.get("attacker_ready_frames")
+    defender_ready = latest.get("defender_ready_frames")
+    detail_parts = [f"{defender}", f"{advantage:+d}", f"BS {blockstun}", f"STOP {hitstop}"]
+    if attacker_ready is not None and defender_ready is not None:
+        detail_parts.append(f"READY {int(attacker_ready)}/{int(defender_ready)}")
+    _interaction_ribbon.update({
+        "title": f"BLOCK  |  {attacker}  {move}",
+        "detail": "  •  ".join(detail_parts),
+        "color": (128, 180, 255),
+        "stamp": "OBSERVED",
+        "life": 1.0,
+        "age": 0.0,
+    })
+    pair = _adv_pairs.get((attacker_slot, defender_slot))
+    if isinstance(pair, dict):
+        pair["state"] = 0
+        pair["first_end"] = None
+        pair["first_slot"] = None
+    return True
 
 
 def _snap_int(slot_label: str, key: str, default: int = 0) -> int:
@@ -901,75 +965,183 @@ def _countdown_font(size: int, bold: bool = True) -> pygame.font.Font:
     return font
 
 
+def _punish_badge_anchor(
+    screen: pygame.Surface,
+    scale: float,
+    slot: str,
+    badge_w: int,
+    badge_h: int,
+) -> tuple[int, int, int]:
+    team = "P1" if str(slot).upper().startswith("P1") else "P2"
+    is_left = team == "P1"
+    margin_x = max(8, int(12 * scale))
+    panel_y = int(144 * scale)
+    gap = max(5, int(7 * scale))
+    x = margin_x if is_left else screen.get_width() - margin_x - badge_w
+    y = max(8, panel_y - badge_h - gap)
+    direction = -1 if is_left else 1
+    return x, y, direction
+
+
 def _draw_punish_countdown(screen: pygame.Surface, scale: float) -> None:
     data = _punish_overlay if isinstance(_punish_overlay, dict) else {}
-    if not bool(data.get("visible", False)):
+    anim = _PUNISH_BADGE_ANIM
+    dt = 1.0 / 60.0
+
+    requested_visible = bool(data.get("visible", False))
+    if requested_visible:
+        anim["last_payload"] = dict(data)
+        anim["last_slot"] = str(data.get("slot") or anim.get("last_slot") or "P2-C1")
+    payload = data if requested_visible else anim.get("last_payload", {})
+    if not isinstance(payload, dict):
+        payload = {}
+
+    target_alpha = 1.0 if requested_visible else 0.0
+    anim["alpha"] = _approach(float(anim.get("alpha", 0.0)), target_alpha, 8.5 if requested_visible else 6.8, dt)
+    if float(anim["alpha"]) <= 0.01 and not requested_visible:
+        anim["last_token"] = ""
+        anim["pop"] = 0.0
+        anim["shine"] = 0.0
         return
 
-    phase = str(data.get("phase") or "off")
+    phase = str(payload.get("phase") or "off")
     try:
-        remaining = max(0.0, float(data.get("remaining") or 0.0))
+        remaining = max(0.0, float(payload.get("remaining") or 0.0))
     except Exception:
         remaining = 0.0
     try:
-        scheduled = max(0.0, float(data.get("scheduled_interval") or 0.0))
+        scheduled = max(0.0, float(payload.get("scheduled_interval") or 0.0))
     except Exception:
         scheduled = 0.0
 
-    is_now = phase != "cooldown" or remaining <= 0.02
-    value_text = "NOW" if is_now else str(max(1, int(math.ceil(remaining))))
-    title_text = "PUNISH" if is_now else "PUNISH IN"
-    slot = str(data.get("slot") or "").strip()
-    move = str(data.get("move_label") or "Move").strip()
-    random_mode = bool(data.get("random_interval", False))
+    attacking = phase != "cooldown" or remaining <= 0.02
+    count_text = "" if attacking else str(max(1, int(math.ceil(remaining))))
+    slot = str(payload.get("slot") or anim.get("last_slot") or "P2-C1").strip()
+    move = str(payload.get("move_label") or "Move").strip()
+    random_mode = bool(payload.get("random_interval", False))
+    token = f"{slot}|{move}|{phase}|{count_text}|{int(attacking)}"
 
-    pulse = 1.0
-    if is_now:
-        pulse = 1.0 + 0.045 * math.sin(float(_frame) * 0.42)
+    if requested_visible and token != str(anim.get("last_token") or ""):
+        anim["last_token"] = token
+        anim["pop"] = 1.0
+        anim["shine"] = 1.0
+        _x, _y, direction = _punish_badge_anchor(screen, scale, slot, 1, 1)
+        anim["slide_px"] = float(direction * max(12, int(18 * scale)))
 
-    panel_w = max(220, int(254 * scale * pulse))
-    panel_h = max(102, int(126 * scale * pulse))
-    panel = pygame.Surface((panel_w, panel_h), pygame.SRCALPHA)
-    panel.fill((9, 14, 24, 226))
+    anim["slide_px"] = _approach(float(anim.get("slide_px", 0.0)), 0.0 if requested_visible else (8.0 if slot.startswith("P2") else -8.0), 125.0, dt)
+    anim["pop"] = _approach(float(anim.get("pop", 0.0)), 0.0, 4.8, dt)
+    anim["shine"] = _approach(float(anim.get("shine", 0.0)), 0.0, 2.7, dt)
 
-    accent = (255, 103, 78) if is_now else (91, 181, 255)
-    pygame.draw.rect(panel, (*accent, 235), panel.get_rect(), width=max(2, int(2 * scale)), border_radius=max(8, int(10 * scale)))
-    pygame.draw.rect(panel, (255, 255, 255, 22), (3, 3, panel_w - 6, max(12, int(18 * scale))), border_radius=max(5, int(7 * scale)))
+    badge_w = max(184, int(218 * scale))
+    badge_h = max(42, int(50 * scale))
+    accent = (255, 111, 82) if attacking else SLOT_COLORS.get(slot, (91, 181, 255))
+    bg_top = (14, 20, 31, 242)
+    bg_bottom = (7, 12, 21, 238)
 
-    title_font = _countdown_font(max(10, int(13 * scale)), True)
-    value_font = _countdown_font(max(28, int((48 if not is_now else 42) * scale)), True)
-    detail_font = _countdown_font(max(9, int(11 * scale)), False)
+    badge = pygame.Surface((badge_w, badge_h), pygame.SRCALPHA)
+    radius = max(7, int(9 * scale))
+    pygame.draw.rect(badge, bg_bottom, badge.get_rect(), border_radius=radius)
+    pygame.draw.rect(badge, bg_top, (1, 1, badge_w - 2, max(16, badge_h // 2)), border_radius=radius)
+    pygame.draw.rect(badge, (*accent, 235), badge.get_rect(), width=max(1, int(1.5 * scale)), border_radius=radius)
 
+    strip_w = max(4, int(5 * scale))
+    pygame.draw.rect(badge, (*accent, 245), (0, radius, strip_w, badge_h - radius * 2), border_radius=max(2, strip_w // 2))
+
+    title_font = _countdown_font(max(9, int(10 * scale)), True)
+    move_font = _countdown_font(max(8, int(9 * scale)), False)
+    count_font = _countdown_font(max(18, int(24 * scale)), True)
+    chip_font = _countdown_font(max(7, int(8 * scale)), True)
+
+    pad_x = max(10, int(12 * scale))
+    number_area_w = max(42, int(48 * scale))
+    text_right = badge_w - number_area_w - max(7, int(8 * scale))
+
+    chip_text = slot.replace("-", " ")
+    chip_surf = chip_font.render(chip_text, True, (205, 218, 235))
+    chip_pad_x = max(5, int(6 * scale))
+    chip_pad_y = max(2, int(2 * scale))
+    chip_rect = pygame.Rect(pad_x, max(5, int(6 * scale)), chip_surf.get_width() + chip_pad_x * 2, chip_surf.get_height() + chip_pad_y * 2)
+    pygame.draw.rect(badge, (255, 255, 255, 18), chip_rect, border_radius=max(4, int(5 * scale)))
+    badge.blit(chip_surf, (chip_rect.x + chip_pad_x, chip_rect.y + chip_pad_y))
+
+    title_text = "ATTACKING" if attacking else "PUNISH IN"
     title_surf = title_font.render(title_text, True, accent)
-    value_surf = value_font.render(value_text, True, (245, 249, 255))
-    detail = f"{slot}  {move}".strip()
-    detail_surf = detail_font.render(detail, True, (190, 207, 228))
+    title_x = chip_rect.right + max(6, int(7 * scale))
+    title_y = max(6, int(7 * scale))
+    if title_x + title_surf.get_width() > text_right:
+        title_x = pad_x
+        title_y = chip_rect.bottom + 1
+    badge.blit(title_surf, (title_x, title_y))
 
-    panel.blit(title_surf, ((panel_w - title_surf.get_width()) // 2, max(8, int(10 * scale))))
-    panel.blit(value_surf, ((panel_w - value_surf.get_width()) // 2, max(25, int(27 * scale))))
-    panel.blit(detail_surf, ((panel_w - detail_surf.get_width()) // 2, panel_h - detail_surf.get_height() - max(9, int(10 * scale))))
+    move_max_w = max(60, text_right - pad_x)
+    move_text = _compact_fit_text(move_font, move, move_max_w)
+    move_surf = move_font.render(move_text, True, (194, 207, 225))
+    move_y = badge_h - move_surf.get_height() - max(6, int(7 * scale))
+    badge.blit(move_surf, (pad_x, move_y))
 
-    if not is_now and scheduled > 0.0:
-        track_x = max(14, int(17 * scale))
-        track_w = panel_w - track_x * 2
-        track_y = panel_h - detail_surf.get_height() - max(19, int(23 * scale))
-        track_h = max(3, int(4 * scale))
-        pygame.draw.rect(panel, (37, 50, 69, 210), (track_x, track_y, track_w, track_h), border_radius=track_h // 2)
-        elapsed_frac = max(0.0, min(1.0, 1.0 - remaining / scheduled))
-        fill_w = max(1, int(track_w * elapsed_frac))
-        pygame.draw.rect(panel, (*accent, 235), (track_x, track_y, fill_w, track_h), border_radius=track_h // 2)
+    orb_size = max(32, int(38 * scale))
+    orb = pygame.Rect(badge_w - orb_size - max(7, int(8 * scale)), (badge_h - orb_size) // 2, orb_size, orb_size)
+    pygame.draw.ellipse(badge, (*accent, 32), orb)
+    pygame.draw.ellipse(badge, (*accent, 210), orb, width=max(1, int(1.5 * scale)))
 
-    if random_mode and not is_now:
-        random_font = _countdown_font(max(8, int(9 * scale)), True)
-        random_text = random_font.render(f"RANDOM  {scheduled:g}s", True, (144, 219, 190))
-        panel.blit(random_text, (panel_w - random_text.get_width() - max(10, int(12 * scale)), max(8, int(10 * scale))))
+    if attacking:
+        attack_font = _countdown_font(max(13, int(15 * scale)), True)
+        attack_surf = attack_font.render("!", True, (250, 252, 255))
+        badge.blit(attack_surf, attack_surf.get_rect(center=orb.center))
+        sweep = (float(_frame) * 2.7) % (orb.width + max(8, int(10 * scale)))
+        for offset in (-9, 0, 9):
+            sx = int(orb.x + sweep + offset)
+            pygame.draw.line(badge, (*accent, 100), (sx, orb.bottom - 5), (sx + 7, orb.y + 5), max(1, int(2 * scale)))
+    else:
+        count_surf = count_font.render(count_text, True, (248, 251, 255))
+        badge.blit(count_surf, count_surf.get_rect(center=(orb.centerx, orb.centery - 1)))
 
-    shadow = pygame.Surface((panel_w + 14, panel_h + 14), pygame.SRCALPHA)
-    pygame.draw.rect(shadow, (0, 0, 0, 110), (7, 7, panel_w, panel_h), border_radius=max(9, int(11 * scale)))
-    x = (screen.get_width() - panel_w) // 2
-    y = max(24, int(70 * scale))
-    screen.blit(shadow, (x - 7, y - 7))
-    screen.blit(panel, (x, y))
+    if scheduled > 0.0 and not attacking:
+        progress = max(0.0, min(1.0, 1.0 - remaining / scheduled))
+        track_x = pad_x
+        track_w = max(20, text_right - pad_x)
+        track_h = max(2, int(3 * scale))
+        track_y = badge_h - track_h
+        pygame.draw.rect(badge, (39, 52, 71, 220), (track_x, track_y, track_w, track_h), border_radius=track_h // 2)
+        fill_w = max(1, int(track_w * progress))
+        pygame.draw.rect(badge, (*accent, 235), (track_x, track_y, fill_w, track_h), border_radius=track_h // 2)
+
+    if random_mode and not attacking:
+        dot_r = max(2, int(2 * scale))
+        dot_x = max(pad_x, text_right - max(4, int(5 * scale)))
+        pygame.draw.circle(badge, (124, 231, 184), (dot_x, max(7, int(8 * scale))), dot_r)
+
+    shine_strength = max(0.0, min(1.0, float(anim.get("shine", 0.0))))
+    if shine_strength > 0.01:
+        shine_w = max(18, int(30 * scale))
+        shine_x = int((1.0 - shine_strength) * (badge_w + shine_w)) - shine_w
+        shine = pygame.Surface((shine_w, badge_h), pygame.SRCALPHA)
+        for px in range(shine_w):
+            dist = abs(px - shine_w / 2) / max(1.0, shine_w / 2)
+            alpha = int(45 * (1.0 - dist) * shine_strength)
+            pygame.draw.line(shine, (255, 255, 255, alpha), (px, 0), (px, badge_h))
+        badge.blit(shine, (shine_x, 0), special_flags=pygame.BLEND_RGBA_ADD)
+
+    pop = max(0.0, min(1.0, float(anim.get("pop", 0.0))))
+    pulse = 1.0 + (0.055 if attacking else 0.035) * math.sin(float(_frame) * 0.42) * min(1.0, pop + (0.45 if attacking else 0.0))
+    pulse += 0.045 * pop
+    draw_w = max(1, int(badge_w * pulse))
+    draw_h = max(1, int(badge_h * pulse))
+    if draw_w != badge_w or draw_h != badge_h:
+        badge = pygame.transform.smoothscale(badge, (draw_w, draw_h))
+
+    alpha = max(0, min(255, int(255 * float(anim.get("alpha", 0.0)))))
+    badge.set_alpha(alpha)
+
+    anchor_x, anchor_y, _direction = _punish_badge_anchor(screen, scale, slot, badge_w, badge_h)
+    x = anchor_x + int(float(anim.get("slide_px", 0.0))) - (draw_w - badge_w) // 2
+    y = anchor_y - (draw_h - badge_h) // 2
+
+    shadow = pygame.Surface((draw_w + 10, draw_h + 10), pygame.SRCALPHA)
+    shadow_alpha = int(88 * float(anim.get("alpha", 0.0)))
+    pygame.draw.rect(shadow, (0, 0, 0, shadow_alpha), (5, 5, draw_w, draw_h), border_radius=radius + 2)
+    screen.blit(shadow, (x - 5, y - 5))
+    screen.blit(badge, (x, y))
 
 
 def _draw_hp_bar(screen, x, y, bar_w, bar_h, hp_cur, hp_max, is_dead):
@@ -4227,22 +4399,6 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     x = int(base_x + float(team_anim.get("slide_x", 0.0)) + shake_x + impact_x)
     y = int(base_y + float(team_anim.get("slide_y", 0.0)) + shake_y)
 
-    core_visible = control is None or bool(getattr(control, "show_hud", True))
-    if not core_visible:
-        # The core team panel is only one layer. Tag and Combo remain valid
-        # standalone HUD modules and keep the same screen anchors.
-        if control is None or bool(getattr(control, "show_tag_card", True)):
-            _draw_tag_card(
-                screen, font_sm, team_anim,
-                x, y + height + int(5 * scale), width, scale, is_left, dt,
-            )
-        if control is None or bool(getattr(control, "show_combo_card", True)):
-            _draw_combo_ledger(
-                screen, font_sm, team,
-                x, y + height + int(38 * scale), width, scale, is_left,
-            )
-        return
-
     shadow, panel = _cached_compact_panel_shell(width, height, accent, is_left, scale, panel_alpha)
     screen.blit(shadow, (x - int(4 * scale), y + int(4 * scale)))
     screen.blit(panel, (x, y))
@@ -4648,9 +4804,7 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt, control=None) -> None:
             _compact_track_slot(slot_label, snap)
 
     _maybe_restart_match_assembly(slots)
-    core_visible = control is None or bool(getattr(control, "show_hud", True))
-    if core_visible:
-        _draw_match_assembly_spine(screen, scale, dt)
+    _draw_match_assembly_spine(screen, scale, dt)
     _draw_compact_team_panel(screen, font, font_sm, "P1", slots, scale, overlay_alpha, dt, control)
     _draw_compact_team_panel(screen, font, font_sm, "P2", slots, scale, overlay_alpha, dt, control)
     if control is None or getattr(control, "show_interaction_card", True):
@@ -4681,12 +4835,14 @@ class HudRenderer:
         self.font_sm = make_font(int(BASE_FONT_SIZE * self.scale * 0.78), bold=False)
 
     def update(self, dt: float, control=None) -> None:
-        global _frame, _punish_overlay
+        global _frame, _punish_overlay, _timing_engine_payload
         _frame += 1
 
         new_slots = read_slot_data()
         punish_data = new_slots.get("_punish_trainer") if isinstance(new_slots, dict) else None
+        timing_data = new_slots.get("_timing_engine") if isinstance(new_slots, dict) else None
         _punish_overlay = dict(punish_data) if isinstance(punish_data, dict) else {}
+        _timing_engine_payload = dict(timing_data) if isinstance(timing_data, dict) else {}
 
         for slot_label in SLOT_LAYOUT.keys():
             _get_slot_anim(slot_label)["present"] = slot_label in new_slots
@@ -4697,40 +4853,21 @@ class HudRenderer:
             if isinstance(v, dict):
                 _display_slots[k] = v
 
-        _update_adv()
+        timing_published = _consume_timing_engine_result()
+        if not timing_published:
+            _update_adv()
 
     def draw(self, screen: pygame.Surface, control=None) -> None:
-        core_visible = control is None or bool(getattr(control, "show_hud", True))
-        interaction_visible = control is None or bool(getattr(control, "show_interaction_card", True))
-        combo_visible = control is None or bool(getattr(control, "show_combo_card", True))
-        tag_visible = control is None or bool(getattr(control, "show_tag_card", True))
-        punish_visible = bool(
-            isinstance(_punish_overlay, dict)
-            and _punish_overlay.get("visible", False)
-        )
-
-        any_hud_layer = bool(
-            core_visible
-            or interaction_visible
-            or combo_visible
-            or tag_visible
-            or punish_visible
-        )
-        if not any_hud_layer:
+        hud_visible = control is None or getattr(control, "show_hud", True)
+        if not hud_visible:
             self._hud_was_visible = False
             return
-
-        if core_visible and not self._hud_was_visible:
+        if not self._hud_was_visible:
             _restart_hud_entrance()
-        self._hud_was_visible = bool(core_visible)
+            self._hud_was_visible = True
 
-        if core_visible or interaction_visible or combo_visible or tag_visible:
-            draw_overlay(
-                screen, self.font, self.font_sm,
-                _display_slots, self.scale, 1 / 60.0, control,
-            )
-        if punish_visible:
-            _draw_punish_countdown(screen, self.scale)
+        draw_overlay(screen, self.font, self.font_sm, _display_slots, self.scale, 1 / 60.0, control)
+        _draw_punish_countdown(screen, self.scale)
 
 # ---------------------------------------------------------------------------
 # Main

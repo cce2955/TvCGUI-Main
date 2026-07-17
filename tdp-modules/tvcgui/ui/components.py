@@ -497,6 +497,7 @@ def _command_dock_layout(width: int, tools_open: bool) -> tuple[dict[str, tuple[
             ("cancel_mapper", 114),
             ("cancel_lab", 106),
             ("action_recorder", 132),
+            ("timing_probe", 124),
             ("punish", 132),
             ("megacrash", 176),
         ]
@@ -626,6 +627,7 @@ def draw_top_command_dock(
     action_spoof_btn_rect = off.copy()
     cancel_mapper_btn_rect = off.copy()
     cancel_lab_btn_rect = off.copy()
+    timing_probe_btn_rect = off.copy()
 
     section_accents = {
         "hud": GUI_APP_ACCENT,
@@ -768,6 +770,7 @@ def draw_top_command_dock(
         cancel_mapper_btn_rect = training["cancel_mapper"]
         cancel_lab_btn_rect = training["cancel_lab"]
         solo_team_btn_rect = training["action_recorder"]
+        timing_probe_btn_rect = training["timing_probe"]
         action_spoof_btn_rect = training["punish"]
         megacrash_btn_rect = training["megacrash"]
 
@@ -785,6 +788,11 @@ def draw_top_command_dock(
             screen, solo_team_btn_rect, "Action Recorder", dockfont, active=False,
             hover=solo_team_btn_rect.collidepoint(mx, my), accent=GUI_CONFIRM,
             fill=(27, 33, 45), align="center",
+        )
+        draw_glass_button(
+            screen, timing_probe_btn_rect, "Timing Monitor", dockfont, active=False,
+            hover=timing_probe_btn_rect.collidepoint(mx, my), accent=GUI_WARNING,
+            fill=(47, 42, 29), align="center",
         )
         draw_glass_button(
             screen, action_spoof_btn_rect, "Punish Trainer: ON" if action_spoof_active else "Punish Trainer", dockfont,
@@ -882,12 +890,13 @@ def draw_top_command_dock(
         cancel_mapper_btn_rect = off.copy()
         cancel_lab_btn_rect = off.copy()
         solo_team_btn_rect = off.copy()
+        timing_probe_btn_rect = off.copy()
 
     return (
         hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect,
         megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect,
         overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect,
-        action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, solo_team_btn_rect,
+        action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, solo_team_btn_rect, timing_probe_btn_rect,
         interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect,
         tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect,
         ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,

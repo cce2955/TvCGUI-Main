@@ -24,32 +24,6 @@
       "name": "Casshan"
     },
     "ryu": {
-      "cancel_profile": {
-        "rules": {
-          "0x0101": {
-            "earliest": 8,
-            "latest": 0,
-            "source": "Live Cancel Lab",
-            "source_id": 257,
-            "targets": [
-              256
-            ],
-            "updated_at": 1784168674
-          },
-          "0x0102": {
-            "earliest": 8,
-            "latest": 0,
-            "source": "Live Cancel Lab",
-            "source_id": 258,
-            "targets": [
-              256,
-              257
-            ],
-            "updated_at": 1784168720
-          }
-        },
-        "updated_at": 1784168720
-      },
       "moves": {
         "0x0101": {
           "earliest": 8,
@@ -78,6 +52,37 @@
             256
           ],
           "updated_at": 1784168166
+        },
+        "0x0133": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            308,
+            309
+          ],
+          "updated_at": 1784169105
+        },
+        "0x0134": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            307,
+            256,
+            309
+          ],
+          "updated_at": 1784169121
+        },
+        "0x0135": {
+          "earliest": 8,
+          "latest": 0,
+          "source": "Live Cancel Lab",
+          "tested_targets": [
+            308,
+            256
+          ],
+          "updated_at": 1784169125
         },
         "0x0161": {
           "earliest": 8,
