@@ -1,11 +1,11 @@
 {
-  "action_id": 256,
+  "action_id": 306,
   "cooldown_sec": 8.0,
   "enabled": false,
-  "move_label": "5A [0x100]",
+  "move_label": "Hadengeki C [0x132]",
   "random_interval": false,
   "random_max_sec": 10.0,
   "random_min_sec": 5.0,
-  "show_countdown": false,
-  "target_slot": "P1-C1"
+  "show_countdown": true,
+  "target_slot": "P2-C1"
 }

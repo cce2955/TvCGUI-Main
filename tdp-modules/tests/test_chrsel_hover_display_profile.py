@@ -1,8 +1,4 @@
-"""Contracts for the live Character Select hover display-profile cache.
-
-The DOL tag tables select the resource family; this cache keeps the large-card
-presentation route coherent without changing the fighter ID the game will select.
-"""
+"""Contracts for the live Character Select large-card presentation cache."""
 from __future__ import annotations
 
 import unittest
@@ -61,29 +57,23 @@ class CharacterSelectHoverDisplayProfileTests(unittest.TestCase):
         self.mem.words[cursor_addr] = int(slot)
         return cursor_addr
 
-    def test_all_hidden_yami_ids_resolve_to_ryu_without_changing_hover_id(self) -> None:
-        self.assertEqual(
-            runtime.YAMI_HOVER_DISPLAY_PROFILE_IDS,
-            {0x17: runtime.RYU_VISUAL_PROXY_ID,
-             0x18: runtime.RYU_VISUAL_PROXY_ID,
-             0x19: runtime.RYU_VISUAL_PROXY_ID},
-        )
-        hover_addr, focus_addr = self._set_lane(0, 0x17, 0x1E)
-        self._set_lane(1, 0x19, 0x1E)
+    def test_yami_has_no_large_card_proxy(self) -> None:
+        self.assertEqual(runtime.YAMI_HOVER_DISPLAY_PROFILE_IDS, {})
+        hover_addr, focus_addr = self._set_lane(0, 0x17, 0x0C)
+        self._set_lane(1, 0x19, 0x1D)
 
         wrote, failed = runtime._tick_yami_hover_display_profile_route()
 
-        self.assertEqual((wrote, failed), (2, 0))
+        self.assertEqual((wrote, failed), (0, 0))
         self.assertEqual(self.mem.words[hover_addr], 0x17)
-        self.assertEqual(self.mem.words[focus_addr], runtime.RYU_VISUAL_PROXY_ID)
+        self.assertEqual(self.mem.words[focus_addr], 0x0C)
+        self.assertEqual(self.mem.writes, [])
 
-    def test_yami2_uses_same_ryu_profile_without_touching_the_selected_id(self) -> None:
-        hover_addr, focus_addr = self._set_lane(0, 0x18, 0x1E)
-        self._set_lane(1, 0x0C, 0x0C)
-
-        self.assertEqual((1, 0), runtime._tick_yami_hover_display_profile_route())
-        self.assertEqual(self.mem.words[hover_addr], 0x18)
-        self.assertEqual(self.mem.words[focus_addr], runtime.RYU_VISUAL_PROXY_ID)
+    def test_all_three_yami_ids_resolve_to_no_focus_override(self) -> None:
+        for fighter_id in runtime.YAMI_NATIVE_BLANK_IDS:
+            desired, detail = runtime._display_profile_for_hover_lane(0, fighter_id)
+            self.assertIsNone(desired)
+            self.assertEqual(detail, "")
 
     def test_solo_null_slot_uses_zero_only_at_physical_solo_slot(self) -> None:
         hover_addr, focus_addr = self._set_lane(0, 0x00, 0x1E)
@@ -103,14 +93,15 @@ class CharacterSelectHoverDisplayProfileTests(unittest.TestCase):
         self.assertEqual(self.mem.words[focus_addr], 0x00)
         self.assertEqual(self.mem.writes, [])
 
-    def test_restore_reverts_only_a_cache_value_that_is_still_owned(self) -> None:
-        hover_addr, focus_addr = self._set_lane(0, 0x17, 0x1E)
+    def test_restore_reverts_only_owned_solo_null_cache(self) -> None:
+        hover_addr, focus_addr = self._set_lane(0, 0x00, 0x1E)
+        self._set_cursor(0, runtime.SOLO_NULL_SLOT_INDEX)
         self._set_lane(1, 0x0C, 0x0C)
         self.assertEqual((1, 0), runtime._tick_yami_hover_display_profile_route())
-        self.assertEqual(self.mem.words[focus_addr], runtime.RYU_VISUAL_PROXY_ID)
+        self.assertEqual(self.mem.words[focus_addr], runtime.ZERO_VISUAL_PROXY_ID)
 
         self.assertEqual((1, 0), runtime._restore_yami_hover_display_profile_route_only())
-        self.assertEqual(self.mem.words[hover_addr], 0x17)
+        self.assertEqual(self.mem.words[hover_addr], 0x00)
         self.assertEqual(self.mem.words[focus_addr], 0x1E)
 
 

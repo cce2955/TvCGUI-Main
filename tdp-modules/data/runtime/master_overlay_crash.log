@@ -1,0 +1,16 @@
+
+[MasterLoopCrash]
+error=SystemError('<built-in function get> returned a result with an exception set')
+KeyError: 0
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\tvcgui\features\overlay\master_renderer.py", line 3331, in run
+    self.handle_events()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\cce29\OneDrive\Desktop\TvCGUI-Main\tdp-modules\tvcgui\features\overlay\master_renderer.py", line 1144, in handle_events
+    for event in pygame.event.get():
+                 ~~~~~~~~~~~~~~~~^^
+SystemError: <built-in function get> returned a result with an exception set
+

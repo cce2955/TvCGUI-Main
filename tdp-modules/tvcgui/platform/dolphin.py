@@ -124,6 +124,19 @@ DYNAMIC_SLOT_PTRS = (
     0x803C9FE4,  # P2-C2
 )
 
+# Character Select exposes the loaded chrsel.seq base through two stable MEM1
+# globals. This is the safe menu-time MEM2 anchor. Unlike the retired fighter
+# sentinel, the signature is long, nonzero, and unique to the active scene.
+CHRSEL_SEQ_PTR_ADDRS = (
+    0x809BCE38,
+    0x80796364,
+)
+CHRSEL_SEQ_SIGNATURE_OFFSET = 0x40
+CHRSEL_SEQ_SIGNATURE = b"fpack/menu/001/0000.fpk\x00"
+CHRSEL_SEQ_HEADER = bytes.fromhex(
+    "00 00 00 20 00 00 01 00 00 00 00 40 80 79 63 08"
+)
+
 # Legacy fallback only. Do not rely on this to prime MEM2 from menus.
 EXPECT_EA = 0x9246B9C0
 EXPECT_BYTES = bytes.fromhex(
@@ -437,6 +450,75 @@ def _dynamic_slot_pointer_candidates():
     return out
 
 
+def _chrsel_sequence_pointer_candidates():
+    """Return unique loaded chrsel.seq EAs reported by stable MEM1 globals."""
+    out = []
+    seen = set()
+    for ptr_addr in CHRSEL_SEQ_PTR_ADDRS:
+        ea = _dme_rd32_be(ptr_addr)
+        if ea is None:
+            continue
+        ea = int(ea) & 0xFFFFFFFF
+        if not (MEM2_LO <= ea < MEM2_HI):
+            continue
+        if ea & 0x3:
+            continue
+        if ea in seen:
+            continue
+        seen.add(ea)
+        out.append((int(ptr_addr), ea))
+    return out
+
+
+def _latch_mem2_from_chrsel_sequence() -> bool:
+    """Latch MEM2 during Character Select from the loaded script signature."""
+    global _mem2_host_base, _mem2_host_size, _mem2_latch_mode, _mem2_latch_note
+
+    candidates = _chrsel_sequence_pointer_candidates()
+    if not candidates:
+        _mem2_latch_note = "waiting for fighter or chrsel.seq pointer"
+        return False
+
+    for base, size, protect, state in _iter_regions(_mem2_proc_handle):
+        if state != MEM_COMMIT:
+            continue
+        prot = protect & 0xFF
+        if prot not in READABLE_PROTECT:
+            continue
+        if size < MEM2_SIZE:
+            continue
+
+        for ptr_addr, seq_ea in candidates:
+            seq_off = seq_ea - MEM2_LO
+            sig_off = seq_off + CHRSEL_SEQ_SIGNATURE_OFFSET
+            if seq_off < 0 or sig_off + len(CHRSEL_SEQ_SIGNATURE) > size:
+                continue
+            header = _rpm(_mem2_proc_handle, base + seq_off, len(CHRSEL_SEQ_HEADER))
+            if header != CHRSEL_SEQ_HEADER:
+                continue
+            signature = _rpm(
+                _mem2_proc_handle,
+                base + sig_off,
+                len(CHRSEL_SEQ_SIGNATURE),
+            )
+            if signature != CHRSEL_SEQ_SIGNATURE:
+                continue
+
+            _mem2_host_base = int(base)
+            _mem2_host_size = int(size)
+            _mem2_latch_mode = "chrsel_sequence"
+            _mem2_latch_note = f"chrsel ptr 0x{ptr_addr:08X}->0x{seq_ea:08X}"
+            print(
+                f"[MEM2 latch] chrsel.seq 0x{ptr_addr:08X}->0x{seq_ea:08X}; "
+                f"host=0x{base:X}"
+            )
+            return True
+
+    ptrs = ", ".join(f"0x{ea:08X}" for _ptr, ea in candidates)
+    _mem2_latch_note = f"chrsel.seq pointer present but MEM2 map not found: {ptrs}"
+    return False
+
+
 def _fighter_block_score(buf: bytes) -> int:
     "\n    Score a candidate fighter struct block read from a possible MEM2 host map.\n\n    This intentionally stays permissive enough for load/round transitions, but\n    strict enough to reject random committed regions. The candidate EA already\n    came from one of the game's live fighter pointer slots, so only need to\n    prove the host base is the right MEM2 mirror.\n    "
     if not buf or len(buf) < 0x130:
@@ -643,9 +725,11 @@ def _latch_mem2():
     if _latch_mem2_from_dynamic_slots():
         return True
 
-    # Do NOT fall back to the old fixed 0x9246B9C0 sentinel here.  In menu
-    # dumps that address is all-zero, and the old byte-score accepted zero
-    # pages as a "match", causing a permanent bad MEM2 latch before gameplay.
+    if _latch_mem2_from_chrsel_sequence():
+        return True
+
+    # Do not fall back to the old fixed 0x9246B9C0 sentinel. In menu dumps that
+    # address is all-zero and can identify the wrong 64 MB region.
     return False
 
 

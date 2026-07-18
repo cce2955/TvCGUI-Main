@@ -2281,11 +2281,8 @@ def legacy_main():
         # Extra Characters and Solo Team are inactive. The barrier is global so
         # direct and managed memory writers share the same scene gate.
         if now >= chrsel_quarantine_next_tick:
-            try:
-                _chrsel_active = bool(is_character_select_active()) if is_character_select_active is not None else False
-            except Exception:
-                _chrsel_active = False
             _extras_armed = False
+            _chrsel_active = False
             try:
                 if get_char_test_state is not None:
                     _chrsel_state = get_char_test_state() or {}
@@ -2293,8 +2290,17 @@ def legacy_main():
                         _chrsel_state.get("extra_characters_requested")
                         or _chrsel_state.get("solo_team_requested")
                     )
+                    _chrsel_active = bool(_chrsel_state.get("extra_characters_select_active"))
             except Exception:
                 _extras_armed = False
+                _chrsel_active = False
+            # When a character-select feature is armed, its one-shot service owns
+            # scene detection. Do not duplicate Dolphin reads in the frame loop.
+            if not _extras_armed:
+                try:
+                    _chrsel_active = bool(is_character_select_active()) if is_character_select_active is not None else False
+                except Exception:
+                    _chrsel_active = False
             chrsel_quarantine_active = bool(_chrsel_active and not _extras_armed)
             try:
                 set_emulated_write_quarantine(

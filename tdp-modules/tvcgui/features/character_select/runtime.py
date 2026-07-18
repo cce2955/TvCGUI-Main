@@ -567,20 +567,86 @@ HOVER_CHAR_ID_ADDRS: tuple[int, ...] = (0x809BCF1C, 0x809BCFC0)
 # appended Yami ID.
 FOCUS_CHAR_ID_ADDRS: tuple[int, ...] = (0x809BD090, 0x809BD098)
 
-# Full Ryu visual-proxy cache.
+# TvC normally treats Gold Lightan and PTX-40A as giant-only team choices.
+# The real second-character restriction is inside the loaded chrsel.seq helper
+# at sequence offset 0x2754C. The helper returns a blocked flag when the current
+# candidate is Gold Lightan, PTX-40A, or the hidden base Yami ID. Both player
+# selection paths call this same helper.
+GIANT_CHAR_IDS: frozenset[int] = frozenset((0x0B, 0x16))
+MIXED_GIANT_PARTNER_CHAR_IDS: frozenset[int] = frozenset(
+    int(cid) for cid in CHAR_ID_TO_NAME if int(cid) not in GIANT_CHAR_IDS and int(cid) not in {0x00, 0x63}
+)
+
+# These are retained only so older runtime state can be cleared safely. This
+# build does not poll or write any live selector result word.
+MIXED_GIANT_PARTNER_LANES: tuple[tuple[str, int, int, int], ...] = (
+    ("P1", 0x809BCF1C, 0x809BD090, 0x809BD0A4),
+    ("P2", 0x809BCFC0, 0x809BD098, 0x809BD0B8),
+)
+MIXED_GIANT_PARTNER_ACCEPT_VALUE = 0x00
+MIXED_GIANT_PARTNER_LATCH_SEC = 1.25
+
+# Character Select service is one-shot once the requested patch is installed.
+# While armed and waiting for the scene, it uses one compact roster read.
+_CHAR_TEST_SERVICE_MIN_INTERVAL_SEC = 0.75
+_CHAR_TEST_LAST_SERVICE = 0.0
+_MIXED_GIANT_PARTNER_DEADLINES: dict[str, float] = {"P1": 0.0, "P2": 0.0}
+
+# The shared selector eligibility classifier starts at 0x8006C5F8 and has four
+# modes. Modes 1 and 3 dispatch through static jump tables, while mode 2 uses
+# inline character-ID comparisons. The mode-2 path is the one used when the
+# carousel is evaluating a second teammate after the first character is locked.
 #
-# The actual selected fighter stays in HOVER_CHAR_ID_ADDRS: Yami 1/2/3 are
-# always 0x17/0x18/0x19 there.  The adjacent focus/cache lane controls the
-# active Character Select presentation branch.  Earlier builds wrote arbitrary
-# profile values (0/9/30) here, which changed the large card without yielding a
-# valid small cursor tile.  The stable test target is one complete stock visual
-# profile: Ryu (fighter ID 0x0C).  While a hidden Yami is hovered, every visual
-# lane uses Ryu; selection still remains Yami.
-YAMI_HOVER_DISPLAY_PROFILE_IDS: dict[int, int] = {
-    0x17: 0x0C,  # Yami 1 -> Ryu visual proxy
-    0x18: 0x0C,  # Yami 2 -> Ryu visual proxy
-    0x19: 0x0C,  # Yami 3 -> Ryu visual proxy
-}
+# Gold Lightan (0x0B) has a dedicated equality branch to the reject return.
+# PTX-40A (0x16) enters a rejected 0x16..0x19 range. NOP only those two mode-2
+# reject branches. The second NOP also keeps the inserted Yami IDs 0x17..0x19
+# eligible as partners, which matches Extra Characters behavior.
+GIANT_ELIGIBILITY_CODE_PATCHES: tuple[tuple[int, int, int, str], ...] = (
+    (0x8006C76C, 0x41820074, 0x60000000, "mode 2 Gold Lightan explicit reject"),
+    (0x8006C798, 0x40800048, 0x60000000, "mode 2 PTX/Yami range reject"),
+)
+
+# Modes 1 and 3 still use their native jump tables, so retain the narrow giant
+# entry rewrites for those paths as well.
+GIANT_ELIGIBILITY_TABLE_PATCHES: tuple[tuple[int, int, int, str], ...] = (
+    (0x80368690 + 0x0B * 4, 0x8006C7E0, 0x8006C754, "mode 1 Gold Lightan"),
+    (0x80368690 + 0x16 * 4, 0x8006C7E0, 0x8006C754, "mode 1 PTX-40A"),
+    (0x80368624 + (0x0B - 4) * 4, 0x8006C7E0, 0x8006C7D8, "mode 3 Gold Lightan"),
+    (0x80368624 + (0x16 - 4) * 4, 0x8006C7E0, 0x8006C7D8, "mode 3 PTX-40A"),
+)
+GIANT_ELIGIBILITY_PATCHES: tuple[tuple[int, int, int, str], ...] = (
+    GIANT_ELIGIBILITY_CODE_PATCHES + GIANT_ELIGIBILITY_TABLE_PATCHES
+)
+_MIXED_GIANT_ELIGIBILITY_SESSION: dict[int, int] = {}
+
+# The loaded chrsel.seq helper at offset 0x2754C is the authoritative
+# second-character compatibility check. The equality branches at 0x275A4 and
+# 0x275B4 send Gold Lightan and PTX-40A to 0x275DC, which sets the blocked
+# flags before returning. Redirect their destination words straight to the
+# helper return at 0x275F4. The six earlier entries remove the matching dim
+# routes for P1, P2, and the shared thumbnail builder so the visual state agrees
+# with the confirm rule. Duplicate-character and base-Yami rejection remain
+# native. Entries are sequence-relative because the heap base is resolved from
+# the live MEM1 scene pointer.
+CHRSEL_SEQ_PTR_ADDRS: tuple[int, ...] = (0x809BCE38, 0x80796364)
+MIXED_GIANT_SEQ_BRANCH_PATCHES: tuple[tuple[int, int, int, str], ...] = (
+    (0x22790, 0x000227F4, 0x000227BC, "P1 Gold Lightan bright route"),
+    (0x227A0, 0x000227F4, 0x000227BC, "P1 PTX-40A bright route"),
+    (0x22C74, 0x00022CD8, 0x00022CA0, "P2 Gold Lightan bright route"),
+    (0x22C84, 0x00022CD8, 0x00022CA0, "P2 PTX-40A bright route"),
+    (0x22F7C, 0x00023B50, 0x00022FA8, "thumbnail Gold Lightan bright route"),
+    (0x22F8C, 0x00023B50, 0x00022FA8, "thumbnail PTX-40A bright route"),
+    (0x275A8, 0x000275DC, 0x000275F4, "Gold Lightan mixed-team confirm"),
+    (0x275B8, 0x000275DC, 0x000275F4, "PTX-40A mixed-team confirm"),
+)
+_MIXED_GIANT_SEQ_SESSION: dict[int, int] = {}
+
+# Large-card presentation cache.
+#
+# Yami deliberately has no stock-fighter display proxy here. Its small cursor
+# icon is routed separately through chrsel.seq. The native hidden-Yami resource
+# path leaves the large silhouette and rear card blank.
+YAMI_HOVER_DISPLAY_PROFILE_IDS: dict[int, int] = {}
 # The null/empty partner is visualized only when the cursor is on the physical
 # appended solo slot. This prevents a transient ID 0 elsewhere during menu setup
 # from being mistaken for an intentional Solo hover.
@@ -607,8 +673,8 @@ _YAMI_HOVER_DISPLAY_PROFILE_SESSION: dict[int, int] = {}
 # name_<tag>.  The playable/selection ID is deliberately separate from this
 # presentation ID:
 #
-#   Yami 1/2/3 (0x17/0x18/0x19) stay Yami, but display as one valid Ryu profile.
-#   The appended Solo/null partner (0x00 at roster slot 0x1E) stays *empty* for
+#   Yami 1/2/3 (0x17/0x18/0x19) keep their native hidden presentation tags.
+#   The appended Solo/null partner (0x00 at roster slot 0x1E) stays empty for
 #   team construction, but displays as Zero so it is no longer a broken CMN/none
 #   pane on Character Select.
 #
@@ -646,14 +712,11 @@ _DOL_STOCK_CANONICAL_TAG_POINTERS: dict[int, int] = {
 SOLO_NULL_DOL_ICON_TAG_PLAN: tuple[tuple[int, int], ...] = (
     (0x00, ZERO_VISUAL_PROXY_ID),
 )
-YAMI_DOL_ICON_TAG_PLAN: tuple[tuple[int, int], ...] = (
-    (0x17, RYU_VISUAL_PROXY_ID),
-    (0x18, RYU_VISUAL_PROXY_ID),
-    (0x19, RYU_VISUAL_PROXY_ID),
-)
-CHARSEL_DOL_PRESENTATION_TAG_PLAN: tuple[tuple[int, int], ...] = (
-    SOLO_NULL_DOL_ICON_TAG_PLAN + YAMI_DOL_ICON_TAG_PLAN
-)
+# Yami remains on its native tk1/tk2/tk3 presentation tags. Only the small
+# wheel icon borrows Ryu, so the silhouette and rear panel stay blank.
+YAMI_DOL_ICON_TAG_PLAN: tuple[tuple[int, int], ...] = ()
+CHARSEL_DOL_PRESENTATION_TAG_PLAN: tuple[tuple[int, int], ...] = SOLO_NULL_DOL_ICON_TAG_PLAN
+YAMI_NATIVE_BLANK_IDS: tuple[int, ...] = (0x17, 0x18, 0x19)
 _YAMI_DOL_ICON_TAG_SESSION: dict[str, dict[int, int]] = {
     "originals": {},
     "desired": {},
@@ -795,6 +858,14 @@ _ROSTER_STATE: dict[str, Any] = {
     "solo_team_requested": False,
     "solo_team_mode": "",
     "solo_team_guard": "",
+    "solo_giant_native_active": False,  # retained for state compatibility; no longer used
+    "solo_giant_native_id": "",       # retained for state compatibility; no longer used
+    "mixed_giant_partner_enabled": False,
+    "mixed_giant_partner_mode": "",
+    "mixed_giant_partner_detail": "",
+    "mixed_giant_partner_writes": 0,
+    "mixed_giant_classifier_installed": False,
+    "mixed_giant_classifier_detail": "",
     "thumbnail_alias_installed": False,
     "thumbnail_alias_mode": "",
     "thumbnail_material_copy_installed": False,
@@ -825,7 +896,7 @@ _ROSTER_STATE: dict[str, Any] = {
 # Extra Characters should behave like a one-shot guarded install, not a 60 FPS
 # write loop. Applying after the select screen is stable and then staying quiet
 # prevents roster/count writes from landing mid-render and causing flicker.
-_EXTRA_TICK_MIN_INTERVAL_SEC = 0.20
+_EXTRA_TICK_MIN_INTERVAL_SEC = 0.75
 _EXTRA_SELECT_STABLE_DELAY_SEC = 0.18
 _EXTRA_POST_APPLY_QUIET_SEC = 0.90
 
@@ -1072,16 +1143,10 @@ _YAMI_WHEEL_RANDOM_ICON_SESSION: dict[str, Any] = {
 # The small icon inside the active 1P/2P cursor is selected by chrsel.seq's
 # per-row material ID at row +0x2E.  This is distinct from the Yami fighter ID
 # in the roster table and from the large preview-card path.  Keep the three
-# Yami roster IDs (0x17/0x18/0x19) exactly as-is; only route their physical
-# thumbnail rows to requested stock icon IDs:
-#
-#   Yami 1 / B27 -> icon ID 0  (B00; material ID 0x0001)
-#   Yami 2 / B28 -> icon ID 9  (B09; material ID 0x000A)
-#   Yami 3 / B29 -> icon ID 30 (B30; material ID 0x0024)
-#
-# The source material ID is copied from its live Bxx source row in each of the
-# two mirrored chrsel.seq banks, rather than guessed from a TEX0 address.  This
-# is a six-word, in-RAM-only patch with exact per-session restoration.
+# Yami roster IDs (0x17/0x18/0x19) stay unchanged. Only their small cursor
+# icon material IDs are routed. In the inserted roster, Yami occupies physical
+# rows B10, B16, and B18. All three copy the stock Ryu material ID from B26.
+# The two mirrored chrsel.seq banks are restored exactly when the route exits.
 YAMI_HOVER_ICON_ROW_BANKS: tuple[tuple[str, int], ...] = (
     ("chrsel thumbnail bank A", 0x9083B3A8),
     ("chrsel thumbnail bank B", 0x9083BF50),
@@ -1089,15 +1154,15 @@ YAMI_HOVER_ICON_ROW_BANKS: tuple[tuple[str, int], ...] = (
 YAMI_HOVER_ICON_ROW_STRIDE = 0x60
 YAMI_HOVER_ICON_MATERIAL_ID_OFF = 0x2E
 YAMI_HOVER_ICON_ID_PLAN: tuple[tuple[str, int, int, int], ...] = (
-    # label, Yami physical target Bxx, requested source icon Bxx, expected material ID
-    ("Yami 1 hover icon ID 0", 27, 0, 0x0001),
-    ("Yami 2 hover icon ID 9", 28, 9, 0x000A),
-    ("Yami 3 hover icon ID 30", 29, 30, 0x0024),
+    # label, inserted-roster target Bxx, stock Ryu source B26, expected material ID
+    ("Yami 3 hover icon -> Ryu", 10, 26, 0x001B),
+    ("Yami 2 hover icon -> Ryu", 16, 26, 0x001B),
+    ("Yami 1 hover icon -> Ryu", 18, 26, 0x001B),
 )
 YAMI_HOVER_ICON_STOCK_TARGET_IDS: dict[int, int] = {
-    27: 0x001C,
-    28: 0x001D,
-    29: 0x001E,
+    10: 0x000B,
+    16: 0x0011,
+    18: 0x0013,
 }
 _YAMI_HOVER_ICON_ID_SESSION: dict[str, dict[int, int]] = {
     "originals": {},
@@ -1841,8 +1906,8 @@ def _install_yami_dol_icon_tag_route() -> tuple[int, int]:
     if route.get("installed"):
         with _LOCK:
             _ROSTER_STATE["yami_dol_icon_tag_installed"] = True
-            _ROSTER_STATE["yami_dol_icon_tag_mode"] = "Yami -> Ryu; Solo null -> Zero visual profiles"
-            _ROSTER_STATE["yami_dol_icon_tag_detail"] = "direct + canonical DOL presentation maps already routed to Ryu/Zero"
+            _ROSTER_STATE["yami_dol_icon_tag_mode"] = "Solo null -> Zero; Yami native blank presentation"
+            _ROSTER_STATE["yami_dol_icon_tag_detail"] = "direct + canonical DOL maps already keep Yami native and route Solo null to Zero"
         return 0, 0
     if not (route.get("fresh") or route.get("migratable_legacy")):
         with _LOCK:
@@ -1890,8 +1955,8 @@ def _install_yami_dol_icon_tag_route() -> tuple[int, int]:
     _YAMI_DOL_ICON_TAG_SESSION["desired"] = desired
     with _LOCK:
         _ROSTER_STATE["yami_dol_icon_tag_installed"] = True
-        _ROSTER_STATE["yami_dol_icon_tag_mode"] = "Yami -> Ryu; Solo null -> Zero visual profiles"
-        _ROSTER_STATE["yami_dol_icon_tag_detail"] = "eight DOL tag-table entries: 0x17/0x18/0x19 -> ryu; 0x00 -> zer"
+        _ROSTER_STATE["yami_dol_icon_tag_mode"] = "Solo null -> Zero; Yami native blank presentation"
+        _ROSTER_STATE["yami_dol_icon_tag_detail"] = "two DOL tag-table entries: Solo null 0x00 -> zer; Yami remains native"
         _ROSTER_STATE["last_error"] = ""
     return wrote, 0
 
@@ -1928,17 +1993,55 @@ def _restore_yami_dol_icon_tag_route_only() -> tuple[int, int]:
     return wrote, failed
 
 
+def _restore_yami_native_blank_tag_rows() -> tuple[int, int]:
+    """Return legacy Yami presentation rows to their native hidden tags.
+
+    Only values owned by older Yami routes are changed. Foreign values are
+    preserved so this migration cannot overwrite another live patch.
+    """
+    wrote = 0
+    failed = 0
+    ryu_ptr = int(DOL_TAG_POINTERS[RYU_VISUAL_PROXY_ID][0])
+    legacy_values = {int(value) for value in _DOL_LEGACY_PRESENTATION_POINTERS.values()}
+    owned_values = {ryu_ptr} | legacy_values
+    for map_base, stock_map in (
+        (DOL_CHAR_TAG_MAP_BASE, _DOL_STOCK_DIRECT_TAG_POINTERS),
+        (DOL_CANONICAL_UI_TAG_MAP_BASE, _DOL_STOCK_CANONICAL_TAG_POINTERS),
+    ):
+        for fighter_id in YAMI_NATIVE_BLANK_IDS:
+            addr = int(map_base) + int(fighter_id) * 4
+            current = _safe_read_u32be(addr)
+            stock = int(stock_map[int(fighter_id)])
+            if current == stock:
+                continue
+            if current not in owned_values:
+                failed += 1
+                continue
+            if _safe_write_u32be(addr, stock) and _safe_read_u32be(addr) == stock:
+                wrote += 1
+            else:
+                failed += 1
+    return wrote, failed
+
+
 def _tick_yami_dol_icon_tag_route() -> tuple[int, int]:
-    """Install the real DOL display-tag mapping only in live Character Select."""
+    """Keep Yami native and route only the Solo null presentation."""
     status = _select_screen_status()
     with _LOCK:
         requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
         enabled = bool(_ROSTER_STATE.get("extra_characters_enabled"))
     if not bool(status.get("active")):
         return _restore_yami_dol_icon_tag_route_only()
+
+    # Normalize an older full-Ryu Yami route whenever Character Select is live,
+    # even before Extra Characters is toggled back on.
+    wrote, failed = _restore_yami_native_blank_tag_rows()
     if not requested or not enabled or not bool(status.get("patch_present")):
-        return _restore_yami_dol_icon_tag_route_only()
-    return _install_yami_dol_icon_tag_route()
+        restore_wrote, restore_failed = _restore_yami_dol_icon_tag_route_only()
+        return wrote + restore_wrote, failed + restore_failed
+
+    install_wrote, install_failed = _install_yami_dol_icon_tag_route()
+    return wrote + install_wrote, failed + install_failed
 
 
 def _clear_yami_hover_icon_id_session() -> None:
@@ -1992,7 +2095,7 @@ def _yami_hover_icon_id_route_status() -> dict[str, Any]:
         "installed": bool(installed and source_ok),
         "fresh": bool(fresh and source_ok),
         "mixed": bool(mixed),
-        "reason": "" if ready else ("mixed/foreign thumbnail material IDs" if mixed else "source icon material IDs did not match expected B00/B09/B30"),
+        "reason": "" if ready else ("mixed/foreign thumbnail material IDs" if mixed else "stock Ryu icon material ID did not match B26"),
         "rows": rows,
     }
 
@@ -2009,7 +2112,7 @@ def _install_yami_hover_icon_id_route() -> tuple[int, int]:
     if route.get("installed"):
         with _LOCK:
             _ROSTER_STATE["yami_hover_icon_id_installed"] = True
-            _ROSTER_STATE["yami_hover_icon_id_mode"] = "Yami 1/2/3 hover IDs -> 0 / 9 / 30"
+            _ROSTER_STATE["yami_hover_icon_id_mode"] = "Yami 1/2/3 hover icons -> Ryu"
             _ROSTER_STATE["yami_hover_icon_id_detail"] = "six chrsel.seq material IDs already routed"
         return 0, 0
     if not route.get("fresh"):
@@ -2063,8 +2166,8 @@ def _install_yami_hover_icon_id_route() -> tuple[int, int]:
     _YAMI_HOVER_ICON_ID_SESSION["desired"] = desired
     with _LOCK:
         _ROSTER_STATE["yami_hover_icon_id_installed"] = True
-        _ROSTER_STATE["yami_hover_icon_id_mode"] = "Yami 1/2/3 hover IDs -> 0 / 9 / 30"
-        _ROSTER_STATE["yami_hover_icon_id_detail"] = "six live chrsel.seq material IDs routed from B00/B09/B30"
+        _ROSTER_STATE["yami_hover_icon_id_mode"] = "Yami 1/2/3 hover icons -> Ryu"
+        _ROSTER_STATE["yami_hover_icon_id_detail"] = "six live chrsel.seq material IDs routed from stock Ryu B26"
         _ROSTER_STATE["last_error"] = ""
     return wrote, 0
 
@@ -2111,8 +2214,8 @@ def _restore_yami_hover_icon_id_route_only() -> tuple[int, int]:
 def _display_profile_for_hover_lane(lane_index: int, hover: int | None) -> tuple[int | None, str]:
     """Return the presentation profile for one hover lane without changing selection.
 
-    Yami IDs are unconditional hidden-fighter routes. ID 0 is deliberately
-    stricter: it is the Solo helper only at appended roster slot 0x1E.
+    Yami stays on its native blank presentation path. ID 0 is deliberately
+    strict: it is the Solo helper only at appended roster slot 0x1E.
     """
     if hover is None:
         return None, ""
@@ -2174,8 +2277,8 @@ def _restore_yami_hover_display_profile_route_only() -> tuple[int, int]:
 def _tick_yami_hover_display_profile_route() -> tuple[int, int]:
     """Route Character Select presentation caches without changing fighter IDs.
 
-    Hidden Yami IDs use Ryu. The physical appended Solo/null slot (roster index
-    0x1E, fighter ID 0x00) uses Zero only while that exact slot is hovered.
+    Yami is intentionally untouched so its silhouette and rear card stay blank.
+    The physical Solo/null slot uses Zero only while that exact slot is hovered.
     """
     status = _select_screen_status()
     with _LOCK:
@@ -2211,9 +2314,9 @@ def _tick_yami_hover_display_profile_route() -> tuple[int, int]:
     with _LOCK:
         installed = bool(active_lanes) and failed == 0
         _ROSTER_STATE["yami_hover_display_profile_installed"] = installed
-        _ROSTER_STATE["yami_hover_display_profile_mode"] = "Yami -> Ryu; Solo null -> Zero visual profiles" if installed else ""
+        _ROSTER_STATE["yami_hover_display_profile_mode"] = "Solo null -> Zero; Yami native blank presentation" if installed else ""
         _ROSTER_STATE["yami_hover_display_profile_detail"] = (
-            "; ".join(active_lanes) if active_lanes else "waiting for Yami hover"
+            "; ".join(active_lanes) if active_lanes else "Yami blank; waiting for Solo null hover"
         )
         if failed:
             _ROSTER_STATE["last_error"] = "Yami hover display profile cache write failed"
@@ -2465,6 +2568,64 @@ def _restore_extra_thumbnail_material_row_copies_only() -> tuple[int, int]:
     return wrote, failed
 
 
+def _select_screen_quick_status() -> dict[str, Any]:
+    """Read the roster guard and rows with one Dolphin IPC request."""
+    start = min(ROSTER_TABLE_BASE, *(addr for addr, _label in ROSTER_COUNT_ADDRS))
+    last_slot = max(EXTRA_CLONE10_COUNT - 1, SOLO_TEAM_EXTRA_COUNT - 1)
+    end = max(ROSTER_TABLE_BASE + (last_slot + 1) * 4, *(addr + 4 for addr, _label in ROSTER_COUNT_ADDRS))
+    blob = _safe_read(start, end - start)
+    if not blob or len(blob) < (end - start):
+        return {
+            "active": False,
+            "patch_present": False,
+            "extended_layout_present": False,
+            "extra_base_rows_present": False,
+            "clone_rows_present": False,
+            "solo_extra_rows_present": False,
+            "visual_rows_present": False,
+            "count_ok": False,
+            "slot_ok": False,
+        }
+
+    def word(addr: int) -> int | None:
+        off = int(addr) - int(start)
+        if off < 0 or off + 4 > len(blob):
+            return None
+        return int.from_bytes(blob[off:off + 4], "big")
+
+    counts = {addr: word(addr) for addr, _label in ROSTER_COUNT_ADDRS}
+    count_ok = bool(counts) and all(value in SELECT_SCREEN_COUNT_VALUES for value in counts.values())
+    slot_ok = all(word(_roster_addr_for_slot(slot)) == expected for slot, expected in SELECT_SCREEN_SIGNATURE_SLOTS)
+    active = bool(count_ok and slot_ok)
+    extra_base_rows_present = bool(
+        active
+        and all(word(_roster_addr_for_slot(slot)) == cid for slot, cid, _name in EXTRA_CLONE10_SLOTS)
+    )
+    clone_rows_present = bool(
+        extra_base_rows_present
+        and all(word(addr) == EXTRA_CLONE10_COUNT for addr, _label in ROSTER_COUNT_ADDRS)
+    )
+    solo_extra_rows_present = bool(
+        extra_base_rows_present
+        and all(word(addr) == SOLO_TEAM_EXTRA_COUNT for addr, _label in ROSTER_COUNT_ADDRS)
+        and all(word(_roster_addr_for_slot(slot)) == cid for slot, cid, _name in SOLO_TEAM_EXTRA_SLOTS)
+    )
+    return {
+        "active": active,
+        "patch_present": bool(clone_rows_present or solo_extra_rows_present),
+        "extended_layout_present": bool(
+            extra_base_rows_present
+            and any(value != SELECT_SCREEN_STOCK_COUNT for value in counts.values())
+        ),
+        "extra_base_rows_present": extra_base_rows_present,
+        "clone_rows_present": clone_rows_present,
+        "solo_extra_rows_present": solo_extra_rows_present,
+        "visual_rows_present": False,
+        "count_ok": count_ok,
+        "slot_ok": slot_ok,
+    }
+
+
 def _select_screen_status() -> dict[str, Any]:
     counts: dict[str, int | None] = {
         f"0x{addr:08X}": _safe_read_u32be(addr) for addr, _label in ROSTER_COUNT_ADDRS
@@ -2572,16 +2733,26 @@ def _select_screen_status() -> dict[str, Any]:
 
 
 def is_character_select_active() -> bool:
-    """Return the guarded character-select residency result without writing memory."""
+    """Return character-select residency using one compact Dolphin read."""
     try:
-        return bool(_select_screen_status().get("active"))
+        status = _select_screen_quick_status()
+        active = bool(status.get("active"))
+        with _LOCK:
+            requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+            if requested and active and not bool(status.get("patch_present")):
+                # The select heap was rebuilt after a prior successful install.
+                # Mark it pending so the normal one-shot service reapplies once.
+                _ROSTER_STATE["extra_characters_enabled"] = False
+            _ROSTER_STATE["extra_characters_select_active"] = active
+            _ROSTER_STATE["extra_characters_patch_present"] = bool(status.get("patch_present"))
+        return active
     except Exception:
         return False
 
 
 def _update_extra_guard_state(status: dict[str, Any] | None = None) -> dict[str, Any]:
     if status is None:
-        status = _select_screen_status()
+        status = _select_screen_quick_status()
     with _LOCK:
         _ROSTER_STATE["extra_characters_select_active"] = bool(status.get("active"))
         _ROSTER_STATE["extra_characters_patch_present"] = bool(status.get("patch_present"))
@@ -2904,7 +3075,7 @@ def _tick_extra_characters_request() -> None:
     with _LOCK:
         _ROSTER_STATE["_extra_tick_next"] = now + _EXTRA_TICK_MIN_INTERVAL_SEC
 
-    status = _update_extra_guard_state()
+    status = _update_extra_guard_state(_select_screen_status() if solo_requested else _select_screen_quick_status())
     active = bool(status.get("active"))
     present = bool(status.get("patch_present"))
     visual_present = bool(status.get("visual_rows_present"))
@@ -2949,10 +3120,20 @@ def _tick_extra_characters_request() -> None:
         return
 
     if present:
+        wrote, failed = _install_mixed_giant_sequence_gate()
         with _LOCK:
-            _ROSTER_STATE["extra_characters_enabled"] = True
-            _ROSTER_STATE["extra_characters_mode"] = "3 Yami only: after Frank, Zero, and Gold Lightan"
-            _ROSTER_STATE["last_error"] = ""
+            _ROSTER_STATE["extra_characters_enabled"] = failed == 0
+            _ROSTER_STATE["extra_characters_mode"] = (
+                "3 Yami roster + mixed giant chrsel.seq gate" if failed == 0 else ""
+            )
+            _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + wrote
+            _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + failed
+            _ROSTER_STATE["last_action"] = (
+                f"Mixed giant sequence gate installed writes={wrote}"
+                if failed == 0
+                else "Mixed giant sequence gate pending MEM2 access"
+            )
+            _ROSTER_STATE["last_error"] = "" if failed == 0 else f"mixed giant sequence gate failed writes={failed}"
         return
 
     if active_since and (now - active_since) < _EXTRA_SELECT_STABLE_DELAY_SEC:
@@ -2979,11 +3160,291 @@ def _tick_extra_characters_request() -> None:
         _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Extra characters auto-apply failed writes={failed}"
     _update_extra_guard_state()
 
+def _resolve_chrsel_seq_heap_base() -> int | None:
+    """Resolve the loaded chrsel.seq base from the active scene globals."""
+    for ptr_addr in CHRSEL_SEQ_PTR_ADDRS:
+        base = _safe_read_u32be(int(ptr_addr))
+        if base is None:
+            continue
+        base = int(base) & 0xFFFFFFFF
+        if not (0x90000000 <= base < 0x94000000):
+            continue
+        sig = _safe_read(base + CHRSEL_SEQ_SIGNATURE_OFF, len(CHRSEL_SEQ_SIGNATURE))
+        if sig == CHRSEL_SEQ_SIGNATURE:
+            return base
+    # Fixed fallback for older captures where the scene pointer is unavailable
+    # but the verified heap is still resident.
+    sig = _safe_read(CHRSEL_SEQ_HEAP_BASE + CHRSEL_SEQ_SIGNATURE_OFF, len(CHRSEL_SEQ_SIGNATURE))
+    if sig == CHRSEL_SEQ_SIGNATURE:
+        return CHRSEL_SEQ_HEAP_BASE
+    return None
+
+
+def _mixed_giant_sequence_gate_present() -> bool:
+    base = _resolve_chrsel_seq_heap_base()
+    if base is None:
+        return False
+    return all(
+        _safe_read_u32be(base + off) == patched
+        for off, _native, patched, _label in MIXED_GIANT_SEQ_BRANCH_PATCHES
+    )
+
+
+def _install_mixed_giant_sequence_gate() -> tuple[int, int]:
+    """Patch the loaded chrsel.seq team compatibility helper once."""
+    base = _resolve_chrsel_seq_heap_base()
+    if base is None:
+        with _LOCK:
+            _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+            _ROSTER_STATE["mixed_giant_classifier_detail"] = "chrsel.seq heap not reachable"
+        return 0, 1
+
+    wrote = 0
+    failed = 0
+    changed: list[tuple[int, int, int]] = []
+    details: list[str] = []
+    for off, native, patched, label in MIXED_GIANT_SEQ_BRANCH_PATCHES:
+        addr = int(base) + int(off)
+        current = _safe_read_u32be(addr)
+        if current is None:
+            failed += 1
+            details.append(f"{label}: unreadable at 0x{addr:08X}")
+            break
+        current_i = int(current) & 0xFFFFFFFF
+        if current_i == int(patched):
+            details.append(f"{label}: already installed at 0x{addr:08X}")
+            continue
+        if current_i != int(native):
+            failed += 1
+            details.append(f"{label}: unexpected 0x{current_i:08X} at 0x{addr:08X}")
+            break
+        _MIXED_GIANT_SEQ_SESSION.setdefault(addr, current_i)
+        if _safe_write_u32be(addr, patched) and _safe_read_u32be(addr) == patched:
+            wrote += 1
+            changed.append((addr, current_i, int(patched)))
+            details.append(f"{label}: installed at 0x{addr:08X}")
+        else:
+            failed += 1
+            details.append(f"{label}: write failed at 0x{addr:08X}")
+            break
+
+    if failed:
+        for addr, original, patched in reversed(changed):
+            if _safe_read_u32be(addr) == patched:
+                _safe_write_u32be(addr, original)
+            _MIXED_GIANT_SEQ_SESSION.pop(addr, None)
+
+    installed = failed == 0
+    if installed and wrote:
+        print(f"[char select] mixed giant gate installed at 0x{base:08X}; writes={wrote}")
+    with _LOCK:
+        _ROSTER_STATE["mixed_giant_classifier_installed"] = installed
+        _ROSTER_STATE["mixed_giant_classifier_detail"] = "; ".join(details)
+        _ROSTER_STATE["mixed_giant_partner_enabled"] = installed
+        _ROSTER_STATE["mixed_giant_partner_mode"] = "chrsel.seq compatibility helper" if installed else ""
+    return wrote, 0 if installed else failed
+
+
+def _restore_mixed_giant_sequence_gate() -> tuple[int, int]:
+    """Restore only loaded sequence words owned by this runtime session."""
+    originals = dict(_MIXED_GIANT_SEQ_SESSION)
+    if not originals:
+        with _LOCK:
+            _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+            _ROSTER_STATE["mixed_giant_classifier_detail"] = ""
+            _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+            _ROSTER_STATE["mixed_giant_partner_mode"] = ""
+        return 0, 0
+
+    base = _resolve_chrsel_seq_heap_base()
+    if base is None:
+        _MIXED_GIANT_SEQ_SESSION.clear()
+        with _LOCK:
+            _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+            _ROSTER_STATE["mixed_giant_classifier_detail"] = "scene rebuilt; stale sequence restore skipped"
+            _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+            _ROSTER_STATE["mixed_giant_partner_mode"] = ""
+        return 0, 0
+
+    patched_by_addr = {
+        int(base) + int(off): int(patched)
+        for off, _native, patched, _label in MIXED_GIANT_SEQ_BRANCH_PATCHES
+    }
+    restored = 0
+    failed = 0
+    for addr, original in originals.items():
+        current = _safe_read_u32be(addr)
+        if current == original:
+            _MIXED_GIANT_SEQ_SESSION.pop(addr, None)
+            continue
+        if current != patched_by_addr.get(addr):
+            failed += 1
+            continue
+        if _safe_write_u32be(addr, original) and _safe_read_u32be(addr) == original:
+            restored += 1
+            _MIXED_GIANT_SEQ_SESSION.pop(addr, None)
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+        _ROSTER_STATE["mixed_giant_classifier_detail"] = "" if failed == 0 else "sequence helper restore incomplete"
+        _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+        _ROSTER_STATE["mixed_giant_partner_mode"] = ""
+    return restored, failed
+
+
+def _install_mixed_giant_eligibility_classifier() -> tuple[int, int]:
+    """Retire speculative classifier patches from earlier mixed-giant builds.
+
+    The live dump proved the carousel rejection is stored in the selector words
+    at 0x809BD0A4/0x809BD0B8. The static classifier edits did not control this
+    second-slot grey state, so do not keep executable code patched unnecessarily.
+    """
+    wrote = 0
+    failed = 0
+    details: list[str] = []
+    for addr, expected, accepted, label in GIANT_ELIGIBILITY_PATCHES:
+        current = _safe_read_u32be(int(addr))
+        if current is None:
+            failed += 1
+            details.append(f"{label}: unreadable")
+            continue
+        current_i = int(current) & 0xFFFFFFFF
+        if current_i == int(expected):
+            details.append(f"{label}: native")
+            continue
+        if current_i != int(accepted):
+            details.append(f"{label}: foreign 0x{current_i:08X}, left untouched")
+            continue
+        if _safe_write_u32be(int(addr), int(expected)) and _safe_read_u32be(int(addr)) == int(expected):
+            wrote += 1
+            details.append(f"{label}: legacy patch removed")
+        else:
+            failed += 1
+            details.append(f"{label}: restore failed")
+    with _LOCK:
+        _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+        _ROSTER_STATE["mixed_giant_classifier_detail"] = "; ".join(details)
+    return wrote, failed
+
+def _restore_mixed_giant_eligibility_classifier() -> tuple[int, int]:
+    """Restore only classifier code/table words owned by this session."""
+    restored = 0
+    failed = 0
+    for addr, expected, accepted, _label in GIANT_ELIGIBILITY_PATCHES:
+        current = _safe_read_u32be(int(addr))
+        original = _MIXED_GIANT_ELIGIBILITY_SESSION.get(int(addr), int(expected))
+        if current is None:
+            failed += 1
+            continue
+        current_i = int(current) & 0xFFFFFFFF
+        if current_i == int(original):
+            _MIXED_GIANT_ELIGIBILITY_SESSION.pop(int(addr), None)
+            continue
+        if current_i != int(accepted):
+            failed += 1
+            continue
+        if _safe_write_u32be(int(addr), int(original)) and _safe_read_u32be(int(addr)) == int(original):
+            restored += 1
+            _MIXED_GIANT_ELIGIBILITY_SESSION.pop(int(addr), None)
+        else:
+            failed += 1
+    with _LOCK:
+        _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+        _ROSTER_STATE["mixed_giant_classifier_detail"] = ""
+    return restored, failed
+
+
+def _mixed_giant_pair(selected_id: int | None, hover_id: int | None) -> tuple[int, int] | None:
+    """Return (normal, giant) when the lane is assembling a mixed team."""
+    if selected_id is None or hover_id is None:
+        return None
+    selected = int(selected_id) & 0xFF
+    hover = int(hover_id) & 0xFF
+    if selected in MIXED_GIANT_PARTNER_CHAR_IDS and hover in GIANT_CHAR_IDS:
+        return selected, hover
+    # Keep the route symmetric so giant-first teams can also choose a normal
+    # partner if the game advances the same lane to its second selection.
+    if selected in GIANT_CHAR_IDS and hover in MIXED_GIANT_PARTNER_CHAR_IDS:
+        return hover, selected
+    return None
+
+
+def _clear_mixed_giant_partner_latches() -> None:
+    for lane in tuple(_MIXED_GIANT_PARTNER_DEADLINES):
+        _MIXED_GIANT_PARTNER_DEADLINES[lane] = 0.0
+    with _LOCK:
+        _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+        _ROSTER_STATE["mixed_giant_partner_mode"] = ""
+        _ROSTER_STATE["mixed_giant_partner_detail"] = ""
+
+
+def _tick_mixed_giant_partner_unlock() -> None:
+    """Permit normal + giant two-character teams without replacing either ID.
+
+    This is deliberately a warm, scene-local write. The game owns these reject
+    bytes and rebuilds them during cursor movement, so they are never stored in
+    the broad restore cache and are never restored after Character Select exits.
+    """
+    status = _select_screen_status()
+    if not bool(status.get("active")):
+        _clear_mixed_giant_partner_latches()
+        return
+
+    now = time.monotonic()
+    active_pairs: list[str] = []
+    wrote = 0
+    failed = 0
+
+    for lane, hover_addr, selected_addr, reject_addr in MIXED_GIANT_PARTNER_LANES:
+        hover = _safe_read_u32be(int(hover_addr))
+        selected = _safe_read_u32be(int(selected_addr))
+        pair = _mixed_giant_pair(selected, hover)
+        if pair is not None:
+            _MIXED_GIANT_PARTNER_DEADLINES[lane] = now + MIXED_GIANT_PARTNER_LATCH_SEC
+            normal_id, giant_id = pair
+            active_pairs.append(f"{lane} {_char_label(normal_id)} + {_char_label(giant_id)}")
+
+        if pair is None and now >= float(_MIXED_GIANT_PARTNER_DEADLINES.get(lane, 0.0) or 0.0):
+            continue
+
+        current = _safe_read_u32be(int(reject_addr))
+        if current is None:
+            failed += 1
+            continue
+        if int(current) == int(MIXED_GIANT_PARTNER_ACCEPT_VALUE):
+            continue
+        if _safe_write_u32be(int(reject_addr), int(MIXED_GIANT_PARTNER_ACCEPT_VALUE)):
+            wrote += 1
+        else:
+            failed += 1
+
+    latched = [
+        lane for lane, deadline in _MIXED_GIANT_PARTNER_DEADLINES.items()
+        if now < float(deadline or 0.0)
+    ]
+    enabled = bool(active_pairs or latched)
+    detail_parts = list(active_pairs)
+    if not detail_parts and latched:
+        detail_parts.append("commit latch " + ", ".join(latched))
+
+    with _LOCK:
+        _ROSTER_STATE["mixed_giant_partner_enabled"] = enabled and failed == 0
+        _ROSTER_STATE["mixed_giant_partner_mode"] = "Normal + giant two-character teams" if enabled else ""
+        _ROSTER_STATE["mixed_giant_partner_detail"] = "; ".join(detail_parts)
+        _ROSTER_STATE["mixed_giant_partner_writes"] = int(_ROSTER_STATE.get("mixed_giant_partner_writes", 0) or 0) + wrote
+        if wrote or failed:
+            _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + wrote
+            _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + failed
+            _ROSTER_STATE["last_action"] = f"Mixed giant partner unlock wrote={wrote} failed={failed}"
+            _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Mixed giant partner unlock failed writes={failed}"
+
+
 def _tick_solo_team_request() -> None:
     with _LOCK:
         requested = bool(_ROSTER_STATE.get("solo_team_requested"))
         extra_requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
-    status = _update_extra_guard_state()
+    status = _update_extra_guard_state(_select_screen_status())
     active = bool(status.get("active"))
     visual_present = bool(status.get("visual_rows_present"))
     extra_present = bool(status.get("patch_present"))
@@ -2997,11 +3458,9 @@ def _tick_solo_team_request() -> None:
                 _ROSTER_STATE["solo_team_guard"] = "armed; waiting for character select"
             return
 
-        # Restore the actual old Solo Team behavior.  With Extra Characters OFF,
-        # Solo needs its own appended hidden/blank Yami tail slots.  With Extra
-        # Characters ON, do not disturb the inserted 3-Yami roster; just keep the
-        # profile rows warm.
-        need_install = False
+        # Solo Character remains the explicit blank-partner feature. Giants are
+        # not redirected into this path; mixed giant teams are handled by the
+        # independent validation-gate route above.
         if extra_requested:
             need_install = (not visual_present) or (not extra_present) or (not solo_extra_present)
         else:
@@ -3014,7 +3473,7 @@ def _tick_solo_team_request() -> None:
                 _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + int(failed)
                 _ROSTER_STATE["last_action"] = f"Solo team auto-applied empty-slot helper wrote={wrote} failed={failed}"
                 _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Solo team apply failed writes={failed}"
-            status = _update_extra_guard_state()
+            status = _update_extra_guard_state(_select_screen_status())
             visual_present = bool(status.get("visual_rows_present"))
             extra_present = bool(status.get("patch_present"))
             solo_tail_present = _solo_tail_empty_rows_present()
@@ -3028,6 +3487,8 @@ def _tick_solo_team_request() -> None:
                 else "Solo Team: appended hidden/blank Yami tail slots"
             )
             _ROSTER_STATE["solo_team_guard"] = "character select detected"
+            _ROSTER_STATE["solo_giant_native_active"] = False
+            _ROSTER_STATE["solo_giant_native_id"] = ""
         return
 
     if active and visual_present:
@@ -3041,6 +3502,8 @@ def _tick_solo_team_request() -> None:
         _ROSTER_STATE["solo_team_enabled"] = False
         _ROSTER_STATE["solo_team_mode"] = ""
         _ROSTER_STATE["solo_team_guard"] = "off"
+        _ROSTER_STATE["solo_giant_native_active"] = False
+        _ROSTER_STATE["solo_giant_native_id"] = ""
 
 
 # Owned scratch visual-bank experiment.
@@ -3219,16 +3682,42 @@ def queue_yami_visual_table_three_donor_append() -> dict[str, Any]:
 
 def queue_extra_characters_on() -> dict[str, Any]:
     status = _update_extra_guard_state()
+    active = bool(status.get("active"))
+    present = bool(status.get("patch_present"))
     with _LOCK:
         _ROSTER_STATE["_off_cleanup_done"] = False
         _ROSTER_STATE["extra_characters_requested"] = True
+        _ROSTER_STATE["extra_characters_enabled"] = False
         _ROSTER_STATE["last_action"] = (
             "Extra characters ON armed; will apply on character select"
-            if not status.get("active")
-            else "Extra characters ON armed; applying 3 inserted Yami rows on tick"
+            if not active
+            else "Extra characters ON armed; resolving character-select MEM2"
         )
         _ROSTER_STATE["last_error"] = ""
-    return {"ok": True, "queued": False, "requested": True, "select_active": bool(status.get("active"))}
+
+    gate_wrote = 0
+    gate_failed = 0
+    if active:
+        gate_wrote, gate_failed = _install_mixed_giant_sequence_gate()
+        with _LOCK:
+            _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + gate_wrote
+            _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + gate_failed
+            if present and gate_failed == 0:
+                _ROSTER_STATE["extra_characters_enabled"] = True
+                _ROSTER_STATE["extra_characters_mode"] = "3 Yami roster + mixed giant chrsel.seq gate"
+                _ROSTER_STATE["last_action"] = f"Extra characters ON; mixed giant gate writes={gate_wrote}"
+            elif gate_failed:
+                _ROSTER_STATE["last_action"] = "Extra characters armed; MEM2 gate will retry on service tick"
+                _ROSTER_STATE["last_error"] = "mixed giant sequence gate not reachable yet"
+
+    return {
+        "ok": gate_failed == 0 or not active,
+        "queued": False,
+        "requested": True,
+        "select_active": active,
+        "gate_wrote": gate_wrote,
+        "gate_failed": gate_failed,
+    }
 
 
 def queue_extra_characters_off() -> dict[str, Any]:
@@ -3238,10 +3727,19 @@ def queue_extra_characters_off() -> dict[str, Any]:
         _ROSTER_STATE["extra_characters_requested"] = False
         _ROSTER_STATE["last_error"] = ""
         if not status.get("active"):
+            restored, failed = _restore_mixed_giant_sequence_gate()
             _ROSTER_STATE["extra_characters_enabled"] = False
             _ROSTER_STATE["extra_characters_mode"] = ""
-            _ROSTER_STATE["last_action"] = "Extra characters OFF; no character-select write needed"
-            return {"ok": True, "queued": False, "requested": False, "select_active": False}
+            _ROSTER_STATE["last_action"] = f"Extra characters OFF; sequence gate restored={restored} failed={failed}"
+            _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Sequence gate restore failed writes={failed}"
+            return {
+                "ok": failed == 0,
+                "queued": False,
+                "requested": False,
+                "select_active": False,
+                "restored": restored,
+                "failed": failed,
+            }
         _ROSTER_QUEUE.append({"op": "extra_chars_off"})
         _ROSTER_STATE["queued"] = len(_ROSTER_QUEUE)
         _ROSTER_STATE["last_action"] = "Extra characters OFF queued for character select restore"
@@ -3470,8 +3968,8 @@ def _install_extra_characters_on() -> tuple[int, int]:
         Zero -> Yami 2 -> Frank West
         Frank West -> Yami 1 -> PTX-40A
         Ryu -> Null/empty test slot
-    It only changes the select-wheel roster count/table.
-    No BRRES/MDL0/seq material/scratch/resource-path edits are applied here.
+    It changes the select-wheel roster count/table and two branch destinations
+    in the loaded chrsel.seq compatibility helper. No executable code is edited.
     """
     wrote = 0
     failed = 0
@@ -3484,6 +3982,26 @@ def _install_extra_characters_on() -> tuple[int, int]:
     wrote += w
     failed += f
 
+    # The actual compatibility rule lives in the loaded chrsel.seq helper.
+    # Do not touch DOL code or poll live selector output fields.
+    w, f = _install_mixed_giant_sequence_gate()
+    wrote += w
+    failed += f
+
+    if failed == 0:
+        # These routes are static for the loaded scene. Install them once instead
+        # of re-reading and re-verifying them on every GUI service tick.
+        optional_wrote = 0
+        for route in (
+            _restore_yami_runtime_preview_route_only,
+            _restore_yami_wheel_random_icon_route_only,
+            _install_yami_hover_icon_id_route,
+            _install_yami_dol_icon_tag_route,
+        ):
+            route_wrote, _route_failed = route()
+            optional_wrote += route_wrote
+        wrote += optional_wrote
+
     with _LOCK:
         _ROSTER_STATE["thumbnail_material_optional_failed"] = 0
         _ROSTER_STATE["visual_table_patch_installed"] = False
@@ -3493,8 +4011,12 @@ def _install_extra_characters_on() -> tuple[int, int]:
         _ROSTER_STATE["thumbnail_material_copy_installed"] = False
         _ROSTER_STATE["thumbnail_material_copy_mode"] = "not used by inserted roster-table mode"
         _ROSTER_STATE["extra_characters_enabled"] = failed == 0
-        _ROSTER_STATE["extra_characters_requested"] = failed == 0
-        _ROSTER_STATE["extra_characters_mode"] = "3 Yami inserts + one ID 0x00 null test slot"
+        _ROSTER_STATE["extra_characters_requested"] = True
+        _ROSTER_STATE["extra_characters_mode"] = (
+            "3 Yami inserts + null test + mixed giant chrsel.seq gate"
+            if failed == 0
+            else ""
+        )
         _ROSTER_STATE["last_action"] = f"Extra 3-Yami + null-test roster ON wrote={wrote} failed={failed}; count=0x{EXTRA_CLONE10_COUNT:02X}"
         _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Extra 3-Yami + null-test roster failed writes={failed}"
     return wrote, failed
@@ -3635,8 +4157,15 @@ def _safe_write_u32be(addr: int, value: int) -> bool:
     if wd32 is None:
         return False
     try:
-        wd32(int(addr), int(value) & 0xFFFFFFFF)
-        return True
+        try:
+            result = wd32(
+                int(addr),
+                int(value) & 0xFFFFFFFF,
+                bypass_quarantine=True,
+            )
+        except TypeError:
+            result = wd32(int(addr), int(value) & 0xFFFFFFFF)
+        return bool(result)
     except Exception as e:
         with _LOCK:
             _ROSTER_STATE["last_error"] = repr(e)
@@ -3647,8 +4176,15 @@ def _safe_write_bytes(addr: int, data: bytes) -> bool:
     if wbytes is None:
         return False
     try:
-        wbytes(int(addr), bytes(data))
-        return True
+        try:
+            result = wbytes(
+                int(addr),
+                bytes(data),
+                bypass_quarantine=True,
+            )
+        except TypeError:
+            result = wbytes(int(addr), bytes(data))
+        return bool(result)
     except Exception as e:
         with _LOCK:
             _ROSTER_STATE["last_error"] = repr(e)
@@ -3674,6 +4210,17 @@ def _read_roster_selector_snapshot() -> dict[str, Any]:
             cid = _SLOT_TO_ID.get(slot)
             item["display"] = _slot_label(slot, cid) if cid is not None else f"slot {_fmt_hex(slot, 2)}"
         fields.append(item)
+
+    validation: list[dict[str, Any]] = []
+    for lane, _hover_addr, _selected_addr, reject_addr in MIXED_GIANT_PARTNER_LANES:
+        value = _safe_read_u32be(int(reject_addr))
+        validation.append({
+            "lane": lane,
+            "addr": f"0x{int(reject_addr):08X}",
+            "label": "giant partner reject word",
+            "value": (f"0x{int(value):08X}" if value is not None else ""),
+            "accepted": bool(value == MIXED_GIANT_PARTNER_ACCEPT_VALUE),
+        })
 
     counts: list[dict[str, Any]] = []
     for addr, label in ROSTER_COUNT_ADDRS:
@@ -3709,6 +4256,7 @@ def _read_roster_selector_snapshot() -> dict[str, Any]:
 
     return {
         "fields": fields,
+        "validation": validation,
         "counts": counts,
         "table": table,
         "hover_index": (f"0x{int(hover_idx):02X}" if hover_idx is not None else ""),
@@ -4834,6 +5382,10 @@ def _do_restore() -> dict[str, int]:
     restored = 0
     failed = 0
 
+    w, f = _restore_mixed_giant_sequence_gate()
+    restored += w
+    failed += f
+
     w, f = _restore_yami_dol_icon_tag_route_only()
     restored += w
     failed += f
@@ -4908,6 +5460,15 @@ def _do_restore() -> dict[str, int]:
             _ROSTER_STATE["solo_team_enabled"] = False
             _ROSTER_STATE["solo_team_requested"] = False
             _ROSTER_STATE["solo_team_mode"] = ""
+            _ROSTER_STATE["solo_giant_native_active"] = False
+            _ROSTER_STATE["solo_giant_native_id"] = ""
+            _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+            _ROSTER_STATE["mixed_giant_partner_mode"] = ""
+            _ROSTER_STATE["mixed_giant_partner_detail"] = ""
+            _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+            _ROSTER_STATE["mixed_giant_classifier_detail"] = ""
+            for lane in tuple(_MIXED_GIANT_PARTNER_DEADLINES):
+                _MIXED_GIANT_PARTNER_DEADLINES[lane] = 0.0
     with _LOCK:
         _ROSTER_STATE["restored"] = int(_ROSTER_STATE.get("restored", 0) or 0) + restored
         _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + failed
@@ -4949,7 +5510,10 @@ def _tick_roster_actions() -> None:
         with _LOCK:
             if bool(_ROSTER_STATE.get("_off_cleanup_done")):
                 return
-        wrote, failed = _restore_extra_roster_rows_only()
+        wrote, failed = _restore_mixed_giant_sequence_gate()
+        w, f = _restore_extra_roster_rows_only()
+        wrote += w
+        failed += f
         if bool(status.get("visual_rows_present")):
             w, f = _restore_extra_profile_rows_only()
             wrote += w
@@ -4963,19 +5527,14 @@ def _tick_roster_actions() -> None:
 
     if extra_requested:
         _tick_extra_characters_request()
-        # The top-card/silhouette route was the wrong feature.  Clean any state
-        # a prior build left behind, then patch only the small carousel tile.
-        _restore_yami_runtime_preview_route_only()
-        # Clear only a prior Random-TEX0 session from the previous build; the
-        # current route is the requested per-Yami hover-icon ID mapping.
-        _restore_yami_wheel_random_icon_route_only()
-        # Use one coherent stock donor for every presentation layer.  The DOL
-        # tag maps drive icon_/mof_/select_/name_ lookup; the focus cache keeps
-        # the large card branch on the same Ryu donor.  B-row material edits
-        # remain retired because they do not control the 1P hover tile.
-        _restore_yami_hover_icon_id_route_only()
-        _tick_yami_dol_icon_tag_route()
-        _tick_yami_hover_display_profile_route()
+        # Core Extra Characters and mixed giant routes are one-shot. The only
+        # presentation cache that remains dynamic belongs to the optional Solo
+        # null slot, so do not service it unless Solo Team is requested.
+        if solo_requested:
+            _tick_yami_hover_display_profile_route()
+        _clear_mixed_giant_partner_latches()
+    else:
+        _clear_mixed_giant_partner_latches()
     if solo_requested:
         _tick_solo_team_request()
 
@@ -5130,6 +5689,9 @@ def _tick_roster_actions() -> None:
                 if op == "extra_chars_off":
                     status = _update_extra_guard_state()
                     if status.get("active"):
+                        w, f = _restore_mixed_giant_sequence_gate()
+                        wrote += w
+                        failed += f
                         w, f = _restore_extra_roster_rows_only()
                         wrote += w
                         failed += f
@@ -5323,16 +5885,27 @@ def get_roster_patch_state() -> dict[str, Any]:
 
 def char_test_needs_service() -> bool:
     with _LOCK:
+        extra_waiting = bool(
+            _ROSTER_STATE.get("extra_characters_requested")
+            and not _ROSTER_STATE.get("extra_characters_enabled")
+        )
         return bool(
             _ROSTER_QUEUE
-            or _ROSTER_STATE.get("extra_characters_requested")
+            or extra_waiting
             or _ROSTER_STATE.get("solo_team_requested")
         )
 
 
 def tick_char_test() -> None:
+    global _CHAR_TEST_LAST_SERVICE
     if not char_test_needs_service():
         return
+    now = time.monotonic()
+    with _LOCK:
+        has_queued_action = bool(_ROSTER_QUEUE)
+    if not has_queued_action and (now - float(_CHAR_TEST_LAST_SERVICE)) < _CHAR_TEST_SERVICE_MIN_INTERVAL_SEC:
+        return
+    _CHAR_TEST_LAST_SERVICE = now
     _tick_roster_actions()
 
 def start_char_test(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
@@ -5349,22 +5922,25 @@ def restore_char_test() -> dict[str, Any]:
 
 
 def get_char_test_state() -> dict[str, Any]:
-    roster_state = get_roster_patch_state()
-    requested = bool(roster_state.get("extra_characters_requested"))
-    applied = bool(roster_state.get("extra_characters_enabled"))
-    solo_requested = bool(roster_state.get("solo_team_requested"))
-    solo_applied = bool(roster_state.get("solo_team_enabled"))
+    """Return the lightweight state used by the main frame loop."""
+    with _LOCK:
+        requested = bool(_ROSTER_STATE.get("extra_characters_requested"))
+        applied = bool(_ROSTER_STATE.get("extra_characters_enabled"))
+        solo_requested = bool(_ROSTER_STATE.get("solo_team_requested"))
+        solo_applied = bool(_ROSTER_STATE.get("solo_team_enabled"))
+        last_error = str(_ROSTER_STATE.get("last_error") or "")
+        select_active = bool(_ROSTER_STATE.get("extra_characters_select_active"))
+        patch_present = bool(_ROSTER_STATE.get("extra_characters_patch_present"))
     return {
         "running": requested,
         "mode": "extra_characters" if requested else "extra_characters_off",
         "samples": 0,
         "changes": 0,
-        "last_error": str(roster_state.get("last_error") or ""),
-        "roster_patch": roster_state,
+        "last_error": last_error,
         "extra_characters_enabled": applied,
         "extra_characters_requested": requested,
-        "extra_characters_select_active": bool(roster_state.get("extra_characters_select_active")),
-        "extra_characters_patch_present": bool(roster_state.get("extra_characters_patch_present")),
+        "extra_characters_select_active": select_active,
+        "extra_characters_patch_present": patch_present,
         "solo_team_enabled": solo_applied,
         "solo_team_requested": solo_requested,
     }

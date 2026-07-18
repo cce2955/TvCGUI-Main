@@ -159,29 +159,13 @@ def _mission_element_intro_progress(
 def _mission_element_exit_progress(
     progress: float,
     order: int = 0,
-    stagger: float = 0.040,
-    duration: float = 0.30,
+    stagger: float = 0.055,
 ) -> float:
-    """Return a top-to-bottom staggered exit within one normalized phase."""
+    """Return staggered exit progress from a normalized mission transition."""
     progress = max(0.0, min(1.0, float(progress)))
     delay = max(0, int(order)) * max(0.0, float(stagger))
-    if duration <= 0.0:
-        return 1.0 if progress >= delay else 0.0
-    return _mission_intro_ease((progress - delay) / float(duration))
-
-
-def _mission_sequence_progress(
-    progress: float,
-    order: int = 0,
-    stagger: float = 0.040,
-    duration: float = 0.30,
-) -> float:
-    """Animate one element in a top-to-bottom sequence inside one phase."""
-    progress = max(0.0, min(1.0, float(progress)))
-    delay = max(0, int(order)) * max(0.0, float(stagger))
-    if duration <= 0.0:
-        return 1.0 if progress >= delay else 0.0
-    return _mission_intro_ease((progress - delay) / float(duration))
+    available = max(0.12, 1.0 - delay)
+    return _mission_intro_ease((progress - delay) / available)
 
 
 def _mission_complete_plate_progress(phase: float) -> tuple[float, float, float]:
@@ -684,11 +668,8 @@ class MasterOverlay:
         self._mission_transition_new_key: tuple[str, str, str, str] | None = None
         self._mission_transition_state: str = "idle"
         self._mission_transition_phase: float = 1.0
-        # Mission handoff budget: 48 frames out, 12 empty, 60 frames in.
-        # The panel shell remains visible for the full 120-frame sequence.
-        self._mission_transition_out_duration: float = 48.0 / TARGET_FPS
-        self._mission_transition_hold_duration: float = 12.0 / TARGET_FPS
-        self._mission_transition_in_duration: float = 60.0 / TARGET_FPS
+        self._mission_transition_out_duration: float = 0.22
+        self._mission_transition_in_duration: float = 0.34
 
         # Header progress strip animation. This is a float so the pips can
         # light up and power down one by one instead of snapping.
@@ -986,7 +967,7 @@ class MasterOverlay:
         self._mission_strip_complete_sheen_phase = 1.0
 
     def _stage_mission_overlay_payload(self, data: dict) -> None:
-        """Accept live mission data while preserving a staged visual handoff."""
+        """Accept live mission data while preserving a short visual handoff."""
         self.mission_overlay_data = data
         new_key = self._mission_payload_key(data)
         selector_open = bool(data.get("selector_open", False))
@@ -998,10 +979,7 @@ class MasterOverlay:
                 self._mission_last_active_data = dict(data)
             return
 
-        if self._mission_transition_state in {"out", "hold"}:
-            # Keep the existing shell and outgoing payload while accepting the
-            # newest destination. Rapid tags replace the pending destination
-            # instead of restarting or stacking another transition.
+        if self._mission_transition_state == "out":
             self._mission_transition_new_data = dict(data)
             self._mission_transition_new_key = new_key
             return
@@ -1039,20 +1017,8 @@ class MasterOverlay:
 
     def _update_mission_transition(self, dt: float) -> None:
         dt = max(0.0, float(dt))
-
         if self._mission_transition_state == "out":
             duration = max(0.01, self._mission_transition_out_duration)
-            self._mission_transition_phase = min(
-                1.0,
-                self._mission_transition_phase + dt / duration,
-            )
-            if self._mission_transition_phase >= 1.0:
-                # All outgoing content is gone, but the panel shell remains.
-                self._mission_transition_state = "hold"
-                self._mission_transition_phase = 0.0
-
-        elif self._mission_transition_state == "hold":
-            duration = max(0.01, self._mission_transition_hold_duration)
             self._mission_transition_phase = min(
                 1.0,
                 self._mission_transition_phase + dt / duration,
@@ -1084,10 +1050,7 @@ class MasterOverlay:
                 self._mission_transition_phase = 1.0
 
     def _mission_display_payload(self) -> dict:
-        if (
-            self._mission_transition_state in {"out", "hold"}
-            and self._mission_transition_old_data
-        ):
+        if self._mission_transition_state == "out" and self._mission_transition_old_data:
             return self._mission_transition_old_data
         if self._mission_visible_data:
             return self._mission_visible_data
@@ -1141,7 +1104,41 @@ class MasterOverlay:
         except Exception:
             pass
     def handle_events(self) -> None:
-        for event in pygame.event.get():
+        now = time.monotonic()
+        if now < float(getattr(self, "_event_poll_resume_time", 0.0) or 0.0):
+            return
+
+        try:
+            events = pygame.event.get()
+        except Exception as exc:
+            error_count = int(getattr(self, "_event_poll_error_count", 0) or 0) + 1
+            self._event_poll_error_count = error_count
+            self._event_poll_resume_time = now + 0.25
+
+            last_log = float(getattr(self, "_event_poll_last_log", 0.0) or 0.0)
+            if now - last_log >= 2.0:
+                self._event_poll_last_log = now
+                print(
+                    "[master] pygame event queue read failed; "
+                    f"overlay kept alive, retrying shortly ({type(exc).__name__}: {exc})"
+                )
+
+            # A malformed SDL event can leave Pygame's converter with an
+            # exception set. Clearing is best effort and must never terminate
+            # the compositor.
+            try:
+                pygame.event.clear()
+            except Exception:
+                try:
+                    pygame.event.pump()
+                except Exception:
+                    pass
+            return
+
+        self._event_poll_error_count = 0
+        self._event_poll_resume_time = 0.0
+
+        for event in events:
             if event.type == pygame.QUIT:
                 self.running = False
 
@@ -2026,38 +2023,24 @@ class MasterOverlay:
         transition_mode = str(transition_mode or "idle").lower()
         transition_progress = max(0.0, min(1.0, float(transition_progress)))
         is_exiting = transition_mode == "out"
-        is_holding = transition_mode == "hold"
+        exit_progress = _mission_intro_ease(transition_progress) if is_exiting else 0.0
 
-        def entry_progress(order: int = 0, duration: float = 0.30) -> float:
+        def entry_progress(delay: float, duration: float = 0.18) -> float:
             if is_exiting:
                 return 1.0
-            if is_holding:
-                return 0.0
-            if transition_mode == "in":
-                normalized = transition_progress
-            else:
-                normalized = min(
-                    1.0,
-                    self._mission_intro_phase
-                    / max(0.01, self._mission_transition_in_duration),
-                )
-            return _mission_sequence_progress(
-                normalized,
-                order,
-                0.045,
+            return _mission_element_intro_progress(
+                self._mission_intro_phase,
+                delay,
                 duration,
             )
 
         def exit_visibility(order: int = 0) -> float:
-            if is_holding:
-                return 0.0
             if not is_exiting:
                 return 1.0
             return 1.0 - _mission_element_exit_progress(
                 transition_progress,
                 order,
                 0.045,
-                0.28,
             )
 
         def blit_faded(
@@ -2247,15 +2230,14 @@ class MasterOverlay:
         panel_h = base_panel_h + note_h + note_gap + list_h + footer_h
 
         panel_intro = _mission_panel_intro_progress(self._mission_intro_phase)
-        if transition_mode in {"out", "hold", "in"}:
-            # During a mission handoff, only the contents animate. The panel
-            # shell stays fully present so there is no jarring despawn frame.
+        if is_exiting:
             panel_intro = 1.0
         total_draw_h = panel_h
         max_panel_y = max(outer_margin, self.h - total_draw_h - outer_margin)
         preferred_y = max(outer_margin, int(self.h * 0.06))
         panel_y_final = min(preferred_y, max_panel_y)
         panel_x = max(horizontal_margin, (self.w - panel_w) // 2)
+        panel_x -= int(round(exit_progress * 24.0))
         panel_y = min(
             max_panel_y,
             panel_y_final + int(round((1.0 - panel_intro) * 18.0)),
@@ -2335,15 +2317,15 @@ class MasterOverlay:
             ),
         )
         progress_chip_vis = min(
-            entry_progress(2),
-            exit_visibility(2),
+            entry_progress(0.035, 0.17),
+            exit_visibility(4),
         )
         blit_faded(
             panel,
             progress_chip_layer,
             progress_chip_rect.topleft,
             progress_chip_vis,
-            (42, 0),
+            (18, 0),
         )
 
         mode_surf = self.smallfont.render(
@@ -2416,20 +2398,20 @@ class MasterOverlay:
             ),
         )
         character_chip_vis = min(
-            entry_progress(0),
-            exit_visibility(0),
+            entry_progress(0.0, 0.17),
+            exit_visibility(5),
         )
         blit_faded(
             panel,
             character_chip_layer,
             character_chip_rect.topleft,
             character_chip_vis,
-            (-42, 0),
+            (-18, 0),
         )
 
         mode_x = character_chip_rect.right + 9
         available_mode_right = progress_chip_rect.x - 8
-        meta_vis = min(entry_progress(1), exit_visibility(1))
+        meta_vis = min(entry_progress(0.055, 0.16), exit_visibility(4))
         if mode_x + mode_surf.get_width() + slot_chip_w + 7 <= available_mode_right:
             blit_faded(
                 panel,
@@ -2439,7 +2421,7 @@ class MasterOverlay:
                     pad + header_chip_h // 2 - mode_surf.get_height() // 2,
                 ),
                 meta_vis,
-                (0, -16),
+                (0, -6),
             )
             slot_x = mode_x + mode_surf.get_width() + 7
         else:
@@ -2478,7 +2460,7 @@ class MasterOverlay:
                 slot_chip_layer,
                 slot_chip_rect.topleft,
                 meta_vis,
-                (0, -16),
+                (0, -6),
             )
 
         segment_y = pad + header_h
@@ -2611,7 +2593,7 @@ class MasterOverlay:
                 badge_layer.set_alpha(int(255 * badge_progress))
                 panel.blit(badge_layer, badge_rect.topleft)
 
-        strip_vis = min(entry_progress(3), exit_visibility(3))
+        strip_vis = min(entry_progress(0.075, 0.17), exit_visibility(3))
         if strip_vis < 0.999:
             strip_cover = pygame.Surface((strip_rect.width, strip_rect.height + 8), pygame.SRCALPHA)
             strip_cover.fill((7, 14, 27, int(round(255 * (1.0 - strip_vis)))))
@@ -2670,21 +2652,21 @@ class MasterOverlay:
             ),
         )
         mission_chip_vis = min(
-            entry_progress(4),
-            exit_visibility(4),
+            entry_progress(0.095, 0.17),
+            exit_visibility(2),
         )
         blit_faded(
             panel,
             mission_chip_layer,
             mission_chip_rect.topleft,
             mission_chip_vis,
-            (-40, 0),
+            (-16, 0),
         )
 
-        for button_index, ((text, kind), button_w) in enumerate(zip(
+        for (text, kind), button_w in zip(
             challenge_button_specs,
             challenge_button_widths,
-        )):
+        ):
             rect = pygame.Rect(
                 button_x,
                 button_y,
@@ -2715,18 +2697,18 @@ class MasterOverlay:
                     rect.height // 2 - text_surf.get_height() // 2,
                 ),
             )
-            button_order = 5 + button_index
+            button_order = 0 if kind == "hint" else 1
             button_vis = min(
-                entry_progress(button_order),
-                exit_visibility(button_order),
+                entry_progress(0.115 + button_order * 0.035, 0.16),
+                exit_visibility(1 + button_order),
             )
-            animated_button_x = rect.x + int(round((1.0 - button_vis) * 34.0))
+            animated_button_x = rect.x + int(round((1.0 - button_vis) * 14.0))
             blit_faded(
                 panel,
                 button_layer,
                 (rect.x, rect.y),
                 button_vis,
-                (34, 0),
+                (14, 0),
             )
             global_rect = pygame.Rect(
                 panel_x + animated_button_x,
@@ -2734,7 +2716,7 @@ class MasterOverlay:
                 rect.width,
                 rect.height,
             )
-            if not is_exiting and not is_holding and button_vis >= 0.90:
+            if not is_exiting and button_vis >= 0.90:
                 if kind == "all":
                     self.mission_toggle_rect = global_rect
                 else:
@@ -2743,61 +2725,47 @@ class MasterOverlay:
 
         instruction_y = challenge_rect.y + 8 + challenge_top_h + 6
         instruction_x = challenge_rect.x + 10
-        instruction_base_order = 7
+        instruction_vis = min(
+            entry_progress(0.15, 0.18),
+            exit_visibility(1),
+        )
         for instruction_index, instruction_surf in enumerate(instruction_surfs):
-            instruction_order = instruction_base_order + instruction_index
-            line_vis = min(
-                entry_progress(instruction_order),
-                exit_visibility(instruction_order),
-            )
+            if is_exiting:
+                line_vis = instruction_vis
+            else:
+                line_vis = instruction_vis * _mission_element_intro_progress(
+                    self._mission_intro_phase,
+                    0.15 + instruction_index * 0.025,
+                    0.16,
+                )
             line_vis = max(0.0, min(1.0, line_vis))
             blit_faded(
                 panel,
                 instruction_surf,
                 (instruction_x, instruction_y),
                 line_vis,
-                (0, 18),
+                (0, 6),
             )
             instruction_y += instruction_surf.get_height() + instruction_gap
 
         cursor_y = challenge_rect.bottom + 8
-        next_sequence_order = instruction_base_order + len(instruction_surfs)
 
         if timer_h:
             timer_rect = pygame.Rect(pad, cursor_y, inner_w, timer_h - 8)
-            timer_layer = pygame.Surface(timer_rect.size, pygame.SRCALPHA)
-            pygame.draw.rect(timer_layer, (10, 22, 38), timer_layer.get_rect(), border_radius=4)
-            pygame.draw.rect(timer_layer, (52, 71, 102), timer_layer.get_rect(), 1, border_radius=4)
+            pygame.draw.rect(panel, (10, 22, 38), timer_rect, border_radius=4)
+            pygame.draw.rect(panel, (52, 71, 102), timer_rect, 1, border_radius=4)
             label = self.smallfont.render(
                 f"Blockstun Timer  {goal_current_frames}/{goal_needed_frames}f",
                 True,
                 (226, 231, 240),
             )
-            timer_layer.blit(label, (8, 4))
-            bar = pygame.Rect(8, timer_rect.height - 12, timer_rect.width - 16, 6)
-            pygame.draw.rect(timer_layer, (34, 44, 62), bar, border_radius=2)
+            panel.blit(label, (timer_rect.x + 8, timer_rect.y + 4))
+            bar = pygame.Rect(timer_rect.x + 8, timer_rect.bottom - 12, timer_rect.width - 16, 6)
+            pygame.draw.rect(panel, (34, 44, 62), bar, border_radius=2)
             frac = max(0.0, min(1.0, goal_current_frames / float(max(1, goal_needed_frames))))
             if frac > 0.0:
                 color = (76, 151, 230) if goal_timer_active else (76, 92, 120)
-                pygame.draw.rect(
-                    timer_layer,
-                    color,
-                    (bar.x, bar.y, int(bar.width * frac), bar.height),
-                    border_radius=2,
-                )
-            timer_order = next_sequence_order
-            timer_vis = min(
-                entry_progress(timer_order),
-                exit_visibility(timer_order),
-            )
-            blit_faded(
-                panel,
-                timer_layer,
-                timer_rect.topleft,
-                timer_vis,
-                (0, 24),
-            )
-            next_sequence_order += 1
+                pygame.draw.rect(panel, color, (bar.x, bar.y, int(bar.width * frac), bar.height), border_radius=2)
             cursor_y += timer_h
 
         if note_h > 0:
@@ -2817,23 +2785,20 @@ class MasterOverlay:
             for surf in note_line_surfs:
                 note_layer.blit(surf, (12, note_y))
                 note_y += surf.get_height() + note_line_gap
-            note_order = next_sequence_order
             note_vis = min(
-                entry_progress(note_order),
-                exit_visibility(note_order),
+                entry_progress(0.175, 0.18),
+                exit_visibility(0),
             )
             blit_faded(
                 panel,
                 note_layer,
                 note_rect.topleft,
                 note_vis,
-                (0, 26),
+                (0, 8),
             )
-            next_sequence_order += 1
             cursor_y += note_h + note_gap
 
         list_y = cursor_y
-        row_sequence_base = next_sequence_order
         list_h = max(0, visible_rows * row_h + max(0, visible_rows - 1) * row_gap)
         old_clip = panel.get_clip()
         compact_complete = bool(mission_done and (self._mission_hold_frames > 0 or self._toast_phase > 0.0))
@@ -2983,13 +2948,21 @@ class MasterOverlay:
                 else:
                     row_y = list_y + display_order * (row_h + row_gap)
 
-                row_order = row_sequence_base + display_order
                 if is_exiting:
-                    row_intro = exit_visibility(row_order)
-                    row_shift = -int(round((1.0 - row_intro) * 56.0))
+                    exit_order = max(0, visible_rows - 1 - display_order)
+                    row_exit = _mission_element_exit_progress(
+                        transition_progress,
+                        exit_order,
+                        0.055,
+                    )
+                    row_intro = 1.0 - row_exit
+                    row_shift = -int(round(row_exit * 38.0))
                 else:
-                    row_intro = entry_progress(row_order)
-                    row_shift = int(round((1.0 - row_intro) * 56.0))
+                    row_intro = _mission_row_intro_progress(
+                        self._mission_intro_phase,
+                        display_order,
+                    )
+                    row_shift = int(round((1.0 - row_intro) * 32.0))
                 row_layer = pygame.Surface((inner_w, row_h), pygame.SRCALPHA)
                 is_done = idx < completed_count
                 is_current = idx == current_index and not mission_done
@@ -3097,23 +3070,23 @@ class MasterOverlay:
                 True,
                 (126, 139, 159),
             )
-            footer_order = row_sequence_base + visible_rows
-            footer_vis = min(
-                entry_progress(footer_order),
-                exit_visibility(footer_order),
-            )
+            footer_vis = min(entry_progress(0.20, 0.15), exit_visibility(0))
             blit_faded(
                 panel,
                 footer,
                 (pad, panel_h - pad - footer.get_height()),
                 footer_vis,
-                (0, 18),
+                (0, 5),
             )
 
-        # The panel shell never fades during a mission-to-mission handoff.
-        # Outgoing contents leave, the empty shell holds, then incoming
-        # contents cascade into the same frame.
-        panel.set_alpha(int(255 * panel_intro))
+        panel_exit_alpha = 1.0
+        if is_exiting:
+            panel_exit_alpha = 1.0 - _mission_intro_ease(
+                (transition_progress - 0.52) / 0.48
+            )
+        panel.set_alpha(
+            int(255 * panel_intro * max(0.0, min(1.0, panel_exit_alpha)))
+        )
         self.screen.blit(panel, (panel_x, panel_y))
 
     def draw_mission_overlay(self) -> None:

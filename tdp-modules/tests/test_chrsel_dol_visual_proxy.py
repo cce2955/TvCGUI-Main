@@ -1,11 +1,8 @@
-"""Contracts for Character Select's live DOL presentation-tag proxy.
+"""Contracts for Character Select's split presentation routing.
 
-These cover the route that actually works in the current build:
-
-* real selection IDs stay Yami 0x17/0x18/0x19 and solo/null 0x00;
-* DOL presentation tags make Yami render through Ryu and solo/null through Zero;
-* foreign table values are never overwritten;
-* restore affects only values this runtime session still owns.
+Yami keeps its native hidden presentation tags so the large silhouette and rear
+card stay blank. The Solo null helper still borrows Zero's full presentation.
+The small Yami cursor icon is covered by the separate chrsel.seq material route.
 """
 from __future__ import annotations
 
@@ -47,10 +44,7 @@ class CharacterSelectDolVisualProxyTests(unittest.TestCase):
             "_safe_read_u32be": runtime._safe_read_u32be,
             "_safe_write_u32be": runtime._safe_write_u32be,
             "state": dict(runtime._ROSTER_STATE),
-            "session": {
-                key: dict(value)
-                for key, value in runtime._YAMI_DOL_ICON_TAG_SESSION.items()
-            },
+            "session": {key: dict(value) for key, value in runtime._YAMI_DOL_ICON_TAG_SESSION.items()},
         }
         runtime._safe_read = self.mem.read_bytes
         runtime._safe_read_u32be = self.mem.read_word
@@ -78,28 +72,19 @@ class CharacterSelectDolVisualProxyTests(unittest.TestCase):
                 self.mem.put_word(base + int(fighter_id) * 4, tag_ptr)
 
     @property
-    def _expected_addrs(self) -> set[int]:
+    def _solo_addrs(self) -> set[int]:
         return {
-            int(base) + int(fighter_id) * 4
+            int(base)
             for base in (
                 runtime.DOL_CHAR_TAG_MAP_BASE,
                 runtime.DOL_CANONICAL_UI_TAG_MAP_BASE,
             )
-            for fighter_id, _proxy_id in runtime.CHARSEL_DOL_PRESENTATION_TAG_PLAN
         }
 
-    def test_plan_keeps_playable_ids_and_maps_only_their_visual_profiles(self) -> None:
-        self.assertEqual(
-            runtime.CHARSEL_DOL_PRESENTATION_TAG_PLAN,
-            (
-                (0x00, runtime.ZERO_VISUAL_PROXY_ID),
-                (0x17, runtime.RYU_VISUAL_PROXY_ID),
-                (0x18, runtime.RYU_VISUAL_PROXY_ID),
-                (0x19, runtime.RYU_VISUAL_PROXY_ID),
-            ),
-        )
-        self.assertEqual(runtime.RYU_VISUAL_PROXY_ID, 0x0C)
-        self.assertEqual(runtime.ZERO_VISUAL_PROXY_ID, 0x1D)
+    def test_full_presentation_plan_contains_only_solo_null(self) -> None:
+        self.assertEqual(runtime.CHARSEL_DOL_PRESENTATION_TAG_PLAN, ((0x00, runtime.ZERO_VISUAL_PROXY_ID),))
+        self.assertEqual(runtime.YAMI_DOL_ICON_TAG_PLAN, ())
+        self.assertEqual(runtime.YAMI_NATIVE_BLANK_IDS, (0x17, 0x18, 0x19))
 
     def test_stock_route_is_ready_and_fresh_before_any_write(self) -> None:
         status = runtime._dol_icon_tag_route_status()
@@ -109,63 +94,65 @@ class CharacterSelectDolVisualProxyTests(unittest.TestCase):
         self.assertFalse(status["mixed"])
         self.assertEqual(self.mem.writes, [])
 
-    def test_install_writes_exactly_the_eight_presentation_map_words(self) -> None:
+    def test_install_writes_only_two_solo_null_map_words(self) -> None:
         wrote, failed = runtime._install_yami_dol_icon_tag_route()
-        self.assertEqual((wrote, failed), (8, 0))
-        self.assertEqual({addr for addr, _value in self.mem.writes}, self._expected_addrs)
-
-        ryu_ptr = runtime.DOL_TAG_POINTERS[runtime.RYU_VISUAL_PROXY_ID][0]
-        zero_ptr = runtime.DOL_TAG_POINTERS[runtime.ZERO_VISUAL_PROXY_ID][0]
-        for base in (
+        self.assertEqual((wrote, failed), (2, 0))
+        expected = {
             runtime.DOL_CHAR_TAG_MAP_BASE,
             runtime.DOL_CANONICAL_UI_TAG_MAP_BASE,
-        ):
-            self.assertEqual(self.mem.read_word(base + 0x00 * 4), zero_ptr)
-            for fighter_id in (0x17, 0x18, 0x19):
-                self.assertEqual(self.mem.read_word(base + fighter_id * 4), ryu_ptr)
+        }
+        self.assertEqual({addr for addr, _value in self.mem.writes}, expected)
 
-    def test_install_is_idempotent_after_exact_route_is_present(self) -> None:
-        self.assertEqual((8, 0), runtime._install_yami_dol_icon_tag_route())
+        zero_ptr = runtime.DOL_TAG_POINTERS[runtime.ZERO_VISUAL_PROXY_ID][0]
+        for base in expected:
+            self.assertEqual(self.mem.read_word(base), zero_ptr)
+        for base, stock_map in (
+            (runtime.DOL_CHAR_TAG_MAP_BASE, runtime._DOL_STOCK_DIRECT_TAG_POINTERS),
+            (runtime.DOL_CANONICAL_UI_TAG_MAP_BASE, runtime._DOL_STOCK_CANONICAL_TAG_POINTERS),
+        ):
+            for fighter_id in runtime.YAMI_NATIVE_BLANK_IDS:
+                self.assertEqual(self.mem.read_word(base + fighter_id * 4), stock_map[fighter_id])
+
+    def test_install_is_idempotent(self) -> None:
+        self.assertEqual((2, 0), runtime._install_yami_dol_icon_tag_route())
         self.mem.writes.clear()
         self.assertEqual((0, 0), runtime._install_yami_dol_icon_tag_route())
         self.assertEqual(self.mem.writes, [])
 
-    def test_legacy_cmn_ts2_fra_route_is_migrated_to_ryu(self) -> None:
-        for base in (
-            runtime.DOL_CHAR_TAG_MAP_BASE,
-            runtime.DOL_CANONICAL_UI_TAG_MAP_BASE,
+    def test_old_ryu_yami_rows_migrate_back_to_native_tags(self) -> None:
+        ryu_ptr = runtime.DOL_TAG_POINTERS[runtime.RYU_VISUAL_PROXY_ID][0]
+        for base in (runtime.DOL_CHAR_TAG_MAP_BASE, runtime.DOL_CANONICAL_UI_TAG_MAP_BASE):
+            for fighter_id in runtime.YAMI_NATIVE_BLANK_IDS:
+                self.mem.put_word(base + fighter_id * 4, ryu_ptr)
+
+        wrote, failed = runtime._restore_yami_native_blank_tag_rows()
+        self.assertEqual((wrote, failed), (6, 0))
+        for base, stock_map in (
+            (runtime.DOL_CHAR_TAG_MAP_BASE, runtime._DOL_STOCK_DIRECT_TAG_POINTERS),
+            (runtime.DOL_CANONICAL_UI_TAG_MAP_BASE, runtime._DOL_STOCK_CANONICAL_TAG_POINTERS),
         ):
-            for fighter_id, tag_ptr in runtime._DOL_LEGACY_PRESENTATION_POINTERS.items():
-                self.mem.put_word(base + int(fighter_id) * 4, tag_ptr)
+            for fighter_id in runtime.YAMI_NATIVE_BLANK_IDS:
+                self.assertEqual(self.mem.read_word(base + fighter_id * 4), stock_map[fighter_id])
 
-        status = runtime._dol_icon_tag_route_status()
-        self.assertTrue(status["ready"])
-        self.assertTrue(status["migratable_legacy"])
-        self.assertFalse(status["fresh"])
-        self.assertEqual((8, 0), runtime._install_yami_dol_icon_tag_route())
-        self.assertTrue(runtime._dol_icon_tag_route_status()["installed"])
-
-    def test_foreign_dol_map_value_is_not_overwritten(self) -> None:
+    def test_foreign_yami_map_value_is_not_overwritten(self) -> None:
         foreign_addr = runtime.DOL_CHAR_TAG_MAP_BASE + 0x18 * 4
         self.mem.put_word(foreign_addr, 0xDEADBEEF)
-        status = runtime._dol_icon_tag_route_status()
-        self.assertFalse(status["ready"])
-        self.assertTrue(status["mixed"])
 
-        wrote, failed = runtime._install_yami_dol_icon_tag_route()
+        wrote, failed = runtime._restore_yami_native_blank_tag_rows()
+
         self.assertEqual((wrote, failed), (0, 1))
         self.assertEqual(self.mem.read_word(foreign_addr), 0xDEADBEEF)
         self.assertEqual(self.mem.writes, [])
 
-    def test_restore_returns_only_values_still_owned_by_this_session(self) -> None:
-        self.assertEqual((8, 0), runtime._install_yami_dol_icon_tag_route())
-        foreign_addr = runtime.DOL_CANONICAL_UI_TAG_MAP_BASE + 0x19 * 4
+    def test_restore_returns_only_solo_values_owned_by_this_session(self) -> None:
+        self.assertEqual((2, 0), runtime._install_yami_dol_icon_tag_route())
+        foreign_addr = runtime.DOL_CANONICAL_UI_TAG_MAP_BASE
         self.mem.put_word(foreign_addr, 0xDEADBEEF)
         self.mem.writes.clear()
 
         wrote, failed = runtime._restore_yami_dol_icon_tag_route_only()
 
-        self.assertEqual((wrote, failed), (7, 1))
+        self.assertEqual((wrote, failed), (1, 1))
         self.assertEqual(self.mem.read_word(foreign_addr), 0xDEADBEEF)
         self.assertNotIn(foreign_addr, {addr for addr, _value in self.mem.writes})
 
