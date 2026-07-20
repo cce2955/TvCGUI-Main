@@ -2814,6 +2814,31 @@ class Overlay:
             badge.blit(txt, (4, 2))
             self.screen.blit(badge, (bx, by))
 
+    def draw_move_phase_chip(
+        self,
+        projected_bounds: Tuple[int, int, int, int],
+        text: str,
+        color: Tuple[int, int, int],
+        active: bool,
+    ) -> None:
+        if self.font_small is None or not text:
+            return
+        left, top, right, _bottom = projected_bounds
+        center_x = int((left + right) * 0.5)
+        txt = self.font_small.render(str(text), True, (240, 248, 255))
+        tw, th = txt.get_size()
+        padx = 8
+        chip_w = tw + padx * 2
+        chip_h = th + 6
+        chip = pygame.Surface((chip_w, chip_h), pygame.SRCALPHA)
+        cr, cg, cb = color[:3]
+        pygame.draw.rect(chip, (4, 10, 18, 226 if active else 198), (0, 0, chip_w, chip_h), border_radius=7)
+        pygame.draw.rect(chip, (cr, cg, cb, 240 if active else 170), (0, 0, chip_w, chip_h), 1, border_radius=7)
+        if active:
+            pygame.draw.rect(chip, (225, 242, 255, 78), (1, 1, chip_w - 2, chip_h - 2), 1, border_radius=6)
+        chip.blit(txt, ((chip_w - tw) // 2, (chip_h - th) // 2 - 1))
+        self.screen.blit(chip, (center_x - chip_w // 2, int(top) - chip_h - 7))
+
     def draw_hitbox_ghost(self, x, y, z, r, color, alpha: int = 110):
         """Draw one faded historical hitbox position without labels or fill."""
         result = self._project_hitbox(x, y, z, r)
@@ -3448,6 +3473,11 @@ class HitboxRenderer:
         # presentation decision.  This is transient; it is never stored in a
         # move profile and resets cleanly on a roster/camera switch.
         self._range_ground_reference_y: Dict[str, float] = {}
+        # One presentation timer per fighter move. This is intentionally
+        # independent of the three physical radii so the phase chip never
+        # jumps between individual circles.
+        self._move_phase_state: Dict[str, Dict[str, Any]] = {}
+        self._move_phase_tick: int = 0
 
         self.w = DISPLAY.baseline_w
         self.h = DISPLAY.baseline_h
@@ -5597,6 +5627,7 @@ class HitboxRenderer:
         self._range_contact_expectations.clear()
         self._range_last_impact_freeze.clear()
         self._range_ground_reference_y.clear()
+        self._move_phase_state.clear()
         self.hurt_counts = {}
         self.slot_renderable = {slot: False for slot in SLOT_BASES}
         self.last_counts = {}
@@ -5662,6 +5693,80 @@ class HitboxRenderer:
         is_active = (hitbox_flag == 0x53)
         return is_active, is_active, action_frame, fd
 
+    def _move_phase_chip(
+        self,
+        slot_name: str,
+        fd: Optional[MoveFrameData],
+        action_frame: Optional[int],
+        group_visible: bool,
+    ) -> Tuple[Optional[str], bool]:
+        """Return one stable move-level phase chip for the physical group.
+
+        The timer begins only when the physical hitbox group is actually
+        visible.  When TvC supplies a usable action frame, that frame is the
+        source of truth.  A local elapsed counter is retained only across brief
+        counter discontinuities.
+        """
+        tick = int(self._move_phase_tick)
+        if fd is None or not getattr(fd, "active_windows", None) or not group_visible:
+            self._move_phase_state.pop(slot_name, None)
+            return None, False
+
+        move_key = (int(fd.move_id), str(fd.move_name))
+        state = self._move_phase_state.get(slot_name)
+        if state is None or state.get("move_key") != move_key or tick - int(state.get("last_tick", tick)) > 2:
+            state = {
+                "move_key": move_key,
+                "start_tick": tick,
+                "last_tick": tick,
+                "last_raw_frame": None,
+                "effective_frame": 1,
+            }
+            self._move_phase_state[slot_name] = state
+
+        state["last_tick"] = tick
+        raw_frame = int(action_frame) if action_frame is not None else None
+        prev_raw = state.get("last_raw_frame")
+        effective = int(state.get("effective_frame") or 1)
+
+        if raw_frame is not None and raw_frame > 0:
+            if prev_raw is None:
+                effective = raw_frame
+            elif raw_frame > int(prev_raw):
+                effective = raw_frame
+            elif raw_frame == int(prev_raw):
+                # The GUI may draw more often than the game's counter changes.
+                # Do not advance twice for one game frame.
+                effective = max(effective, raw_frame)
+            elif raw_frame <= 2 and int(prev_raw) > 2:
+                # A true reset means a new use of the same move.
+                effective = raw_frame
+                state["start_tick"] = tick
+            else:
+                # Brief substate/counter regressions keep the move-level clock.
+                effective += 1
+            state["last_raw_frame"] = raw_frame
+        else:
+            effective = max(1, tick - int(state.get("start_tick", tick)) + 1)
+
+        state["effective_frame"] = effective
+
+        windows = sorted((int(start), int(end)) for start, end in fd.active_windows)
+        first_start = min(start for start, _end in windows)
+
+        if effective < first_start:
+            # A move listed with S=5 and first active frame 6 displays 5..1.
+            remaining = first_start - effective
+            return (str(remaining), False) if remaining > 0 else (None, False)
+
+        for start, end in windows:
+            if start <= effective <= end:
+                # Match the table convention used by the GUI, end-start frames.
+                remaining = max(1, end - effective)
+                return str(remaining), True
+
+        return None, False
+
     def update(self, dt: float, control=None) -> None:
         hitboxes_on = self._hitboxes_enabled(control)
         hurtboxes_on = self._hurtboxes_enabled(control)
@@ -5670,6 +5775,8 @@ class HitboxRenderer:
         if not (hitboxes_on or hurtboxes_on or ruler_on):
             self._clear_runtime_hitbox_state()
             return
+
+        self._move_phase_tick += 1
 
         char_changed = False
         for name, base in SLOT_BASES.items():
@@ -6135,33 +6242,45 @@ class HitboxRenderer:
 
                 boxes = read_hitboxes(base, HITBOX)
                 palette = COLORS.get(name, [(255, 255, 255)])
+                fd = lookup_frame_data(self.fd_by_slot, name, state_id)
+                action_frame = read_action_frame(base)
+                drawable_boxes: List[Tuple[int, float, float, float, int]] = []
 
                 for i, (x, y, r, flag) in enumerate(boxes):
                     if r <= 0.001:
                         continue
-
-                    # Old primary-lane visibility rule.  Unknown moves use the
-                    # translation filter.  Moves with frame data remain visible
-                    # through startup so their allocated physical boxes are not
-                    # lost merely because they are stationary relative to the
-                    # fighter.
                     visible = self.motion_filter.update(name, i, x, y, r)
-                    fd = lookup_frame_data(self.fd_by_slot, name, state_id)
                     if not visible and fd is None:
                         continue
+                    drawable_boxes.append((i, x, y, r, flag))
 
+                chip_text, chip_active = self._move_phase_chip(
+                    name,
+                    fd,
+                    action_frame,
+                    bool(drawable_boxes),
+                )
+                group_bounds: Optional[List[int]] = None
+
+                for i, x, y, r, flag in drawable_boxes:
                     base_color = palette[i % len(palette)]
-                    action_frame = read_action_frame(base)
-                    is_active = (
-                        is_frame_data_active(fd, action_frame)
-                        if fd is not None
-                        else (flag == 0x53)
-                    )
+                    # All radii in one move share one move-level phase.
+                    is_active = bool(chip_active) if fd is not None else (flag == 0x53)
                     draw_color = base_color if is_active else _dim_hitbox_color(base_color)
                     label = f"{name}[{i}]"
                     if debug_labels and fd is not None and action_frame is not None:
                         label = f"{name}[{i}] f={action_frame}/{fd.active_text()}"
                     current_ghost_frame.append((float(x), float(y), 0.0, float(r), tuple(draw_color[:3])))
+                    projected = ov._project_hitbox(x, y, 0, r)
+                    if projected is not None:
+                        psx, psy, pr = projected
+                        if group_bounds is None:
+                            group_bounds = [psx - pr, psy - pr, psx + pr, psy + pr]
+                        else:
+                            group_bounds[0] = min(group_bounds[0], psx - pr)
+                            group_bounds[1] = min(group_bounds[1], psy - pr)
+                            group_bounds[2] = max(group_bounds[2], psx + pr)
+                            group_bounds[3] = max(group_bounds[3], psy + pr)
                     if hitbox_view_mode != "ghost":
                         ov.draw_hitbox(
                             x, y, 0, r, draw_color, label,
@@ -6169,6 +6288,14 @@ class HitboxRenderer:
                             invuln=bool(slot_invuln.get(name, False)),
                             show_label=debug_labels,
                         )
+
+                if hitbox_view_mode != "ghost" and group_bounds is not None and chip_text:
+                    ov.draw_move_phase_chip(
+                        tuple(group_bounds),
+                        chip_text,
+                        palette[0],
+                        chip_active,
+                    )
 
             # Secondary lanes: original moving projectiles and additive
             # linked explosion/super collision volumes.  These never replace or

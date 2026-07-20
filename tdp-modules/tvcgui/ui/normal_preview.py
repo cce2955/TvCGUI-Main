@@ -7,8 +7,12 @@ has a focused home.
 from __future__ import annotations
 
 import time
+import json
+import os
 
 import pygame
+
+from tvcgui.core.paths import resolve_data_path
 
 try:
     from tvcgui.tools.scanners.normal_scanner import ANIM_MAP as SCAN_ANIM_MAP
@@ -177,8 +181,65 @@ def _normal_recovery(mv: dict) -> int | None:
     return _normal_int(mv, "recovery", "recover", "recovery_frames")
 
 
+_MANUAL_OBSERVED_CACHE: dict[int, dict[str, int]] | None = None
+
+def _manual_observed_map() -> dict[int, dict[str, int]]:
+    global _MANUAL_OBSERVED_CACHE
+    if _MANUAL_OBSERVED_CACHE is not None:
+        return _MANUAL_OBSERVED_CACHE
+    result: dict[int, dict[str, int]] = {}
+    paths = [
+        resolve_data_path("frame_data", "observed_block_advantage_profiles.json"),
+        os.path.join("data", "frame_data", "observed_block_advantage_profiles.json"),
+        os.path.join("tdp-modules", "data", "frame_data", "observed_block_advantage_profiles.json"),
+    ]
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                doc = json.load(f)
+            for profile in (doc.get("profiles") or {}).values():
+                if not isinstance(profile, dict):
+                    continue
+                cid = int(profile.get("char_id"))
+                cmap = result.setdefault(cid, {})
+                for move in profile.get("moves") or []:
+                    if not isinstance(move, dict):
+                        continue
+                    name = str(move.get("move_name") or "").strip().lower().replace(" ", "")
+                    if not name:
+                        continue
+                    value = move.get("adv_block_observed")
+                    if value in (None, ""):
+                        value = move.get("observed_block_advantage")
+                    if value in (None, ""):
+                        continue
+                    try:
+                        cmap[name] = int(str(value).strip())
+                    except Exception:
+                        pass
+            if result:
+                break
+        except Exception:
+            continue
+    _MANUAL_OBSERVED_CACHE = result
+    return result
+
+def _manual_observed_for_slot(slot: dict, label: str) -> int | None:
+    try:
+        cid = int(slot.get("char_id"))
+    except Exception:
+        cid = None
+    if cid is None:
+        return None
+    key = str(label or "").strip().lower().replace(" ", "")
+    return _manual_observed_map().get(cid, {}).get(key)
+
 def _normal_observed_block_advantage(mv: dict) -> int | None:
-    """Return the wiki/observed block advantage when a row carries it."""
+    """Return the authoritative observed block advantage when present.
+
+    Observed/wiki values are always preferred over scanner-derived values.
+    The expanded alias list keeps older profile exports authoritative too.
+    """
     return _normal_int(
         mv,
         "adv_block_observed",
@@ -187,6 +248,9 @@ def _normal_observed_block_advantage(mv: dict) -> int | None:
         "block_adv_observed",
         "on_block_observed",
         "observed_block_advantage",
+        "advantage_on_block_observed",
+        "blockadv_observed",
+        "wiki_block_advantage",
     )
 
 
@@ -200,13 +264,11 @@ def _normal_advantage(mv: dict, kind: str, *, prefer_observed: bool = False) -> 
 
     ``adv_block`` remains the scanner-derived legacy field.  Rows imported from
     wiki data may also carry ``adv_block_observed``.  The normals preview uses
-    the observed value first, then falls back to the derived scan value.
+    the observed value only when ``prefer_observed`` is requested.
     """
     if str(kind).lower().startswith("b"):
         if prefer_observed:
-            observed = _normal_observed_block_advantage(mv)
-            if observed is not None:
-                return observed
+            return _normal_observed_block_advantage(mv)
         stored = _normal_derived_block_advantage(mv)
         stun = _normal_int(mv, "blockstun", "block", "b")
     else:
@@ -1335,12 +1397,12 @@ def draw_scan_normals_polished(
                 sub_msg = "This slot is currently empty"
             elif bool(slot.get("profile_cache_miss")):
                 empty_msg = "No saved normal profile"
-                sub_msg = "Open Frame Data to run an explicit scan."
+                sub_msg = "Building this character profile automatically..."
             elif had_scan_entry:
                 empty_msg = "No normals returned"
                 sub_msg = "The scan completed, but this slot returned no normal data"
             else:
-                empty_msg = "Waiting for scan"
+                empty_msg = "Scanning character"
                 sub_msg = "Normals will appear here when data is available"
             def _wrap_preview_message(text, text_font, max_width):
                 words = str(text or "").split()
@@ -1553,7 +1615,9 @@ def draw_scan_normals_polished(
 
             # Observed block advantage from wiki/profile data wins here. If a
             # fresh scan has no stored value yet, fall back to stun minus recovery.
-            adv_block = _normal_advantage(mv, "block", prefer_observed=True)
+            adv_block = _manual_observed_for_slot(slot, label)
+            if adv_block is None:
+                adv_block = _normal_advantage(mv, "block", prefer_observed=True)
             if adv_block is None and block is not None and recovery is not None:
                 adv_block = int(block) - int(recovery)
             damage = _normal_damage(mv)

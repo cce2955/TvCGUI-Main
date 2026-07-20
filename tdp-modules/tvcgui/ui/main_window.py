@@ -7,9 +7,13 @@ main event loop is easier to audit without changing behavior.
 
 import math
 import time
+import json
+import os
 from collections import OrderedDict
 
 import pygame
+
+from tvcgui.core.paths import resolve_data_path
 
 try:
     from tvcgui.tools.scanners.normal_scanner import ANIM_MAP as SCAN_ANIM_MAP
@@ -878,6 +882,59 @@ def _normal_recovery(mv: dict) -> int | None:
     return _normal_int(mv, "recovery", "recover", "recovery_frames")
 
 
+_MANUAL_OBSERVED_CACHE: dict[int, dict[str, int]] | None = None
+
+def _manual_observed_map() -> dict[int, dict[str, int]]:
+    global _MANUAL_OBSERVED_CACHE
+    if _MANUAL_OBSERVED_CACHE is not None:
+        return _MANUAL_OBSERVED_CACHE
+    result: dict[int, dict[str, int]] = {}
+    paths = [
+        resolve_data_path("frame_data", "observed_block_advantage_profiles.json"),
+        os.path.join("data", "frame_data", "observed_block_advantage_profiles.json"),
+        os.path.join("tdp-modules", "data", "frame_data", "observed_block_advantage_profiles.json"),
+    ]
+    for path in paths:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                doc = json.load(f)
+            for profile in (doc.get("profiles") or {}).values():
+                if not isinstance(profile, dict):
+                    continue
+                cid = int(profile.get("char_id"))
+                cmap = result.setdefault(cid, {})
+                for move in profile.get("moves") or []:
+                    if not isinstance(move, dict):
+                        continue
+                    name = str(move.get("move_name") or "").strip().lower().replace(" ", "")
+                    if not name:
+                        continue
+                    value = move.get("adv_block_observed")
+                    if value in (None, ""):
+                        value = move.get("observed_block_advantage")
+                    if value in (None, ""):
+                        continue
+                    try:
+                        cmap[name] = int(str(value).strip())
+                    except Exception:
+                        pass
+            if result:
+                break
+        except Exception:
+            continue
+    _MANUAL_OBSERVED_CACHE = result
+    return result
+
+def _manual_observed_for_slot(slot: dict, label: str) -> int | None:
+    try:
+        cid = int(slot.get("char_id"))
+    except Exception:
+        cid = None
+    if cid is None:
+        return None
+    key = str(label or "").strip().lower().replace(" ", "")
+    return _manual_observed_map().get(cid, {}).get(key)
+
 def _normal_observed_block_advantage(mv: dict) -> int | None:
     """Return the wiki/observed block advantage when a row carries it."""
     return _normal_int(
@@ -900,9 +957,7 @@ def _normal_advantage(mv: dict, kind: str, *, prefer_observed: bool = False) -> 
     """Return advantage with explicit observed/derived block separation."""
     if str(kind).lower().startswith("b"):
         if prefer_observed:
-            observed = _normal_observed_block_advantage(mv)
-            if observed is not None:
-                return observed
+            return _normal_observed_block_advantage(mv)
         stored = _normal_derived_block_advantage(mv)
         stun = _normal_int(mv, "blockstun", "block", "b")
     else:
@@ -1542,7 +1597,7 @@ def draw_scan_normals_polished(
                 empty_msg = "No normals returned"
                 sub_msg = "The scan completed, but this slot returned no normal data"
             else:
-                empty_msg = "Waiting for scan"
+                empty_msg = "Scanning character"
                 sub_msg = "Normals will appear here when data is available"
             def _wrap_preview_message(text, text_font, max_width):
                 words = str(text or "").split()
@@ -1647,7 +1702,9 @@ def draw_scan_normals_polished(
             recovery = _normal_recovery(mv)
             hit = _normal_int(mv, "hitstun", "hit", "h")
             block = _normal_int(mv, "blockstun", "block", "b")
-            adv_block = _normal_advantage(mv, "block", prefer_observed=True)
+            adv_block = _manual_observed_for_slot(slot, label)
+            if adv_block is None:
+                adv_block = _normal_advantage(mv, "block", prefer_observed=True)
             if adv_block is None and block is not None and recovery is not None:
                 adv_block = int(block) - int(recovery)
             damage = _normal_damage(mv)

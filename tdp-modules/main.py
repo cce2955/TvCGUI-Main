@@ -1866,6 +1866,15 @@ def legacy_main():
                     last_workbench_scan_normals = res
                     if _mode == "full":
                         print("[fd profile] full dynamic profile build completed")
+                        # The full scan saves the new profile, but the normals
+                        # preview consumes the compact cache result. Queue that
+                        # refresh immediately so the card exits "Building"
+                        # without waiting for another roster change or click.
+                        try:
+                            scan_worker.request()
+                            print("[fd profile] queued compact preview refresh", flush=True)
+                        except Exception as _preview_refresh_error:
+                            print(f"[fd profile] compact preview refresh failed: {_preview_refresh_error!r}", flush=True)
 
                     if cancel_mapper_pending:
                         _mapper_rows = _cancel_mapper_ready_rows()

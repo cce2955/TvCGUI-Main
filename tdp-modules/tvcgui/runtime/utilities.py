@@ -68,9 +68,9 @@ FD_AUTOSCAN_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_AUTOSCAN_MIN_INTERVA
 # dynamic scan after the roster settles.  Known entries stay on the compact
 # fast path.  This is deliberately roster/profile driven, not a scan on every
 # move or every character refresh.
-FD_BUILD_MISSING_PROFILES = os.environ.get("TVC_FD_BUILD_MISSING_PROFILES", "0").strip().lower() not in {"0", "false", "off", "no"}
-FD_MISSING_PROFILE_BUILD_DELAY_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_DELAY_SEC", "0.75") or "0.75")
-FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC", "20.0") or "20.0")
+FD_BUILD_MISSING_PROFILES = os.environ.get("TVC_FD_BUILD_MISSING_PROFILES", "1").strip().lower() not in {"0", "false", "off", "no"}
+FD_MISSING_PROFILE_BUILD_DELAY_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_DELAY_SEC", "0.15") or "0.15")
+FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC = float(os.environ.get("TVC_FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC", "5.0") or "5.0")
 
 # Runtime automatic frame-data jobs stay off during normal play.
 # Explicit Frame Data and full scans can still feed the background exporter.

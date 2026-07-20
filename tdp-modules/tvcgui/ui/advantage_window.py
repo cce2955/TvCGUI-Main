@@ -5,6 +5,8 @@ import json
 import os
 import re
 import time
+import tempfile
+import urllib.request
 from typing import Any
 
 import pygame
@@ -215,16 +217,14 @@ def _adv_block_advantage_value(mv: dict[str, Any]) -> Any:
         "block_adv_observed",
         "on_block_observed",
         "observed_block_advantage",
-        "advantage_on_block",
-        "blockadv",
+        "advantage_on_block_observed",
+        "blockadv_observed",
+        "wiki_block_advantage",
     ):
         value = _adv_clean_value(mv.get(key))
         if value is not None:
             return value
-    value = _normal_observed_block_advantage(mv)
-    if value is not None:
-        return value
-    return _normal_advantage(mv, "block", prefer_observed=True)
+    return _normal_observed_block_advantage(mv)
 
 
 def _adv_startup_value(mv: dict[str, Any]) -> int | None:
@@ -399,8 +399,111 @@ def _adv_profile_path() -> str:
     return resolve_data_path("frame_data", "frame_data_preview_profiles.json")
 
 
+OBSERVED_PROFILE_RESTORE_URL = (
+    "https://raw.githubusercontent.com/cce2955/TvCGUI-Main/"
+    "d52fca1e6aada830a6a4aebf38d6f7375a9989e0/"
+    "tdp-modules/data/frame_data/observed_block_advantage_profiles.json"
+)
+
+
+def _merge_observed_profile_docs(remote_doc: Any, local_doc: Any) -> dict[str, Any]:
+    """Merge the pinned manual profile with local edits, always preferring local nonblank values."""
+    remote = remote_doc if isinstance(remote_doc, dict) else {}
+    local = local_doc if isinstance(local_doc, dict) else {}
+    merged: dict[str, Any] = dict(remote)
+    merged_profiles = dict(remote.get("profiles") or {})
+
+    for profile_key, local_profile in (local.get("profiles") or {}).items():
+        if not isinstance(local_profile, dict):
+            continue
+        remote_profile = merged_profiles.get(profile_key)
+        if not isinstance(remote_profile, dict):
+            merged_profiles[profile_key] = dict(local_profile)
+            continue
+
+        combined_profile = dict(remote_profile)
+        for field, value in local_profile.items():
+            if field == "moves" or value in (None, ""):
+                continue
+            combined_profile[field] = value
+
+        remote_moves = [m for m in (remote_profile.get("moves") or []) if isinstance(m, dict)]
+        local_moves = [m for m in (local_profile.get("moves") or []) if isinstance(m, dict)]
+        by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        order: list[tuple[str, str]] = []
+        for move in remote_moves:
+            key = (str(move.get("move_name") or "").strip().lower(), str(move.get("kind") or "").strip().lower())
+            if key not in by_key:
+                order.append(key)
+            by_key[key] = dict(move)
+        for move in local_moves:
+            key = (str(move.get("move_name") or "").strip().lower(), str(move.get("kind") or "").strip().lower())
+            current = dict(by_key.get(key) or {})
+            for field, value in move.items():
+                if value in (None, ""):
+                    continue
+                current[field] = value
+            if key not in by_key:
+                order.append(key)
+            by_key[key] = current
+        combined_profile["moves"] = [by_key[key] for key in order]
+        merged_profiles[profile_key] = combined_profile
+
+    merged["profiles"] = merged_profiles
+    merged["version"] = local.get("version") or remote.get("version") or "observed_block_advantage_profiles.v1"
+    merged["source"] = local.get("source") or remote.get("source") or "restored manual observations"
+    return merged
+
+
+def _restore_observed_profile_if_needed(path: str) -> None:
+    """Restore the complete pinned manual profile and preserve any newer local edits."""
+    local_doc: dict[str, Any] = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            local_doc = loaded
+    except Exception:
+        local_doc = {}
+
+    local_profiles = local_doc.get("profiles") if isinstance(local_doc, dict) else None
+    local_count = len(local_profiles) if isinstance(local_profiles, dict) else 0
+    # The recovered repository profile contains the full roster. A small file is incomplete.
+    if local_count >= 20:
+        return
+
+    try:
+        request = urllib.request.Request(
+            OBSERVED_PROFILE_RESTORE_URL,
+            headers={"User-Agent": "TvC-Continuo-observed-profile-restore"},
+        )
+        with urllib.request.urlopen(request, timeout=12) as response:
+            remote_doc = json.loads(response.read().decode("utf-8"))
+        if not isinstance(remote_doc, dict) or not isinstance(remote_doc.get("profiles"), dict):
+            return
+        merged = _merge_observed_profile_docs(remote_doc, local_doc)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix="observed_block_advantage_", suffix=".json.tmp", dir=os.path.dirname(path))
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(merged, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+            os.replace(tmp_path, path)
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+        print(f"[observed advantage] restored {len(merged.get('profiles') or {})} character profiles")
+    except Exception as exc:
+        print(f"[observed advantage] restore unavailable: {exc!r}")
+
+
 def _adv_observed_profile_path() -> str:
-    return resolve_data_path("frame_data", "observed_block_advantage_profiles.json")
+    path = resolve_data_path("frame_data", "observed_block_advantage_profiles.json")
+    _restore_observed_profile_if_needed(path)
+    return path
 
 
 def _adv_existing_stamp(path: str) -> tuple[str, int | None, int | None]:
