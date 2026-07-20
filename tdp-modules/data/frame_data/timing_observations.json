@@ -2004,10 +2004,11 @@
               "value": 2
             },
             "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                500,
                 500
               ],
               "value": 500

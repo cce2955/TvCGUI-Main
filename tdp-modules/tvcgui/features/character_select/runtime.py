@@ -117,7 +117,7 @@ YAMI_CLONE_SLOTS: tuple[tuple[int, int, str], ...] = (
 
 YAMI_CLONE_COUNT = 0x1E
 
-EXTRA_CLONE10_SLOTS: tuple[tuple[int, int, str], ...] = ROSTER_SLOT_TABLE  # inserted roster layout
+EXTRA_CLONE10_SLOTS: tuple[tuple[int, int, str], ...] = ROSTER_SLOT_TABLE  # known-working inserted roster layout
 
 # Native character-select roster. This is the 27-entry table used when Extra
 # Characters is disabled. The three hidden Yami IDs occupy appended rows only
@@ -924,18 +924,14 @@ _INT_RE = re.compile(r"0x[0-9a-fA-F]+|\b\d+\b")
 # armed and guarded instead of blindly writing.
 SELECT_SCREEN_STOCK_COUNT = 0x1B
 SELECT_SCREEN_PATCHED_COUNT = 0x1E
-# Extra Characters button insert mode: stock 27 entries + 3 inserted Yami
-# entries plus one null/empty test entry = 31 entries. The roster table is
-# rewritten in visual order so Yami 3 sits after Gold Lightan, Yami 2 after
-# Zero, and Yami 1 after Frank. Slot 0x1E is a deliberate ID 0x00 test slot
-# for a blank/no-character partner candidate.
-# This still avoids BRRES, scratch, material, resource-path, and seq/pane edits.
-EXTRA_CLONE10_COUNT = SELECT_SCREEN_STOCK_COUNT + 4  # 0x1F; 3 Yamis + one null test slot
 
-# Solo Team compatibility for the old “one real character + blank partner” path.
-# With Extra Characters ON do not overwrite the inserted 3-Yami + null-test roster.
-# Instead, Solo Team temporarily appends the old hidden/Yami tail entries *after*
-# the new 0x1F-entry roster and bumps the count to 0x22.
+# Known-working Extra Characters layout from the older runtime:
+# stock roster with three inserted Yami rows and one final ID 0x00 null slot.
+# PTX is exposed at slot 0x13, but no giant-team eligibility or chrsel.seq
+# compatibility patch is applied.
+EXTRA_CLONE10_COUNT = SELECT_SCREEN_STOCK_COUNT + 4  # 0x1F
+
+# Solo Team appends its helper rows after the working 0x1F roster.
 SOLO_TEAM_EXTRA_SLOTS: tuple[tuple[int, int, str], ...] = tuple(
     (EXTRA_CLONE10_COUNT + i, cid, f"Solo empty {name}")
     for i, (_old_slot, cid, name) in enumerate(YAMI_CLONE_SLOTS)
@@ -3120,20 +3116,17 @@ def _tick_extra_characters_request() -> None:
         return
 
     if present:
-        wrote, failed = _install_mixed_giant_sequence_gate()
         with _LOCK:
-            _ROSTER_STATE["extra_characters_enabled"] = failed == 0
+            _ROSTER_STATE["extra_characters_enabled"] = True
             _ROSTER_STATE["extra_characters_mode"] = (
-                "3 Yami roster + mixed giant chrsel.seq gate" if failed == 0 else ""
+                "working 3-Yami inserts + ID 0x00 null slot, PTX visible but unselectable"
             )
-            _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + wrote
-            _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + failed
-            _ROSTER_STATE["last_action"] = (
-                f"Mixed giant sequence gate installed writes={wrote}"
-                if failed == 0
-                else "Mixed giant sequence gate pending MEM2 access"
-            )
-            _ROSTER_STATE["last_error"] = "" if failed == 0 else f"mixed giant sequence gate failed writes={failed}"
+            _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+            _ROSTER_STATE["mixed_giant_classifier_detail"] = "disabled; native giant rules"
+            _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+            _ROSTER_STATE["mixed_giant_partner_mode"] = ""
+            _ROSTER_STATE["last_action"] = "Working Extra Characters roster present"
+            _ROSTER_STATE["last_error"] = ""
         return
 
     if active_since and (now - active_since) < _EXTRA_SELECT_STABLE_DELAY_SEC:
@@ -3191,7 +3184,22 @@ def _mixed_giant_sequence_gate_present() -> bool:
 
 
 def _install_mixed_giant_sequence_gate() -> tuple[int, int]:
-    """Patch the loaded chrsel.seq team compatibility helper once."""
+    """Leave native giant-character selection rules untouched.
+
+    Extra Characters only installs the Yami roster extension. PTX and Gold
+    Lightan remain subject to the stock giant-team restrictions until the
+    mixed-team path is repaired independently.
+    """
+    with _LOCK:
+        _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+        _ROSTER_STATE["mixed_giant_classifier_detail"] = "disabled; native giant rules restored"
+        _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+        _ROSTER_STATE["mixed_giant_partner_mode"] = ""
+    return 0, 0
+
+
+def _retired_install_mixed_giant_sequence_gate() -> tuple[int, int]:
+    """Retained implementation for research, not called by Extra Characters."""
     base = _resolve_chrsel_seq_heap_base()
     if base is None:
         with _LOCK:
@@ -3482,7 +3490,7 @@ def _tick_solo_team_request() -> None:
         with _LOCK:
             _ROSTER_STATE["solo_team_enabled"] = bool(visual_present and (solo_extra_present if extra_requested else solo_tail_present))
             _ROSTER_STATE["solo_team_mode"] = (
-                "Solo Team: blank Yami tail after inserted roster"
+                "Solo Team: blank Yami tail after appended roster"
                 if extra_requested
                 else "Solo Team: appended hidden/blank Yami tail slots"
             )
@@ -3705,7 +3713,7 @@ def queue_extra_characters_on() -> dict[str, Any]:
             if present and gate_failed == 0:
                 _ROSTER_STATE["extra_characters_enabled"] = True
                 _ROSTER_STATE["extra_characters_mode"] = "3 Yami roster + mixed giant chrsel.seq gate"
-                _ROSTER_STATE["last_action"] = f"Extra characters ON; mixed giant gate writes={gate_wrote}"
+                _ROSTER_STATE["last_action"] = f"Extra characters ON; native giant rules preserved"
             elif gate_failed:
                 _ROSTER_STATE["last_action"] = "Extra characters armed; MEM2 gate will retry on service tick"
                 _ROSTER_STATE["last_error"] = "mixed giant sequence gate not reachable yet"
@@ -3961,15 +3969,18 @@ def _install_yami_visual_table_append(index_values: tuple[int, ...], label: str)
 
 
 def _install_extra_characters_on() -> tuple[int, int]:
-    """Extra Characters button: insert three Yami entries and append one null test slot.
+    """Install the known-working Extra Characters roster in the current module.
 
-    This uses the proven roster-table path, but rewrites the visible order:
-        Gold Lightan -> Yami 3 -> Tekkaman Blade
-        Zero -> Yami 2 -> Frank West
-        Frank West -> Yami 1 -> PTX-40A
-        Ryu -> Null/empty test slot
-    It changes the select-wheel roster count/table and two branch destinations
-    in the loaded chrsel.seq compatibility helper. No executable code is edited.
+    This intentionally reproduces the older working behavior:
+      Gold Lightan -> Yami 3 -> Tekkaman Blade
+      Zero -> Yami 2 -> Frank West
+      Frank West -> Yami 1 -> PTX-40A
+      Ryu -> ID 0x00 null test slot
+
+    Only the guarded roster table and its three count mirrors are written.
+    PTX remains governed by the game's native giant-team rules. No DOL
+    eligibility patch, chrsel.seq branch rewrite, presentation-route patch,
+    BRRES patch, or live selector-result polling is performed here.
     """
     wrote = 0
     failed = 0
@@ -3982,43 +3993,37 @@ def _install_extra_characters_on() -> tuple[int, int]:
     wrote += w
     failed += f
 
-    # The actual compatibility rule lives in the loaded chrsel.seq helper.
-    # Do not touch DOL code or poll live selector output fields.
-    w, f = _install_mixed_giant_sequence_gate()
-    wrote += w
-    failed += f
-
-    if failed == 0:
-        # These routes are static for the loaded scene. Install them once instead
-        # of re-reading and re-verifying them on every GUI service tick.
-        optional_wrote = 0
-        for route in (
-            _restore_yami_runtime_preview_route_only,
-            _restore_yami_wheel_random_icon_route_only,
-            _install_yami_hover_icon_id_route,
-            _install_yami_dol_icon_tag_route,
-        ):
-            route_wrote, _route_failed = route()
-            optional_wrote += route_wrote
-        wrote += optional_wrote
+    # Clear any session bookkeeping left by a previously loaded PTX experiment.
+    # The current build does not install or refresh those patches.
+    _MIXED_GIANT_SEQ_SESSION.clear()
+    _MIXED_GIANT_ELIGIBILITY_SESSION.clear()
 
     with _LOCK:
+        _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+        _ROSTER_STATE["mixed_giant_classifier_detail"] = "disabled; native giant rules"
+        _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+        _ROSTER_STATE["mixed_giant_partner_mode"] = ""
         _ROSTER_STATE["thumbnail_material_optional_failed"] = 0
         _ROSTER_STATE["visual_table_patch_installed"] = False
-        _ROSTER_STATE["visual_table_patch_mode"] = "not used by inserted roster-table mode"
+        _ROSTER_STATE["visual_table_patch_mode"] = "not used by working roster-only mode"
         _ROSTER_STATE["thumbnail_alias_installed"] = False
-        _ROSTER_STATE["thumbnail_alias_mode"] = "not used by inserted roster-table mode"
+        _ROSTER_STATE["thumbnail_alias_mode"] = "not used by working roster-only mode"
         _ROSTER_STATE["thumbnail_material_copy_installed"] = False
-        _ROSTER_STATE["thumbnail_material_copy_mode"] = "not used by inserted roster-table mode"
+        _ROSTER_STATE["thumbnail_material_copy_mode"] = "not used by working roster-only mode"
         _ROSTER_STATE["extra_characters_enabled"] = failed == 0
         _ROSTER_STATE["extra_characters_requested"] = True
         _ROSTER_STATE["extra_characters_mode"] = (
-            "3 Yami inserts + null test + mixed giant chrsel.seq gate"
+            "working 3-Yami inserts + ID 0x00 null slot, PTX visible but unselectable"
             if failed == 0
             else ""
         )
-        _ROSTER_STATE["last_action"] = f"Extra 3-Yami + null-test roster ON wrote={wrote} failed={failed}; count=0x{EXTRA_CLONE10_COUNT:02X}"
-        _ROSTER_STATE["last_error"] = "" if failed == 0 else f"Extra 3-Yami + null-test roster failed writes={failed}"
+        _ROSTER_STATE["last_action"] = (
+            f"Working Extra Characters roster ON wrote={wrote} failed={failed}; "
+            f"count=0x{EXTRA_CLONE10_COUNT:02X}"
+        )
+        _ROSTER_STATE["last_error"] = (
+            "" if failed == 0 else f"Working Extra Characters roster failed writes={failed}"
+        )
     return wrote, failed
 
 def _hex(value: int | None) -> str:
@@ -4791,7 +4796,7 @@ def _install_yami_clone_count() -> tuple[int, int]:
 def _solo_tail_empty_rows_present() -> bool:
     """True when Solo Team's old empty/Yami tail slots are resident.
 
-    This is intentionally separate from the Extra Characters inserted-roster
+    This is intentionally separate from the Extra Characters appended-roster
     layout.  Solo Team's original behavior was: pick one normal character, then
     pick an appended blank/hidden Yami slot that the game accepts as teammate 2.
     """
@@ -4802,7 +4807,7 @@ def _solo_tail_empty_rows_present() -> bool:
 
 
 def _solo_extra_empty_rows_present() -> bool:
-    """True when Solo Team's blank partner tail is appended after the 3-Yami insert roster."""
+    """True when Solo Team's blank partner tail is appended after the stock+3-Yami roster."""
     return bool(
         all(_safe_read_u32be(addr) == SOLO_TEAM_EXTRA_COUNT for addr, _label in ROSTER_COUNT_ADDRS)
         and all(_safe_read_u32be(_roster_addr_for_slot(slot)) == cid for slot, cid, _name in EXTRA_CLONE10_SLOTS)
@@ -4817,7 +4822,7 @@ def _install_solo_team_rows_only(extra_requested: bool = False) -> tuple[int, in
     tail: append the three hidden/Yami slots at 0x1B..0x1D and bump count to
     0x1E.
 
-    Extra ON: keep the new inserted 3-Yami wheel order intact, then append the
+    Extra ON: keep the stock+3-Yami wheel intact, then append the
     same hidden/Yami blank partner tail at 0x1E..0x20 and bump count to 0x21.
     That gives the solo picker its old empty partner slot without stealing the
     current Morrigan/Chun/Ryu tail rows.
@@ -4854,7 +4859,7 @@ def _install_solo_team_rows_only(extra_requested: bool = False) -> tuple[int, in
     with _LOCK:
         _ROSTER_STATE["solo_team_enabled"] = failed == 0
         _ROSTER_STATE["solo_team_mode"] = (
-            "Solo Team: blank Yami tail after inserted roster"
+            "Solo Team: blank Yami tail after appended roster"
             if extra_requested
             else "Solo Team: appended hidden/blank Yami tail slots"
         )
@@ -4865,7 +4870,7 @@ def _restore_solo_team_rows_only(extra_requested: bool = False) -> tuple[int, in
     """Restore only what Solo Team owns.
 
     Extra ON: remove the temporary 0x1E..0x20 blank partner tail and return the
-    count to the normal inserted 0x1E roster.
+    count to the normal appended 0x1E roster.
 
     Extra OFF: restore the old Solo Team tail back to stock.
     """
@@ -4907,13 +4912,10 @@ def _restore_solo_team_rows_only(extra_requested: bool = False) -> tuple[int, in
 
 
 def _install_extra_clone10_table() -> tuple[int, int]:
-    """Rewrite the character-select roster table in inserted Yami order.
+    """Write the native roster followed by three appended Yami rows.
 
-    This keeps the stock list intact but shifts later entries down to place:
-        Yami 3 after Gold Lightan
-        Yami 2 after Zero
-        Yami 1 after Frank West
-        one ID 0x00 null/empty test slot after Ryu
+    Stock slots 0x00..0x1A keep their original IDs. Yami 1, Yami 2, and Yami 3
+    occupy 0x1B..0x1D. No null/empty row is installed by Extra Characters.
     No visual-string aliases, BRRES edits, seq material edits, scratch edits,
     or resource-path edits are applied here.
     """
