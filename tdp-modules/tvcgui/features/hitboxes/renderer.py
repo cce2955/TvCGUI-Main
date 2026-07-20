@@ -48,6 +48,7 @@ _legend_visible_requested = False
 _legend_manual_hidden = False
 PROJECTILE_Y_OFFSET: float = 0
 PROJECTILE_RADIUS_SCALE: float = 0.5
+LINKED_EFFECT_RADIUS_SCALE: float = 1.0
 PROJECTILE_DESPAWN_FRAMES: int = 6
 PERSPECTIVE_Z_OVERRIDE: Optional[float] = None
 HITBOX_FILTER_FILE = user_data_path("hitboxes", "hitbox_filter.json")
@@ -323,6 +324,24 @@ ACTOR_OFF_DIR_X = 0x108
 ACTOR_OFF_DIR_Y = 0x10C
 ACTOR_OFF_DIR_Z = 0x104
 LINKED_OFF_TARGET = 0x34
+
+# Additive linked collision lane for explosions, super radii, attached lines,
+# and adjacent effect volumes. This does not replace the original fighter or
+# standard projectile readers.
+LINKED_COLLIDER_OFF_TYPE = 0x308
+LINKED_COLLIDER_OFF_SHAPES = 0x30C
+LINKED_COLLIDER_OFF_COUNT = 0x314
+LINKED_COLLIDER_TYPE_SPHERE = 1
+LINKED_COLLIDER_TYPE_LINE = 2
+LINKED_COLLIDER_TYPE_BOX = 3
+LINKED_COLLIDER_MAX_SHAPES = 32
+LINKED_COLLIDER_POOL_BASES = (0x91A6B774,)
+LINKED_COLLIDER_POOL_STRIDE = 0x1544
+LINKED_COLLIDER_POOL_COUNT = 48
+LINKED_COLLIDER_TO_ACTOR_DELTA = 0x000AA240
+LINKED_SPHERE_STRIDE = 0x18
+LINKED_LINE_STRIDE = 0x40
+LINKED_BOX_STRIDE = 0x20
 LINKED_OFF_DIR_X = 0xAC
 LINKED_OFF_DIR_Y = 0xB0
 PROJECTILE_SCALE_RADIUS_MIN = 0.08
@@ -1293,7 +1312,7 @@ CAMERA_DEPTH_Z_COEFF_OFF = 0x34
 CAMERA_DEPTH_TRANSLATE_OFF = 0x38
 
 COLORS: Dict[str, List[Tuple[int, int, int]]] = {
-    "P1": [(255, 60, 60), (255, 140, 0), (255, 220, 0)],
+    "P1": [(255, 72, 92), (255, 104, 124), (255, 142, 156)],
     "P2": [(180, 60, 255), (60, 200, 255), (60, 255, 180)],
     "P3": [(255, 80, 180), (255, 0, 120), (255, 120, 200)],
     "P4": [(80, 255, 120), (0, 255, 80), (120, 255, 200)],
@@ -2716,82 +2735,82 @@ class Overlay:
             return None
         return sx, sy, rpx
 
-    def draw_hitbox(self, x, y, z, r, color, label, is_active=False, invuln=False):
+    def draw_hitbox(
+        self,
+        x,
+        y,
+        z,
+        r,
+        color,
+        label,
+        is_active=False,
+        invuln=False,
+        show_label=False,
+    ):
+        """Draw the primary physical lane as a clean, team-colored glass ring."""
         result = self._project_hitbox(x, y, z, r)
         if result is None:
             return
         sx, sy, rpx = result
 
         r_c, g_c, b_c = color[:3]
-
         self.hitbox_last_seen[label] = self.frame_index
         if label not in self.hitbox_spawn_start:
             self.hitbox_spawn_start[label] = self.frame_index
 
         age = self.frame_index - self.hitbox_spawn_start[label]
         spawn_t = min(1.0, age / float(max(1, HITBOX_SPAWN_FRAMES - 1)))
+        draw_rpx = max(2, int(rpx * (0.82 + 0.18 * spawn_t)))
+        pulse_t = 0.5 + 0.5 * math.sin(self.frame_index * HITBOX_ACTIVE_PULSE_SPEED) if is_active else 0.0
 
-        draw_rpx = max(2, int(rpx * (0.72 + 0.28 * spawn_t)))
-        show_cross = age >= 2
-
-        pad = 12
-        size = draw_rpx * 2 + pad * 2 + 18
+        pad = 16
+        size = draw_rpx * 2 + pad * 2 + 10
         surf = pygame.Surface((size, size), pygame.SRCALPHA)
         cx = cy = size // 2
 
-        pulse_t = 0.0
+        # Low-opacity glass fill keeps the model and hurtboxes readable.
+        fill_alpha = 42 if is_active else 22
+        pygame.draw.circle(surf, (r_c, g_c, b_c, fill_alpha), (cx, cy), draw_rpx)
+
+        # Soft outer bloom, then a dark separator and crisp team-color rim.
+        bloom_alpha = int((34 if is_active else 18) + 24 * pulse_t)
+        pygame.draw.circle(surf, (r_c, g_c, b_c, bloom_alpha), (cx, cy), draw_rpx + 7)
+        pygame.draw.circle(surf, (4, 8, 14, 185), (cx, cy), draw_rpx + 3, 4)
+        pygame.draw.circle(surf, (r_c, g_c, b_c, 235 if is_active else 165), (cx, cy), draw_rpx + 1, 2)
+        pygame.draw.circle(surf, (225, 242, 255, 155 if is_active else 90), (cx, cy), draw_rpx - 1, 1)
+
+        # Active boxes get one restrained breathing ring, no yellow/orange blob.
         if is_active:
-            pulse_t = 0.5 + 0.5 * math.sin(self.frame_index * HITBOX_ACTIVE_PULSE_SPEED)
+            pulse_px = int(2 + 3 * pulse_t)
+            pygame.draw.circle(
+                surf,
+                (r_c, g_c, b_c, int(55 + 65 * pulse_t)),
+                (cx, cy),
+                draw_rpx + 7 + pulse_px,
+                1,
+            )
 
-        # Force a strong "danger" visual identity that separates from cyan hurtboxes.
-        core_fill = (255, 105, 40) if is_active else (215, 78, 38)
-        core_hi   = (255, 182, 70)
-        white_rim = (255, 248, 235)
-        dark_rim  = (24, 8, 4)
-
-        halo_alpha = int((42 if is_active else 28) + 26 * pulse_t)
-        pygame.draw.circle(surf, (*core_fill, halo_alpha), (cx, cy), draw_rpx + 7)
-
-        # Invulnerable startup stays obvious even when the attacker already has
-        # orange active hitboxes: preserve the danger core, add a neon-green
-        # outer ring that matches the defender's green hurtbox outlines.
+        # Invulnerability remains a separate mint ring rather than recoloring the hitbox.
         if invuln:
-            pygame.draw.circle(surf, (88, 255, 130, 235), (cx, cy), draw_rpx + 10, 3)
-            pygame.draw.circle(surf, (178, 255, 196, 120), (cx, cy), draw_rpx + 14, 1)
-
-        # Dark punch-out ring so the hitbox remains visible over dense hurtbox lines.
-        pygame.draw.circle(surf, (*dark_rim, 190), (cx, cy), draw_rpx + 4, 5)
-        pygame.draw.circle(surf, (*white_rim, 230), (cx, cy), draw_rpx + 1, 3)
-
-        fill_alpha = 180 if is_active else 148
-        pygame.draw.circle(surf, (*core_fill, fill_alpha), (cx, cy), draw_rpx)
-        pygame.draw.circle(surf, (*core_hi, 120 if is_active else 90), (cx, cy), max(draw_rpx - 4, 1))
-        pygame.draw.circle(surf, (255, 255, 255, 62 if is_active else 40), (cx, cy), max(draw_rpx - 7, 1), 1)
-
-        # Active pulse ring.
-        if is_active:
-            pulse_px = int(2 + 4 * pulse_t)
-            pulse_alpha = int(80 + 80 * pulse_t)
-            pygame.draw.circle(surf, (*core_hi, pulse_alpha), (cx, cy), draw_rpx + 8 + pulse_px, 2)
+            pygame.draw.circle(surf, (105, 255, 170, 220), (cx, cy), draw_rpx + 11, 2)
+            pygame.draw.circle(surf, (205, 255, 226, 90), (cx, cy), draw_rpx + 14, 1)
 
         self.screen.blit(surf, (sx - cx, sy - cy))
 
-        if show_cross:
-            cs = max(4, min(10, draw_rpx // 3))
-            cross_s = pygame.Surface((cs * 2 + 2, cs * 2 + 2), pygame.SRCALPHA)
-            pygame.draw.line(cross_s, (255, 250, 242, 220), (0, cs + 1), (cs * 2 + 2, cs + 1), 1)
-            pygame.draw.line(cross_s, (255, 250, 242, 220), (cs + 1, 0), (cs + 1, cs * 2 + 2), 1)
-            self.screen.blit(cross_s, (sx - cs - 1, sy - cs - 1))
+        # Small center reticle, deliberately lighter than the old full crosshair.
+        reticle = max(3, min(7, draw_rpx // 4))
+        reticle_col = (225, 242, 255)
+        pygame.draw.line(self.screen, reticle_col, (sx - reticle, sy), (sx + reticle, sy), 1)
+        pygame.draw.line(self.screen, reticle_col, (sx, sy - reticle), (sx, sy + reticle), 1)
 
-        if rpx >= 12 and self.font_small is not None:
-            label_txt = label if str(label).startswith("HIT ") else f"HIT {label}"
-            txt = self.font_small.render(label_txt, True, (255, 245, 230))
+        if show_label and rpx >= 12 and self.font_small is not None:
+            txt = self.font_small.render(str(label), True, (232, 244, 255))
             tw, th = txt.get_size()
             bx = sx + rpx + 6
-            by = sy - 10
+            by = sy - 9
             badge = pygame.Surface((tw + 8, th + 4), pygame.SRCALPHA)
-            pygame.draw.rect(badge, (18, 6, 4, 210), (0, 0, tw + 8, th + 4), border_radius=4)
-            pygame.draw.rect(badge, (255, 168, 70, 255), (0, 0, tw + 8, th + 4), 1, border_radius=4)
+            pygame.draw.rect(badge, (5, 10, 18, 205), (0, 0, tw + 8, th + 4), border_radius=4)
+            pygame.draw.rect(badge, (r_c, g_c, b_c, 190), (0, 0, tw + 8, th + 4), 1, border_radius=4)
             badge.blit(txt, (4, 2))
             self.screen.blit(badge, (bx, by))
 
@@ -3220,16 +3239,18 @@ class Overlay:
         root_x=None,
         root_y=None,
         root_z=None,
+        show_label=False,
     ):
-        result = self._project_hitbox(x, y, z, r)
+        """Draw the projectile/effect lane at the radius supplied by its own lane."""
+        display_r = max(0.0, float(r))
+        result = self._project_hitbox(x, y, z, display_r)
         if result is None:
             return
         sx, sy, rpx = result
-
         r_c, g_c, b_c = color[:3]
+        dark = (4, 9, 16)
+        glass = (224, 244, 255)
 
-        # Candidate local capsule. Unlike the failed +0xE0/+0xE4 sweep, this
-        # uses caller-provided short endpoints: root -> root + dir*extent.
         if sweep_x is not None and sweep_y is not None:
             try:
                 ex, ey, _depth_e, _focal_e = self.world_to_screen(x, y, z)
@@ -3240,79 +3261,72 @@ class Overlay:
                 min_y = min(by, ey) - pad
                 max_x = max(bx, ex) + pad
                 max_y = max(by, ey) + pad
-                w = max(1, max_x - min_x)
-                h = max(1, max_y - min_y)
-                surf = pygame.Surface((w, h), pygame.SRCALPHA)
+                surf = pygame.Surface((max(1, max_x - min_x), max(1, max_y - min_y)), pygame.SRCALPHA)
                 p0 = (bx - min_x, by - min_y)
                 p1 = (ex - min_x, ey - min_y)
-                # Same projectile geometry as the frame-verified build; only the paint
-                # changed.  Lower fill alpha keeps large missile showers readable
-                # without clamping radius, hiding actors, or altering labels.
-                pygame.draw.line(surf, (20, 8, 4, 115), p0, p1, width + 4)
-                pygame.draw.line(surf, (255, 126, 50, 30), p0, p1, width)
-                pygame.draw.circle(surf, (20, 8, 4, 115), p0, max(1, width // 2) + 2)
-                pygame.draw.circle(surf, (255, 126, 50, 30), p0, max(1, width // 2))
-                pygame.draw.circle(surf, (20, 8, 4, 115), p1, max(1, width // 2) + 2)
-                pygame.draw.circle(surf, (255, 126, 50, 30), p1, max(1, width // 2))
-                pygame.draw.line(surf, (255, 248, 235, 205), p0, p1, max(1, min(3, width // 3)))
-                pygame.draw.line(surf, (255, 108, 38, 235), p0, p1, max(1, min(2, width // 4)))
-                pygame.draw.circle(surf, (255, 248, 235, 235), p0, max(3, min(7, width // 5)) + 1, 1)
-                pygame.draw.circle(surf, (255, 108, 38, 245), p0, max(3, min(7, width // 5)), 1)
-                pygame.draw.circle(surf, (255, 248, 235, 235), p1, max(3, min(7, width // 5)) + 1, 1)
-                pygame.draw.circle(surf, (255, 108, 38, 245), p1, max(3, min(7, width // 5)), 1)
+                cap = max(1, width // 2)
+
+                # Transparent glass body with a crisp, team-colored outline.
+                pygame.draw.line(surf, (*dark, 175), p0, p1, width + 6)
+                pygame.draw.circle(surf, (*dark, 175), p0, cap + 3)
+                pygame.draw.circle(surf, (*dark, 175), p1, cap + 3)
+                pygame.draw.line(surf, (r_c, g_c, b_c, 42), p0, p1, width)
+                pygame.draw.circle(surf, (r_c, g_c, b_c, 42), p0, cap)
+                pygame.draw.circle(surf, (r_c, g_c, b_c, 42), p1, cap)
+                pygame.draw.line(surf, (r_c, g_c, b_c, 230), p0, p1, 2)
+                pygame.draw.line(surf, (*glass, 150), p0, p1, 1)
+                pygame.draw.circle(surf, (r_c, g_c, b_c, 235), p0, cap, 2)
+                pygame.draw.circle(surf, (r_c, g_c, b_c, 235), p1, cap, 2)
+                pygame.draw.circle(surf, (*glass, 130), p0, max(1, cap - 2), 1)
+                pygame.draw.circle(surf, (*glass, 130), p1, max(1, cap - 2), 1)
                 self.screen.blit(surf, (min_x, min_y))
             except Exception:
                 pass
         else:
-            pad = 8
+            pad = 12
             size = rpx * 2 + pad * 2
             surf = pygame.Surface((size, size), pygame.SRCALPHA)
             cx = cy = rpx + pad
-            pygame.draw.circle(surf, (20, 8, 4, 200), (cx, cy), rpx + 4, 4)
-            pygame.draw.circle(surf, (255, 248, 235, 220), (cx, cy), rpx + 1, 2)
-            pygame.draw.circle(surf, (255, 108, 38, 235), (cx, cy), rpx, 2)
-            pygame.draw.circle(surf, (255, 120, 45, 42), (cx, cy), rpx)
+            pygame.draw.circle(surf, (*dark, 180), (cx, cy), rpx + 4, 4)
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 40), (cx, cy), rpx)
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 230), (cx, cy), rpx + 1, 2)
+            pygame.draw.circle(surf, (*glass, 145), (cx, cy), max(1, rpx - 2), 1)
+            pygame.draw.circle(surf, (r_c, g_c, b_c, 25), (cx, cy), rpx + 7, 1)
             self.screen.blit(surf, (sx - rpx - pad, sy - rpx - pad))
 
-        # Root marker: actor transform point, not the hit result.
+        # Root marker remains subtle and lane-colored.
         if root_x is not None and root_y is not None:
             try:
                 rx, ry, _d, _f = self.world_to_screen(root_x, root_y, root_z or z)
-                d = 5
+                d = 4
                 pygame.draw.line(self.screen, (r_c, g_c, b_c), (rx - d, ry), (rx + d, ry), 1)
                 pygame.draw.line(self.screen, (r_c, g_c, b_c), (rx, ry - d), (rx, ry + d), 1)
             except Exception:
                 pass
 
-        # Contact marker: only after the linked hit-state reports a target ptr.
-        # It should snap to the defender on hit; label it so it is not mistaken
-        # for the live hitbox.
         if contact_valid and contact_x is not None and contact_y is not None:
             try:
                 cx, cy, _d, _f = self.world_to_screen(contact_x, contact_y, contact_z or z)
-                d = max(6, min(12, rpx // 2))
-                contact_col = (255, 255, 255)
+                d = max(5, min(10, rpx // 2))
+                contact_col = (230, 248, 255)
                 pygame.draw.polygon(
                     self.screen,
                     contact_col,
                     [(cx, cy - d), (cx + d, cy), (cx, cy + d), (cx - d, cy)],
                     2,
                 )
-                if self.font_small is not None:
+                if show_label and self.font_small is not None:
                     txt = self.font_small.render("CONTACT", True, contact_col)
                     self.screen.blit(txt, (cx + d + 3, cy - 8))
             except Exception:
                 pass
 
-        if rpx >= 8 and self.font_small is not None:
-            label_text = f"{label} r={r:.2f}"
-            # Same label content and placement; add a tiny shadow so it is readable
-            # without needing heavy projectile fills behind it.
+        if show_label and rpx >= 8 and self.font_small is not None:
+            label_text = f"{label} r={display_r:.2f}"
             shadow = self.font_small.render(label_text, True, (0, 0, 0))
             txt = self.font_small.render(label_text, True, color[:3])
             self.screen.blit(shadow, (sx + rpx + 6, sy - 7))
             self.screen.blit(txt, (sx + rpx + 5, sy - 8))
-
 
     def draw_hud(self, counts, motion_filter: MotionFilter, node_tracker: ProjectileNodeTracker, hurt_counts=None):
         # The old multi-field debug header was useful during bring-up, but it
@@ -6092,14 +6106,12 @@ class HitboxRenderer:
                     ov.draw_hit_contact(contact)
 
         if hitboxes_on:
+            # Primary physical lane: preserve the old standalone renderer's
+            # behavior exactly.  This lane is intentionally independent from
+            # projectile/effect discovery, hurt-rig coherence, on-screen root
+            # tests, and contact-focus filtering.
             for name, base in SLOT_BASES.items():
                 if not slot_filter.get(name, True):
-                    continue
-                if not self.slot_renderable.get(name, False):
-                    continue
-                if not _slot_root_is_on_screen(ov, base):
-                    continue
-                if focus_mode and name not in focus_sources:
                     continue
 
                 raw_state = read_state_raw(base)
@@ -6128,28 +6140,23 @@ class HitboxRenderer:
                     if r <= 0.001:
                         continue
 
+                    # Old primary-lane visibility rule.  Unknown moves use the
+                    # translation filter.  Moves with frame data remain visible
+                    # through startup so their allocated physical boxes are not
+                    # lost merely because they are stationary relative to the
+                    # fighter.
+                    visible = self.motion_filter.update(name, i, x, y, r)
+                    fd = lookup_frame_data(self.fd_by_slot, name, state_id)
+                    if not visible and fd is None:
+                        continue
+
                     base_color = palette[i % len(palette)]
-                    draw_now, is_active, action_frame, fd = self._frame_gate_for_slot(name, base, state_id, flag)
-                    if state_id in MEGACRASH_STATE_IDS and not is_active:
-                        continue
-                    # Show the assigned attack geometry throughout startup as a
-                    # dim preview, then let the existing active pulse make the
-                    # actual hit frames unmistakable.  Recovery/idle stay hidden.
-                    if not draw_now:
-                        continue
-
-                    if focus_mode:
-                        # Only active hitboxes near the actual impact matter in focus mode.
-                        if not is_active:
-                            continue
-                        near_focus = False
-                        for fx, fy, fz, _c in focus_points:
-                            if math.hypot(x - fx, y - fy) <= (r + HIT_FOCUS_PAD):
-                                near_focus = True
-                                break
-                        if not near_focus:
-                            continue
-
+                    action_frame = read_action_frame(base)
+                    is_active = (
+                        is_frame_data_active(fd, action_frame)
+                        if fd is not None
+                        else (flag == 0x53)
+                    )
                     draw_color = base_color if is_active else _dim_hitbox_color(base_color)
                     label = f"{name}[{i}]"
                     if debug_labels and fd is not None and action_frame is not None:
@@ -6160,8 +6167,12 @@ class HitboxRenderer:
                             x, y, 0, r, draw_color, label,
                             is_active=is_active,
                             invuln=bool(slot_invuln.get(name, False)),
+                            show_label=debug_labels,
                         )
 
+            # Secondary lanes: original moving projectiles and additive
+            # linked explosion/super collision volumes.  These never replace or
+            # gate the primary physical lane above.
             for proj in self.cached_projectiles:
                 if not slot_filter.get(proj.owner_slot, True):
                     continue
@@ -6189,9 +6200,9 @@ class HitboxRenderer:
                         proj.radius,
                         color,
                         proj.label(debug_labels and not focus_mode),
-                        sweep_x=proj.hit_start_x,
-                        sweep_y=proj.hit_start_y + PROJECTILE_Y_OFFSET,
-                        sweep_z=proj.hit_start_z,
+                        sweep_x=(proj.hit_start_x if proj.extent > 0.0001 else None),
+                        sweep_y=((proj.hit_start_y + PROJECTILE_Y_OFFSET) if proj.extent > 0.0001 else None),
+                        sweep_z=(proj.hit_start_z if proj.extent > 0.0001 else None),
                         contact_x=proj.impact_x,
                         contact_y=proj.impact_y + PROJECTILE_Y_OFFSET,
                         contact_z=proj.impact_z,
@@ -6199,6 +6210,7 @@ class HitboxRenderer:
                         root_x=proj.root_x,
                         root_y=proj.root_y + PROJECTILE_Y_OFFSET,
                         root_z=proj.root_z,
+                        show_label=debug_labels,
                     )
 
         if range_ruler_on:
@@ -6669,6 +6681,181 @@ def _projectile_extent(proj_id: int, radius: float) -> float:
     return max(PROJECTILE_EXTENT_MIN, min(PROJECTILE_EXTENT_MAX, float(radius) * 2.0))
 
 
+def _matrix_radius_scale(matrix_ptr: int) -> float:
+    """Return a conservative radius scale from a live 3x4 attachment matrix."""
+    if not (0x90000000 <= int(matrix_ptr or 0) < 0x94000000):
+        return 1.0
+    try:
+        rows = [
+            (_rf(matrix_ptr + 0x00), _rf(matrix_ptr + 0x04), _rf(matrix_ptr + 0x08)),
+            (_rf(matrix_ptr + 0x10), _rf(matrix_ptr + 0x14), _rf(matrix_ptr + 0x18)),
+            (_rf(matrix_ptr + 0x20), _rf(matrix_ptr + 0x24), _rf(matrix_ptr + 0x28)),
+        ]
+        scales = [math.sqrt(sum(v * v for v in row)) for row in rows]
+        sane = [v for v in scales if math.isfinite(v) and 0.05 <= v <= 20.0]
+        return max(sane) if sane else 1.0
+    except Exception:
+        return 1.0
+
+
+def _linked_shape_point(
+    record: int,
+    coord_off: int,
+    matrix_off: int = 0x04,
+) -> Optional[Tuple[float, float, float]]:
+    matrix_ptr = int(rd32(record + matrix_off) or 0) & 0xFFFFFFFF
+    if not (0x90000000 <= matrix_ptr < 0x94000000):
+        return None
+    lx = _rf(record + coord_off)
+    ly = _rf(record + coord_off + 4)
+    lz = _rf(record + coord_off + 8)
+    if not all(math.isfinite(v) and abs(v) < 100.0 for v in (lx, ly, lz)):
+        return None
+    point = _matrix_transform_point(matrix_ptr, lx, ly, lz)
+    if not all(math.isfinite(v) and abs(v) < 40.0 for v in point):
+        return None
+    return point
+
+
+def _read_linked_collider_object(
+    linked: int,
+    actor: int = 0,
+) -> List[ProjectileActorState]:
+    """Decode confirmed sphere, line, and box records from one linked object."""
+    linked = int(linked or 0) & 0xFFFFFFFF
+    actor = int(actor or 0) & 0xFFFFFFFF
+    if not (0x90000000 <= linked < 0x94000000):
+        return []
+
+    collider_type = int(rd32(linked + LINKED_COLLIDER_OFF_TYPE) or 0)
+    shapes = int(rd32(linked + LINKED_COLLIDER_OFF_SHAPES) or 0) & 0xFFFFFFFF
+    count = int(rd32(linked + LINKED_COLLIDER_OFF_COUNT) or 0)
+    stride = {
+        LINKED_COLLIDER_TYPE_SPHERE: LINKED_SPHERE_STRIDE,
+        LINKED_COLLIDER_TYPE_LINE: LINKED_LINE_STRIDE,
+        LINKED_COLLIDER_TYPE_BOX: LINKED_BOX_STRIDE,
+    }.get(collider_type)
+    if stride is None or not (0x90000000 <= shapes < 0x94000000):
+        return []
+    if not (1 <= count <= LINKED_COLLIDER_MAX_SHAPES):
+        return []
+
+    owner = int(rd32(linked + 0x30) or 0) & 0xFFFFFFFF
+    target_ptr = int(rd32(linked + 0x34) or 0) & 0xFFFFFFFF
+    owner_slot = _owner_slot_name(owner)
+    proj_id = 0
+    if owner_slot is None and 0x90000000 <= actor < 0x94000000:
+        owner = int(rd32(actor + ACTOR_OFF_OWNER) or 0) & 0xFFFFFFFF
+        owner_slot = _owner_slot_name(owner)
+        if owner_slot is None:
+            owner = int(rd32(actor + ACTOR_OFF_OWNER_MIRROR) or 0) & 0xFFFFFFFF
+            owner_slot = _owner_slot_name(owner)
+        proj_id = int(rd32(actor + ACTOR_OFF_PROJ_ID) or 0) & 0xFFFF
+
+    out: List[ProjectileActorState] = []
+    for index in range(count):
+        record = shapes + index * stride
+        flags = int(rd32(record) or 0) & 0xFFFFFFFF
+        if (flags & 1) == 0:
+            continue
+
+        matrix_ptr = int(rd32(record + 0x04) or 0) & 0xFFFFFFFF
+        shape_actor = actor
+        if not (0x90000000 <= shape_actor < 0x94000000) and 0x90000000 <= matrix_ptr < 0x94000000:
+            candidate = matrix_ptr - 0x80
+            if 0x90000000 <= candidate < 0x94000000:
+                shape_actor = candidate
+
+        shape_owner = owner
+        shape_owner_slot = owner_slot
+        shape_proj_id = proj_id
+        if shape_owner_slot is None and 0x90000000 <= shape_actor < 0x94000000:
+            shape_owner = int(rd32(shape_actor + ACTOR_OFF_OWNER) or 0) & 0xFFFFFFFF
+            shape_owner_slot = _owner_slot_name(shape_owner)
+            if shape_owner_slot is None:
+                shape_owner = int(rd32(shape_actor + ACTOR_OFF_OWNER_MIRROR) or 0) & 0xFFFFFFFF
+                shape_owner_slot = _owner_slot_name(shape_owner)
+            shape_proj_id = int(rd32(shape_actor + ACTOR_OFF_PROJ_ID) or 0) & 0xFFFF
+        if shape_owner_slot is None:
+            shape_owner_slot = "P1"
+
+        if collider_type == LINKED_COLLIDER_TYPE_SPHERE:
+            point = _linked_shape_point(record, 0x08, 0x04)
+            radius = abs(_rf(record + 0x14)) * _matrix_radius_scale(matrix_ptr)
+            if point is None or not (0.01 <= radius <= 20.0):
+                continue
+            start = end = point
+            shape_name = "sphere"
+        elif collider_type == LINKED_COLLIDER_TYPE_LINE:
+            matrix_a = int(rd32(record + 0x04) or 0) & 0xFFFFFFFF
+            matrix_b = int(rd32(record + 0x08) or 0) & 0xFFFFFFFF
+            a = _linked_shape_point(record, 0x0C, 0x04)
+            b = _linked_shape_point(record, 0x18, 0x08)
+            radius = abs(_rf(record + 0x3C)) * max(
+                _matrix_radius_scale(matrix_a),
+                _matrix_radius_scale(matrix_b),
+            )
+            if a is None or b is None or not (0.01 <= radius <= 20.0):
+                continue
+            start, end = a, b
+            shape_name = "line"
+        else:
+            point = _linked_shape_point(record, 0x08, 0x04)
+            hx = abs(_rf(record + 0x14))
+            hy = abs(_rf(record + 0x18))
+            hz = abs(_rf(record + 0x1C))
+            if point is None or not all(math.isfinite(v) and 0.0 <= v <= 20.0 for v in (hx, hy, hz)):
+                continue
+            start = (point[0] - hx, point[1], point[2])
+            end = (point[0] + hx, point[1], point[2])
+            radius = max(0.01, hy, hz)
+            shape_name = "box"
+
+        x, y, z = end
+        out.append(ProjectileActorState(
+            actor=shape_actor,
+            owner=shape_owner,
+            owner_slot=shape_owner_slot,
+            proj_id=shape_proj_id,
+            x=x, y=y, z=z,
+            prev_x=x, prev_y=y, prev_z=z,
+            sweep_x=start[0], sweep_y=start[1], sweep_z=start[2],
+            radius=radius,
+            linked_record=linked,
+            target_ptr=target_ptr,
+            anchor_source=f"LINK-{shape_name}[{index}]",
+            root_x=x, root_y=y, root_z=z,
+            hit_start_x=start[0], hit_start_y=start[1], hit_start_z=start[2],
+            hit_end_x=end[0], hit_end_y=end[1], hit_end_z=end[2],
+            extent=math.dist(start, end),
+        ))
+    return out
+
+
+def _read_all_linked_collision_objects() -> List[ProjectileActorState]:
+    """Read the additive explosion and super-collider pool."""
+    out: List[ProjectileActorState] = []
+    seen = set()
+    for pool_base in LINKED_COLLIDER_POOL_BASES:
+        for index in range(LINKED_COLLIDER_POOL_COUNT):
+            linked = pool_base + index * LINKED_COLLIDER_POOL_STRIDE
+            actor = linked + LINKED_COLLIDER_TO_ACTOR_DELTA
+            for shape in _read_linked_collider_object(linked, actor):
+                key = (
+                    shape.linked_record,
+                    shape.anchor_source,
+                    round(shape.x, 5),
+                    round(shape.y, 5),
+                    round(shape.z, 5),
+                    round(shape.radius, 5),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(shape)
+    return out
+
+
 def _read_projectile_actor(actor: int) -> Optional[ProjectileActorState]:
     owner = rd32(actor + ACTOR_OFF_OWNER) or 0
     owner_slot = _owner_slot_name(owner)
@@ -6782,17 +6969,15 @@ def _read_projectile_actor(actor: int) -> Optional[ProjectileActorState]:
     )
 
 def read_projectile_hitboxes(slot_filter: Optional[Dict[str, bool]] = None) -> List[ProjectileActorState]:
-    """Read live projectile actor hitboxes from ACTOR_TABLE.
+    """Return original projectiles plus additive explosion and super colliders.
 
-    This replaces the old synthetic projectile position reader.  Normal slot
-    hitboxes/hurtboxes still come from read_hitboxes() and are not touched here.
-
-    Multi-projectile moves are handled by unique actor pointer, not by owner/id.
-    Example: owner P1/id 0x160 can appear as two different actor pointers in
-    the same frame, and both should draw even though they share the same id.
+    Fighter physical hitboxes remain entirely inside ``read_hitboxes()``. The
+    original actor projectile reader is preserved, and confirmed linked shapes
+    are appended as a separate third lane.
     """
     result: List[ProjectileActorState] = []
 
+    # Original projectile lane, unchanged.
     for actor in get_projectile_actors():
         proj = _read_projectile_actor(actor)
         if proj is None:
@@ -6800,6 +6985,12 @@ def read_projectile_hitboxes(slot_filter: Optional[Dict[str, bool]] = None) -> L
         if slot_filter is not None and not slot_filter.get(proj.owner_slot, True):
             continue
         result.append(proj)
+
+    # Additive explosion/super lane.
+    for shape in _read_all_linked_collision_objects():
+        if slot_filter is not None and not slot_filter.get(shape.owner_slot, True):
+            continue
+        result.append(shape)
 
     return result
 
@@ -6980,6 +7171,7 @@ def main():
                                 draw_color,
                                 f"{name}[{i}]",
                                 is_active=is_active,
+                                show_label=False,
                             )
 
                     counts[name] = active
@@ -7020,9 +7212,9 @@ def main():
                         proj.radius,
                         color,
                         proj.label(False),
-                        sweep_x=proj.hit_start_x,
-                        sweep_y=proj.hit_start_y + PROJECTILE_Y_OFFSET,
-                        sweep_z=proj.hit_start_z,
+                        sweep_x=(proj.hit_start_x if proj.extent > 0.0001 else None),
+                        sweep_y=((proj.hit_start_y + PROJECTILE_Y_OFFSET) if proj.extent > 0.0001 else None),
+                        sweep_z=(proj.hit_start_z if proj.extent > 0.0001 else None),
                         contact_x=proj.impact_x,
                         contact_y=proj.impact_y + PROJECTILE_Y_OFFSET,
                         contact_z=proj.impact_z,
@@ -7030,6 +7222,7 @@ def main():
                         root_x=proj.root_x,
                         root_y=proj.root_y + PROJECTILE_Y_OFFSET,
                         root_z=proj.root_z,
+                        show_label=False,
                     )
 
             # Late hurtbox pass: draw this layer after normal boxes/projectiles so

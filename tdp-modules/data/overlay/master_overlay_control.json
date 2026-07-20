@@ -1,6 +1,6 @@
 {
   "show_hud": true,
-  "show_hitboxes": false,
+  "show_hitboxes": true,
   "show_hurtboxes": false,
   "show_debug": false,
   "show_interaction_card": true,

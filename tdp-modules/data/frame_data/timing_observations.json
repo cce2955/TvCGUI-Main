@@ -737,21 +737,23 @@
               "value": 2400
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 3,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 4,
               "samples": [
                 8,
                 10,
-                11
+                11,
+                10
               ],
-              "value": 8
+              "value": 10
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -870,14 +872,33 @@
               ],
               "value": 15
             },
-            "hitstop": {
+            "damage": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                12
+                1680
+              ],
+              "value": 1680
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                12,
+                10
               ],
               "value": 12
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
             }
           }
         },
@@ -1061,38 +1082,79 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 6,
+              "matches": 5,
+              "sample_count": 14,
               "samples": [
                 4400,
                 2000,
                 4400,
                 4400,
                 2000,
-                2400
+                2400,
+                4800,
+                7400,
+                4800,
+                2000,
+                500,
+                2000,
+                4400,
+                2000
               ],
-              "value": 4400
+              "value": 2000
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 4,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 10,
               "samples": [
                 3,
                 11,
                 10,
-                12
+                12,
+                79,
+                84,
+                82,
+                80,
+                81,
+                82
               ],
-              "value": 3
+              "value": 82
             },
             "hitstun": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 5,
+              "samples": [
+                21,
+                4,
+                4,
+                21,
+                4
+              ],
+              "value": 4
+            }
+          }
+        },
+        "65535": {
+          "action_name": "Loading",
+          "fields": {
+            "damage": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                21
+                4000
               ],
-              "value": 21
+              "value": 4000
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                82
+              ],
+              "value": 82
             }
           }
         }
@@ -1340,15 +1402,104 @@
         }
       }
     },
+    "2": {
+      "moves": {
+        "321": {
+          "action_name": "Shooting Star Kick B",
+          "fields": {
+            "damage": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                3200,
+                3200
+              ],
+              "value": 3200
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                8,
+                9
+              ],
+              "value": 8
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "430": {
+          "action_name": "assist standby",
+          "fields": {
+            "damage": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
+              "samples": [
+                8000,
+                8000,
+                8000
+              ],
+              "value": 8000
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
+              "samples": [
+                21,
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        }
+      }
+    },
     "27": {
       "moves": {
+        "354": {
+          "action_name": "Bird Missle Bullets",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2950
+              ],
+              "value": 2950
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "430": {
           "action_name": "assist standby",
           "fields": {
             "damage": {
               "confidence": "confirmed",
               "matches": 9,
-              "sample_count": 9,
+              "sample_count": 12,
               "samples": [
                 3360,
                 3360,
@@ -1358,14 +1509,27 @@
                 3360,
                 3360,
                 3360,
-                3360
+                3360,
+                10800,
+                6000,
+                6527
               ],
               "value": 3360
+            },
+            "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                78,
+                78
+              ],
+              "value": 78
             },
             "hitstun": {
               "confidence": "confirmed",
               "matches": 4,
-              "sample_count": 9,
+              "sample_count": 11,
               "samples": [
                 16,
                 18,
@@ -1375,7 +1539,9 @@
                 17,
                 17,
                 18,
-                18
+                18,
+                21,
+                21
               ],
               "value": 18
             }
@@ -1466,6 +1632,29 @@
               "value": 1
             }
           }
+        },
+        "352": {
+          "action_name": "Rekkoha",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                14382
+              ],
+              "value": 14382
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
         }
       }
     },
@@ -1551,8 +1740,115 @@
         }
       }
     },
+    "4": {
+      "moves": {
+        "353": {
+          "action_name": "Tenshin Drill",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 3,
+              "samples": [
+                11266,
+                14700,
+                7448
+              ],
+              "value": 11266
+            },
+            "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 3,
+              "samples": [
+                46,
+                2,
+                2
+              ],
+              "value": 2
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
+              "samples": [
+                21,
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "430": {
+          "action_name": "assist standby",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                1860,
+                5000
+              ],
+              "value": 1860
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                20
+              ],
+              "value": 20
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        }
+      }
+    },
     "5": {
       "moves": {
+        "352": {
+          "action_name": "yatter wan special attack",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                11658
+              ],
+              "value": 11658
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                45
+              ],
+              "value": 45
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "430": {
           "action_name": "assist standby",
           "fields": {
@@ -2006,23 +2302,31 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 2,
+              "sample_count": 6,
               "samples": [
                 500,
-                500
+                500,
+                6800,
+                4600,
+                6800,
+                4600
               ],
               "value": 500
             },
             "hitstop": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 5,
+              "sample_count": 9,
               "samples": [
                 7,
                 6,
                 6,
                 5,
-                6
+                6,
+                82,
+                82,
+                80,
+                82
               ],
               "value": 6
             },
