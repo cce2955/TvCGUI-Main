@@ -23,6 +23,8 @@ import json
 import os
 import re
 import time
+import threading
+from pathlib import Path
 from typing import Any
 
 from tvcgui.platform.dolphin import rd8, wd8
@@ -42,7 +44,6 @@ MISSION_SELECT_FILE        = user_data_path("training", "mission_select_command.
 MISSION_CELEBRATE_ACK_FILE = user_data_path("training", "mission_celebrate_ack.json")
 
 MISSION_COMMAND_POLL_INTERVAL = 0.10
-MISSION_OVERLAY_WRITE_INTERVAL = 0.10
 
 # ---------------------------------------------------------------------------
 # Sets / constants (same values as in the old main)
@@ -203,7 +204,22 @@ MISSION_INPUT_BAROQUE_LATCH = 14
 MISSION_INPUT_LEGS_WINDOW = 42
 MISSION_INPUT_COMMAND_WINDOW = 36
 MISSION_INPUT_MASH_COUNT = 4
-MISSION_HIT_CONFIRM_WINDOW = 12
+MISSION_HIT_CONFIRM_WINDOW = 16
+MISSION_HIT_CORRELATION_WINDOW = 4
+MISSION_HIT_PRELABEL_WINDOW = 8
+MISSION_BUFFERED_STEP_LIMIT = 16
+MISSION_BUFFERED_NORMAL_HIT_WINDOW = 20
+
+# Prediction is display-only until a real HP or combo event confirms the hit.
+# Native action IDs let the HUD move with the player immediately, while frame
+# data supplies a bounded confirmation window for each attack.
+MISSION_PREDICTION_MAX_STEPS = 16
+MISSION_PREDICTION_FALLBACK_STARTUP = 12
+MISSION_PREDICTION_FALLBACK_ACTIVE = 4
+MISSION_PREDICTION_CONFIRM_PADDING = 12
+MISSION_PREDICTION_MAX_AGE_SECONDS = 1.50
+MISSION_ACTION_EVENT_LIMIT = 32
+MISSION_HIT_EVENT_LIMIT = 32
 
 _MISSION_DIRECTION_MIRROR = {"1": "3", "3": "1", "4": "6", "6": "4", "7": "9", "9": "7"}
 
@@ -212,6 +228,31 @@ DORONJO_DAMAGE_PASS: dict[str, set] = {
     "pummel a": {880}, "pummel b": {880}, "pummel c": {880},
     "tree a": {1360}, "tree b": {1360}, "tree c": {1360},
     "rock a": {4480}, "rock b": {4480}, "rock c": {4480},
+}
+
+MISSION_GENERIC_ACTION_LABELS = {
+    0x100: "5A",
+    0x101: "5B",
+    0x102: "5C",
+    0x103: "2A",
+    0x104: "2B",
+    0x105: "2C",
+    0x106: "6C",
+    0x107: "4C",
+    0x108: "3C",
+    0x109: "j.A",
+    0x10A: "j.B",
+    0x10B: "j.C",
+    0x10C: "j.6C",
+    0x10D: "j.4C",
+    0x10E: "6B",
+}
+MISSION_AIR_NORMAL_ACTIONS = {
+    0x109: "A",
+    0x10A: "B",
+    0x10B: "C",
+    0x10C: "C",
+    0x10D: "C",
 }
 
 
@@ -239,6 +280,13 @@ def _new_mission_runtime(
         "mission_input_events": [],
         "mission_input_serial": 0,
         "mission_input_consumed_serial": 0,
+        "mission_action_events": [],
+        "mission_action_serial": 0,
+        "mission_action_consumed_serial": 0,
+        "mission_last_action_id": None,
+        "mission_last_action_sample_seq": -1,
+        "mission_realtime_hp_by_slot": {},
+        "mission_realtime_hitstun_by_slot": {},
         "mission_input_match_serial": 0,
         "mission_step_start_serial": 0,
         "pending_input_serial": 0,
@@ -249,6 +297,13 @@ def _new_mission_runtime(
         "mission_last_input_frame": -9999,
         "mission_hit_events": [],
         "mission_hit_serial": 0,
+        "mission_last_hit_evidence_frame": -9999,
+        "mission_buffered_advances": 0,
+        "predicted_progress_index": 0,
+        "prediction_entries": [],
+        "prediction_revision": 0,
+        "pending_label_confirmed": False,
+        "pending_arm_source": "",
         "last_global_combo_count": None,
         "last_actual_hitstun": False,
         "last_opponent_megacrash": False,
@@ -263,8 +318,11 @@ def _new_mission_runtime(
         "goal_state_frames": 0,
         "goal_combo_damage": 0,
         "goal_combo_hits": 0,
+        "goal_hp_hit_count": 0,
+        "goal_hit_latch": 0,
         "goal_failed": False,
         "goal_last_damage_frame": -1,
+        "last_sampled_damage_frame": -1,
         "clear_seq": int(clear_seq),
         "celebrate_token": int(celebrate_token),
         "celebrate_pending": bool(celebrate_pending),
@@ -319,6 +377,7 @@ class MissionManager:
         self._debug_flag_addrs = debug_flag_addrs
         self._read_debug_flags = read_debug_flags_fn
         self._move_label_for = move_label_for_fn
+        self._mission_timing_by_action = self._load_mission_frame_timings()
 
         # Core runtime state
         self._runtime: dict = _new_mission_runtime()
@@ -342,8 +401,15 @@ class MissionManager:
             "applied_debug_values": {},
         }
 
-        # Frame index  -  updated each call to update()
+        # Frame index, updated each call to update().
         self._frame_idx: int = 0
+
+        # Health history is manager-wide rather than mission-wide. Mission
+        # selection and route resets must not erase the baseline needed to
+        # recognize the next frame's first hit.
+        self._health_history_by_base: dict[int, dict[str, Any]] = {}
+        self._health_damage_events: list[dict[str, Any]] = []
+        self._health_damage_frame: int = -1
 
         # Last overlay payload built by write_overlay_data().  main.py uses this
         # to sync mission-scoped helpers such as Megacrash Trainer without
@@ -352,7 +418,86 @@ class MissionManager:
         self._next_command_poll: float = 0.0
         self._last_overlay_serialized: str = ""
         self._last_overlay_write_time: float = 0.0
+        self._last_overlay_progress_signature: tuple = ()
         self._last_mode_serialized: str = ""
+        self._overlay_write_condition = threading.Condition()
+        self._pending_overlay_payload: dict | None = None
+        self._overlay_writer_stop = False
+        self._overlay_writer_thread = threading.Thread(
+            target=self._overlay_writer_loop,
+            name="TvCMissionOverlayWriter",
+            daemon=True,
+        )
+        self._overlay_writer_thread.start()
+
+        # The normal GUI loop can be busy, but HudOverlayManager already owns a
+        # dedicated 240 Hz Dolphin input sampler. Mission mode consumes that
+        # ordered queue so short taps and complete strings are never reduced to
+        # one late 60 Hz snapshot.
+        self._input_sample_provider = None
+        self._input_sample_cursor_by_consumer: dict[tuple[str, str], int] = {}
+
+    def _load_mission_frame_timings(self) -> dict[tuple[int, int], dict[str, int]]:
+        """Load compact startup, active, and hitstun data for prediction.
+
+        Mission mode only needs three integers per native action. Keeping this
+        small index avoids searching the full frame-data profile on every hit.
+        """
+        try:
+            from tvcgui.features.frame_data.profile_store import iter_frame_data_profiles
+            profiles = iter_frame_data_profiles()
+        except Exception:
+            return {}
+
+        timings: dict[tuple[int, int], dict[str, int]] = {}
+        for profile in profiles:
+            if not isinstance(profile, dict):
+                continue
+            try:
+                char_id = int(profile.get("char_id", 0) or 0)
+            except Exception:
+                char_id = 0
+            if char_id <= 0:
+                continue
+            for move in profile.get("moves", []) or []:
+                if not isinstance(move, dict):
+                    continue
+                try:
+                    action_id = int(move.get("id", 0) or 0) & 0x7FFF
+                except Exception:
+                    action_id = 0
+                if action_id < 0x100:
+                    continue
+
+                def _int_field(*names: str) -> int:
+                    for name in names:
+                        value = move.get(name)
+                        try:
+                            if value is not None and str(value).strip() != "":
+                                return max(0, int(float(value)))
+                        except Exception:
+                            continue
+                    return 0
+
+                startup = _int_field("active_start", "startup")
+                active_end = _int_field("active_end")
+                hitstun = _int_field("hitstun")
+                active = max(
+                    1,
+                    active_end - startup + 1
+                    if startup > 0 and active_end >= startup
+                    else MISSION_PREDICTION_FALLBACK_ACTIVE,
+                )
+                candidate = {
+                    "startup": startup or MISSION_PREDICTION_FALLBACK_STARTUP,
+                    "active": active,
+                    "hitstun": hitstun,
+                }
+                key = (char_id, action_id)
+                existing = timings.get(key)
+                if existing is None or candidate["startup"] < existing["startup"]:
+                    timings[key] = candidate
+        return timings
 
     # ------------------------------------------------------------------
     # Public properties
@@ -374,6 +519,28 @@ class MissionManager:
     def last_overlay_payload(self) -> dict:
         return dict(self._last_overlay_payload or {})
 
+    def set_input_sample_provider(self, provider) -> None:
+        """Use a high-frequency input source supplied by HudOverlayManager."""
+        self._input_sample_provider = provider
+
+    def _sync_input_cursors_to_latest(self, slot_label: str, snap: dict | None = None) -> None:
+        provider = self._input_sample_provider
+        if not callable(provider) or not slot_label:
+            return
+        try:
+            _latest, samples = provider(
+                slot_label,
+                int((snap or {}).get("base") or 0),
+            )
+        except Exception:
+            return
+        newest = max(
+            [int((sample or {}).get("seq", 0) or 0) for sample in (samples or [])]
+            or [0]
+        )
+        for consumer in ("selector", "mission", "mission-opponent"):
+            self._input_sample_cursor_by_consumer[(consumer, str(slot_label))] = newest
+
     # ------------------------------------------------------------------
     # Public update entry point
     # ------------------------------------------------------------------
@@ -389,11 +556,18 @@ class MissionManager:
         self._frame_idx = frame_idx
         self._now = now
         self._render_snap_by_slot = render_snap_by_slot
+        self._sample_health_deltas(render_snap_by_slot, frame_idx)
         self._update_selector_from_inputs(snaps, now)
         if now >= self._next_command_poll:
             self._next_command_poll = now + MISSION_COMMAND_POLL_INTERVAL
             self.consume_select_command()
             self.consume_celebrate_ack()
+
+        # Evaluate and publish mission state immediately, before the GUI's
+        # profiler and rendering work. write_overlay_data is content-deduped, so
+        # an unchanged frame performs no filesystem write.
+        self.write_mode_state()
+        self.write_overlay_data(render_snap_by_slot)
 
     # ------------------------------------------------------------------
     # Selector navigation
@@ -500,6 +674,33 @@ class MissionManager:
             self._runtime["celebrate_acked_token"] = ack_token
             self._runtime["celebrate_pending"] = False
 
+    def _queue_overlay_payload(self, payload: dict) -> None:
+        with self._overlay_write_condition:
+            self._pending_overlay_payload = dict(payload or {})
+            self._overlay_write_condition.notify()
+
+    def _overlay_writer_loop(self) -> None:
+        while True:
+            with self._overlay_write_condition:
+                while self._pending_overlay_payload is None and not self._overlay_writer_stop:
+                    self._overlay_write_condition.wait(timeout=0.25)
+                if self._overlay_writer_stop and self._pending_overlay_payload is None:
+                    return
+                payload = self._pending_overlay_payload
+                self._pending_overlay_payload = None
+            try:
+                serialized = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+                if serialized == self._last_overlay_serialized and os.path.isfile(MISSION_OVERLAY_FILE):
+                    continue
+                tmp = f"{MISSION_OVERLAY_FILE}.tmp"
+                os.makedirs(os.path.dirname(MISSION_OVERLAY_FILE), exist_ok=True)
+                with open(tmp, "w", encoding="utf-8") as handle:
+                    handle.write(serialized)
+                os.replace(tmp, MISSION_OVERLAY_FILE)
+                self._last_overlay_serialized = serialized
+            except Exception:
+                pass
+
     # ------------------------------------------------------------------
     # File writers
     # ------------------------------------------------------------------
@@ -527,27 +728,20 @@ class MissionManager:
         self._sync_debug_overrides(payload)
         self._last_overlay_payload = dict(payload or {})
 
-        try:
-            serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        except Exception:
-            return
+        progress_signature = (
+            bool(payload.get("active")),
+            str(payload.get("active_mission_id") or ""),
+            int(payload.get("completed_step_count", 0) or 0),
+            int(payload.get("current_step_index", 0) or 0),
+            bool(payload.get("just_cleared", False)),
+            int(payload.get("clear_seq", 0) or 0),
+        )
+        # Do not time-throttle mission UI changes. The latest-only writer
+        # publishes the newest state and discards stale intermediate payloads.
+        self._last_overlay_progress_signature = progress_signature
+        self._last_overlay_write_time = float(getattr(self, "_now", 0.0) or time.time())
+        self._queue_overlay_payload(payload)
 
-        now = float(getattr(self, "_now", 0.0) or time.time())
-        if serialized == self._last_overlay_serialized:
-            return
-        if not force and (now - self._last_overlay_write_time) < MISSION_OVERLAY_WRITE_INTERVAL:
-            return
-
-        try:
-            tmp = f"{MISSION_OVERLAY_FILE}.tmp"
-            os.makedirs(os.path.dirname(MISSION_OVERLAY_FILE), exist_ok=True)
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(serialized)
-            os.replace(tmp, MISSION_OVERLAY_FILE)
-            self._last_overlay_serialized = serialized
-            self._last_overlay_write_time = now
-        except Exception:
-            pass
 
     def write_mode_state(self, *, force: bool = False) -> None:
         if not self._active_slot:
@@ -574,6 +768,13 @@ class MissionManager:
         except Exception:
             pass
 
+    def close(self) -> None:
+        with self._overlay_write_condition:
+            self._overlay_writer_stop = True
+            self._overlay_write_condition.notify_all()
+        if self._overlay_writer_thread.is_alive():
+            self._overlay_writer_thread.join(timeout=1.0)
+
     def restore_debug_overrides(self) -> None:
         'Call at shutdown to restore any debug flags the module overwrote.'
         self._restore_debug_overrides()
@@ -584,6 +785,9 @@ class MissionManager:
 
     def toggle_active_slot(self, slot_label: str) -> None:
         self._active_slot = None if self._active_slot == slot_label else slot_label
+        if self._active_slot:
+            snap = getattr(self, "_render_snap_by_slot", {}).get(self._active_slot)
+            self._sync_input_cursors_to_latest(self._active_slot, snap)
         self._runtime = _new_mission_runtime(slot=self._active_slot)
         self.write_mode_state(force=True)
         self.write_overlay_data(force=True)
@@ -809,8 +1013,56 @@ class MissionManager:
 
         return self._active_slot if self._active_slot in team_slots else team_slots[0]
 
+    def _input_packets_for_slot(
+        self,
+        slot_label: str,
+        snap: dict,
+        *,
+        consumer: str,
+    ) -> list[dict]:
+        """Return every unseen high-frequency sample for one independent consumer."""
+        provider = self._input_sample_provider
+        latest: dict = {}
+        samples: list[dict] = []
+        if callable(provider):
+            try:
+                latest, samples = provider(
+                    slot_label,
+                    int((snap or {}).get("base") or 0),
+                )
+            except Exception:
+                latest, samples = {}, []
+
+        cursor_key = (str(consumer), str(slot_label))
+        cursor = int(self._input_sample_cursor_by_consumer.get(cursor_key, 0) or 0)
+        fresh = [
+            dict(sample)
+            for sample in (samples or [])
+            if int((sample or {}).get("seq", 0) or 0) > cursor
+        ]
+        fresh.sort(key=lambda sample: int(sample.get("seq", 0) or 0))
+        if fresh:
+            self._input_sample_cursor_by_consumer[cursor_key] = max(
+                int(sample.get("seq", 0) or 0) for sample in fresh
+            )
+            return fresh
+
+        if latest:
+            packet = dict(latest)
+            packet.setdefault("seq", cursor)
+            return [packet]
+
+        try:
+            packet = input_monitor.read_overlay_input_packet(
+                slot_label,
+                int((snap or {}).get("base") or 0),
+            )
+        except Exception:
+            packet = {}
+        return [packet] if packet else []
+
     def _update_selector_from_inputs(self, snaps_dict: dict, now: float) -> None:
-        """Drive Mission Select from raw Down and Taunt inputs."""
+        """Drive Mission Select from every captured Down and Taunt edge."""
         if not self._active_slot:
             self._close_selector()
             return
@@ -830,84 +1082,85 @@ class MissionManager:
             self._close_selector()
             return
 
+
         payload = build_overlay_payload(character_name)
         missions = payload.get("missions", [])
         if not missions:
             self._close_selector()
             return
 
-        try:
-            packet = input_monitor.read_overlay_input_packet(
-                selector_slot,
-                int((snap or {}).get("base") or 0),
-            )
-        except Exception:
-            packet = {}
-
-        held = int((packet or {}).get("held") or 0) & 0xFFFF
-        pressed = int((packet or {}).get("pressed") or 0) & 0xFFFF
-        direction = held & MISSION_INPUT_DIRECTION_MASK
-        previous_direction = int(self._selector.get("last_direction", 0) or 0)
-
-        down_rising = _mission_selector_down_rising(direction, previous_direction, pressed)
-        up_rising = direction == 0x04 and previous_direction != 0x04
-
-        taunt_held = (held & MISSION_INPUT_TAUNT) == MISSION_INPUT_TAUNT
-        taunt_pressed = (pressed & MISSION_INPUT_TAUNT) == MISSION_INPUT_TAUNT
-        taunt_rising = taunt_pressed or (
-            taunt_held and not bool(self._selector.get("last_taunt_held", False))
+        packets = self._input_packets_for_slot(
+            selector_slot, snap, consumer="selector"
         )
+        if not packets:
+            return
 
-        if self._selector["open"]:
-            if now - self._selector["opened_at"] > 8.0:
-                self._close_selector()
+        for sample_index, packet in enumerate(packets):
+            sample_now = float(now) + sample_index * 0.000001
+            held = int((packet or {}).get("held") or 0) & 0xFFFF
+            pressed = int((packet or {}).get("pressed") or 0) & 0xFFFF
+            direction = held & MISSION_INPUT_DIRECTION_MASK
+            previous_direction = int(self._selector.get("last_direction", 0) or 0)
+
+            down_rising = _mission_selector_down_rising(direction, previous_direction, pressed)
+            up_rising = direction == 0x04 and previous_direction != 0x04
+            taunt_held = (held & MISSION_INPUT_TAUNT) == MISSION_INPUT_TAUNT
+            taunt_pressed = (pressed & MISSION_INPUT_TAUNT) == MISSION_INPUT_TAUNT
+            taunt_rising = taunt_pressed or (
+                taunt_held and not bool(self._selector.get("last_taunt_held", False))
+            )
+
+            if self._selector["open"]:
+                if sample_now - self._selector["opened_at"] > 8.0:
+                    self._close_selector()
+                else:
+                    if down_rising:
+                        self._selector["selected_index"] = (
+                            int(self._selector.get("selected_index", 0)) + 1
+                        ) % len(missions)
+                        self._selector["opened_at"] = sample_now
+                        self._selector["hint_until"] = sample_now + 8.0
+
+                    if up_rising:
+                        self._selector["selected_index"] = (
+                            int(self._selector.get("selected_index", 0)) - 1
+                        ) % len(missions)
+                        self._selector["opened_at"] = sample_now
+                        self._selector["hint_until"] = sample_now + 8.0
+
+                    if taunt_rising:
+                        idx = int(self._selector.get("selected_index", 0)) % len(missions)
+                        mission_id = missions[idx].get("mission_id")
+                        if mission_id:
+                            progress = load_progress()
+                            progress = set_selected_mission_id(progress, character_name, mission_id)
+                            save_progress(progress)
+                            self._active_slot = selector_slot
+                            self._runtime = _new_mission_runtime(slot=self._active_slot)
+                            self._close_selector()
+                            self.write_mode_state(force=True)
             else:
                 if down_rising:
-                    self._selector["selected_index"] = (
-                        int(self._selector.get("selected_index", 0)) + 1
-                    ) % len(missions)
-                    self._selector["opened_at"] = now
-                    self._selector["hint_until"] = now + 8.0
+                    seq = self._selector["sequence"]
+                    if not seq or (sample_now - seq[-1]) <= MISSION_SELECTOR_REPEAT_WINDOW:
+                        seq.append(sample_now)
+                    else:
+                        seq[:] = [sample_now]
+                    if len(seq) > 2:
+                        del seq[:-2]
 
-                if up_rising:
-                    self._selector["selected_index"] = (
-                        int(self._selector.get("selected_index", 0)) - 1
-                    ) % len(missions)
-                    self._selector["opened_at"] = now
-                    self._selector["hint_until"] = now + 8.0
-
-                if taunt_rising:
-                    idx = int(self._selector.get("selected_index", 0)) % len(missions)
-                    mission_id = missions[idx].get("mission_id")
-                    if mission_id:
-                        progress = load_progress()
-                        progress = set_selected_mission_id(progress, character_name, mission_id)
-                        save_progress(progress)
+                if taunt_rising and len(self._selector["sequence"]) >= 2:
+                    if (
+                        self._selector["sequence"][-1]
+                        - self._selector["sequence"][-2]
+                    ) <= MISSION_SELECTOR_REPEAT_WINDOW:
                         self._active_slot = selector_slot
                         self._runtime = _new_mission_runtime(slot=self._active_slot)
-                        self._close_selector()
+                        self._open_selector(character_name, sample_now)
                         self.write_mode_state(force=True)
-                        self.write_overlay_data(force=True)
-        else:
-            if down_rising:
-                seq = self._selector["sequence"]
-                if not seq or (now - seq[-1]) <= MISSION_SELECTOR_REPEAT_WINDOW:
-                    seq.append(now)
-                else:
-                    seq[:] = [now]
-                if len(seq) > 2:
-                    del seq[:-2]
 
-            if taunt_rising and len(self._selector["sequence"]) >= 2:
-                if (self._selector["sequence"][-1] - self._selector["sequence"][-2]) <= MISSION_SELECTOR_REPEAT_WINDOW:
-                    self._active_slot = selector_slot
-                    self._runtime = _new_mission_runtime(slot=self._active_slot)
-                    self._open_selector(character_name, now)
-                    self.write_mode_state(force=True)
-                    self.write_overlay_data(force=True)
-
-        self._selector["last_direction"] = direction
-        self._selector["last_taunt_held"] = taunt_held
+            self._selector["last_direction"] = direction
+            self._selector["last_taunt_held"] = taunt_held
 
     # ------------------------------------------------------------------
     # Team / slot helpers
@@ -982,6 +1235,43 @@ class MissionManager:
     # Opponent query helpers
     # ------------------------------------------------------------------
 
+    def _sample_health_deltas(self, snaps_dict: dict, frame_idx: int) -> None:
+        """Capture health changes continuously, even while mission mode is idle."""
+        events: list[dict[str, Any]] = []
+        live_bases: set[int] = set()
+
+        for snap in (snaps_dict or {}).values():
+            if not isinstance(snap, dict):
+                continue
+            base = snap.get("base")
+            cur_hp = snap.get("cur")
+            teamtag = str(snap.get("teamtag") or "")
+            if not isinstance(base, int) or not isinstance(cur_hp, int):
+                continue
+
+            live_bases.add(base)
+            previous = self._health_history_by_base.get(base)
+            if isinstance(previous, dict):
+                prev_hp = previous.get("cur")
+                if isinstance(prev_hp, int) and cur_hp < prev_hp:
+                    events.append({
+                        "base": base,
+                        "teamtag": teamtag,
+                        "damage": prev_hp - cur_hp,
+                    })
+
+            self._health_history_by_base[base] = {
+                "cur": cur_hp,
+                "teamtag": teamtag,
+            }
+
+        for base in list(self._health_history_by_base):
+            if base not in live_bases:
+                del self._health_history_by_base[base]
+
+        self._health_damage_events = events
+        self._health_damage_frame = int(frame_idx)
+
     def _opponent_in_state(self, slot_label: str, snaps_dict: dict, state_ids: set) -> bool:
         if not slot_label:
             return False
@@ -1025,6 +1315,24 @@ class MissionManager:
         if not slot_label:
             return []
         my_team = "P1" if slot_label.startswith("P1") else "P2"
+
+        # Prefer the manager-wide sample. It is collected before mission
+        # commands and survives mission changes, so the first hit cannot be
+        # lost just because the mission runtime was reset that frame.
+        sampled_frame = int(self._health_damage_frame)
+        if (
+            sampled_frame == int(self._frame_idx)
+            and int(self._runtime.get("last_sampled_damage_frame", -1)) != sampled_frame
+        ):
+            self._runtime["last_sampled_damage_frame"] = sampled_frame
+            return [
+                int(event.get("damage", 0) or 0)
+                for event in self._health_damage_events
+                if str(event.get("teamtag") or "") != my_team
+                and int(event.get("damage", 0) or 0) > 0
+            ]
+
+        # Fallback for direct calls that occur without update().
         hp_cache = self._runtime.setdefault("opponent_hp_by_base", {})
         live_bases: set = set()
         damage_values: list[int] = []
@@ -1056,8 +1364,14 @@ class MissionManager:
         global_combo_count: int | None,
         damage_values: list[int],
         frame_idx: int,
-    ) -> None:
-        """Latch hit evidence so input and damage may arrive in either order."""
+    ) -> int:
+        """Merge HP and combo-counter evidence into physical hit events.
+
+        TvC does not publish the related writes in a stable order. HP can fall
+        before the combo counter changes, or the counter can change first. An
+        HP edge creates an event immediately for responsiveness. A nearby combo
+        edge is attached to that same event instead of creating a duplicate.
+        """
         events = self._runtime.setdefault("mission_hit_events", [])
         previous_count = self._runtime.get("last_global_combo_count")
 
@@ -1065,37 +1379,77 @@ class MissionManager:
         if global_combo_count is not None:
             current_count = max(0, int(global_combo_count))
             if previous_count is None:
-                combo_hits = 1 if current_count > 0 else 0
+                # A fresh mission/runtime can first observe the counter after
+                # several rapid hits. Preserve the full count instead of
+                # collapsing the entire opening string into one hit event.
+                combo_hits = current_count
             else:
                 previous_count = max(0, int(previous_count))
                 if current_count > previous_count:
                     combo_hits = current_count - previous_count
             self._runtime["last_global_combo_count"] = current_count
 
-        hp_hits = sum(1 for value in damage_values if int(value or 0) > 0)
-        evidence_count = max(combo_hits, hp_hits)
+        positive_damage = [int(value) for value in damage_values if int(value or 0) > 0]
+        new_event_count = 0
 
-        already_this_frame = sum(
-            1 for event in events
-            if int(event.get("frame", -9999)) == int(frame_idx)
-        )
-        for _ in range(max(0, evidence_count - already_this_frame)):
+        def new_event(*, hp_seen: bool, combo_seen: bool, damage: int = 0) -> dict:
+            nonlocal new_event_count
             serial = int(self._runtime.get("mission_hit_serial", 0) or 0) + 1
             self._runtime["mission_hit_serial"] = serial
-            events.append({
+            event = {
                 "serial": serial,
                 "frame": int(frame_idx),
+                "last_frame": int(frame_idx),
+                "hp_seen": bool(hp_seen),
+                "combo_seen": bool(combo_seen),
+                "damage": max(0, int(damage or 0)),
                 "consumed": False,
-            })
+            }
+            events.append(event)
+            new_event_count += 1
+            return event
+
+        # HP is the lowest-latency signal. Pair it with a combo-only event from
+        # the previous few frames when the counter happened to publish first.
+        for damage in positive_damage:
+            match = next((
+                event for event in reversed(events)
+                if not event.get("hp_seen")
+                and 0 <= int(frame_idx) - int(event.get("last_frame", event.get("frame", frame_idx))) <= MISSION_HIT_CORRELATION_WINDOW
+            ), None)
+            if match is None:
+                new_event(hp_seen=True, combo_seen=False, damage=damage)
+            else:
+                match["hp_seen"] = True
+                match["damage"] = int(match.get("damage", 0) or 0) + damage
+                match["last_frame"] = int(frame_idx)
+
+        # Counter increments are authoritative for hit count. Pair each one to
+        # a recent HP-only event before allocating another physical hit.
+        for _ in range(max(0, int(combo_hits))):
+            match = next((
+                event for event in reversed(events)
+                if not event.get("combo_seen")
+                and 0 <= int(frame_idx) - int(event.get("last_frame", event.get("frame", frame_idx))) <= MISSION_HIT_CORRELATION_WINDOW
+            ), None)
+            if match is None:
+                new_event(hp_seen=False, combo_seen=True)
+            else:
+                match["combo_seen"] = True
+                match["last_frame"] = int(frame_idx)
+
+        if positive_damage or combo_hits > 0 or new_event_count > 0:
+            self._runtime["mission_last_hit_evidence_frame"] = int(frame_idx)
 
         events[:] = [
             event for event in events
             if int(frame_idx) - int(event.get("frame", frame_idx)) <= MISSION_HIT_CONFIRM_WINDOW
             and not (
                 bool(event.get("consumed"))
-                and int(frame_idx) - int(event.get("frame", frame_idx)) > 1
+                and int(frame_idx) - int(event.get("last_frame", event.get("frame", frame_idx))) > MISSION_HIT_CORRELATION_WINDOW
             )
         ]
+        return new_event_count
 
     def _peek_mission_hit_event(self, frame_idx: int, min_frame: int | None = None) -> dict | None:
         floor = -999999 if min_frame is None else int(min_frame)
@@ -1117,17 +1471,452 @@ class MissionManager:
         event["consumed"] = True
         return True
 
+    def _mission_input_event_by_serial(self, serial: int) -> dict | None:
+        wanted = int(serial or 0)
+        if wanted <= 0:
+            return None
+        for event in self._runtime.get("mission_input_events", []):
+            if int(event.get("serial", 0) or 0) == wanted:
+                return event
+        return None
+
+    def _action_event_matches_step(self, event: dict, step: Any, labels: list[str]) -> bool:
+        candidates = list((event or {}).get("labels") or [])
+        notation = self._step_input_notation(step)
+        expected = list(labels or [])
+        if notation:
+            expected.append(notation)
+        for candidate in candidates:
+            if self._mission_label_matches(str(candidate), expected):
+                return True
+        return False
+
+    def _prediction_timing_for_action(self, event: dict) -> dict[str, int]:
+        char_id = int((event or {}).get("char_id", 0) or 0)
+        action_id = int((event or {}).get("action_id", 0) or 0) & 0x7FFF
+        timing = self._mission_timing_by_action.get((char_id, action_id))
+        if timing:
+            return dict(timing)
+        return {
+            "startup": MISSION_PREDICTION_FALLBACK_STARTUP,
+            "active": MISSION_PREDICTION_FALLBACK_ACTIVE,
+            "hitstun": 0,
+        }
+
+    def _prediction_window_ns(self, event: dict) -> tuple[int, int]:
+        timing = self._prediction_timing_for_action(event)
+        startup = max(1, int(timing.get("startup", 0) or 0))
+        active = max(1, int(timing.get("active", 0) or 0))
+        start_ns = int((event or {}).get("sample_ns", 0) or 0)
+        if start_ns <= 0:
+            start_ns = time.monotonic_ns()
+        earliest = start_ns + int(max(0, startup - 2) * (1_000_000_000 / 60.0))
+        latest_frames = startup + active + MISSION_PREDICTION_CONFIRM_PADDING
+        latest = start_ns + int(latest_frames * (1_000_000_000 / 60.0))
+        return earliest, latest
+
+    def _step_supports_prediction(self, step: Any, labels: list[str]) -> bool:
+        """Return whether the step may advance visually before hit confirmation."""
+        if not labels or self._step_grace(step) > 0:
+            return False
+        if (
+            self._step_is_pass(step)
+            or self._step_is_baroque_cancel(labels)
+            or self._step_is_megacrash(labels)
+            or self._step_allows_whiff_confirm(labels, step)
+        ):
+            return False
+        return True
+
+    def _refresh_predicted_progress(
+        self,
+        steps: list,
+        confirmed_progress: int,
+    ) -> int:
+        """Predict the ordered prefix from native actions without confirming it.
+
+        The real progress index remains authoritative. This method only lets the
+        overlay follow already-observed native action transitions while HP and
+        combo evidence arrive a few frames later.
+        """
+        confirmed = max(0, int(confirmed_progress or 0))
+        if confirmed >= len(steps):
+            self._runtime["predicted_progress_index"] = confirmed
+            self._runtime["prediction_entries"] = []
+            return confirmed
+
+        now_ns = time.monotonic_ns()
+        max_age_ns = int(MISSION_PREDICTION_MAX_AGE_SECONDS * 1_000_000_000)
+        actions = sorted(
+            [
+                event for event in self._runtime.get("mission_action_events", [])
+                if not event.get("consumed")
+                and not event.get("prediction_rejected")
+                and int(event.get("serial", 0) or 0)
+                > int(self._runtime.get("mission_action_consumed_serial", 0) or 0)
+                and (
+                    int(event.get("sample_ns", 0) or 0) <= 0
+                    or now_ns - int(event.get("sample_ns", 0) or 0) <= max_age_ns
+                )
+            ],
+            key=lambda event: (
+                int(event.get("sample_ns", 0) or 0),
+                int(event.get("sample_seq", 0) or 0),
+                int(event.get("serial", 0) or 0),
+            ),
+        )
+
+        predicted = confirmed
+        entries: list[dict[str, Any]] = []
+        action_cursor = 0
+        while (
+            predicted < len(steps)
+            and len(entries) < MISSION_PREDICTION_MAX_STEPS
+        ):
+            step = steps[predicted]
+            labels = self._step_labels(step)
+            if not self._step_supports_prediction(step, labels):
+                break
+
+            match_index = None
+            for index in range(action_cursor, len(actions)):
+                action = actions[index]
+                if self._action_event_matches_step(action, step, labels):
+                    match_index = index
+                    break
+                # Native attack actions are ordered route evidence. Do not jump
+                # over a different attack to make a later step appear valid.
+                if int(action.get("action_id", 0) or 0) >= 0x100:
+                    break
+            if match_index is None:
+                break
+
+            action = actions[match_index]
+            earliest_ns, deadline_ns = self._prediction_window_ns(action)
+            if now_ns > deadline_ns:
+                action["prediction_rejected"] = True
+                action_cursor = match_index + 1
+                continue
+
+            timing = self._prediction_timing_for_action(action)
+            entries.append({
+                "step_index": predicted,
+                "action_serial": int(action.get("serial", 0) or 0),
+                "action_id": int(action.get("action_id", 0) or 0),
+                "label": str((action.get("labels") or [""])[0]),
+                "startup": int(timing.get("startup", 0) or 0),
+                "active": int(timing.get("active", 0) or 0),
+                "hitstun": int(timing.get("hitstun", 0) or 0),
+                "earliest_confirm_ns": earliest_ns,
+                "deadline_ns": deadline_ns,
+            })
+            predicted += 1
+            action_cursor = match_index + 1
+
+        previous = int(self._runtime.get("predicted_progress_index", confirmed) or confirmed)
+        self._runtime["predicted_progress_index"] = predicted
+        self._runtime["prediction_entries"] = entries
+        if predicted != previous:
+            self._runtime["prediction_revision"] = int(
+                self._runtime.get("prediction_revision", 0) or 0
+            ) + 1
+        return predicted
+
+    def _prune_mission_event_buffers(self) -> None:
+        """Keep only the compact live suffix required by mission matching."""
+        actions = list(self._runtime.get("mission_action_events", []) or [])
+        actions = [event for event in actions if not event.get("consumed")]
+        self._runtime["mission_action_events"] = actions[-MISSION_ACTION_EVENT_LIMIT:]
+
+        # Keep recently consumed hits briefly because the global combo counter
+        # may update after the HP edge and still needs to correlate with that
+        # same physical hit instead of creating a duplicate.
+        hits = list(self._runtime.get("mission_hit_events", []) or [])
+        self._runtime["mission_hit_events"] = hits[-MISSION_HIT_EVENT_LIMIT:]
+
+        inputs = list(self._runtime.get("mission_input_events", []) or [])
+        consumed = int(self._runtime.get("mission_input_consumed_serial", 0) or 0)
+        inputs = [
+            event for event in inputs
+            if int(event.get("serial", 0) or 0) > consumed
+        ]
+        self._runtime["mission_input_events"] = inputs[-64:]
+
+    def _find_action_hit_pair_for_step(
+        self,
+        step: Any,
+        labels: list[str],
+        frame_idx: int,
+    ) -> tuple[dict, dict] | None:
+        actions = sorted(
+            [
+                event for event in self._runtime.get("mission_action_events", [])
+                if not event.get("consumed")
+                and int(event.get("serial", 0) or 0)
+                > int(self._runtime.get("mission_action_consumed_serial", 0) or 0)
+            ],
+            key=lambda event: (
+                int(event.get("sample_seq", 0) or 0),
+                int(event.get("serial", 0) or 0),
+            ),
+        )
+        hits = sorted(
+            [
+                hit for hit in self._runtime.get("mission_hit_events", [])
+                if not hit.get("consumed")
+                and 0 <= int(frame_idx) - int(hit.get("frame", frame_idx)) <= MISSION_HIT_CONFIRM_WINDOW
+            ],
+            key=lambda hit: (
+                int(hit.get("sample_seq", 0) or 0),
+                int(hit.get("serial", 0) or 0),
+            ),
+        )
+        for action in actions:
+            if not self._action_event_matches_step(action, step, labels):
+                continue
+            action_serial = int(action.get("serial", 0) or 0)
+            action_seq = int(action.get("sample_seq", 0) or 0)
+            for hit in hits:
+                owner = int(hit.get("owner_action_serial", 0) or 0)
+                hit_seq = int(hit.get("sample_seq", 0) or 0)
+                if owner and owner != action_serial:
+                    continue
+                if hit_seq and action_seq and hit_seq < action_seq:
+                    continue
+                return action, hit
+        return None
+
+    def _drain_buffered_action_steps(
+        self,
+        steps: list,
+        progress_index: int,
+        frame_idx: int,
+    ) -> tuple[int, int]:
+        progress = max(0, int(progress_index or 0))
+        advanced = 0
+        while progress < len(steps) and advanced < MISSION_BUFFERED_STEP_LIMIT:
+            step = steps[progress]
+            labels = self._step_labels(step)
+            if not labels:
+                break
+            if (
+                self._step_is_pass(step)
+                or self._step_is_baroque_cancel(labels)
+                or self._step_is_megacrash(labels)
+                or self._step_allows_whiff_confirm(labels, step)
+            ):
+                break
+            pair = self._find_action_hit_pair_for_step(step, labels, frame_idx)
+            if pair is None:
+                break
+            action_event, hit_event = pair
+            action_event["consumed"] = True
+            hit_event["consumed"] = True
+            action_serial = int(action_event.get("serial", 0) or 0)
+            input_serial = int(action_event.get("input_serial", 0) or 0)
+            self._runtime["mission_action_consumed_serial"] = max(
+                int(self._runtime.get("mission_action_consumed_serial", 0) or 0),
+                action_serial,
+            )
+            if input_serial > 0:
+                self._consume_mission_input_through(input_serial)
+            completed_grace = self._step_grace(step)
+            progress += 1
+            advanced += 1
+            self._runtime.update({
+                "progress_index": progress,
+                "pending_step_index": None,
+                "pending_labels": [],
+                "pending_anim": None,
+                "pending_started_frame": -9999,
+                "pending_input_serial": 0,
+                "pending_label_confirmed": False,
+                "pending_arm_source": "",
+                "reset_grace_frames": completed_grace,
+                "reset_grace_labels": [],
+                "reset_grace_step_index": progress if completed_grace > 0 else None,
+                "reset_grace_keeps_alive_only": self._step_grace_keeps_alive_only(step),
+                "mission_step_start_serial": input_serial,
+                "shell_install_hold": 0,
+                "mission_last_hit_evidence_frame": int(frame_idx),
+            })
+        return progress, advanced
+
+    def _buffered_normal_spec(self, step: Any, labels: list[str]) -> tuple[str, str] | None:
+        """Return a fast input spec for ordinary ground or air normals.
+
+        These are safe to queue directly because the input uniquely names the
+        required attack. Specials and system actions continue through the full
+        label-aware checker below.
+        """
+        candidates: list[str] = []
+        notation = self._step_input_notation(step)
+        if notation:
+            candidates.append(notation)
+        candidates.extend(labels or [])
+
+        for raw in candidates:
+            text = str(raw or "").strip().upper().replace(" ", "")
+            match = re.fullmatch(r"([1-9])([ABC])", text)
+            if match:
+                return match.group(1), match.group(2)
+            air_match = re.fullmatch(r"(?:J\.|AIR|JUMP(?:ING)?)([ABC])", text)
+            if air_match:
+                return "AIR", air_match.group(1)
+        return None
+
+    def _find_buffered_normal_input(
+        self,
+        step: Any,
+        labels: list[str],
+        frame_idx: int,
+    ) -> dict | None:
+        spec = self._buffered_normal_spec(step, labels)
+        if spec is None:
+            return None
+        wanted_direction, wanted_button = spec
+        wanted_mask = MISSION_INPUT_BUTTON_MASKS.get(wanted_button, 0)
+        if not wanted_mask:
+            return None
+
+        events = sorted(
+            self._recent_mission_events(frame_idx, MISSION_INPUT_EVENT_WINDOW),
+            key=lambda event: int(event.get("serial", 0) or 0),
+        )
+        for event in events:
+            pressed = int(event.get("pressed", 0) or 0)
+            if not (pressed & wanted_mask):
+                continue
+            direction = self._mission_event_direction_digit(event)
+            if wanted_direction == "AIR":
+                action_id = int(event.get("action_id", 0) or 0) & 0x7FFF
+                action_button = MISSION_AIR_NORMAL_ACTIONS.get(action_id)
+                if action_button == wanted_button:
+                    return event
+                if direction not in {"7", "8", "9"}:
+                    # Air normals are commonly pressed after the stick returns
+                    # to neutral. Accept a recent jump direction instead of
+                    # relabeling that input as a grounded normal.
+                    serial = int(event.get("serial", 0) or 0)
+                    prior_jump = any(
+                        int(prior.get("serial", 0) or 0) < serial
+                        and serial - int(prior.get("serial", 0) or 0) <= 12
+                        and self._mission_event_direction_digit(prior) in {"7", "8", "9"}
+                        for prior in events
+                    )
+                    if not prior_jump:
+                        continue
+            else:
+                mirrored = _MISSION_DIRECTION_MIRROR.get(wanted_direction, wanted_direction)
+                if direction not in {wanted_direction, mirrored}:
+                    continue
+            return event
+        return None
+
+    def _find_hit_for_buffered_input(self, input_event: dict, frame_idx: int) -> dict | None:
+        input_frame = int((input_event or {}).get("frame", frame_idx))
+        candidates = []
+        for hit in self._runtime.get("mission_hit_events", []):
+            if hit.get("consumed"):
+                continue
+            hit_frame = int(hit.get("frame", frame_idx))
+            age = int(frame_idx) - hit_frame
+            if not 0 <= age <= MISSION_HIT_CONFIRM_WINDOW:
+                continue
+            if hit_frame < input_frame - MISSION_HIT_PRELABEL_WINDOW:
+                continue
+            if hit_frame > input_frame + MISSION_BUFFERED_NORMAL_HIT_WINDOW:
+                continue
+            candidates.append(hit)
+        if not candidates:
+            return None
+        return min(candidates, key=lambda hit: (int(hit.get("frame", frame_idx)), int(hit.get("serial", 0))))
+
+    def _drain_buffered_normal_steps(
+        self,
+        steps: list,
+        progress_index: int,
+        frame_idx: int,
+    ) -> tuple[int, int]:
+        """Advance all ready ordinary-normal steps in one update.
+
+        Input and hit events are both persistent queues. Only the exact input
+        and hit claimed by a completed step are consumed, so later buffered
+        attacks remain available to the following steps.
+        """
+        progress = max(0, int(progress_index or 0))
+        advanced = 0
+
+        while progress < len(steps) and advanced < MISSION_BUFFERED_STEP_LIMIT:
+            step = steps[progress]
+            labels = self._step_labels(step)
+            if not labels:
+                break
+            if (
+                self._step_is_pass(step)
+                or self._step_is_baroque_cancel(labels)
+                or self._step_is_megacrash(labels)
+                or self._step_allows_whiff_confirm(labels, step)
+            ):
+                break
+
+            input_event = self._find_buffered_normal_input(step, labels, frame_idx)
+            if input_event is None:
+                break
+            hit_event = self._find_hit_for_buffered_input(input_event, frame_idx)
+            if hit_event is None:
+                break
+
+            hit_event["consumed"] = True
+            input_serial = int(input_event.get("serial", 0) or 0)
+            self._consume_mission_input_through(input_serial)
+
+            completed_grace = self._step_grace(step)
+            progress += 1
+            advanced += 1
+            self._runtime.update({
+                "progress_index": progress,
+                "pending_step_index": None,
+                "pending_labels": [],
+                "pending_anim": None,
+                "pending_started_frame": -9999,
+                "pending_input_serial": 0,
+                "pending_label_confirmed": False,
+                "pending_arm_source": "",
+                "reset_grace_frames": completed_grace,
+                "reset_grace_labels": [],
+                "reset_grace_step_index": progress if completed_grace > 0 else None,
+                "reset_grace_keeps_alive_only": self._step_grace_keeps_alive_only(step),
+                "mission_step_start_serial": input_serial,
+                "shell_install_hold": 0,
+                "mission_last_hit_evidence_frame": int(frame_idx),
+            })
+
+        self._runtime["mission_buffered_advances"] = advanced
+        return progress, advanced
+
     def _clear_trial_detection_buffers(self) -> None:
         self._runtime.update({
             "mission_hit_events": [],
             "mission_input_events": [],
+            "mission_action_events": [],
             "mission_input_serial": 0,
+            "mission_action_serial": 0,
+            "mission_action_consumed_serial": 0,
+            "mission_last_action_id": None,
+            "mission_last_action_sample_seq": -1,
             "mission_input_consumed_serial": 0,
             "mission_input_match_serial": 0,
             "pending_input_serial": 0,
+            "pending_label_confirmed": False,
+            "pending_arm_source": "",
             "mission_step_start_serial": int(self._runtime.get("mission_input_serial", 0) or 0),
             "mission_last_input_token": "",
             "mission_last_input_frame": -9999,
+            "mission_last_input_sample_seq": -1,
+            "mission_buffered_advances": 0,
+            "predicted_progress_index": 0,
+            "prediction_entries": [],
         })
 
 
@@ -1159,7 +1948,12 @@ class MissionManager:
             labels.append("T")
         return "".join(labels)
 
-    def _record_mission_input(self, packet: dict, frame_idx: int) -> dict:
+    def _record_mission_input(
+        self,
+        packet: dict,
+        frame_idx: int,
+        sample_seq: int = 0,
+    ) -> dict:
         held = int((packet or {}).get("held") or 0) & 0xFFFF
         pressed = int((packet or {}).get("pressed") or 0) & 0xFFFF
         direction = held & MISSION_INPUT_DIRECTION_MASK
@@ -1205,7 +1999,9 @@ class MissionManager:
         for token in tokens:
             if (
                 token == self._runtime.get("mission_last_input_token")
-                and int(frame_idx) == int(self._runtime.get("mission_last_input_frame", -9999))
+                and int(sample_seq or 0) > 0
+                and int(sample_seq or 0)
+                == int(self._runtime.get("mission_last_input_sample_seq", -1) or -1)
             ):
                 continue
             if token.isdigit():
@@ -1229,9 +2025,14 @@ class MissionManager:
                 "pressed": event_pressed,
                 "buttons": event_buttons,
                 "held_buttons": held_buttons,
+                "sample_seq": int(sample_seq or 0),
+                "sample_ns": int((packet or {}).get("sample_ns", 0) or 0),
+                "action_id": int((packet or {}).get("action_id", 0) or 0) & 0x7FFF,
+                "char_id": int((packet or {}).get("char_id", 0) or 0),
             })
             self._runtime["mission_last_input_token"] = token
             self._runtime["mission_last_input_frame"] = int(frame_idx)
+            self._runtime["mission_last_input_sample_seq"] = int(sample_seq or 0)
 
         events[:] = [
             event for event in events
@@ -1248,6 +2049,171 @@ class MissionManager:
             "fresh_attack": bool(pressed_buttons),
             "baroque": int(self._runtime.get("mission_baroque_latch", 0) or 0) > 0,
         }
+
+    def _action_label_candidates(self, action_id: int, char_id: int = 0) -> list[str]:
+        action = int(action_id or 0) & 0x7FFF
+        labels: list[str] = []
+        generic = MISSION_GENERIC_ACTION_LABELS.get(action)
+        if generic:
+            labels.append(generic)
+        try:
+            mapped = self._move_label_for(
+                action,
+                int(char_id or 0),
+                self._move_map,
+                self._global_map,
+            )
+        except Exception:
+            mapped = None
+        if mapped and str(mapped).strip() and str(mapped).strip() not in labels:
+            labels.append(str(mapped).strip())
+        return labels
+
+    def _record_mission_action_sample(
+        self,
+        packet: dict,
+        frame_idx: int,
+        sample_seq: int = 0,
+    ) -> None:
+        action_id = int((packet or {}).get("action_id", 0) or 0) & 0x7FFF
+        char_id = int((packet or {}).get("char_id", 0) or 0)
+        last_action = self._runtime.get("mission_last_action_id")
+        last_seq = int(self._runtime.get("mission_last_action_sample_seq", -1) or -1)
+        if action_id == int(last_action or 0) and int(sample_seq or 0) == last_seq:
+            return
+        self._runtime["mission_last_action_id"] = action_id
+        self._runtime["mission_last_action_sample_seq"] = int(sample_seq or 0)
+        if action_id < 0x100:
+            return
+        labels = self._action_label_candidates(action_id, char_id)
+        if not labels:
+            return
+        events = self._runtime.setdefault("mission_action_events", [])
+        previous = events[-1] if events else None
+        if previous and int(previous.get("action_id", 0) or 0) == action_id:
+            previous["last_sample_seq"] = int(sample_seq or 0)
+            previous["last_frame"] = int(frame_idx)
+            return
+        serial = int(self._runtime.get("mission_action_serial", 0) or 0) + 1
+        self._runtime["mission_action_serial"] = serial
+        events.append({
+            "serial": serial,
+            "frame": int(frame_idx),
+            "last_frame": int(frame_idx),
+            "sample_seq": int(sample_seq or 0),
+            "last_sample_seq": int(sample_seq or 0),
+            "sample_ns": int((packet or {}).get("sample_ns", 0) or 0),
+            "action_id": action_id,
+            "char_id": char_id,
+            "labels": labels,
+            "input_serial": int(self._runtime.get("mission_input_serial", 0) or 0),
+            "consumed": False,
+        })
+        del events[:-MISSION_ACTION_EVENT_LIMIT]
+
+    def _record_opponent_realtime_stream(
+        self,
+        slot_label: str,
+        snaps_dict: dict,
+        frame_idx: int,
+    ) -> tuple[list[int], bool, bool | None]:
+        my_team = "P1" if str(slot_label).startswith("P1") else "P2"
+        hp_cache = self._runtime.setdefault("mission_realtime_hp_by_slot", {})
+        hitstun_cache = self._runtime.setdefault("mission_realtime_hitstun_by_slot", {})
+        damage_values: list[int] = []
+        hitstun_exit = False
+        any_sampled = False
+        any_hitstun = False
+
+        for other_slot, other_snap in (snaps_dict or {}).items():
+            if not isinstance(other_snap, dict) or other_snap.get("teamtag") == my_team:
+                continue
+            packets = self._input_packets_for_slot(
+                str(other_slot), other_snap, consumer="mission-opponent"
+            )
+            for packet in packets:
+                seq = int((packet or {}).get("seq", 0) or 0)
+                hp = int((packet or {}).get("current_hp", 0) or 0)
+                action = int((packet or {}).get("action_id", 0) or 0) & 0x7FFF
+                if hp > 0:
+                    previous_hp = hp_cache.get(str(other_slot))
+                    if isinstance(previous_hp, int) and hp < previous_hp:
+                        damage = previous_hp - hp
+                        damage_values.append(damage)
+                        serial = int(self._runtime.get("mission_hit_serial", 0) or 0) + 1
+                        self._runtime["mission_hit_serial"] = serial
+                        action_events = [
+                            event for event in self._runtime.get("mission_action_events", [])
+                            if not event.get("consumed")
+                            and int(event.get("sample_seq", 0) or 0) <= seq
+                        ]
+                        owner_action_serial = (
+                            int(action_events[-1].get("serial", 0) or 0)
+                            if action_events else 0
+                        )
+                        self._runtime.setdefault("mission_hit_events", []).append({
+                            "serial": serial,
+                            "frame": int(frame_idx),
+                            "last_frame": int(frame_idx),
+                            "sample_seq": seq,
+                            "sample_ns": int((packet or {}).get("sample_ns", 0) or 0),
+                            "hp_seen": True,
+                            "combo_seen": False,
+                            "damage": int(damage),
+                            "owner_action_serial": owner_action_serial,
+                            "consumed": False,
+                        })
+                        del self._runtime["mission_hit_events"][:-MISSION_HIT_EVENT_LIMIT]
+                        self._runtime["mission_last_hit_evidence_frame"] = int(frame_idx)
+                    hp_cache[str(other_slot)] = hp
+
+                in_hitstun = action in MISSION_COMBO_KEEPALIVE_STATES
+                previous_hitstun = hitstun_cache.get(str(other_slot))
+                if previous_hitstun is True and not in_hitstun:
+                    hitstun_exit = True
+                hitstun_cache[str(other_slot)] = in_hitstun
+                any_sampled = True
+                any_hitstun = any_hitstun or in_hitstun
+
+        return damage_values, hitstun_exit, (any_hitstun if any_sampled else None)
+
+    def _record_mission_input_stream(
+        self,
+        slot_label: str,
+        snap: dict,
+        frame_idx: int,
+    ) -> dict:
+        """Consume every unseen 240 Hz input sample before route evaluation."""
+        packets = self._input_packets_for_slot(
+            slot_label, snap, consumer="mission"
+        )
+        aggregate = {
+            "held": 0,
+            "pressed": 0,
+            "direction": 0,
+            "pressed_buttons": 0,
+            "fresh_attack": False,
+            "baroque": False,
+        }
+        for packet in packets:
+            sample_seq = int((packet or {}).get("seq", 0) or 0)
+            result = self._record_mission_input(
+                packet,
+                frame_idx,
+                sample_seq=sample_seq,
+            )
+            self._record_mission_action_sample(packet, frame_idx, sample_seq)
+            aggregate["held"] = int(result.get("held", 0) or 0)
+            aggregate["direction"] = int(result.get("direction", 0) or 0)
+            aggregate["pressed"] |= int(result.get("pressed", 0) or 0)
+            aggregate["pressed_buttons"] |= int(result.get("pressed_buttons", 0) or 0)
+            aggregate["fresh_attack"] = bool(
+                aggregate["fresh_attack"] or result.get("fresh_attack", False)
+            )
+            aggregate["baroque"] = bool(
+                aggregate["baroque"] or result.get("baroque", False)
+            )
+        return aggregate
 
     def _step_input_notation(self, step: Any) -> str:
         if not isinstance(step, dict):
@@ -1294,6 +2260,17 @@ class MissionManager:
             for event in self._runtime.get("mission_input_events", [])
             if int(event.get("serial", 0) or 0) > consumed
         ]
+        # Label-based and special-case confirmations also retire the native
+        # action that owned the consumed input. Otherwise that stale action can
+        # sit in front of the prediction queue and block every later step.
+        for action in self._runtime.get("mission_action_events", []):
+            action_input = int(action.get("input_serial", 0) or 0)
+            if action_input > 0 and action_input <= consumed:
+                action["consumed"] = True
+                self._runtime["mission_action_consumed_serial"] = max(
+                    int(self._runtime.get("mission_action_consumed_serial", 0) or 0),
+                    int(action.get("serial", 0) or 0),
+                )
 
     def _normal_input_matches(self, notation: str, frame_idx: int) -> bool:
         compact = str(notation or "").replace(" ", "").upper()
@@ -1773,6 +2750,62 @@ class MissionManager:
                 return True
         return False
 
+    def _mission_snapshot_label_matches(self, snap: dict, expected_labels: list[str]) -> bool:
+        """Match the base move label plus projectile-proven level aliases.
+
+        Charged moves often share one action ID.  The projectile level detector
+        adds aliases such as ``Hyper Zero Blaster Lv2`` only after the exact
+        projectile variant spawns, so missions can distinguish levels without
+        breaking older steps that still expect the unqualified move name.
+        """
+        candidates = [
+            str((snap or {}).get("mv_label") or "").strip(),
+            str((snap or {}).get("mv_label_display") or "").strip(),
+        ]
+        candidates.extend(str(x or "").strip() for x in ((snap or {}).get("mv_label_aliases") or []))
+        seen = set()
+        for candidate in candidates:
+            canon = self._canonical_mission_label(candidate)
+            if not candidate or canon in seen:
+                continue
+            seen.add(canon)
+            if self._mission_label_matches(candidate, expected_labels):
+                return True
+
+        try:
+            detected_level = int((snap or {}).get("move_level") or 0)
+        except Exception:
+            detected_level = 0
+        if detected_level <= 0:
+            return False
+
+        import re
+        level_re = re.compile(r"(?:level|lvl|lv|l)\s*[-_:]?\s*([1-9][0-9]*)", re.I)
+        strip_re = re.compile(r"\b(?:level|lvl|lv|l)\s*[-_:]?\s*[1-9][0-9]*\b", re.I)
+        candidate_bases = []
+        for candidate in candidates:
+            stripped = strip_re.sub("", candidate)
+            canon = self._canonical_mission_label(stripped)
+            if canon:
+                candidate_bases.append(canon)
+        for expected in expected_labels or []:
+            match = level_re.search(str(expected or ""))
+            if not match or int(match.group(1)) != detected_level:
+                continue
+            expected_base = self._canonical_mission_label(strip_re.sub("", str(expected or "")))
+            if not expected_base:
+                return True
+            for candidate_base in candidate_bases:
+                if candidate_base == expected_base:
+                    return True
+                # Permit a concise mission label such as "Hyper Blaster Lv2"
+                # to match the game's longer "Hyper Zero Blaster" label.
+                expected_tokens = set(expected_base.split())
+                candidate_tokens = set(candidate_base.split())
+                if expected_tokens and expected_tokens <= candidate_tokens:
+                    return True
+        return False
+
     def _label_is_ignorable(self, label: str) -> bool:
         return (label or "").strip().lower() in MISSION_IGNORE_LABELS
 
@@ -2027,6 +3060,9 @@ class MissionManager:
             cp["celebrate_pending"] = True
             cp["celebrate_token"] = next_token
             cp["completed_step_count"] = final_count
+            cp["confirmed_step_count"] = final_count
+            cp["predicted_step_count"] = 0
+            cp["prediction_active"] = False
             cp["current_step_index"] = final_idx
             cp["current_step_label"] = final_label
 
@@ -2069,8 +3105,10 @@ class MissionManager:
         snap = snap or {}
         current_label = (snap.get("mv_label") or "").strip()
         current_anim = snap.get("mv_id_display")
-        input_packet = self._read_mission_input_packet(slot, snap)
-        mission_input = self._record_mission_input(input_packet, frame_idx)
+        mission_input = self._record_mission_input_stream(slot, snap, frame_idx)
+        realtime_damage_values, realtime_hitstun_exit, realtime_hitstun_now = (
+            self._record_opponent_realtime_stream(slot, snaps_dict, frame_idx)
+        )
         current_inputs = {
             "A": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_A else 0,
             "B": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_B else 0,
@@ -2086,10 +3124,15 @@ class MissionManager:
         global_combo_count = self._global_combo_count()
         global_combo_active = bool(global_combo_count is not None and global_combo_count > 0)
         self._runtime["global_combo_count"] = int(global_combo_count or 0)
-        damage_values = self._opponent_damage_this_frame(slot, snaps_dict)
+        fallback_damage_values = self._opponent_damage_this_frame(slot, snaps_dict)
+        damage_values = list(realtime_damage_values or fallback_damage_values)
         opponent_took_damage = bool(damage_values)
         frame_damage = sum(int(x) for x in damage_values)
-        self._record_mission_hit_events(global_combo_count, damage_values, frame_idx)
+        new_hit_evidence = self._record_mission_hit_events(
+            global_combo_count,
+            [] if realtime_damage_values else damage_values,
+            frame_idx,
+        )
 
         baroque_pool_adjusted = bool(
             snap.get("baroque_cancel_raw")
@@ -2134,11 +3177,73 @@ class MissionManager:
             opponent_in_hitstun,
             dedicated_megacrash_reset_edge,
         )
+        actual_hitstun_now = bool(
+            realtime_hitstun_now
+            if realtime_hitstun_now is not None
+            else (opponent_in_hitstun or opponent_in_megacrash)
+        )
+        previous_actual_hitstun = bool(
+            self._runtime.get("last_actual_hitstun", False)
+        )
+        hitstun_exit_edge = bool(
+            realtime_hitstun_exit
+            or (previous_actual_hitstun and not actual_hitstun_now)
+        )
+        self._runtime["last_actual_hitstun"] = actual_hitstun_now
 
-        # Grace may delay a route reset, but it must not make unrelated later
-        # steps count as if the combo were still active. Only real combo state
-        # keeps the route confirmable; grace is handled separately below.
+        # No inferred latches are allowed to keep a route alive after the real
+        # reaction flag drops. Only an explicit mission-step grace value can
+        # extend the route beyond the true hitstun exit edge.
         opponent_in_combo_state = opponent_real_combo_state
+
+        explicit_reset_grace = bool(
+            int(self._runtime.get("reset_grace_frames", 0) or 0) > 0
+            and self._runtime.get("reset_grace_step_index") == progress_index
+        )
+        if (
+            steps
+            and progress_index > 0
+            and hitstun_exit_edge
+            and not explicit_reset_grace
+        ):
+            print(
+                f"[mission hitstun ended] slot={slot} mission_id={mission_id} "
+                f"step={progress_index}; resetting on exact reaction edge"
+            )
+            progress_index = 0
+            self._runtime.update({
+                "progress_index": 0,
+                "pending_step_index": None,
+                "pending_labels": [],
+                "pending_anim": None,
+                "pending_started_frame": -9999,
+                "pending_label_confirmed": False,
+                "pending_arm_source": "",
+                "reset_grace_frames": 0,
+                "reset_grace_labels": [],
+                "reset_grace_step_index": None,
+                "reset_grace_keeps_alive_only": False,
+                "shell_installed": False,
+                "shell_release_grace": 0,
+                "last_seen_label": "",
+                "last_seen_anim": None,
+                "last_seen_hitstun": False,
+                "last_opponent_megacrash": False,
+                "last_inputs": {},
+            })
+            self._clear_trial_detection_buffers()
+            payload.update({
+                "just_cleared": False,
+                "clear_seq": int(self._runtime.get("clear_seq", 0)),
+                "celebrate_pending": bool(self._runtime.get("celebrate_pending", False)),
+                "celebrate_token": int(self._runtime.get("celebrate_token", 0) or 0),
+                "completed_step_count": 0,
+                "current_step_index": 0,
+                "current_step_label": (
+                    " / ".join(self._step_labels(steps[0])) if steps else None
+                ),
+            })
+            return payload
 
         if (
             self._runtime.get("shell_installed")
@@ -2147,15 +3252,52 @@ class MissionManager:
         ):
             self._runtime["shell_release_grace"] = 20
 
+        # Goal-type missions have no ordered-step grace. The exact frame the
+        # defender leaves real hitstun ends the attempt immediately.
+        if mission_goal and hitstun_exit_edge:
+            self._runtime.update({
+                "goal_combo_damage": 0,
+                "goal_combo_hits": 0,
+                "goal_hp_hit_count": 0,
+                "goal_hit_latch": 0,
+                "goal_failed": False,
+                "goal_last_damage_frame": -1,
+            })
+
         # Goal-type missions
         if mission_goal:
             goal_type = str(mission_goal.get("type", "")).strip().lower()
 
-            if opponent_in_combo_state and frame_damage > 0:
-                self._runtime["goal_combo_damage"] = int(self._runtime.get("goal_combo_damage", 0)) + frame_damage
-                if self._runtime.get("goal_last_damage_frame") != frame_idx:
-                    self._runtime["goal_combo_hits"] = int(self._runtime.get("goal_combo_hits", 0)) + 1
+            if goal_type in {"damage_under_hits", "combo_damage"}:
+                hit_latch = max(0, int(self._runtime.get("goal_hit_latch", 0) or 0) - 1)
+                if frame_damage > 0:
+                    # HP may update before the reaction action ID. Damage is
+                    # authoritative and must start the combo goal immediately.
+                    self._runtime["goal_combo_damage"] = (
+                        int(self._runtime.get("goal_combo_damage", 0)) + frame_damage
+                    )
+                    hp_hit_count = max(1, len(damage_values))
+                    self._runtime["goal_hp_hit_count"] = (
+                        int(self._runtime.get("goal_hp_hit_count", 0)) + hp_hit_count
+                    )
                     self._runtime["goal_last_damage_frame"] = frame_idx
+                    hit_latch = 2
+
+                counter_hits = max(0, int(global_combo_count or 0))
+                self._runtime["goal_combo_hits"] = max(
+                    int(self._runtime.get("goal_combo_hits", 0)),
+                    int(self._runtime.get("goal_hp_hit_count", 0)),
+                    counter_hits,
+                )
+                self._runtime["goal_hit_latch"] = hit_latch
+
+            goal_combo_live = bool(
+                opponent_in_combo_state
+                or global_combo_active
+                or frame_damage > 0
+                or new_hit_evidence > 0
+                or int(self._runtime.get("goal_hit_latch", 0) or 0) > 0
+            )
 
             def _goal_base(payload):
                 payload["just_cleared"] = False
@@ -2205,9 +3347,10 @@ class MissionManager:
                     and not self._runtime.get("goal_failed", False)
                 ):
                     return _clear_payload(1, 0, payload["current_step_label"])
-                if not opponent_in_combo_state:
+                if not goal_combo_live:
                     self._runtime.update({
                         "goal_combo_damage": 0, "goal_combo_hits": 0,
+                        "goal_hp_hit_count": 0, "goal_hit_latch": 0,
                         "goal_failed": False, "goal_last_damage_frame": -1,
                     })
                 return payload
@@ -2219,24 +3362,54 @@ class MissionManager:
                 payload["current_step_label"] = f"{combo_dmg}/{needed_dmg} combo damage"
                 if needed_dmg > 0 and combo_dmg >= needed_dmg:
                     return _clear_payload(1, 0, payload["current_step_label"])
-                if not opponent_in_combo_state:
+                if not goal_combo_live:
                     self._runtime.update({
                         "goal_combo_damage": 0, "goal_combo_hits": 0,
+                        "goal_hp_hit_count": 0, "goal_hit_latch": 0,
                         "goal_failed": False, "goal_last_damage_frame": -1,
                     })
                 return payload
+
+        # Drain every already-confirmed ordinary normal before applying route
+        # reset logic. This removes the one-step-per-update bottleneck and keeps
+        # later buffered inputs available for their own mission steps.
+        progress_index, action_advances = self._drain_buffered_action_steps(
+            steps, progress_index, frame_idx
+        )
+        progress_index, normal_advances = self._drain_buffered_normal_steps(
+            steps, progress_index, frame_idx
+        )
+        buffered_advances = action_advances + normal_advances
+        self._runtime["mission_buffered_advances"] = buffered_advances
+        self._runtime["progress_index"] = progress_index
+
+        if progress_index >= len(steps):
+            final_idx = max(0, len(steps) - 1)
+            final_label = (
+                (" / ".join(steps[final_idx]) if isinstance(steps[final_idx], list) else steps[final_idx])
+                if steps else None
+            )
+            return _clear_payload(len(steps), final_idx, final_label)
 
         # Step-list missions. Route liveness is strict: once both the global
         # combo counter and actual hitstun end, the route fails immediately
         # unless the completed step supplied an explicit grace frame count.
         grace_left = int(self._runtime.get("reset_grace_frames", 0) or 0)
         grace_step_index = self._runtime.get("reset_grace_step_index")
-        reset_now, grace_left = _mission_combo_reset_tick(
-            progress_index,
-            opponent_real_combo_state,
-            grace_left,
-            grace_step_index,
+        dropped_with_matching_grace = bool(
+            not actual_hitstun_now
+            and grace_left > 0
+            and grace_step_index == progress_index
         )
+        if hitstun_exit_edge or dropped_with_matching_grace:
+            reset_now, grace_left = _mission_combo_reset_tick(
+                progress_index,
+                False,
+                grace_left,
+                grace_step_index,
+            )
+        else:
+            reset_now = False
         self._runtime["reset_grace_frames"] = grace_left
 
         if reset_now:
@@ -2252,6 +3425,8 @@ class MissionManager:
                 "pending_labels": [],
                 "pending_anim": None,
                 "pending_started_frame": -9999,
+                "pending_label_confirmed": False,
+                "pending_arm_source": "",
                 "reset_grace_frames": 0,
                 "reset_grace_labels": [],
                 "reset_grace_step_index": None,
@@ -2274,9 +3449,12 @@ class MissionManager:
 
         has_fresh_attack_input = self._has_fresh_attack_input(current_inputs, last_inputs)
 
+        current_move_level = int(snap.get("move_level") or 0)
+        last_seen_move_level = int(self._runtime.get("last_seen_move_level", 0) or 0)
         is_fresh_instance = (
             current_anim != last_seen_anim
             or current_label != last_seen_label
+            or current_move_level != last_seen_move_level
             or (opponent_in_combo_state and not last_seen_hitstun)
             or has_fresh_attack_input
         )
@@ -2294,8 +3472,8 @@ class MissionManager:
             opponent_in_megacrash,
             previous_opponent_megacrash,
         )
-        current_matches_expected = self._mission_label_matches(
-            current_label,
+        current_matches_expected = self._mission_snapshot_label_matches(
+            snap,
             expected_labels,
         )
         hit_confirm_available = self._peek_mission_hit_event(frame_idx) is not None
@@ -2337,6 +3515,8 @@ class MissionManager:
                 "pending_anim": None,
                 "pending_started_frame": -9999,
                 "pending_input_serial": 0,
+                "pending_label_confirmed": False,
+                "pending_arm_source": "",
             })
 
         pending_step_index = self._runtime.get("pending_step_index")
@@ -2344,6 +3524,34 @@ class MissionManager:
         pending_input_serial = int(
             self._runtime.get("pending_input_serial", 0) or 0
         )
+
+        # Arm from the expected command before the action label catches up.
+        # Input alone never completes the step. It only opens the ownership
+        # window so an HP or combo edge that arrives first remains claimable.
+        if (
+            MISSION_REQUIRE_DAMAGE_CONFIRM
+            and pending_step_index != progress_index
+            and expected_labels
+            and input_matches_expected
+            and not pass_confirm
+            and not step_allows_whiff
+            and not zero_damage_confirm
+        ):
+            matched_input_serial = int(
+                self._runtime.get("mission_input_match_serial", 0) or 0
+            )
+            self._runtime.update({
+                "pending_step_index": progress_index,
+                "pending_labels": expected_labels[:],
+                "pending_anim": current_anim if current_matches_expected else None,
+                "pending_started_frame": int(frame_idx),
+                "pending_input_serial": matched_input_serial,
+                "pending_label_confirmed": bool(current_matches_expected),
+                "pending_arm_source": "label+input" if current_matches_expected else "input",
+            })
+            pending_step_index = progress_index
+            pending_labels = expected_labels[:]
+            pending_input_serial = matched_input_serial
 
         reset_grace_active = int(self._runtime.get("reset_grace_frames", 0) or 0) > 0
         reset_grace_confirm_allowed = (
@@ -2412,6 +3620,8 @@ class MissionManager:
                 "pending_labels": [],
                 "pending_anim": None,
                 "pending_started_frame": -9999,
+                "pending_label_confirmed": False,
+                "pending_arm_source": "",
                 "reset_grace_frames": completed_grace,
                 "reset_grace_labels": [],
                 "reset_grace_step_index": progress_index if completed_grace > 0 else None,
@@ -2486,12 +3696,19 @@ class MissionManager:
                     matched_input_serial = int(
                         self._runtime.get("mission_input_match_serial", 0) or 0
                     )
+                    buffered_hit = self._peek_mission_hit_event(
+                        frame_idx,
+                        min_frame=int(frame_idx) - MISSION_HIT_PRELABEL_WINDOW,
+                    )
+                    buffered_frame = int(buffered_hit.get("frame", frame_idx)) if buffered_hit else int(frame_idx)
                     self._runtime.update({
                         "pending_step_index": progress_index,
                         "pending_labels": expected_labels[:],
                         "pending_anim": current_anim,
-                        "pending_started_frame": int(frame_idx),
+                        "pending_started_frame": buffered_frame,
                         "pending_input_serial": matched_input_serial,
+                        "pending_label_confirmed": bool(current_matches_expected),
+                        "pending_arm_source": "label" if current_matches_expected else "input",
                     })
                     pending_step_index = progress_index
                     pending_labels = expected_labels[:]
@@ -2513,26 +3730,53 @@ class MissionManager:
                 matched_input_serial = int(
                     self._runtime.get("mission_input_match_serial", 0) or 0
                 )
+                buffered_hit = self._peek_mission_hit_event(
+                    frame_idx,
+                    min_frame=int(frame_idx) - MISSION_HIT_PRELABEL_WINDOW,
+                )
                 self._runtime.update({
                     "pending_step_index": progress_index,
                     "pending_labels": expected_labels[:],
                     "pending_anim": current_anim,
-                    "pending_started_frame": int(frame_idx),
+                    "pending_started_frame": int(buffered_hit.get("frame", frame_idx)) if buffered_hit else int(frame_idx),
                     "pending_input_serial": matched_input_serial,
+                    "pending_label_confirmed": bool(current_matches_expected),
+                    "pending_arm_source": "baroque",
                 })
                 pending_step_index = progress_index
                 pending_labels = expected_labels[:]
                 pending_input_serial = matched_input_serial
 
             pending_anim = self._runtime.get("pending_anim")
+            if pending_step_index == progress_index and current_matches_expected:
+                self._runtime["pending_label_confirmed"] = True
+                if pending_anim is None:
+                    pending_anim = current_anim
+                    self._runtime["pending_anim"] = current_anim
+                buffered_hit = self._peek_mission_hit_event(
+                    frame_idx,
+                    min_frame=int(frame_idx) - MISSION_HIT_PRELABEL_WINDOW,
+                )
+                if buffered_hit is not None:
+                    self._runtime["pending_started_frame"] = min(
+                        int(self._runtime.get("pending_started_frame", frame_idx) or frame_idx),
+                        int(buffered_hit.get("frame", frame_idx)),
+                    )
             pending_started_frame = int(self._runtime.get("pending_started_frame", -9999) or -9999)
+            pending_label_confirmed = bool(self._runtime.get("pending_label_confirmed", False))
             pending_hit_confirm_available = self._peek_mission_hit_event(
                 frame_idx,
                 min_frame=pending_started_frame,
             ) is not None
+            pending_age = int(frame_idx) - pending_started_frame
             pending_move_still_owns_window = bool(
                 current_matches_expected
                 or current_anim == pending_anim
+                or (
+                    not pending_label_confirmed
+                    and 0 <= pending_age <= MISSION_HIT_PRELABEL_WINDOW
+                    and bool(pending_input_serial)
+                )
                 or reset_grace_confirm_allowed
                 or step_allows_whiff
             )
@@ -2552,6 +3796,8 @@ class MissionManager:
                     "pending_anim": None,
                     "pending_started_frame": -9999,
                     "pending_input_serial": 0,
+                    "pending_label_confirmed": False,
+                    "pending_arm_source": "",
                 })
                 pending_step_index = None
                 pending_labels = []
@@ -2561,6 +3807,12 @@ class MissionManager:
                 pending_step_index == progress_index
                 and pending_labels
                 and pending_move_still_owns_window
+                and (
+                    pending_label_confirmed
+                    or current_matches_expected
+                    or input_can_identify_expected
+                    or baroque_damage_confirm
+                )
                 and (opponent_in_combo_state or pending_hit_confirm_available or reset_grace_confirm_allowed)
                 and (
                     pending_hit_confirm_available
@@ -2590,6 +3842,8 @@ class MissionManager:
                     "pending_labels": [],
                     "pending_anim": None,
                     "pending_started_frame": -9999,
+                    "pending_label_confirmed": False,
+                    "pending_arm_source": "",
                     "reset_grace_frames": completed_grace,
                     "reset_grace_labels": [],
                     "reset_grace_step_index": progress_index if completed_grace > 0 else None,
@@ -2608,19 +3862,19 @@ class MissionManager:
             # after 5A completes, while still ignoring arbitrary extra inputs
             # performed between the required ordered markers.
             serial_to_consume = max(
-                int(self._runtime.get("mission_input_serial", 0) or 0),
+                int(self._runtime.get("mission_input_consumed_serial", 0) or 0),
                 int(pending_input_serial or 0),
                 int(self._runtime.get("pending_input_serial", 0) or 0),
                 int(self._runtime.get("mission_input_match_serial", 0) or 0),
             )
             self._consume_mission_input_through(serial_to_consume)
             self._runtime["mission_step_start_serial"] = serial_to_consume
-            self._runtime["mission_hit_events"] = []
 
         if not partner_var_matched:
             self._runtime.update({
                 "last_seen_label": current_label,
                 "last_seen_anim": current_anim,
+                "last_seen_move_level": current_move_level,
                 # Store the same sustained signal used for liveness. Otherwise
                 # a crouching reaction with an unmapped action ID can look like a
                 # new combo edge every frame while the global counter is nonzero.
@@ -2638,16 +3892,30 @@ class MissionManager:
             )
             return _clear_payload(len(steps), final_idx, final_label)
 
+        predicted_progress = self._refresh_predicted_progress(
+            steps,
+            progress_index,
+        )
+        self._prune_mission_event_buffers()
+        display_index = min(
+            max(0, int(predicted_progress)),
+            max(0, len(steps) - 1),
+        )
+
         payload.update({
             "just_cleared": False,
             "clear_seq": int(self._runtime.get("clear_seq", 0)),
             "celebrate_pending": bool(self._runtime.get("celebrate_pending", False)),
             "celebrate_token": int(self._runtime.get("celebrate_token", 0) or 0),
-            "completed_step_count": progress_index,
-            "current_step_index": progress_index,
+            "completed_step_count": predicted_progress,
+            "confirmed_step_count": progress_index,
+            "predicted_step_count": max(0, predicted_progress - progress_index),
+            "prediction_active": bool(predicted_progress > progress_index),
+            "prediction_revision": int(self._runtime.get("prediction_revision", 0) or 0),
+            "current_step_index": display_index,
             "current_step_label": (
-                " / ".join(self._step_labels(steps[progress_index]))
-                if progress_index < len(steps) else None
+                " / ".join(self._step_labels(steps[display_index]))
+                if display_index < len(steps) else None
             ),
         })
         return payload
@@ -2667,6 +3935,9 @@ class MissionManager:
             "active_mission_steps": [],
             "missions": [],
             "completed_step_count": 0,
+            "confirmed_step_count": 0,
+            "predicted_step_count": 0,
+            "prediction_active": False,
             "current_step_index": 0,
             "current_step_label": None,
             "just_cleared": False,

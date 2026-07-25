@@ -122,30 +122,92 @@ def find_assist_tables(base: int, rbytes_func) -> list[int]:
             valid.append(addr)
 
     return valid
-ATTACK_PROPERTY_VALUES = {
-    0x04: "Unblockable",
-    0x09: "Mid, Light Hit",
-    0x0A: "Mid, Medium Hit",
-    0x0C: "Mid, Heavy Hit",
-    0x11: "High, Light Hit",
-    0x12: "High, Medium Hit",
-    0x14: "High, Heavy Hit",
-    0x21: "Low, Light Hit",
-    0x22: "Low, Medium Hit",
-    0x24: "Low, Heavy Hit",
+ATTACK_PROPERTY_GUARD_BITS = {
+    0x08: "Mid",
+    0x10: "High",
+    0x20: "Low",
 }
+ATTACK_PROPERTY_STRENGTH_BITS = {
+    0x01: "Light",
+    0x02: "Medium",
+    0x04: "Heavy",
+}
+
+
+def decode_attack_property(value: int | None) -> dict:
+    """Decode the packed guard-height and strength fields."""
+    if value is None:
+        return {
+            "value": None,
+            "guard_mask": 0,
+            "strength_mask": 0,
+            "guard": "",
+            "strength": "",
+            "extra_mask": 0,
+            "label": "",
+        }
+    try:
+        v = int(value) & 0xFF
+    except Exception:
+        return {
+            "value": None,
+            "guard_mask": 0,
+            "strength_mask": 0,
+            "guard": "",
+            "strength": "",
+            "extra_mask": 0,
+            "label": str(value),
+        }
+
+    guard_mask = v & 0x38
+    strength_mask = v & 0x07
+    guards = [name for bit, name in ATTACK_PROPERTY_GUARD_BITS.items() if guard_mask & bit]
+    strengths = [name for bit, name in ATTACK_PROPERTY_STRENGTH_BITS.items() if strength_mask & bit]
+
+    if guards:
+        guard = "/".join(guards)
+    elif strength_mask:
+        guard = "Unblockable"
+    else:
+        guard = "No Guard Category"
+
+    strength = "/".join(strengths)
+    parts = [guard]
+    if strength:
+        parts.append(f"{strength} Hit")
+    extra_mask = v & ~0x3F
+    if extra_mask:
+        parts.append(f"Flags 0x{extra_mask:02X}")
+    return {
+        "value": v,
+        "guard_mask": guard_mask,
+        "strength_mask": strength_mask,
+        "guard": guard,
+        "strength": strength,
+        "extra_mask": extra_mask,
+        "label": ", ".join(parts),
+    }
+
+
+def _attack_property_value_labels() -> dict[int, str]:
+    values: dict[int, str] = {}
+    for strength in ATTACK_PROPERTY_STRENGTH_BITS:
+        values[strength] = decode_attack_property(strength)["label"]
+        for guard in ATTACK_PROPERTY_GUARD_BITS:
+            packed = guard | strength
+            values[packed] = decode_attack_property(packed)["label"]
+    return values
+
+
+ATTACK_PROPERTY_VALUES = _attack_property_value_labels()
 
 
 def fmt_attack_property(value: int | None) -> str:
     """Human-readable Attack Property cell text."""
-    if value is None:
-        return ""
-    try:
-        v = int(value) & 0xFF
-    except Exception:
-        return str(value)
-    label = ATTACK_PROPERTY_VALUES.get(v, "Unknown")
-    return f"0x{v:02X} {label}"
+    decoded = decode_attack_property(value)
+    if decoded["value"] is None:
+        return decoded["label"]
+    return f"0x{decoded['value']:02X} {decoded['label']}"
 
 
 def parse_attack_property(text: str) -> int | None:
@@ -273,11 +335,10 @@ def find_attack_property_addr(
         04 01 60 00 00 00 02 40 3F 00 00 00 00 00 00 XX 04 01 60
                                                ^^ attack property byte
 
-    XX values observed/known:
-        04 unblockable
-        09/0A/0C mid light/medium/heavy
-        11/12/14 high light/medium/heavy
-        21/22/24 low light/medium/heavy
+    XX is a packed byte:
+        bits 0x08/0x10/0x20 select Mid/High/Low guard height
+        bits 0x01/0x02/0x04 select Light/Medium/Heavy reaction tier
+        a strength tier with no guard-height bit is functionally unblockable
 
     Returns:
       (absolute_addr_of_xx, current_value_byte, context_bytes)

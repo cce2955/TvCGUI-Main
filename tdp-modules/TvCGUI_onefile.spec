@@ -37,7 +37,7 @@ datas += _data_dir('assets', 'assets')
 datas += _data_file('data/animation/animation_frames.json', 'data/animation')
 datas += _data_file('data/animation/character_fpk_registry.json', 'data/animation')
 datas += _data_file('data/combat/move_id_map_charagnostic.csv', 'data/combat')
-datas += _data_file('data/frame_data/frame_data_profiles.json', 'data/frame_data')
+datas += _data_dir('data/frame_data/frame_data_profiles', 'data/frame_data/frame_data_profiles')
 datas += _data_file('data/frame_data/frame_data_preview_profiles.json', 'data/frame_data')
 datas += _data_file('data/templates/TvC_Frame_Data_Observed_template.csv', 'data/templates')
 # Seed only: hitboxesscaling.py copies this beside TvCGUI.exe on first run

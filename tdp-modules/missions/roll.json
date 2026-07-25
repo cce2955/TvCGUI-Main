@@ -208,6 +208,19 @@
           "label": "Mop up Turbo"
         }
       ]
+    },
+    {
+      "mission_id": "roll_008",
+      "name": "Two-Hit Challenge",
+      "notes": "Deal 11,000 damage in two hits or fewer. Baroque is locked. A third hit fails the attempt.",
+      "setup_debug_flags": {
+        "BaroquePct": 0
+      },
+      "goal": {
+        "type": "damage_under_hits",
+        "damage": 11000,
+        "max_hits": 2
+      }
     }
   ]
 }

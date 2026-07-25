@@ -13,6 +13,7 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import re
 import sys
 import time
 from typing import Optional
@@ -23,6 +24,7 @@ import win32con
 import win32gui
 
 from tvcgui.core.paths import user_data_path
+from tvcgui.features.overlay.damage_scaling import build_damage_breakdown_lines, build_live_damage_modifier
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -78,6 +80,126 @@ PASSIVE_LABELS = {
     "jump back", "landing", "rising", "assist standby", "assist leave",
     "assist attack", "assist taunt", "tag out", "tag in",
 }
+
+_PROFILE_HISTORY_SUFFIX_RE = re.compile(
+    r"^(.*?)(?:\s+|\s*\()((?:level|lvl|lv|l)\s*[-_:]?\s*[1-9][0-9]*|[1-9][0-9]*|[abc]|[lmh])\)?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _profile_history_norm(value) -> str:
+    text = str(value or "").strip().lower().replace("_", " ")
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return " ".join(text.split())
+
+
+def _split_profile_history_variant(label: str) -> tuple[str, str]:
+    text = str(label or "").strip()
+    match = _PROFILE_HISTORY_SUFFIX_RE.match(text)
+    if not match:
+        return text, ""
+    core = str(match.group(1) or "").strip(" -_/()[]")
+    suffix = re.sub(r"\s+", "", str(match.group(2) or "").strip())
+    return core, suffix
+
+
+def _resolve_profile_history_label(current_label: str, profile_label: str) -> str:
+    """Merge a profiler variant into the move history's full move name."""
+    current = str(current_label or "").strip()
+    profile = str(profile_label or "").strip()
+    if not profile:
+        return current
+    if not current:
+        return profile
+
+    current_norm = _profile_history_norm(current)
+    profile_norm = _profile_history_norm(profile)
+    if not current_norm or current_norm == profile_norm:
+        return profile
+    if current_norm in profile_norm:
+        return profile
+
+    profile_core, profile_suffix = _split_profile_history_variant(profile)
+    current_core, _current_suffix = _split_profile_history_variant(current)
+    current_tokens = set(_profile_history_norm(current_core).split())
+    profile_tokens = set(_profile_history_norm(profile_core).split())
+    same_family = bool(current_tokens and profile_tokens and current_tokens.intersection(profile_tokens))
+
+    if profile_suffix and same_family:
+        return f"{current_core or current} {profile_suffix}".strip()
+    if same_family:
+        return profile
+    return current
+
+
+def _apply_profile_history_correction(slot_anim: dict, snap: dict,
+                                      current_move_id: int | None,
+                                      current_label: str) -> str:
+    """Rewrite the existing projectile chip from the explicit profiler payload."""
+    if not bool(snap.get("profile_live_active", False)):
+        return current_label
+    profile_label = str(snap.get("profile_live_label") or snap.get("profile_history_label") or "").strip()
+    resolved_full = str(snap.get("profile_resolved_label") or "").strip()
+    if not profile_label:
+        return current_label
+
+    try:
+        profile_action_id = int(snap.get("profile_history_action_id") or 0)
+    except Exception:
+        profile_action_id = 0
+    move_events = slot_anim.get("move_events") or []
+
+    def candidate_text(event: dict) -> str:
+        base_text = str(event.get("base_text") or event.get("text") or "").strip()
+        resolved = resolved_full or _resolve_profile_history_label(base_text, profile_label)
+        if not resolved:
+            return ""
+        # Require the event's actual family to match the profiler family. This
+        # is what prevents Idle 2, 5A 2, and 2A 2.
+        event_core, _ = _split_profile_history_variant(base_text)
+        profile_core, _ = _split_profile_history_variant(profile_label)
+        event_tokens = set(_profile_history_norm(event_core).split())
+        profile_tokens = set(_profile_history_norm(profile_core).split())
+        if not event_tokens.intersection(profile_tokens):
+            return ""
+        return resolved
+
+    target = None
+    replacement = ""
+    if profile_action_id:
+        for event in move_events:
+            try:
+                event_action = int(event.get("action_id") or 0)
+            except Exception:
+                event_action = 0
+            if event_action != profile_action_id:
+                continue
+            replacement = candidate_text(event)
+            if replacement:
+                target = event
+                break
+    if target is None:
+        for event in move_events:
+            replacement = candidate_text(event)
+            if replacement:
+                target = event
+                break
+
+    if target is None or not replacement:
+        return current_label
+
+    target["text"] = replacement
+    target["profile_label"] = profile_label
+    target["profile_corrected"] = True
+    target["life"] = max(float(target.get("life") or 0.0), 1.0)
+
+    if move_events and target is move_events[0]:
+        final_label = str(snap.get("final_move_label") or "").strip()
+        if final_label:
+            current_label = final_label
+            slot_anim["prev_move_label"] = final_label
+    return current_label
+
 
 # Move IDs that mean the character is in hitstun / blockstun
 REACTION_IDS = {48, 49, 50, 51, 52, 64, 65, 66, 73,75, 79, 80, 81, 
@@ -184,6 +306,16 @@ def _get_active_slot(team: str) -> str | None:
         return c1
     if s2 and not s1:
         return c2
+
+    # Native fighter+0x44A0 is the stable point-character flag. +0x44A4 is a
+    # separate runtime permission/lane field and must not select C1 versus C2.
+    c1_is_point = bool(s1.get("damage_point_active", s1.get("damage_is_point")))
+    c2_is_point = bool(s2.get("damage_point_active", s2.get("damage_is_point")))
+    if c1_is_point != c2_is_point:
+        return c1 if c1_is_point else c2
+
+    # During short tag transitions the native flags can momentarily agree. Keep
+    # the old animation-state fallback for those frames.
     mv1 = int(s1.get("mv_id_display") or 0)
     mv2 = int(s2.get("mv_id_display") or 0)
     if mv2 in ASSIST_OFF_IDS and mv1 not in ASSIST_OFF_IDS:
@@ -274,7 +406,7 @@ def _snap_name(slot_label: str) -> str:
 
 def _snap_move(slot_label: str) -> str:
     snap = _display_slots.get(slot_label) or {}
-    label = str(snap.get("mv_label") or "").strip()
+    label = str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "").strip()
     if label and label.lower() not in PASSIVE_LABELS:
         return label
     try:
@@ -461,6 +593,22 @@ def _combo_register_damage(victim_slot: str, damage: int) -> None:
     ledger["damage"] = int(ledger.get("damage") or 0) + int(damage)
     ledger["last_hit_frame"] = _frame
     ledger["life"] = 1.0
+    victim_snapshot = (_display_slots.get(str(victim_slot)) or {})
+    victim_is_point = bool(
+        victim_snapshot.get(
+            "damage_combo_lane_active",
+            victim_snapshot.get("damage_point_active", False),
+        )
+    )
+    ledger["last_hit_damage"] = int(damage)
+    ledger["damage_breakdown_lines"] = build_damage_breakdown_lines(
+        _display_slots,
+        attacker_slot,
+        str(victim_slot),
+        int(damage),
+        victim_is_point=victim_is_point,
+        owner_slot=f"{attacker_team}-C1",
+    )
     # Every registered hit restarts a restrained polish sweep. A late hit also
     # cancels any pending final confirmation and keeps the chain visually live.
     ledger["hit_sheen"] = 1.0
@@ -644,6 +792,7 @@ def _get_slot_anim(slot_label: str):
         "prev_meter": None,
         "meter_events": [],
         "prev_move_label": "",
+        "prev_move_id": None,
         "move_events": [],
         "move_scroll_px": 0.0,
         "prev_baroque_pct": None,
@@ -1332,9 +1481,23 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
     meter_num_s = font_sm.render(meter_str, True, text_col)
 
     move_id  = snap.get("mv_id_display")
-    mv_label = (snap.get("mv_label") or "").strip()
+    try:
+        move_id_int = int(move_id) if move_id is not None else None
+    except Exception:
+        move_id_int = None
+    mv_label = (snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "").strip()
     if not mv_label and move_id is not None:
         mv_label = f"0x{int(move_id):04X}"
+
+    # A projectile profile can resolve after the generic move was already
+    # added to history. Correct that existing event before drawing or deciding
+    # whether this frame needs a new history chip.
+    mv_label = _apply_profile_history_correction(
+        slot_anim,
+        snap,
+        move_id_int,
+        mv_label,
+    )
 
     mission_suffix = ""
     if snap.get("mission_wrong_ready"):
@@ -1354,19 +1517,46 @@ def _draw_slot_row(screen, font, font_sm, slot_label, snap,
 
     # Move history tracking
     prev_move_label = slot_anim.get("prev_move_label", "")
+    prev_move_id = slot_anim.get("prev_move_id")
     if (
         mv_label
         and mv_label != "---"
-        and mv_label != prev_move_label
         and ((not is_passive) or is_baroque)
         and not is_dead
     ):
         move_events = slot_anim["move_events"]
-        move_events.insert(0, {"text": mv_label, "life": 1.0, "frame": _frame})
-        if len(move_events) > 6:
-            move_events.pop()
-        slot_anim["move_scroll_px"] = max(int(28 * scale), 14)
+        same_action = move_id_int is not None and prev_move_id == move_id_int
+        newest = move_events[0] if move_events else None
+
+        # A same-action generic to specific change is a correction, not a new
+        # move. Update the newest chip in place so the sequence remains clean.
+        if same_action and newest is not None:
+            newest_action = newest.get("action_id")
+            try:
+                newest_action = int(newest_action) if newest_action is not None else None
+            except Exception:
+                newest_action = None
+            if newest_action == move_id_int and mv_label != str(newest.get("text") or ""):
+                base_text = str(newest.get("base_text") or newest.get("text") or "").strip()
+                corrected = _resolve_profile_history_label(base_text, mv_label)
+                if corrected != base_text or _profile_history_norm(mv_label) == _profile_history_norm(corrected):
+                    newest["text"] = mv_label
+                    newest["life"] = 1.0
+        elif mv_label != prev_move_label:
+            base_text = str(snap.get("mv_label_base") or snap.get("mv_label") or mv_label).strip()
+            move_events.insert(0, {
+                "text": mv_label,
+                "base_text": base_text,
+                "action_id": move_id_int,
+                "created_at": time.time(),
+                "life": 1.0,
+                "frame": _frame,
+            })
+            if len(move_events) > 6:
+                move_events.pop()
+            slot_anim["move_scroll_px"] = max(int(28 * scale), 14)
     slot_anim["prev_move_label"] = mv_label
+    slot_anim["prev_move_id"] = move_id_int
 
     # Baroque
     baroque_ready = snap.get("baroque_ready_local", False) and not is_dead
@@ -1891,7 +2081,7 @@ def _compact_trim(text: str, max_chars: int) -> str:
 
 def _compact_move_label(snap: dict) -> str:
     move_id = snap.get("mv_id_display")
-    label = (snap.get("mv_label") or "").strip()
+    label = (snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "").strip()
     if not label and move_id is not None:
         label = f"0x{int(move_id):04X}"
     if not label:
@@ -1899,6 +2089,32 @@ def _compact_move_label(snap: dict) -> str:
 
     lowered = label.lower()
     is_baroque = move_id is not None and int(move_id) in BAROQUE_CANCEL_IDS
+    if lowered in PASSIVE_LABELS and not is_baroque:
+        return ""
+    return label
+
+
+def _compact_event_move_label(snap: dict) -> str:
+    """Return the real fighter-action label used to create history events.
+
+    mv_label_display may be a delayed projectile-profiler override. History
+    insertion must still follow the actual current action, then the profiler
+    rewrites the already-created projectile chip in place.
+    """
+    move_id = snap.get("mv_id_display")
+    label = str(snap.get("mv_label") or snap.get("mv_label_display") or "").strip()
+    if not label and move_id is not None:
+        try:
+            label = f"0x{int(move_id):04X}"
+        except Exception:
+            label = str(move_id)
+    if not label:
+        return ""
+    lowered = label.lower()
+    try:
+        is_baroque = move_id is not None and int(move_id) in BAROQUE_CANCEL_IDS
+    except Exception:
+        is_baroque = False
     if lowered in PASSIVE_LABELS and not is_baroque:
         return ""
     return label
@@ -2160,17 +2376,50 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
         )
 
     move_id = snap.get("mv_id_display")
-    move_label = _compact_move_label(snap)
+    base_move_label = _compact_event_move_label(snap)
+    display_move_label = str(
+        snap.get("final_move_label")
+        or snap.get("mv_label_display")
+        or base_move_label
+    ).strip()
     try:
         move_id_key = int(move_id) if move_id is not None else -1
     except (TypeError, ValueError):
         move_id_key = -1
-    move_key = f"{move_id_key}:{move_label.lower()}" if move_label else ""
+
+    # History identity follows the real action and generic family. A profiler
+    # suffix changes the existing chip text, never the event identity.
+    move_key = f"{move_id_key}:{base_move_label.lower()}" if base_move_label else ""
     previous_key = str(slot_anim.get("prev_compact_move_key") or "")
+    events = slot_anim["move_events"]
     if move_key and move_key != previous_key:
-        events = slot_anim["move_events"]
-        events.insert(0, {"text": move_label, "life": 1.0, "frame": _frame})
+        events.insert(0, {
+            "text": display_move_label or base_move_label,
+            "base_text": base_move_label,
+            "action_id": move_id_key if move_id_key >= 0 else None,
+            "created_at": time.time(),
+            "life": 1.0,
+            "frame": _frame,
+        })
         del events[5:]
+    elif move_key and events:
+        newest = events[0]
+        try:
+            newest_action = int(newest.get("action_id") or -1)
+        except Exception:
+            newest_action = -1
+        if newest_action == move_id_key and display_move_label:
+            newest["text"] = display_move_label
+            newest["life"] = 1.0
+
+    # The chip now exists. Apply the live profiler correction after insertion,
+    # which guarantees Hyper Zero Blaster can become Hyper Zero Blaster 2/3.
+    _apply_profile_history_correction(
+        slot_anim,
+        snap,
+        move_id_key if move_id_key >= 0 else None,
+        display_move_label or base_move_label,
+    )
     slot_anim["prev_compact_move_key"] = move_key
 
     if slot_anim.get("damage_timer", 0) > 0:
@@ -2244,6 +2493,7 @@ def _draw_compact_health(
     is_dead: bool,
     display_fraction=None,
     trail_fraction=None,
+    recoverable_fraction=None,
 ) -> None:
     rect = pygame.Rect(x, y, width, height)
     pygame.draw.rect(screen, (24, 29, 38), rect, border_radius=max(2, height // 2))
@@ -2260,6 +2510,22 @@ def _draw_compact_health(
         pygame.draw.rect(screen, trail_color, (inner.x, inner.y, trail_fill, inner.height), border_radius=max(1, inner.height // 2))
         edge_x = inner.x + trail_fill - 1
         pygame.draw.line(screen, (255, 198, 151), (edge_x, inner.y), (edge_x, inner.bottom - 1), 1)
+    if recoverable_fraction is not None and inner.width > 0 and inner.height > 0:
+        try:
+            recoverable = max(fraction, min(1.0, float(recoverable_fraction)))
+        except (TypeError, ValueError):
+            recoverable = fraction
+        if recoverable > fraction + 0.001:
+            recoverable_fill = max(1, int(inner.width * recoverable))
+            recoverable_color = (180, 58, 82) if not is_dead else (86, 48, 57)
+            pygame.draw.rect(
+                screen,
+                recoverable_color,
+                (inner.x, inner.y, recoverable_fill, inner.height),
+                border_radius=max(1, inner.height // 2),
+            )
+            edge_x = inner.x + recoverable_fill - 1
+            pygame.draw.line(screen, (255, 148, 169), (edge_x, inner.y), (edge_x, inner.bottom - 1), 1)
     if inner.width > 0 and inner.height > 0 and fraction > 0.0:
         fill = max(1, int(inner.width * fraction))
         color = COL_HP_DEAD if is_dead else (COL_HP_LOW if target_fraction <= 0.30 else COL_HP_HIGH)
@@ -2792,7 +3058,7 @@ def _render_compact_text_chip(font_sm, primary: str, color: tuple[int, int, int]
 
 
 def _history_label_width(font_sm, scale: float) -> int:
-    labels = ("LOG", "INPUTS", "FRAMES", "HOLD", "MOVES")
+    labels = ("LOG", "INPUTS", "FRAMES", "HOLD", "MOVES", "DMG MOD", "METER+", "RED HP", "ATK PROP")
     return max(font_sm.size(label)[0] for label in labels) + max(16, int(20 * scale))
 
 
@@ -2816,6 +3082,186 @@ def _draw_history_header_chip(screen, font_sm, title: str, x: int, y: int, scale
         _HISTORY_HEADER_CHIP_CACHE[key] = chip
     screen.blit(chip, (x, y))
     return label_w
+
+
+def _compact_red_health_values(snap: dict) -> tuple[int, int, int, float, int, int, str]:
+    current = _panel_int(snap.get("red_health_current", snap.get("cur")), 0)
+    maximum = max(1, _panel_int(snap.get("max"), 1))
+    auxiliary = _panel_int(
+        snap.get("red_health_aux", snap.get("recoverable_ceiling")),
+        current,
+    )
+    auxiliary = max(current, min(maximum, auxiliary))
+    recoverable = max(
+        0,
+        _panel_int(
+            snap.get("red_health_recoverable", snap.get("recoverable_hp")),
+            auxiliary - current,
+        ),
+    )
+    recoverable_pct = float(
+        snap.get(
+            "red_health_pct_max",
+            snap.get("recoverable_pct_max", recoverable * 100.0 / maximum),
+        )
+        or 0.0
+    )
+    pending_current = _panel_int(snap.get("red_health_pending_current"), 0)
+    pending_aux = _panel_int(snap.get("red_health_pending_aux"), 0)
+    event = str(snap.get("red_health_last_event") or "").replace("_", " ").upper()
+    return current, auxiliary, recoverable, recoverable_pct, pending_current, pending_aux, event
+
+
+def _compact_research_tokens(
+    mode: str,
+    team: str,
+    point_label: str,
+    point: dict,
+    partner_label: str,
+    partner: dict,
+) -> tuple[str, list[tuple[str, tuple[int, int, int]]]]:
+    accent = (236, 92, 108) if team == "P1" else (82, 164, 236)
+    tokens: list[tuple[str, tuple[int, int, int]]] = []
+
+    if mode == "damage":
+        opponent_team = "P2" if team == "P1" else "P1"
+        victim = _damage_point_slot(opponent_team)
+        if victim is None:
+            return "DMG MOD", [("NO LIVE OPPONENT", (126, 139, 158))]
+        victim_slot, _victim_snapshot = victim
+        owner_slot = _damage_team_owner_slot(team, point_label)
+        data = build_live_damage_modifier(
+            _display_slots,
+            point_label,
+            victim_slot,
+            owner_slot=owner_slot,
+        )
+        percent = float(data.get("percent") or 100.0)
+        suffix = "*" if bool(data.get("approximate", False)) else ""
+        tokens.append((f"MOD {percent:.1f}%{suffix}", accent))
+        factors = [str(item or "").strip() for item in (data.get("factors") or ["BASE"])]
+        for factor in factors:
+            if factor:
+                tokens.append((factor.upper(), (174, 196, 224)))
+        return "DMG MOD", tokens
+
+    if mode == "meter":
+        current = max(0, min(50000, _panel_int(point.get("meter_profile_current", point.get("meter")), 0)))
+        delta = _panel_int(point.get("meter_profile_last_delta"), 0)
+        predicted_raw = point.get("meter_profile_last_predicted")
+        predicted = None if predicted_raw is None else _panel_int(predicted_raw)
+        role = str(point.get("meter_profile_last_role") or "").upper()
+        match = point.get("meter_profile_last_match")
+        source = str(point.get("meter_profile_last_source") or "").strip()
+        move = str(point.get("meter_profile_last_move") or "").strip()
+        tokens.append((f"CUR {current / 10000.0:.2f} BAR", accent))
+        if delta:
+            delta_color = (92, 218, 154) if delta > 0 else (255, 166, 92)
+            tokens.append((f"LAST {delta:+d} {role or 'UNKNOWN'}", delta_color))
+        else:
+            tokens.append(("NO TRANSITION", (126, 139, 158)))
+        if predicted is not None:
+            state = "MATCH" if match is True else ("MISS" if match is False else "PRED")
+            state_color = (92, 218, 154) if match is True else ((255, 112, 120) if match is False else (164, 182, 210))
+            tokens.append((f"PRED {predicted:+d} {state}", state_color))
+        source_line = " ".join(part for part in (source, move) if part)
+        if source_line:
+            tokens.append((source_line.upper(), (166, 181, 204)))
+        return "METER+", tokens
+
+    if mode == "red":
+        for slot_label, snap in ((point_label, point), (partner_label, partner)):
+            _current, auxiliary, red, red_pct, pending_current, pending_aux, event = _compact_red_health_values(snap)
+            badge = "C1" if slot_label.endswith("C1") else "C2"
+            slot_accent = SLOT_COLORS.get(slot_label, accent)
+            tokens.append((f"{badge} AUX {_compact_short_number(auxiliary)} RED {_compact_short_number(red)} {red_pct:.1f}%", slot_accent))
+            tokens.append((f"{badge} Q {pending_current:+d}/{pending_aux:+d}", (180, 194, 214)))
+            if event:
+                tokens.append((f"{badge} {event}", (224, 151, 169)))
+        return "RED HP", tokens
+
+    if mode == "attack":
+        attack_slot, attack = _active_attack_snapshot(team)
+        attack = attack if isinstance(attack, dict) else {}
+        actor = _panel_int(attack.get("attack_property_live_actor"), 0)
+        if not actor:
+            return "ATK PROP", [("NO ACTIVE HIT PACKET", (126, 139, 158))]
+        damage = _panel_int(attack.get("attack_property_live_damage"), 0)
+        victim = str(attack.get("attack_property_live_victim_slot") or "-")
+        status20 = _panel_hex(attack.get("attack_property_live_status20"))
+        prop_a = _panel_hex(attack.get("attack_property_live_a"))
+        prop_b = _panel_hex(attack.get("attack_property_live_b"))
+        text_a = str(attack.get("attack_property_live_a_text") or "UNRESOLVED").upper()
+        text_b = str(attack.get("attack_property_live_b_text") or "UNRESOLVED").upper()
+        source_badge = "C1" if str(attack_slot or "").endswith("C1") else "C2"
+        tokens.extend(
+            [
+                (f"{source_badge} {text_a}", accent),
+                (f"DMG {damage} > {victim}", (255, 124, 132)),
+                (f"A {prop_a}", (185, 139, 238)),
+                (f"B {prop_b} {text_b}", (185, 139, 238)),
+                (f"ST {status20}", (157, 179, 211)),
+                (f"ACT {actor:08X}", (137, 153, 178)),
+            ]
+        )
+        return "ATK PROP", tokens
+
+    return "DATA", []
+
+
+def _draw_compact_research_row(
+    screen,
+    font_sm,
+    mode: str,
+    team: str,
+    point_label: str,
+    point: dict,
+    partner_label: str,
+    partner: dict,
+    x: int,
+    y: int,
+    right: int,
+    row_height: int,
+    scale: float,
+) -> None:
+    title, tokens = _compact_research_tokens(
+        mode,
+        team,
+        point_label,
+        point,
+        partner_label,
+        partner,
+    )
+    label_w = _draw_history_header_chip(screen, font_sm, title, x, y, scale)
+    gap_x = max(4, int(5 * scale))
+    gap_y = max(2, int(2 * scale))
+    draw_left = x + label_w + max(6, int(7 * scale))
+    line_height = max(font_sm.get_height() + max(4, int(5 * scale)), int(15 * scale))
+    line_y = y
+    line_index = 0
+    draw_x = draw_left
+    clip = pygame.Rect(draw_left, y - 1, max(1, right - draw_left), max(1, row_height + 2))
+    old_clip = screen.get_clip()
+    screen.set_clip(clip)
+
+    for raw_text, color in tokens:
+        available = max(1, right - draw_left - max(10, int(12 * scale)))
+        chip_text = _compact_fit_text(font_sm, str(raw_text or ""), available)
+        chip = _render_compact_text_chip(font_sm, chip_text, color, scale, 1.0)
+        if draw_x + chip.get_width() > right and line_index == 0:
+            line_index = 1
+            line_y = y + line_height + gap_y
+            draw_x = draw_left
+        if draw_x + chip.get_width() > right:
+            remaining = right - draw_x - max(2, int(3 * scale))
+            if remaining <= max(28, int(32 * scale)):
+                continue
+            fitted = _compact_fit_text(font_sm, str(raw_text or ""), remaining - max(10, int(12 * scale)))
+            chip = _render_compact_text_chip(font_sm, fitted, color, scale, 1.0)
+        screen.blit(chip, (draw_x, line_y))
+        draw_x += chip.get_width() + gap_x
+
+    screen.set_clip(old_clip)
 
 
 def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x: int, y: int, right: int, scale: float, prev_items: list[dict] | None = None, slide_progress: float = 0.0) -> None:
@@ -3788,6 +4234,1011 @@ def _draw_compact_guard_indicator(screen, font_sm, rect: pygame.Rect, label: str
     badge.blit(property_surface, ((rect.width - property_surface.get_width()) // 2, top_y + result_surface.get_height() - max(1, int(2 * scale))))
     screen.blit(badge, rect.topleft)
 
+
+def _wrap_damage_factor_lines(font_sm, factors, max_width: int) -> list[str]:
+    """Wrap complete modifier labels without clipping individual factors."""
+    tokens = [str(item or "").strip() for item in (factors or [])]
+    tokens = [item for item in tokens if item]
+    if not tokens:
+        tokens = ["BASE"]
+
+    lines: list[str] = []
+    current = ""
+    separator = "  ·  "
+    for token in tokens:
+        candidate = token if not current else f"{current}{separator}{token}"
+        if font_sm.size(candidate)[0] <= max_width:
+            current = candidate
+            continue
+        if current:
+            lines.append(current)
+        if font_sm.size(token)[0] <= max_width:
+            current = token
+        else:
+            current = _compact_fit_text(font_sm, token, max_width)
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _draw_damage_modifier_meter(
+    card,
+    rect: pygame.Rect,
+    percent: float,
+    accent: tuple[int, int, int],
+    scale: float,
+) -> None:
+    """Draw a 0 to 200 percent rail with a visible 100 percent baseline."""
+    pygame.draw.rect(
+        card,
+        (24, 31, 43, 235),
+        rect,
+        border_radius=max(2, rect.height // 2),
+    )
+    pygame.draw.rect(
+        card,
+        (67, 82, 104, 210),
+        rect,
+        1,
+        border_radius=max(2, rect.height // 2),
+    )
+
+    meter_max_percent = 200.0
+    ratio = max(0.0, min(1.0, float(percent) / meter_max_percent))
+    fill_w = max(0, min(rect.width, int(round(rect.width * ratio))))
+    if fill_w > 0:
+        fill_rect = pygame.Rect(rect.x, rect.y, fill_w, rect.height)
+        pygame.draw.rect(
+            card,
+            (*accent, 218),
+            fill_rect,
+            border_radius=max(2, rect.height // 2),
+        )
+        highlight_h = max(1, int(2 * scale))
+        pygame.draw.rect(
+            card,
+            (245, 250, 255, 72),
+            (fill_rect.x + 1, fill_rect.y + 1, max(1, fill_rect.width - 2), highlight_h),
+            border_radius=max(1, highlight_h // 2),
+        )
+
+    baseline_x = rect.x + int(round(rect.width * 0.5))
+    pygame.draw.line(
+        card,
+        (232, 239, 248, 205),
+        (baseline_x, rect.y - max(1, int(scale))),
+        (baseline_x, rect.bottom + max(1, int(scale))),
+        max(1, int(scale)),
+    )
+
+    marker_x = rect.x + max(0, min(rect.width - 1, fill_w - 1))
+    marker_radius = max(2, int(2.5 * scale))
+    pygame.draw.circle(
+        card,
+        (244, 248, 255, 235),
+        (marker_x, rect.centery),
+        marker_radius,
+    )
+    pygame.draw.circle(
+        card,
+        (*accent, 255),
+        (marker_x, rect.centery),
+        max(1, marker_radius - 1),
+    )
+
+
+def _damage_point_slot(team: str) -> tuple[str, dict] | None:
+    """Return the row carrying the stable native point fighter for one team."""
+    c1 = f"{team}-C1"
+    c2 = f"{team}-C2"
+    rows = [
+        (c1, _display_slots.get(c1)),
+        (c2, _display_slots.get(c2)),
+    ]
+    rows = [(label, snap) for label, snap in rows if isinstance(snap, dict)]
+    if not rows:
+        return None
+
+    native = [
+        (label, snap)
+        for label, snap in rows
+        if bool(snap.get("damage_point_active", snap.get("damage_is_point")))
+    ]
+    if len(native) == 1:
+        return native[0]
+
+    # The point flag can briefly overlap during a tag transition. Use the same
+    # action-state fallback as the main HUD, but never use +0x44A4 here.
+    selected = _get_active_slot(team)
+    if selected:
+        snap = _display_slots.get(selected)
+        if isinstance(snap, dict):
+            return selected, snap
+    return rows[0]
+
+
+def _damage_team_owner_slot(team: str, point_slot: str) -> str:
+    """Return the team owner row used by the native damage scaler.
+
+    0x80052758 reduces both team members to the same side index. The two dumps
+    confirm that +0x11C4/+0x11D8 remain on C1 when C2 tags in, so C1 is the
+    owner source while the point row supplies character-specific modifiers.
+    """
+    owner_slot = f"{team}-C1"
+    owner = _display_slots.get(owner_slot)
+    return owner_slot if isinstance(owner, dict) else point_slot
+
+
+def _damage_modifier_badge_rows() -> list[tuple[str, dict, tuple[int, int, int]]]:
+    """Build one hybrid native damage row for P1 and P2."""
+    p1 = _damage_point_slot("P1")
+    p2 = _damage_point_slot("P2")
+    if p1 is None or p2 is None:
+        return []
+
+    p1_slot, p1_snapshot = p1
+    p2_slot, p2_snapshot = p2
+    rows: list[tuple[str, dict, tuple[int, int, int]]] = []
+    row_specs = (
+        ("P1", p1_slot, p1_snapshot, "P2", p2_slot, p2_snapshot, (236, 92, 108)),
+        ("P2", p2_slot, p2_snapshot, "P1", p1_slot, p1_snapshot, (82, 164, 236)),
+    )
+    for team, attacker_slot, attacker, victim_team, victim_slot, victim, accent in row_specs:
+        attacker_name = _compact_trim(str(attacker.get("name") or "---"), 16)
+        victim_name = _compact_trim(str(victim.get("name") or "---"), 13)
+        label = f"{team}  {attacker_name}  >  {victim_team} {victim_name}"
+        owner_slot = _damage_team_owner_slot(team, attacker_slot)
+        data = build_live_damage_modifier(
+            _display_slots,
+            attacker_slot,
+            victim_slot,
+            owner_slot=owner_slot,
+        )
+        data["source_slot"] = attacker_slot
+        data["owner_slot"] = owner_slot
+        data["source_base"] = int(attacker.get("base") or 0)
+        data["source_id"] = attacker.get("id")
+        rows.append((label, data, accent))
+    return rows
+
+
+def _draw_damage_modifier_badge(
+    screen,
+    font,
+    font_sm,
+    scale: float,
+) -> None:
+    """Draw one live point-fighter damage rail for P1 and P2."""
+    rows = _damage_modifier_badge_rows()
+    if not rows:
+        return
+
+    width = max(330, int(382 * scale))
+    pad = max(7, int(8 * scale))
+    rail_w = max(3, int(4 * scale))
+    meter_h = max(7, int(8 * scale))
+    row_gap = max(4, int(5 * scale))
+    line_gap = max(1, int(2 * scale))
+    radius = max(6, int(7 * scale))
+
+    title = font_sm.render("CURRENT DAMAGE MODIFIER  ·  LIVE FIGHTERS", True, (232, 240, 248))
+    factor_max_width = width - pad * 2 - rail_w
+    prepared_rows = []
+    any_approximate = False
+    for label, data, accent in rows:
+        percent = float(data.get("percent") or 100.0)
+        approximate = bool(data.get("approximate", False))
+        live = bool(data.get("live", False))
+        any_approximate = any_approximate or approximate
+        raw_factors = list(data.get("factors") or ["BASE"])
+        if not live:
+            raw_factors = ["NO LIVE SCALING DATA"]
+        factor_lines = _wrap_damage_factor_lines(
+            font_sm,
+            raw_factors,
+            factor_max_width,
+        )
+        label_s = font_sm.render(label, True, (238, 244, 250))
+        value_text = f"{percent:.1f}%" + ("*" if approximate else "")
+        value_color = accent if live else (132, 142, 158)
+        value_s = font.render(value_text, True, value_color)
+        factor_surfaces = [
+            font_sm.render(line, True, (164, 184, 207))
+            for line in factor_lines
+        ]
+        header_h = max(label_s.get_height(), value_s.get_height())
+        factors_h = sum(surface.get_height() for surface in factor_surfaces)
+        factors_h += line_gap * max(0, len(factor_surfaces) - 1)
+        row_h = header_h + row_gap + meter_h + row_gap + factors_h + row_gap
+        prepared_rows.append(
+            {
+                "label_s": label_s,
+                "value_s": value_s,
+                "factor_surfaces": factor_surfaces,
+                "percent": percent,
+                "accent": accent,
+                "row_h": row_h,
+                "header_h": header_h,
+                "live": live,
+            }
+        )
+
+    title_top = max(3, int(4 * scale))
+    title_bottom = title_top + title.get_height()
+    divider_y = title_bottom + max(4, int(5 * scale))
+    row_y_start = divider_y + max(4, int(5 * scale))
+    footer_h = font_sm.get_height() + max(2, int(3 * scale)) if any_approximate else 0
+    height = row_y_start + sum(item["row_h"] for item in prepared_rows) + footer_h + pad
+    x = screen.get_width() // 2 - width // 2
+    y = int(142 * scale)
+
+    shadow = pygame.Surface((width + 10, height + 10), pygame.SRCALPHA)
+    pygame.draw.rect(
+        shadow,
+        (0, 0, 0, 92),
+        (5, 5, width, height),
+        border_radius=radius + 2,
+    )
+    screen.blit(shadow, (x - 5, y + 2))
+
+    card = pygame.Surface((width, height), pygame.SRCALPHA)
+    pygame.draw.rect(
+        card,
+        (10, 14, 21, 232),
+        card.get_rect(),
+        border_radius=radius,
+    )
+    pygame.draw.rect(
+        card,
+        (57, 72, 94, 210),
+        card.get_rect(),
+        1,
+        border_radius=radius,
+    )
+
+    card.blit(title, ((width - title.get_width()) // 2, title_top))
+    pygame.draw.line(
+        card,
+        (55, 73, 96, 210),
+        (pad, divider_y),
+        (width - pad, divider_y),
+        1,
+    )
+
+    row_y = row_y_start
+    for index, item in enumerate(prepared_rows):
+        accent = item["accent"]
+        row_h = int(item["row_h"])
+        header_h = int(item["header_h"])
+        label_s = item["label_s"]
+        value_s = item["value_s"]
+        factor_surfaces = item["factor_surfaces"]
+        live = bool(item["live"])
+
+        pygame.draw.rect(
+            card,
+            (*accent, 28),
+            (rail_w, row_y, width - rail_w, row_h),
+            border_radius=max(3, int(4 * scale)),
+        )
+        pygame.draw.rect(
+            card,
+            (*accent, 235),
+            (0, row_y + 2, rail_w, max(1, row_h - 4)),
+            border_radius=max(1, rail_w // 2),
+        )
+        left_x = pad + rail_w
+        card.blit(label_s, (left_x, row_y + max(0, (header_h - label_s.get_height()) // 2)))
+        card.blit(
+            value_s,
+            (
+                width - pad - value_s.get_width(),
+                row_y + max(0, (header_h - value_s.get_height()) // 2),
+            ),
+        )
+
+        meter_y = row_y + header_h + row_gap
+        meter_rect = pygame.Rect(
+            left_x,
+            meter_y,
+            max(1, width - left_x - pad),
+            meter_h,
+        )
+        _draw_damage_modifier_meter(
+            card,
+            meter_rect,
+            float(item["percent"] if live else 0.0),
+            accent if live else (104, 112, 126),
+            scale,
+        )
+
+        factor_y = meter_rect.bottom + row_gap
+        for factor_s in factor_surfaces:
+            card.blit(factor_s, (left_x, factor_y))
+            factor_y += factor_s.get_height() + line_gap
+
+        row_y += row_h
+        if index < len(prepared_rows) - 1:
+            pygame.draw.line(
+                card,
+                (42, 54, 72, 170),
+                (pad, row_y - max(2, row_gap // 2)),
+                (width - pad, row_y - max(2, row_gap // 2)),
+                1,
+            )
+
+    if any_approximate:
+        footer = font_sm.render(
+            "* move properties can bypass some factors",
+            True,
+            (112, 130, 153),
+        )
+        card.blit(
+            footer,
+            ((width - footer.get_width()) // 2, height - footer.get_height() - max(3, int(4 * scale))),
+        )
+
+    screen.blit(card, (x, y))
+
+
+
+def _panel_int(value, default: int = 0) -> int:
+    try:
+        if value is None or value == "":
+            return int(default)
+        if isinstance(value, str):
+            return int(value, 0)
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _panel_hex(value) -> str:
+    if value is None or value == "":
+        return "--------"
+    return f"{_panel_int(value) & 0xFFFFFFFF:08X}"
+
+
+def _panel_fit(font, text: str, max_width: int) -> pygame.Surface:
+    text = str(text or "")
+    color = (174, 190, 211)
+    rendered = font.render(text, True, color)
+    if rendered.get_width() <= max_width:
+        return rendered
+    suffix = "..."
+    while text and font.size(text + suffix)[0] > max_width:
+        text = text[:-1]
+    return font.render((text.rstrip() + suffix) if text else "", True, color)
+
+
+def _draw_research_shell(
+    screen,
+    rect: pygame.Rect,
+    title: str,
+    accent: tuple[int, int, int],
+    font_sm,
+) -> pygame.Surface:
+    radius = max(6, int(7 * min(rect.width / 360.0, 1.0)))
+    shadow = pygame.Surface((rect.width + 10, rect.height + 10), pygame.SRCALPHA)
+    pygame.draw.rect(shadow, (0, 0, 0, 92), (5, 5, rect.width, rect.height), border_radius=radius + 2)
+    screen.blit(shadow, (rect.x - 5, rect.y + 2))
+    card = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(card, (9, 14, 22, 235), card.get_rect(), border_radius=radius)
+    pygame.draw.rect(card, (*accent, 205), card.get_rect(), 1, border_radius=radius)
+    pygame.draw.rect(card, (*accent, 220), (0, 0, max(3, int(4)), rect.height), border_radius=2)
+    title_s = font_sm.render(title, True, (232, 240, 248))
+    card.blit(title_s, (10, 7))
+    pygame.draw.line(card, (48, 63, 82, 205), (9, 7 + title_s.get_height() + 5), (rect.width - 9, 7 + title_s.get_height() + 5), 1)
+    return card
+
+
+def _team_point_snapshot(team: str) -> tuple[str, dict] | tuple[None, None]:
+    selected = _damage_point_slot(team)
+    if selected is not None:
+        return selected
+    for slot in (f"{team}-C1", f"{team}-C2"):
+        snap = _display_slots.get(slot)
+        if isinstance(snap, dict):
+            return slot, snap
+    return None, None
+
+
+def _draw_meter_generation_panel(screen, font, font_sm, scale: float) -> None:
+    width = max(350, int(390 * scale))
+    row_h = max(66, int(70 * scale))
+    title_h = font_sm.get_height() + 21
+    height = title_h + row_h * 2 + max(9, int(10 * scale))
+    x = screen.get_width() // 2 - width // 2
+    y = screen.get_height() - height - max(14, int(18 * scale))
+    rect = pygame.Rect(x, max(int(410 * scale), y), width, height)
+    card = _draw_research_shell(screen, rect, "METER GENERATION", (67, 201, 156), font_sm)
+    content_y = title_h
+
+    for index, team in enumerate(("P1", "P2")):
+        slot, snap = _team_point_snapshot(team)
+        snap = snap if isinstance(snap, dict) else {}
+        accent = (236, 92, 108) if team == "P1" else (82, 164, 236)
+        row_y = content_y + index * row_h
+        if index:
+            pygame.draw.line(card, (42, 56, 73, 170), (10, row_y), (width - 10, row_y), 1)
+
+        current = _panel_int(snap.get("meter_profile_current", snap.get("meter")), 0)
+        current = max(0, min(50000, current))
+        delta = _panel_int(snap.get("meter_profile_last_delta"), 0)
+        predicted_raw = snap.get("meter_profile_last_predicted")
+        predicted = None if predicted_raw is None else _panel_int(predicted_raw)
+        match = snap.get("meter_profile_last_match")
+        role = str(snap.get("meter_profile_last_role") or "").upper()
+        source = str(snap.get("meter_profile_last_source") or "")
+        move = str(snap.get("meter_profile_last_move") or "")
+        name = _compact_trim(str(snap.get("name") or slot or "---"), 14)
+
+        header = font_sm.render(f"{team}  {name}", True, accent)
+        value = font.render(f"{current / 10000.0:.2f} BAR", True, (232, 240, 248))
+        card.blit(header, (12, row_y + 5))
+        card.blit(value, (width - 12 - value.get_width(), row_y + 3))
+
+        bar_x = 12
+        bar_y = row_y + 25
+        bar_w = width - 24
+        bar_h = max(7, int(8 * scale))
+        pygame.draw.rect(card, (24, 34, 47), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+        fill_w = int(bar_w * (current / 50000.0))
+        if fill_w > 0:
+            pygame.draw.rect(card, accent, (bar_x, bar_y, fill_w, bar_h), border_radius=3)
+        for pip in range(1, 5):
+            px = bar_x + int(bar_w * pip / 5.0)
+            pygame.draw.line(card, (9, 14, 22), (px, bar_y), (px, bar_y + bar_h), 1)
+
+        if delta:
+            prediction_text = ""
+            if predicted is not None:
+                state = "MATCH" if match is True else ("MISS" if match is False else "PRED")
+                prediction_text = f"  PRED {predicted:+d} {state}"
+            detail = f"LAST {delta:+d}  {role or 'UNKNOWN'}{prediction_text}"
+        else:
+            detail = "NO METER TRANSITION CAPTURED"
+        detail_s = _panel_fit(font_sm, detail, width - 24)
+        card.blit(detail_s, (12, bar_y + bar_h + 4))
+        if source or move:
+            source_line = "  ".join(part for part in (source, move) if part)
+            source_s = _panel_fit(font_sm, source_line, width - 24)
+            source_s.set_alpha(190)
+            card.blit(source_s, (12, bar_y + bar_h + 4 + font_sm.get_height()))
+
+    screen.blit(card, rect.topleft)
+
+
+def _draw_red_health_panel(screen, font, font_sm, scale: float) -> None:
+    width = max(370, int(410 * scale))
+    row_h = max(47, int(51 * scale))
+    title_h = font_sm.get_height() + 21
+    height = title_h + row_h * 4 + max(8, int(9 * scale))
+    rect = pygame.Rect(max(12, int(16 * scale)), screen.get_height() - height - max(14, int(18 * scale)), width, height)
+    card = _draw_research_shell(screen, rect, "RECOVERABLE HEALTH", (223, 82, 102), font_sm)
+    content_y = title_h
+
+    for index, slot in enumerate(("P1-C1", "P1-C2", "P2-C1", "P2-C2")):
+        snap = _display_slots.get(slot)
+        snap = snap if isinstance(snap, dict) else {}
+        row_y = content_y + index * row_h
+        if index:
+            pygame.draw.line(card, (42, 56, 73, 160), (10, row_y), (width - 10, row_y), 1)
+        accent = SLOT_COLORS.get(slot, (180, 180, 190))
+        name = _compact_trim(str(snap.get("name") or "---"), 12)
+        point = bool(snap.get("red_health_point", snap.get("damage_point_active", False)))
+        current = _panel_int(snap.get("red_health_current", snap.get("cur")), 0)
+        maximum = max(1, _panel_int(snap.get("max"), 1))
+        auxiliary = _panel_int(snap.get("red_health_aux", snap.get("recoverable_ceiling")), current)
+        red = max(0, _panel_int(snap.get("red_health_recoverable", snap.get("recoverable_hp")), auxiliary - current))
+        red_pct = float(snap.get("red_health_pct_max", snap.get("recoverable_pct_max", 0.0)) or 0.0)
+        status = "POINT" if point else "RESERVE"
+        if _panel_int(snap.get("cur"), 0) <= 0:
+            status = "KO"
+        header = font_sm.render(f"{slot}  {name}  {status}", True, accent if status != "KO" else (132, 140, 151))
+        value = font_sm.render(f"HP {current}  AUX {auxiliary}  RED {red} ({red_pct:.1f}%)", True, (232, 240, 248))
+        card.blit(header, (12, row_y + 4))
+        card.blit(value, (width - 12 - value.get_width(), row_y + 4))
+
+        bar_x = 12
+        bar_y = row_y + 23
+        bar_w = width - 24
+        bar_h = max(7, int(8 * scale))
+        pygame.draw.rect(card, (24, 34, 47), (bar_x, bar_y, bar_w, bar_h), border_radius=3)
+        aux_w = int(bar_w * max(0.0, min(1.0, auxiliary / float(maximum))))
+        cur_w = int(bar_w * max(0.0, min(1.0, current / float(maximum))))
+        if aux_w > 0:
+            pygame.draw.rect(card, (150, 55, 74), (bar_x, bar_y, aux_w, bar_h), border_radius=3)
+        if cur_w > 0:
+            pygame.draw.rect(card, accent, (bar_x, bar_y, cur_w, bar_h), border_radius=3)
+
+        event = str(snap.get("red_health_last_event") or "")
+        pending_cur = _panel_int(snap.get("red_health_pending_current"), 0)
+        pending_aux = _panel_int(snap.get("red_health_pending_aux"), 0)
+        if event:
+            red_delta = _panel_int(snap.get("red_health_last_red_delta"), 0)
+            detail = f"{event.replace('_', ' ').upper()}  RED {red_delta:+d}  Q {pending_cur:+d}/{pending_aux:+d}"
+        else:
+            detail = f"QUEUE {pending_cur:+d}/{pending_aux:+d}  SYNC {_panel_int(snap.get('red_health_heal_sync'), 0)}"
+        detail_s = _panel_fit(font_sm, detail, width - 24)
+        detail_s.set_alpha(195)
+        card.blit(detail_s, (12, bar_y + bar_h + 3))
+
+    screen.blit(card, rect.topleft)
+
+
+def _active_attack_snapshot(team: str) -> tuple[str, dict] | tuple[None, None]:
+    candidates = []
+    for slot in (f"{team}-C1", f"{team}-C2"):
+        snap = _display_slots.get(slot)
+        if not isinstance(snap, dict):
+            continue
+        count = _panel_int(snap.get("attack_property_packet_count"), 0)
+        actor = _panel_int(snap.get("attack_property_live_actor"), 0)
+        candidates.append((1 if actor else 0, count, slot, snap))
+    if candidates:
+        candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+        _actor, _count, slot, snap = candidates[0]
+        return slot, snap
+    return None, None
+
+
+def _draw_attack_property_panel(screen, font, font_sm, scale: float) -> None:
+    width = max(380, int(420 * scale))
+    row_h = max(91, int(96 * scale))
+    title_h = font_sm.get_height() + 21
+    height = title_h + row_h * 2 + max(8, int(9 * scale))
+    rect = pygame.Rect(screen.get_width() - width - max(12, int(16 * scale)), screen.get_height() - height - max(14, int(18 * scale)), width, height)
+    card = _draw_research_shell(screen, rect, "ATTACK PROPERTIES", (158, 109, 216), font_sm)
+    content_y = title_h
+
+    for index, team in enumerate(("P1", "P2")):
+        slot, snap = _active_attack_snapshot(team)
+        snap = snap if isinstance(snap, dict) else {}
+        row_y = content_y + index * row_h
+        if index:
+            pygame.draw.line(card, (42, 56, 73, 170), (10, row_y), (width - 10, row_y), 1)
+        accent = (236, 92, 108) if team == "P1" else (82, 164, 236)
+        actor = _panel_int(snap.get("attack_property_live_actor"), 0)
+        name = _compact_trim(str(snap.get("name") or slot or "---"), 13)
+        move = _compact_trim(str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "---"), 22)
+        header = font_sm.render(f"{team}  {name}  {move}", True, accent)
+        card.blit(header, (12, row_y + 5))
+
+        if not actor:
+            empty = font.render("NO ACTIVE HIT PACKET", True, (123, 137, 157))
+            card.blit(empty, (12, row_y + 28))
+            continue
+
+        damage = _panel_int(snap.get("attack_property_live_damage"), 0)
+        status20 = _panel_hex(snap.get("attack_property_live_status20"))
+        prop_a = _panel_hex(snap.get("attack_property_live_a"))
+        prop_b = _panel_hex(snap.get("attack_property_live_b"))
+        text_a = str(snap.get("attack_property_live_a_text") or "UNRESOLVED")
+        text_b = str(snap.get("attack_property_live_b_text") or "UNRESOLVED")
+        victim = str(snap.get("attack_property_live_victim_slot") or "-")
+        line1 = f"ACTOR {actor:08X}  DMG {damage}  VICTIM {victim}  STATUS {status20}"
+        line2 = f"A {prop_a}  {text_a}"
+        line3 = f"B {prop_b}  {text_b}"
+        for offset, line in enumerate((line1, line2, line3)):
+            surf = _panel_fit(font_sm, line, width - 24)
+            if offset:
+                surf.set_alpha(205)
+            card.blit(surf, (12, row_y + 27 + offset * (font_sm.get_height() + 2)))
+
+    screen.blit(card, rect.topleft)
+
+
+
+def _draw_compact_damage_scaling_rows(
+    screen,
+    font_sm,
+    team: str,
+    point_label: str,
+    point: dict,
+    partner_label: str,
+    partner: dict,
+    x: int,
+    y: int,
+    right: int,
+    scale: float,
+) -> None:
+    """Draw compact 100 percent deviation gauges for both team slots."""
+    opponent_team = "P2" if team == "P1" else "P1"
+    victim = _damage_point_slot(opponent_team)
+    row_h = max(font_sm.get_height() + 4, int(17 * scale))
+    row_gap = max(2, int(3 * scale))
+    header_h = max(font_sm.get_height(), int(12 * scale))
+    inner_pad = max(5, int(6 * scale))
+    badge_w = max(20, int(23 * scale))
+    percent_reserve = max(font_sm.size("999.9%*")[0], int(50 * scale))
+    slot_rows = sorted(
+        ((point_label, point), (partner_label, partner)),
+        key=lambda item: 0 if item[0].endswith("C1") else 1,
+    )
+
+    brand_color = (151, 164, 184)
+    brand_surface = font_sm.render("DMG SCALE", True, brand_color)
+    brand_y = y + max(0, (header_h - brand_surface.get_height()) // 2)
+    screen.blit(brand_surface, (x + 2, brand_y))
+    brand_line_x = x + brand_surface.get_width() + max(6, int(8 * scale))
+    pygame.draw.line(
+        screen,
+        (47, 59, 75),
+        (brand_line_x, y + header_h // 2),
+        (right, y + header_h // 2),
+        1,
+    )
+
+    rows_y = y + header_h
+    for index, (slot_label, snap) in enumerate(slot_rows):
+        row_y = rows_y + index * (row_h + row_gap)
+        row_rect = pygame.Rect(x, row_y, max(80, right - x), row_h)
+        badge = "C1" if slot_label.endswith("C1") else "C2"
+        name = _compact_trim(str(snap.get("name") or "---"), 10)
+        is_point = bool(snap.get("damage_point_active", snap.get("damage_is_point")))
+        slot_accent = SLOT_COLORS.get(slot_label, (190, 195, 208))
+
+        pygame.draw.rect(
+            screen,
+            (14, 19, 28, 210),
+            row_rect,
+            border_radius=max(3, int(4 * scale)),
+        )
+        border_color = (*slot_accent, 150 if is_point else 75)
+        pygame.draw.rect(
+            screen,
+            border_color,
+            row_rect,
+            1,
+            border_radius=max(3, int(4 * scale)),
+        )
+
+        badge_rect = pygame.Rect(
+            row_rect.x + 1,
+            row_rect.y + 1,
+            badge_w,
+            max(1, row_rect.height - 2),
+        )
+        pygame.draw.rect(
+            screen,
+            (*slot_accent, 68 if is_point else 34),
+            badge_rect,
+            border_radius=max(2, int(3 * scale)),
+        )
+        badge_surface = font_sm.render(badge, True, slot_accent if is_point else (125, 134, 150))
+        screen.blit(
+            badge_surface,
+            (
+                badge_rect.centerx - badge_surface.get_width() // 2,
+                badge_rect.centery - badge_surface.get_height() // 2,
+            ),
+        )
+
+        name_color = (211, 217, 228) if is_point else (139, 149, 166)
+        name_surface = font_sm.render(name, True, name_color)
+        name_x = badge_rect.right + inner_pad
+        screen.blit(name_surface, (name_x, row_rect.centery - name_surface.get_height() // 2))
+
+        if victim is None:
+            percent = 100.0
+            value_text = "---"
+            live = False
+            gauge_color = (91, 102, 119)
+        else:
+            victim_slot, _victim_snapshot = victim
+            owner_slot = _damage_team_owner_slot(team, slot_label)
+            data = build_live_damage_modifier(
+                _display_slots,
+                slot_label,
+                victim_slot,
+                owner_slot=owner_slot,
+            )
+            percent = float(data.get("percent") or 100.0)
+            approximate = bool(data.get("approximate", False))
+            live = bool(data.get("live", False))
+            value_text = f"{percent:.1f}%" + ("*" if approximate else "")
+            if not live:
+                gauge_color = (91, 102, 119)
+            elif percent < 99.95:
+                gauge_color = (235, 91, 108)
+            elif percent > 100.05:
+                gauge_color = (232, 188, 83)
+            else:
+                gauge_color = (122, 183, 198)
+
+        value_surface = font_sm.render(value_text, True, gauge_color)
+        value_x = row_rect.right - inner_pad - value_surface.get_width()
+        screen.blit(value_surface, (value_x, row_rect.centery - value_surface.get_height() // 2))
+
+        gauge_x = name_x + name_surface.get_width() + max(7, int(9 * scale))
+        gauge_right = value_x - max(7, int(9 * scale))
+        gauge_w = max(30, gauge_right - gauge_x)
+        gauge_y = row_rect.centery
+        pygame.draw.line(
+            screen,
+            (55, 66, 82),
+            (gauge_x, gauge_y),
+            (gauge_x + gauge_w, gauge_y),
+            max(1, int(2 * scale)),
+        )
+        base_x = gauge_x + gauge_w // 2
+        pygame.draw.line(
+            screen,
+            (146, 157, 174),
+            (base_x, gauge_y - max(3, int(4 * scale))),
+            (base_x, gauge_y + max(3, int(4 * scale))),
+            1,
+        )
+
+        if live:
+            ratio = max(0.0, min(1.0, percent / 200.0))
+            marker_x = gauge_x + int(round(gauge_w * ratio))
+            pygame.draw.line(
+                screen,
+                gauge_color,
+                (min(base_x, marker_x), gauge_y),
+                (max(base_x, marker_x), gauge_y),
+                max(2, int(3 * scale)),
+            )
+            pygame.draw.circle(
+                screen,
+                gauge_color,
+                (marker_x, gauge_y),
+                max(2, int(2 * scale)),
+            )
+
+
+def _research_dock_active_panel(control=None) -> str | None:
+    """Return one fallback research panel when the core HUD is hidden."""
+    if control is None:
+        return None
+    for key, attr in (
+        ("attack", "show_attack_property_panel"),
+        ("damage", "show_damage_badge"),
+        ("meter", "show_meter_panel"),
+        ("red", "show_red_health_panel"),
+    ):
+        if bool(getattr(control, attr, False)):
+            return key
+    return None
+
+
+def _research_dock_geometry(screen, scale: float, panel: str) -> pygame.Rect:
+    margin = max(10, int(14 * scale))
+    max_width = max(520, int(760 * scale))
+    width = min(screen.get_width() - margin * 2, max_width)
+    content_heights = {
+        "damage": max(112, int(118 * scale)),
+        "meter": max(98, int(104 * scale)),
+        "red": max(170, int(178 * scale)),
+        "attack": max(112, int(120 * scale)),
+    }
+    title_h = max(27, int(29 * scale))
+    height = title_h + content_heights.get(panel, content_heights["damage"])
+    x = (screen.get_width() - width) // 2
+    y = screen.get_height() - height - margin
+    return pygame.Rect(x, max(margin, y), width, height)
+
+
+def _research_dock_title(panel: str) -> tuple[str, tuple[int, int, int]]:
+    return {
+        "damage": ("RESEARCH DOCK  |  DAMAGE MODIFIER", (222, 170, 74)),
+        "meter": ("RESEARCH DOCK  |  METER GENERATION", (67, 201, 156)),
+        "red": ("RESEARCH DOCK  |  RECOVERABLE HEALTH", (223, 82, 102)),
+        "attack": ("RESEARCH DOCK  |  ATTACK PROPERTIES", (158, 109, 216)),
+    }.get(panel, ("RESEARCH DOCK", (104, 169, 224)))
+
+
+def _draw_research_damage_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
+    rows = _damage_modifier_badge_rows()
+    if not rows:
+        empty = font.render("NO LIVE DAMAGE DATA", True, (125, 139, 158))
+        card.blit(empty, (area.centerx - empty.get_width() // 2, area.centery - empty.get_height() // 2))
+        return
+
+    gap = max(8, int(10 * scale))
+    cell_w = (area.width - gap) // 2
+    meter_h = max(7, int(8 * scale))
+    for index, (label, data, accent) in enumerate(rows[:2]):
+        cell = pygame.Rect(area.x + index * (cell_w + gap), area.y, cell_w, area.height)
+        pygame.draw.rect(card, (*accent, 22), cell, border_radius=max(4, int(5 * scale)))
+        pygame.draw.rect(card, (*accent, 120), cell, 1, border_radius=max(4, int(5 * scale)))
+        pad = max(8, int(9 * scale))
+        percent = float(data.get("percent") or 100.0)
+        approximate = bool(data.get("approximate", False))
+        live = bool(data.get("live", False))
+        label_s = _panel_fit(font_sm, label, cell.width - pad * 2 - max(76, int(86 * scale)))
+        value_s = font.render(
+            f"{percent:.1f}%" + ("*" if approximate else ""),
+            True,
+            accent if live else (132, 142, 158),
+        )
+        card.blit(label_s, (cell.x + pad, cell.y + pad - 1))
+        card.blit(value_s, (cell.right - pad - value_s.get_width(), cell.y + max(3, pad - 4)))
+
+        meter = pygame.Rect(cell.x + pad, cell.y + pad + max(label_s.get_height(), value_s.get_height()) + 4, cell.width - pad * 2, meter_h)
+        _draw_damage_modifier_meter(card, meter, percent if live else 0.0, accent if live else (104, 112, 126), scale)
+
+        factors = list(data.get("factors") or ["BASE"])
+        if not live:
+            factors = ["NO LIVE SCALING DATA"]
+        factor_lines = _wrap_damage_factor_lines(font_sm, factors, cell.width - pad * 2)
+        factor_y = meter.bottom + max(5, int(6 * scale))
+        max_lines = max(1, (cell.bottom - factor_y - pad) // max(1, font_sm.get_height() + 2))
+        for line in factor_lines[:max_lines]:
+            surface = font_sm.render(line, True, (164, 184, 207))
+            card.blit(surface, (cell.x + pad, factor_y))
+            factor_y += font_sm.get_height() + 2
+
+
+def _draw_research_meter_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
+    gap = max(8, int(10 * scale))
+    cell_w = (area.width - gap) // 2
+    for index, team in enumerate(("P1", "P2")):
+        slot, snap = _team_point_snapshot(team)
+        snap = snap if isinstance(snap, dict) else {}
+        accent = (236, 92, 108) if team == "P1" else (82, 164, 236)
+        cell = pygame.Rect(area.x + index * (cell_w + gap), area.y, cell_w, area.height)
+        pygame.draw.rect(card, (*accent, 20), cell, border_radius=max(4, int(5 * scale)))
+        pygame.draw.rect(card, (*accent, 110), cell, 1, border_radius=max(4, int(5 * scale)))
+        pad = max(8, int(9 * scale))
+        current = max(0, min(50000, _panel_int(snap.get("meter_profile_current", snap.get("meter")), 0)))
+        delta = _panel_int(snap.get("meter_profile_last_delta"), 0)
+        predicted_raw = snap.get("meter_profile_last_predicted")
+        predicted = None if predicted_raw is None else _panel_int(predicted_raw)
+        match = snap.get("meter_profile_last_match")
+        role = str(snap.get("meter_profile_last_role") or "").upper()
+        source = str(snap.get("meter_profile_last_source") or "")
+        move = str(snap.get("meter_profile_last_move") or "")
+        name = _compact_trim(str(snap.get("name") or slot or "---"), 15)
+        header = font_sm.render(f"{team}  {name}", True, accent)
+        value = font.render(f"{current / 10000.0:.2f} BAR", True, (232, 240, 248))
+        card.blit(header, (cell.x + pad, cell.y + pad))
+        card.blit(value, (cell.right - pad - value.get_width(), cell.y + max(3, pad - 4)))
+
+        bar = pygame.Rect(cell.x + pad, cell.y + pad + max(header.get_height(), value.get_height()) + 5, cell.width - pad * 2, max(8, int(9 * scale)))
+        pygame.draw.rect(card, (24, 34, 47), bar, border_radius=3)
+        fill_w = int(bar.width * current / 50000.0)
+        if fill_w > 0:
+            pygame.draw.rect(card, accent, (bar.x, bar.y, fill_w, bar.height), border_radius=3)
+        for pip in range(1, 5):
+            px = bar.x + int(bar.width * pip / 5.0)
+            pygame.draw.line(card, (9, 14, 22), (px, bar.y), (px, bar.bottom), 1)
+
+        if delta:
+            prediction_text = ""
+            if predicted is not None:
+                state = "MATCH" if match is True else ("MISS" if match is False else "PRED")
+                prediction_text = f"  PRED {predicted:+d} {state}"
+            detail = f"LAST {delta:+d}  {role or 'UNKNOWN'}{prediction_text}"
+        else:
+            detail = "NO METER TRANSITION CAPTURED"
+        detail_s = _panel_fit(font_sm, detail, cell.width - pad * 2)
+        card.blit(detail_s, (cell.x + pad, bar.bottom + 5))
+        source_line = "  ".join(part for part in (source, move) if part)
+        if source_line:
+            source_s = _panel_fit(font_sm, source_line, cell.width - pad * 2)
+            source_s.set_alpha(190)
+            card.blit(source_s, (cell.x + pad, bar.bottom + 7 + font_sm.get_height()))
+
+
+def _draw_research_red_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
+    gap_x = max(8, int(10 * scale))
+    gap_y = max(6, int(7 * scale))
+    cell_w = (area.width - gap_x) // 2
+    cell_h = (area.height - gap_y) // 2
+    slots = ("P1-C1", "P1-C2", "P2-C1", "P2-C2")
+    for index, slot in enumerate(slots):
+        col = index % 2
+        row = index // 2
+        cell = pygame.Rect(area.x + col * (cell_w + gap_x), area.y + row * (cell_h + gap_y), cell_w, cell_h)
+        snap = _display_slots.get(slot)
+        snap = snap if isinstance(snap, dict) else {}
+        accent = SLOT_COLORS.get(slot, (180, 180, 190))
+        point = bool(snap.get("red_health_point", snap.get("damage_point_active", False)))
+        current = _panel_int(snap.get("red_health_current", snap.get("cur")), 0)
+        maximum = max(1, _panel_int(snap.get("max"), 1))
+        auxiliary = _panel_int(snap.get("red_health_aux", snap.get("recoverable_ceiling")), current)
+        red = max(0, _panel_int(snap.get("red_health_recoverable", snap.get("recoverable_hp")), auxiliary - current))
+        red_pct = float(snap.get("red_health_pct_max", snap.get("recoverable_pct_max", 0.0)) or 0.0)
+        status = "POINT" if point else "RESERVE"
+        if _panel_int(snap.get("cur"), 0) <= 0:
+            status = "KO"
+        pygame.draw.rect(card, (*accent, 20), cell, border_radius=max(4, int(5 * scale)))
+        pygame.draw.rect(card, (*accent, 105), cell, 1, border_radius=max(4, int(5 * scale)))
+        pad = max(7, int(8 * scale))
+        name = _compact_trim(str(snap.get("name") or "---"), 15)
+        header = _panel_fit(font_sm, f"{slot}  {name}  {status}", cell.width - pad * 2)
+        value = _panel_fit(font_sm, f"HP {current}  AUX {auxiliary}  RED {red} ({red_pct:.1f}%)", cell.width - pad * 2)
+        card.blit(header, (cell.x + pad, cell.y + pad - 1))
+        card.blit(value, (cell.x + pad, cell.y + pad + font_sm.get_height() + 1))
+
+        bar = pygame.Rect(cell.x + pad, cell.y + pad + font_sm.get_height() * 2 + 5, cell.width - pad * 2, max(7, int(8 * scale)))
+        pygame.draw.rect(card, (24, 34, 47), bar, border_radius=3)
+        aux_w = int(bar.width * max(0.0, min(1.0, auxiliary / float(maximum))))
+        cur_w = int(bar.width * max(0.0, min(1.0, current / float(maximum))))
+        if aux_w > 0:
+            pygame.draw.rect(card, (150, 55, 74), (bar.x, bar.y, aux_w, bar.height), border_radius=3)
+        if cur_w > 0:
+            pygame.draw.rect(card, accent, (bar.x, bar.y, cur_w, bar.height), border_radius=3)
+
+        event = str(snap.get("red_health_last_event") or "")
+        pending_cur = _panel_int(snap.get("red_health_pending_current"), 0)
+        pending_aux = _panel_int(snap.get("red_health_pending_aux"), 0)
+        if event:
+            red_delta = _panel_int(snap.get("red_health_last_red_delta"), 0)
+            detail = f"{event.replace('_', ' ').upper()}  RED {red_delta:+d}  Q {pending_cur:+d}/{pending_aux:+d}"
+        else:
+            detail = f"QUEUE {pending_cur:+d}/{pending_aux:+d}  SYNC {_panel_int(snap.get('red_health_heal_sync'), 0)}"
+        detail_s = _panel_fit(font_sm, detail, cell.width - pad * 2)
+        detail_s.set_alpha(195)
+        card.blit(detail_s, (cell.x + pad, bar.bottom + 4))
+
+
+def _draw_research_attack_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
+    gap = max(8, int(10 * scale))
+    cell_w = (area.width - gap) // 2
+    for index, team in enumerate(("P1", "P2")):
+        slot, snap = _active_attack_snapshot(team)
+        snap = snap if isinstance(snap, dict) else {}
+        accent = (236, 92, 108) if team == "P1" else (82, 164, 236)
+        cell = pygame.Rect(area.x + index * (cell_w + gap), area.y, cell_w, area.height)
+        pygame.draw.rect(card, (*accent, 20), cell, border_radius=max(4, int(5 * scale)))
+        pygame.draw.rect(card, (*accent, 105), cell, 1, border_radius=max(4, int(5 * scale)))
+        pad = max(8, int(9 * scale))
+        actor = _panel_int(snap.get("attack_property_live_actor"), 0)
+        name = _compact_trim(str(snap.get("name") or slot or "---"), 14)
+        move = _compact_trim(str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "---"), 25)
+        header = _panel_fit(font_sm, f"{team}  {name}  {move}", cell.width - pad * 2)
+        card.blit(header, (cell.x + pad, cell.y + pad))
+        if not actor:
+            empty = font.render("NO ACTIVE HIT PACKET", True, (123, 137, 157))
+            card.blit(empty, (cell.x + pad, cell.y + pad + header.get_height() + 9))
+            continue
+
+        damage = _panel_int(snap.get("attack_property_live_damage"), 0)
+        status20 = _panel_hex(snap.get("attack_property_live_status20"))
+        prop_a = _panel_hex(snap.get("attack_property_live_a"))
+        prop_b = _panel_hex(snap.get("attack_property_live_b"))
+        text_a = str(snap.get("attack_property_live_a_text") or "UNRESOLVED")
+        text_b = str(snap.get("attack_property_live_b_text") or "UNRESOLVED")
+        victim = str(snap.get("attack_property_live_victim_slot") or "-")
+        lines = (
+            f"ACTOR {actor:08X}  DMG {damage}  VICTIM {victim}  STATUS {status20}",
+            f"A {prop_a}  {text_a}",
+            f"B {prop_b}  {text_b}",
+        )
+        line_y = cell.y + pad + header.get_height() + 7
+        for line in lines:
+            surf = _panel_fit(font_sm, line, cell.width - pad * 2)
+            card.blit(surf, (cell.x + pad, line_y))
+            line_y += font_sm.get_height() + 3
+
+
+def _draw_research_dock(screen, font, font_sm, scale: float, panel: str) -> None:
+    rect = _research_dock_geometry(screen, scale, panel)
+    title, accent = _research_dock_title(panel)
+    card = _draw_research_shell(screen, rect, title, accent, font_sm)
+    title_h = max(27, int(29 * scale))
+    pad = max(9, int(10 * scale))
+    area = pygame.Rect(pad, title_h + 2, rect.width - pad * 2, rect.height - title_h - pad)
+    if panel == "damage":
+        _draw_research_damage_content(card, area, font, font_sm, scale)
+    elif panel == "meter":
+        _draw_research_meter_content(card, area, font, font_sm, scale)
+    elif panel == "red":
+        _draw_research_red_content(card, area, font, font_sm, scale)
+    elif panel == "attack":
+        _draw_research_attack_content(card, area, font, font_sm, scale)
+    screen.blit(card, rect.topleft)
+
+
+def _draw_research_panels(screen, font, font_sm, scale: float, control=None) -> None:
+    panel = _research_dock_active_panel(control)
+    if panel is not None:
+        _draw_research_dock(screen, font, font_sm, scale, panel)
+
 def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float) -> None:
     life = max(0.0, float(_interaction_ribbon.get("life") or 0.0) - dt * 0.72)
     age = max(0.0, float(_interaction_ribbon.get("age") or 0.0) + dt)
@@ -4061,36 +5512,105 @@ def _draw_combo_ledger(screen, font_sm, team: str, x: int, y: int, width: int, s
     attacker_slot = str(ledger.get("attacker_slot") or "")
     if not attacker_slot:
         return
+
     fade = min(1.0, life * 2.4)
     meter_delta = _snap_int(attacker_slot, "meter") - int(ledger.get("meter_start") or 0)
     baroque_delta = _snap_float(attacker_slot, "baroque_red_pct_max") - float(ledger.get("baroque_start") or 0.0)
     hits = int(ledger.get("hits") or 0)
     damage = int(ledger.get("damage") or 0)
+    last_hit = int(ledger.get("last_hit_damage") or 0)
+
     title = f"COMBO  {hits} HIT{'S' if hits != 1 else ''}  |  {damage:,} DMG"
+    if last_hit > 0:
+        title += f"  |  LAST {last_hit:,}"
+
     resource = f"MTR {meter_delta:+,}"
     if abs(baroque_delta) >= 0.5:
         resource += f"  •  BBQ {baroque_delta:+.0f}%"
+
+    detail_lines = [
+        str(line)
+        for line in (ledger.get("damage_breakdown_lines") or [])
+        if str(line).strip()
+    ][:4]
+
     title_s = font_sm.render(title, True, (236, 241, 248))
-    resource_s = font_sm.render(resource, True, (124, 188, 255) if meter_delta >= 0 else (255, 174, 104))
-    h = max(int(29 * scale), title_s.get_height() + resource_s.get_height() + int(8 * scale))
-    w = min(width, max(int(194 * scale), title_s.get_width() + int(22 * scale), resource_s.get_width() + int(22 * scale)))
+    resource_s = font_sm.render(
+        resource,
+        True,
+        (124, 188, 255) if meter_delta >= 0 else (255, 174, 104),
+    )
+    detail_surfaces = [
+        font_sm.render(line, True, (185, 202, 224))
+        for line in detail_lines
+    ]
+
+    pad_x = max(8, int(8 * scale))
+    pad_y = max(3, int(3 * scale))
+    gap = max(1, int(2 * scale))
+    content_surfaces = [title_s, *detail_surfaces, resource_s]
+    content_height = sum(surface.get_height() for surface in content_surfaces)
+    content_height += gap * max(0, len(content_surfaces) - 1)
+    h = max(int(29 * scale), content_height + pad_y * 2)
+    w = min(
+        width,
+        max(
+            int(194 * scale),
+            max(
+                (surface.get_width() for surface in content_surfaces),
+                default=0,
+            ) + pad_x * 2,
+        ),
+    )
+
     draw_x = x if is_left else x + width - w
     slide = int((1.0 - fade) * 8 * scale)
     draw_y = y + slide
     shadow = pygame.Surface((w + 8, h + 8), pygame.SRCALPHA)
     card = pygame.Surface((w, h), pygame.SRCALPHA)
-    pygame.draw.rect(shadow, (0, 0, 0, int(72 * fade)), (4, 4, w, h), border_radius=max(4, int(5 * scale)))
-    pygame.draw.rect(card, (15, 19, 28, int(216 * fade)), card.get_rect(), border_radius=max(4, int(5 * scale)))
-    pygame.draw.rect(card, (107, 154, 232, int(178 * fade)), card.get_rect(), 1, border_radius=max(3, int(4 * scale)))
-    rail_x = 0 if is_left else w - max(2, int(3 * scale))
-    pygame.draw.rect(card, (107, 154, 232, int(220 * fade)), (rail_x, 0, max(2, int(3 * scale)), h))
-    title_s.set_alpha(int(255 * fade)); resource_s.set_alpha(int(238 * fade))
-    card.blit(title_s, (int(8 * scale), int(3 * scale)))
-    card.blit(resource_s, (int(8 * scale), h - resource_s.get_height() - int(3 * scale)))
+    pygame.draw.rect(
+        shadow,
+        (0, 0, 0, int(72 * fade)),
+        (4, 4, w, h),
+        border_radius=max(4, int(5 * scale)),
+    )
+    pygame.draw.rect(
+        card,
+        (15, 19, 28, int(224 * fade)),
+        card.get_rect(),
+        border_radius=max(4, int(5 * scale)),
+    )
+    pygame.draw.rect(
+        card,
+        (107, 154, 232, int(190 * fade)),
+        card.get_rect(),
+        1,
+        border_radius=max(3, int(4 * scale)),
+    )
+    rail_w = max(2, int(3 * scale))
+    rail_x = 0 if is_left else w - rail_w
+    pygame.draw.rect(
+        card,
+        (107, 154, 232, int(230 * fade)),
+        (rail_x, 0, rail_w, h),
+    )
 
-    # A narrow low-alpha sweep acknowledges every hit without competing with
-    # the count. Once the chain times out, a wider brighter pass confirms the
-    # final total before the card fades away.
+    cursor_y = pad_y
+    title_s.set_alpha(int(255 * fade))
+    card.blit(title_s, (pad_x, cursor_y))
+    cursor_y += title_s.get_height() + gap
+
+    for detail_s in detail_surfaces:
+        detail_s.set_alpha(int(242 * fade))
+        card.blit(detail_s, (pad_x, cursor_y))
+        cursor_y += detail_s.get_height() + gap
+
+    resource_s.set_alpha(int(238 * fade))
+    resource_y = min(h - resource_s.get_height() - pad_y, cursor_y)
+    card.blit(resource_s, (pad_x, resource_y))
+
+    # A restrained sweep acknowledges each hit. A brighter pass confirms the
+    # final combo total before the card fades.
     hit_sheen = float(ledger.get("hit_sheen") or 0.0)
     if hit_sheen > 0.001:
         _blit_combo_sheen(card, 1.0 - hit_sheen, fade, heavy=False)
@@ -4101,21 +5621,33 @@ def _draw_combo_ledger(screen, font_sm, team: str, x: int, y: int, width: int, s
     if milestone_sheen > 0.001:
         _blit_combo_milestone(card, 1.0 - milestone_sheen, fade)
 
-    milestone_scale = max(0.0, min(1.0, float(ledger.get("milestone_scale") or 0.0)))
+    milestone_scale = max(
+        0.0,
+        min(1.0, float(ledger.get("milestone_scale") or 0.0)),
+    )
     milestone_progress = 1.0 - milestone_scale
-    scale_envelope = math.sin(math.pi * milestone_progress) if milestone_scale > 0.001 else 0.0
+    scale_envelope = (
+        math.sin(math.pi * milestone_progress)
+        if milestone_scale > 0.001
+        else 0.0
+    )
     scale_factor = 1.0 + 0.075 * scale_envelope
     if scale_factor > 1.001:
-        scaled_size = (max(1, int(card.get_width() * scale_factor)), max(1, int(card.get_height() * scale_factor)))
+        scaled_size = (
+            max(1, int(card.get_width() * scale_factor)),
+            max(1, int(card.get_height() * scale_factor)),
+        )
         card = pygame.transform.smoothscale(card, scaled_size)
-        shadow = pygame.transform.smoothscale(shadow, (scaled_size[0] + 8, scaled_size[1] + 8))
+        shadow = pygame.transform.smoothscale(
+            shadow,
+            (scaled_size[0] + 8, scaled_size[1] + 8),
+        )
         draw_x -= (scaled_size[0] - w) // 2
         draw_y -= (scaled_size[1] - h) // 2
 
     screen.blit(shadow, (draw_x - 4, draw_y - 1))
     screen.blit(shadow, (draw_x - 4, draw_y + 1))
     screen.blit(card, (draw_x, draw_y))
-
 
 def _draw_tag_card(screen, font_sm, team_anim: dict, x: int, y: int, width: int, scale: float, is_left: bool, dt: float) -> None:
     card_data = team_anim.get("tag_card")
@@ -4316,14 +5848,30 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     )
     hold_expand = max(0.0, min(1.0, float(team_anim.get("hold_expand", 0.0))))
 
+    show_damage_inline = bool(control is not None and getattr(control, "show_damage_badge", False))
+    show_meter_inline = bool(control is not None and getattr(control, "show_meter_panel", False))
+    show_red_inline = bool(control is not None and getattr(control, "show_red_health_panel", False))
+    show_attack_inline = bool(control is not None and getattr(control, "show_attack_property_panel", False))
+    research_mode = "attack" if show_attack_inline else None
+    research_row_height = max(31, int(34 * scale)) if show_attack_inline else 0
+    research_gap = max(1, int(2 * scale)) if show_attack_inline else 0
+    research_layout_extra = research_row_height + research_gap
+    damage_scale_row_h = max(font_sm.get_height() + 4, int(17 * scale))
+    damage_scale_gap = max(2, int(3 * scale))
+    damage_scale_header_h = max(font_sm.get_height(), int(12 * scale))
+    damage_scale_height = damage_scale_header_h + damage_scale_row_h * 2 + damage_scale_gap
+    damage_scale_layout_extra = damage_scale_height + max(3, int(4 * scale)) if show_damage_inline else 0
+
     width = max(442, int(486 * scale))
-    collapsed_height = max(154, int(166 * scale))
+    collapsed_height = max(154, int(166 * scale)) + research_layout_extra + damage_scale_layout_extra
     hold_extra_height = max(18, int(20 * scale))
     height = collapsed_height + int(hold_extra_height * hold_expand)
-    margin_x = int(12 * scale)
-    base_y = int(144 * scale)
+    # Keep both compact team panels flush with the game viewport corners.
+    # Their entrance animation still begins outside the corresponding edge.
+    margin_x = 0
+    base_y = 0
     is_left = team == "P1"
-    base_x = margin_x if is_left else screen.get_width() - margin_x - width
+    base_x = 0 if is_left else screen.get_width() - width
     accent = SLOT_COLORS.get(point_label, SLOT_COLORS[f"{team}-C1"])
     point_dead = int(point.get("cur") or 0) <= 0
     partner_dead = int(partner.get("cur") or 0) <= 0
@@ -4420,20 +5968,17 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     hp_y = primary_y + max(16, int(18 * scale)) + int(4 * scale)
     secondary_y = hp_y + max(7, int(8 * scale)) + int(7 * scale)
     partner_hp_y = secondary_y + font_sm.get_height() + int(2 * scale)
-    strip_y = partner_hp_y + max(5, int(6 * scale)) + int(5 * scale)
+    damage_scale_y = partner_hp_y + max(5, int(6 * scale)) + int(4 * scale)
+    strip_y = partner_hp_y + max(5, int(6 * scale)) + int(5 * scale) + damage_scale_layout_extra
     history_y = strip_y + max(17, int(18 * scale)) + int(3 * scale)
     input_y = history_y + max(12, int(13 * scale)) + int(2 * scale)
     input_row_h = max(15, int(17 * scale))
     frames_y = input_y + input_row_h + int(2 * scale)
     frames_row_h = max(13, int(15 * scale))
-    hold_y = frames_y + frames_row_h + int(2 * scale)
+    research_y = frames_y + frames_row_h + int(2 * scale)
+    hold_y = research_y + research_layout_extra
     hold_row_h = max(15, int(17 * scale))
-    move_history_y = (
-        frames_y
-        + frames_row_h
-        + int((hold_row_h + int(2 * scale)) * hold_expand)
-        + int(2 * scale)
-    )
+    move_history_y = hold_y + int((hold_row_h + int(2 * scale)) * hold_expand)
     # Preserve the old tag-swap motion: when the active point changes, the
     # incoming fighter rises from the reserve row while the outgoing fighter
     # drops into it.  The C1/C2 badges travel with their full character rows.
@@ -4491,10 +6036,11 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
 
     show_point_baroque = _update_compact_baroque_anim(point_anim, point, point_dead, dt)
     show_partner_baroque = _update_compact_baroque_anim(partner_anim, partner, partner_dead, dt)
+    meter_profile_delta = _panel_int(point.get("meter_profile_last_delta"), 0)
     power_w = max(
         int(108 * scale),
         font_sm.size("C1 BBQ 00.00%")[0] + int(18 * scale),
-        font_sm.size("METER 5")[0] + int(12 * scale),
+        font_sm.size("METER +9999 5")[0] + int(12 * scale) if show_meter_inline else font_sm.size("METER 5")[0] + int(12 * scale),
     )
     power_left = right - power_w
     separator_x = power_left - int(6 * scale)
@@ -4508,6 +6054,21 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     meter_label_y = primary_y - max(0, int(1 * scale))
     screen.blit(meter_caption, (power_left, meter_label_y))
     screen.blit(meter_value, (right - meter_value.get_width(), meter_label_y))
+    if show_meter_inline and meter_profile_delta:
+        meter_match = point.get("meter_profile_last_match")
+        if meter_profile_delta < 0:
+            delta_color = (255, 171, 92)
+        elif meter_match is True:
+            delta_color = (92, 218, 154)
+        elif meter_match is False:
+            delta_color = (255, 112, 120)
+        else:
+            delta_color = (92, 174, 242)
+        delta_surface = font_sm.render(f"{meter_profile_delta:+d}", True, delta_color)
+        delta_right = right - meter_value.get_width() - max(5, int(6 * scale))
+        delta_x = max(power_left + meter_caption.get_width() + max(5, int(6 * scale)), delta_right - delta_surface.get_width())
+        if delta_x + delta_surface.get_width() <= delta_right:
+            screen.blit(delta_surface, (delta_x, meter_label_y))
     meter_y = primary_y + meter_caption.get_height() + max(1, int(1 * scale))
     _draw_compact_meter(
         screen,
@@ -4574,12 +6135,20 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
         )
 
     hp_h = max(6, int(7 * scale))
-    hp_text = font_sm.render(_compact_hp_text(point.get("cur"), point.get("max")), True, COL_DEAD if point_dead else (182, 192, 208))
+    point_red_values = _compact_red_health_values(point)
+    point_auxiliary = point_red_values[1]
+    point_recoverable = point_red_values[2]
+    point_hp_label = _compact_hp_text(point.get("cur"), point.get("max"))
+    hp_text = font_sm.render(point_hp_label, True, COL_DEAD if point_dead else (182, 192, 208))
+    point_red_text = None
+    if show_red_inline and point_recoverable > 0:
+        point_red_text = font_sm.render(f" +{_compact_short_number(point_recoverable)}", True, (246, 94, 128))
     hp_gap = int(5 * scale)
     ko_gap = int(7 * scale)
     ko_w = max(22, font_sm.size("KO")[0] + int(10 * scale)) if point_dead else 0
     ko_h = max(14, int(16 * scale)) if point_dead else 0
-    reserve_w = hp_text.get_width() + hp_gap + (ko_w + ko_gap if point_dead else 0)
+    red_text_w = point_red_text.get_width() if point_red_text is not None else 0
+    reserve_w = hp_text.get_width() + red_text_w + hp_gap + (ko_w + ko_gap if point_dead else 0)
     hp_w = max(84, min(max(140, int(164 * scale)), power_left - name_x - reserve_w - int(4 * scale)))
     _draw_compact_health(
         screen,
@@ -4592,11 +6161,15 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
         point_dead,
         point_anim.get("hp_display_frac"),
         point_anim.get("hp_trail_frac"),
+        (point_auxiliary / max(1.0, float(point.get("max") or 1))) if show_red_inline else None,
     )
     hp_text_x = name_x + hp_w + hp_gap
     hp_text.set_alpha(int(255 * top_row_alpha)); screen.blit(hp_text, (hp_text_x, top_hp_y - max(1, int(2 * scale))))
+    if point_red_text is not None:
+        point_red_text.set_alpha(int(255 * top_row_alpha))
+        screen.blit(point_red_text, (hp_text_x + hp_text.get_width(), top_hp_y - max(1, int(2 * scale))))
     if point_dead:
-        ko_x = hp_text_x + hp_text.get_width() + ko_gap
+        ko_x = hp_text_x + hp_text.get_width() + red_text_w + ko_gap
         ko_x = min(ko_x, power_left - ko_w - int(4 * scale))
         _draw_compact_ko_badge(screen, font_sm, pygame.Rect(ko_x, top_hp_y - int(4 * scale), ko_w, ko_h), scale, float(point_anim.get("ko_alpha", 1.0)), float(point_anim.get("ko_scale", 1.0)))
 
@@ -4643,6 +6216,23 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
         team_anim.get("input_history_prev", []),
         float(team_anim.get("input_history_slide", 0.0)),
     )
+
+    if show_attack_inline:
+        _draw_compact_research_row(
+            screen,
+            font_sm,
+            "attack",
+            team,
+            point_label,
+            point,
+            partner_label,
+            partner,
+            left,
+            research_y,
+            right,
+            research_row_height,
+            scale,
+        )
 
     hold_signature = tuple(str(item.get("id") or "") for item in hold_items)
     previous_hold_signature = tuple(team_anim.get("hold_history_signature", ()))
@@ -4717,26 +6307,53 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     state_surface.set_alpha(int(255 * bottom_row_alpha))
     screen.blit(state_surface, (state_x, bottom_row_y))
 
-    partner_hp_text = font_sm.render(_compact_hp_text(partner.get("cur"), partner.get("max")), True, COL_DEAD if partner_dead else (150, 161, 180))
+    partner_red_values = _compact_red_health_values(partner)
+    partner_auxiliary = partner_red_values[1]
+    partner_recoverable = partner_red_values[2]
+    partner_hp_label = _compact_hp_text(partner.get("cur"), partner.get("max"))
+    partner_hp_text = font_sm.render(partner_hp_label, True, COL_DEAD if partner_dead else (150, 161, 180))
+    partner_red_text = None
+    if show_red_inline and partner_recoverable > 0:
+        partner_red_text = font_sm.render(f" +{_compact_short_number(partner_recoverable)}", True, (246, 94, 128))
     partner_hp_gap = int(5 * scale)
     partner_ko_w = max(22, font_sm.size("KO")[0] + int(10 * scale)) if partner_dead else 0
     partner_ko_gap = int(7 * scale)
-    partner_hp_reserve = partner_hp_text.get_width() + partner_hp_gap + (partner_ko_w + partner_ko_gap if partner_dead else 0)
+    partner_red_text_w = partner_red_text.get_width() if partner_red_text is not None else 0
+    partner_hp_reserve = partner_hp_text.get_width() + partner_red_text_w + partner_hp_gap + (partner_ko_w + partner_ko_gap if partner_dead else 0)
     partner_hp_w = max(54, min(max(98, int(118 * scale)), state_x - partner_name_x - partner_hp_reserve - int(6 * scale)))
     _draw_compact_health(
         screen, partner_name_x, bottom_hp_y, partner_hp_w, max(4, int(5 * scale)),
         partner.get("cur"), partner.get("max"), partner_dead, partner_anim.get("hp_display_frac"),
-        partner_anim.get("hp_trail_frac")
+        partner_anim.get("hp_trail_frac"),
+        (partner_auxiliary / max(1.0, float(partner.get("max") or 1))) if show_red_inline else None,
     )
     partner_hp_text_x = partner_name_x + partner_hp_w + partner_hp_gap
     partner_hp_text.set_alpha(int(255 * bottom_row_alpha))
     screen.blit(partner_hp_text, (partner_hp_text_x, bottom_hp_y - max(1, int(2 * scale))))
+    if partner_red_text is not None:
+        partner_red_text.set_alpha(int(255 * bottom_row_alpha))
+        screen.blit(partner_red_text, (partner_hp_text_x + partner_hp_text.get_width(), bottom_hp_y - max(1, int(2 * scale))))
     if partner_dead:
-        ko_x = min(partner_hp_text_x + partner_hp_text.get_width() + partner_ko_gap, state_x - partner_ko_w - int(4 * scale))
+        ko_x = min(partner_hp_text_x + partner_hp_text.get_width() + partner_red_text_w + partner_ko_gap, state_x - partner_ko_w - int(4 * scale))
         _draw_compact_ko_badge(
             screen, font_sm, pygame.Rect(ko_x, bottom_hp_y - int(4 * scale), partner_ko_w, max(13, int(15 * scale))),
             scale, float(partner_anim.get("ko_alpha", 1.0)), float(partner_anim.get("ko_scale", 1.0))
         )
+    if show_damage_inline:
+        _draw_compact_damage_scaling_rows(
+            screen,
+            font_sm,
+            team,
+            point_label,
+            point,
+            partner_label,
+            partner,
+            left,
+            damage_scale_y,
+            info_right,
+            scale,
+        )
+
     if control is None or getattr(control, "show_tag_card", True):
         _draw_tag_card(screen, font_sm, team_anim, x, y + height + int(5 * scale), width, scale, is_left, dt)
     if control is None or getattr(control, "show_combo_card", True):
@@ -4792,24 +6409,30 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
 
 
 def draw_overlay(screen, font, font_sm, slots, scale, dt, control=None) -> None:
-    if HUD_LAYOUT_MODE != "compact":
-        _draw_overlay_detail(screen, font, font_sm, slots, scale, dt)
-        return
-
-    _anim_state["overlay_alpha"] = _approach(_anim_state["overlay_alpha"], 1.0, FADE_SPEED, dt)
-    overlay_alpha = _anim_state["overlay_alpha"]
+    core_visible = control is None or getattr(control, "show_hud", True)
 
     for slot_label, snap in slots.items():
         if isinstance(snap, dict):
             _compact_track_slot(slot_label, snap)
 
-    _maybe_restart_match_assembly(slots)
-    _draw_match_assembly_spine(screen, scale, dt)
-    _draw_compact_team_panel(screen, font, font_sm, "P1", slots, scale, overlay_alpha, dt, control)
-    _draw_compact_team_panel(screen, font, font_sm, "P2", slots, scale, overlay_alpha, dt, control)
-    if control is None or getattr(control, "show_interaction_card", True):
-        _draw_live_interaction_ribbon(screen, font, font_sm, scale, dt)
-    _tick_combo_ledgers(dt)
+    if HUD_LAYOUT_MODE != "compact":
+        if core_visible:
+            _draw_overlay_detail(screen, font, font_sm, slots, scale, dt)
+        _draw_research_panels(screen, font, font_sm, scale, control)
+        return
+
+    if core_visible:
+        _anim_state["overlay_alpha"] = _approach(_anim_state["overlay_alpha"], 1.0, FADE_SPEED, dt)
+        overlay_alpha = _anim_state["overlay_alpha"]
+        _maybe_restart_match_assembly(slots)
+        _draw_match_assembly_spine(screen, scale, dt)
+        _draw_compact_team_panel(screen, font, font_sm, "P1", slots, scale, overlay_alpha, dt, control)
+        _draw_compact_team_panel(screen, font, font_sm, "P2", slots, scale, overlay_alpha, dt, control)
+        if control is None or getattr(control, "show_interaction_card", True):
+            _draw_live_interaction_ribbon(screen, font, font_sm, scale, dt)
+        _tick_combo_ledgers(dt)
+    else:
+        _draw_research_panels(screen, font, font_sm, scale, control)
 
 
 # ---------------------------------------------------------------------------
@@ -4859,15 +6482,27 @@ class HudRenderer:
 
     def draw(self, screen: pygame.Surface, control=None) -> None:
         hud_visible = control is None or getattr(control, "show_hud", True)
-        if not hud_visible:
+        research_visible = bool(
+            control is not None
+            and (
+                getattr(control, "show_damage_badge", False)
+                or getattr(control, "show_meter_panel", False)
+                or getattr(control, "show_red_health_panel", False)
+                or getattr(control, "show_attack_property_panel", False)
+            )
+        )
+        if not hud_visible and not research_visible:
             self._hud_was_visible = False
             return
-        if not self._hud_was_visible:
+        if hud_visible and not self._hud_was_visible:
             _restart_hud_entrance()
             self._hud_was_visible = True
+        elif not hud_visible:
+            self._hud_was_visible = False
 
         draw_overlay(screen, self.font, self.font_sm, _display_slots, self.scale, 1 / 60.0, control)
-        _draw_punish_countdown(screen, self.scale)
+        if hud_visible:
+            _draw_punish_countdown(screen, self.scale)
 
 # ---------------------------------------------------------------------------
 # Main

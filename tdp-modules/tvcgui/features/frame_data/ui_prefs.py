@@ -19,6 +19,7 @@ _DEFAULTS: dict[str, Any] = {
     "density": "standard",
     "view_mode": "frame",
     "column_widths": {},
+    "layout_cleanup_v1": False,
 }
 
 

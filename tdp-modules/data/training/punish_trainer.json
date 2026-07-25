@@ -1,11 +1,11 @@
 {
-  "action_id": 324,
+  "action_id": 352,
   "cooldown_sec": 8.0,
   "enabled": false,
-  "move_label": "Air Tatsu M [0x144]",
+  "move_label": "Shinkuu [0x160]",
   "random_interval": false,
   "random_max_sec": 10.0,
   "random_min_sec": 5.0,
   "show_countdown": true,
-  "target_slot": "P2-C1"
+  "target_slot": "P1-C1"
 }

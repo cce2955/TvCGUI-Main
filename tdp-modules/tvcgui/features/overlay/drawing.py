@@ -157,11 +157,11 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
     meter_surf = font.render(f"Meter:{meter_str}", True, _meter_col)
     surface.blit(meter_surf, (text_x0 + hp_surf.get_width(), y0 + 24))
 
-    pool_pct_val = snap.get("pool_pct")
+    pool_pct_val = snap.get("recoverable_pct_max", snap.get("pool_pct"))
     pool_pct_str = f"{pool_pct_val:.1f}%" if pool_pct_val is not None else "--"
-    pool_raw = snap.get("hp_pool_byte")
+    recoverable_hp = int(snap.get("recoverable_hp") or 0)
     surface.blit(
-        font.render(f"POOL(02A): {pool_pct_str}  raw:{pool_raw}", True, COL_TEXT),
+        font.render(f"Red HP: {recoverable_hp} ({pool_pct_str})", True, COL_TEXT),
         (text_x0, y0 + 44),
     )
 
@@ -180,7 +180,7 @@ def draw_panel_classic(surface, rect, snap, portrait_surf, font, smallfont, head
 
 
 
-    mv_label = snap.get("mv_label", ",")
+    mv_label = snap.get("mv_label_display") or snap.get("mv_label", ",")
     mv_id = snap.get("mv_id_display")
 
     # Assist display: if this slot is currently acting as an assist, append a tag.

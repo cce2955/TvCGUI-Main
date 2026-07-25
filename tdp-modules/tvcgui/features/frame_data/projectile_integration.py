@@ -16,6 +16,8 @@ from tvcgui.features.combat import projectile_scanner as P
 PROJECTILE_COLUMNS = (
     "proj_cluster", "proj_fmt", "proj_emit_count", "proj_id", "proj_type",
     "proj_radius", "proj_fx", "proj_life", "proj_spawn_origin", "proj_speed", "proj_accel",
+    "proj_motion_family", "proj_fixed_scale", "proj_mode_a", "proj_mode_b",
+    "proj_linked_resource", "proj_flags_72", "proj_physics_tail_d4", "proj_c042",
     "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2",
     "proj_super_hit_react", "proj_super_life", "proj_super_air_kb_y",
     "proj_super_speed", "proj_super_accel", "proj_super_speed_2",
@@ -43,7 +45,15 @@ PROJECTILE_LABELS = {
     "proj_life": "Proj Life",
     "proj_spawn_origin": "Spawn Origin",
     "proj_speed": "Proj Speed",
-    "proj_accel": "Proj Accel",
+    "proj_accel": "Speed / Time Multiplier",
+    "proj_motion_family": "Motion Family",
+    "proj_fixed_scale": "Fixed Scale",
+    "proj_mode_a": "Mode / Count A",
+    "proj_mode_b": "Mode / Count B / Flags",
+    "proj_linked_resource": "Linked Resource / Script",
+    "proj_flags_72": "Flags / Sentinel",
+    "proj_physics_tail_d4": "Physics Tail D4",
+    "proj_c042": "Validation Constant",
     "proj_kb_y": "Proj KB Y",
     "proj_hitbox": "Proj Hitbox",
     "proj_arc": "Proj Arc",
@@ -92,19 +102,27 @@ PROJECTILE_LABELS = {
 # type: f32, u8, u16, u32, dmg, static
 PROJECTILE_FIELD_INFO = {
     "damage": ("dmg", "Projectile Damage", "dmg"),
-    "proj_radius": ("radius", "Projectile Radius", "f32"),
+    "proj_radius": ("radius", "Base Collision Scale", "f32"),
     "proj_fx": ("fx", "Projectile FX", "u32"),
     "proj_life": ("lifetime", "Projectile Lifetime", "u16"),
     "proj_spawn_origin": ("spawn_origin", "Spawn Origin", "u8"),
     "proj_speed": ("speed", "Projectile Speed", "f32"),
-    "proj_accel": ("accel", "Projectile Accel", "f32"),
+    "proj_accel": ("accel", "Speed / Time Multiplier", "f32"),
+    "proj_motion_family": ("motion_family", "Motion Family", "u16"),
+    "proj_fixed_scale": ("fixed_scale", "Fixed Scale (1024 = 1.0)", "u16"),
+    "proj_mode_a": ("mode_a", "Mode / Count A", "u32"),
+    "proj_mode_b": ("mode_b", "Mode / Count B / Flags", "u32"),
+    "proj_linked_resource": ("linked_resource", "Linked Resource / Script ID", "u32"),
+    "proj_flags_72": ("flags_72", "Flags / Sentinel Raw", "u32"),
+    "proj_physics_tail_d4": ("physics_tail_d4", "Physics Tail D4", "f32"),
+    "proj_c042": ("c042", "Validation Constant", "u16"),
     "kb_x": ("kb_x", "Projectile KB X", "f32"),
     "air_kb": ("kb_y", "Projectile KB Y", "f32"),
     "proj_kb_y": ("kb_y", "Projectile KB Y", "f32"),
-    "proj_hitbox": ("hitbox", "Projectile Hitbox", "f32"),
+    "proj_hitbox": ("hitbox", "Projectile Percent Scale", "f32"),
     "proj_arc": ("arc", "Projectile Arc", "f32"),
     "proj_arc2": ("arc2", "Projectile Arc 2", "f32"),
-    "proj_type": ("type", "Projectile Type", "u8"),
+    "proj_type": ("type", "Motion Family Low Byte", "u8"),
     "proj_id": ("id", "Projectile ID", "u16"),
     "proj_super_hit_react": ("super_hit_react", "Projectile Hit Reaction", "u16"),
     "proj_super_life": ("super_life", "Super Life", "u16"),
@@ -116,7 +134,7 @@ PROJECTILE_FIELD_INFO = {
     "proj_super_accel_c": ("super_accel_c", "Super Accel C", "f32"),
     "proj_multihit_cap": ("super_multihit_cap", "Unknown D8", "u32"),
     "proj_super_radius": ("super_radius", "Hit Radius", "f32"),
-    "proj_ps_card_type": ("ps_card_type", "Card Type", "static"),
+    "proj_ps_card_type": ("ps_card_type", "Card Type / Signature", "u16"),
     "proj_ps_lifetime": ("ps_lifetime", "Active Time", "u16"),
     "proj_ps_hit_count": ("ps_hit_count", "Hits", "u16"),
     "proj_ps_mode": ("ps_mode", "Mode", "u16"),
@@ -677,6 +695,22 @@ def format_projectile_value(mv: dict, col_name: str) -> str:
         return _fmt_float(hit.get("speed"))
     if col_name == "proj_accel":
         return _fmt_float(hit.get("accel"))
+    if col_name == "proj_motion_family":
+        return _fmt_int(hit.get("motion_family"))
+    if col_name == "proj_fixed_scale":
+        return _fmt_int(hit.get("fixed_scale"))
+    if col_name == "proj_mode_a":
+        return _fmt_hex_or_int(hit.get("mode_a"))
+    if col_name == "proj_mode_b":
+        return _fmt_hex_or_int(hit.get("mode_b"))
+    if col_name == "proj_linked_resource":
+        return _fmt_hex_or_int(hit.get("linked_resource"))
+    if col_name == "proj_flags_72":
+        return _fmt_hex_or_int(hit.get("flags_72"))
+    if col_name == "proj_physics_tail_d4":
+        return _fmt_float(hit.get("physics_tail_d4"))
+    if col_name == "proj_c042":
+        return _fmt_int(hit.get("c042"))
     if col_name == "proj_kb_y":
         return _fmt_float(hit.get("kb_y"))
     if col_name == "proj_hitbox":
@@ -829,7 +863,7 @@ def projectile_quick_summary(mv: dict | None) -> str:
             ("proj_ps_particle_fx", "fx"),
             ("proj_speed", "spd"),
             ("proj_spawn_origin", "org"),
-            ("proj_accel", "acc"),
+            ("proj_accel", "mult"),
         ]:
             val = _summary_value(mv, col)
             if val:
@@ -854,13 +888,13 @@ def projectile_quick_summary(mv: dict | None) -> str:
     compact_cols = [
         ("kb_x", "kx"),
         ("air_kb", "ky"),
-        ("proj_radius", "rad"),
+        ("proj_radius", "base"),
         ("proj_fx", "fx"),
         ("proj_life", "life"),
         ("proj_spawn_origin", "org"),
         ("proj_speed", "spd"),
         ("proj_accel", "acc"),
-        ("proj_hitbox", "hb"),
+        ("proj_hitbox", "pct"),
     ]
     for col, label in compact_cols:
         val = _summary_value(mv, col)
@@ -1022,6 +1056,11 @@ def projectile_field_addr(mv: dict, col_name: str | None) -> int | None:
 
     if hit_key == "dmg":
         return int(hit.get("dmg_write_addr") or mv.get("damage_addr") or (addr + P._dmg_write_offset(fmt)))
+    if hit_key == "ps_card_type" and fmt in getattr(P, "PROJECTILE_SUPER_FMTS", set()):
+        # 00/23 or 01/23 is the record's leading u16 signature.  This is
+        # structurally dangerous, but it is a real memory-backed field and the
+        # Frame Data Editor intentionally exposes every writable value.
+        return addr
 
     if _is_morrigan_finishing_shower_missile_hit(hit):
         # Validated live Morrigan Finishing Shower missile block.
@@ -1087,6 +1126,45 @@ def projectile_field_addr(mv: dict, col_name: str | None) -> int | None:
     if hit_key in P.FIELD_OFFSETS:
         return addr + P.FIELD_OFFSETS[hit_key]
     return None
+
+
+def projectile_field_addresses(mv: dict, col_name: str | None) -> list[int]:
+    """Return every concrete backing address for a projectile field.
+
+    Normal projectile rows have one address. Synthetic emitter rows bulk-write
+    several physical cards, so their context menus expose the complete address
+    list instead of pretending there is no backing memory.
+    """
+    if not is_projectile_row(mv) or not col_name or not projectile_editable(col_name):
+        return []
+    hit = mv.get("_proj_hit") or {}
+    if not _is_projectile_emitter_hit(hit):
+        addr = projectile_field_addr(mv, col_name)
+        return [int(addr)] if addr else []
+
+    emitter_col_alias = {
+        "proj_speed": "proj_ps_offset_x",
+        "proj_accel": "proj_ps_offset_y",
+        "proj_hitbox": "proj_ps_scale",
+        "proj_radius": "proj_ps_scale",
+        "proj_life": "proj_ps_lifetime",
+        "proj_spawn_origin": "proj_ps_spawn_bone",
+    }
+    out = []
+    seen = set()
+    for idx, peer in enumerate(list(hit.get("_emitter_peer_hits") or [])):
+        temp = projectile_row_from_hit(dict(peer), idx)
+        actual_col = col_name
+        try:
+            if _fmt_for_mv(temp) in getattr(P, "PROJECTILE_SUPER_FMTS", set()):
+                actual_col = emitter_col_alias.get(col_name, col_name)
+        except Exception:
+            actual_col = emitter_col_alias.get(col_name, col_name)
+        addr = projectile_field_addr(temp, actual_col)
+        if addr and int(addr) not in seen:
+            seen.add(int(addr))
+            out.append(int(addr))
+    return out
 
 
 def parse_projectile_input(col_name: str, text: str):

@@ -52,7 +52,7 @@ FD_CORE_COLUMNS = (
     "move", "hits", "link",
     "damage", "meter",
     "startup", "active", "custom_cancel_window",
-    "hitstun", "invuln", "blockstun", "hitstop",
+    "hitstun", "invuln", "armor_probe", "blockstun", "hitstop",
     "adv_block_derived", "adv_block_observed",
     "hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time", "post_link",
     "kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb",
@@ -133,8 +133,8 @@ FD_LABELS = {
     "speed_mod": "Speed Mod",
     "invuln": "Invuln",
     "cancel_probe": "Cancel windows ?",
-    "baroque_probe": "Baroque ?",
-    "armor_probe": "Armor ?",
+    "baroque_probe": "Baroque Window",
+    "armor_probe": "Protection",
     "attack_property": "Attack Property",
     "hit_reaction": "Hit Reaction",
     "hit_result_flags": "Hit Result",
@@ -702,7 +702,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             return
         if col == "invuln":
             try:
-                win._status_var.set("Invuln is the proven +0x1218 startup-phase signature. It is display-only.")
+                win._status_var.set("Invuln shows the native +0x1218 collision-exclusion window. [R] is observed live, [C/H/M/L] is static confidence.")
             except Exception:
                 pass
             return
@@ -712,7 +712,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             except Exception:
                 pass
             return
-        if col in {"cancel_probe", "baroque_probe", "armor_probe"}:
+        if col in {"cancel_probe", "armor_probe"}:
             try:
                 value_var = getattr(win, "_inspector_value_vars", {}).get(col)
                 text = str(value_var.get() if value_var is not None else "")
@@ -791,7 +791,7 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         return "break"
 
     def _make_chip(parent_widget, col: str, var: tk.StringVar):
-        probe_cols = {"cancel_probe", "baroque_probe", "armor_probe"}
+        probe_cols = {"cancel_probe", "armor_probe"}
         copyable_probe = col in probe_cols
         editable = col not in ({"kind", "hits", "link", "invuln"} | probe_cols)
         style = "InspectorValue.TLabel" if editable else "InspectorReadOnly.TLabel"
@@ -811,6 +811,8 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
             chip.bind("<Button-1>", lambda _e, c=col: _value_click(c))
             if copyable_probe:
                 chip.bind("<Button-3>", lambda e, c=col: _show_probe_copy_menu(e, c))
+            elif editable:
+                chip.bind("<Button-3>", lambda e, c=col: getattr(win, "_show_inspector_field_menu", lambda *_a, **_k: None)(e, c))
             chip.bind("<Return>", lambda _e, c=col: _value_click(c))
             chip.bind("<space>", lambda _e, c=col: _value_click(c))
             chip.configure(takefocus=True)
@@ -930,21 +932,38 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         field_help = get_field_help(key, "")
         Tooltip(value, (field_help + "\n\n" if field_help else "") + "Click to edit this value.")
 
+    protection = ttk.Frame(inner, style="InspectorSection.TFrame", padding=(10, 8))
+    protection.pack(fill="x", pady=(0, 10))
+    ttk.Label(protection, text="PROTECTION & CANCEL WINDOWS", style="InspectorSection.TLabel").pack(anchor="w", pady=(0, 4))
+    ttk.Separator(protection, orient="horizontal").pack(fill="x", pady=(0, 4))
+    win._protection_summary_vars = {}
+    for _row_index, (_label, _key) in enumerate((("Invulnerability", "invuln"), ("Counter", "counter"), ("Guard Point", "guard"), ("Armor", "armor"), ("Baroque Cancel", "baroque"))):
+        _row_style = "InspectorDataRowAlt.TFrame" if (_row_index % 2) else "InspectorDataRow.TFrame"
+        _label_style = "InspectorDataLabelAlt.TLabel" if (_row_index % 2) else "InspectorDataLabel.TLabel"
+        _row = ttk.Frame(protection, style=_row_style, padding=(8, 5))
+        _row.pack(fill="x", pady=2)
+        ttk.Label(_row, text=_label, style=_label_style, width=16, anchor="w").pack(side="left")
+        _var = tk.StringVar(master=win.root, value="none")
+        win._protection_summary_vars[_key] = _var
+        _value = ttk.Label(_row, textvariable=_var, style="InspectorReadOnly.TLabel", anchor="w")
+        _value.pack(side="left", fill="x", expand=True)
+    Tooltip(protection, "Counter, guard point, and armor are separate native protection paths. Baroque Cancel shows the native move-local cancel gate from +0x58/0x00400000.")
+
     timeline = ttk.Frame(inner, style="Timeline.TFrame", padding=(10, 8))
     timeline.pack(fill="x", pady=(0, 10))
     ttk.Label(timeline, text="FRAME TIMELINE", style="TimelineTitle.TLabel").pack(anchor="w")
-    win._timeline_summary_var = tk.StringVar(master=win.root, value="Select a move to draw its cached startup, active, and custom cancel frames.")
+    win._timeline_summary_var = tk.StringVar(master=win.root, value="Select a move to draw timing, protection, and Baroque-cancel windows.")
     ttk.Label(timeline, textvariable=win._timeline_summary_var, style="TimelineSub.TLabel", wraplength=390).pack(anchor="w", pady=(2, 5))
-    # Do not reuse the outer inspector Canvas variable here.  The inspector
+    # Do not reuse the outer inspector Canvas variable here. The inspector
     # scroll callbacks close over it; rebinding that name to the timeline Canvas
     # made scrollregion updates target the timeline instead of the sidebar.
-    timeline_canvas = tk.Canvas(timeline, height=88, bg="#0F1724", highlightthickness=0, bd=0)
+    timeline_canvas = tk.Canvas(timeline, height=198, bg="#0F1724", highlightthickness=0, bd=0)
     timeline_canvas.pack(fill="x")
     timeline_canvas.configure(cursor="hand2")
     win._timeline_canvas = timeline_canvas
     timeline_canvas.bind("<Configure>", lambda _e: win._refresh_frame_timeline())
     timeline_canvas.bind("<Button-1>", lambda _e: win._edit_selected_column("custom_cancel_window"))
-    Tooltip(timeline_canvas, "Click to edit the selected move's custom cancel window. This does not change or identify TvC's native cancel window.")
+    Tooltip(timeline_canvas, "Shows cached startup, active, protection, and native Baroque-cancel windows. Click to edit the selected move's custom cancel window.")
 
     compare = ttk.Frame(inner, style="Compare.TFrame", padding=(10, 8))
     compare.pack(fill="x", pady=(0, 10))
@@ -972,17 +991,18 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         ("Move link", ["link"]),
         ("Impact", ["hits", "damage", "meter", "hitstop"]),
         ("Timing", ["startup", "active", "active2", "custom_cancel_window", "speed_mod"]),
-        ("Stun and pressure", ["hitstun", "invuln", "blockstun", "attack_property", "hit_reaction", "hit_result_flags"]),
-        ("Experimental properties", ["cancel_probe", "baroque_probe", "armor_probe"]),
+        ("Stun and protection", ["hitstun", "invuln", "armor_probe", "blockstun", "attack_property", "hit_reaction", "hit_result_flags"]),
+        ("Cancel windows", ["cancel_probe", "baroque_probe"]),
         ("Launch and knockback controls", ["kb_type", "launch_profile", "kb_unknown", "kb_x", "air_kb"]),
         ("Hit FX and reach", ["hit_spark", "stretch_part", "stretch_len", "stretch_width", "stretch_height", "stretch_time"]),
         ("Dangerous script links", ["post_link"]),
         ("Flags and lookup", ["superbg", "kind", "abs"]),
         ("Super dispatch", ["dispatch_group", "dispatch_selector", "dispatch_variant", "dispatch_phase", "dispatch_child_link", "dispatch_child_target"]),
         ("Projectile emitter", ["proj_emit_count", "damage", "kb_x", "air_kb", "proj_ps_lifetime", "proj_ps_hit_count", "proj_ps_emit_count", "proj_ps_interval", "proj_radius", "proj_speed", "proj_accel", "proj_spawn_origin", "proj_ps_scale", "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone"]),
-        ("Projectile data", ["proj_fmt", "proj_id", "proj_type", "proj_radius", "proj_fx", "proj_life", "proj_spawn_origin", "proj_speed", "proj_accel", "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2"]),
+        ("Projectile data", ["proj_fmt", "proj_id", "proj_type", "proj_motion_family", "proj_life", "proj_radius", "proj_fixed_scale", "proj_speed", "proj_accel", "proj_kb_y", "proj_hitbox", "proj_arc", "proj_arc2", "proj_fx", "proj_spawn_origin", "proj_mode_a", "proj_mode_b", "proj_linked_resource", "proj_flags_72", "proj_physics_tail_d4", "proj_c042"]),
         ("Projectile super", ["proj_ps_card_type", "proj_ps_lifetime", "proj_ps_hit_count", "proj_ps_mode", "proj_ps_emit_count", "proj_ps_interval", "proj_ps_offset_x", "proj_ps_offset_y", "proj_ps_scale", "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone"]),
-        ("Super beam", ["proj_super_lifetime", "proj_super_hit_count", "proj_super_hit_interval", "proj_super_particle_fx", "proj_super_spawn_bone", "proj_super_hit_source", "proj_super_beam_scale", "proj_super_beam_width", "proj_super_beam_speed", "proj_super_beam_force", "proj_super_hit_radius", "proj_super_beam_visual"]),
+        ("Super definition", ["damage", "proj_hitbox", "proj_super_lifetime", "proj_super_hit_count", "proj_super_hit_interval", "proj_super_particle_fx", "proj_super_spawn_bone", "proj_super_hit_source"]),
+        ("Super beam", ["proj_super_beam_scale", "proj_super_beam_width", "proj_super_beam_speed", "proj_super_beam_force", "proj_super_hit_radius", "proj_super_beam_visual"]),
         ("Final hit", ["proj_final_damage", "proj_final_lifetime", "proj_final_particle_fx", "proj_final_spawn_bone"]),
         ("Projectile super probes", ["proj_super_hit_react", "proj_super_life", "proj_super_speed_2", "proj_super_accel_b", "proj_super_accel_c", "proj_multihit_cap"]),
     ]
@@ -997,11 +1017,11 @@ def _build_inspector(win, parent: ttk.Frame) -> None:
         "proj_emit_count": "Display-only number of physical projectile cards in this emitter group.",
         "dispatch_group": "Display-only group of adjacent 00/23 dispatch rows.",
         "dispatch_child_target": "Display-only resolved child script target.",
-        "invuln": "Display-only +0x1218 startup-phase signature.",
+        "invuln": "Native +0x1218 collision exclusion. [R] is exact live observation; static confidence uses [C/H/M/L].",
         "custom_cancel_window": "Editable custom mailbox window. This is not a decoded native TvC cancel window. Use 8+ or 8-20.",
         "cancel_probe": "Focused cancel-window decoder. Left click copies the first window address. Right click lists every found window address.",
-        "baroque_probe": "Experimental. The first address is the script packet. The second address is the current fighter field. Click to copy the script address.",
-        "armor_probe": "Experimental. The first address is the script packet. The second address is the current fighter field. Click to copy the script address.",
+        "baroque_probe": "Native Baroque cancel gate from +0x58 bit 0x00400000. [R] is the exact live action-frame range. +0x444C is a lockout, not the window.",
+        "armor_probe": "Decoded guard-point heights from +0x58/+0x244. [R] includes exact observed action-frame ranges. Static rows show the setup packet address.",
     }
 
     for section_title, fields in sections:
@@ -1117,7 +1137,7 @@ def build_tree_widget(win) -> ttk.Frame:
         # form fields.  The styles are switched in-place by _refresh_quick_panel
         # so selection changes stay cache-only and do not rebuild widgets.
         _cell = ttk.Frame(win._quick_chips_frame, style="QuickTile.TFrame")
-        _cell.grid(row=_slot_index // 6, column=_slot_index % 6, sticky="ew", padx=(0, 8), pady=(0, 6))
+        _cell.grid(row=_slot_index // 4, column=_slot_index % 4, sticky="ew", padx=(0, 10), pady=(0, 7))
         _rail = tk.Frame(_cell, width=3, background="#4D78A3", highlightthickness=0, bd=0)
         _rail.pack(side="left", fill="y")
         _content = ttk.Frame(_cell, style="QuickTile.TFrame", padding=(8, 4, 8, 4))
@@ -1153,7 +1173,7 @@ def build_tree_widget(win) -> ttk.Frame:
         _val.bind("<Button-1>", lambda _e, _slot=_slot: _quick_slot_click(_slot))
         _cell.grid_remove()
         win._quick_chip_slots.append(_slot)
-    for _col_index in range(6):
+    for _col_index in range(4):
         win._quick_chips_frame.grid_columnconfigure(_col_index, weight=1)
     win._quick_empty_label = ttk.Label(
         win._quick_chips_frame,
@@ -1541,7 +1561,12 @@ def build_tree_widget(win) -> ttk.Frame:
         ("dispatch_child_target", "Child Target"),
         ("abs", "Address"),
     ]
-    for c, txt in headers:
+    # Use full user-facing labels for every column. The raw workbench has many
+    # columns, so abbreviations such as Dmg, HS, and BS become hard to decode
+    # once the user scrolls away from the selected-move inspector.
+    _header_names = dict(headers)
+    for c in cols:
+        txt = FD_LABELS.get(c) or _header_names.get(c) or str(c).replace("_", " ").title()
         win.tree.heading(c, text=txt, command=lambda col=c: win._on_sort_column(col))
 
     win.tree.column("move", width=320, anchor="w")
@@ -1555,7 +1580,8 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("active", width=88, anchor="center")
     win.tree.column("active2", width=88, anchor="center")
     win.tree.column("hitstun", width=58, anchor="center")
-    win.tree.column("invuln", width=78, anchor="center")
+    win.tree.column("invuln", width=170, anchor="w")
+    win.tree.column("armor_probe", width=260, anchor="w")
     win.tree.column("blockstun", width=58, anchor="center")
     win.tree.column("hitstop", width=58, anchor="center")
     win.tree.column("adv_block_derived", width=78, anchor="center")
@@ -1637,6 +1663,38 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.column("dispatch_child_target", width=120, anchor="center")
     win.tree.column("abs", width=124, anchor="w")
 
+    # Treeview columns stretch by default. With dozens of visible fields, Tk
+    # squeezes every column down to a few characters even though a horizontal
+    # scrollbar exists. Preserve readable widths and scroll horizontally instead.
+    _wide_text_columns = {
+        "move": 260,
+        "link": 150,
+        "context": 220,
+        "invuln": 140,
+        "cancel_probe": 180,
+        "baroque_probe": 160,
+        "armor_probe": 190,
+        "attack_property": 150,
+        "hit_reaction": 190,
+        "hit_result_flags": 120,
+        "proj_cluster": 140,
+        "proj_fmt": 110,
+        "dispatch_group": 120,
+        "dispatch_child_link": 110,
+        "dispatch_child_target": 120,
+        "abs": 112,
+    }
+    win._fd_min_column_widths = {}
+    for _col in cols:
+        try:
+            _configured = int(win.tree.column(_col, "width") or 80)
+        except Exception:
+            _configured = 80
+        _minimum = int(_wide_text_columns.get(_col, max(68, min(_configured, 110))))
+        _width = max(_configured, _minimum)
+        win._fd_min_column_widths[_col] = _minimum
+        win.tree.column(_col, width=_width, minwidth=_minimum, stretch=False)
+
     # Save the current built-in widths before applying persisted user choices.
     # Reset layout uses this for a true first-load restoration.
     try:
@@ -1649,7 +1707,8 @@ def build_tree_widget(win) -> ttk.Frame:
     try:
         for _col, _width in ((getattr(win, "_ui_prefs", {}) or {}).get("column_widths") or {}).items():
             if _col in cols:
-                win.tree.column(_col, width=max(32, int(_width)))
+                _minimum = int((getattr(win, "_fd_min_column_widths", {}) or {}).get(_col, 68))
+                win.tree.column(_col, width=max(_minimum, int(_width)), minwidth=_minimum, stretch=False)
     except Exception:
         pass
 
@@ -1663,9 +1722,9 @@ def build_tree_widget(win) -> ttk.Frame:
         "super": win._fd_super_columns,
         "all": win._fd_all_columns,
     }
-    win._fd_view_mode = "all"
+    win._fd_view_mode = "frame"
 
-    def _set_fd_view_mode(mode="all"):
+    def _set_fd_view_mode(mode="frame"):
         mode = str(mode or "all").lower()
         if mode not in getattr(win, "_fd_view_presets", {}):
             mode = "all"
@@ -1745,10 +1804,15 @@ def build_tree_widget(win) -> ttk.Frame:
             win._status_var.set(f"Table density: {density}")
         except Exception:
             pass
+        try:
+            if win.tree.selection():
+                win.root.after_idle(lambda: win.tree.event_generate("<<TreeviewSelect>>"))
+        except Exception:
+            pass
 
     win._set_table_density = _set_table_density
     _set_table_density((getattr(win, "_ui_prefs", {}) or {}).get("density", "standard"))
-    _set_fd_view_mode((getattr(win, "_ui_prefs", {}) or {}).get("view_mode", "all"))
+    _set_fd_view_mode((getattr(win, "_ui_prefs", {}) or {}).get("view_mode", "frame"))
 
     def _update_hover_help(event):
         try:
@@ -1790,6 +1854,8 @@ def build_tree_widget(win) -> ttk.Frame:
     win.tree.tag_configure("family_header_super", background="#315F91", foreground="#FFFFFF")
     win.tree.tag_configure("family_header_other", background="#203554", foreground="#DCEBFF")
     win.tree.tag_configure("projectile_header", background="#2B5C88", foreground="#F1FCFF", font=("Segoe UI Semibold", 9))
+    win.tree.tag_configure("super_definition_header", background="#5A3D88", foreground="#FFF6FF", font=("Segoe UI Semibold", 9))
+    win.tree.tag_configure("super_definition_row", background="#1E1A35", foreground="#F7F0FF")
     win.tree.tag_configure("super_header", background="#3B4D8A", foreground="#F5F7FF", font=("Segoe UI Semibold", 9))
 
     # Child rows should read as belonging to their parent, while still keeping
@@ -2188,7 +2254,11 @@ def _populate_tree_sync(win) -> None:
                 U.fmt_stun(mv.get("hitstun")),
                 invuln_txt,
                 _fmt(mv.get("cancel_probe")),
-                _fmt(mv.get("baroque_probe")),
+                _fmt(
+                    mv.get("baroque_probe")
+                    if str(mv.get("baroque_source") or "").startswith("runtime_observed")
+                    else ""
+                ),
                 _fmt(mv.get("armor_probe")),
                 U.fmt_stun(mv.get("blockstun")),
                 hitstop_txt,
@@ -2332,25 +2402,177 @@ def _populate_tree_sync(win) -> None:
         except Exception:
             return (1, 0xFFFFFFFF)
 
+    _PHASE_RANK = {
+        "startup": 0,
+        "windup": 1,
+        "entry": 2,
+        "air entry": 2,
+        "start": 3,
+        "hit 1": 4,
+        "active loop": 5,
+        "loop": 5,
+        "spin": 5,
+        "hit 2": 6,
+        "hit 3": 7,
+        "hit 4": 8,
+        "hit 5": 9,
+        "followup": 10,
+        "second phase": 11,
+        "second": 11,
+        "end": 12,
+        "exit": 12,
+        "recovery": 13,
+        "landing": 14,
+        "linked hits": 40,
+        "linked section": 41,
+    }
+
     def _phase_rank(mv):
-        phase = str(mv.get("family_phase") or "").lower()
-        return {"start": 0, "spin": 1, "end": 2, "entry": 3, "air entry": 3}.get(phase, 9)
+        phase = str(mv.get("family_phase") or "").strip().lower()
+        return _PHASE_RANK.get(phase, 30)
 
     def _family_member_rank(mv):
         return (
-            int(mv.get("family_chain_index") or 9999),
             _phase_rank(mv),
+            int(mv.get("family_chain_index") or 9999),
             mv.get("abs") or 0xFFFFFFFF,
         )
 
-    # Family links are display-only.  They keep records such as Ryu's Tatsu
-    # Start/Spin/End near each other without changing any write handlers.
+    def _clean_structure_label(label):
+        text = str(label or "Move").strip()
+        text = re.sub(r"\s+linked\s+sections?$", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+(?:ground|air)\s+[LMHABC]\s+chain$", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"\s+chain\s+\d+$", "", text, flags=re.IGNORECASE)
+        return text.strip() or "Move"
+
+    def _insert_structure_node(parent, label, *, kind="structure", link="", context="", members=(), tags=()):
+        vals = {c: "" for c in FD_COLUMNS}
+        vals["move"] = _indent_move_text(win.tree, parent, label)
+        vals["kind"] = kind
+        vals["link"] = link
+        vals["context"] = context
+        addrs = []
+        for member in members or ():
+            try:
+                addr = int(member.get("abs") or 0)
+            except Exception:
+                addr = 0
+            if addr:
+                addrs.append(addr)
+        vals["abs"] = f"0x{min(addrs):08X}" if addrs else ""
+        iid = win.tree.insert(
+            parent,
+            "end",
+            text="",
+            tags=tuple(tags),
+            values=tuple(vals.get(c, "") for c in FD_COLUMNS),
+        )
+        win._all_item_ids.append(iid)
+        return iid
+
+    def _variant_metadata(mv, family_members):
+        chain_idx = int(mv.get("family_chain_index") or 0)
+        context = str(mv.get("family_context") or "").strip()
+        if context.lower() in {"section", ""}:
+            context = ""
+        strength = str(mv.get("family_strength") or mv.get("family_strength_guess") or "").strip().upper()
+        chain_members = [
+            other for other in family_members
+            if int(other.get("family_chain_index") or 0) == chain_idx
+        ] if chain_idx else []
+        for other in chain_members:
+            if not context:
+                other_context = str(other.get("family_context") or "").strip()
+                if other_context.lower() not in {"", "section"}:
+                    context = other_context
+            if not strength:
+                strength = str(other.get("family_strength") or other.get("family_strength_guess") or "").strip().upper()
+        chain_label = str(mv.get("family_chain_label") or "").strip()
+        if context and strength:
+            label = f"{context} {strength}"
+        elif context:
+            label = context
+        elif strength:
+            label = strength
+        elif chain_label:
+            label = chain_label
+        elif chain_idx:
+            label = f"Variant {chain_idx}"
+        else:
+            label = "Shared sections"
+        key = (context.lower(), strength, chain_idx, label.lower())
+        return key, label, context, strength, chain_idx
+
+    def _is_helper_member(mv):
+        phase = str(mv.get("family_phase") or "").strip().lower()
+        confidence = str(mv.get("family_confidence") or "").lower()
+        return (
+            phase in {"linked hits", "linked section", "helper", "payload"}
+            or "helper" in confidence
+            or "unnamed-linked" in confidence
+        )
+
+    def _transition_label(mv):
+        phase = str(mv.get("family_phase") or "").strip()
+        return phase or str(mv.get("move_name") or mv.get("pretty_name") or "Section").strip()
+
+    def _insert_transition_rows(parent, phase_members):
+        ordered = sorted(phase_members, key=_family_member_rank)
+        if len(ordered) < 2:
+            return
+        trans_header = _insert_structure_node(
+            parent,
+            "Transitions",
+            kind="transitions",
+            link=f"{len(ordered) - 1} inferred link(s)",
+            context="Display order inferred from phase and address",
+            members=ordered,
+            tags=("grandchild_row",),
+        )
+        for src, dst in zip(ordered, ordered[1:]):
+            src_label = _transition_label(src)
+            dst_label = _transition_label(dst)
+            src_addr = int(src.get("abs") or 0)
+            dst_addr = int(dst.get("abs") or 0)
+            address_text = ""
+            if src_addr and dst_addr:
+                address_text = f"0x{src_addr:08X} -> 0x{dst_addr:08X}"
+            _insert_structure_node(
+                trans_header,
+                f"{src_label} -> {dst_label}",
+                kind="inferred transition",
+                link="phase order",
+                context=address_text,
+                tags=("grandchild_row",),
+            )
+        loop_members = [mv for mv in ordered if str(mv.get("family_phase") or "").strip().lower() in {"spin", "loop", "active loop"}]
+        for loop_mv in loop_members:
+            loop_label = _transition_label(loop_mv)
+            loop_addr = int(loop_mv.get("abs") or 0)
+            _insert_structure_node(
+                trans_header,
+                f"{loop_label} -> {loop_label}",
+                kind="inferred loop",
+                link="repeat while move continues",
+                context=f"0x{loop_addr:08X}" if loop_addr else "",
+                tags=("grandchild_row",),
+            )
+        try:
+            win.tree.item(trans_header, open=False)
+        except Exception:
+            pass
+
+    # Move families are display-only. Each family becomes a readable structure
+    # with variants, ordered physical phases, inferred transitions, and helper
+    # payloads. Every real phase row still owns its original write addresses.
     family_groups = {}
     family_order = []
     normal_moves = []
 
     for mv in win.moves:
-        key = (mv.get("family_group_key") or mv.get("family_key")) if mv.get("family_linkable") else None
+        key = mv.get("family_key") if mv.get("family_linkable") else None
+        if not key and mv.get("family_linkable"):
+            key = mv.get("family_group_key")
         if key:
             if key not in family_groups:
                 family_groups[key] = []
@@ -2390,21 +2612,120 @@ def _populate_tree_sync(win) -> None:
         units.append(("normal", aid, min(ranks) if ranks else (9, 0xFFFFFFFF)))
 
     for kind, key, _addr in sorted(units, key=lambda u: u[2]):
-        if kind == "family":
-            members = sorted(family_groups.get(key) or [], key=_family_member_rank)
-            if not members:
+        if kind != "family":
+            _insert_id_groups(normal_groups.get(key) or [], parent="")
+            continue
+
+        members = sorted(family_groups.get(key) or [], key=_family_member_rank)
+        if not members:
+            continue
+        raw_label = next((
+            mv.get("family_label") or mv.get("family_group_label")
+            for mv in members
+            if mv.get("family_label") or mv.get("family_group_label")
+        ), key)
+        family_label = _clean_structure_label(raw_label)
+
+        variants = {}
+        variant_order = []
+        helpers = []
+        for mv in members:
+            if _is_helper_member(mv):
+                helpers.append(mv)
                 continue
-            label = members[0].get("family_group_label") or members[0].get("family_label") or key
-            suffix = "linked sections" if "linked" not in str(label).lower() else ""
-            header_label = f"{label} {suffix}".strip()
-            header = _insert_family_header(header_label, members)
-            _insert_id_groups(members, parent=header)
+            variant_key, variant_label, context, strength, chain_idx = _variant_metadata(mv, members)
+            if variant_key not in variants:
+                variants[variant_key] = {
+                    "label": variant_label,
+                    "context": context,
+                    "strength": strength,
+                    "chain_idx": chain_idx,
+                    "members": [],
+                }
+                variant_order.append(variant_key)
+            variants[variant_key]["members"].append(mv)
+
+        variant_count = len(variants)
+        header_link = f"{variant_count} variant(s), {len(members)} physical section(s)"
+        header = _insert_structure_node(
+            "",
+            f"Move structure: {family_label}",
+            kind="move structure",
+            link=header_link,
+            context="Entry, active phases, exit, transitions, and helper payloads",
+            members=members,
+            tags=_header_tags_for_members(win, members),
+        )
+
+        shared = _insert_structure_node(
+            header,
+            "Shared properties",
+            kind="family summary",
+            link="Human move grouping",
+            context="Physical rows below remain independently editable",
+            members=members,
+            tags=("group_parent",),
+        )
+        try:
+            win.tree.item(shared, open=False)
+        except Exception:
+            pass
+
+        def _variant_sort_key(variant_key):
+            info = variants[variant_key]
+            context = str(info.get("context") or "").strip().lower()
+            strength = str(info.get("strength") or "").strip().upper()
+            context_rank = {"ground": 0, "": 0, "air": 1, "assist": 2}.get(context, 3)
+            strength_rank = {"L": 0, "A": 0, "M": 1, "B": 1, "H": 2, "C": 2}.get(strength, 9)
+            chain_rank = int(info.get("chain_idx") or 9999)
+            members_rank = min((int(m.get("abs") or 0xFFFFFFFF) for m in info.get("members") or []), default=0xFFFFFFFF)
+            return (context_rank, strength_rank, chain_rank, members_rank)
+
+        for variant_key in sorted(variant_order, key=_variant_sort_key):
+            info = variants[variant_key]
+            phase_members = sorted(info["members"], key=_family_member_rank)
+            if not phase_members:
+                continue
+            variant_label = info["label"]
+            for mv in phase_members:
+                phase = str(mv.get("family_phase") or "Section").strip() or "Section"
+                mv["family_link_label"] = f"{family_label} / {variant_label} / {phase}"
+            variant_header = _insert_structure_node(
+                header,
+                variant_label,
+                kind="variant",
+                link=f"{len(phase_members)} phase(s)",
+                context=" / ".join([part for part in (info["context"], info["strength"]) if part]),
+                members=phase_members,
+                tags=("group_parent", "child_row"),
+            )
+            _insert_id_groups(phase_members, parent=variant_header)
+            _insert_transition_rows(variant_header, phase_members)
             try:
-                win.tree.item(header, open=True)
+                win.tree.item(variant_header, open=True)
             except Exception:
                 pass
-        else:
-            _insert_id_groups(normal_groups.get(key) or [], parent="")
+
+        if helpers:
+            helper_header = _insert_structure_node(
+                header,
+                "Associated payloads",
+                kind="helper payloads",
+                link=f"{len(helpers)} helper section(s)",
+                context="Hit packets, unnamed helpers, and linked child scripts",
+                members=helpers,
+                tags=("group_parent", "child_row"),
+            )
+            _insert_id_groups(sorted(helpers, key=_family_member_rank), parent=helper_header)
+            try:
+                win.tree.item(helper_header, open=False)
+            except Exception:
+                pass
+
+        try:
+            win.tree.item(header, open=True)
+        except Exception:
+            pass
 
     # Insert projectile records, when the asynchronous projectile scan has
     # already finished.  They belong after the core normal chain and before
@@ -2413,6 +2734,7 @@ def _populate_tree_sync(win) -> None:
     # it later after the background projectile scan completes.
     try:
         populate_projectile_rows(win, replace=True)
+        populate_super_definition_rows(win, replace=True)
         populate_super_rows(win, replace=True)
     except Exception:
         pass
@@ -2736,7 +3058,7 @@ def _tree_rank_bucket(win, item_id: str):
         tags = set(tree.item(item_id, "tags") or ())
     except Exception:
         tags = set()
-    if "projectile_header" in tags:
+    if "projectile_header" in tags or "super_definition_header" in tags or "super_header" in tags:
         return None
 
     ranker = getattr(win, "_explicit_notation", None)
@@ -2813,6 +3135,688 @@ def _projectile_root_insert_index(win):
     return "end"
 
 
+
+
+_SUPER_DEFINITION_FMTS = {
+    "super_struct", "super_struct_card", "super_struct_card2", "super_beam_card",
+    "projectile_super_card", "projectile_super_card_0123", "morrigan_fs_missile",
+}
+
+
+def _is_super_definition_hit(hit: dict | None) -> bool:
+    """True when a scanned payload is a physical super definition record."""
+    hit = hit or {}
+    fmt = str(hit.get("fmt") or "")
+    if fmt in _SUPER_DEFINITION_FMTS:
+        return True
+    if fmt == "projectile_emitter":
+        peers = list(hit.get("_emitter_peer_hits") or [])
+        return bool(peers) and any(_is_super_definition_hit(peer) for peer in peers)
+    return False
+
+
+def _is_super_definition_mv(mv: dict | None) -> bool:
+    return bool(mv and _is_super_definition_hit((mv or {}).get("_proj_hit") or {}))
+
+
+def _root_insert_after_tags(win, wanted_tags: tuple[str, ...]):
+    tree = getattr(win, "tree", None)
+    if not tree:
+        return "end"
+    try:
+        children = list(tree.get_children(""))
+    except Exception:
+        return "end"
+    last = None
+    for idx, iid in enumerate(children):
+        try:
+            tags = set(tree.item(iid, "tags") or ())
+        except Exception:
+            tags = set()
+        if tags.intersection(wanted_tags):
+            last = idx
+    return (last + 1) if last is not None else _projectile_root_insert_index(win)
+
+
+def _projectile_detail_row_values(parent, win, *, label: str, kind: str = "field",
+                                  offset: str = "", value: str = "",
+                                  confidence: str = "", address: int | None = None,
+                                  display_col: str | None = None) -> tuple:
+    """Build a visible key/value row in the existing projectile tree."""
+    row = {c: "" for c in FD_COLUMNS}
+    row["move"] = _indent_move_text(win.tree, parent, label)
+    row["kind"] = kind
+    row["hits"] = "field"
+    # Link is the second visible column in Projectiles view. Put the value
+    # there instead of hiding it in the far-right Details column.
+    row["link"] = str(value or "")
+    row["context"] = str(confidence or "")
+    if "proj_fmt" in row:
+        row["proj_fmt"] = str(offset or "")
+    if display_col in row and value not in (None, ""):
+        row[display_col] = str(value)
+    if isinstance(address, int) and address:
+        row["abs"] = f"0x{address:08X}"
+    return tuple(row.get(c, "") for c in FD_COLUMNS)
+
+
+def _insert_projectile_definition_children(win, projectile_iid: str, mv: dict, *, definition_label: str = "Mapped definition fields", include_live: bool = True) -> None:
+    """Put decoded projectile fields directly under the existing projectile row.
+
+    This deliberately uses the Frame Data Treeview instead of opening or
+    reserving a second projectile panel. The parent projectile row stays the
+    editable record; these nested rows are a readable, grouped field map.
+    """
+    hit = (mv or {}).get("_proj_hit") or {}
+    base = int(hit.get("addr") or mv.get("abs") or 0)
+    fmt = str(hit.get("fmt") or "")
+
+    if _is_super_definition_mv(mv):
+        category_specs = (
+            ("Core and timing", (
+                "damage", "proj_hitbox", "proj_super_lifetime", "proj_super_hit_count",
+                "proj_super_hit_interval", "proj_super_particle_fx",
+                "proj_super_spawn_bone", "proj_super_hit_source",
+            )),
+            ("Beam geometry and motion", (
+                "proj_super_beam_scale", "proj_super_beam_width",
+                "proj_super_beam_speed", "proj_super_beam_force",
+                "proj_super_hit_radius", "proj_super_beam_visual",
+            )),
+            ("Final hit", (
+                "proj_final_damage", "proj_final_lifetime",
+                "proj_final_particle_fx", "proj_final_spawn_bone",
+            )),
+            ("Compact super projectile", (
+                "proj_ps_card_type", "proj_ps_lifetime", "proj_ps_hit_count",
+                "proj_ps_mode", "proj_ps_emit_count", "proj_ps_interval",
+                "proj_ps_offset_x", "proj_ps_offset_y", "proj_ps_scale",
+                "proj_ps_particle_fx", "proj_ps_projectile_id",
+                "proj_ps_spawn_bone",
+            )),
+            ("Projectile or emitter payload", (
+                "proj_id", "proj_type", "proj_motion_family", "proj_life",
+                "proj_radius", "proj_fixed_scale", "proj_speed", "proj_accel",
+                "kb_x", "proj_kb_y", "proj_arc", "proj_arc2", "proj_fx",
+                "proj_spawn_origin", "proj_mode_a", "proj_mode_b",
+                "proj_linked_resource", "proj_flags_72",
+                "proj_physics_tail_d4", "proj_c042",
+            )),
+            ("Advanced and research", (
+                "proj_super_hit_react", "proj_super_life",
+                "proj_super_air_kb_y", "proj_super_speed",
+                "proj_super_accel", "proj_super_speed_2",
+                "proj_super_accel_b", "proj_super_accel_c",
+                "proj_multihit_cap", "proj_super_radius",
+            )),
+        )
+
+        shown_addresses = set()
+        shown_any = False
+        for category_label, category_cols in category_specs:
+            prepared = []
+            for col in category_cols:
+                try:
+                    value = FPI.format_projectile_value(mv, col)
+                except Exception:
+                    value = ""
+                if value in (None, "", "?"):
+                    continue
+                info = FPI.PROJECTILE_FIELD_INFO.get(col)
+                if info:
+                    hit_key, label, typ = info
+                else:
+                    hit_key = None
+                    label = FPI.PROJECTILE_LABELS.get(col, col)
+                    typ = ""
+                if col == "damage":
+                    label = "Super Damage"
+                elif col == "proj_hitbox":
+                    label = "Hitbox"
+                elif col == "proj_super_particle_fx":
+                    label = "FX"
+                elif col == "proj_final_particle_fx":
+                    label = "Final FX"
+                try:
+                    address = FPI.projectile_field_addr(mv, col)
+                except Exception:
+                    address = None
+                dedupe_key = ("addr", int(address)) if isinstance(address, int) else ("value", str(label), str(value))
+                if dedupe_key in shown_addresses:
+                    continue
+                shown_addresses.add(dedupe_key)
+                prepared.append((col, str(value), hit_key, label, typ, address))
+            if not prepared:
+                continue
+
+            category_row = {c: "" for c in FD_COLUMNS}
+            category_row["move"] = _indent_move_text(win.tree, projectile_iid, category_label)
+            category_row["kind"] = "super fields"
+            category_row["hits"] = "static"
+            category_row["link"] = f"{len(prepared)} field(s)"
+            category_row["context"] = "Editable super definition values"
+            category_iid = win.tree.insert(
+                projectile_iid,
+                "end",
+                text="",
+                open=True,
+                tags=("child_row", "projectile_detail_group", "super_detail_group"),
+                values=tuple(category_row.get(c, "") for c in FD_COLUMNS),
+            )
+            win.move_to_tree_item[category_iid] = mv
+            try:
+                win._all_item_ids.append(category_iid)
+            except Exception:
+                pass
+
+            for col, value, hit_key, label, typ, address in prepared:
+                offset = ""
+                if isinstance(address, int) and base and address >= base:
+                    offset = f"+0x{address - base:X}"
+                elif isinstance(address, int):
+                    offset = f"@0x{address:08X}"
+                detail_iid = win.tree.insert(
+                    category_iid,
+                    "end",
+                    text="",
+                    tags=("child_row", "projectile_detail_row", "editable_memory_field", "super_detail_row"),
+                    values=_projectile_detail_row_values(
+                        category_iid,
+                        win,
+                        label=label,
+                        kind=typ or "field",
+                        offset=offset,
+                        value=value,
+                        confidence="Stored",
+                        address=address,
+                        display_col=col if col in FD_COLUMNS else None,
+                    ),
+                )
+                win.move_to_tree_item[detail_iid] = mv
+                if not hasattr(win, "_field_binding_by_item"):
+                    win._field_binding_by_item = {}
+                win._field_binding_by_item[detail_iid] = {
+                    "mv": mv,
+                    "parent_item": projectile_iid,
+                    "col": col,
+                    "label": label,
+                    "address": address,
+                    "type": typ,
+                    "hit_key": hit_key,
+                    "value_col": "link",
+                    "source": "super_definition",
+                }
+                try:
+                    win._all_item_ids.append(detail_iid)
+                except Exception:
+                    pass
+            shown_any = True
+
+        if not shown_any:
+            empty_row = {c: "" for c in FD_COLUMNS}
+            empty_row["move"] = _indent_move_text(win.tree, projectile_iid, "No decoded super fields")
+            empty_row["kind"] = "super fields"
+            empty_row["link"] = fmt or "unknown super record"
+            empty_row["context"] = "The record was found, but no mapped values were decoded."
+            empty_iid = win.tree.insert(
+                projectile_iid, "end", text="",
+                tags=("child_row", "projectile_detail_group"),
+                values=tuple(empty_row.get(c, "") for c in FD_COLUMNS),
+            )
+            win.move_to_tree_item[empty_iid] = mv
+        return
+
+    group_row = {c: "" for c in FD_COLUMNS}
+    group_row["move"] = _indent_move_text(win.tree, projectile_iid, definition_label)
+    group_row["kind"] = "super fields" if _is_super_definition_mv(mv) else "projectile fields"
+    group_row["hits"] = "static"
+    group_row["link"] = fmt or "decoded record"
+    group_row["context"] = "Stored super definition values" if _is_super_definition_mv(mv) else "Stored projectile definition values"
+    definition_group = win.tree.insert(
+        projectile_iid,
+        "end",
+        text="",
+        open=True,
+        tags=("child_row", "projectile_detail_group"),
+        values=tuple(group_row.get(c, "") for c in FD_COLUMNS),
+    )
+
+    # Ordered to keep designer-facing values first. The address de-duplication
+    # avoids displaying compatibility aliases twice (for example KB Y).
+    ordered_cols = (
+        "damage", "proj_id", "proj_type", "proj_motion_family", "proj_life", "proj_radius", "proj_fixed_scale",
+        "proj_speed", "proj_accel", "kb_x", "proj_kb_y", "proj_hitbox",
+        "proj_arc", "proj_arc2", "proj_fx", "proj_spawn_origin",
+        "proj_mode_a", "proj_mode_b", "proj_linked_resource", "proj_flags_72",
+        "proj_physics_tail_d4", "proj_c042",
+        "proj_ps_card_type", "proj_ps_lifetime", "proj_ps_hit_count",
+        "proj_ps_mode", "proj_ps_emit_count", "proj_ps_interval",
+        "proj_ps_offset_x", "proj_ps_offset_y", "proj_ps_scale",
+        "proj_ps_particle_fx", "proj_ps_projectile_id", "proj_ps_spawn_bone",
+        "proj_super_hit_react", "proj_super_life", "proj_super_lifetime",
+        "proj_super_hit_count", "proj_super_hit_interval",
+        "proj_super_particle_fx", "proj_super_spawn_bone", "proj_super_hit_source",
+        "proj_super_beam_scale", "proj_super_beam_width", "proj_super_beam_speed",
+        "proj_super_beam_force", "proj_super_hit_radius", "proj_super_beam_visual",
+        "proj_super_speed_2", "proj_super_accel_b", "proj_super_accel_c",
+        "proj_multihit_cap",
+        "proj_final_damage", "proj_final_lifetime", "proj_final_particle_fx",
+        "proj_final_spawn_bone",
+    )
+    seen = set()
+    for col in ordered_cols:
+        try:
+            value = FPI.format_projectile_value(mv, col)
+        except Exception:
+            value = ""
+        if value in (None, "", "?"):
+            continue
+        info = FPI.PROJECTILE_FIELD_INFO.get(col)
+        if info:
+            _hit_key, label, typ = info
+        else:
+            label, typ = FPI.PROJECTILE_LABELS.get(col, col), ""
+        if _is_super_definition_mv(mv) and col == "damage":
+            label = "Super Damage"
+        try:
+            address = FPI.projectile_field_addr(mv, col)
+        except Exception:
+            address = None
+        dedupe = (address, label, str(value))
+        if dedupe in seen:
+            continue
+        seen.add(dedupe)
+        offset = ""
+        if isinstance(address, int) and base and address >= base:
+            offset = f"+0x{address - base:X}"
+        elif isinstance(address, int):
+            offset = f"@0x{address:08X}"
+        detail_iid = win.tree.insert(
+            definition_group,
+            "end",
+            text="",
+            tags=("child_row", "projectile_detail_row", "editable_memory_field"),
+            values=_projectile_detail_row_values(
+                definition_group,
+                win,
+                label=label,
+                kind=typ or "field",
+                offset=offset,
+                value=str(value),
+                confidence="Stored",
+                address=address,
+                display_col=col if col in FD_COLUMNS else None,
+            ),
+        )
+        # Detail rows are first-class edit targets.  The visible value lives in
+        # Link, but the backing field is the normal projectile column recorded
+        # here.  This lets double-click and the sidebar use the same writer.
+        win.move_to_tree_item[detail_iid] = mv
+        if not hasattr(win, "_field_binding_by_item"):
+            win._field_binding_by_item = {}
+        win._field_binding_by_item[detail_iid] = {
+            "mv": mv,
+            "parent_item": projectile_iid,
+            "col": col,
+            "label": label,
+            "address": address,
+            "type": typ,
+            "hit_key": _hit_key if info else None,
+            "value_col": "link",
+            "source": "projectile",
+        }
+        try:
+            win._all_item_ids.append(detail_iid)
+        except Exception:
+            pass
+
+    # Every confirmed static field is represented above as an editable field.
+
+    if include_live:
+        live_row = {c: "" for c in FD_COLUMNS}
+        live_row["move"] = _indent_move_text(win.tree, projectile_iid, "Live runtime")
+        live_row["kind"] = "projectile runtime"
+        live_row["hits"] = "live"
+        live_row["link"] = "Select this projectile row"
+        live_row["context"] = "Use the move in-game to populate its active actor and collision fields"
+        live_group = win.tree.insert(
+            projectile_iid,
+            "end",
+            text="",
+            open=True,
+            tags=("child_row", "projectile_live_group"),
+            values=tuple(live_row.get(c, "") for c in FD_COLUMNS),
+        )
+        if not hasattr(win, "_projectile_live_group_by_parent"):
+            win._projectile_live_group_by_parent = {}
+        win._projectile_live_group_by_parent[projectile_iid] = live_group
+        _insert_projectile_live_placeholders(win, live_group, "Watching live Dolphin memory")
+
+
+_PROJECTILE_LIVE_FIELD_BLUEPRINT = (
+    ("Actor", "Current position", "+5C/+6C/+7C"),
+    ("Actor", "Per-frame movement", "current - previous"),
+    ("Actor", "Emitter/origin", "+E0/+E4/+E8"),
+    ("Actor", "Direction vector", "+104/+108/+10C"),
+    ("Collision", "Projectile clash priority", "+4C"),
+    ("Collision", "Collision quota maximum", "+54"),
+    ("Collision", "Collision quota consumed", "+58"),
+    ("Collision", "Mutual-clash lockout", "+78"),
+    ("Collision", "Bypass projectile clashes", "+84 bit 4"),
+    ("Collision", "Clash-priority override", "+84 bit 5"),
+    ("Collision", "Equal-priority response class", "+84 bits 6-8"),
+    ("Hit", "Damage", "+8C"),
+    ("Hit", "Damage/hit scaling multiplier", "+90"),
+    ("Hit", "Hitstun override", "+94"),
+    ("Hit", "Blockstun override", "+98"),
+    ("Hit", "Giant stagger/armor impact", "+A0"),
+    ("Hit", "Hitstop override", "+A4"),
+    ("Hit", "Hit direction", "+A8/+AC/+B0"),
+    ("Effects", "Contact effect 1", "+BC/+CC"),
+    ("Effects", "Contact effect 2", "+C0/+D0"),
+    ("Effects", "World collision effect", "+C8/+D8"),
+    ("Geometry", "Shape type", "+308"),
+    ("Geometry", "Shape count", "+314"),
+    ("Geometry", "Contact-point offsets", "+320/+324"),
+    ("Research", "Secondary stun/reaction raw", "+9C"),
+    ("Research", "Paired-contact states", "+B4/+B8"),
+    ("Research", "Effect slot 3 raw", "+C4/+D4"),
+)
+
+
+def _insert_projectile_live_placeholders(win, live_group: str, message: str) -> None:
+    """Show every newly mapped field even when no live instance exists."""
+    tree = win.tree
+    group_nodes = {}
+    for group, label, offset in _PROJECTILE_LIVE_FIELD_BLUEPRINT:
+        group_iid = group_nodes.get(group)
+        if group_iid is None:
+            grow = {c: "" for c in FD_COLUMNS}
+            grow["move"] = _indent_move_text(tree, live_group, group)
+            grow["kind"] = "runtime group"
+            grow["hits"] = "mapped"
+            group_iid = tree.insert(
+                live_group,
+                "end",
+                text="",
+                open=(group != "Research"),
+                tags=("child_row", "projectile_live_detail_group"),
+                values=tuple(grow.get(c, "") for c in FD_COLUMNS),
+            )
+            group_nodes[group] = group_iid
+        tree.insert(
+            group_iid,
+            "end",
+            text="",
+            tags=(("child_row", "projectile_live_detail", "projectile_research_row") if group == "Research" else ("child_row", "projectile_live_detail")),
+            values=_projectile_detail_row_values(
+                group_iid,
+                win,
+                label=label,
+                kind="mapped live field",
+                offset=offset,
+                value=message,
+                confidence="Mapped from recomp",
+            ),
+        )
+
+
+def _coerce_projectile_runtime_id(value):
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    text = str(value).strip()
+    if not text or text in {"?", "-", "None"}:
+        return None
+    try:
+        return int(text, 0)
+    except Exception:
+        try:
+            return int(float(text))
+        except Exception:
+            return None
+
+
+
+def _projectile_expected_owner_slots(win) -> set[str]:
+    """Return the live actor owner slots belonging to this workbench team."""
+    label = str(getattr(win, "slot_label", "") or "").upper()
+    if label.startswith("P1"):
+        return {"P1", "P3"}
+    if label.startswith("P2"):
+        return {"P2", "P4"}
+    return set()
+
+
+def _projectile_live_record_key(record: dict) -> tuple:
+    return (
+        int(record.get("actor") or 0),
+        int(record.get("projectile_id") or 0),
+        int(record.get("linked") or 0),
+        int(record.get("damage") or 0),
+    )
+
+
+def _projectile_static_damage(mv: dict) -> int | None:
+    hit = (mv or {}).get("_proj_hit") or {}
+    for value in (hit.get("dmg"), (mv or {}).get("damage")):
+        try:
+            if value not in (None, "", "?", "-"):
+                return int(float(str(value).split("/")[0]))
+        except Exception:
+            continue
+    return None
+
+
+def _select_real_live_projectile_records(win, projectile_iid: str, mv: dict,
+                                         records: list[dict]) -> tuple[list[dict], list[dict], str]:
+    """Bind a static projectile row to the real actor observed in Dolphin.
+
+    Static definition IDs frequently do not equal runtime actor IDs. Matching
+    therefore uses, in order: an existing actor binding, exact ID, exact damage,
+    then a newly appeared actor owned by the selected team. The previous active
+    set is updated every poll, so reusing the same pool slot is detected after
+    it disappears and appears again.
+    """
+    owner_slots = _projectile_expected_owner_slots(win)
+    candidates = [r for r in records if not owner_slots or str(r.get("owner")) in owner_slots]
+
+    previous_map = getattr(win, "_projectile_live_previous_keys_by_item", None)
+    if previous_map is None:
+        previous_map = {}
+        win._projectile_live_previous_keys_by_item = previous_map
+    current_keys = {_projectile_live_record_key(r) for r in candidates}
+    previous_keys = set(previous_map.get(projectile_iid) or set())
+    primed = projectile_iid in previous_map
+    previous_map[projectile_iid] = current_keys
+
+    bound_map = getattr(win, "_projectile_live_bound_actor_by_item", None)
+    if bound_map is None:
+        bound_map = {}
+        win._projectile_live_bound_actor_by_item = bound_map
+    last_map = getattr(win, "_projectile_live_last_record_by_item", None)
+    if last_map is None:
+        last_map = {}
+        win._projectile_live_last_record_by_item = last_map
+
+    bound_actor = int(bound_map.get(projectile_iid) or 0)
+    if bound_actor:
+        bound = [r for r in candidates if int(r.get("actor") or 0) == bound_actor]
+        if bound:
+            last_map[projectile_iid] = dict(bound[0])
+            return bound, candidates, "bound actor"
+
+    hit = (mv or {}).get("_proj_hit") or {}
+    static_id = _coerce_projectile_runtime_id(hit.get("id"))
+    if static_id is None:
+        static_id = _coerce_projectile_runtime_id(hit.get("ps_projectile_id"))
+    static_damage = _projectile_static_damage(mv)
+
+    exact_id = [r for r in candidates if static_id is not None and _coerce_projectile_runtime_id(r.get("projectile_id")) == static_id]
+    if exact_id:
+        chosen = exact_id
+        bound_map[projectile_iid] = int(chosen[0].get("actor") or 0)
+        last_map[projectile_iid] = dict(chosen[0])
+        return chosen, candidates, "runtime ID match"
+
+    exact_damage = [r for r in candidates if static_damage is not None and int(r.get("damage") or -999999) == static_damage]
+    if exact_damage:
+        newly_matching = [r for r in exact_damage if _projectile_live_record_key(r) not in previous_keys]
+        chosen = newly_matching or exact_damage
+        bound_map[projectile_iid] = int(chosen[0].get("actor") or 0)
+        last_map[projectile_iid] = dict(chosen[0])
+        return chosen, candidates, "damage match"
+
+    if primed:
+        newly_seen = [r for r in candidates if _projectile_live_record_key(r) not in previous_keys]
+        # Prefer actors carrying a linked hit record and meaningful damage.
+        newly_seen.sort(key=lambda r: (not bool(int(r.get("linked") or 0)), not bool(int(r.get("damage") or 0))))
+        if newly_seen:
+            chosen = [newly_seen[0]]
+            bound_map[projectile_iid] = int(chosen[0].get("actor") or 0)
+            last_map[projectile_iid] = dict(chosen[0])
+            return chosen, candidates, "newly spawned actor"
+
+    return [], candidates, "watching"
+
+
+def populate_projectile_live_rows(win, projectile_iid: str, mv: dict,
+                                  records: list[dict] | None, error: str | None = None) -> None:
+    """Refresh the nested Live runtime group for one existing projectile row."""
+    tree = getattr(win, "tree", None)
+    if not tree:
+        return
+    live_group = getattr(win, "_projectile_live_group_by_parent", {}).get(projectile_iid)
+    if not live_group or not tree.exists(live_group):
+        return
+    for child in list(tree.get_children(live_group)):
+        tree.delete(child)
+
+    hit = (mv or {}).get("_proj_hit") or {}
+    projectile_id = _coerce_projectile_runtime_id(hit.get("id"))
+    if projectile_id is None:
+        projectile_id = _coerce_projectile_runtime_id(hit.get("ps_projectile_id"))
+    if projectile_id is None:
+        projectile_id = _coerce_projectile_runtime_id(FPI.format_projectile_value(mv, "proj_id"))
+    if projectile_id is None:
+        projectile_id = _coerce_projectile_runtime_id(FPI.format_projectile_value(mv, "proj_ps_projectile_id"))
+
+    group_row = {c: "" for c in FD_COLUMNS}
+    group_row["move"] = _indent_move_text(tree, projectile_iid, "Live runtime")
+    group_row["kind"] = "projectile runtime"
+    group_row["hits"] = "live"
+    if error:
+        group_row["link"] = "Read failed"
+        group_row["context"] = str(error)
+        tree.item(live_group, values=tuple(group_row.get(c, "") for c in FD_COLUMNS))
+        return
+
+    records = list(records or [])
+    matches, candidates, match_reason = _select_real_live_projectile_records(
+        win, projectile_iid, mv, records
+    )
+
+    if matches:
+        group_row["link"] = f"LIVE: {len(matches)} actor(s)"
+        group_row["context"] = f"Real Dolphin memory, matched by {match_reason}"
+    else:
+        group_row["link"] = "LIVE watcher ready"
+        if candidates:
+            preview = ", ".join(
+                f"{r.get('owner')} ID {r.get('projectile_id')} dmg {r.get('damage')}"
+                for r in candidates[:4]
+            )
+            group_row["context"] = f"Use the selected move now. Active team actors: {preview}"
+        else:
+            group_row["context"] = "Use the selected move now. Polling Dolphin every 60 ms."
+    tree.item(live_group, values=tuple(group_row.get(c, "") for c in FD_COLUMNS))
+
+    if not matches:
+        _insert_projectile_live_placeholders(
+            win,
+            live_group,
+            "Read failed" if error else "Watching live Dolphin memory, use the selected move",
+        )
+
+    for record in matches:
+        actor = int(record.get("actor") or 0)
+        linked = int(record.get("linked") or 0)
+        actor_row = {c: "" for c in FD_COLUMNS}
+        actor_row["move"] = _indent_move_text(tree, live_group, f"Actor 0x{actor:08X}")
+        actor_row["kind"] = "live projectile"
+        actor_row["hits"] = "active"
+        actor_row["link"] = f"linked 0x{linked:08X}" if linked else ""
+        actor_row["context"] = f"owner {record.get('owner', '?')} | ID {record.get('projectile_id', '?')} | velocity {record.get('velocity', ())}"
+        actor_row["damage"] = str(record.get("damage", ""))
+        actor_row["abs"] = f"0x{actor:08X}" if actor else ""
+        actor_iid = tree.insert(
+            live_group,
+            "end",
+            text="",
+            open=True,
+            tags=("child_row", "projectile_live_actor"),
+            values=tuple(actor_row.get(c, "") for c in FD_COLUMNS),
+        )
+
+        group_nodes = {}
+        for detail in list(record.get("details") or []):
+            group = str(detail.get("group") or "Other")
+            group_iid = group_nodes.get(group)
+            if group_iid is None:
+                grow = {c: "" for c in FD_COLUMNS}
+                grow["move"] = _indent_move_text(tree, actor_iid, group)
+                grow["kind"] = "runtime group"
+                grow["hits"] = "group"
+                group_iid = tree.insert(
+                    actor_iid,
+                    "end",
+                    text="",
+                    open=(group != "Research"),
+                    tags=("child_row", "projectile_live_detail_group"),
+                    values=tuple(grow.get(c, "") for c in FD_COLUMNS),
+                )
+                group_nodes[group] = group_iid
+            address = detail.get("address")
+            value = str(detail.get("value") or "")
+            label = str(detail.get("label") or "?")
+            display_col = None
+            low = label.lower()
+            if low == "damage":
+                display_col = "damage"
+            elif "hitstun" in low:
+                display_col = "hitstun"
+            elif "blockstun" in low:
+                display_col = "blockstun"
+            elif "hitstop" in low:
+                display_col = "hitstop"
+            elif "projectile clash priority" in low:
+                display_col = "proj_type"
+            tree.insert(
+                group_iid,
+                "end",
+                text="",
+                tags=(("child_row", "projectile_live_detail", "projectile_research_row") if group == "Research" else ("child_row", "projectile_live_detail")),
+                values=_projectile_detail_row_values(
+                    group_iid,
+                    win,
+                    label=label,
+                    kind="live field",
+                    offset=str(detail.get("offset") or ""),
+                    value=value,
+                    confidence=str(detail.get("confidence") or ""),
+                    address=address if isinstance(address, int) else None,
+                    display_col=display_col,
+                ),
+            )
+
+    if matches:
+        try:
+            tree.item(projectile_iid, open=True)
+            tree.item(live_group, open=True)
+        except Exception:
+            pass
+
 def populate_projectile_rows(win, replace: bool = True) -> None:
     """Insert current-character projectile records into the same FD Treeview."""
     if not getattr(win, "tree", None):
@@ -2834,7 +3838,7 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
         try:
             win.move_to_tree_item = {
                 iid: mv for iid, mv in (win.move_to_tree_item or {}).items()
-                if not FPI.is_projectile_row(mv)
+                if not (FPI.is_projectile_row(mv) and not _is_super_definition_mv(mv))
             }
         except Exception:
             pass
@@ -2846,6 +3850,9 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
         hits = FPI.with_projectile_emitters(hits)
     except Exception:
         pass
+    hits = [h for h in hits if not _is_super_definition_hit(h)]
+    if not hits:
+        return
 
     vals = {c: "" for c in FD_COLUMNS}
     vals["move"] = "Projectile definitions"
@@ -2862,6 +3869,7 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
         "",
         _projectile_root_insert_index(win),
         text="",
+        open=True,
         tags=("projectile_header", "family_header"),
         values=tuple(vals.get(c, "") for c in FD_COLUMNS),
     )
@@ -2932,6 +3940,7 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
             header,
             "end",
             text="",
+            open=True,
             tags=("row_even" if (row_i % 2 == 0) else "row_odd", "child_row", "projectile_row"),
             values=tuple(row.get(c, "") for c in FD_COLUMNS),
         )
@@ -2944,6 +3953,129 @@ def populate_projectile_rows(win, replace: bool = True) -> None:
             win._apply_row_tags(iid, mv)
         except Exception:
             pass
+        try:
+            _insert_projectile_definition_children(win, iid, mv)
+        except Exception as exc:
+            print(f"[frame data] projectile detail rows failed for {mv.get('move_name')}: {exc}")
+
+
+def populate_super_definition_rows(win, replace: bool = True) -> None:
+    """Insert physical super payload records as editable static definitions."""
+    if not getattr(win, "tree", None):
+        return
+
+    if replace:
+        for iid in list(win.tree.get_children("")):
+            try:
+                tags = set(win.tree.item(iid, "tags") or ())
+                if "super_definition_header" in tags:
+                    win.tree.delete(iid)
+                    if iid in getattr(win, "_all_item_ids", []):
+                        win._all_item_ids.remove(iid)
+            except Exception:
+                pass
+        try:
+            win.move_to_tree_item = {
+                iid: mv for iid, mv in (win.move_to_tree_item or {}).items()
+                if not _is_super_definition_mv(mv)
+            }
+        except Exception:
+            pass
+
+    hits = list(getattr(win, "_projectile_hits", []) or [])
+    if not hits:
+        return
+    try:
+        hits = FPI.with_projectile_emitters(hits)
+    except Exception:
+        pass
+    hits = [h for h in hits if _is_super_definition_hit(h)]
+    if not hits:
+        return
+
+    vals = {c: "" for c in FD_COLUMNS}
+    vals["move"] = "Super definitions"
+    vals["kind"] = "super definition"
+    vals["hits"] = "payload"
+    vals["link"] = f"{len(hits)} editable record(s)"
+    vals["context"] = "Beam cards, compact super-projectile cards, emitter payloads, and final-hit data"
+    addrs = []
+    for h in hits:
+        try:
+            addrs.append(int(h.get("addr") or 0))
+        except Exception:
+            pass
+    vals["abs"] = f"0x{min(a for a in addrs if a):08X}" if any(addrs) else ""
+    header = win.tree.insert(
+        "",
+        _root_insert_after_tags(win, ("projectile_header",)),
+        text="",
+        open=True,
+        tags=("super_definition_header", "family_header"),
+        values=tuple(vals.get(c, "") for c in FD_COLUMNS),
+    )
+    try:
+        win._all_item_ids.append(header)
+    except Exception:
+        pass
+
+    def _sort_key(h):
+        fmt = str((h or {}).get("fmt") or "")
+        rank = {
+            "super_beam_card": 0,
+            "super_struct": 1,
+            "super_struct_card": 1,
+            "super_struct_card2": 1,
+            "projectile_emitter": 2,
+            "projectile_super_card": 3,
+            "projectile_super_card_0123": 3,
+            "morrigan_fs_missile": 4,
+        }.get(fmt, 9)
+        return (str((h or {}).get("move") or ""), rank, int((h or {}).get("addr") or 0xFFFFFFFF))
+
+    for row_i, h in enumerate(sorted(hits, key=_sort_key)):
+        mv = FPI.projectile_row_from_hit(h, row_i)
+        mv["kind"] = "super definition"
+        mv["_is_super_definition"] = True
+        row = {c: "" for c in FD_COLUMNS}
+        row["move"] = _indent_move_text(win.tree, header, f"{mv.get('move_name') or 'Super payload'}")
+        row["kind"] = "super definition"
+        row["hits"] = "beam" if FPI.is_super_beam_card(mv) else ("emit" if FPI.is_projectile_emitter_row(mv) else "super")
+        row["link"] = FPI.format_projectile_value(mv, "proj_fmt") or "super payload"
+        row["context"] = FPI.projectile_quick_summary(mv)
+        row["damage"] = FPI.format_projectile_value(mv, "damage")
+        row["kb_x"] = FPI.format_projectile_value(mv, "kb_x")
+        row["air_kb"] = FPI.format_projectile_value(mv, "air_kb")
+        for c in FPI.PROJECTILE_COLUMNS:
+            row[c] = FPI.format_projectile_value(mv, c)
+        addr = mv.get("abs")
+        row["abs"] = f"0x{int(addr):08X}" if addr else ""
+        iid = win.tree.insert(
+            header,
+            "end",
+            text="",
+            open=True,
+            tags=(("row_even" if row_i % 2 == 0 else "row_odd"), "child_row", "projectile_row", "super_definition_row"),
+            values=tuple(row.get(c, "") for c in FD_COLUMNS),
+        )
+        win.move_to_tree_item[iid] = mv
+        try:
+            win._all_item_ids.append(iid)
+        except Exception:
+            pass
+        try:
+            win._apply_row_tags(iid, mv)
+        except Exception:
+            pass
+        try:
+            _insert_projectile_definition_children(
+                win, iid, mv,
+                definition_label="Mapped super definition fields",
+                include_live=False,
+            )
+        except Exception as exc:
+            print(f"[frame data] super definition detail rows failed for {mv.get('move_name')}: {exc}")
+
 
 def populate_super_rows(win, replace: bool = True) -> None:
     """Insert generic 00/23 super dispatch rows into the same FD Treeview."""
@@ -2992,7 +4124,7 @@ def populate_super_rows(win, replace: bool = True) -> None:
     vals["abs"] = f"0x{min(a for a in addrs if a):08X}" if any(addrs) else ""
     header = win.tree.insert(
         "",
-        _projectile_root_insert_index(win),
+        _root_insert_after_tags(win, ("super_definition_header", "projectile_header")),
         text="",
         tags=("super_header", "family_header"),
         values=tuple(vals.get(c, "") for c in FD_COLUMNS),
@@ -3112,6 +4244,19 @@ def populate_super_rows(win, replace: bool = True) -> None:
                 # Map the row back to the parent mv so editing the value cell
                 # still writes the owned child-script address.
                 win.move_to_tree_item[fiid] = mv
+                if not hasattr(win, "_field_binding_by_item"):
+                    win._field_binding_by_item = {}
+                win._field_binding_by_item[fiid] = {
+                    "mv": mv,
+                    "parent_item": iid,
+                    "col": field_col,
+                    "label": label,
+                    "address": faddr or None,
+                    "type": (labels.get(field_col, (None, None, "u32"))[2] if isinstance(labels, dict) else "u32"),
+                    "hit_key": field_col,
+                    "value_col": field_col if field_col in FD_COLUMNS else "link",
+                    "source": "super",
+                }
                 try:
                     win._all_item_ids.append(fiid)
                 except Exception:
@@ -3196,7 +4341,14 @@ def populate_super_rows(win, replace: bool = True) -> None:
                     tags=("child_row", "super_owned_payload_row"),
                     values=tuple(prow.get(c, "") for c in FD_COLUMNS),
                 )
-                win.move_to_tree_item[piid] = mv
+                # A graph-owned payload is still a physical projectile/hit
+                # record. Route its visible fields through the projectile writer
+                # rather than the parent 00/23 caller row.
+                try:
+                    payload_mv = FPI.projectile_row_from_hit(dict(payload), pi)
+                except Exception:
+                    payload_mv = mv
+                win.move_to_tree_item[piid] = payload_mv
                 try:
                     win._all_item_ids.append(piid)
                 except Exception:

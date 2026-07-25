@@ -112,14 +112,13 @@ def hp_color(pct):
 # pattern scanning and comparing across characters.
 
 HEALTH_WIRE_OFFSETS = [
-    # HP clusters around 0x000–0x00B (typically 32-bit fields).
-    0x000, 0x001, 0x002, 0x003,  # cur_hp
-    0x004, 0x005, 0x006, 0x007,  # max_hp
-    0x008, 0x009, 0x00A, 0x00B,  # last damage / hit response
-
-    # Additional bytes showing red-life behavior and internal health pools.
-    0x02A,  # pooled “red life” total; decrements as damage is taken
-    0x02B,  # decrementing byte with wrap behavior (still under study)
+    # Native health fields at the resolved fighter base.
+    0x024, 0x025, 0x026, 0x027,  # maximum HP, big-endian u32
+    0x028, 0x029, 0x02A, 0x02B,  # current HP, big-endian u32
+    0x02C, 0x02D, 0x02E, 0x02F,  # current HP plus recoverable HP
+    0x030, 0x031, 0x032, 0x033,  # queued current-HP delta
+    0x034, 0x035, 0x036, 0x037,  # queued auxiliary-HP delta
+    0x038, 0x039, 0x03A, 0x03B,  # healing synchronization mode
 ]
 
 WIRE_OFFSETS = [

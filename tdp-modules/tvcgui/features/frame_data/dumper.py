@@ -34,8 +34,6 @@ COMMAND_NAMES: dict[tuple[int, int], str] = {
     (0x01, 0x3C): "phase/anim record link",
     (0x04, 0x01): "direct field write",
     (0x04, 0x03): "field op",
-    (0x04, 0x15): "flag clear/mask op",
-    (0x04, 0x17): "flag add/or op",
     (0x07, 0x01): "field write/control op",
     (0x11, 0x16): "control marker",
     (0x11, 0x1E): "control packet",

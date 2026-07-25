@@ -61,14 +61,30 @@ def _phase_from_name(name: str) -> Optional[str]:
     checks = (
         ("startup", "Startup"),
         ("windup", "Windup"),
-        ("start", "Start"),
-        ("spin", "Spin"),
-        ("end", "End"),
-        ("second phase", "Second phase"),
-        ("second hit", "Hit 2"),
-        ("second", "Second"),
-        ("follow", "Followup"),
+        ("air entry", "Air entry"),
         ("entry", "Entry"),
+        ("start", "Start"),
+        ("active loop", "Active loop"),
+        ("loop", "Loop"),
+        ("spin", "Spin"),
+        ("hit 5", "Hit 5"),
+        ("fifth hit", "Hit 5"),
+        ("hit 4", "Hit 4"),
+        ("fourth hit", "Hit 4"),
+        ("hit 3", "Hit 3"),
+        ("third hit", "Hit 3"),
+        ("second hit", "Hit 2"),
+        ("hit 2", "Hit 2"),
+        ("first hit", "Hit 1"),
+        ("hit 1", "Hit 1"),
+        ("second phase", "Second phase"),
+        ("followup", "Followup"),
+        ("follow", "Followup"),
+        ("landing", "Landing"),
+        ("recovery", "Recovery"),
+        ("exit", "Exit"),
+        ("end", "End"),
+        ("second", "Second"),
     )
     for needle, label in checks:
         if needle in low:
@@ -157,15 +173,24 @@ _NORMAL_NOTATION_RE = re.compile(r"^(?:[1-9][abc]|j\.?[abc]|j\.?2c|[abc])$", re.
 _PHASE_ORDER = {
     "Startup": 0,
     "Windup": 1,
-    "Start": 2,
-    "Spin": 3,
-    "Followup": 4,
-    "Second phase": 5,
-    "Second": 5,
+    "Entry": 2,
+    "Air entry": 2,
+    "Start": 3,
+    "Hit 1": 4,
+    "Active loop": 5,
+    "Loop": 5,
+    "Spin": 5,
     "Hit 2": 6,
-    "End": 7,
-    "Entry": 8,
-    "Air entry": 8,
+    "Hit 3": 7,
+    "Hit 4": 8,
+    "Hit 5": 9,
+    "Followup": 10,
+    "Second phase": 11,
+    "Second": 11,
+    "End": 12,
+    "Exit": 12,
+    "Recovery": 13,
+    "Landing": 14,
 }
 _GROUND_GUESSES = {1: "L", 2: "M", 3: "H"}
 _STRENGTH_ORDER_LMH = ("L", "M", "H")
@@ -486,13 +511,20 @@ def _strip_phase_words(s: str) -> Tuple[str, Optional[str]]:
     # "Ender" are not damaged by the End phase rule.
     replacements = (
         (r"\bsecond\s+phase\b", ""),
-        (r"\bsecond\s+hit\b", ""),
+        (r"\b(?:first|second|third|fourth|fifth)\s+hit\b", ""),
+        (r"\bhit\s+[1-5]\b", ""),
         (r"\bstartup\b", ""),
         (r"\bwindup\b", ""),
+        (r"\bactive\s+loop\b", ""),
+        (r"\bloop\b", ""),
         (r"\bstart\b", ""),
         (r"\bspin\b", ""),
+        (r"\blanding\b", ""),
+        (r"\brecovery\b", ""),
+        (r"\bexit\b", ""),
         (r"\bend\b", ""),
         (r"\bfollow(?:up)?\b", ""),
+        (r"\bair\s+entry\b", ""),
         (r"\bentry\b", ""),
         (r"\bsecond\b", ""),
     )
@@ -537,7 +569,7 @@ def _looks_like_noise_name(name: str, mv: Dict[str, Any]) -> bool:
 def _derive_generic_family(name: str, mv: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     'Infer a cross-character family from the move name.\n\n    This is intentionally name-driven and display-only.  It lets the workbench\n    organize non-Ryu characters without claiming that the known state is every command\n    route.  Exact writes still use the original row addresses.\n    '
     original = _clean_label(name)
-    if _looks_like_noise_name(original, mv):
+    if _looks_like_noise_name(original, mv) and not _phase_from_name(original):
         return None
 
     try:

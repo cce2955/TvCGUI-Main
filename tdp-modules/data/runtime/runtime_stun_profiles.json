@@ -529,19 +529,20 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 6,
+          "0": 7,
           "12": 10,
           "9": 1
         },
-        "last_frame": 1061,
+        "last_frame": 1065,
         "last_freeze": 0,
-        "last_value": 21,
+        "last_value": 6,
         "samples": {
           "21": 16,
-          "24": 1
+          "24": 1,
+          "6": 1
         }
       },
-      "last_frame": 1061,
+      "last_frame": 1065,
       "last_freeze": 0,
       "last_recovery": 31,
       "move_label": "5C",
@@ -1141,6 +1142,6 @@
       }
     }
   },
-  "updated_utc": "2026-07-20T18:37:40Z",
+  "updated_utc": "2026-07-25T22:19:02Z",
   "version": 2
 }

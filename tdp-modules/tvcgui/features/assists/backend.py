@@ -211,6 +211,11 @@ _ASSIST_SCAN_CACHE_HITS: list[dict] = []
 _ASSIST_CACHE_EPOCH = 0
 _ASSIST_LAST_SLOT_SIGNATURES: dict[str, tuple[int, int]] = {}
 
+# The selector graft changes the attack body, but several moves also depend on
+# the assist wrapper's animation state. Keep the original state so Default can
+# restore it, and sync the selected move state for the affected characters.
+_ASSIST_STATE_SYNC_CACHE: dict[tuple[int, int, int], dict[str, int]] = {}
+
 
 # Shared-character selector tables mean duplicate characters cannot keep
 # separate table bytes at rest. Per-fighter profiles are stored separately,
@@ -318,6 +323,14 @@ DIRECT_426_TABLE_INDEX = 426
 # selected move. Graft at the attack-body start instead.
 TATSUNOKO_WRAPPER_GRAFT_OFF = 0x154
 TATSUNOKO_WRAPPER_GRAFT_SCAN_END = 0x380
+
+# Confirmed state-coupled custom assists:
+# Ken Bird Run needs its projectile and return callback, Condor Battering Ram
+# and Polimar need hitboxes timed and attached to the selected animation, and
+# Zero otherwise keeps the native Ryuenjin assist animation for every attack.
+ASSIST_STATE_SYNC_CHAR_IDS = frozenset((1, 4, 27, 29))
+ASSIST_STATE_SYNC_SCAN_SIZE = 0x900
+ASSIST_STATE_SYNC_EXCLUDED_STATES = frozenset((0x01A1, 0x01A8, 0x01AE))
 
 
 CHAR_ID_TO_KEY = {
@@ -2867,6 +2880,190 @@ def _tatsunoko_wrapper_graft_info_for_owner_base(owner_base: int | None, slot_ch
     return out
 
 
+
+def _assist_state_sync_cache_key(owner_base: int, wrapper_addr: int) -> tuple[int, int, int]:
+    return (int(_ASSIST_CACHE_EPOCH), int(owner_base), int(wrapper_addr))
+
+
+def _assist_state_sync_char_id(row: dict | None, owner_base: int | None = None) -> int:
+    if isinstance(row, dict):
+        try:
+            cid = int(row.get("char_id") or 0)
+        except Exception:
+            cid = 0
+        if cid:
+            return cid
+    if owner_base is None:
+        return 0
+    try:
+        return int(_read_slot_char_ids().get(int(owner_base), 0) or 0)
+    except Exception:
+        return 0
+
+
+def _assist_state_sync_enabled(row: dict | None, owner_base: int | None = None) -> bool:
+    return _assist_state_sync_char_id(row, owner_base) in ASSIST_STATE_SYNC_CHAR_IDS
+
+
+def _assist_state_sync_wrapper_info(row: dict) -> dict[str, int]:
+    if not isinstance(row, dict):
+        return {}
+
+    owner_base = int(row.get("owner_base") or (_owning_chr_tbl(int(row.get("block") or 0)) or 0))
+    if not owner_base or not _assist_state_sync_enabled(row, owner_base):
+        return {}
+
+    embedded = row.get("assist_state_info")
+    if isinstance(embedded, dict):
+        state_addr = int(embedded.get("state_addr") or 0)
+        wrapper_addr = int(embedded.get("wrapper_addr") or 0)
+        orig_state = int(embedded.get("orig_state") or 0)
+        if state_addr and wrapper_addr and 1 <= orig_state <= 0x0500:
+            return {
+                "owner_base": owner_base,
+                "wrapper_addr": wrapper_addr,
+                "state_addr": state_addr,
+                "orig_state": orig_state,
+                "state_wrapper_off": int(embedded.get("state_wrapper_off") or (state_addr - wrapper_addr - STATE_ID_OFF)),
+            }
+
+    wrapper_addr = 0
+    direct_info = row.get("direct_426_info")
+    if isinstance(direct_info, dict):
+        wrapper_addr = int(direct_info.get("wrapper_addr") or direct_info.get("default_target") or 0)
+
+    if not wrapper_addr:
+        chr_tbl_base = int(row.get("chr_tbl_base") or 0)
+        if not chr_tbl_base:
+            chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base) or 0
+        if chr_tbl_base:
+            default_word = _chr_tbl_word_for_owner_base(owner_base, DIRECT_426_TABLE_INDEX)
+            if default_word is not None and 0 < int(default_word) < MOVE_PRESET_SLOT_SIZE:
+                wrapper_addr = int(chr_tbl_base) + int(default_word)
+
+    if not wrapper_addr:
+        return {}
+
+    key = _assist_state_sync_cache_key(owner_base, wrapper_addr)
+    cached = _ASSIST_STATE_SYNC_CACHE.get(key)
+    if isinstance(cached, dict) and int(cached.get("state_addr") or 0):
+        return dict(cached)
+
+    wrapper_data = _read_mem_region_raw(wrapper_addr, ASSIST_STATE_SYNC_SCAN_SIZE)
+    if not wrapper_data:
+        return {}
+
+    graft_addr = int(row.get("block") or 0)
+    graft_off = graft_addr - wrapper_addr if wrapper_addr <= graft_addr < wrapper_addr + len(wrapper_data) else -1
+    search_floor = max(0x40, graft_off + GENERIC_SELECTOR_TABLE_LEN if graft_off >= 0 else 0x80)
+
+    candidates: list[tuple[int, int, int]] = []
+    limit = len(wrapper_data) - STATE_WRAPPER_LEN
+    for off in range(max(0, search_floor), max(0, limit) + 1):
+        if wrapper_data[off:off + len(STATE_WRAPPER_PREFIX)] != STATE_WRAPPER_PREFIX:
+            continue
+        if wrapper_data[off + STATE_MARKER_OFF:off + STATE_MARKER_OFF + 2] != b"\x01\x3C":
+            continue
+        sid = _u16be(wrapper_data, off + STATE_ID_OFF)
+        if sid is None or not (0x0001 <= int(sid) <= 0x0500):
+            continue
+        if int(sid) in ASSIST_STATE_SYNC_EXCLUDED_STATES:
+            continue
+
+        score = 1000 - min(abs(off - search_floor), 900)
+        if graft_off >= 0 and off >= graft_off + GENERIC_SELECTOR_TABLE_LEN:
+            score += 500
+        # The attack animation wrapper is normally the first non-assist state
+        # after the selector block. Later wrappers are usually taunt or cleanup.
+        candidates.append((score, -off, int(sid)))
+
+    if not candidates:
+        return {}
+
+    candidates.sort(reverse=True)
+    _score, neg_off, orig_state = candidates[0]
+    state_wrapper_off = -int(neg_off)
+    info = {
+        "owner_base": owner_base,
+        "wrapper_addr": int(wrapper_addr),
+        "state_wrapper_off": int(state_wrapper_off),
+        "state_addr": int(wrapper_addr) + int(state_wrapper_off) + STATE_ID_OFF,
+        "orig_state": int(orig_state),
+    }
+    _ASSIST_STATE_SYNC_CACHE[key] = dict(info)
+    return info
+
+
+def _assist_state_id_for_selector_word(owner_base: int, raw_val: int, row: dict | None = None) -> int | None:
+    chr_tbl_base = 0
+    if isinstance(row, dict):
+        chr_tbl_base = int(row.get("chr_tbl_base") or 0)
+        direct_info = row.get("direct_426_info")
+        if not chr_tbl_base and isinstance(direct_info, dict):
+            chr_tbl_base = int(direct_info.get("chr_tbl_base") or 0)
+    if not chr_tbl_base:
+        chr_tbl_base = _chr_tbl_base_for_owner_base(owner_base) or 0
+    if not chr_tbl_base:
+        return None
+
+    raw = int(raw_val) & 0xFFFFFFFF
+    candidate_words: list[int] = [raw]
+
+    table_data = _read_mem_region_raw(chr_tbl_base, MOVE_PRESET_CHR_TBL_NUM_ENTRIES * 4)
+    if table_data:
+        for table_index in range(MOVE_PRESET_CHR_TBL_NUM_ENTRIES):
+            entry = _u32be(table_data, table_index * 4)
+            if entry is None or int(entry) in (0, 0xFFFFFFFF):
+                continue
+            for delta in MOVE_PRESET_ENTRY_OFFSETS:
+                if ((int(entry) + int(delta)) & 0xFFFFFFFF) == raw:
+                    candidate_words.insert(0, int(entry) & 0xFFFFFFFF)
+                    break
+
+    seen: set[int] = set()
+    for word in candidate_words:
+        if word in seen or word <= 0 or word >= MOVE_PRESET_SLOT_SIZE:
+            continue
+        seen.add(word)
+        move_data = _read_mem_region_raw(int(chr_tbl_base) + int(word), 0x500)
+        if not move_data:
+            continue
+        sid = _move_preset_anim_id_after_hdr(move_data, 0)
+        if sid is not None and 0x0001 <= int(sid) <= 0x0500:
+            return int(sid)
+    return None
+
+
+def _assist_state_sync_writes(row: dict, raw_val: int | None) -> dict[int, bytes]:
+    if not isinstance(row, dict):
+        return {}
+    owner_base = int(row.get("owner_base") or (_owning_chr_tbl(int(row.get("block") or 0)) or 0))
+    if not owner_base or not _assist_state_sync_enabled(row, owner_base):
+        return {}
+
+    info = _assist_state_sync_wrapper_info(row)
+    state_addr = int(info.get("state_addr") or 0)
+    if not state_addr:
+        return {}
+
+    if raw_val is None:
+        sid = int(info.get("orig_state") or 0)
+    else:
+        sid = _assist_state_id_for_selector_word(owner_base, int(raw_val), row) or 0
+
+    if not (0x0001 <= int(sid) <= 0x0500):
+        return {}
+    return {state_addr: struct.pack(">H", int(sid) & 0xFFFF)}
+
+
+def _assist_state_sync_attach(row: dict) -> dict:
+    out = dict(row or {})
+    info = _assist_state_sync_wrapper_info(out)
+    if info:
+        out["assist_state_info"] = dict(info)
+    return out
+
+
 def _append_direct_426_profiles(slot_char_ids: dict[int, int], hits: list[dict]) -> None:
     """Append one early-wrapper graft row for Tatsunoko characters.
 
@@ -2930,6 +3127,13 @@ def _append_direct_426_profiles(slot_char_ids: dict[int, int], hits: list[dict])
             "owner_base": int(owner_base),
             "char_id": int(cid),
             "direct_426_info": dict(info),
+            "assist_state_info": _assist_state_sync_wrapper_info({
+                "block": graft_addr,
+                "owner_base": int(owner_base),
+                "char_id": int(cid),
+                "chr_tbl_base": chr_tbl_base,
+                "direct_426_info": dict(info),
+            }),
             "selector_words": words,
             "table_raw": current_block.hex(" ").upper(),
             "source": "tatsunoko-wrapper-graft",
@@ -3941,6 +4145,7 @@ def _assist_note_main_snap_transitions(clean_snaps: dict[str, dict]) -> None:
 
     if changed:
         _ASSIST_CACHE_EPOCH += 1
+        _ASSIST_STATE_SYNC_CACHE.clear()
         with _ASSIST_SCAN_CACHE_LOCK:
             global _ASSIST_SCAN_CACHE_SIGNATURE, _ASSIST_SCAN_CACHE_HITS
             _ASSIST_SCAN_CACHE_SIGNATURE = None
@@ -4234,7 +4439,9 @@ def _selector_writes_for_row_module(row: dict, raw_val: int | None) -> dict[int,
             default_word = int(row.get("anchor_default_word") or 0) or None
             operand_offsets = list(row.get("anchor_operand_offsets") or [])
             operand_words = list(row.get("anchor_operand_words") or [])
-            return _anchored_assist_fallback_writes(owner_base, None, table_index, default_word, operand_offsets, operand_words)
+            writes = _anchored_assist_fallback_writes(owner_base, None, table_index, default_word, operand_offsets, operand_words)
+            writes.update(_assist_state_sync_writes(row, None))
+            return writes
         if typ == "u32-generic-selector":
             raw_hex = str(row.get("table_raw", "")).replace(" ", "")
             try:
@@ -4246,6 +4453,8 @@ def _selector_writes_for_row_module(row: dict, raw_val: int | None) -> dict[int,
                 owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
                 if int(row.get("char_id") or 0) == VJOE_CHAR_ID or _is_vjoe_owner_base(owner_base):
                     writes.update(_vjoe_animation_state_writes(owner_base, None, dict(row.get("vjoe_info") or {})))
+                else:
+                    writes.update(_assist_state_sync_writes(row, None))
                 return writes
             return {}
         if typ == "u32-vjoe-trampoline":
@@ -4253,7 +4462,9 @@ def _selector_writes_for_row_module(row: dict, raw_val: int | None) -> dict[int,
             return _vjoe_trampoline_writes(owner_base, None, dict(row.get("vjoe_info") or {}))
         if typ == "u32-direct-426-fallback":
             owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
-            return _direct_426_writes(owner_base, None, dict(row.get("direct_426_info") or {}))
+            writes = _direct_426_writes(owner_base, None, dict(row.get("direct_426_info") or {}))
+            writes.update(_assist_state_sync_writes(row, None))
+            return writes
         return {}
 
     payload = struct.pack(">I", int(raw_val) & 0xFFFFFFFF)
@@ -4276,7 +4487,9 @@ def _selector_writes_for_row_module(row: dict, raw_val: int | None) -> dict[int,
         default_word = int(row.get("anchor_default_word") or 0) or None
         operand_offsets = list(row.get("anchor_operand_offsets") or [])
         operand_words = list(row.get("anchor_operand_words") or [])
-        return _anchored_assist_fallback_writes(owner_base, int(raw_val), table_index, default_word, operand_offsets, operand_words)
+        writes = _anchored_assist_fallback_writes(owner_base, int(raw_val), table_index, default_word, operand_offsets, operand_words)
+        writes.update(_assist_state_sync_writes(row, int(raw_val)))
+        return writes
 
     if typ == "u32-generic-selector":
         source = str(row.get("source", "unknown"))
@@ -4285,6 +4498,8 @@ def _selector_writes_for_row_module(row: dict, raw_val: int | None) -> dict[int,
         owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
         if int(row.get("char_id") or 0) == VJOE_CHAR_ID or _is_vjoe_owner_base(owner_base):
             writes.update(_vjoe_animation_state_writes(owner_base, int(raw_val), dict(row.get("vjoe_info") or {})))
+        else:
+            writes.update(_assist_state_sync_writes(row, int(raw_val)))
         return writes
 
     if typ == "u32-vjoe-trampoline":
@@ -4293,7 +4508,9 @@ def _selector_writes_for_row_module(row: dict, raw_val: int | None) -> dict[int,
 
     if typ == "u32-direct-426-fallback":
         owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
-        return _direct_426_writes(owner_base, int(raw_val), dict(row.get("direct_426_info") or {}))
+        writes = _direct_426_writes(owner_base, int(raw_val), dict(row.get("direct_426_info") or {}))
+        writes.update(_assist_state_sync_writes(row, int(raw_val)))
+        return writes
 
     return {}
 
@@ -4609,7 +4826,7 @@ def _resolve_quick_route_row_uncached(owner_base: int, char_id: int | None = Non
         return (pri, int(row.get("score", 0)), -int(row.get("block", 0)))
 
     candidates.sort(key=rank, reverse=True)
-    return candidates[0]
+    return _assist_state_sync_attach(candidates[0])
 
 
 def _resolve_quick_route_row(owner_base: int, char_id: int | None = None) -> dict | None:
@@ -7630,9 +7847,11 @@ class AssistScannerWindow:
                 default_word = int(row.get("anchor_default_word") or 0) or None
                 operand_offsets = list(row.get("anchor_operand_offsets") or [])
                 operand_words = list(row.get("anchor_operand_words") or [])
-                return _anchored_assist_fallback_writes(
+                writes = _anchored_assist_fallback_writes(
                     owner_base, None, table_index, default_word, operand_offsets, operand_words
                 )
+                writes.update(_assist_state_sync_writes(row, None))
+                return writes
             if typ == "u32-generic-selector":
                 raw_hex = str(row.get("table_raw", "")).replace(" ", "")
                 try:
@@ -7644,6 +7863,8 @@ class AssistScannerWindow:
                     owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
                     if int(row.get("char_id") or 0) == VJOE_CHAR_ID or _is_vjoe_owner_base(owner_base):
                         writes.update(_vjoe_animation_state_writes(owner_base, None, dict(row.get("vjoe_info") or {})))
+                    else:
+                        writes.update(_assist_state_sync_writes(row, None))
                     return writes
                 return {}
             if typ == "u32-vjoe-trampoline":
@@ -7651,7 +7872,9 @@ class AssistScannerWindow:
                 return _vjoe_trampoline_writes(owner_base, None, dict(row.get("vjoe_info") or {}))
             if typ == "u32-direct-426-fallback":
                 owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
-                return _direct_426_writes(owner_base, None, dict(row.get("direct_426_info") or {}))
+                writes = _direct_426_writes(owner_base, None, dict(row.get("direct_426_info") or {}))
+                writes.update(_assist_state_sync_writes(row, None))
+                return writes
             return {}
 
         payload = struct.pack(">I", int(raw_val) & 0xFFFFFFFF)
@@ -7674,9 +7897,11 @@ class AssistScannerWindow:
             default_word = int(row.get("anchor_default_word") or 0) or None
             operand_offsets = list(row.get("anchor_operand_offsets") or [])
             operand_words = list(row.get("anchor_operand_words") or [])
-            return _anchored_assist_fallback_writes(
+            writes = _anchored_assist_fallback_writes(
                 owner_base, int(raw_val), table_index, default_word, operand_offsets, operand_words
             )
+            writes.update(_assist_state_sync_writes(row, int(raw_val)))
+            return writes
 
         if typ == "u32-generic-selector":
             source = str(row.get("source", "unknown"))
@@ -7685,6 +7910,8 @@ class AssistScannerWindow:
             owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
             if int(row.get("char_id") or 0) == VJOE_CHAR_ID or _is_vjoe_owner_base(owner_base):
                 writes.update(_vjoe_animation_state_writes(owner_base, int(raw_val), dict(row.get("vjoe_info") or {})))
+            else:
+                writes.update(_assist_state_sync_writes(row, int(raw_val)))
             return writes
 
         if typ == "u32-vjoe-trampoline":
@@ -7693,7 +7920,9 @@ class AssistScannerWindow:
 
         if typ == "u32-direct-426-fallback":
             owner_base = int(row.get("owner_base") or (_owning_chr_tbl(graft_addr) or 0))
-            return _direct_426_writes(owner_base, int(raw_val), dict(row.get("direct_426_info") or {}))
+            writes = _direct_426_writes(owner_base, int(raw_val), dict(row.get("direct_426_info") or {}))
+            writes.update(_assist_state_sync_writes(row, int(raw_val)))
+            return writes
 
         return {}
 

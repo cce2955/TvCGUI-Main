@@ -2381,8 +2381,18 @@ def draw_panel_polished_stats(
         surf.blit(title, (10, 8))
         return
 
+    # Query the exact LIVE Profile Monitor row at the final GUI draw call. The
+    # profiler label is presentation authority, while mv_id_display remains the
+    # real fighter action used by timing and frame-data logic.
+    snap = dict(snap)
+    try:
+        from tvcgui.features.combat.projectile_scanner import apply_live_profile_label_override
+        apply_live_profile_label_override(str(header), snap)
+    except Exception:
+        pass
+
     accent = _slot_accent_for_label(header, muted=False)
-    move_preview = str(snap.get("mv_label") or "").strip().lower()
+    move_preview = str(snap.get("mv_label_display") or snap.get("mv_label") or "").strip().lower()
     try:
         early_move_id = int(snap.get("mv_id_display") or 0)
     except Exception:
@@ -2545,37 +2555,74 @@ def draw_panel_polished_stats(
 
     y = bar_y + 7
     try:
-        pool_pct = float(snap.get("pool_pct") or 0.0)
+        pool_pct = float(snap.get("recoverable_pct_max", snap.get("pool_pct")) or 0.0)
     except Exception:
         pool_pct = 0.0
     try:
-        raw_pool = int(snap.get("hp_pool_byte") or 0)
+        recoverable_hp = int(snap.get("recoverable_hp") or 0)
     except Exception:
-        raw_pool = 0
-    pool_text = f"POOL (02A): {pool_pct:5.1f}%   raw:{raw_pool}"
-    pool_s = _render_outlined_text(smallfont, pool_text, GUI_TEXT, (0, 0, 0), info_w, 1)
+        recoverable_hp = 0
+    # Pool and Baroque share one wide status row. The previous stacked layout
+    # consumed the only line available for the live move label, so the assist
+    # footer painted over it on normal window sizes.
+    status_gap = 16
+    status_left_w = max(120, meter_x - info_x - status_gap)
+    status_right_x = meter_x
+    status_right_w = max(120, info_right - status_right_x)
+
+    pool_text = f"Red HP: {recoverable_hp} ({pool_pct:5.1f}%)"
+    pool_s = _render_outlined_text(
+        smallfont,
+        pool_text,
+        GUI_TEXT,
+        (0, 0, 0),
+        status_left_w,
+        1,
+    )
     surf.blit(pool_s, (info_x, y))
-    y += pool_s.get_height() + 2
 
     pct = float(snap.get("baroque_red_pct_max") or 0.0)
     ready = bool(snap.get("baroque_ready_local", False))
     ready_txt = "READY" if ready else "not ready"
     baroque_text = f"Baroque: {ready_txt}  red:{pct:.1f}%"
     if ready:
-        bq_s = _render_rainbow_outlined_text(smallfont, baroque_text, info_w, t_ms, (0, 0, 0), 1)
+        bq_s = _render_rainbow_outlined_text(
+            smallfont,
+            baroque_text,
+            status_right_w,
+            t_ms,
+            (0, 0, 0),
+            1,
+        )
     else:
-        bq_s = _render_outlined_text(smallfont, baroque_text, GUI_TEXT_MUTED, (0, 0, 0), info_w, 1)
-    surf.blit(bq_s, (info_x, y))
+        bq_s = _render_outlined_text(
+            smallfont,
+            baroque_text,
+            GUI_TEXT_MUTED,
+            (0, 0, 0),
+            status_right_w,
+            1,
+        )
+    surf.blit(bq_s, (status_right_x, y))
+
     ready_ping_t = _fx(panel_fx.get("baroque_ready"))
     if ready_ping_t > 0.0:
-        sweep_x = info_x - 20 + int((bq_s.get_width() + 40) * ready_ping_t)
+        sweep_x = status_right_x - 20 + int((bq_s.get_width() + 40) * ready_ping_t)
         sweep = pygame.Surface((18, bq_s.get_height() + 2), pygame.SRCALPHA)
-        pygame.draw.rect(sweep, (255, 255, 255, int((1.0 - ready_ping_t) * 42)), pygame.Rect(0, 0, 8, bq_s.get_height() + 2), border_radius=3)
+        pygame.draw.rect(
+            sweep,
+            (255, 255, 255, int((1.0 - ready_ping_t) * 42)),
+            pygame.Rect(0, 0, 8, bq_s.get_height() + 2),
+            border_radius=3,
+        )
         surf.blit(sweep, (sweep_x, y - 1))
-    y += bq_s.get_height() + 2
 
-    move_id = snap.get("mv_id_display")
-    mv_label = str(snap.get("mv_label") or "").strip()
+    y += max(pool_s.get_height(), bq_s.get_height()) + 3
+
+    move_id = snap.get("mv_id_label_display")
+    if move_id is None:
+        move_id = snap.get("mv_id_display")
+    mv_label = str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "").strip()
     move_id_dec = None
     if move_id is not None:
         try:
@@ -2591,7 +2638,7 @@ def draw_panel_polished_stats(
         mv_label = "--"
 
     if move_id_dec is not None:
-        move_text = f"Move: {mv_label} ({move_id_dec})"
+        move_text = f"Move ID {move_id_dec}: {mv_label}"
     else:
         move_text = f"Move: {mv_label}"
 

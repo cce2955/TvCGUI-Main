@@ -489,19 +489,42 @@ def _normal_preview_selection_matches(selection: dict | None, slot_label: str, m
 
 
 def _normal_preview_selected_move(slots: list[dict], selection: dict | None) -> tuple[str, dict] | tuple[None, None]:
-    """Resolve the selected preview row from the current slot dataset."""
+    """Resolve the selected preview row from the current slot dataset.
+
+    The scan data is rebuilt continuously. A row can keep the same notation
+    while its preferred ID field changes between refreshes, so selection cannot
+    rely on the composite key alone. Exact key remains first, then move ID and
+    canonical notation provide stable fallbacks.
+    """
     if not isinstance(selection, dict):
         return None, None
     wanted_slot = str(selection.get("slot_label") or "")
+    wanted_key = str(selection.get("key") or "")
+    wanted_label = _normal_canonical_label(str(selection.get("label") or "")) or _normal_canon_label(str(selection.get("label") or ""))
+    try:
+        wanted_id = int(selection.get("move_id")) if selection.get("move_id") not in (None, "") else None
+    except Exception:
+        wanted_id = None
+
     for slot in slots:
         if not isinstance(slot, dict):
             continue
         slot_label = str(slot.get("slot_label") or slot.get("slot") or "")
         if slot_label != wanted_slot:
             continue
-        for mv in _normal_visible_moves(slot.get("moves") or [], slot):
-            if _normal_preview_selection_matches(selection, slot_label, mv):
+        visible = _normal_visible_moves(slot.get("moves") or [], slot)
+        for mv in visible:
+            if wanted_key and _normal_preview_selection_matches(selection, slot_label, mv):
                 return slot_label, mv
+        if wanted_id is not None:
+            for mv in visible:
+                if _normal_preview_move_id(mv) == wanted_id:
+                    return slot_label, mv
+        if wanted_label:
+            for mv in visible:
+                label = _normal_canonical_label(_normal_move_label(mv)) or _normal_canon_label(_normal_move_label(mv))
+                if label == wanted_label:
+                    return slot_label, mv
     return None, None
 
 
@@ -841,9 +864,12 @@ def _normal_preview_status(slots: list[dict], mode: str, selection: dict | None)
         fast = ladder.get("fast") if isinstance(ladder, dict) else None
         damage = ladder.get("damage") if isinstance(ladder, dict) else None
         if isinstance(fast, dict) and isinstance(damage, dict):
-            bits.append(f"{target} Fastest: {fast.get('label')} {fast.get('startup')}f | Damage: {damage.get('label')} {damage.get('damage')}")
+            bits.append(
+                f"{target} Fastest punish: {fast.get('label')} {fast.get('startup')}f"
+                f" | Highest damage: {damage.get('label')} {damage.get('damage')}"
+            )
         elif isinstance(fast, dict):
-            bits.append(f"{target} Fastest: {fast.get('label')} {fast.get('startup')}f")
+            bits.append(f"{target} Fastest punish: {fast.get('label')} {fast.get('startup')}f")
     return f"{prefix}{source_slot} {label} {adv_block:+d}: " + " | ".join(bits)
 
 
@@ -1301,7 +1327,13 @@ def draw_scan_normals_polished(
                     hint_s = _fit_text(smallfont, hint, GUI_TEXT_DIM, tile.width - 20)
                     surf.blit(hint_s, (tile.x + 10, tile.bottom - hint_s.get_height() - 6))
 
-                interaction["rows"].append({"rect": tile.copy(), "slot_label": slot_label, "key": key})
+                interaction["rows"].append({
+                    "rect": tile.copy(),
+                    "slot_label": slot_label,
+                    "key": key,
+                    "label": _normal_move_label(move),
+                    "move_id": _normal_preview_move_id(move),
+                })
             continue
 
         table_x = card.x + 6
@@ -1547,7 +1579,13 @@ def draw_scan_normals_polished(
                 pygame.draw.rect(surf, (*selection_col, 205), row.inflate(-2, -2), 1, border_radius=2)
                 pygame.draw.rect(surf, (*selection_col, 190), pygame.Rect(row.right - 4, row.y + 2, 2, max(1, row.height - 4)), border_radius=1)
 
-            interaction["rows"].append({"rect": row.copy(), "slot_label": slot_label, "key": row_key})
+            interaction["rows"].append({
+                "rect": row.copy(),
+                "slot_label": slot_label,
+                "key": row_key,
+                "label": label,
+                "move_id": mv_id,
+            })
 
             label_col = GUI_TEXT if (is_current or is_selected) else (218, 224, 234)
             role_tag = ""

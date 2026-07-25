@@ -7,6 +7,7 @@ from tvcgui.core.constants import CHAR_NAMES, OFF_CHAR_ID, SLOTS
 from tvcgui.features.combat.move_id_map import lookup_move_name
 from tvcgui.platform.dolphin import addr_in_ram, rbytes, rd32
 
+ACTION_FRAME_OFF = 0x01D8
 ACTION_OFF = 0x01E8
 STATE_FLAGS_A_OFF = 0x0058
 STATE_FLAGS_B_OFF = 0x0060
@@ -136,10 +137,38 @@ def read_overlay_input_packet(slot_label: str = "P1-C1", fighter_base: int = 0) 
         held = _read_u32(base + INPUT_HELD_OFF)
         pressed = _read_u32(base + INPUT_PRESSED_OFF)
         released = _read_u32(base + INPUT_RELEASED_OFF)
+    # Mission mode needs the actual action identity, especially for air normals.
+    # A neutral-stick j.B is still j.B, not 5B. Sampling the native action ID in
+    # the same 240 Hz packet avoids reconstructing move identity from direction.
+    try:
+        fighter_blob = rbytes(base + OFF_CHAR_ID, (ACTION_OFF - OFF_CHAR_ID) + 4)
+    except Exception:
+        fighter_blob = None
+    if fighter_blob and len(fighter_blob) >= (ACTION_OFF - OFF_CHAR_ID) + 4:
+        char_id = struct.unpack_from(">I", fighter_blob, 0)[0]
+        current_hp = struct.unpack_from(">I", fighter_blob, 0x28 - OFF_CHAR_ID)[0]
+        action_frame_raw = struct.unpack_from(">I", fighter_blob, ACTION_FRAME_OFF - OFF_CHAR_ID)[0]
+        action_id = struct.unpack_from(">I", fighter_blob, ACTION_OFF - OFF_CHAR_ID)[0] & 0x7FFF
+    else:
+        char_id = _read_u32(base + OFF_CHAR_ID)
+        current_hp = _read_u32(base + 0x28)
+        action_frame_raw = _read_u32(base + ACTION_FRAME_OFF)
+        action_id = _read_u32(base + ACTION_OFF) & 0x7FFF
+
+    try:
+        action_frame_float = struct.unpack(">f", struct.pack(">I", action_frame_raw & 0xFFFFFFFF))[0]
+        action_frame = int(action_frame_float) if 0.0 <= action_frame_float < 100000.0 else 0
+    except Exception:
+        action_frame = 0
+
     return {
         "connected": True,
         "slot": label,
         "base": base,
+        "char_id": char_id,
+        "action_id": action_id,
+        "action_frame": action_frame,
+        "current_hp": current_hp,
         "previous": previous,
         "held": held,
         "pressed": pressed,
@@ -209,6 +238,11 @@ def _action_name(action_id: int, char_id: int) -> str:
     if int(char_id) == 12 and action in _RYU_ACTION_NAMES:
         return _RYU_ACTION_NAMES[action]
     return _GENERIC_ACTION_NAMES.get(action, "")
+
+
+def action_name(action_id: int, char_id: int) -> str:
+    """Return the best known display name for one native action ID."""
+    return _action_name(action_id, char_id)
 
 
 def _read_rule_entries(table_ptr: int, max_entries: int = 128) -> list[dict[str, int]]:

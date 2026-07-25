@@ -16,7 +16,7 @@ a = Analysis(
         _data('data/combat/projectilemap.json', 'data/combat'),
         _data('data/combat/projectile_ids.json', 'data/combat'),
         _data('data/combat/move_id_map_charagnostic.csv', 'data/combat'),
-        _data('data/frame_data/frame_data_profiles.json', 'data/frame_data'),
+        ('data/frame_data/frame_data_profiles', 'data/frame_data/frame_data_profiles') if __import__('pathlib').Path('data/frame_data/frame_data_profiles').is_dir() else None,
         _data('data/frame_data/frame_data_preview_profiles.json', 'data/frame_data'),
         _data('data/templates/TvC_Frame_Data_Observed_template.csv', 'data/templates'),
         _data('data/hitboxes/hitbox_range_profiles.json', 'data/hitboxes'),

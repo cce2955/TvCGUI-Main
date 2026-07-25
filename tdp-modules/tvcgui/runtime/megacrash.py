@@ -10,12 +10,14 @@ import csv
 import json
 import os
 import random
+import threading
 import time
 
 from tvcgui.core.paths import data_path, user_data_path
 from tvcgui.core.constants import ATT_ID_OFF_PRIMARY
 from tvcgui.platform.dolphin import addr_in_ram, rd8, wd32
 from tvcgui.tools.scanners.fighter_state import dist2
+from tvcgui.runtime import input_monitor
 
 try:
     import tvcgui.platform.patch_manager as runtime_pm
@@ -469,6 +471,178 @@ def _mission_megacrash_write_action(vic_snap: dict, key: str) -> list[int]:
             written.append(addr)
     return written
 
+
+
+class MissionMegacrashRealtime:
+    """Trigger mission-owned Megacrash from the 240 Hz fighter sample stream.
+
+    The GUI frame index is not a game-frame clock. This controller arms on the
+    target move's actual HP-loss event and uses the high-frequency sample clock
+    to apply the configured delay without waiting for the main render loop.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.RLock()
+        self._config: dict = {}
+        self._mission_key = None
+        self._latest_samples: dict[str, dict] = {}
+        self._previous_hp: dict[str, int] = {}
+        self._target_seen_ns: int = 0
+        self._target_action_id: int = 0
+        self._armed_due_ns: int = 0
+        self._triggered: bool = False
+        self._pulse_end_ns: int = 0
+        self._last_completed: int = 0
+
+    @staticmethod
+    def _norm(value) -> str:
+        return _megacrash_norm_label(value)
+
+    def _clear_attempt(self) -> None:
+        self._target_seen_ns = 0
+        self._target_action_id = 0
+        self._armed_due_ns = 0
+        self._triggered = False
+        self._pulse_end_ns = 0
+
+    def sync(self, payload: dict, snaps: dict) -> None:
+        setup = _extract_mission_megacrash_setup(payload)
+        mission_key = (
+            (payload or {}).get("slot"),
+            (payload or {}).get("character"),
+            (payload or {}).get("active_mission_id"),
+        ) if setup else None
+
+        with self._lock:
+            if not setup or not bool(setup.get("enabled", True)):
+                self._config = {}
+                self._mission_key = None
+                self._clear_attempt()
+                return
+
+            attacker_slot = str((payload or {}).get("slot") or "")
+            victim_slot = _mission_megacrash_victim_slot(payload, snaps)
+            attacker = (snaps or {}).get(attacker_slot) or {}
+            victim = (snaps or {}).get(victim_slot) or {} if victim_slot else {}
+            target_index = _mission_megacrash_target_step_index(payload, setup)
+            completed = max(0, int((payload or {}).get("completed_step_count", 0) or 0))
+
+            if mission_key != self._mission_key:
+                self._mission_key = mission_key
+                self._clear_attempt()
+                self._previous_hp.clear()
+
+            # Any explicit mission retry re-arms the realtime trigger.
+            if completed < self._last_completed:
+                self._clear_attempt()
+            self._last_completed = completed
+
+            self._config = {
+                "mission_key": mission_key,
+                "attacker_slot": attacker_slot,
+                "attacker_base": int(attacker.get("base") or 0),
+                "victim_slot": str(victim_slot or ""),
+                "victim_base": int(victim.get("base") or 0),
+                "target_label": str(setup.get("target_label") or ""),
+                "target_index": target_index,
+                "delay_frames": _clamp_megacrash_delay_frames(setup.get("delay_frames", 0)),
+            }
+
+    def _sample_matches_target(self, sample: dict, target_label: str) -> bool:
+        action_id = int((sample or {}).get("action_id", 0) or 0) & 0x7FFF
+        char_id = int((sample or {}).get("char_id", 0) or 0)
+        observed = input_monitor.action_name(action_id, char_id)
+        target = self._norm(target_label)
+        if target and self._norm(observed) == target:
+            return True
+        # Generic normals retain stable native IDs even when a character map
+        # supplies a decorative label instead of notation.
+        generic = {
+            "5a": 0x100, "5b": 0x101, "5c": 0x102,
+            "2a": 0x103, "2b": 0x104, "2c": 0x105,
+            "6c": 0x106, "3c": 0x108,
+            "j.a": 0x109, "ja": 0x109,
+            "j.b": 0x10A, "jb": 0x10A,
+            "j.c": 0x10B, "jc": 0x10B,
+        }
+        return bool(target in generic and action_id == generic[target])
+
+    def _force_victim(self, sample_ns: int) -> None:
+        cfg = dict(self._config)
+        victim_slot = str(cfg.get("victim_slot") or "")
+        victim_base = int(cfg.get("victim_base") or 0)
+        victim_sample = dict(self._latest_samples.get(victim_slot) or {})
+        if victim_base and not victim_sample.get("base"):
+            victim_sample["base"] = victim_base
+        if not victim_sample:
+            return
+        addrs = _mission_megacrash_write_action(
+            victim_sample,
+            "megacrash:mission-realtime",
+        )
+        if not addrs:
+            return
+        self._pulse_end_ns = int(sample_ns) + int(0.20 * 1_000_000_000)
+        self._armed_due_ns = 0
+        mission_id = (cfg.get("mission_key") or (None, None, None))[2]
+        print(
+            f"[mission megacrash realtime] trigger {victim_slot}: "
+            f"{mission_id} after {cfg.get('target_label')}"
+        )
+
+    def on_sample(self, slot_label: str, sample: dict) -> None:
+        sample_ns = int((sample or {}).get("sample_ns", 0) or time.monotonic_ns())
+        with self._lock:
+            self._latest_samples[str(slot_label)] = dict(sample or {})
+            cfg = dict(self._config)
+            if not cfg:
+                return
+
+            attacker_slot = str(cfg.get("attacker_slot") or "")
+            victim_slot = str(cfg.get("victim_slot") or "")
+            target_label = str(cfg.get("target_label") or "")
+
+            if str(slot_label) == attacker_slot and self._sample_matches_target(sample, target_label):
+                self._target_seen_ns = sample_ns
+                self._target_action_id = int((sample or {}).get("action_id", 0) or 0) & 0x7FFF
+
+            if str(slot_label) == victim_slot:
+                current_hp = int((sample or {}).get("current_hp", 0) or 0)
+                previous_hp = self._previous_hp.get(victim_slot)
+                self._previous_hp[victim_slot] = current_hp
+
+                # Training reset or healing starts a fresh attempt immediately.
+                if previous_hp is not None and current_hp > previous_hp and self._pulse_end_ns <= sample_ns:
+                    self._clear_attempt()
+
+                hp_drop = previous_hp is not None and current_hp < previous_hp
+                target_recent = (
+                    self._target_seen_ns > 0
+                    and sample_ns - self._target_seen_ns <= 300_000_000
+                )
+                if hp_drop and target_recent and not self._triggered:
+                    delay = max(0, int(cfg.get("delay_frames", 0) or 0))
+                    self._armed_due_ns = sample_ns + int((delay / 60.0) * 1_000_000_000)
+                    self._triggered = True
+                    mission_id = (cfg.get("mission_key") or (None, None, None))[2]
+                    print(
+                        f"[mission megacrash realtime] armed {mission_id} "
+                        f"after {target_label} +{delay}f"
+                    )
+
+            if self._armed_due_ns and sample_ns >= self._armed_due_ns:
+                self._force_victim(sample_ns)
+
+            if self._pulse_end_ns:
+                victim_sample = self._latest_samples.get(victim_slot) or {}
+                accepted = int(victim_sample.get("action_id", 0) or 0) == MEGACRASH_MOVE_ID
+                if accepted or sample_ns >= self._pulse_end_ns:
+                    self._pulse_end_ns = 0
+                elif str(slot_label) == victim_slot:
+                    _mission_megacrash_write_action(
+                        victim_sample,
+                        "megacrash:mission-realtime-pulse",
+                    )
 
 def _tick_mission_megacrash_light(
     state: dict,

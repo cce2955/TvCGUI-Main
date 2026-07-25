@@ -36,7 +36,7 @@ SLOTS = [
 
 OFF_MAX_HP   = 0x24   # 32-bit max HP
 OFF_CUR_HP   = 0x28   # 32-bit current HP
-OFF_AUX_HP   = 0x2C   # sometimes tracks a mirrored or pooled HP value
+OFF_AUX_HP   = 0x2C   # current HP plus the native recoverable-health amount
 OFF_LAST_HIT = 0x40   # most recent damage event (varies by character)
 OFF_CHAR_ID  = 0x14   # character ID used for portrait/name lookup
 

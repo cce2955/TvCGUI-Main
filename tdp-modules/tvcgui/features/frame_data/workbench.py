@@ -58,6 +58,11 @@ from .write_helpers import (
 from tvcgui.core.tk_host import tk_call
 from tvcgui.core.paths import resource_path
 from tvcgui.features.combat.move_filters import filter_purged_moves_for_char, is_purged_move_label
+try:
+    from tvcgui.features.training.protection_profiler import apply_runtime_protection_observations, default_profile_path
+except Exception:
+    apply_runtime_protection_observations = None
+    default_profile_path = None
 
 
 class EditableFrameDataWindow(FDCellEditorsMixin):
@@ -73,6 +78,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.slot_label = slot_label
         self.target_slot = target_slot or {}
         self._ui_prefs = FDUIPrefs.load()
+        if not bool(self._ui_prefs.get("layout_cleanup_v1")):
+            self._ui_prefs["view_mode"] = "frame"
+            self._ui_prefs["layout_cleanup_v1"] = True
+            FDUIPrefs.save(self._ui_prefs)
         self.root: tk.Toplevel | None = tk.Toplevel(self.master)
         cname = self.target_slot.get("char_name", "-")
         self.root.title(f"Frame Data Editor: {self.slot_label} ({cname})")
@@ -83,6 +92,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._opening_cancelled = False
         self._opening_after_id = None
         self._timing_observation_after_id = None
+        self._runtime_protection_profile_stamp = None
         self._launch_status_var = tk.StringVar(
             master=self.root,
             value="Opening saved profile… no scan is running.",
@@ -134,6 +144,23 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         # Preserve the raw scan order for optional view sorting.
         # Tag each move dict with a stable scan index so we can return to the scanner order.
         moves_scanned = filter_purged_moves_for_char(target_slot, list(target_slot.get("moves", []) or []))
+        # Runtime protection observations are stored outside the static profile
+        # cache. Apply them again whenever the workbench opens so a previously
+        # cached character immediately gains exact invulnerability and guard
+        # point windows without requiring a full character rescan.
+        if apply_runtime_protection_observations is not None:
+            try:
+                _protection_char_id = int(
+                    target_slot.get("char_id")
+                    or target_slot.get("csv_char_id")
+                    or target_slot.get("id")
+                    or 0
+                )
+                if _protection_char_id > 0:
+                    apply_runtime_protection_observations(moves_scanned, _protection_char_id)
+                self._runtime_protection_profile_stamp = self._get_runtime_protection_profile_stamp()
+            except Exception:
+                pass
         try:
             target_slot["moves"] = moves_scanned
         except Exception:
@@ -184,6 +211,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         self.moves = moves_sorted
         self.move_to_tree_item: dict[str, dict] = {}
+        # Nested field rows are real edit targets.  Each binding points back to
+        # the owning move/projectile, its writable field, and exact address.
+        self._field_binding_by_item: dict[str, dict] = {}
         self.original_moves: dict[int, dict] = {}
         self.next_abs_map: dict[int, int] = {}
 
@@ -259,6 +289,21 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._projectile_scanning = False
         self._projectile_profiled = bool((target_slot or {}).get("profile_projectiles_profiled"))
         self._projectile_status_var: tk.StringVar | None = None
+        # Live projectile runtime rows are embedded under the selected record in
+        # the existing Projectile definitions tree. They refresh only while a
+        # projectile row is selected, keeping the normal workbench lightweight.
+        self._projectile_live_refreshing = False
+        self._projectile_live_generation = 0
+        self._projectile_live_after_id = None
+        self._projectile_live_selected_item = None
+        # Per-row live capture state. Static projectile-definition IDs are not
+        # the same namespace as the live actor IDs for many characters, so the
+        # watcher binds a selected row to the actor that actually appears in
+        # Dolphin. Exact ID and damage matches are preferred, then a newly
+        # spawned team-owned actor is captured.
+        self._projectile_live_previous_keys_by_item: dict[str, set[tuple]] = {}
+        self._projectile_live_bound_actor_by_item: dict[str, int] = {}
+        self._projectile_live_last_record_by_item: dict[str, dict] = {}
         self._super_hits: list[dict] = list((target_slot or {}).get("profile_super_hits", []) or [])
         self._super_scanning = False
         self._super_profiled = bool((target_slot or {}).get("profile_specials_profiled"))
@@ -352,9 +397,16 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         try:
             if self.tree is not None:
                 builtin = dict(getattr(self, "_fd_builtin_column_widths", {}) or {})
+                minimums = dict(getattr(self, "_fd_min_column_widths", {}) or {})
                 for col in self.tree["columns"]:
                     if col in builtin:
-                        self.tree.column(col, width=max(32, int(builtin[col])))
+                        minimum = int(minimums.get(col, 68))
+                        self.tree.column(
+                            col,
+                            width=max(minimum, int(builtin[col])),
+                            minwidth=minimum,
+                            stretch=False,
+                        )
         except Exception:
             pass
         try:
@@ -936,6 +988,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             pass
         self._timing_observation_after_id = None
         try:
+            if self.root is not None and self._projectile_live_after_id is not None:
+                self.root.after_cancel(self._projectile_live_after_id)
+        except Exception:
+            pass
+        self._projectile_live_after_id = None
+        self._projectile_live_generation = int(getattr(self, "_projectile_live_generation", 0) or 0) + 1
+        try:
             with self._optional_probe_lock:
                 self._optional_probe_stop = True
                 self._optional_probe_queue.clear()
@@ -1002,6 +1061,69 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return f"+{number}" if number > 0 else str(number)
         return str(number)
 
+    def _get_runtime_protection_profile_stamp(self):
+        if default_profile_path is None:
+            return None
+        try:
+            path = default_profile_path()
+            stat = path.stat()
+            return (int(stat.st_mtime_ns), int(stat.st_size))
+        except Exception:
+            return None
+
+    def _refresh_live_protection_observations(self) -> bool:
+        """Reload completed runtime protection captures while the window is open."""
+        if apply_runtime_protection_observations is None:
+            return False
+        stamp = self._get_runtime_protection_profile_stamp()
+        if stamp is None or stamp == self._runtime_protection_profile_stamp:
+            return False
+        self._runtime_protection_profile_stamp = stamp
+
+        try:
+            char_id = int(
+                self.target_slot.get("char_id")
+                or self.target_slot.get("csv_char_id")
+                or self.target_slot.get("id")
+                or 0
+            )
+        except Exception:
+            char_id = 0
+        if char_id <= 0:
+            return False
+
+        moves = list(self.target_slot.get("moves", []) or [])
+        try:
+            apply_runtime_protection_observations(moves, char_id)
+        except Exception:
+            return False
+
+        if self.tree:
+            columns = set(self.tree["columns"] or ())
+            for item_id, move in list((self.move_to_tree_item or {}).items()):
+                if not isinstance(move, dict):
+                    continue
+                try:
+                    if "invuln" in columns:
+                        self.tree.set(item_id, "invuln", str(move.get("invuln") or ""))
+                    if "armor_probe" in columns:
+                        self.tree.set(item_id, "armor_probe", str(move.get("armor_probe") or ""))
+                    if "baroque_probe" in columns:
+                        value = move.get("baroque_probe") if str(move.get("baroque_source") or "").startswith("runtime_observed") else ""
+                        self.tree.set(item_id, "baroque_probe", str(value or ""))
+                    self._apply_row_tags(item_id, move)
+                except Exception:
+                    pass
+
+            try:
+                selected = self.tree.selection()
+                if selected:
+                    item_id = selected[0]
+                    self._refresh_inspector(item_id, self.move_to_tree_item.get(item_id))
+            except Exception:
+                pass
+        return True
+
     def _schedule_live_timing_observation_refresh(self) -> None:
         if self._opening_cancelled or not self.root:
             return
@@ -1021,6 +1143,11 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 return
         except Exception:
             return
+
+        try:
+            protection_changed = self._refresh_live_protection_observations()
+        except Exception:
+            protection_changed = False
 
         changes: list[dict] = []
         try:
@@ -1081,6 +1208,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     message += f" {confirmed} confirmed by 3 or more matching samples."
                 self._status_var.set(message)
 
+        if protection_changed and not changed_count and self._status_var is not None:
+            self._status_var.set("Runtime protection and Baroque capture updated.")
+
         self._schedule_live_timing_observation_refresh()
 
     def _queue_auto_profile_build(self):
@@ -1138,11 +1268,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
     def _refresh_profile_status_labels(self):
         """Reflect cached pass state without starting any memory scan."""
         if self._projectile_status_var is not None:
-            count = len(self._projectile_hits or [])
+            all_hits = list(self._projectile_hits or [])
+            super_count = sum(1 for h in all_hits if fd_tree._is_super_definition_hit(h))
+            projectile_count = max(0, len(all_hits) - super_count)
             if self._projectile_profiled:
-                self._projectile_status_var.set(f"Projectiles {count} ready")
+                self._projectile_status_var.set(f"Projectiles {projectile_count} | Supers {super_count} ready")
             else:
-                self._projectile_status_var.set("Projectiles  - ")
+                self._projectile_status_var.set("Projectiles / Supers  - ")
         if self._super_status_var is not None:
             count = len(self._super_hits or [])
             if self._super_profiled:
@@ -1275,13 +1407,18 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     persisted = self._persist_optional_profile(projectile_hits=self._projectile_hits)
                     try:
                         fd_tree.populate_projectile_rows(self, replace=True)
+                        fd_tree.populate_super_definition_rows(self, replace=True)
                     except Exception as e2:
                         ok = False
                         if self._status_var is not None:
                             self._status_var.set(f"Projectile rows failed to populate: {e2}")
                     if self._projectile_status_var is not None:
                         suffix = "saved" if persisted else "loaded (cache write deferred)"
-                        self._projectile_status_var.set(f"Projectiles: {len(self._projectile_hits)} profiled + {suffix}")
+                        super_count = sum(1 for h in self._projectile_hits if fd_tree._is_super_definition_hit(h))
+                        projectile_count = max(0, len(self._projectile_hits) - super_count)
+                        self._projectile_status_var.set(
+                            f"Projectiles {projectile_count} | Supers {super_count} profiled + {suffix}"
+                        )
                     if self._status_var is not None and ok:
                         self._status_var.set(f"Profiled {len(self._projectile_hits)} projectile record(s); next open uses the saved pass.")
                 if callable(on_complete):
@@ -1742,39 +1879,13 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         return display_cols[idx]
 
     def _heading_text_for_col(self, col_name: str) -> str:
-        labels = {
-            "move": "Move",
-            "kind": "Kind",
-            "hits": "Hits",
-            "damage": "Dmg",
-            "meter": "Meter",
-            "startup": "Start",
-            "active": "Active",
-            "active2": "Active 2",
-            "hitstun": "HS",
-            "blockstun": "BS",
-            "hitstop": "Stop",
-            "hit_spark": "Hit Spark",
-            "stretch_part": "Stretch Part",
-            "stretch_len": "Reach Length",
-            "stretch_width": "Reach Width",
-            "stretch_height": "Reach Height",
-            "stretch_time": "Stretch Timing",
-            "post_link": "Post Link",
-            "kb_type": "KB Style",
-            "launch_profile": "Extra Launch",
-            "kb_unknown": "Launch Adjust",
-            "kb_x": "KB X",
-            "air_kb": "Arc",
-            "speed_mod": "Speed",
-            "invuln": "Invuln",
-            "attack_property": "Attack Property",
-            "hit_reaction": "Hit Reaction",
-            "superbg": "SuperBG",
-            **FPI.PROJECTILE_LABELS,
-            "abs": "Address",
-        }
-        return labels.get(col_name, col_name)
+        try:
+            label = fd_tree.FD_LABELS.get(col_name)
+            if label:
+                return str(label)
+        except Exception:
+            pass
+        return str(col_name).replace("_", " ").title()
 
     def _refresh_quick_panel(self, item_id: str | None = None, mv: dict | None = None):
         """Update the compact selection strip without rebuilding widgets.
@@ -1904,7 +2015,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             fmt = FPI.format_projectile_value(mv, "proj_fmt")
             is_emitter = bool(getattr(FPI, "is_projectile_emitter_row", lambda _mv: False)(mv))
             is_ps = bool(getattr(FPI, "is_projectile_super_card", lambda _mv: False)(mv))
-            sub = "Projectile emitter" if is_emitter else ("Projectile-super card" if is_ps else "Projectile record")
+            is_super_definition = bool((mv or {}).get("_is_super_definition"))
+            sub = "Super definition" if is_super_definition else ("Projectile emitter" if is_emitter else ("Projectile-super card" if is_ps else "Projectile record"))
             if fmt:
                 sub += f" | {fmt}"
             if role:
@@ -1958,6 +2070,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             ]:
                 add(label, FPI.format_projectile_value(mv, col), important=important, col=col)
         else:
+            density = str(getattr(self, "_table_density", "standard") or "standard").lower()
             parts = []
             if kind:
                 parts.append(kind)
@@ -1967,38 +2080,57 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     parts.append(f"Anim 0x{int(aid):04X}")
                 except Exception:
                     pass
-            abs_addr = mv.get("abs")
-            if abs_addr:
-                try:
-                    parts.append(f"0x{int(abs_addr):08X}")
-                except Exception:
-                    pass
+            if density == "detailed":
+                abs_addr = mv.get("abs")
+                if abs_addr:
+                    try:
+                        parts.append(f"0x{int(abs_addr):08X}")
+                    except Exception:
+                        pass
             _set_text(sub_var, " | ".join(parts) if parts else "Frame-data row")
-            for label, col, important in [
-                ("Damage", "damage", True), ("Meter", "meter", False), ("Start", "startup", False),
+
+            compact_fields = [
+                ("Damage", "damage", True), ("Start", "startup", False),
                 ("Active", "active", True), ("HS", "hitstun", False),
-            ]:
+                ("BS", "blockstun", False), ("KB X", "kb_x", True),
+                ("Arc", "air_kb", True),
+            ]
+            standard_fields = [
+                ("Damage", "damage", True), ("Meter", "meter", False),
+                ("Start", "startup", False), ("Active", "active", True),
+                ("HS", "hitstun", False), ("BS", "blockstun", False),
+                ("KB X", "kb_x", True), ("Arc", "air_kb", True),
+            ]
+            detailed_fields = standard_fields + [
+                ("Stop", "hitstop", False), ("KB Style", "kb_type", False),
+                ("Property", "attack_property", False),
+                ("Spark", "hit_spark", False), ("Reach", "stretch_len", True),
+                ("Post Link", "post_link", False), ("Extra Launch", "launch_profile", False),
+                ("Launch Adj", "kb_unknown", False), ("Speed", "speed_mod", False),
+                ("React", "hit_reaction", False), ("SuperBG", "superbg", False),
+            ]
+            fields = compact_fields if density == "compact" else (detailed_fields if density == "detailed" else standard_fields)
+            for label, col, important in fields:
                 add(label, _tree_val(col), important=important, col=col)
-            _invuln_text = _tree_val("invuln") or "None"
-            add("Invuln", _invuln_text, important=_invuln_text != "None", col="invuln")
-            for label, col, important in [
-                ("BS", "blockstun", False), ("Stop", "hitstop", False), ("Spark", "hit_spark", False), ("Reach", "stretch_len", True),
-                ("Post Link", "post_link", False), ("KB Style", "kb_type", False),
-                ("Extra Launch", "launch_profile", False), ("Launch Adj", "kb_unknown", False),
-                ("KB X", "kb_x", True), ("Arc", "air_kb", True), ("Speed", "speed_mod", False),
-                ("Property", "attack_property", False), ("React", "hit_reaction", False),
-            ]:
-                add(label, _tree_val(col), important=important, col=col)
+
             _otg_text, _otg_flavor = _otg_tile_value()
             add("OTG", _otg_text, important=_otg_flavor == "otg_on", col="hit_result_flags", flavor=_otg_flavor)
-            add("SuperBG", _tree_val("superbg"), important=False, col="superbg")
+
+            # Protection and Baroque already have dedicated cards and timeline
+            # lanes in the right inspector. Keep them out of the normal summary
+            # unless Detailed density is selected.
+            if density == "detailed":
+                _invuln_text = _tree_val("invuln") or "None"
+                add("Invuln", _invuln_text, important=_invuln_text.lower() not in {"none", "-"}, col="invuln")
+                _protection_text = _tree_val("armor_probe") or str(mv.get("guard_point") or "").strip()
+                add("Protection", _protection_text, important=bool(_protection_text), col="armor_probe")
 
         if empty_label is not None:
             try:
                 if chips:
                     empty_label.grid_remove()
                 else:
-                    empty_label.grid(row=0, column=0, columnspan=6, sticky="w")
+                    empty_label.grid(row=0, column=0, columnspan=4, sticky="w")
             except Exception:
                 pass
 
@@ -2013,7 +2145,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                     slot["visible"] = False
                 continue
             label, value, flavor, col = chips[idx]
-            editable = bool(col and col not in {"kind", "hits", "link", "invuln", "abs"})
+            editable = bool(col and col not in {"kind", "hits", "link", "invuln", "armor_probe", "abs"})
             slot["col"] = col if editable else None
 
             # The row keeps a single tile surface; the value itself is no longer
@@ -2621,9 +2753,19 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self._sync_optional_tree_cells_for_move(mv, item_id)
 
         all_cols = set(self.tree["columns"])
+        bound = self._bound_field_for_item(item_id)
+        source_item = (bound or {}).get("parent_item") or item_id
         for col in self._inspector_value_vars:
+            value = ""
             try:
-                value = self.tree.set(item_id, col) if col in all_cols else ""
+                if FPI.is_projectile_row(mv) and (col in FPI.PROJECTILE_COLUMNS or col in {"damage", "kb_x", "air_kb"}):
+                    value = FPI.format_projectile_value(mv, col)
+                elif col == "abs" and mv.get("abs"):
+                    value = f"0x{int(mv.get('abs')):08X}"
+                elif col == "kind":
+                    value = str(mv.get("kind") or "")
+                elif col in all_cols:
+                    value = self.tree.set(source_item, col)
             except Exception:
                 value = ""
             if value is None or str(value).strip() == "":
@@ -2677,6 +2819,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
         self._refresh_quick_panel(item_id, mv)
         self._refresh_inspector_headline(item_id, mv)
+        self._refresh_protection_summary(item_id, mv)
         self._refresh_frame_timeline(item_id, mv)
         self._refresh_compare_summary(item_id, mv)
         self._apply_inspector_context_layout(mv)
@@ -2710,6 +2853,199 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         except Exception:
             return default
 
+    @staticmethod
+    def _protection_is_empty(value) -> bool:
+        text = str(value or "").strip().lower()
+        return not text or text in {"-", "none", "not found", "not profiled", "0", "0x00000000"}
+
+    @staticmethod
+    def _coerce_frame_ranges(value) -> list[tuple[int, int]]:
+        out: list[tuple[int, int]] = []
+        for item in value or []:
+            try:
+                if isinstance(item, dict):
+                    start = int(item.get("start") or item.get("from") or 0)
+                    end = int(item.get("end") or item.get("to") or start)
+                else:
+                    start = int(item[0])
+                    end = int(item[1] if len(item) > 1 else item[0])
+            except Exception:
+                continue
+            if start <= 0:
+                continue
+            end = max(start, end)
+            out.append((start, end))
+        return out
+
+    @classmethod
+    def _ranges_from_text(cls, value) -> list[tuple[int, int]]:
+        text = str(value or "")
+        out: list[tuple[int, int]] = []
+        for first, second in re.findall(r"(?<![0-9A-Fa-f])([1-9]\d*)\s*(?:[-–]\s*([1-9]\d*))?\s*f", text):
+            try:
+                start = int(first)
+                end = int(second or first)
+            except Exception:
+                continue
+            out.append((start, max(start, end)))
+        return out
+
+    @staticmethod
+    def _guard_mask_short(mask) -> str:
+        try:
+            value = int(mask or 0)
+        except Exception:
+            value = 0
+        names = []
+        if value & 0x04000000:
+            names.append("H")
+        if value & 0x02000000:
+            names.append("M")
+        if value & 0x08000000:
+            names.append("L")
+        if names:
+            return "+".join(names)
+        return "ALL" if (value & 0x00000001) else "?"
+
+    @staticmethod
+    def _baroque_display_text(mv: dict, tree_value: str = "") -> str:
+        mv = mv or {}
+        runtime = mv.get("runtime_protection") if isinstance(mv.get("runtime_protection"), dict) else {}
+        ranges = mv.get("baroque_ranges") or runtime.get("baroque_ranges") or []
+        if ranges:
+            text = str(mv.get("baroque_probe") or tree_value or "").strip()
+            return text or "profiled"
+        if bool(runtime.get("baroque_profiled")) or str(mv.get("baroque_source") or "") == "runtime_observed_none":
+            return "none"
+        return "not profiled"
+
+    def _refresh_protection_summary(self, item_id: str | None, mv: dict | None):
+        vars_by_kind = getattr(self, "_protection_summary_vars", None) or {}
+        if not vars_by_kind:
+            return
+
+        def _tree_value(col: str) -> str:
+            if not item_id or not self.tree:
+                return ""
+            try:
+                return str(self.tree.set(item_id, col) or "").strip()
+            except Exception:
+                return ""
+
+        mv = mv or {}
+        invuln = _tree_value("invuln") or str(mv.get("invuln") or "").strip()
+        protection = _tree_value("armor_probe") or str(
+            mv.get("counter") or mv.get("guard_point") or mv.get("armor") or mv.get("armor_probe") or ""
+        ).strip()
+        low = protection.lower()
+
+        counter = str(mv.get("counter") or "").strip()
+        if not counter and "counter" in low:
+            counter = protection
+
+        guard = str(mv.get("guard_point") or "").strip()
+        if not guard and "guard" in low and "counter" not in low:
+            guard = protection
+
+        armor = str(
+            mv.get("armor")
+            or mv.get("armor_kind")
+            or mv.get("giant_armor")
+            or mv.get("super_armor")
+            or ""
+        ).strip()
+        if not armor and "armor" in low and "counter" not in low and "guard point" not in low:
+            armor = protection
+
+        baroque = self._baroque_display_text(mv, _tree_value("baroque_probe"))
+
+        values = {
+            "invuln": invuln if not self._protection_is_empty(invuln) else "none",
+            "counter": counter if not self._protection_is_empty(counter) else "none",
+            "guard": guard if not self._protection_is_empty(guard) else "none",
+            "armor": armor if not self._protection_is_empty(armor) else "none",
+            "baroque": baroque,
+        }
+        for key, var in vars_by_kind.items():
+            try:
+                value = values.get(key, "none")
+                if str(var.get()) != value:
+                    var.set(value)
+            except Exception:
+                pass
+
+    def _protection_timeline_data(self, mv: dict, invuln_text: str, protection_text: str):
+        runtime = mv.get("runtime_protection") if isinstance(mv.get("runtime_protection"), dict) else {}
+
+        inv_ranges = self._coerce_frame_ranges(mv.get("invuln_ranges") or runtime.get("invuln_ranges"))
+        if not inv_ranges:
+            inv_ranges = self._ranges_from_text(invuln_text)
+        if not inv_ranges:
+            try:
+                frames = int(mv.get("invuln_frames") or 0)
+            except Exception:
+                frames = 0
+            if frames > 0:
+                inv_ranges = [(1, frames)]
+
+        def _masked_segments(raw_value, default_mask=0) -> list[tuple[int, int, int]]:
+            out: list[tuple[int, int, int]] = []
+            for item in raw_value or []:
+                try:
+                    if isinstance(item, dict):
+                        start = int(item.get("start") or 0)
+                        end = int(item.get("end") or start)
+                        mask = int(item.get("mask") or default_mask or 0)
+                    else:
+                        start = int(item[0])
+                        end = int(item[1])
+                        mask = int(item[2] if len(item) > 2 else default_mask or 0)
+                except Exception:
+                    continue
+                if start > 0:
+                    out.append((start, max(start, end), mask))
+            return out
+
+        counter_segments = _masked_segments(
+            mv.get("counter_segments") or runtime.get("counter_segments"),
+            mv.get("counter_mask") or 0,
+        )
+        guard_segments = _masked_segments(
+            mv.get("guard_point_segments") or runtime.get("guard_segments"),
+            mv.get("guard_point_mask") or 0,
+        )
+        armor_segments = self._coerce_frame_ranges(
+            mv.get("armor_segments")
+            or mv.get("giant_armor_segments")
+            or runtime.get("armor_segments")
+        )
+        baroque_ranges = self._coerce_frame_ranges(
+            mv.get("baroque_ranges") or runtime.get("baroque_ranges")
+        )
+
+        low = str(protection_text or "").lower()
+        counter_detected = bool(counter_segments) or bool(mv.get("counter")) or "counter" in low
+        guard_detected = bool(guard_segments) or bool(mv.get("guard_point")) or (
+            "guard" in low and "counter" not in low
+        )
+        armor_detected = bool(armor_segments) or bool(
+            mv.get("armor") or mv.get("armor_kind") or mv.get("giant_armor") or mv.get("super_armor")
+        )
+        if not armor_detected:
+            armor_detected = bool("armor" in low and "counter" not in low and "guard point" not in low)
+        baroque_detected = bool(baroque_ranges) or bool(runtime.get("baroque_profiled"))
+        return (
+            inv_ranges,
+            counter_segments,
+            guard_segments,
+            armor_segments,
+            baroque_ranges,
+            counter_detected,
+            guard_detected,
+            armor_detected,
+            baroque_detected,
+        )
+
     def _refresh_frame_timeline(self, item_id: str | None = None, mv: dict | None = None):
         canvas = getattr(self, "_timeline_canvas", None)
         summary_var = getattr(self, "_timeline_summary_var", None)
@@ -2729,7 +3065,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
         if not item_id or not mv or not self.tree:
             if summary_var is not None:
-                summary_var.set("Select a move to draw its cached startup and active frames.")
+                summary_var.set("Select a move to draw timing and protection windows.")
             return
         try:
             start = int(mv.get("active_start")) if mv.get("active_start") is not None else self._timeline_number(self.tree.set(item_id, "startup"))
@@ -2753,10 +3089,31 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             invuln_text = self.tree.set(item_id, "invuln")
         except Exception:
             invuln_text = mv.get("invuln") or ""
-        invuln_frames = self._timeline_number(invuln_text, 0) or 0
+        try:
+            protection_text = self.tree.set(item_id, "armor_probe")
+        except Exception:
+            protection_text = mv.get("counter") or mv.get("guard_point") or mv.get("armor") or mv.get("armor_probe") or ""
+
+        (
+            inv_ranges,
+            counter_segments,
+            guard_segments,
+            armor_segments,
+            baroque_ranges,
+            counter_detected,
+            guard_detected,
+            armor_detected,
+            baroque_detected,
+        ) = self._protection_timeline_data(mv, str(invuln_text or ""), str(protection_text or ""))
+
         end = max(int(end or start), int(start))
         startup_frames = max(0, start - 1)
-        visible_end = max(end + 10, invuln_frames + 5, 22)
+        protection_ends = [b for _a, b in inv_ranges]
+        protection_ends.extend(b for _a, b, _m in counter_segments)
+        protection_ends.extend(b for _a, b, _m in guard_segments)
+        protection_ends.extend(b for _a, b in armor_segments)
+        protection_ends.extend(b for _a, b in baroque_ranges)
+        visible_end = max([end + 10, 22, *[value + 5 for value in protection_ends]])
         try:
             width = max(240, int(canvas.winfo_width() or 360))
         except Exception:
@@ -2764,18 +3121,72 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         left, right = 7, max(8, width - 7)
         span = max(1, right - left)
         unit = span / float(visible_end)
+
         def x(frame):
             return int(left + ((max(0, frame - 1)) * unit))
 
-        inv_y1, inv_y2 = 13, 23
-        main_y1, main_y2 = 37, 54
-        canvas.create_text(left, 8, anchor="w", text="INVULN", fill="#7FBFC0", font=("Segoe UI", 7, "bold"))
-        if invuln_frames:
-            canvas.create_rectangle(x(1), inv_y1, max(x(invuln_frames + 1) - 1, x(1) + 3), inv_y2, fill="#3F9B95", outline="")
-            canvas.create_text(min(right - 3, max(left + 38, x(invuln_frames + 1))), 8, anchor="e", text=f"1–{invuln_frames}", fill="#9CDDD5", font=("Segoe UI", 7))
-        else:
+        def draw_empty_lane(label: str, y1: int, y2: int, detected: bool = False, empty_text: str | None = None):
+            canvas.create_text(left, y1 - 5, anchor="w", text=label, fill="#7FBFC0", font=("Segoe UI", 7, "bold"))
+            canvas.create_rectangle(left, y1, right, y2, fill="#243446", outline="")
+            text = empty_text if empty_text is not None else ("detected, frames unprofiled" if detected else "none")
+            canvas.create_text(left + 4, (y1 + y2) // 2, anchor="w", text=text, fill="#71869D", font=("Segoe UI", 7))
+
+        inv_y1, inv_y2 = 15, 25
+        counter_y1, counter_y2 = 43, 53
+        guard_y1, guard_y2 = 71, 81
+        armor_y1, armor_y2 = 99, 109
+        baroque_y1, baroque_y2 = 127, 137
+        main_y1, main_y2 = 164, 181
+
+        if inv_ranges:
+            canvas.create_text(left, inv_y1 - 5, anchor="w", text="INVULN", fill="#7FBFC0", font=("Segoe UI", 7, "bold"))
             canvas.create_rectangle(left, inv_y1, right, inv_y2, fill="#243446", outline="")
-            canvas.create_text(left + 4, inv_y1 + 5, anchor="w", text="none", fill="#71869D", font=("Segoe UI", 7))
+            for range_start, range_end in inv_ranges:
+                canvas.create_rectangle(x(range_start), inv_y1, max(x(range_end + 1) - 1, x(range_start) + 3), inv_y2, fill="#3F9B95", outline="")
+                canvas.create_text(min(right - 3, max(left + 38, x(range_end + 1))), inv_y1 - 5, anchor="e", text=f"{range_start}-{range_end}", fill="#9CDDD5", font=("Segoe UI", 7))
+        else:
+            draw_empty_lane("INVULN", inv_y1, inv_y2)
+
+        if counter_segments:
+            canvas.create_text(left, counter_y1 - 5, anchor="w", text="COUNTER", fill="#E58C86", font=("Segoe UI", 7, "bold"))
+            canvas.create_rectangle(left, counter_y1, right, counter_y2, fill="#243446", outline="")
+            for range_start, range_end, mask in counter_segments:
+                canvas.create_rectangle(x(range_start), counter_y1, max(x(range_end + 1) - 1, x(range_start) + 3), counter_y2, fill="#9B4F55", outline="")
+                mask_text = self._guard_mask_short(mask)
+                label = f"{mask_text} {range_start}-{range_end}" if mask_text != "?" else f"{range_start}-{range_end}"
+                canvas.create_text(min(right - 3, max(left + 45, x(range_end + 1))), counter_y1 - 5, anchor="e", text=label, fill="#F0B1AC", font=("Segoe UI", 7))
+        else:
+            draw_empty_lane("COUNTER", counter_y1, counter_y2, counter_detected)
+
+        if guard_segments:
+            canvas.create_text(left, guard_y1 - 5, anchor="w", text="GUARD", fill="#D8B56A", font=("Segoe UI", 7, "bold"))
+            canvas.create_rectangle(left, guard_y1, right, guard_y2, fill="#243446", outline="")
+            for range_start, range_end, mask in guard_segments:
+                canvas.create_rectangle(x(range_start), guard_y1, max(x(range_end + 1) - 1, x(range_start) + 3), guard_y2, fill="#A8793D", outline="")
+                mask_text = self._guard_mask_short(mask)
+                label = f"{mask_text} {range_start}-{range_end}" if mask_text != "?" else f"{range_start}-{range_end}"
+                canvas.create_text(min(right - 3, max(left + 45, x(range_end + 1))), guard_y1 - 5, anchor="e", text=label, fill="#F0CE85", font=("Segoe UI", 7))
+        else:
+            draw_empty_lane("GUARD", guard_y1, guard_y2, guard_detected)
+
+        if armor_segments:
+            canvas.create_text(left, armor_y1 - 5, anchor="w", text="ARMOR", fill="#C7A7E8", font=("Segoe UI", 7, "bold"))
+            canvas.create_rectangle(left, armor_y1, right, armor_y2, fill="#243446", outline="")
+            for range_start, range_end in armor_segments:
+                canvas.create_rectangle(x(range_start), armor_y1, max(x(range_end + 1) - 1, x(range_start) + 3), armor_y2, fill="#785A9C", outline="")
+                canvas.create_text(min(right - 3, max(left + 38, x(range_end + 1))), armor_y1 - 5, anchor="e", text=f"{range_start}-{range_end}", fill="#D9C0F2", font=("Segoe UI", 7))
+        else:
+            draw_empty_lane("ARMOR", armor_y1, armor_y2, armor_detected)
+
+        if baroque_ranges:
+            canvas.create_text(left, baroque_y1 - 5, anchor="w", text="BAROQUE", fill="#FF9EC1", font=("Segoe UI", 7, "bold"))
+            canvas.create_rectangle(left, baroque_y1, right, baroque_y2, fill="#243446", outline="")
+            for range_start, range_end in baroque_ranges:
+                canvas.create_rectangle(x(range_start), baroque_y1, max(x(range_end + 1) - 1, x(range_start) + 3), baroque_y2, fill="#A83D6C", outline="")
+                canvas.create_text(min(right - 3, max(left + 38, x(range_end + 1))), baroque_y1 - 5, anchor="e", text=f"{range_start}-{range_end}", fill="#FFC1D7", font=("Segoe UI", 7))
+        else:
+            draw_empty_lane("BAROQUE", baroque_y1, baroque_y2, baroque_detected, "none" if baroque_detected else "not profiled")
+
         if startup_frames:
             canvas.create_rectangle(x(1), main_y1, max(x(start) - 1, x(1) + 2), main_y2, fill="#355B8C", outline="")
         canvas.create_rectangle(x(start), main_y1, max(x(end + 1) - 1, x(start) + 3), main_y2, fill="#4D9C78", outline="")
@@ -2783,13 +3194,43 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         for frame in (1, start, end + 1):
             xpos = min(right, max(left, x(frame)))
             canvas.create_line(xpos, main_y1 - 3, xpos, main_y2 + 3, fill="#7993B3")
-        canvas.create_text(left, 30, anchor="w", text="1", fill="#91A7C1", font=("Segoe UI", 7))
-        canvas.create_text(max(left + 20, x(start)), 30, anchor="w", text=f"{start}", fill="#91A7C1", font=("Segoe UI", 7))
-        canvas.create_text(max(left + 38, x(end + 1)), 30, anchor="w", text=f"{end + 1}", fill="#91A7C1", font=("Segoe UI", 7))
+        canvas.create_text(left, main_y1 - 7, anchor="w", text="1", fill="#91A7C1", font=("Segoe UI", 7))
+        canvas.create_text(max(left + 20, x(start)), main_y1 - 7, anchor="w", text=f"{start}", fill="#91A7C1", font=("Segoe UI", 7))
+        canvas.create_text(max(left + 38, x(end + 1)), main_y1 - 7, anchor="w", text=f"{end + 1}", fill="#91A7C1", font=("Segoe UI", 7))
+
         if summary_var is not None:
             active_count = (end - start) + 1
-            inv_summary = f"  |  Invuln 1–{invuln_frames} ({invuln_frames}f)" if invuln_frames else "  |  Invuln none"
-            summary_var.set(f"Startup 1–{startup_frames} ({startup_frames}f)  |  Active {start}–{end} ({active_count}f){inv_summary}  |  Recovery not profiled")
+            inv_summary = ", ".join(f"{a}-{b}" for a, b in inv_ranges) if inv_ranges else "none"
+            counter_summary = ", ".join(f"{self._guard_mask_short(mask)} {a}-{b}" for a, b, mask in counter_segments)
+            if not counter_summary:
+                counter_summary = "detected, frames unprofiled" if counter_detected else "none"
+            guard_summary = ", ".join(f"{self._guard_mask_short(mask)} {a}-{b}" for a, b, mask in guard_segments)
+            if not guard_summary:
+                guard_summary = "detected, frames unprofiled" if guard_detected else "none"
+            armor_summary = ", ".join(f"{a}-{b}" for a, b in armor_segments)
+            if not armor_summary:
+                armor_summary = "detected, frames unprofiled" if armor_detected else "none"
+            baroque_summary = ", ".join(f"{a}-{b}" for a, b in baroque_ranges)
+            if not baroque_summary:
+                baroque_summary = "none" if baroque_detected else "not profiled"
+            runtime = mv.get("runtime_protection") if isinstance(mv.get("runtime_protection"), dict) else {}
+            capture_summary = ""
+            if str(runtime.get("sampling_mode") or "").startswith("action_frame_synced"):
+                missed = self._coerce_frame_ranges(runtime.get("missed_ranges") or [])
+                if missed:
+                    missed_text = ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in missed)
+                    capture_summary = f"  |  Capture frame-synced, missed {missed_text}"
+                else:
+                    try:
+                        hz = int(round(float(runtime.get("poll_hz") or 0)))
+                    except Exception:
+                        hz = 0
+                    capture_summary = f"  |  Capture frame-synced{f' {hz}Hz' if hz else ''}, missed none"
+            summary_var.set(
+                f"Startup 1-{startup_frames} ({startup_frames}f)  |  Active {start}-{end} ({active_count}f)  |  "
+                f"Invuln {inv_summary}  |  Counter {counter_summary}  |  Guard {guard_summary}  |  "
+                f"Armor {armor_summary}  |  Baroque {baroque_summary}  |  Recovery not profiled{capture_summary}"
+            )
 
     def _refresh_selected_row(self):
         if not self.tree:
@@ -2965,7 +3406,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "Move link", "Impact", "Timing", "Stun and pressure",
             "Experimental properties", "Launch and knockback controls", "Hit FX and reach",
             "Dangerous script links", "Flags and lookup",
-            "Super dispatch", "Projectile emitter", "Projectile super", "Projectile data", "Super beam", "Final hit", "Projectile super probes",
+            "Super dispatch", "Projectile emitter", "Projectile super", "Projectile data", "Super definition", "Super beam", "Final hit", "Projectile super probes",
         ]
 
         def _field_has_value(col: str) -> bool:
@@ -2986,14 +3427,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         elif FPI.is_projectile_row(mv):
             emitter_has = _section_has("Projectile emitter")
             ps_has = _section_has("Projectile super")
-            # Do not let proj_fmt alone pull the generic projectile card to the
-            # top for compact 00/23 super cards. That was the confusing
-            # not-found wall in the sidebar.
             projectile_has = _section_has("Projectile data", skip={"proj_fmt"})
+            super_definition_has = _section_has("Super definition")
             beam_has = _section_has("Super beam")
             final_has = _section_has("Final hit")
             probe_has = _section_has("Projectile super probes")
+            is_super_definition = bool((mv or {}).get("_is_super_definition"))
             order = ["Move link"]
+            if is_super_definition and super_definition_has:
+                order.append("Super definition")
             if emitter_has and FPI.is_projectile_emitter_row(mv):
                 order.append("Projectile emitter")
             if ps_has and not FPI.is_projectile_emitter_row(mv):
@@ -3006,14 +3448,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 order.append("Projectile data")
             if probe_has:
                 order.append("Projectile super probes")
-            # Keep normal editing fallbacks available but below the actual
-            # projectile/super card controls.
             order.extend(["Impact", "Launch and knockback controls", "Hit FX and reach", "Dangerous script links", "Flags and lookup"])
         else:
             order = list(default_order)
             # Non-projectile rows should not waste vertical space on empty
             # projectile cards unless scanner data actually exists on the row.
-            for title in ["Super dispatch", "Projectile emitter", "Projectile super", "Projectile data", "Super beam", "Final hit", "Projectile super probes"]:
+            for title in ["Super dispatch", "Projectile emitter", "Projectile super", "Projectile data", "Super definition", "Super beam", "Final hit", "Projectile super probes"]:
                 if title in order and not _section_has(title):
                     order.remove(title)
 
@@ -3128,14 +3568,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     def _mv_snapshot_for_group(self, mv: dict, group_key: str) -> dict:
         keys_by_group = {
-            "move": ("id", "move_name"),
-            "damage": ("damage",),
-            "meter": ("meter",),
-            "active": ("active_start", "active_end", "active_addr"),
+            "move": ("id", "move_name", "abs", "damage_addr", "meter_addr", "active_addr", "active2_addr", "stun_addr", "hitstun_addr", "blockstun_addr", "hitstop_addr", "hit_spark_addr", "stretch_part_addr", "stretch_len_addr", "stretch_width_addr", "stretch_height_addr", "stretch_time_addr", "post_link_addr", "knockback_addr", "speed_mod_addr", "attack_property_addr", "hit_reaction_addr", "hit_result_addr", "superbg_addr", "damage_write_verified", "active_write_verified", "stun_write_verified"),
+            "damage": ("damage", "damage_addr", "damage_write_verified"),
+            "meter": ("meter", "meter_addr"),
+            "active": ("active_start", "active_end", "active_addr", "active_write_verified"),
             "active2": ("active2_start", "active2_end", "active2_addr"),
-            "hitstun": ("hitstun", "stun_addr"),
-            "blockstun": ("blockstun", "stun_addr"),
-            "hitstop": ("hitstop", "stun_addr"),
+            "hitstun": ("hitstun", "hitstun_addr", "stun_addr", "stun_write_verified"),
+            "blockstun": ("blockstun", "blockstun_addr", "stun_addr", "stun_write_verified"),
+            "hitstop": ("hitstop", "hitstop_addr", "stun_addr", "stun_write_verified"),
             "hit_spark": ("hit_spark", "hit_spark_addr"),
             "stretch_part": ("stretch_part", "stretch_part_addr"),
             "stretch_len": ("stretch_len", "stretch_len_addr"),
@@ -3473,7 +3913,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._status_var.set("Select a move first")
             return
         item = sel[0]
-        mv = self.move_to_tree_item.get(item)
+        binding = self._bound_field_for_item(item)
+        mv = (binding or {}).get("mv") or self.move_to_tree_item.get(item)
+        if binding:
+            item = binding.get("parent_item") or item
         if not mv:
             return
 
@@ -3537,7 +3980,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._route_standard_edit(col_name, item, mv, current_val)
 
         self._apply_row_tags(item, mv)
-        self._set_status_for_item(item, mv)
+        self._set_status_for_item(projectile_item or item, projectile_mv or mv)
         self._refresh_inspector(item, mv)
 
     # ---------- Row tagging / status ----------
@@ -3550,7 +3993,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             "row_even", "row_odd",
             "group_parent", "child_row", "grandchild_row",
             "special_row", "super_row",
-            "projectile_row", "projectile_header",
+            "projectile_row", "projectile_header", "super_definition_row", "super_definition_header",
             "family_header", "family_header_normal", "family_header_special", "family_header_super", "family_header_other",
             "family_linked",
         }
@@ -3609,7 +4052,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 "special_row", "super_row",
                 "group_parent",
                 "family_header", "family_header_normal", "family_header_special", "family_header_super", "family_header_other",
-                "projectile_header", "family_linked", "projectile_row",
+                "projectile_header", "super_definition_header", "family_linked", "projectile_row", "super_definition_row",
                 "kb_hot", "combo_hot", "property_hot", "super_on", "missing_addr",
                 "edited_row",
             )
@@ -3617,7 +4060,17 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         ]
         self.tree.item(item_id, tags=tuple(ordered))
 
-    def _set_status_for_item(self, item_id: str, mv: dict):
+    def _set_status_for_item(self, item_id: str, mv: dict | None):
+        # Tree helper rows, such as nested projectile/live-field rows, may not
+        # own a move dict. Never let a selection-only UI event crash the
+        # workbench while those rows are being rebuilt or selected.
+        if not isinstance(mv, dict):
+            try:
+                move_txt = str(self.tree.set(item_id, "move") or "").strip()
+            except Exception:
+                move_txt = ""
+            self._status_var.set(move_txt or "Ready")
+            return
         aid = mv.get("id")
         abs_addr = mv.get("abs")
         kind = mv.get("kind", "")
@@ -3643,6 +4096,117 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             pass
         self._status_var.set(" | ".join(s) if s else "Ready")
 
+
+    def _stop_projectile_live_refresh(self):
+        self._projectile_live_generation = int(getattr(self, "_projectile_live_generation", 0) or 0) + 1
+        self._projectile_live_selected_item = None
+        try:
+            if self.root is not None and self._projectile_live_after_id is not None:
+                self.root.after_cancel(self._projectile_live_after_id)
+        except Exception:
+            pass
+        self._projectile_live_after_id = None
+
+    def _selection_is_within_item(self, item_id: str) -> bool:
+        """Return True while the selection is the projectile row or any child."""
+        if not self.tree or not item_id:
+            return False
+        try:
+            selected = self.tree.selection()
+            current = selected[0] if selected else ""
+            while current:
+                if current == item_id:
+                    return True
+                current = self.tree.parent(current)
+        except Exception:
+            return False
+        return False
+
+    def _projectile_ancestor_for_item(self, item_id: str):
+        """Resolve a nested mapped/live field row back to its projectile row."""
+        if not self.tree:
+            return None, None
+        current = item_id
+        try:
+            while current:
+                mv = self.move_to_tree_item.get(current)
+                if mv and FPI.is_projectile_row(mv):
+                    return current, mv
+                current = self.tree.parent(current)
+        except Exception:
+            pass
+        return None, None
+
+    def _select_projectile_live_row(self, item_id: str, mv: dict):
+        if not FPI.is_projectile_row(mv) or bool((mv or {}).get("_is_super_definition")):
+            self._stop_projectile_live_refresh()
+            return
+        self._projectile_live_generation = int(getattr(self, "_projectile_live_generation", 0) or 0) + 1
+        generation = self._projectile_live_generation
+        self._projectile_live_selected_item = item_id
+        try:
+            if self.root is not None and self._projectile_live_after_id is not None:
+                self.root.after_cancel(self._projectile_live_after_id)
+        except Exception:
+            pass
+        self._projectile_live_after_id = None
+        try:
+            self.tree.item(item_id, open=True)
+        except Exception:
+            pass
+        self._start_projectile_live_refresh(item_id, mv, generation)
+
+    def _start_projectile_live_refresh(self, item_id: str, mv: dict, generation: int):
+        self._projectile_live_after_id = None
+        if generation != int(getattr(self, "_projectile_live_generation", 0) or 0):
+            return
+        if self._projectile_live_selected_item != item_id or self._projectile_live_refreshing:
+            return
+        if not self.root or not self.tree:
+            return
+        if not self._selection_is_within_item(item_id):
+            return
+        self._projectile_live_refreshing = True
+
+        def worker():
+            try:
+                records = FPI.P._collect_live_projectiles()
+                error = None
+            except Exception as exc:
+                records = []
+                error = str(exc)
+            tk_call(
+                lambda _root, g=generation, iid=item_id, selected_mv=mv, rows=records, err=error:
+                    self._finish_projectile_live_refresh(g, iid, selected_mv, rows, err)
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_projectile_live_refresh(self, generation: int, item_id: str, mv: dict,
+                                        records: list[dict], error: str | None):
+        self._projectile_live_refreshing = False
+        if generation != int(getattr(self, "_projectile_live_generation", 0) or 0):
+            return
+        if self._projectile_live_selected_item != item_id or not self.root or not self.tree:
+            return
+        if not self._selection_is_within_item(item_id):
+            return
+        try:
+            fd_tree.populate_projectile_live_rows(self, item_id, mv, records, error=error)
+        except Exception as exc:
+            if self._status_var is not None:
+                self._status_var.set(f"Projectile live fields failed: {exc}")
+        # Keep active motion/collision values current, but only while this exact
+        # projectile row remains selected.
+        try:
+            self._projectile_live_after_id = self.root.after(
+                60,
+                lambda g=generation, iid=item_id, selected_mv=mv:
+                    self._start_projectile_live_refresh(iid, selected_mv, g),
+            )
+        except Exception:
+            self._projectile_live_after_id = None
+
     def _render_selected_row_after_idle(self, generation: int, item_id: str):
         self._selection_render_after_id = None
         if generation != int(getattr(self, "_selection_render_generation", 0) or 0):
@@ -3655,16 +4219,24 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
         if not sel or sel[0] != item_id:
             return
-        mv = self.move_to_tree_item.get(item_id)
-        if not mv:
+        binding = getattr(self, "_field_binding_by_item", {}).get(item_id)
+        mv = (binding or {}).get("mv") or self.move_to_tree_item.get(item_id)
+        render_item = (binding or {}).get("parent_item") or item_id
+        if not isinstance(mv, dict):
+            projectile_item, projectile_mv = self._projectile_ancestor_for_item(item_id)
+            if isinstance(projectile_mv, dict):
+                mv = projectile_mv
+                render_item = projectile_item or render_item
+        if not isinstance(mv, dict):
             self._refresh_inspector(None, None)
             return
-        self._refresh_inspector(item_id, mv)
+        self._refresh_inspector(render_item, mv)
 
     def _on_select(self, _evt=None):
         """Keep the Treeview click path tiny and render details after paint."""
         sel = self.tree.selection()
         if not sel:
+            self._stop_projectile_live_refresh()
             self._last_selected_item_id = None
             self._status_var.set("Ready")
             self._refresh_inspector(None, None)
@@ -3673,12 +4245,22 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if _evt is not None and getattr(self, "_last_selected_item_id", None) == item:
             return
         self._last_selected_item_id = item
-        mv = self.move_to_tree_item.get(item)
-        if not mv:
+        binding = getattr(self, "_field_binding_by_item", {}).get(item)
+        mv = (binding or {}).get("mv") or self.move_to_tree_item.get(item)
+        status_item = (binding or {}).get("parent_item") or item
+        projectile_item, projectile_mv = self._projectile_ancestor_for_item(item)
+        if not mv and projectile_mv is None:
+            self._stop_projectile_live_refresh()
             self._status_var.set("Ready")
             self._refresh_inspector(None, None)
             return
-        self._set_status_for_item(item, mv)
+        if projectile_mv is not None:
+            self._select_projectile_live_row(projectile_item, projectile_mv)
+        else:
+            self._stop_projectile_live_refresh()
+        status_mv = mv if isinstance(mv, dict) else projectile_mv
+        status_item = projectile_item or status_item
+        self._set_status_for_item(status_item, status_mv)
 
         # Let Tk paint the selection highlight immediately.  Rapid keyboard or
         # mouse navigation cancels stale detail renders rather than making the
@@ -3695,7 +4277,9 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                 lambda g=generation, iid=item: self._render_selected_row_after_idle(g, iid)
             )
         except Exception:
-            self._refresh_inspector(item, mv)
+            fallback_mv = mv if isinstance(mv, dict) else projectile_mv
+            fallback_item = projectile_item or item
+            self._refresh_inspector(fallback_item, fallback_mv)
 
     # ---------- Expand/collapse/filter ----------
 
@@ -5126,6 +5710,89 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     # ---------- Reset to original ----------
 
+    @staticmethod
+    def _restore_snapshot_routing(mv: dict, old: dict) -> None:
+        """Restore cached write routing captured before an edit.
+
+        Animation replacement and optional packet discovery can change the
+        addresses cached on a move row. Reset must restore those addresses too,
+        otherwise the visible value returns to normal while later editors keep
+        writing through stale packet pointers.
+        """
+        if not isinstance(mv, dict) or not isinstance(old, dict):
+            return
+        for key, value in old.items():
+            if str(key).endswith("_addr") or str(key).endswith("_verified") or key in {
+                "abs", "speed_mod_sig", "attack_property_sig", "proj_tpl", "hb_off"
+            }:
+                mv[key] = value
+
+    def _restore_editor_interactivity_after_reset(self, touched_items=None) -> None:
+        """Return the workbench to a clean editable state after Reset all."""
+        self._suppress_dirty_tracking = False
+        try:
+            self._pending_edit_snapshots.clear()
+        except Exception:
+            self._pending_edit_snapshots = {}
+
+        # Changed-only with zero changes leaves an apparently empty editor.
+        # Resetting all changes automatically returns to the full tree.
+        if not self._dirty_cells and bool(getattr(self, "_changed_only", False)):
+            self._changed_only = False
+            try:
+                self._reattach_all()
+                self._apply_filter()
+            except Exception:
+                pass
+
+        if self.tree is not None:
+            try:
+                self.tree.state(("!disabled",))
+            except Exception:
+                pass
+            try:
+                self.tree.configure(selectmode="browse")
+            except Exception:
+                pass
+            # Rebind explicitly. This also repairs a stale Tk binding after a
+            # modal editor or reset warning closes on Windows.
+            try:
+                self.tree.bind("<Double-Button-1>", self._on_double_click)
+                self.tree.bind("<Button-3>", self._on_right_click)
+                self.tree.bind("<<TreeviewSelect>>", self._on_select)
+            except Exception:
+                pass
+
+        try:
+            grabber = self.root.grab_current() if self.root is not None else None
+            if grabber is not None:
+                grabber.grab_release()
+        except Exception:
+            pass
+
+        try:
+            selected = self.tree.selection() if self.tree is not None else ()
+            if selected:
+                self.tree.focus(selected[0])
+                self.tree.see(selected[0])
+            if self.tree is not None:
+                self.tree.focus_set()
+        except Exception:
+            pass
+
+        # Refresh packet routing for rows touched by reset. This is especially
+        # important after resetting an animation replacement.
+        for item_id in set(touched_items or ()):
+            try:
+                mv = self.move_to_tree_item.get(item_id)
+                if not isinstance(mv, dict):
+                    continue
+                mv.pop("_optional_probe_done", None)
+                mv.pop("_optional_probe_error", None)
+                self._request_optional_probe(item_id, mv, priority=True, force=True, announce=False)
+            except Exception:
+                pass
+
     def _reset_dirty_keys(self, keys=None, *, announce=True, preserve_history=False):
         if not U.WRITER_AVAILABLE:
             if announce:
@@ -5136,13 +5803,15 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             keys = list(self._dirty_cells.keys())
         keys = [key for key in list(keys or []) if key in self._dirty_cells]
         if not keys:
+            self._restore_editor_interactivity_after_reset(set())
             if announce and self._status_var is not None:
-                self._status_var.set("No changed values to reset")
+                self._status_var.set("No changed values to reset. Editor remains writable.")
             return 0
 
         reset_count = 0
         failed_writes = []
         touched_items = set()
+        routing_refresh_items = set()
 
         # Only touch fields changed during this editor session. This avoids the
         # old full-list reset pass that walked every scanned move.
@@ -5154,6 +5823,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             mv = snap.get("mv") or {}
             group = snap.get("group")
             old = snap.get("mv_values") or {}
+            self._restore_snapshot_routing(mv, old)
             abs_addr = mv.get("abs")
             ok = False
 
@@ -5186,10 +5856,12 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         if dup_idx is not None:
                             pretty = f"{pretty} (Tier{dup_idx + 1})"
                         self.tree.set(item_id, "move", f"{pretty} [0x{int(old_id):04X}]")
+                        routing_refresh_items.add(item_id)
                         ok = True
 
                 elif group == "damage":
                     val = old.get("damage")
+                    mv["damage_addr"] = old.get("damage_addr")
                     if val is not None and U.write_damage(mv, int(val)):
                         mv["damage"] = int(val)
                         self.tree.set(item_id, "damage", str(int(val)))
@@ -5197,12 +5869,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
                 elif group == "meter":
                     val = old.get("meter")
+                    mv["meter_addr"] = old.get("meter_addr")
                     if val is not None and U.write_meter(mv, int(val)):
                         mv["meter"] = int(val)
                         self.tree.set(item_id, "meter", str(int(val)))
                         ok = True
 
                 elif group == "active":
+                    mv["active_addr"] = old.get("active_addr")
                     s = old.get("active_start")
                     e = old.get("active_end")
                     if s is not None and e is not None and U.write_active_frames(mv, int(s), int(e)):
@@ -5224,6 +5898,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                             ok = True
 
                 elif group == "hitstun":
+                    mv["hitstun_addr"] = old.get("hitstun_addr")
+                    mv["stun_addr"] = old.get("stun_addr")
                     val = old.get("hitstun")
                     if val is not None and U.write_hitstun(mv, int(val)):
                         mv["hitstun"] = int(val)
@@ -5231,6 +5907,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         ok = True
 
                 elif group == "blockstun":
+                    mv["blockstun_addr"] = old.get("blockstun_addr")
+                    mv["stun_addr"] = old.get("stun_addr")
                     val = old.get("blockstun")
                     if val is not None and U.write_blockstun(mv, int(val)):
                         mv["blockstun"] = int(val)
@@ -5238,6 +5916,8 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         ok = True
 
                 elif group == "hitstop":
+                    mv["hitstop_addr"] = old.get("hitstop_addr")
+                    mv["stun_addr"] = old.get("stun_addr")
                     val = old.get("hitstop")
                     if val is not None and U.write_hitstop(mv, int(val)):
                         mv["hitstop"] = int(val)
@@ -5396,6 +6076,7 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             self._undo_stack = [key for key in self._undo_stack if key in active_keys]
             self._redo_stack.clear()
         self._update_history_controls()
+        self._restore_editor_interactivity_after_reset(touched_items | routing_refresh_items)
         msg = f"Reset changed values: {reset_count} write(s) restored"
         if failed_writes:
             msg += " | failed: " + ", ".join(failed_writes[:6])
@@ -5407,6 +6088,212 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
 
     def _reset_all_moves(self):
         return self._reset_dirty_keys(None, announce=True, preserve_history=False)
+
+    def _bound_field_for_item(self, item_id: str | None) -> dict | None:
+        if not item_id:
+            return None
+        binding = getattr(self, "_field_binding_by_item", {}).get(item_id)
+        return binding if isinstance(binding, dict) else None
+
+    def _normal_field_address(self, mv: dict, col_name: str) -> int | None:
+        mapping = {
+            "damage": ("damage_addr", 0), "meter": ("meter_addr", 0),
+            "startup": ("active_addr", 0), "active": ("active_addr", 0),
+            "active2": ("active2_addr", 0),
+            "hitstun": ("hitstun_addr", 0), "blockstun": ("blockstun_addr", 0),
+            "hitstop": ("hitstop_addr", 0), "hit_spark": ("hit_spark_addr", 0),
+            "stretch_part": ("stretch_part_addr", 0), "stretch_len": ("stretch_len_addr", 0),
+            "stretch_width": ("stretch_width_addr", 0), "stretch_height": ("stretch_height_addr", 0),
+            "stretch_time": ("stretch_time_addr", 0), "post_link": ("post_link_addr", 0),
+            "kb_type": ("knockback_addr", 1), "launch_profile": ("knockback_addr", 4),
+            "kb_unknown": ("knockback_addr", 8), "kb_x": ("knockback_addr", 12),
+            "air_kb": ("knockback_addr", 16), "speed_mod": ("speed_mod_addr", 0),
+            "attack_property": ("attack_property_addr", 0), "superbg": ("superbg_addr", 0),
+            "abs": ("abs", 0),
+        }
+        key_off = mapping.get(col_name)
+        if not key_off:
+            return None
+        key, off = key_off
+        addr = mv.get(key)
+        # Stun fields may use the shared packet base when direct addresses were
+        # not cached.  Preserve the known field offsets.
+        if not addr and col_name in {"hitstun", "blockstun", "hitstop"}:
+            base = mv.get("stun_addr")
+            if base:
+                off = {"hitstun": 15, "blockstun": 31, "hitstop": 38}[col_name]
+                addr = int(base)
+        if not addr:
+            return None
+        return int(addr) + int(off or 0)
+
+    def _field_address_for(self, mv: dict | None, col_name: str | None) -> int | None:
+        if not isinstance(mv, dict) or not col_name:
+            return None
+        try:
+            if FPI.is_projectile_row(mv):
+                return FPI.projectile_field_addr(mv, col_name)
+            if FSI.is_super_row(mv):
+                return FSI.super_field_addr(mv, col_name)
+        except Exception:
+            pass
+        try:
+            return self._normal_field_address(mv, col_name)
+        except Exception:
+            return None
+
+    def _refresh_bound_field_rows(self, mv: dict) -> None:
+        if not self.tree:
+            return
+        hit = (mv or {}).get("_proj_hit") or {}
+        for iid, binding in list(getattr(self, "_field_binding_by_item", {}).items()):
+            if binding.get("mv") is not mv or not self.tree.exists(iid):
+                continue
+            col = binding.get("col")
+            if col:
+                try:
+                    value = FPI.format_projectile_value(mv, col) if FPI.is_projectile_row(mv) else self.tree.set(binding.get("parent_item"), col)
+                except Exception:
+                    value = ""
+                try:
+                    address = self._field_address_for(mv, col)
+                except Exception:
+                    address = binding.get("address")
+            else:
+                value = hit.get(binding.get("hit_key"), "")
+                address = binding.get("address")
+            try:
+                self.tree.set(iid, "link", "" if value is None else str(value))
+                if address:
+                    self.tree.set(iid, "abs", f"0x{int(address):08X}")
+            except Exception:
+                pass
+
+    @staticmethod
+    def _parse_direct_memory_value(text: str, typ: str):
+        raw = str(text).strip()
+        if typ == "f32":
+            return float(raw[2:] if raw.lower().startswith("f:") else raw)
+        return int(raw, 16) if raw.lower().startswith("0x") else int(raw)
+
+    def _write_direct_memory_value(self, address: int, typ: str, value) -> bool:
+        if typ == "f32":
+            return bool(FPI.P._write_f32(int(address), float(value)))
+        if typ == "u8":
+            iv = int(value)
+            if not 0 <= iv <= 0xFF:
+                raise ValueError("Value must be 0-255")
+            return bool(FPI.P.wbytes(int(address), bytes([iv]))) if FPI.P.wbytes is not None else False
+        if typ == "u16":
+            iv = int(value)
+            if not 0 <= iv <= 0xFFFF:
+                raise ValueError("Value must be 0-65535")
+            return bool(FPI.P._write_u16(int(address), iv))
+        iv = int(value)
+        if not 0 <= iv <= 0xFFFFFFFF:
+            raise ValueError("Value must be 0-4294967295")
+        return bool(FPI.P._write_u32(int(address), iv))
+
+    def _edit_bound_field(self, item_id: str, binding: dict) -> None:
+        mv = binding.get("mv")
+        if not isinstance(mv, dict):
+            return
+        parent_item = binding.get("parent_item") or item_id
+        col = binding.get("col")
+        if col:
+            current = ""
+            try:
+                current = self.tree.set(item_id, binding.get("value_col") or "link")
+            except Exception:
+                pass
+            self._begin_edit_snapshot(parent_item, mv, col)
+            self._route_standard_edit(col, parent_item, mv, current)
+            self._refresh_bound_field_rows(mv)
+            self._apply_row_tags(parent_item, mv)
+            self._set_status_for_item(parent_item, mv)
+            self._refresh_inspector(parent_item, mv)
+            return
+
+        address = binding.get("address")
+        typ = str(binding.get("type") or "u32")
+        if not address:
+            self._status_var.set("This displayed value has no writable backing address.")
+            return
+        current = ""
+        try:
+            current = self.tree.set(item_id, binding.get("value_col") or "link")
+        except Exception:
+            pass
+        label = str(binding.get("label") or binding.get("hit_key") or "Memory field")
+        text = simpledialog.askstring(
+            f"Edit {label}",
+            f"Field: {label}\nAddress: 0x{int(address):08X}\nType: {typ}\nCurrent: {current}\n\nNew value:",
+            parent=self.root,
+            initialvalue=str(current or "0"),
+        )
+        if text is None:
+            return
+        try:
+            value = self._parse_direct_memory_value(text, typ)
+            ok = self._write_direct_memory_value(int(address), typ, value)
+        except Exception as exc:
+            messagebox.showerror("Invalid value", str(exc), parent=self.root)
+            return
+        if not ok:
+            messagebox.showerror("Write failed", f"Could not write 0x{int(address):08X}.", parent=self.root)
+            return
+        hit = mv.get("_proj_hit") or {}
+        hit[binding.get("hit_key")] = value
+        mv["_proj_hit"] = hit
+        self._refresh_bound_field_rows(mv)
+        self._refresh_inspector(parent_item, mv)
+        self._status_var.set(f"Wrote {label} at 0x{int(address):08X}")
+
+    def _show_inspector_field_menu(self, event, col_name: str):
+        if not self.tree:
+            return "break"
+        sel = self.tree.selection()
+        if not sel:
+            return "break"
+        selected = sel[0]
+        binding = self._bound_field_for_item(selected)
+        mv = (binding or {}).get("mv") or self.move_to_tree_item.get(selected)
+        parent_item = (binding or {}).get("parent_item") or selected
+        if not mv:
+            return "break"
+        if FPI.is_projectile_row(mv):
+            addresses = FPI.projectile_field_addresses(mv, col_name)
+        else:
+            addr = self._field_address_for(mv, col_name)
+            addresses = [addr] if addr else []
+        menu = tk.Menu(self.root, tearoff=False)
+        if FPI.is_projectile_row(mv) and FPI.projectile_editable(col_name):
+            menu.add_command(label=f"Edit {FPI.PROJECTILE_FIELD_INFO[col_name][1]}", command=lambda: self._edit_projectile_cell(col_name, parent_item, mv, FPI.format_projectile_value(mv, col_name)))
+        elif FSI.is_super_row(mv) and FSI.super_editable(col_name):
+            menu.add_command(label="Edit value", command=lambda: self._edit_super_dispatch_cell(col_name, parent_item, mv, self.tree.set(parent_item, col_name)))
+        else:
+            menu.add_command(label="Edit value", command=lambda: self._edit_selected_column(col_name))
+        if addresses:
+            menu.add_separator()
+            if len(addresses) == 1:
+                addr = int(addresses[0])
+                menu.add_command(label=f"Copy address 0x{addr:08X}", command=lambda a=addr: self._copy_address(a))
+                menu.add_command(label="View memory", command=lambda a=addr: self._show_address_info(a, f"{col_name} @ 0x{a:08X}"))
+            else:
+                menu.add_command(label=f"Copy all {len(addresses)} backing addresses", command=lambda a=tuple(addresses), c=col_name: self._copy_addresses(a, c))
+                for idx, addr in enumerate(addresses[:12], start=1):
+                    menu.add_command(label=f"Copy address {idx}: 0x{int(addr):08X}", command=lambda a=int(addr): self._copy_address(a))
+        else:
+            menu.add_separator()
+            menu.add_command(label="No backing address", state="disabled")
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                menu.grab_release()
+            except Exception:
+                pass
+        return "break"
 
     # ---------- Double-click routing ----------
 
@@ -5423,6 +6310,10 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         col_name = self._resolve_tree_column_name(column)
         if not col_name:
             return
+        binding = self._bound_field_for_item(item)
+        if binding:
+            self._edit_bound_field(item, binding)
+            return "break"
         mv = self.move_to_tree_item.get(item)
         if not mv:
             return
@@ -5644,6 +6535,14 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
                         pass
 
         self._notify_fd_cell_changed(item, mv, col_name)
+        # Keep every nested definition row and the right-side inspector in sync
+        # regardless of whether the edit started in the grid, a child field row,
+        # a headline card, or the sidebar.
+        self._refresh_bound_field_rows(mv)
+        try:
+            self._refresh_inspector(item, mv)
+        except Exception:
+            pass
         if self._status_var is not None:
             self._status_var.set(f"Wrote {label} to {addr_txt}")
 
@@ -5709,6 +6608,30 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         if not item or not column:
             return
 
+        binding = self._bound_field_for_item(item)
+        if binding:
+            menu = tk.Menu(self.root, tearoff=0)
+            label = str(binding.get("label") or "field")
+            menu.add_command(label=f"Edit {label}", command=lambda i=item, b=binding: self._edit_bound_field(i, b))
+            addr = binding.get("address")
+            if not addr and binding.get("col"):
+                addr = self._field_address_for(binding.get("mv"), binding.get("col"))
+            if addr:
+                menu.add_separator()
+                menu.add_command(label=f"Copy {label} address 0x{int(addr):08X}", command=lambda a=int(addr): self._copy_address(a))
+                menu.add_command(label="View memory", command=lambda a=int(addr): self._show_address_info(a, f"{label} @ 0x{a:08X}"))
+            else:
+                menu.add_separator()
+                menu.add_command(label="No single backing address", state="disabled")
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                try:
+                    menu.grab_release()
+                except Exception:
+                    pass
+            return
+
         mv = self.move_to_tree_item.get(item)
         if not mv:
             return
@@ -5718,6 +6641,46 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
             return
 
         menu = tk.Menu(self.root, tearoff=0)
+
+        if FPI.is_projectile_row(mv) and FPI.projectile_editable(col_name):
+            label = FPI.PROJECTILE_FIELD_INFO[col_name][1]
+            menu.add_command(label=f"Edit {label}", command=lambda c=col_name, i=item, m=mv: self._edit_projectile_cell(c, i, m, FPI.format_projectile_value(m, c)))
+            addresses = FPI.projectile_field_addresses(mv, col_name)
+            if addresses:
+                menu.add_separator()
+                if len(addresses) == 1:
+                    addr = int(addresses[0])
+                    menu.add_command(label=f"Copy {label} address 0x{addr:08X}", command=lambda a=addr: self._copy_address(a))
+                    menu.add_command(label="View memory", command=lambda a=addr: self._show_address_info(a, f"{label} @ 0x{a:08X}"))
+                else:
+                    menu.add_command(label=f"Copy all {len(addresses)} backing addresses", command=lambda a=tuple(addresses), l=label: self._copy_addresses(a, l))
+            else:
+                menu.add_separator()
+                menu.add_command(label="No backing address", state="disabled")
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                try:
+                    menu.grab_release()
+                except Exception:
+                    pass
+            return
+
+        if FSI.is_super_row(mv) and FSI.super_editable(col_name):
+            label = FSI.super_field_edit_info(col_name)[1]
+            addr = FSI.super_field_addr(mv, col_name)
+            menu.add_command(label=f"Edit {label}", command=lambda c=col_name, i=item, m=mv: self._edit_super_dispatch_cell(c, i, m, self.tree.set(i, c)))
+            if addr:
+                menu.add_separator()
+                menu.add_command(label=f"Copy {label} address 0x{int(addr):08X}", command=lambda a=int(addr): self._copy_address(a))
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                try:
+                    menu.grab_release()
+                except Exception:
+                    pass
+            return
 
         addr_map = {
             "damage": ("damage_addr", "Damage"),
@@ -5810,6 +6773,26 @@ class EditableFrameDataWindow(FDCellEditorsMixin):
         self.root.clipboard_clear()
         self.root.clipboard_append(f"0x{addr:08X}")
         messagebox.showinfo("Copied", f"0x{addr:08X} copied to clipboard")
+
+    def _copy_addresses(self, addresses, label: str = "Addresses"):
+        values = []
+        seen = set()
+        for addr in addresses or []:
+            try:
+                iv = int(addr)
+            except Exception:
+                continue
+            if not iv or iv in seen:
+                continue
+            seen.add(iv)
+            values.append(f"0x{iv:08X}")
+        if not values:
+            self._status_var.set(f"No backing addresses for {label}")
+            return
+        payload = "\n".join(values)
+        self.root.clipboard_clear()
+        self.root.clipboard_append(payload)
+        self._status_var.set(f"Copied {len(values)} {label.lower()}")
 
     def _show_address_info(self, addr: int, title: str):
         LINE_SIZE = 16

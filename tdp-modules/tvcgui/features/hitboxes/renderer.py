@@ -439,6 +439,32 @@ OFF_CHR_TBL = 0x1E0   # live character action-table pointer
 # Values are big-endian floats: 0x40000000=2.0, 0x40400000=3.0,
 # 0x40800000=4.0, etc. The -1 bias maps 2.0 to action frame 1.
 OFF_ACTION_COUNTER = 0x1D8
+OFF_STATE_FLAGS = 0x0058
+OFF_GUARD_MASK = 0x0244
+OFF_COLLISION_EXCLUSION = 0x1218
+GUARD_ENABLE_BIT = 0x00400000
+GUARD_MID_BIT = 0x02000000
+GUARD_HIGH_BIT = 0x04000000
+GUARD_LOW_BIT = 0x08000000
+GUARD_HEIGHT_MASK = GUARD_MID_BIT | GUARD_HIGH_BIT | GUARD_LOW_BIT
+STUN_BYPASS_BIT = 0x00040000
+NO_DAMAGE_GUARD_BIT = 0x00100000
+GENERIC_PROTECTION_MARKER = 0x00000001
+CONFIRMED_COUNTER_ACTIONS = {
+    (27, 0x0139),
+    (27, 0x013A),
+    (27, 0x013B),
+}
+CONFIRMED_GUARD_ACTIONS = {
+    (2, 0x0136),
+    (2, 0x0137),
+    (2, 0x0138),
+}
+CONFIRMED_ARMOR_ACTIONS = {
+    (27, 0x0136),
+    (27, 0x0137),
+    (27, 0x0138),
+}
 ACTION_COUNTER_FRAME_BIAS = -1.0
 ACTION_COUNTER_MIN = 0.0
 ACTION_COUNTER_MAX = 600.0
@@ -2485,6 +2511,36 @@ def set_legend_window_visible(visible: bool) -> None:
         threading.Thread(target=_legend_window_worker, name="hitbox_legend_window", daemon=True).start()
     except Exception:
         _legend_window_started = False
+
+
+def _read_live_protection_state(slot_base: int) -> tuple[int, int, int]:
+    """Return exact live (exclusion frames, state flags, protection flags).
+
+    +0x244 contains both height-resolver masks and the 0x00040000 hitstun
+    bypass bit. Returning the full words lets the caller distinguish counters,
+    no-damage guard points, and damage-taking armor instead of collapsing all
+    three into one generic guard mask.
+    """
+    try:
+        raw_timer = int(rd32(int(slot_base) + OFF_COLLISION_EXCLUSION) or 0) & 0xFFFFFFFF
+        state_flags = int(rd32(int(slot_base) + OFF_STATE_FLAGS) or 0) & 0xFFFFFFFF
+        protection_flags = int(rd32(int(slot_base) + OFF_GUARD_MASK) or 0) & 0xFFFFFFFF
+        remaining = (raw_timer + 0xFF) // 0x100 if raw_timer else 0
+        if remaining > 180:
+            remaining = 0
+        return int(remaining), int(state_flags), int(protection_flags)
+    except Exception:
+        return 0, 0, 0
+
+def _guard_mask_short(mask: int) -> str:
+    parts = []
+    if int(mask) & GUARD_HIGH_BIT:
+        parts.append("H")
+    if int(mask) & GUARD_MID_BIT:
+        parts.append("M")
+    if int(mask) & GUARD_LOW_BIT:
+        parts.append("L")
+    return "+".join(parts)
 
 
 def _read_live_invuln_frames(slot_base: int) -> int:
@@ -6106,23 +6162,76 @@ class HitboxRenderer:
 
         slot_invuln: Dict[str, bool] = {}
         slot_invuln_text: Dict[str, str] = {}
+        slot_counter_mask: Dict[str, int] = {}
+        slot_counter_text: Dict[str, str] = {}
+        slot_guard_mask: Dict[str, int] = {}
+        slot_guard_text: Dict[str, str] = {}
+        slot_armor_mask: Dict[str, int] = {}
+        slot_armor_text: Dict[str, str] = {}
         for _slot_name, _slot_base in SLOT_BASES.items():
             try:
                 _raw_state = read_state_raw(_slot_base)
                 _state_id = decode_state_id(_raw_state)
+                _char_id = int(rd32(_slot_base + OFF_CHAR_ID) or 0)
                 _fd = lookup_frame_data(self.fd_by_slot, _slot_name, _state_id)
                 _action_frame = read_action_frame(_slot_base)
                 # Prefer the direct current-action signature.  It avoids any
                 # cache/listing mismatch for special wrappers and guarantees the
                 # visual changes on the exact live move that owns the timer.
-                _live_frames = _read_live_invuln_frames(_slot_base)
+                _direct_remaining, _state_flags, _protection_flags = _read_live_protection_state(_slot_base)
+                _live_frames = 0 if _direct_remaining > 0 else _read_live_invuln_frames(_slot_base)
                 _fd_frames = int(_fd.invuln_frames or 0) if _fd is not None else 0
                 _invuln_frames = _live_frames or _fd_frames
-                slot_invuln[_slot_name] = bool(_invuln_frames and _action_frame is not None and 1 <= int(_action_frame) <= _invuln_frames)
-                slot_invuln_text[_slot_name] = f"{_invuln_frames}f" if slot_invuln[_slot_name] else ""
+                # A nonzero direct timer is authoritative for the current frame.
+                # Static/profile timing is retained only as a fallback when the
+                # direct field cannot be observed.
+                slot_invuln[_slot_name] = bool(
+                    _direct_remaining > 0
+                    or (_invuln_frames and _action_frame is not None and 1 <= int(_action_frame) <= _invuln_frames)
+                )
+                slot_invuln_text[_slot_name] = (
+                    f"{_direct_remaining}f left" if _direct_remaining > 0
+                    else (f"{_invuln_frames}f" if slot_invuln[_slot_name] else "")
+                )
+
+                _action_key = (_char_id, int(_state_id))
+                _resolver_enabled = bool(_state_flags & GUARD_ENABLE_BIT)
+                _height_mask = int(_protection_flags) & GUARD_HEIGHT_MASK
+                _stun_bypass = bool(int(_protection_flags) & STUN_BYPASS_BIT)
+                _no_damage = bool(int(_state_flags) & NO_DAMAGE_GUARD_BIT)
+
+                _counter_active = bool(
+                    _resolver_enabled and _height_mask and _action_key in CONFIRMED_COUNTER_ACTIONS
+                )
+                _guard_active = bool(
+                    _resolver_enabled
+                    and _stun_bypass
+                    and not _counter_active
+                    and (_no_damage or _action_key in CONFIRMED_GUARD_ACTIONS)
+                )
+                _armor_active = bool(
+                    _resolver_enabled
+                    and _stun_bypass
+                    and not _counter_active
+                    and not _guard_active
+                    and (_action_key in CONFIRMED_ARMOR_ACTIONS or not _no_damage)
+                )
+
+                slot_counter_mask[_slot_name] = int(_height_mask) if _counter_active else 0
+                slot_counter_text[_slot_name] = _guard_mask_short(_height_mask) if _counter_active else ""
+                slot_guard_mask[_slot_name] = GENERIC_PROTECTION_MARKER if _guard_active else 0
+                slot_guard_text[_slot_name] = "NO DMG" if _guard_active else ""
+                slot_armor_mask[_slot_name] = GENERIC_PROTECTION_MARKER if _armor_active else 0
+                slot_armor_text[_slot_name] = "TAKES DMG" if _armor_active else ""
             except Exception:
                 slot_invuln[_slot_name] = False
                 slot_invuln_text[_slot_name] = ""
+                slot_counter_mask[_slot_name] = 0
+                slot_counter_text[_slot_name] = ""
+                slot_guard_mask[_slot_name] = 0
+                slot_guard_text[_slot_name] = ""
+                slot_armor_mask[_slot_name] = 0
+                slot_armor_text[_slot_name] = ""
 
         if hurtboxes_on:
             hurt_view_mode = _read_hurtbox_view_mode(control)
@@ -6139,6 +6248,9 @@ class HitboxRenderer:
 
                 contacts = contacts_by_target.get(hurt_slot, [])
                 invuln_active = bool(slot_invuln.get(hurt_slot, False))
+                counter_mask_active = int(slot_counter_mask.get(hurt_slot, 0) or 0)
+                guard_mask_active = int(slot_guard_mask.get(hurt_slot, 0) or 0)
+                armor_mask_active = int(slot_armor_mask.get(hurt_slot, 0) or 0)
                 layout = classify_hurtbox_regions(hlist)
                 region_by_index = layout.get("region_by_index", {})
                 major_indices = set(layout.get("major_indices", set()))
@@ -6199,10 +6311,22 @@ class HitboxRenderer:
                         invuln=invuln_active and not highlight,
                         show_label=show_label,
                     )
-                    if invuln_active and not first_label_drawn and ov.font_hud is not None:
+                    if (invuln_active or counter_mask_active or guard_mask_active or armor_mask_active) and not first_label_drawn and ov.font_hud is not None:
                         try:
                             _sx, _sy, _d, _f = ov.world_to_screen(hurt.x, hurt.y, hurt.z)
-                            _txt = ov.font_hud.render(f"INVUL {slot_invuln_text.get(hurt_slot, '')}", True, (105, 255, 145))
+                            if invuln_active:
+                                _label = f"INVUL {slot_invuln_text.get(hurt_slot, '')}"
+                                _color = (105, 255, 145)
+                            elif counter_mask_active:
+                                _label = f"COUNTER {slot_counter_text.get(hurt_slot, '')}"
+                                _color = (255, 145, 135)
+                            elif armor_mask_active:
+                                _label = f"ARMOR {slot_armor_text.get(hurt_slot, '')}"
+                                _color = (205, 155, 255)
+                            else:
+                                _label = f"GUARD POINT {slot_guard_text.get(hurt_slot, '')}"
+                                _color = (255, 205, 105)
+                            _txt = ov.font_hud.render(_label, True, _color)
                             ov.screen.blit(_txt, (_sx + 12, _sy - 24))
                             first_label_drawn = True
                         except Exception:

@@ -143,6 +143,26 @@ try:
     from tvcgui.features.training.stun_profiler import RuntimeStunProfiler
 except Exception as _runtime_stun_profiler_import_error:
     RuntimeStunProfiler = None
+try:
+    from tvcgui.features.training.protection_profiler import RuntimeProtectionProfiler
+except Exception as _runtime_protection_profiler_import_error:
+    RuntimeProtectionProfiler = None
+try:
+    from tvcgui.features.training.attack_property_profiler import RuntimeAttackPropertyProfiler
+except Exception as _runtime_attack_property_profiler_import_error:
+    RuntimeAttackPropertyProfiler = None
+try:
+    from tvcgui.features.training.meter_generation_profiler import RuntimeMeterGenerationProfiler
+except Exception as _runtime_meter_generation_profiler_import_error:
+    RuntimeMeterGenerationProfiler = None
+try:
+    from tvcgui.features.training.red_health_profiler import RuntimeRedHealthProfiler
+except Exception as _runtime_red_health_profiler_import_error:
+    RuntimeRedHealthProfiler = None
+try:
+    from tvcgui.features.training.profiler_scheduler import RuntimeProfilerScheduler
+except Exception as _runtime_profiler_scheduler_import_error:
+    RuntimeProfilerScheduler = None
 
 try:
     from tvcgui.features.frame_data.spreadsheet_export import FrameDataSpreadsheetExporter
@@ -192,6 +212,7 @@ from tvcgui.features.combat.meter import read_meter, METER_CACHE
 from tvcgui.tools.scanners.fighter_state import read_fighter, dist2
 from tvcgui.features.combat.advantage import ADV_TRACK
 from tvcgui.features.combat.timing_engine import TIMING_ENGINE
+from tvcgui.features.combat.projectile_level_detector import PROJECTILE_LEVEL_DETECTOR
 from tvcgui.features.frame_data.timing_observations import (
     apply_observations_to_scan_data,
     record_timing_result,
@@ -233,7 +254,13 @@ from tvcgui.features.frame_data.window import (
     open_cancel_lab_loading_window,
     close_cancel_lab_loading_window,
 )
-from tvcgui.features.combat.projectile_scanner import open_proj_scanner_window
+from tvcgui.features.combat.projectile_scanner import (
+    open_proj_scanner_window,
+    open_projectile_profile_monitor,
+    apply_live_profile_label_override,
+    get_live_profile_move_record,
+    profile_labels_share_family,
+)
 try:
     from tvcgui.features.training.action_recorder_window import open_action_recorder_window
 except Exception as e:
@@ -361,6 +388,7 @@ REACTION_STATES = {48, 51, 64, 65, 66, 73, 79, 80, 81, 82, 90, 92, 95, 96, 97}
 GIANT_IDS = {11, 22}
 
 from tvcgui.runtime.megacrash import (
+    MissionMegacrashRealtime,
     MEGACRASH_TRAINER_DEFAULT_ATTACKER_SCOPE,
     MEGACRASH_TRAINER_DEFAULT_CHANCE,
     MEGACRASH_TRAINER_DEFAULT_DELAY_FRAMES,
@@ -392,6 +420,7 @@ from tvcgui.runtime.utilities import (
     FD_BUILD_MISSING_PROFILES,
     FD_MISSING_PROFILE_BUILD_DELAY_SEC,
     FD_MISSING_PROFILE_BUILD_MIN_INTERVAL_SEC,
+    FD_WORKBENCH_PREWARM_ENABLED,
     PERF_FRAME_WARN_MS,
     _PERF_LAST_ELAPSED_MS,
     _copy_to_clipboard,
@@ -946,14 +975,14 @@ def draw_panel_polished_stats(
 
     y = bar_y + 7
     try:
-        pool_pct = float(snap.get("pool_pct") or 0.0)
+        pool_pct = float(snap.get("recoverable_pct_max", snap.get("pool_pct")) or 0.0)
     except Exception:
         pool_pct = 0.0
     try:
-        raw_pool = int(snap.get("hp_pool_byte") or 0)
+        recoverable_hp = int(snap.get("recoverable_hp") or 0)
     except Exception:
-        raw_pool = 0
-    pool_text = f"POOL (02A): {pool_pct:5.1f}%   raw:{raw_pool}"
+        recoverable_hp = 0
+    pool_text = f"Red HP: {recoverable_hp} ({pool_pct:5.1f}%)"
     pool_s = _render_outlined_text(smallfont, pool_text, GUI_TEXT, (0, 0, 0), info_w, 1)
     surf.blit(pool_s, (info_x, y))
     y += pool_s.get_height() + 2
@@ -975,8 +1004,10 @@ def draw_panel_polished_stats(
         surf.blit(sweep, (sweep_x, y - 1))
     y += bq_s.get_height() + 2
 
-    move_id = snap.get("mv_id_display")
-    mv_label = str(snap.get("mv_label") or "").strip()
+    move_id = snap.get("mv_id_label_display")
+    if move_id is None:
+        move_id = snap.get("mv_id_display")
+    mv_label = str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "").strip()
     move_id_dec = None
     if move_id is not None:
         try:
@@ -992,7 +1023,7 @@ def draw_panel_polished_stats(
         mv_label = "--"
 
     if move_id_dec is not None:
-        move_text = f"Move: {mv_label} ({move_id_dec})"
+        move_text = f"Move ID {move_id_dec}: {mv_label}"
     else:
         move_text = f"Move: {mv_label}"
 
@@ -1089,6 +1120,9 @@ def legacy_main():
         move_label_for_fn=move_label_for,
     )
     hud_mgr = HudOverlayManager(move_map=move_map, global_map=global_map)
+    mission_mgr.set_input_sample_provider(hud_mgr.mission_input_bundle)
+    mission_megacrash_rt = MissionMegacrashRealtime()
+    hud_mgr.add_input_sample_listener(mission_megacrash_rt.on_sample)
 
     # ------------------------------------------------------------------
     # Runtime state
@@ -1123,10 +1157,13 @@ def legacy_main():
     last_base_by_ptr  = {}
     y_off_by_base     = {}
     prev_hp           = {}
-    pool_baseline     = {}
     char_meta_by_base = {}
     last_move_anim_id = {}
     last_char_by_slot = {}
+    # Remember the normal move-map label for each slot/action. The projectile
+    # profiler resolves after release, so this lets its shorter result such as
+    # 'Blaster 2' be merged back into 'Hyper Zero Blaster 2'.
+    move_label_by_slot_action = {slot: {} for (slot, _team, _index) in SLOTS}
 
     baroque_latch_by_base        = {}
     last_baroque_pct_by_base     = {}
@@ -1341,6 +1378,66 @@ def legacy_main():
         except Exception as _runtime_stun_profiler_error:
             print(f"[runtime stun] unavailable: {_runtime_stun_profiler_error!r}", flush=True)
 
+    runtime_protection_profiler = None
+    if RuntimeProtectionProfiler is not None:
+        try:
+            runtime_protection_profiler = RuntimeProtectionProfiler()
+        except Exception as _runtime_protection_profiler_error:
+            print(f"[runtime protection] unavailable: {_runtime_protection_profiler_error!r}", flush=True)
+
+    _profile_console = str(os.environ.get("TVC_PROFILE_CONSOLE", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+    runtime_attack_property_profiler = None
+    if RuntimeAttackPropertyProfiler is not None:
+        try:
+            runtime_attack_property_profiler = RuntimeAttackPropertyProfiler(emit_console=_profile_console)
+            print(
+                "[attack flags] profiler armed; output: "
+                "data/runtime/runtime_attack_property_profiles.json and "
+                "runtime_attack_property_events.csv",
+                flush=True,
+            )
+        except Exception as _runtime_attack_property_profiler_error:
+            print(f"[attack flags] unavailable: {_runtime_attack_property_profiler_error!r}", flush=True)
+
+    runtime_meter_generation_profiler = None
+    if RuntimeMeterGenerationProfiler is not None:
+        try:
+            runtime_meter_generation_profiler = RuntimeMeterGenerationProfiler(emit_console=_profile_console)
+            print(
+                "[meter profile] profiler armed; output: "
+                "data/runtime/runtime_meter_generation_profiles.json and "
+                "runtime_meter_generation_events.csv",
+                flush=True,
+            )
+        except Exception as _runtime_meter_generation_profiler_error:
+            print(f"[meter profile] unavailable: {_runtime_meter_generation_profiler_error!r}", flush=True)
+
+    runtime_red_health_profiler = None
+    if RuntimeRedHealthProfiler is not None:
+        try:
+            runtime_red_health_profiler = RuntimeRedHealthProfiler(emit_console=_profile_console)
+            print(
+                "[red health] profiler armed; output: "
+                "data/runtime/runtime_red_health_profiles.json and "
+                "runtime_red_health_events.csv",
+                flush=True,
+            )
+        except Exception as _runtime_red_health_profiler_error:
+            print(f"[red health] unavailable: {_runtime_red_health_profiler_error!r}", flush=True)
+
+    runtime_profiler_scheduler = None
+    if RuntimeProfilerScheduler is not None:
+        try:
+            runtime_profiler_scheduler = RuntimeProfilerScheduler((
+                runtime_attack_property_profiler,
+                runtime_meter_generation_profiler,
+                runtime_red_health_profiler,
+            ))
+        except Exception as _runtime_profiler_scheduler_error:
+            runtime_profiler_scheduler = None
+            print(f"[telemetry] background scheduler unavailable: {_runtime_profiler_scheduler_error!r}", flush=True)
+
     # Every scanner result is mirrored into one persistent CSV spreadsheet.
     # It is observation-only and does not affect in-game frame-data behavior.
     frame_data_exporter = None
@@ -1417,9 +1514,57 @@ def legacy_main():
     master_overlay_proc   = None
     master_overlay_active = False
     overlay_enabled       = True
-    show_interaction_card = True
-    show_combo_card       = True
-    show_tag_card         = True
+    show_interaction_card = False
+    show_combo_card       = False
+    show_damage_badge     = False
+    show_damage_inactive  = True
+    show_meter_panel      = True
+    show_red_health_panel = True
+    show_attack_property_panel = False
+    show_tag_card         = False
+    hud_info_set          = "CORE"
+
+    def _apply_hud_info_set(name: str) -> None:
+        nonlocal overlay_enabled, show_interaction_card, show_combo_card
+        nonlocal show_damage_badge, show_damage_inactive, show_meter_panel
+        nonlocal show_red_health_panel, show_attack_property_panel, show_tag_card
+        nonlocal hud_info_set
+
+        normalized = str(name or "CORE").strip().upper()
+        if normalized not in {"CORE", "RESEARCH", "FULL"}:
+            normalized = "CORE"
+        hud_info_set = normalized
+        overlay_enabled = True
+        show_damage_inactive = True
+
+        if normalized == "CORE":
+            show_interaction_card = False
+            show_combo_card = False
+            show_damage_badge = False
+            show_meter_panel = True
+            show_red_health_panel = True
+            show_attack_property_panel = False
+            show_tag_card = False
+        elif normalized == "RESEARCH":
+            show_interaction_card = False
+            show_combo_card = False
+            show_damage_badge = True
+            show_meter_panel = True
+            show_red_health_panel = True
+            show_attack_property_panel = False
+            show_tag_card = False
+        else:
+            show_interaction_card = True
+            show_combo_card = True
+            show_damage_badge = True
+            show_meter_panel = True
+            show_red_health_panel = True
+            show_attack_property_panel = True
+            show_tag_card = True
+
+    def _mark_hud_info_set_custom() -> None:
+        nonlocal hud_info_set
+        hud_info_set = "CUSTOM"
 
     def _launch_master_overlay():
         nonlocal master_overlay_proc, master_overlay_active
@@ -1539,7 +1684,14 @@ def legacy_main():
             "show_debug":     False,
             "show_interaction_card": bool(show_interaction_card),
             "show_combo_card": bool(show_combo_card),
+            "show_damage_badge": bool(show_damage_badge),
+            "show_damage_inactive": bool(show_damage_inactive),
+            "show_meter_panel": bool(show_meter_panel),
+            "show_red_health_panel": bool(show_red_health_panel),
+            "show_attack_property_panel": bool(show_attack_property_panel),
             "show_tag_card": bool(show_tag_card),
+            "hud_info_set": str(hud_info_set),
+            "native_hud_defaults_v": 3,
         }
         try:
             os.makedirs(os.path.dirname(MASTER_CONTROL_FILE), exist_ok=True)
@@ -1569,7 +1721,27 @@ def legacy_main():
             overlay_enabled = True
             show_interaction_card = bool(_existing_master.get("show_interaction_card", show_interaction_card))
             show_combo_card = bool(_existing_master.get("show_combo_card", show_combo_card))
-            show_tag_card = bool(_existing_master.get("show_tag_card", show_tag_card))
+            defaults_version = int(
+                _existing_master.get(
+                    "native_hud_defaults_v",
+                    _existing_master.get("native_research_defaults_v", 0),
+                )
+                or 0
+            )
+            if defaults_version < 3:
+                # One-time migration to the compact CORE preset. CORE keeps
+                # meter-generation annotations and recoverable health enabled,
+                # while damage scaling and raw Attack Properties stay hidden.
+                _apply_hud_info_set("CORE")
+            else:
+                show_damage_badge = bool(_existing_master.get("show_damage_badge", show_damage_badge))
+                show_meter_panel = bool(_existing_master.get("show_meter_panel", show_meter_panel))
+                show_red_health_panel = bool(_existing_master.get("show_red_health_panel", show_red_health_panel))
+                show_damage_inactive = bool(_existing_master.get("show_damage_inactive", show_damage_inactive))
+                show_attack_property_panel = bool(_existing_master.get("show_attack_property_panel", False))
+                show_tag_card = bool(_existing_master.get("show_tag_card", show_tag_card))
+                restored_set = str(_existing_master.get("hud_info_set", "CUSTOM") or "CUSTOM").strip().upper()
+                hud_info_set = restored_set if restored_set in {"CORE", "RESEARCH", "FULL", "CUSTOM"} else "CUSTOM"
     except Exception:
         pass
 
@@ -1862,6 +2034,9 @@ def legacy_main():
                     except Exception as e:
                         print(f"[fd patch] scan overlay/apply failed: {e!r}")
 
+                if _mode == "full_compact":
+                    print("[fd profile] background profile chunk completed", flush=True)
+
                 if _mode in {"workbench", "full"}:
                     last_workbench_scan_normals = res
                     if _mode == "full":
@@ -2002,7 +2177,7 @@ def legacy_main():
                     # Prewarm one rich cache read after the first compact HUD
                     # snapshot. This makes the first editor click open directly
                     # in normal cases without loading a 90+ MB JSON on the click.
-                    if not fd_workbench_prewarmed:
+                    if FD_WORKBENCH_PREWARM_ENABLED and not fd_workbench_prewarmed:
                         fd_workbench_prewarmed = True
                         try:
                             scan_worker.request(workbench=True)
@@ -2109,27 +2284,74 @@ def legacy_main():
 
             csv_char_id = snap.get("csv_char_id")
             cur_anim    = snap.get("attA") or snap.get("attB")
-            mv_label    = lookup_move_name(cur_anim, csv_char_id)
-            if not mv_label:
-                mv_label = move_label_for(cur_anim, csv_char_id, move_map, global_map)
 
-            snap["mv_label"]      = mv_label
-            snap["mv_id_display"] = cur_anim
+            # Resolve against both the corrected CSV ID and the game's true ID.
+            # Character-specific rows carry strength names such as Charge C and
+            # Hyper Zero Blaster L2/L3/L4, while the generic map can collapse
+            # all of those states to one family label.
+            _label_candidates = []
+            for _cid in (csv_char_id, snap.get("id")):
+                if _cid is None:
+                    continue
+                try:
+                    _candidate = lookup_move_name(cur_anim, int(_cid))
+                except Exception:
+                    _candidate = None
+                if _candidate and _candidate not in _label_candidates:
+                    _label_candidates.append(_candidate)
+                try:
+                    _candidate = move_label_for(cur_anim, int(_cid), move_map, global_map)
+                except Exception:
+                    _candidate = None
+                if _candidate and _candidate not in _label_candidates:
+                    _label_candidates.append(_candidate)
+
+            def _move_label_specificity(_value):
+                _text = str(_value or "").strip()
+                _low = _text.lower()
+                _score = len(_text)
+                if any(token in _low for token in ("charge", "charged", "level", " lv", " l2", " l3", " l4")):
+                    _score += 120
+                if _text.endswith((" A", " B", " C", " L", " M", " H")):
+                    _score += 80
+                if _low in {"idle", "unknown", "action", "--"}:
+                    _score -= 200
+                return _score
+
+            mv_label = max(_label_candidates, key=_move_label_specificity) if _label_candidates else None
+            snap["mv_label"]       = mv_label
+            snap["mv_label_base"]  = mv_label
+            snap["mv_id_display"]  = cur_anim
+
+            if cur_anim is not None and mv_label:
+                try:
+                    _slot_labels = move_label_by_slot_action.setdefault(slotname, {})
+                    _slot_labels[int(cur_anim)] = str(mv_label).strip()
+                    # This is only a tiny per-character action cache.
+                    if len(_slot_labels) > 192:
+                        for _old_action in list(_slot_labels)[:-128]:
+                            _slot_labels.pop(_old_action, None)
+                except Exception:
+                    pass
 
             active_start, active_end = _scan_move_window_for_slot(slotname, cur_anim)
             snap["active_start"] = active_start
             snap["active_end"]   = active_end
             last_move_anim_id[base] = cur_anim
 
-            pool_byte = snap.get("hp_pool_byte")
-            if pool_byte is not None:
-                prev_max = pool_baseline.get(base, 0)
-                if pool_byte > prev_max:
-                    pool_baseline[base] = pool_byte
-                max_pool = pool_baseline.get(base, 1)
-                snap["pool_pct"] = (pool_byte / max_pool) * 100.0 if max_pool else 0.0
-            else:
-                snap["pool_pct"] = 0.0
+            current_hp_value = int(snap.get("cur") or 0)
+            auxiliary_hp_value = int(snap.get("aux") or 0)
+            recoverable_hp_value = max(0, auxiliary_hp_value - current_hp_value)
+            maximum_hp_value = int(snap.get("max") or 0)
+            snap["recoverable_hp"] = recoverable_hp_value
+            snap["recoverable_ceiling"] = auxiliary_hp_value
+            snap["recoverable_pct_max"] = (
+                (recoverable_hp_value / float(maximum_hp_value)) * 100.0
+                if maximum_hp_value else 0.0
+            )
+            # Keep the old pool_pct key for renderer compatibility, but it now
+            # represents real recoverable health rather than byte 0x02A.
+            snap["pool_pct"] = snap["recoverable_pct_max"]
 
             max_hp_stat = snap.get("max") or 0
             hp32 = 0
@@ -2143,13 +2365,10 @@ def legacy_main():
             if pool32 == 0: pool32 = rd32(base + POOL32_OFF) or 0
 
             ready_local  = False
-            red_amt      = 0
+            red_amt      = max(0, int(pool32) - int(hp32))
             red_pct_max  = 0.0
-            if hp32 and pool32 and hp32 != pool32:
+            if red_amt > 0:
                 ready_local = True
-                bigger  = max(hp32, pool32)
-                smaller = min(hp32, pool32)
-                red_amt = bigger - smaller
                 if max_hp_stat:
                     red_pct_max = (red_amt / float(max_hp_stat)) * 100.0
 
@@ -2245,6 +2464,75 @@ def legacy_main():
         if p1_giant_solo or p2_giant_solo:
             snaps = reassign_slots_for_giants(snaps)
 
+        # Projectile-backed move-level detection. Charged/leveled actions often
+        # share one action ID, so use the exact projectile variant that spawned
+        # to resolve Lv1/Lv2/Lv3 without relying on held-button timing.
+        try:
+            PROJECTILE_LEVEL_DETECTOR.update(render_snap_by_slot)
+            PROJECTILE_LEVEL_DETECTOR.decorate(snaps)
+        except Exception as _projectile_level_error:
+            if frame_idx % 300 == 0:
+                print(f"[projectile level] update failed: {_projectile_level_error!r}", flush=True)
+
+        # Build one final move label before the GUI and overlay split. The
+        # Profile Monitor's LIVE row is authoritative. Both renderers receive
+        # the exact same final_move_label and do no independent re-resolution.
+        try:
+            for _profile_collection in (render_snap_by_slot, snaps):
+                for _profile_slot, _profile_snap in _profile_collection.items():
+                    try:
+                        _profile_record = get_live_profile_move_record(
+                            slot_label=_profile_slot,
+                            owner_base=int(_profile_snap.get("base") or 0),
+                            max_age=0.20,
+                        )
+                    except Exception:
+                        _profile_record = None
+                    if _profile_record:
+                        _profile_label = str(_profile_record.get("label") or "").strip()
+                        try:
+                            _profile_action = int(_profile_record.get("action_id") or 0)
+                        except Exception:
+                            _profile_action = 0
+                        _slot_labels = move_label_by_slot_action.get(_profile_slot, {})
+                        _profile_base = _slot_labels.get(_profile_action)
+                        if not _profile_base and _profile_label:
+                            # Owner action can already have advanced by the
+                            # profiler poll. Find the newest cached action label
+                            # from the same family, e.g. Blaster 3 -> Hyper Zero
+                            # Blaster, instead of accepting the late 5A label.
+                            for _candidate in reversed(list(_slot_labels.values())):
+                                if profile_labels_share_family(str(_candidate), _profile_label):
+                                    _profile_base = _candidate
+                                    break
+                        if _profile_base:
+                            _profile_snap["profile_action_base_label"] = str(_profile_base)
+                    apply_live_profile_label_override(_profile_slot, _profile_snap)
+        except Exception as _profile_label_error:
+            if frame_idx % 300 == 0:
+                print(f"[profile label] override failed: {_profile_label_error!r}", flush=True)
+
+        # Mission mode consumes the same dedicated 240 Hz input queue as the
+        # HUD and evaluates before profilers, timing analysis, and drawing. This
+        # keeps selector input, step advancement, and hitstun-edge resets on the
+        # earliest possible path through the frame.
+        _perf_section_start = time.perf_counter()
+        try:
+            hud_mgr.prime_input_sampler_targets(render_snap_by_slot)
+            mission_mgr.update(snaps, render_snap_by_slot, frame_idx, now)
+        except Exception as _mission_tick_error:
+            if frame_idx % 60 == 0:
+                print(f"[mission] fast tick failed: {_mission_tick_error!r}", flush=True)
+        _perf_warn("mission_fast_tick", _perf_section_start)
+
+        # Mission-owned burst timing is part of the realtime lane. Run it
+        # immediately after mission evaluation, before timing analysis,
+        # telemetry, assist scanners, or any background-result handling.
+        mission_megacrash_rt.sync(
+            mission_mgr.last_overlay_payload,
+            snaps,
+        )
+
         # Shared timing engine. One read-only timing pass now feeds the live
         # monitor, observed block advantage, the HUD interaction card, and the
         # persistent frame-data observation cache.
@@ -2332,6 +2620,40 @@ def legacy_main():
                 if frame_idx % 300 == 0:
                     print(f"[runtime stun] tick failed: {_runtime_stun_tick_error!r}", flush=True)
 
+        # Native protection profiler. It samples +0x1218 collision exclusion
+        # and the +0x58/+0x244 guard-point resolver fields. New evidence is
+        # merged only after the action finishes, then the normal scan refreshes.
+        if runtime_protection_profiler is not None:
+            try:
+                if runtime_protection_profiler.update(snaps, frame=frame_idx, now=now):
+                    need_rescan_normals = True
+            except Exception as _runtime_protection_tick_error:
+                if frame_idx % 300 == 0:
+                    print(f"[runtime protection] tick failed: {_runtime_protection_tick_error!r}", flush=True)
+
+        # Noncritical runtime telemetry is coalesced on a background lane.
+        # The HUD only applies the most recent completed annotations and never
+        # waits for packet decoding, prediction work, JSON serialization, or CSV.
+        if runtime_profiler_scheduler is not None:
+            try:
+                runtime_profiler_scheduler.apply_latest(snaps)
+                runtime_profiler_scheduler.apply_latest(render_snap_by_slot)
+                runtime_profiler_scheduler.submit(snaps, frame=frame_idx, now=now)
+            except Exception as _runtime_telemetry_error:
+                if frame_idx % 300 == 0:
+                    print(f"[telemetry] scheduler failed: {_runtime_telemetry_error!r}", flush=True)
+        else:
+            try:
+                if runtime_attack_property_profiler is not None:
+                    runtime_attack_property_profiler.update(snaps, frame=frame_idx, now=now)
+                if runtime_meter_generation_profiler is not None:
+                    runtime_meter_generation_profiler.update(snaps, frame=frame_idx, now=now)
+                if runtime_red_health_profiler is not None:
+                    runtime_red_health_profiler.update(snaps, frame=frame_idx, now=now)
+            except Exception as _runtime_profiler_error:
+                if frame_idx % 300 == 0:
+                    print(f"[telemetry] inline fallback failed: {_runtime_profiler_error!r}", flush=True)
+
         # Assist selector runtime hook. The assist scanner stores per-fighter
         # desired assists; main.py owns the reliable current move label/id, so
         # when a fighter enters assist attack (426), patch that fighter profile
@@ -2351,22 +2673,6 @@ def legacy_main():
             if frame_idx % 60 == 0:
                 print(f"[assist quick] persistent state failed: {e!r}")
         _perf_warn("assist_persist", _perf_section_start)
-
-        # Mission manager tick
-        _perf_section_start = time.perf_counter()
-        mission_mgr.update(snaps, render_snap_by_slot, frame_idx, now)
-        _perf_warn("mission_tick", _perf_section_start)
-
-        # Mission-only deterministic burst path. The mission's completed-step
-        # edge is authoritative, so Condor and Casshan burst trials do not
-        # depend on the full trainer's label, occurrence, or combo heuristics.
-        megacrash_trainer_state = _tick_mission_megacrash_light(
-            megacrash_trainer_state,
-            mission_mgr.last_overlay_payload,
-            snaps,
-            now,
-            frame_idx,
-        )
 
         # Operator-controlled Megacrash Trainer remains independent.
         _perf_section_start = time.perf_counter()
@@ -2580,12 +2886,12 @@ def legacy_main():
             if isinstance(value, pygame.Rect):
                 value.y += top_ui_reserved
 
-        # Give the character panels a dedicated footer area for Quick Assists.
-        # This keeps the assist buttons from crowding the move text or the
-        # Frame Data / Mission Mode buttons, without making main.py own any
-        # assist logic. The lower HUD areas are shifted down and the scan
-        # preview absorbs the height loss.
-        qa_panel_extra = 8 if (h - top_ui_reserved) >= 700 else (5 if (h - top_ui_reserved) >= 560 else 0)
+        # Reserve a real third status line beneath Baroque for the live move
+        # label and ID. The Quick Assist strip and action buttons live below
+        # that line, so each card needs additional height instead of painting
+        # the assist footer over the move text. The lower workspace shifts down
+        # by the same total amount.
+        qa_panel_extra = 36 if (h - top_ui_reserved) >= 700 else (30 if (h - top_ui_reserved) >= 560 else 24)
         if qa_panel_extra > 0:
             for _key in ("p1c1", "p2c1"):
                 _rect = layout.get(_key)
@@ -2694,7 +3000,7 @@ def legacy_main():
 
         punish_trainer_active = bool(punish_trainer_state.get("enabled", False))
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect, meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -2705,6 +3011,12 @@ def legacy_main():
             overlay_enabled=overlay_enabled,
             show_interaction_card=show_interaction_card,
             show_combo_card=show_combo_card,
+            hud_info_set=hud_info_set,
+            show_damage_badge=show_damage_badge,
+            show_damage_inactive=show_damage_inactive,
+            show_meter_panel=show_meter_panel,
+            show_red_health_panel=show_red_health_panel,
+            show_attack_property_panel=show_attack_property_panel,
             show_tag_card=show_tag_card,
             megacrash_trainer_enabled=bool(megacrash_trainer_state.get("enabled", False)),
             megacrash_trainer_chance=int(megacrash_trainer_state.get("chance", MEGACRASH_TRAINER_DEFAULT_CHANCE)),
@@ -2799,20 +3111,25 @@ def legacy_main():
             btn_h = 20
             btn_gap = 7
             bottom_pad = 8
-            available_btn_w = max(168, panel_rect.width - 20)
-            frame_btn_w = max(72, min(98, int(available_btn_w * 0.43)))
-            mission_btn_w = max(88, min(124, available_btn_w - frame_btn_w - btn_gap))
-            total_btn_w = frame_btn_w + btn_gap + mission_btn_w
+            available_btn_w = max(250, panel_rect.width - 20)
+            total_gaps = btn_gap * 2
+            usable_btn_w = max(210, available_btn_w - total_gaps)
+            frame_btn_w = max(68, int(usable_btn_w * 0.29))
+            profile_btn_w = max(88, int(usable_btn_w * 0.36))
+            mission_btn_w = max(82, usable_btn_w - frame_btn_w - profile_btn_w)
+            total_btn_w = frame_btn_w + profile_btn_w + mission_btn_w + total_gaps
             btn_x = max(10, panel_rect.width - total_btn_w - 10)
             btn_y = panel_rect.height - btn_h - bottom_pad
 
             frame_btn_local   = pygame.Rect(btn_x, btn_y, frame_btn_w, btn_h)
-            mission_btn_local = pygame.Rect(frame_btn_local.right + btn_gap, btn_y, mission_btn_w, btn_h)
+            profile_btn_local = pygame.Rect(frame_btn_local.right + btn_gap, btn_y, profile_btn_w, btn_h)
+            mission_btn_local = pygame.Rect(profile_btn_local.right + btn_gap, btn_y, mission_btn_w, btn_h)
 
             mx, my       = pygame.mouse.get_pos()
             mx_local     = mx - panel_rect.x
             my_local     = my - panel_rect.y
-            frame_hover  = frame_btn_local.collidepoint(mx_local, my_local)
+            frame_hover   = frame_btn_local.collidepoint(mx_local, my_local)
+            profile_hover = profile_btn_local.collidepoint(mx_local, my_local)
             mission_hover = mission_btn_local.collidepoint(mx_local, my_local)
             flash_left   = panel_btn_flash.get(slot_label, 0)
 
@@ -2825,6 +3142,18 @@ def legacy_main():
                 hover=frame_hover,
                 accent=GUI_APP_ACCENT,
                 fill=(44, 56, 82) if flash_left > 0 else (31, 33, 42),
+                align="center",
+            )
+
+            draw_glass_button(
+                surf,
+                profile_btn_local,
+                "Profile Monitor",
+                smallfont,
+                active=False,
+                hover=profile_hover,
+                accent=GUI_APP_ACCENT,
+                fill=(31, 33, 42),
                 align="center",
             )
 
@@ -2893,26 +3222,33 @@ def legacy_main():
                 panel_rect.y + frame_btn_local.y,
                 frame_btn_w, btn_h,
             )
+            profile_btn_rect = pygame.Rect(
+                panel_rect.x + profile_btn_local.x,
+                panel_rect.y + profile_btn_local.y,
+                profile_btn_w, btn_h,
+            )
             mission_btn_rect = pygame.Rect(
                 panel_rect.x + mission_btn_local.x,
                 panel_rect.y + mission_btn_local.y,
                 mission_btn_w, btn_h,
             )
-            return frame_btn_rect, mission_btn_rect
+            return frame_btn_rect, profile_btn_rect, mission_btn_rect
 
-        btn_p1c1, mission_btn_p1c1 = blit_panel_with_buttons(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
-        btn_p2c1, mission_btn_p2c1 = blit_panel_with_buttons(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
+        btn_p1c1, profile_btn_p1c1, mission_btn_p1c1 = blit_panel_with_buttons(r_p1c1, "P1-C1", a_p1c1, "P1-C1")
+        btn_p2c1, profile_btn_p2c1, mission_btn_p2c1 = blit_panel_with_buttons(r_p2c1, "P2-C1", a_p2c1, "P2-C1")
 
         if (not layout.get("p1_is_giant")) and ("P1-C2" in snaps):
-            btn_p1c2, mission_btn_p1c2 = blit_panel_with_buttons(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
+            btn_p1c2, profile_btn_p1c2, mission_btn_p1c2 = blit_panel_with_buttons(r_p1c2, "P1-C2", a_p1c2, "P1-C2")
         else:
-            btn_p1c2        = pygame.Rect(0, 0, 0, 0)
+            btn_p1c2         = pygame.Rect(0, 0, 0, 0)
+            profile_btn_p1c2 = pygame.Rect(0, 0, 0, 0)
             mission_btn_p1c2 = pygame.Rect(0, 0, 0, 0)
 
         if (not layout.get("p2_is_giant")) and ("P2-C2" in snaps):
-            btn_p2c2, mission_btn_p2c2 = blit_panel_with_buttons(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
+            btn_p2c2, profile_btn_p2c2, mission_btn_p2c2 = blit_panel_with_buttons(r_p2c2, "P2-C2", a_p2c2, "P2-C2")
         else:
-            btn_p2c2        = pygame.Rect(0, 0, 0, 0)
+            btn_p2c2         = pygame.Rect(0, 0, 0, 0)
+            profile_btn_p2c2 = pygame.Rect(0, 0, 0, 0)
             mission_btn_p2c2 = pygame.Rect(0, 0, 0, 0)
 
         # Bottom inspector workspace: one active tab at a time. This prevents
@@ -3040,8 +3376,8 @@ def legacy_main():
                 fade.fill((5, 7, 10, int((1.0 - frac) * 120)))
                 screen.blit(fade, bottom_content_rect.topleft)
 
-        # Write data files for subprocesses
-        mission_mgr.write_overlay_data(render_snap_by_slot)
+        # Write data files for subprocesses. Mission state was already evaluated
+        # and published on the fast path above.
         hud_mgr.write_data(
             render_snap_by_slot,
             last_scan_normals,
@@ -3203,12 +3539,31 @@ def legacy_main():
                 mouse_clicked_pos = None
                 continue
 
+            elif info_set_btn_rect.collidepoint(mx, my):
+                next_set = {
+                    "CORE": "RESEARCH",
+                    "RESEARCH": "FULL",
+                    "FULL": "CORE",
+                    "CUSTOM": "CORE",
+                }.get(str(hud_info_set).upper(), "CORE")
+                _apply_hud_info_set(next_set)
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
             elif clear_card_btn_rect.collidepoint(mx, my):
                 # Keep the core HUD alive; this is a one-click declutter for
-                # the three optional live cards only.
+                # the optional live cards only.
                 show_interaction_card = False
                 show_combo_card = False
+                show_damage_badge = False
+                show_damage_inactive = True
+                show_meter_panel = False
+                show_red_health_panel = False
+                show_attack_property_panel = False
                 show_tag_card = False
+                _mark_hud_info_set_custom()
                 _write_master_control()
                 _sync_master_overlay_state()
                 mouse_clicked_pos = None
@@ -3216,6 +3571,7 @@ def legacy_main():
 
             elif interaction_card_btn_rect.collidepoint(mx, my):
                 show_interaction_card = not show_interaction_card
+                _mark_hud_info_set_custom()
                 _write_master_control()
                 _sync_master_overlay_state()
                 mouse_clicked_pos = None
@@ -3223,6 +3579,40 @@ def legacy_main():
 
             elif combo_card_btn_rect.collidepoint(mx, my):
                 show_combo_card = not show_combo_card
+                _mark_hud_info_set_custom()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif damage_badge_btn_rect.collidepoint(mx, my):
+                show_damage_badge = not show_damage_badge
+                show_damage_inactive = False
+                _mark_hud_info_set_custom()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif meter_panel_btn_rect.collidepoint(mx, my):
+                show_meter_panel = not show_meter_panel
+                _mark_hud_info_set_custom()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif red_health_panel_btn_rect.collidepoint(mx, my):
+                show_red_health_panel = not show_red_health_panel
+                _mark_hud_info_set_custom()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif attack_property_panel_btn_rect.collidepoint(mx, my):
+                show_attack_property_panel = not show_attack_property_panel
+                _mark_hud_info_set_custom()
                 _write_master_control()
                 _sync_master_overlay_state()
                 mouse_clicked_pos = None
@@ -3230,6 +3620,7 @@ def legacy_main():
 
             elif tag_card_btn_rect.collidepoint(mx, my):
                 show_tag_card = not show_tag_card
+                _mark_hud_info_set_custom()
                 _write_master_control()
                 _sync_master_overlay_state()
                 mouse_clicked_pos = None
@@ -3462,6 +3853,8 @@ def legacy_main():
                             _new_selection = {
                                 "slot_label": str(_row_meta.get("slot_label") or ""),
                                 "key": str(_row_meta.get("key") or ""),
+                                "label": str(_row_meta.get("label") or ""),
+                                "move_id": _row_meta.get("move_id"),
                             }
                             if _new_selection["slot_label"]:
                                 normal_preview_focus_slot = _new_selection["slot_label"]
@@ -3475,6 +3868,12 @@ def legacy_main():
                                     normal_preview_mode = "none"
                             else:
                                 normal_preview_selection = _new_selection
+                                # A row selection with no active metric is an
+                                # advantage query. Turn on Punish so the selected
+                                # move immediately resolves the opponent's fastest
+                                # legal response instead of appearing inert.
+                                if normal_preview_mode == "none":
+                                    normal_preview_mode = "punish"
                             _handled_preview_click = True
                             break
                 if _handled_preview_click:
@@ -3566,6 +3965,27 @@ def legacy_main():
                     # or any other sibling feature.
                     _sync_master_overlay_state()
 
+                    mouse_clicked_pos = None
+                    break
+            if mouse_clicked_pos is None:
+                continue
+
+            # Per-slot projectile profile monitors. The window lists every
+            # possible projectile for this exact character slot, then opens and
+            # refreshes the matching row whenever a live actor appears.
+            for slot_label, btn_rect in [
+                ("P1-C1", profile_btn_p1c1), ("P2-C1", profile_btn_p2c1),
+                ("P1-C2", profile_btn_p1c2), ("P2-C2", profile_btn_p2c2),
+            ]:
+                if btn_rect.collidepoint(mx, my):
+                    open_projectile_profile_monitor(
+                        slot_label,
+                        lambda _slot=slot_label: dict(
+                            render_snap_by_slot.get(_slot)
+                            or snaps.get(_slot)
+                            or {}
+                        ),
+                    )
                     mouse_clicked_pos = None
                     break
             if mouse_clicked_pos is None:
@@ -3904,9 +4324,14 @@ def legacy_main():
                     and (now - pending_missing_profile_since) >= FD_MISSING_PROFILE_BUILD_DELAY_SEC
                 ):
                     labels = ", ".join(f"id={_cid} {_slot}" for _cid, _sig, _slot in _missing_sig)
-                    target_ids = tuple(sorted({_cid for _cid, _sig, _slot in _missing_sig}))
-                    print(f"[fd profile] auto-build missing preview: {labels}", flush=True)
-                    scan_worker.request(force_dynamic=True, dynamic_char_ids=target_ids)
+                    all_target_ids = tuple(sorted({_cid for _cid, _sig, _slot in _missing_sig}))
+                    target_ids = all_target_ids[:1]
+                    target_text = ", ".join(str(value) for value in target_ids)
+                    print(
+                        f"[fd profile] auto-build missing preview chunk: ids={target_text}; pending={len(all_target_ids)}",
+                        flush=True,
+                    )
+                    scan_worker.request(force_dynamic=True, retain_rich=False, dynamic_char_ids=target_ids)
                     last_missing_profile_build_time = now
                     last_missing_profile_build_signature = _missing_sig
                     pending_missing_profile_signature = None
@@ -3965,7 +4390,16 @@ def legacy_main():
     # ------------------------------------------------------------------
     # Shutdown
     # ------------------------------------------------------------------
+    try:
+        mission_mgr.close()
+    except Exception:
+        pass
     mission_mgr.restore_debug_overrides()
+
+    try:
+        hud_mgr.close()
+    except Exception:
+        pass
 
     if master_overlay_proc and master_overlay_proc.poll() is None:
         try:
@@ -3974,8 +4408,35 @@ def legacy_main():
             pass
 
     try:
+        if runtime_profiler_scheduler is not None:
+            runtime_profiler_scheduler.close()
+    except Exception:
+        pass
+
+    try:
         if runtime_stun_profiler is not None:
             runtime_stun_profiler.flush()
+    except Exception:
+        pass
+    try:
+        if runtime_protection_profiler is not None:
+            runtime_protection_profiler.flush()
+    except Exception:
+        pass
+
+    try:
+        if runtime_attack_property_profiler is not None:
+            runtime_attack_property_profiler.flush()
+    except Exception:
+        pass
+    try:
+        if runtime_meter_generation_profiler is not None:
+            runtime_meter_generation_profiler.flush()
+    except Exception:
+        pass
+    try:
+        if runtime_red_health_profiler is not None:
+            runtime_red_health_profiler.flush()
     except Exception:
         pass
 

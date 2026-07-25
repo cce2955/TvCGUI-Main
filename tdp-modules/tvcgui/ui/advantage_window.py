@@ -535,6 +535,15 @@ def _adv_merge_data(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, 
                 if not is_purged_move_label(target, item if isinstance(item, dict) else None, item.get("label") if isinstance(item, dict) else attack_key)
             }
             target["attacks"] = sorted(target["attacks_by_key"].values(), key=lambda item: item.get("rank", (9999, 9999, str(item.get("label") or ""))))
+            incoming_punish = dict(incoming.get("punish_attacks_by_key") or {})
+            target["punish_attacks_by_key"] = {
+                attack_key: item
+                for attack_key, item in incoming_punish.items()
+                if isinstance(item, dict)
+                and _adv_int_value(item.get("startup")) is not None
+                and not is_purged_move_label(target, item, item.get("label") or attack_key)
+            }
+            target["punish_attacks"] = sorted(target["punish_attacks_by_key"].values(), key=_adv_candidate_sort_key)
             target["has_observed"] = bool(target.get("attacks"))
             by_key[key] = target
             chars.append(target)
@@ -566,6 +575,35 @@ def _adv_merge_data(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, 
             }
             target["attacks_by_key"] = merged
             target["attacks"] = sorted(merged.values(), key=lambda item: item.get("rank", (9999, 9999, str(item.get("label") or ""))))
+
+            punish_merged = dict(target.get("punish_attacks_by_key") or {})
+            for attack_key, incoming_item in (incoming.get("punish_attacks_by_key") or {}).items():
+                if not isinstance(incoming_item, dict):
+                    continue
+                if _adv_int_value(incoming_item.get("startup")) is None:
+                    continue
+                if is_purged_move_label(target, incoming_item, incoming_item.get("label") or attack_key):
+                    punish_merged.pop(attack_key, None)
+                    continue
+                old_item = punish_merged.get(attack_key)
+                if isinstance(old_item, dict):
+                    item = dict(old_item)
+                    for field, value in incoming_item.items():
+                        if value is None or value == "":
+                            continue
+                        item[field] = value
+                    punish_merged[attack_key] = item
+                else:
+                    punish_merged[attack_key] = dict(incoming_item)
+            punish_merged = {
+                attack_key: item
+                for attack_key, item in punish_merged.items()
+                if isinstance(item, dict)
+                and _adv_int_value(item.get("startup")) is not None
+                and not is_purged_move_label(target, item, item.get("label") or attack_key)
+            }
+            target["punish_attacks_by_key"] = punish_merged
+            target["punish_attacks"] = sorted(punish_merged.values(), key=_adv_candidate_sort_key)
             target["has_observed"] = bool(target.get("attacks"))
         norm_name = _adv_norm_text(target.get("name") or incoming.get("name"))
         if norm_name and norm_name not in by_name:
@@ -611,14 +649,12 @@ def _adv_build_profile_data(doc: Any) -> dict[str, Any]:
             char_id = None
 
         attacks_by_key: dict[str, dict[str, Any]] = {}
+        punish_attacks_by_key: dict[str, dict[str, Any]] = {}
         moves = prof.get("moves") or []
         if not isinstance(moves, list):
             moves = []
         for mv in moves:
             if not isinstance(mv, dict):
-                continue
-            observed = _adv_block_advantage_value(mv)
-            if observed is None:
                 continue
             label = _normal_move_label(mv)
             if not label or label == "?":
@@ -635,7 +671,6 @@ def _adv_build_profile_data(doc: Any) -> dict[str, Any]:
                 continue
             base_attack_key = _adv_attack_key(label)
             attack_key = base_attack_key if category == "normal" else f"{category}:{base_attack_key}"
-            old = attacks_by_key.get(attack_key)
             try:
                 display_order = int(mv.get("display_order"))
             except Exception:
@@ -643,6 +678,7 @@ def _adv_build_profile_data(doc: Any) -> dict[str, Any]:
             rank = _adv_attack_rank(base_attack_key, str(label), category)
             if display_order is not None and (category != "normal" or str(base_attack_key).lower() not in _NORMAL_PREVIEW_RANK):
                 rank = (_ADV_CATEGORY_RANK.get(category, 9), display_order, str(label).lower())
+            observed = _adv_block_advantage_value(mv)
             item = {
                 "key": attack_key,
                 "label": str(label),
@@ -654,16 +690,31 @@ def _adv_build_profile_data(doc: Any) -> dict[str, Any]:
                 "segment": _adv_move_segment_from_label(label),
                 "rank": rank,
             }
+
+            # Punish options must come from every move with valid startup data.
+            # The matrix itself only needs observed advantage, but tying the
+            # punish pool to observed rows can erase a character's fast moves.
+            if item.get("startup") is not None:
+                old_punish = punish_attacks_by_key.get(attack_key)
+                if old_punish is None or _adv_candidate_sort_key(item) < _adv_candidate_sort_key(old_punish):
+                    punish_attacks_by_key[attack_key] = dict(item)
+
+            if observed is None:
+                continue
+            old = attacks_by_key.get(attack_key)
             if old is None or item["rank"] < old.get("rank", (9999, 9999, "")):
                 attacks_by_key[attack_key] = item
 
         attacks = sorted(attacks_by_key.values(), key=lambda item: item.get("rank", (9999, 9999, str(item.get("label") or ""))))
+        punish_attacks = sorted(punish_attacks_by_key.values(), key=_adv_candidate_sort_key)
         char = {
             "key": key,
             "char_id": char_id,
             "name": char_name,
             "attacks": attacks,
             "attacks_by_key": attacks_by_key,
+            "punish_attacks": punish_attacks,
+            "punish_attacks_by_key": punish_attacks_by_key,
             "has_observed": bool(attacks),
             "sort": (999 if char_id is None else int(char_id), char_name.lower()),
         }
@@ -1023,7 +1074,7 @@ def _adv_startup_candidates(
     limit: int | None = None,
     segment: str | None = None,
 ) -> list[dict[str, Any]]:
-    attacks = (char or {}).get("attacks") or []
+    attacks = (char or {}).get("punish_attacks") or (char or {}).get("attacks") or []
     if not isinstance(attacks, list):
         return []
     candidates: list[dict[str, Any]] = []
@@ -1142,8 +1193,14 @@ def _adv_punish_strength_candidates(
     return _adv_strength_candidates(char, enabled_categories, max_startup=int(window), segment=segment)
 
 
-def _adv_punish_candidate(char: dict[str, Any], window: int, enabled_categories: set[str]) -> dict[str, Any] | None:
-    candidates = _adv_punish_candidates(char, window, enabled_categories, limit=1)
+def _adv_punish_candidate(
+    char: dict[str, Any],
+    window: int,
+    enabled_categories: set[str],
+    *,
+    segment: str | None = None,
+) -> dict[str, Any] | None:
+    candidates = _adv_punish_candidates(char, window, enabled_categories, limit=1, segment=segment)
     return candidates[0] if candidates else None
 
 
@@ -1365,7 +1422,7 @@ def open_advantage_window(scan_data: Any = None, live_slots: dict[str, Any] | No
         ).pack(side="left")
         tk.Label(
             header,
-            text="Rows show observed block advantage. Click a negative row for L, M, and H punish rows. Use < > or Ctrl+Left/Right to change source.",
+            text="Normals: Source punishes the clicked character. Specials and Supers: the clicked character punishes Source. Click a negative row for L, M, and H options.",
             bg="#151821",
             fg=_TK_MUTED,
             font=("Segoe UI", 9),
@@ -1922,8 +1979,14 @@ def open_advantage_window(scan_data: Any = None, live_slots: dict[str, Any] | No
                 segment = _adv_row_punish_segment(selected_item, match_item)
                 grouped = _adv_punish_strength_candidates(char, window, _enabled_categories(), segment=segment)
                 punish_text = _adv_strength_labels(grouped) or "none found"
+                fastest = _adv_punish_candidate(char, window, _enabled_categories(), segment=segment)
+                fastest_text = _adv_move_startup_label(fastest) or "none found"
                 seg_text = "air" if segment == "air" else "ground"
-                detail_var.set(f"{source_name} {label}: {adv_text} on block, {danger}. {char_name} {seg_text} punishes up to {window}f: {punish_text}. Startup only, range and pushback not proven.")
+                detail_var.set(
+                    f"{source_name} {label}: {adv_text} on block, {danger}. "
+                    f"{char_name} fastest {seg_text} punish: {fastest_text}. "
+                    f"L/M/H options up to {window}f: {punish_text}. Startup only, range and pushback not proven."
+                )
                 return
             if not isinstance(source_char, dict):
                 detail_var.set(f"{char_name} {label}: {adv_text} on block, {danger}. No punish window for {source_name}.")
@@ -1931,8 +1994,80 @@ def open_advantage_window(scan_data: Any = None, live_slots: dict[str, Any] | No
             segment = _adv_row_punish_segment(selected_item, match_item)
             grouped = _adv_punish_strength_candidates(source_char, window, _enabled_categories(), segment=segment)
             punish_text = _adv_strength_labels(grouped) or "none found"
+            fastest = _adv_punish_candidate(source_char, window, _enabled_categories(), segment=segment)
+            fastest_text = _adv_move_startup_label(fastest) or "none found"
             seg_text = "air" if segment == "air" else "ground"
-            detail_var.set(f"{char_name} {label}: {adv_text} on block, {danger}. {source_name} {seg_text} punishes up to {window}f: {punish_text}. Startup only, range and pushback not proven.")
+            detail_var.set(
+                f"{char_name} {label}: {adv_text} on block, {danger}. "
+                f"{source_name} fastest {seg_text} punish: {fastest_text}. "
+                f"L/M/H options up to {window}f: {punish_text}. Startup only, range and pushback not proven."
+            )
+
+        def _header_character_click(event: Any) -> None:
+            """Show the selected row using the clicked matrix character."""
+            try:
+                canvas_x = float(header_canvas.canvasx(event.x))
+                visible_keys = list(visible_cols_ref.get("keys") or matrix_cols)
+                col_index = int(canvas_x // _ADV_CHAR_COL_WIDTH)
+            except Exception:
+                return
+            if col_index < 0 or col_index >= len(visible_keys):
+                return
+            char_key = str(visible_keys[col_index] or "")
+            clicked_char = chars_by_key.get(char_key)
+            if not isinstance(clicked_char, dict):
+                return
+
+            base_iid = _base_iid_from_any_iid(selected_iid.get("value"))
+            selected_item = row_items_by_iid.get(base_iid or "")
+            if not isinstance(selected_item, dict):
+                if char_key in key_to_option:
+                    source_var.set(key_to_option[char_key])
+                    _rebuild()
+                return
+
+            source_key = _selected_source_key()
+            source_char = by_key.get(source_key or "") or {}
+            source_name = str(source_char.get("name") or source_key or "Unknown")
+            clicked_name = str(clicked_char.get("name") or clicked_char.get("key") or "Unknown")
+            attack_key = str(selected_item.get("key") or "")
+            match = (clicked_char.get("attacks_by_key") or {}).get(attack_key)
+            match_item = match if isinstance(match, dict) else None
+            unique_attack = _adv_uses_unique_attack_window(selected_item)
+            window = _adv_row_cell_window(selected_item, match_item)
+            if window is None:
+                attack_label = str(selected_item.get("label") or attack_key or "?")
+                detail_var.set(f"{clicked_name} has no negative value for {attack_label} in this matrix row.")
+                return
+
+            segment = _adv_row_punish_segment(selected_item, match_item)
+            if unique_attack:
+                attacker = source_char
+                punisher = clicked_char
+                attack_item = selected_item
+            else:
+                attacker = clicked_char
+                punisher = source_char
+                attack_item = match_item or selected_item
+
+            attacker_name = str(attacker.get("name") or attacker.get("key") or "Unknown")
+            punisher_name = str(punisher.get("name") or punisher.get("key") or "Unknown")
+            attack_label = str(attack_item.get("label") or selected_item.get("label") or attack_key or "?")
+            adv_value = attack_item.get("adv") if isinstance(attack_item, dict) else None
+            if adv_value is None:
+                adv_value = selected_item.get("adv")
+            grouped = _adv_punish_strength_candidates(punisher, window, _enabled_categories(), segment=segment)
+            fastest = _adv_punish_candidate(punisher, window, _enabled_categories(), segment=segment)
+            fastest_text = _adv_move_startup_label(fastest) or "none found"
+            strength_text = _adv_strength_labels(grouped) or "none found"
+            adv_text = _adv_format(adv_value)
+            seg_text = "air" if segment == "air" else "ground"
+            detail_var.set(
+                f"{attacker_name} {attack_label}: {adv_text} on block. "
+                f"{punisher_name} fastest {seg_text} punish: {fastest_text}. "
+                f"L/M/H options up to {window}f: {strength_text}. Startup only, range and pushback not proven."
+            )
+            status_var.set(f"{clicked_name} column selected for {attack_label}.")
 
         def _matrix_cell_click(event: Any) -> None:
             try:
@@ -1999,6 +2134,7 @@ def open_advantage_window(scan_data: Any = None, live_slots: dict[str, Any] | No
         row_filter_box.bind("<<ComboboxSelected>>", lambda _event: _rebuild())
         column_mode_box.bind("<<ComboboxSelected>>", lambda _event: (_apply_column_mode(), _rebuild()))
         matrix_tree.bind("<ButtonRelease-1>", _matrix_cell_click, add="+")
+        header_canvas.bind("<ButtonRelease-1>", _header_character_click)
         for var in category_vars.values():
             try:
                 var.trace_add("write", lambda *_args: _rebuild())

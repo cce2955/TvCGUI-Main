@@ -467,9 +467,14 @@ def _command_dock_layout(width: int, tools_open: bool) -> tuple[dict[str, tuple[
     section_gap = 5
 
     hud_specs = [
+        ("info_set_btn", 108),
         ("hud_btn", 100),
         ("interaction_btn", 84),
         ("combo_btn", 58),
+        ("damage_btn", 88),
+        ("meter_btn", 64),
+        ("red_health_btn", 68),
+        ("attack_props_btn", 86),
         ("tag_btn", 46),
         ("clear_btn", 54),
         ("tools_btn", 76),
@@ -557,6 +562,12 @@ def draw_top_command_dock(
     overlay_enabled: bool,
     show_interaction_card: bool,
     show_combo_card: bool,
+    hud_info_set: str,
+    show_damage_badge: bool,
+    show_damage_inactive: bool,
+    show_meter_panel: bool,
+    show_red_health_panel: bool,
+    show_attack_property_panel: bool,
     show_tag_card: bool,
     megacrash_trainer_enabled: bool = False,
     megacrash_trainer_chance: int = MEGACRASH_TRAINER_DEFAULT_CHANCE,
@@ -662,6 +673,11 @@ def draw_top_command_dock(
     hud_btn_rect = hud["hud_btn"]
     interaction_card_btn_rect = hud["interaction_btn"]
     combo_card_btn_rect = hud["combo_btn"]
+    info_set_btn_rect = hud["info_set_btn"]
+    damage_badge_btn_rect = hud["damage_btn"]
+    meter_panel_btn_rect = hud["meter_btn"]
+    red_health_panel_btn_rect = hud["red_health_btn"]
+    attack_property_panel_btn_rect = hud["attack_props_btn"]
     tag_card_btn_rect = hud["tag_btn"]
     clear_card_btn_rect = hud["clear_btn"]
     tools_btn_rect = hud["tools_btn"]
@@ -681,12 +697,53 @@ def draw_top_command_dock(
         active=bool(show_combo_card), hover=combo_card_btn_rect.collidepoint(mx, my),
         accent=GUI_ACCENT_BLUE, fill=(43, 58, 86) if show_combo_card else (27, 33, 45), align="center",
     )
+    info_set_name = str(hud_info_set or "CUSTOM").strip().upper()
+    info_set_accent = {
+        "CORE": GUI_APP_ACCENT,
+        "RESEARCH": GUI_WARNING,
+        "FULL": GUI_CONFIRM,
+        "CUSTOM": GUI_ACCENT_PURPLE,
+    }.get(info_set_name, GUI_ACCENT_PURPLE)
+    draw_glass_button(
+        screen, info_set_btn_rect, f"Set: {info_set_name.title()}", dockfont,
+        active=True, hover=info_set_btn_rect.collidepoint(mx, my),
+        accent=info_set_accent, fill=_mix_col((27, 33, 45), info_set_accent, 0.18), align="center",
+    )
+    damage_mode_label = "Dmg: ON" if show_damage_badge else "Dmg: OFF"
+    draw_glass_button(
+        screen, damage_badge_btn_rect, damage_mode_label, dockfont,
+        active=bool(show_damage_badge), hover=damage_badge_btn_rect.collidepoint(mx, my),
+        accent=GUI_WARNING, fill=(57, 49, 30) if show_damage_badge else (27, 33, 45), align="center",
+    )
+    draw_glass_button(
+        screen, meter_panel_btn_rect, "Meter", dockfont,
+        active=bool(show_meter_panel), hover=meter_panel_btn_rect.collidepoint(mx, my),
+        accent=GUI_CONFIRM, fill=(31, 50, 43) if show_meter_panel else (27, 33, 45), align="center",
+    )
+    draw_glass_button(
+        screen, red_health_panel_btn_rect, "Red HP", dockfont,
+        active=bool(show_red_health_panel), hover=red_health_panel_btn_rect.collidepoint(mx, my),
+        accent=GUI_DANGER, fill=(57, 35, 43) if show_red_health_panel else (27, 33, 45), align="center",
+    )
+    draw_glass_button(
+        screen, attack_property_panel_btn_rect, "Atk Props", dockfont,
+        active=bool(show_attack_property_panel), hover=attack_property_panel_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_PURPLE, fill=(48, 40, 68) if show_attack_property_panel else (27, 33, 45), align="center",
+    )
     draw_glass_button(
         screen, tag_card_btn_rect, "Tag", dockfont,
         active=bool(show_tag_card), hover=tag_card_btn_rect.collidepoint(mx, my),
         accent=GUI_ACCENT_BLUE, fill=(43, 58, 86) if show_tag_card else (27, 33, 45), align="center",
     )
-    cards_active = bool(show_interaction_card or show_combo_card or show_tag_card)
+    cards_active = bool(
+        show_interaction_card
+        or show_combo_card
+        or show_damage_badge
+        or show_meter_panel
+        or show_red_health_panel
+        or show_attack_property_panel
+        or show_tag_card
+    )
     draw_glass_button(
         screen, clear_card_btn_rect, "Clear", dockfont,
         active=cards_active, hover=clear_card_btn_rect.collidepoint(mx, my), accent=GUI_ACCENT_RED,
@@ -840,7 +897,7 @@ def draw_top_command_dock(
         draw_glass_button(screen, overseer_btn_rect, "Tool Status", dockfont, hover=overseer_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT, align="center")
     else:
         help_rect, _ = sections["help"]
-        help_tip = "Each in-game HUD layer is independent. Open Tools for training, research, and setup controls."
+        help_tip = "Research buttons add one compact data row inside both team HUD panels. Select a view, or click the active view again to close it."
         help_accent = GUI_APP_ACCENT
         if hud_btn_rect.collidepoint(mx, my):
             help_tip = "Overlay controls only the core team HUD. Every other in-game layer can remain on or off independently."
@@ -848,10 +905,25 @@ def draw_top_command_dock(
             help_tip = "Hit and Block controls only the live interaction ribbon."
         elif combo_card_btn_rect.collidepoint(mx, my):
             help_tip = "Combo controls only the live combo ledger."
+        elif info_set_btn_rect.collidepoint(mx, my):
+            help_tip = "Set cycles CORE, RESEARCH, and FULL information density. Individual toggles switch the label to CUSTOM."
+            help_accent = info_set_accent
+        elif damage_badge_btn_rect.collidepoint(mx, my):
+            help_tip = "Damage Mod adds branded C1 and C2 damage-scaling gauges beneath the character health rows."
+            help_accent = GUI_WARNING
+        elif meter_panel_btn_rect.collidepoint(mx, my):
+            help_tip = "Meter adds the latest gain or spend beside the existing meter display. Color shows prediction status."
+            help_accent = GUI_CONFIRM
+        elif red_health_panel_btn_rect.collidepoint(mx, my):
+            help_tip = "Red HP paints recoverable health into the existing bars and adds the recoverable amount beside HP."
+            help_accent = GUI_DANGER
+        elif attack_property_panel_btn_rect.collidepoint(mx, my):
+            help_tip = "Attack Properties adds the active packet, damage, victim, raw words, and decoded flags to each team panel."
+            help_accent = GUI_ACCENT_PURPLE
         elif tag_card_btn_rect.collidepoint(mx, my):
             help_tip = "Tag controls only the incoming tag resource card."
         elif clear_card_btn_rect.collidepoint(mx, my):
-            help_tip = "Clear turns off Hit and Block, Combo, and Tag without touching other layers."
+            help_tip = "Clear hides optional HUD cards, native research additions, and the Attack Properties row."
             help_accent = GUI_ACCENT_RED
         elif hb_btn_rect.collidepoint(mx, my):
             help_tip = "Hitboxes control only attack and projectile box drawings."
@@ -897,7 +969,9 @@ def draw_top_command_dock(
         megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect,
         overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect,
         action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, solo_team_btn_rect, timing_probe_btn_rect,
-        interaction_card_btn_rect, combo_card_btn_rect, tag_card_btn_rect, clear_card_btn_rect,
+        interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect,
+        meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect,
+        tag_card_btn_rect, clear_card_btn_rect,
         tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect,
         ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,
     )

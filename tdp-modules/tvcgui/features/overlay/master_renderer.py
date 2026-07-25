@@ -179,6 +179,10 @@ def _mission_complete_plate_progress(phase: float) -> tuple[float, float, float]
     return alpha, lock, sheen
 
 
+MISSION_COMPLETE_HOLD_FRAMES = 90
+MISSION_COMPLETE_MIN_BODY_HEIGHT = 96
+
+
 def _mission_complete_badge_progress(
     elapsed_frames: float,
     total_frames: int = 90,
@@ -477,9 +481,15 @@ class MasterControl:
     show_hitboxes: bool = True
     show_hurtboxes: bool = True
     show_debug: bool = False
-    show_interaction_card: bool = True
-    show_combo_card: bool = True
-    show_tag_card: bool = True
+    show_interaction_card: bool = False
+    show_combo_card: bool = False
+    show_damage_badge: bool = False
+    show_damage_inactive: bool = True
+    show_meter_panel: bool = True
+    show_red_health_panel: bool = True
+    show_attack_property_panel: bool = False
+    show_tag_card: bool = False
+    hud_info_set: str = "CORE"
 
 
 class Renderer(Protocol):
@@ -633,7 +643,7 @@ class MasterOverlay:
         self._last_mission_id_seen: str = ""
         self._mission_hold_frames: int = 0
         self._mission_hold_data: dict = {}
-        self._mission_hold_duration_frames: int = 90
+        self._mission_hold_duration_frames: int = MISSION_COMPLETE_HOLD_FRAMES
 
         # Lightweight mission polish state
         self._toast_phase: float = 0.0
@@ -872,7 +882,14 @@ class MasterOverlay:
             "show_debug": self.control.show_debug,
             "show_interaction_card": self.control.show_interaction_card,
             "show_combo_card": self.control.show_combo_card,
+            "show_damage_badge": self.control.show_damage_badge,
+            "show_damage_inactive": self.control.show_damage_inactive,
+            "show_meter_panel": self.control.show_meter_panel,
+            "show_red_health_panel": self.control.show_red_health_panel,
+            "show_attack_property_panel": self.control.show_attack_property_panel,
             "show_tag_card": self.control.show_tag_card,
+            "hud_info_set": self.control.hud_info_set,
+            "native_hud_defaults_v": 3,
         }
         try:
             _ensure_parent(MASTER_CONTROL_FILE)
@@ -895,9 +912,15 @@ class MasterOverlay:
             self.control.show_hitboxes = bool(data.get("show_hitboxes", True))
             self.control.show_hurtboxes = bool(data.get("show_hurtboxes", True))
             self.control.show_debug = bool(data.get("show_debug", False))
-            self.control.show_interaction_card = bool(data.get("show_interaction_card", True))
-            self.control.show_combo_card = bool(data.get("show_combo_card", True))
-            self.control.show_tag_card = bool(data.get("show_tag_card", True))
+            self.control.show_interaction_card = bool(data.get("show_interaction_card", False))
+            self.control.show_combo_card = bool(data.get("show_combo_card", False))
+            self.control.show_damage_badge = bool(data.get("show_damage_badge", False))
+            self.control.show_damage_inactive = bool(data.get("show_damage_inactive", True))
+            self.control.show_meter_panel = bool(data.get("show_meter_panel", True))
+            self.control.show_red_health_panel = bool(data.get("show_red_health_panel", True))
+            self.control.show_attack_property_panel = bool(data.get("show_attack_property_panel", False))
+            self.control.show_tag_card = bool(data.get("show_tag_card", False))
+            self.control.hud_info_set = str(data.get("hud_info_set", "CORE") or "CORE").strip().upper()
         except Exception:
             pass
     def _read_control_file(self) -> None:
@@ -914,9 +937,15 @@ class MasterOverlay:
                 self.control.show_hitboxes = bool(data.get("show_hitboxes", True))
                 self.control.show_hurtboxes = bool(data.get("show_hurtboxes", True))
                 self.control.show_debug = bool(data.get("show_debug", False))
-                self.control.show_interaction_card = bool(data.get("show_interaction_card", True))
-                self.control.show_combo_card = bool(data.get("show_combo_card", True))
-                self.control.show_tag_card = bool(data.get("show_tag_card", True))
+                self.control.show_interaction_card = bool(data.get("show_interaction_card", False))
+                self.control.show_combo_card = bool(data.get("show_combo_card", False))
+                self.control.show_damage_badge = bool(data.get("show_damage_badge", False))
+                self.control.show_damage_inactive = bool(data.get("show_damage_inactive", True))
+                self.control.show_meter_panel = bool(data.get("show_meter_panel", True))
+                self.control.show_red_health_panel = bool(data.get("show_red_health_panel", True))
+                self.control.show_attack_property_panel = bool(data.get("show_attack_property_panel", False))
+                self.control.show_tag_card = bool(data.get("show_tag_card", False))
+                self.control.hud_info_set = str(data.get("hud_info_set", "CORE") or "CORE").strip().upper()
             except Exception:
                 pass
 
@@ -967,53 +996,30 @@ class MasterOverlay:
         self._mission_strip_complete_sheen_phase = 1.0
 
     def _stage_mission_overlay_payload(self, data: dict) -> None:
-        """Accept live mission data while preserving a short visual handoff."""
-        self.mission_overlay_data = data
+        """Publish mission UI state immediately with no transition latency."""
+        data = dict(data or {})
+        previous_key = self._mission_visible_key
         new_key = self._mission_payload_key(data)
         selector_open = bool(data.get("selector_open", False))
 
-        if not self._mission_visible_data:
-            self._mission_visible_data = dict(data)
-            self._mission_visible_key = new_key
-            if not selector_open:
-                self._mission_last_active_data = dict(data)
-            return
+        self.mission_overlay_data = data
+        self._mission_visible_data = dict(data)
+        self._mission_visible_key = new_key
+        if not selector_open:
+            self._mission_last_active_data = dict(data)
 
-        if self._mission_transition_state == "out":
-            self._mission_transition_new_data = dict(data)
-            self._mission_transition_new_key = new_key
-            return
+        self._mission_transition_state = "idle"
+        self._mission_transition_phase = 1.0
+        self._mission_transition_old_data = {}
+        self._mission_transition_new_data = {}
+        self._mission_transition_new_key = None
 
-        if self._mission_transition_state == "in":
-            if new_key == self._mission_visible_key:
-                self._mission_visible_data = dict(data)
-                return
-
-            self._mission_transition_old_data = dict(
-                self._mission_last_active_data or self._mission_visible_data
-            )
-            self._mission_transition_new_data = dict(data)
-            self._mission_transition_new_key = new_key
-            self._mission_transition_state = "out"
-            self._mission_transition_phase = 0.0
-            self._mission_hold_frames = 0
-            self._mission_hold_data = {}
-            return
-
-        if new_key != self._mission_visible_key:
-            self._mission_transition_old_data = dict(
-                self._mission_last_active_data or self._mission_visible_data
-            )
-            self._mission_transition_new_data = dict(data)
-            self._mission_transition_new_key = new_key
-            self._mission_transition_state = "out"
-            self._mission_transition_phase = 0.0
-            self._mission_hold_frames = 0
-            self._mission_hold_data = {}
-        else:
-            self._mission_visible_data = dict(data)
-            if not selector_open:
-                self._mission_last_active_data = dict(data)
+        # A completion hold owns the mission panel until its rendered-frame
+        # countdown finishes. Live mission payloads continue updating behind
+        # it, but they must not replace the completion badge on the next file
+        # refresh.
+        if previous_key != new_key and self._mission_hold_frames <= 0:
+            self._reset_mission_entry_animation()
 
     def _update_mission_transition(self, dt: float) -> None:
         dt = max(0.0, float(dt))
@@ -1535,7 +1541,7 @@ class MasterOverlay:
         total_steps: int,
         mission_id: str,
     ) -> None:
-        """Animate the collapsed six-row mission viewport toward its next slice."""
+        """Move the collapsed viewport immediately with live mission progress."""
         target = 0.0
         if not self.mission_show_all and total_steps > 6:
             target = float(_mission_scroll_target(current_index, total_steps, 6))
@@ -1550,21 +1556,10 @@ class MasterOverlay:
             self._mission_scroll_initialized = True
             return
 
-        if abs(target - self._mission_scroll_target) > 0.0001:
-            self._mission_scroll_from = self._mission_scroll_pos
-            self._mission_scroll_target = target
-            self._mission_scroll_phase = 0.0
-
-        if self._mission_scroll_phase < 1.0:
-            duration = 0.34
-            self._mission_scroll_phase = min(1.0, self._mission_scroll_phase + max(0.0, dt) / duration)
-            eased = _mission_scroll_ease(self._mission_scroll_phase)
-            self._mission_scroll_pos = (
-                self._mission_scroll_from
-                + (self._mission_scroll_target - self._mission_scroll_from) * eased
-            )
-        else:
-            self._mission_scroll_pos = self._mission_scroll_target
+        self._mission_scroll_from = target
+        self._mission_scroll_target = target
+        self._mission_scroll_pos = target
+        self._mission_scroll_phase = 1.0
 
     def update_mission_animations(self, dt: float) -> None:
         """Drive per-step metallic gradient animations each frame and fire celebration on final-step completion."""
@@ -1613,89 +1608,32 @@ class MasterOverlay:
         step_total = len(steps)
         if len(self._mission_pip_levels) != step_total:
             self._mission_pip_levels = [0.0] * step_total
-            self._mission_pip_wave_order = []
-            self._mission_pip_wave_starts = {}
 
-        if mission_id != self._mission_progress_mission_id:
-            self._mission_progress_mission_id = mission_id
-            self._mission_progress_display = progress_target
-            self._mission_progress_last_completed = completed_count
-            stage_strength = _mission_pip_stage_intensity(completed_count, step_total)
-            self._mission_pip_levels = [
-                stage_strength if index < completed_count else 0.0
-                for index in range(step_total)
-            ]
-            self._mission_pip_wave_order = []
-            self._mission_pip_wave_starts = {}
-            self._mission_pip_wave_target = stage_strength
-            self._mission_pip_wave_elapsed = 0.0
-            self._mission_pip_wave_completed_count = completed_count
-            self._mission_pip_sheen_pending_index = -1
+        # Mission state is already sampled and matched asynchronously. Do not
+        # replay a catch-up wave after the data arrives. The panel must show the
+        # newest predicted or confirmed step on this render frame.
+        previous_completed = int(self._mission_progress_last_completed)
+        self._mission_progress_display = progress_target
+        stage_strength = _mission_pip_stage_intensity(completed_count, step_total)
+        self._mission_pip_levels = [
+            stage_strength if index < completed_count else 0.0
+            for index in range(step_total)
+        ]
+        self._mission_pip_wave_order = []
+        self._mission_pip_wave_starts = {}
+        self._mission_pip_wave_target = stage_strength
+        self._mission_pip_wave_elapsed = 0.0
+        self._mission_pip_wave_completed_count = completed_count
+        self._mission_progress_mission_id = mission_id
+        self._mission_progress_last_completed = completed_count
+
+        if completed_count > previous_completed:
+            self._mission_pip_sheen_index = completed_count - 1
+            self._mission_pip_sheen_phase = 0.0
+        elif completed_count < previous_completed:
             self._mission_pip_sheen_index = -1
             self._mission_pip_sheen_phase = 1.0
             self._mission_strip_complete_sheen_phase = 1.0
-        else:
-            previous_completed = self._mission_progress_last_completed
-            if completed_count > previous_completed:
-                newest_index = completed_count - 1
-                # Existing pips and the newly earned pip all end at the same
-                # stage brightness for the current route depth. New pips enter
-                # at the previous stage brightness, then the whole completed
-                # run brightens from left to right.
-                previous_stage_strength = _mission_pip_stage_intensity(
-                    previous_completed,
-                    step_total,
-                )
-                self._mission_pip_wave_order = list(range(0, completed_count))
-                self._mission_pip_wave_starts = {
-                    index: (
-                        previous_stage_strength if index >= previous_completed
-                        else float(self._mission_pip_levels[index])
-                    )
-                    for index in self._mission_pip_wave_order
-                    if 0 <= index < step_total
-                }
-                for index in range(previous_completed, completed_count):
-                    if 0 <= index < len(self._mission_pip_levels):
-                        self._mission_pip_levels[index] = previous_stage_strength
-                self._mission_pip_wave_target = _mission_pip_stage_intensity(
-                    completed_count,
-                    step_total,
-                )
-                self._mission_pip_wave_elapsed = 0.0
-                self._mission_pip_wave_completed_count = completed_count
-                self._mission_pip_sheen_pending_index = newest_index
-            elif completed_count < previous_completed:
-                # Failure powers the filled pips down from newest to oldest.
-                self._mission_pip_wave_order = list(range(previous_completed - 1, -1, -1))
-                self._mission_pip_wave_starts = {
-                    index: float(self._mission_pip_levels[index])
-                    for index in self._mission_pip_wave_order
-                    if 0 <= index < step_total
-                }
-                self._mission_pip_wave_target = _mission_pip_stage_intensity(
-                    completed_count,
-                    step_total,
-                )
-                self._mission_pip_wave_elapsed = 0.0
-                self._mission_pip_wave_completed_count = completed_count
-                self._mission_pip_sheen_pending_index = -1
-                self._mission_pip_sheen_index = -1
-                self._mission_pip_sheen_phase = 1.0
-                self._mission_strip_complete_sheen_phase = 1.0
-            self._mission_progress_last_completed = completed_count
-
-            progress_speed = 8.0 if progress_target >= self._mission_progress_display else 10.0
-            if self._mission_progress_display < progress_target:
-                self._mission_progress_display = min(
-                    progress_target,
-                    self._mission_progress_display + max(0.0, dt) * progress_speed,
-                )
-            else:
-                self._mission_progress_display = max(
-                    progress_target,
-                    self._mission_progress_display - max(0.0, dt) * progress_speed,
-                )
 
         if self._mission_pip_wave_order:
             self._mission_pip_wave_elapsed += max(0.0, dt)
@@ -1789,6 +1727,9 @@ class MasterOverlay:
         live_steps = live_data.get("active_mission_steps") or []
         live_step_total = len(live_steps)
         live_completed_count = int(live_data.get("completed_step_count", 0))
+        live_confirmed_count = int(
+            live_data.get("confirmed_step_count", live_completed_count) or 0
+        )
         live_mission_id = str(live_data.get("active_mission_id") or "")
         celebrate_pending = bool(live_data.get("celebrate_pending", False))
         celebrate_token = int(live_data.get("celebrate_token", 0) or 0)
@@ -1800,7 +1741,7 @@ class MasterOverlay:
         )
         should_celebrate = should_celebrate or (
             live_step_total > 0
-            and live_completed_count >= live_step_total
+            and live_confirmed_count >= live_step_total
             and (
                 live_mission_id != self._prev_live_mission_id
                 or self._prev_live_completed_count < live_step_total
@@ -1810,6 +1751,7 @@ class MasterOverlay:
         if should_celebrate:
             held = dict(live_data)
             held["completed_step_count"] = max(live_completed_count, live_step_total)
+            held["confirmed_step_count"] = max(live_confirmed_count, live_step_total)
             held["current_step_index"] = max(0, live_step_total - 1)
 
             self._mission_hold_data = held
@@ -1828,7 +1770,7 @@ class MasterOverlay:
                 self._write_mission_celebrate_ack(celebrate_token)
 
         self._prev_live_mission_id = live_mission_id
-        self._prev_live_completed_count = live_completed_count
+        self._prev_live_completed_count = live_confirmed_count
         self._prev_live_step_total = live_step_total
 
 
@@ -2016,13 +1958,21 @@ class MasterOverlay:
             return
 
         completed_count = int(data.get("completed_step_count", 0) or 0)
+        confirmed_count = int(
+            data.get("confirmed_step_count", completed_count) or 0
+        )
+        confirmed_count = max(0, min(completed_count, confirmed_count))
+        predicted_count = max(0, completed_count - confirmed_count)
         current_index = int(data.get("current_step_index", 0) or 0)
         total_steps = len(steps)
-        mission_done = total_steps > 0 and completed_count >= total_steps
+        mission_done = total_steps > 0 and confirmed_count >= total_steps
+        completion_hold_active = bool(
+            mission_done and self._mission_hold_frames > 0
+        )
 
         transition_mode = str(transition_mode or "idle").lower()
         transition_progress = max(0.0, min(1.0, float(transition_progress)))
-        is_exiting = transition_mode == "out"
+        is_exiting = transition_mode == "out" and not completion_hold_active
         exit_progress = _mission_intro_ease(transition_progress) if is_exiting else 0.0
 
         def entry_progress(delay: float, duration: float = 0.18) -> float:
@@ -2227,10 +2177,17 @@ class MasterOverlay:
             visible_rows * row_h + max(0, visible_rows - 1) * row_gap,
         )
         footer_h = 18 if collapsed_scroll else 6
-        panel_h = base_panel_h + note_h + note_gap + list_h + footer_h
+        completion_visible = bool(
+            mission_done
+            and (self._mission_hold_frames > 0 or self._toast_phase > 0.0)
+        )
+        route_body_h = list_h + footer_h
+        if completion_visible:
+            route_body_h = max(route_body_h, MISSION_COMPLETE_MIN_BODY_HEIGHT)
+        panel_h = base_panel_h + note_h + note_gap + route_body_h
 
         panel_intro = _mission_panel_intro_progress(self._mission_intro_phase)
-        if is_exiting:
+        if is_exiting or completion_hold_active:
             panel_intro = 1.0
         total_draw_h = panel_h
         max_panel_y = max(outer_margin, self.h - total_draw_h - outer_margin)
@@ -2263,9 +2220,9 @@ class MasterOverlay:
             (115, 187, 255),
         )
         progress_label = self.smallfont.render(
-            "COMPLETED",
+            "TRACKING" if predicted_count > 0 else "COMPLETED",
             True,
-            (198, 211, 229),
+            (171, 209, 244) if predicted_count > 0 else (198, 211, 229),
         )
         progress_chip_w = (
             progress_value.get_width()
@@ -2334,7 +2291,7 @@ class MasterOverlay:
             (174, 190, 215),
         )
         slot_surf = self.smallfont.render(
-            str(self.mission_slot or ""),
+            str(data.get("slot") or self.mission_slot or ""),
             True,
             (221, 229, 241),
         )
@@ -2503,9 +2460,14 @@ class MasterOverlay:
         for seg in range(segment_count):
             seg_rect = pygame.Rect(sx, segment_y, segment_w, 5)
             strength = max(0.0, min(1.0, float(pip_levels[seg])))
+            is_predicted_segment = confirmed_count <= seg < completed_count
             if strength > 0.001:
                 base = (29, 37, 52)
-                bright = (98, 181, 255)
+                bright = (
+                    (145, 121, 236)
+                    if is_predicted_segment
+                    else (98, 181, 255)
+                )
                 fill = tuple(int(base[i] + (bright[i] - base[i]) * strength) for i in range(3))
                 pygame.draw.rect(panel, fill, seg_rect, border_radius=2)
 
@@ -2514,7 +2476,17 @@ class MasterOverlay:
                     glow = pygame.Surface((seg_rect.width, seg_rect.height + 6), pygame.SRCALPHA)
                     pygame.draw.rect(
                         glow,
-                        (115, 190, 255, int(115 * glow_strength)),
+                        (
+                            166,
+                            139,
+                            247,
+                            int(90 * glow_strength),
+                        ) if is_predicted_segment else (
+                            115,
+                            190,
+                            255,
+                            int(115 * glow_strength),
+                        ),
                         glow.get_rect(),
                         border_radius=2,
                     )
@@ -2814,7 +2786,12 @@ class MasterOverlay:
                 hold_elapsed_frames,
                 self._mission_hold_duration_frames,
             )
-            complete_rect = pygame.Rect(pad, list_y, inner_w, max(84, list_h + footer_h - 2))
+            complete_rect = pygame.Rect(
+                pad,
+                list_y,
+                inner_w,
+                max(MISSION_COMPLETE_MIN_BODY_HEIGHT - 2, list_h + footer_h - 2),
+            )
             complete_layer = pygame.Surface((complete_rect.width, complete_rect.height), pygame.SRCALPHA)
 
             # A restrained navy-to-blue gradient gives the badge depth without
@@ -2964,8 +2941,13 @@ class MasterOverlay:
                     )
                     row_shift = int(round((1.0 - row_intro) * 32.0))
                 row_layer = pygame.Surface((inner_w, row_h), pygame.SRCALPHA)
-                is_done = idx < completed_count
-                is_current = idx == current_index and not mission_done
+                is_done = idx < confirmed_count
+                is_predicted = confirmed_count <= idx < completed_count
+                is_current = (
+                    idx == current_index
+                    and not mission_done
+                    and not is_predicted
+                )
 
                 if isinstance(step, dict):
                     move_text = str(step.get("display") or "").strip() or " / ".join(step.get("labels", []))
@@ -2989,6 +2971,9 @@ class MasterOverlay:
                 if is_done:
                     row_fill = (9, 20, 31, 236)
                     border = (49, 77, 87)
+                elif is_predicted:
+                    row_fill = (20, 20, 47, 238)
+                    border = (102, 87, 174)
                 elif is_current:
                     row_fill = (13, 29, 52, 242)
                     border = (91, 84, 159)
@@ -3018,6 +3003,10 @@ class MasterOverlay:
                     pygame.draw.lines(row_layer, (113, 222, 164), False, [
                         (status_cx - 4, status_cy), (status_cx - 1, status_cy + 3), (status_cx + 5, status_cy - 4)
                     ], 2)
+                elif is_predicted:
+                    pygame.draw.circle(row_layer, (42, 36, 83), (status_cx, status_cy), 9)
+                    pygame.draw.circle(row_layer, (151, 126, 235), (status_cx, status_cy), 9, 1)
+                    pygame.draw.circle(row_layer, (194, 179, 250), (status_cx, status_cy), 3)
                 elif is_current:
                     pygame.draw.polygon(row_layer, (103, 157, 235), [
                         (status_cx - 4, status_cy - 6),
@@ -3051,6 +3040,12 @@ class MasterOverlay:
                     pygame.draw.rect(row_layer, (12, 42, 35), chip, border_radius=4)
                     pygame.draw.rect(row_layer, (50, 116, 90), chip, 1, border_radius=4)
                     row_layer.blit(done, (chip.x + 9, chip.centery - done.get_height() // 2))
+                elif is_predicted:
+                    ready = self.smallfont.render("READY", True, (191, 175, 247))
+                    chip = pygame.Rect(input_right - ready.get_width() - 20, status_cy - 10, ready.get_width() + 18, 20)
+                    pygame.draw.rect(row_layer, (37, 30, 72), chip, border_radius=4)
+                    pygame.draw.rect(row_layer, (103, 87, 169), chip, 1, border_radius=4)
+                    row_layer.blit(ready, (chip.x + 9, chip.centery - ready.get_height() // 2))
                 elif is_current:
                     current = self.smallfont.render("CURRENT", True, (151, 139, 226))
                     chip = pygame.Rect(input_right - current.get_width() - 20, status_cy - 10, current.get_width() + 18, 20)
@@ -3095,13 +3090,17 @@ class MasterOverlay:
         self.mission_toggle_rect = None
         self.mission_hint_rect = None
 
-        if not self.mission_active or not self.mission_slot:
+        holding_completion = bool(
+            self._mission_hold_frames > 0 and self._mission_hold_data
+        )
+        if not holding_completion and (not self.mission_active or not self.mission_slot):
             return
         if self.screen is None or self.font is None or self.smallfont is None:
             return
 
         display_payload = self._mission_display_payload()
-        data = self._mission_hold_data if self._mission_hold_frames > 0 else display_payload
+        data = self._mission_hold_data if holding_completion else display_payload
+        display_slot = str(data.get("slot") or self.mission_slot or "")
         character = data.get("character") or "Unknown"
         theme_color = self._char_theme_color(character)
         mission_name = data.get("active_mission_name") or "No mission loaded"
@@ -3120,7 +3119,7 @@ class MasterOverlay:
         selector_controls = data.get("selector_controls") or ""
 
         title = self.font.render(
-            f"{character} Mission Mode - {self.mission_slot}",
+            f"{character} Mission Mode - {display_slot}",
             True,
             (235, 235, 235),
         )
@@ -3265,8 +3264,8 @@ class MasterOverlay:
                 goal_current_frames=goal_current_frames,
                 goal_needed_frames=goal_needed_frames,
                 goal_timer_active=goal_timer_active,
-                transition_mode=self._mission_transition_state,
-                transition_progress=self._mission_transition_phase,
+                transition_mode=("idle" if holding_completion else self._mission_transition_state),
+                transition_progress=(1.0 if holding_completion else self._mission_transition_phase),
             )
 
 

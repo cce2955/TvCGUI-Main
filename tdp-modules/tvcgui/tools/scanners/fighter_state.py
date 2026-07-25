@@ -97,14 +97,18 @@ def read_fighter(base: int, y_off: int, block: Optional[bytes] = None):
     if not looks_like_hp(max_hp, curhp=cur_hp, auxhp=aux_hp):
         return None
 
-    # --- Experimental health bytes ---
-    pooled_byte = _u8_from_block(block, 0x02A)
-    if pooled_byte is None:
-        pooled_byte = rd8(base + 0x02A)
+    # Bytes 0x02A and 0x02B are the low half of the big-endian current-HP
+    # word at 0x28. Keep them only for compatibility with old inspector data.
+    current_hp_byte_2 = _u8_from_block(block, 0x02A)
+    if current_hp_byte_2 is None:
+        current_hp_byte_2 = rd8(base + 0x02A)
 
-    mystery_2B = _u8_from_block(block, 0x02B)
-    if mystery_2B is None:
-        mystery_2B = rd8(base + 0x02B)
+    current_hp_byte_3 = _u8_from_block(block, 0x02B)
+    if current_hp_byte_3 is None:
+        current_hp_byte_3 = rd8(base + 0x02B)
+
+    recoverable_hp = max(0, int(aux_hp or 0) - int(cur_hp or 0))
+    recoverable_pct_max = (recoverable_hp / float(max_hp)) * 100.0 if max_hp else 0.0
 
     # --- Identity ---
     cid = _u32be_from_block(block, OFF_CHAR_ID)
@@ -164,8 +168,11 @@ def read_fighter(base: int, y_off: int, block: Optional[bytes] = None):
         "max": max_hp,
         "cur": cur_hp,
         "aux": aux_hp,
-        "hp_pool_byte": pooled_byte,
-        "mystery_2B": mystery_2B,
+        "hp_pool_byte": current_hp_byte_2,
+        "mystery_2B": current_hp_byte_3,
+        "recoverable_hp": recoverable_hp,
+        "recoverable_pct_max": recoverable_pct_max,
+        "recoverable_ceiling": aux_hp,
         "id": cid,
         "name": name,
         "x": x,

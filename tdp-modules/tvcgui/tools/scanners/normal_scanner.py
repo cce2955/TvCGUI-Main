@@ -12,11 +12,28 @@ from tvcgui.platform.dolphin import hook, rbytes, rd32
 from tvcgui.core.constants import MEM2_LO, MEM2_HI, SLOTS, CHAR_NAMES
 from tvcgui.features.combat.move_id_map import lookup_move_name
 from tvcgui.core.paths import data_path, user_data_path
+from tvcgui.features.frame_data.profile_store import (
+    load_frame_data_profile,
+    save_frame_data_profile,
+    default_bundled_directory as _store_bundled_profile_dir,
+    default_writable_directory as _store_writable_profile_dir,
+    default_bundled_legacy_file as _store_bundled_legacy_file,
+    default_writable_legacy_file as _store_writable_legacy_file,
+)
 from tvcgui.features.combat.move_filters import is_purged_move_label, filter_purged_moves_for_char
 try:
     from tvcgui.features.training.stun_profiler import apply_runtime_stun_observations
 except Exception:
     apply_runtime_stun_observations = None
+try:
+    from tvcgui.features.training.protection_profiler import (
+        apply_runtime_protection_observations,
+        guard_mask_names,
+    )
+except Exception:
+    apply_runtime_protection_observations = None
+    def guard_mask_names(_mask):
+        return []
 try:
     from tvcgui.features.animation.database import apply_animation_metadata
 except Exception:
@@ -231,14 +248,13 @@ INVULN_HOLD_SENTINEL_FRAMES = 999
 # handling. Keep only the still-experimental Baroque and armor evidence here.
 EXPERIMENTAL_PROPERTY_FIELDS = {
     "cancel": set(),
-    "baroque": {
-        0x0058, 0x005C, 0x0060, 0x01D0, 0x01D8, 0x02A8,
-        0x2120, 0x4438, 0x443C, 0x4440, 0x4444, 0x4450,
-        0x4454, 0x44BC, 0x44D8, 0x4548,
-    },
+    # Only the two native fields used by the Baroque eligibility resolver.
+    # The old broad list included +0x0058 and mislabeled guard/armor writes as
+    # Baroque evidence in the GUI.
+    "baroque": {0x444C, 0x44A4},
     "armor": {
         0x0058, 0x005C, 0x0060, 0x0064, 0x006C, 0x0074,
-        0x1218, 0x13CC, 0x4438, 0x4440, 0x4444, 0x4450,
+        0x0244, 0x1218, 0x13CC, 0x4438, 0x4440, 0x4444, 0x4450,
         0x4454, 0x4548,
     },
 }
@@ -284,6 +300,21 @@ INVULN_BOOTSTRAP_LOOKBACK = 0x60
 INVULN_BOOTSTRAP_LOOKAHEAD = 0x80
 INVULN_PHASE_SETUP_HDR = bytes([0x04, 0x01, 0x02, 0x3F])
 
+# Native guard-point resolver, recomp function 0x8014121C.
+# +0x58 bit 0x00400000 enables the guard-point branch. +0x244 selects
+# which incoming attack heights are accepted. The incoming attack property
+# uses 0x08 Mid, 0x10 High, and 0x20 Low; the defender mask stores those as
+# 0x02000000, 0x04000000, and 0x08000000 respectively.
+GUARD_POINT_ENABLE_FIELD = 0x0058
+GUARD_POINT_ENABLE_BIT = 0x00400000
+GUARD_POINT_MASK_FIELD = 0x0244
+GUARD_POINT_MID_BIT = 0x02000000
+GUARD_POINT_HIGH_BIT = 0x04000000
+GUARD_POINT_LOW_BIT = 0x08000000
+GUARD_POINT_HEIGHT_MASK = GUARD_POINT_MID_BIT | GUARD_POINT_HIGH_BIT | GUARD_POINT_LOW_BIT
+GUARD_POINT_PAIR_LOOKBACK = 0x220
+GUARD_POINT_PAIR_LOOKAHEAD = 0xA0
+
 # Runtime-confirmed reference rows.  This is deliberately tiny: do not let a
 # name match or a broad move family promote untested rows to "confirmed".
 # Tuple = (character ID, action/animation ID).
@@ -294,6 +325,31 @@ CONFIRMED_INVULN_ACTIONS = {
     (12, 0x0136),
     (12, 0x0137),
     (12, 0x0138),
+}
+
+# Confirmed protection families from the recomp, the supplied dump, and live
+# behavior:
+#
+# Counter: all-height resolver, no damage, action reacts into a counter.
+# Guard point: hitstun bypass plus the +0x58 no-damage bit, move continues.
+# Armor: hitstun bypass without the no-damage bit, HP is lost, move continues.
+STUN_BYPASS_BIT = 0x00040000
+NO_DAMAGE_GUARD_BIT = 0x00100000
+
+CONFIRMED_COUNTER_ACTIONS = {
+    (27, 0x0139): {"label": "Cactus Bunker A", "mask": GUARD_POINT_HEIGHT_MASK, "evidence": "dump+live"},
+    (27, 0x013A): {"label": "Cactus Bunker B", "mask": GUARD_POINT_HEIGHT_MASK, "evidence": "dump+live"},
+    (27, 0x013B): {"label": "Cactus Bunker C", "mask": GUARD_POINT_HEIGHT_MASK, "evidence": "dump+live"},
+}
+CONFIRMED_GUARD_ACTIONS = {
+    (2, 0x0136): {"label": "Knee A", "evidence": "recomp+live"},
+    (2, 0x0137): {"label": "Knee B", "evidence": "recomp+live"},
+    (2, 0x0138): {"label": "Knee C", "evidence": "recomp+live"},
+}
+CONFIRMED_ARMOR_ACTIONS = {
+    (27, 0x0136): {"label": "Battering Ram A", "evidence": "recomp+live"},
+    (27, 0x0137): {"label": "Battering Ram B", "evidence": "recomp+live"},
+    (27, 0x0138): {"label": "Battering Ram C", "evidence": "recomp+live"},
 }
 
 HITBOX_OFF_X = 0x40
@@ -311,11 +367,11 @@ SLOT_REGION_PAD = 0x2000
 # The dynamic scanner is still the source of truth.  This profile cache records
 # the resolved per-character relative offsets after a successful dynamic scan,
 # then future scans rebase those offsets against the live chr_tbl address and
-# read only the exact packets/fields the editor needs.  Delete
-# frame_data_profiles.json or set TVC_FD_PROFILE_CACHE=0 to force the legacy
-# dynamic path.
+# read only the exact packets/fields the editor needs. Delete the affected
+# file under data/frame_data/frame_data_profiles or set TVC_FD_PROFILE_CACHE=0
+# to force the legacy dynamic path.
 PROFILE_CACHE_VERSION = 9
-PROFILE_SCANNER_BUILD = "fd-profile-v11-cancel-windows"
+PROFILE_SCANNER_BUILD = "fd-profile-v14-protection-kinds"
 # Kept separate from the global profile format version so existing projectile
 # and super profiles remain intact.  A normal move profile simply refreshes
 # once when this resolver changes.
@@ -324,12 +380,13 @@ STUN_RESOLVER_REVISION = 1
 # old block address, so a rescan is required to remove a previously accepted
 # false-positive packet instead of merely refreshing the scalar bytes.
 ACTIVE_RESOLVER_REVISION = 2
-PROFILE_CACHE_FILENAME = "frame_data_profiles.json"
+PROFILE_CACHE_FILENAME = "frame_data_profiles.json"  # legacy read-only import
+PROFILE_CACHE_DIRNAME = "frame_data_profiles"
 PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PROFILE_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
 
 # Tiny read-only snapshot used by the always-on HUD and hitbox renderer. The
-# workbench cache can be ~100 MB / thousands of rows per fighter; loading and
-# refreshing that cache in the overlay is what made character changes stall.
+# complete roster cache can exceed 100 MB, so the workbench stores and loads it
+# one fighter at a time while the overlay continues using this compact snapshot.
 PREVIEW_PROFILE_CACHE_VERSION = 3
 PREVIEW_PROFILE_CACHE_FILENAME = "frame_data_preview_profiles.json"
 PREVIEW_PROFILE_CACHE_ENABLED = str(os.environ.get("TVC_FD_PREVIEW_CACHE", "1")).strip().lower() not in {"0", "false", "no", "off"}
@@ -367,8 +424,10 @@ def _profile_default_bundled_file() -> Optional[str]:
     return source_file if os.path.exists(source_file) else None
 
 
-PROFILE_CACHE_FILE = os.environ.get("TVC_FD_PROFILE_CACHE_FILE", _profile_default_cache_file())
-PROFILE_BUNDLED_CACHE_FILE = os.environ.get("TVC_FD_PROFILE_BUNDLED_FILE", _profile_default_bundled_file() or "")
+PROFILE_CACHE_FILE = os.environ.get("TVC_FD_PROFILE_CACHE_FILE", _store_writable_legacy_file())
+PROFILE_BUNDLED_CACHE_FILE = os.environ.get("TVC_FD_PROFILE_BUNDLED_FILE", _store_bundled_legacy_file())
+PROFILE_CACHE_DIR = os.environ.get("TVC_FD_PROFILE_CACHE_DIR", _store_writable_profile_dir())
+PROFILE_BUNDLED_CACHE_DIR = os.environ.get("TVC_FD_PROFILE_BUNDLED_DIR", _store_bundled_profile_dir())
 
 
 def _preview_profile_default_file() -> str:
@@ -397,13 +456,14 @@ def _preview_profile_bundled_file() -> str:
 PREVIEW_PROFILE_BUNDLED_FILE = _preview_profile_bundled_file()
 PROFILE_CACHE_LOCK_FILE = os.environ.get(
     "TVC_FD_PROFILE_CACHE_LOCK_FILE",
-    PROFILE_CACHE_FILE + ".lock",
+    os.path.join(PROFILE_CACHE_DIR, ".write.lock"),
 )
 PROFILE_CACHE_SAVE_TIMEOUT_SEC = float(os.environ.get("TVC_FD_PROFILE_SAVE_TIMEOUT", "2.0") or "2.0")
 PROFILE_CACHE_STALE_LOCK_SEC = float(os.environ.get("TVC_FD_PROFILE_STALE_LOCK_SEC", "30.0") or "30.0")
 
 _PROFILE_CACHE_LOCK = threading.RLock()
-_PROFILE_CACHE_DOC: Optional[Dict[str, Any]] = None
+_PROFILE_CACHE_MISSING = object()
+_PROFILE_CACHE_BY_KEY: Dict[str, Optional[Dict[str, Any]]] = {}
 _PROFILE_SAVE_WARNED: set[str] = set()
 _PREVIEW_PROFILE_LOCK = threading.RLock()
 _PREVIEW_PROFILE_DOC: Optional[Dict[str, Any]] = None
@@ -1173,9 +1233,10 @@ def summarize_experimental_property_probes(
     group: str,
 ) -> str:
     """Render raw writes with script and optional live target addresses."""
+    allowed_fields = set(EXPERIMENTAL_PROPERTY_FIELDS.get(str(group), set()))
     selected = [
         probe for probe in probes or []
-        if str(group) in set(probe.get("groups") or ())
+        if int(probe.get("field") or -1) in allowed_fields
     ]
     if not selected:
         return ""
@@ -1205,6 +1266,168 @@ def summarize_experimental_property_probes(
     return " / ".join(parts)
 
 
+
+def _guard_point_mask_label(mask: int) -> str:
+    value = int(mask or 0) & GUARD_POINT_HEIGHT_MASK
+    names = list(guard_mask_names(value))
+    if not names:
+        # Local fallback keeps the scanner useful if the runtime profiler is
+        # unavailable in an offline/unit-test environment.
+        if value & GUARD_POINT_HIGH_BIT:
+            names.append("High")
+        if value & GUARD_POINT_MID_BIT:
+            names.append("Mid")
+        if value & GUARD_POINT_LOW_BIT:
+            names.append("Low")
+    if value == GUARD_POINT_HEIGHT_MASK:
+        return "All-height guard/armor"
+    if names:
+        return "Guard point: " + " + ".join(names)
+    return "Guard point: mask unknown"
+
+
+def collect_guard_point_probes(
+    moves: List[Dict[str, Any]],
+    mv: Dict[str, Any],
+    buf: bytes,
+    base_abs: int,
+) -> List[Dict[str, Any]]:
+    """Decode move-owned guard-point setup from the native resolver fields.
+
+    The static script does not expose a universal frame number directly, so
+    this pass reports the exact protected heights and packet addresses. Exact
+    frame ranges are overlaid later by the runtime protection profiler after
+    the move has been performed once.
+    """
+    mv_abs = int(mv.get("abs") or 0)
+    if mv_abs <= 0:
+        return []
+    start, end = _experimental_property_owner_window(
+        moves, mv, base_abs=base_abs, buf_len=len(buf),
+    )
+    writes: List[Dict[str, Any]] = []
+    for pos in range(start, max(start, end - 15)):
+        op = _field_write_at(buf, pos)
+        if not op:
+            continue
+        field = int(op.get("field", -1))
+        if field not in {GUARD_POINT_ENABLE_FIELD, GUARD_POINT_MASK_FIELD}:
+            continue
+        item = dict(op)
+        item["addr"] = int(base_abs) + int(pos)
+        item["offset"] = int(item["addr"]) - mv_abs
+        writes.append(item)
+
+    enables = [
+        item for item in writes
+        if int(item.get("field", -1)) == GUARD_POINT_ENABLE_FIELD
+        and int(item.get("op", 0)) != 0x02
+        and (int(item.get("value", 0)) & GUARD_POINT_ENABLE_BIT)
+    ]
+    masks = [
+        item for item in writes
+        if int(item.get("field", -1)) == GUARD_POINT_MASK_FIELD
+        and (int(item.get("value", 0)) & GUARD_POINT_HEIGHT_MASK)
+    ]
+    probes: List[Dict[str, Any]] = []
+    seen: set[Tuple[int, int]] = set()
+    for enable in enables:
+        enable_addr = int(enable.get("addr") or 0)
+        preceding = [
+            item for item in masks
+            if 0 <= enable_addr - int(item.get("addr") or 0) <= GUARD_POINT_PAIR_LOOKBACK
+        ]
+        following = [
+            item for item in masks
+            if 0 <= int(item.get("addr") or 0) - enable_addr <= GUARD_POINT_PAIR_LOOKAHEAD
+        ]
+        mask_write = None
+        if preceding:
+            mask_write = max(preceding, key=lambda item: int(item.get("addr") or 0))
+        elif following:
+            mask_write = min(following, key=lambda item: int(item.get("addr") or 0))
+        mask = int((mask_write or {}).get("value") or 0) & GUARD_POINT_HEIGHT_MASK
+        # The enable bit appears in many unrelated setup packets. It is not a
+        # protection result unless the same move also owns a nonzero +0x244
+        # height mask. Dropping enable-only rows removes the old "mask unknown"
+        # false positives.
+        if mask_write is None or not mask:
+            continue
+        key = (enable_addr, mask)
+        if key in seen:
+            continue
+        seen.add(key)
+        clear_addr = None
+        for item in writes:
+            item_addr = int(item.get("addr") or 0)
+            if item_addr <= enable_addr or int(item.get("field", -1)) != GUARD_POINT_ENABLE_FIELD:
+                continue
+            value = int(item.get("value", 0))
+            op_type = int(item.get("op", 0))
+            if op_type == 0x02 or not (value & GUARD_POINT_ENABLE_BIT):
+                clear_addr = item_addr
+                break
+        probes.append({
+            "kind": "guard_point",
+            "addr": enable_addr,
+            "offset": enable_addr - mv_abs,
+            "enable_addr": enable_addr,
+            "enable_value": int(enable.get("value", 0)) & 0xFFFFFFFF,
+            "mask_addr": int((mask_write or {}).get("addr") or 0) or None,
+            "mask": mask,
+            "clear_addr": clear_addr,
+            "confidence": "recomp_exact" if mask else "enable_only",
+            "label": _guard_point_mask_label(mask),
+        })
+    return probes
+
+
+def summarize_guard_point_probes(probes: Sequence[Dict[str, Any]]) -> str:
+    if not probes:
+        return ""
+    parts: List[str] = []
+    seen: set[Tuple[int, int]] = set()
+    for probe in probes:
+        try:
+            addr = int(probe.get("enable_addr") or probe.get("addr") or 0)
+            mask = int(probe.get("mask") or 0) & GUARD_POINT_HEIGHT_MASK
+            key = (addr, mask)
+            if key in seen:
+                continue
+            seen.add(key)
+            label = str(probe.get("label") or _guard_point_mask_label(mask))
+            mask_addr = int(probe.get("mask_addr") or 0)
+            clear_addr = int(probe.get("clear_addr") or 0)
+            detail = f"{label} [S] @ 0x{addr:08X}"
+            if mask_addr:
+                detail += f" mask 0x{mask:08X} @ 0x{mask_addr:08X}"
+            if clear_addr:
+                detail += f" off @ 0x{clear_addr:08X}"
+            parts.append(detail)
+        except Exception:
+            continue
+    return " / ".join(parts)
+
+
+def summarize_protection_probes(
+    mv: Dict[str, Any],
+    property_probes: Sequence[Dict[str, Any]],
+) -> str:
+    counter_summary = str(mv.get("counter") or "").strip()
+    if counter_summary:
+        return counter_summary
+    armor_summary = str(mv.get("armor") or "").strip()
+    if armor_summary:
+        return armor_summary
+    guard_summary = str(mv.get("guard_point") or "").strip() or summarize_guard_point_probes(mv.get("guard_point_probes") or [])
+    if guard_summary:
+        return guard_summary
+    # Raw +0x58/+0x244/+0x1218 writes remain stored in property_probes for
+    # research, but they are not rendered as armor. The visible Protection
+    # column now requires a decoded paired mask or a confirmed armor reference.
+    return ""
+
+
 def apply_experimental_property_live_addresses(
     moves: Sequence[Dict[str, Any]],
     fighter_base_abs: Optional[int],
@@ -1225,10 +1448,23 @@ def apply_experimental_property_live_addresses(
                     probe.pop("target_addr", None)
             except Exception:
                 probe.pop("target_addr", None)
+        guard_probes = list(mv.get("guard_point_probes") or [])
+        for guard_probe in guard_probes:
+            try:
+                if fighter_base:
+                    guard_probe["enable_target_addr"] = fighter_base + GUARD_POINT_ENABLE_FIELD
+                    guard_probe["mask_target_addr"] = fighter_base + GUARD_POINT_MASK_FIELD
+                else:
+                    guard_probe.pop("enable_target_addr", None)
+                    guard_probe.pop("mask_target_addr", None)
+            except Exception:
+                pass
+        mv["guard_point_probes"] = guard_probes
         mv["property_probes"] = probes
         mv["cancel_probe"] = summarize_cancel_window_probes(mv.get("cancel_windows") or [])
-        mv["baroque_probe"] = summarize_experimental_property_probes(probes, "baroque")
-        mv["armor_probe"] = summarize_experimental_property_probes(probes, "armor")
+        mv["baroque_research_probe"] = summarize_experimental_property_probes(probes, "baroque")
+        mv["baroque_probe"] = ""
+        mv["armor_probe"] = summarize_protection_probes(mv, probes)
 
 
 def attach_experimental_property_probes(
@@ -1242,13 +1478,87 @@ def attach_experimental_property_probes(
     """Attach provisional cancel, Baroque, and armor evidence to one row."""
     probes = collect_experimental_property_probes(moves, mv, buf, base_abs)
     cancel_windows = collect_cancel_window_probes(moves, mv, buf, base_abs, char_id=char_id)
+    guard_point_probes = collect_guard_point_probes(moves, mv, buf, base_abs)
     mv["property_probes"] = probes
     mv["property_probe_count"] = len(probes)
     mv["cancel_windows"] = cancel_windows
     mv["cancel_window_count"] = len(cancel_windows)
+    mv["guard_point_probes"] = guard_point_probes
+    mv["guard_point_probe_count"] = len(guard_point_probes)
+    try:
+        _key = (int(char_id or 0), int(mv.get("id") or 0))
+        counter_ref = CONFIRMED_COUNTER_ACTIONS.get(_key)
+        guard_ref = CONFIRMED_GUARD_ACTIONS.get(_key)
+        armor_ref = CONFIRMED_ARMOR_ACTIONS.get(_key)
+    except Exception:
+        counter_ref = guard_ref = armor_ref = None
+
+    masks = [int(item.get("mask") or 0) & GUARD_POINT_HEIGHT_MASK for item in guard_point_probes]
+    combined_mask = 0
+    for mask in masks:
+        combined_mask |= mask
+
+    if counter_ref:
+        counter_mask = int(counter_ref.get("mask") or combined_mask or GUARD_POINT_HEIGHT_MASK) & GUARD_POINT_HEIGHT_MASK
+        counter_label = "All-height counter" if counter_mask == GUARD_POINT_HEIGHT_MASK else "Counter"
+        mv["counter"] = f"{counter_label} [C], frames unprofiled"
+        mv["counter_mask"] = counter_mask
+        mv["counter_source"] = str(counter_ref.get("evidence") or "confirmed")
+        mv["guard_point_mask"] = 0
+        mv["guard_point"] = ""
+        mv["guard_point_source"] = ""
+        mv.pop("armor", None)
+        mv.pop("armor_kind", None)
+        mv.pop("armor_mask", None)
+        mv.pop("armor_source", None)
+    elif guard_ref:
+        mv.pop("counter", None)
+        mv.pop("counter_mask", None)
+        mv.pop("counter_source", None)
+        mv["guard_point_mask"] = 0
+        mv["guard_point"] = "Guard point (no damage) [C], frames unprofiled"
+        mv["guard_point_source"] = str(guard_ref.get("evidence") or "confirmed")
+        mv.pop("armor", None)
+        mv.pop("armor_kind", None)
+        mv.pop("armor_mask", None)
+        mv.pop("armor_source", None)
+    elif armor_ref:
+        mv.pop("counter", None)
+        mv.pop("counter_mask", None)
+        mv.pop("counter_source", None)
+        mv["armor"] = "Armor (takes damage, no hitstun) [C], frames unprofiled"
+        mv["armor_kind"] = "takes_damage_no_hitstun"
+        mv["armor_mask"] = STUN_BYPASS_BIT
+        mv["armor_source"] = str(armor_ref.get("evidence") or "confirmed")
+        mv["guard_point_mask"] = 0
+        mv["guard_point"] = ""
+        mv["guard_point_source"] = ""
+    elif guard_point_probes:
+        mv.pop("counter", None)
+        mv.pop("counter_mask", None)
+        mv.pop("counter_source", None)
+        mv.pop("armor", None)
+        mv.pop("armor_kind", None)
+        mv.pop("armor_mask", None)
+        mv.pop("armor_source", None)
+        mv["guard_point_mask"] = combined_mask
+        mv["guard_point"] = summarize_guard_point_probes(guard_point_probes)
+        mv["guard_point_source"] = "static_recomp"
+    else:
+        mv.pop("counter", None)
+        mv.pop("counter_mask", None)
+        mv.pop("counter_source", None)
+        mv.pop("armor", None)
+        mv.pop("armor_kind", None)
+        mv.pop("armor_mask", None)
+        mv.pop("armor_source", None)
+        mv["guard_point_mask"] = 0
+        mv["guard_point"] = ""
+        mv["guard_point_source"] = ""
     mv["cancel_probe"] = summarize_cancel_window_probes(cancel_windows)
-    mv["baroque_probe"] = summarize_experimental_property_probes(probes, "baroque")
-    mv["armor_probe"] = summarize_experimental_property_probes(probes, "armor")
+    mv["baroque_research_probe"] = summarize_experimental_property_probes(probes, "baroque")
+    mv["baroque_probe"] = ""
+    mv["armor_probe"] = summarize_protection_probes(mv, probes)
 
 
 def _invuln_confidence_score(name: str) -> int:
@@ -1295,7 +1605,7 @@ def _mark_runtime_confirmed_invuln(
             probe["display_label"] = ""
         else:
             frames = int(probe.get("display_frames") or 0)
-            probe["display_label"] = f"{frames}f [C]" if frames > 0 else ""
+            probe["display_label"] = f"Untargetable 1-{frames}f [C]" if frames > 0 else ""
 
 
 def _annotate_invuln_probe_context(
@@ -1404,9 +1714,9 @@ def _annotate_invuln_probe_context(
             display_frames = 0
             label = ""
         elif frames > 0:
-            kind = "timed_phase"
+            kind = "collision_exclusion_candidate"
             display_frames = frames
-            label = f"{frames}f [{confidence[:1].upper()}]" if confidence != "none" else ""
+            label = f"Untargetable 1-{frames}f [{confidence[:1].upper()}]" if confidence != "none" else ""
         else:
             kind = "zero"
             display_frames = 0
@@ -3113,85 +3423,23 @@ def _profile_key(char_id: Optional[int], char_name: str) -> str:
     return f"name_{_profile_safe_name(char_name)}"
 
 
-def _empty_profile_doc() -> Dict[str, Any]:
-    return {
-        "version": PROFILE_CACHE_VERSION,
-        "scanner_build": PROFILE_SCANNER_BUILD,
-        "updated_at": None,
-        "profiles": {},
-    }
-
-
-def _normalize_profile_doc(doc: Any) -> Dict[str, Any]:
-    if not isinstance(doc, dict):
-        doc = _empty_profile_doc()
-    if int(doc.get("version") or PROFILE_CACHE_VERSION) != PROFILE_CACHE_VERSION:
-        doc = _empty_profile_doc()
-    if not isinstance(doc.get("profiles"), dict):
-        doc["profiles"] = {}
-    doc.setdefault("version", PROFILE_CACHE_VERSION)
-    doc.setdefault("scanner_build", PROFILE_SCANNER_BUILD)
-    doc.setdefault("updated_at", None)
-    return doc
-
-
-def _merge_profile_docs(base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
-    merged = _normalize_profile_doc(copy.deepcopy(base))
-    overlay = _normalize_profile_doc(overlay)
-    profiles = merged.setdefault("profiles", {})
-    for k, v in (overlay.get("profiles") or {}).items():
-        profiles[str(k)] = v
-    merged["version"] = PROFILE_CACHE_VERSION
-    merged["scanner_build"] = overlay.get("scanner_build") or merged.get("scanner_build") or PROFILE_SCANNER_BUILD
-    merged["updated_at"] = overlay.get("updated_at") or merged.get("updated_at")
-    return merged
-
-
-def _read_profile_doc_file(path: str) -> Optional[Dict[str, Any]]:
-    if not path:
-        return None
-    try:
-        if not os.path.exists(path):
-            return None
-        with open(path, "r", encoding="utf-8") as f:
-            return _normalize_profile_doc(json.load(f))
-    except Exception:
-        return None
-
-
-def _profile_read_paths() -> List[str]:
-    paths: List[str] = []
-    for path in (PROFILE_BUNDLED_CACHE_FILE, PROFILE_CACHE_FILE):
-        if not path:
-            continue
-        ap = os.path.abspath(path)
-        if ap not in paths:
-            paths.append(ap)
-    return paths
-
-
-def _read_profile_doc_uncached() -> Dict[str, Any]:
-    # Merge the bundled seed profile first, then overlay the writable runtime
-    # profile.  This makes exported onefile builds start fast immediately, while
-    # still allowing newly discovered/changed profiles to persist next to the exe.
-    doc = _empty_profile_doc()
-    found_any = False
-    for path in _profile_read_paths():
-        part = _read_profile_doc_file(path)
-        if part is None:
-            continue
-        doc = _merge_profile_docs(doc, part)
-        found_any = True
-    return _normalize_profile_doc(doc if found_any else _empty_profile_doc())
-
-
-def _load_profile_doc() -> Dict[str, Any]:
-    global _PROFILE_CACHE_DOC
+def _load_profile_entry(key: str) -> Optional[Dict[str, Any]]:
+    """Load one character profile without materializing the full roster."""
     with _PROFILE_CACHE_LOCK:
-        if _PROFILE_CACHE_DOC is not None:
-            return _PROFILE_CACHE_DOC
-        _PROFILE_CACHE_DOC = _read_profile_doc_uncached()
-        return _PROFILE_CACHE_DOC
+        cached = _PROFILE_CACHE_BY_KEY.get(key, _PROFILE_CACHE_MISSING)
+        if cached is not _PROFILE_CACHE_MISSING:
+            return copy.deepcopy(cached) if isinstance(cached, dict) else None
+
+        profile = load_frame_data_profile(
+            key,
+            expected_version=PROFILE_CACHE_VERSION,
+            bundled_directory=PROFILE_BUNDLED_CACHE_DIR,
+            writable_directory=PROFILE_CACHE_DIR,
+            bundled_legacy_file=PROFILE_BUNDLED_CACHE_FILE,
+            writable_legacy_file=PROFILE_CACHE_FILE,
+        )
+        _PROFILE_CACHE_BY_KEY[key] = copy.deepcopy(profile) if isinstance(profile, dict) else None
+        return copy.deepcopy(profile) if isinstance(profile, dict) else None
 
 
 def _profile_warn_once(key: str, message: str) -> None:
@@ -3202,135 +3450,23 @@ def _profile_warn_once(key: str, message: str) -> None:
     print(message)
 
 
-def _acquire_profile_file_lock(timeout_sec: float = PROFILE_CACHE_SAVE_TIMEOUT_SEC) -> Optional[int]:
-    # Windows can throw PermissionError when two app windows/processes try to
-    # replace the same JSON cache at nearly the same time.  This lock file keeps
-    # all patched processes serialized without adding any dependency.
-    deadline = time.time() + max(0.05, float(timeout_sec or 0.05))
-    lock_path = PROFILE_CACHE_LOCK_FILE
-    try:
-        os.makedirs(os.path.dirname(os.path.abspath(lock_path)), exist_ok=True)
-    except Exception:
-        pass
-
-    while True:
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            try:
-                payload = f"pid={os.getpid()} thread={threading.get_ident()} time={time.time():.6f}\n"
-                os.write(fd, payload.encode("ascii", "replace"))
-            except Exception:
-                pass
-            return fd
-        except FileExistsError:
-            try:
-                age = time.time() - os.path.getmtime(lock_path)
-                if age > PROFILE_CACHE_STALE_LOCK_SEC:
-                    os.unlink(lock_path)
-                    continue
-            except Exception:
-                pass
-            if time.time() >= deadline:
-                return None
-            time.sleep(0.025)
-        except Exception:
-            return None
-
-
-def _release_profile_file_lock(fd: Optional[int]) -> None:
-    if fd is None:
-        return
-    try:
-        os.close(fd)
-    except Exception:
-        pass
-    try:
-        os.unlink(PROFILE_CACHE_LOCK_FILE)
-    except Exception:
-        pass
-
-
-def _write_profile_doc_safely(doc: Dict[str, Any]) -> bool:
-    try:
-        os.makedirs(os.path.dirname(os.path.abspath(PROFILE_CACHE_FILE)), exist_ok=True)
-    except Exception:
-        pass
-
-    data = json.dumps(doc, indent=2, sort_keys=True) + "\n"
-    tmp = f"{PROFILE_CACHE_FILE}.{os.getpid()}.{threading.get_ident()}.tmp"
-
-    # Preferred path: write a complete temp file, then replace in one operation.
-    # On Windows, os.replace can briefly fail if another reader has the file
-    # open.  Retry instead of treating that as a scanner/editor failure.
-    for attempt in range(10):
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write(data)
-            os.replace(tmp, PROFILE_CACHE_FILE)
-            return True
-        except PermissionError:
-            time.sleep(0.035 * (attempt + 1))
-        except OSError:
-            time.sleep(0.025 * (attempt + 1))
-
-    # Fallback: if replace is blocked but direct write is allowed, use it while
-    # the cross-process cache lock is held.  If that also fails, the profile will
-    # remain available in memory and the old scanner can rebuild later.
-    for attempt in range(5):
-        try:
-            with open(PROFILE_CACHE_FILE, "w", encoding="utf-8") as f:
-                f.write(data)
-            try:
-                if os.path.exists(tmp):
-                    os.unlink(tmp)
-            except Exception:
-                pass
-            return True
-        except PermissionError:
-            time.sleep(0.05 * (attempt + 1))
-        except OSError:
-            time.sleep(0.035 * (attempt + 1))
-
-    try:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-    except Exception:
-        pass
-    return False
-
-
-def _save_profile_doc(doc: Dict[str, Any]) -> bool:
-    global _PROFILE_CACHE_DOC
+def _save_profile_entry(key: str, profile: Dict[str, Any]) -> bool:
+    """Persist exactly one character profile and refresh its memory cache."""
     with _PROFILE_CACHE_LOCK:
-        doc = _normalize_profile_doc(doc)
-        doc["version"] = PROFILE_CACHE_VERSION
-        doc["scanner_build"] = PROFILE_SCANNER_BUILD
-        doc["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
-
-        fd = _acquire_profile_file_lock()
-        if fd is None:
-            # Do not stall the editor because the cache file is busy.  Keep the
-            # profile in RAM and let the next scan try to persist it again.
-            _PROFILE_CACHE_DOC = doc
-            return False
-
-        try:
-            disk_doc = _read_profile_doc_uncached()
-            merged = _normalize_profile_doc(disk_doc)
-            disk_profiles = merged.setdefault("profiles", {})
-            for k, v in (doc.get("profiles") or {}).items():
-                disk_profiles[str(k)] = v
-            merged["version"] = PROFILE_CACHE_VERSION
-            merged["scanner_build"] = PROFILE_SCANNER_BUILD
-            merged["updated_at"] = doc["updated_at"]
-            ok = _write_profile_doc_safely(merged)
-            if ok:
-                _PROFILE_CACHE_DOC = merged
-            else:
-                _PROFILE_CACHE_DOC = doc
-            return ok
-        finally:
-            _release_profile_file_lock(fd)
+        profile = copy.deepcopy(profile)
+        profile["version"] = PROFILE_CACHE_VERSION
+        profile["scanner_build"] = PROFILE_SCANNER_BUILD
+        profile["key"] = key
+        profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+        ok = save_frame_data_profile(
+            key,
+            profile,
+            writable_directory=PROFILE_CACHE_DIR,
+            scanner_build=PROFILE_SCANNER_BUILD,
+            expected_version=PROFILE_CACHE_VERSION,
+        )
+        _PROFILE_CACHE_BY_KEY[key] = copy.deepcopy(profile)
+        return bool(ok)
 
 
 def _profile_cache_allowed(force_dynamic: bool = False) -> bool:
@@ -3428,8 +3564,9 @@ _PREVIEW_MOVE_FIELDS = {
     "adv_hit", "adv_hit_derived", "animation_char_key", "animation_duration_seconds",
     "animation_motion", "animation_total_frames", "attack_property", "blockstun", "damage",
     "damage_flag", "ground_kb", "ground_kb_y", "hitstop", "hitstun", "id",
-    "invuln", "invuln_confidence", "invuln_frames", "invuln_kind", "kb_type",
+    "invuln", "invuln_confidence", "invuln_frames", "invuln_kind", "invuln_ranges", "kb_type",
     "cancel_probe", "cancel_windows", "cancel_window_count", "baroque_probe", "armor_probe", "property_probe_count",
+    "guard_point", "guard_point_mask", "guard_point_probes", "guard_point_probe_count", "guard_point_segments", "guard_point_source", "runtime_protection",
     "kind", "launch_profile", "meter", "move_name", "move_name_source",
     "multi_hit_count", "normal_confirmed", "recovery", "recovery_source",
     "runtime_profile_eligible", "stun_source",
@@ -4137,8 +4274,7 @@ def _load_profile_moves(
         return None
     key = _profile_key(char_id, char_name)
     sig = _profile_table_signature(tbl_move_addrs, chr_tbl_abs)
-    doc = _load_profile_doc()
-    prof = (doc.get("profiles") or {}).get(key)
+    prof = _load_profile_entry(key)
     if not isinstance(prof, dict):
         return None
     # Reject experimental Morrigan inherited-stun profiles from v28/v29.
@@ -4238,9 +4374,7 @@ def _save_profile_moves(
     try:
         visible_moves = filter_purged_moves_for_char({"char_id": char_id, "char_name": char_name}, moves)
         rows = [_relativize_profile_obj(copy.deepcopy(mv), chr_tbl_abs) for mv in visible_moves]
-        doc = _load_profile_doc()
-        profiles = doc.setdefault("profiles", {})
-        previous = profiles.get(key) if isinstance(profiles.get(key), dict) else {}
+        previous = _load_profile_entry(key) or {}
         # A normal-only rebuild must not throw away a projectile/special pass
         # that is already profiled for this exact character table.
         keep_extras = str(previous.get("table_signature") or "") == sig
@@ -4262,8 +4396,7 @@ def _save_profile_moves(
             for extra_key in ("projectiles", "specials", "projectiles_profiled", "specials_profiled", "projectiles_profiled_at", "specials_profiled_at"):
                 if extra_key in previous:
                     profile[extra_key] = copy.deepcopy(previous[extra_key])
-        profiles[key] = profile
-        if not _save_profile_doc(doc):
+        if not _save_profile_entry(key, profile):
             _profile_warn_once(
                 f"deferred:{key}",
                 f"[fd profile] save deferred for {char_name}: cache file is busy; using in-memory profile for this run",
@@ -4301,7 +4434,7 @@ def _profile_extra_bundle(
     if not PROFILE_CACHE_ENABLED:
         return empty
     key = _profile_key(char_id, char_name)
-    prof = (_load_profile_doc().get("profiles") or {}).get(key)
+    prof = _load_profile_entry(key)
     if not isinstance(prof, dict):
         return empty
     if int(prof.get("version") or 0) != PROFILE_CACHE_VERSION:
@@ -4363,9 +4496,7 @@ def save_profile_extras(
     key = _profile_key(char_id, char_name)
     sig = str(table_signature or _profile_table_signature(list(tbl_move_addrs or []), chr_tbl_abs))
     try:
-        doc = _load_profile_doc()
-        profiles = doc.setdefault("profiles", {})
-        previous = profiles.get(key) if isinstance(profiles.get(key), dict) else {}
+        previous = _load_profile_entry(key) or {}
         if str(previous.get("table_signature") or "") not in ("", sig):
             previous = {}
 
@@ -4397,8 +4528,7 @@ def save_profile_extras(
             profile["specials_profiled"] = True
             profile["specials_profiled_at"] = profile["updated_at"]
 
-        profiles[key] = profile
-        ok = _save_profile_doc(doc)
+        ok = _save_profile_entry(key, profile)
         if ok:
             _profile_warn_once(
                 f"extras:{key}",
@@ -4418,19 +4548,19 @@ def save_profile_extras(
 # ============================================================
 
 def _apply_runtime_stun_overlay(moves: List[Dict[str, Any]], char_id: Optional[int]) -> None:
-    """Overlay only evidence captured from the live victim resolver.
-
-    This is deliberately post-scan and non-persistent with respect to the
-    static frame-data cache.  A failed/empty runtime cache therefore cannot
-    alter the normal static parser, and a good runtime observation never gains
-    a fake static packet address.
-    """
-    if apply_runtime_stun_observations is None or not moves or char_id is None:
+    """Overlay live-observed stun and protection without changing static data."""
+    if not moves or char_id is None:
         return
-    try:
-        apply_runtime_stun_observations(moves, char_id)
-    except Exception as e:
-        _profile_warn_once("runtime-stun-overlay", f"[fd runtime stun] overlay skipped: {e!r}")
+    if apply_runtime_stun_observations is not None:
+        try:
+            apply_runtime_stun_observations(moves, char_id)
+        except Exception as e:
+            _profile_warn_once("runtime-stun-overlay", f"[fd runtime stun] overlay skipped: {e!r}")
+    if apply_runtime_protection_observations is not None:
+        try:
+            apply_runtime_protection_observations(moves, char_id)
+        except Exception as e:
+            _profile_warn_once("runtime-protection-overlay", f"[fd runtime protection] overlay skipped: {e!r}")
 
 
 # ============================================================

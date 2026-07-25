@@ -1,14 +1,14 @@
 # meter.py
 #
-# Super meter lives at fixed MEM2 addresses, NOT relative to the fighter
-# struct base.
+# Team super meter lives at fixed MEM2 addresses. The same value is also
+# available as the team-owner field +0x4C.
 #
-# Confirmed from memory dump:
-#   9246ba00 row: 00 00 08 e8 00 00 1f 44 00 00 00 c3 [50] ...
-#   0xC350 = 50000 = 1 stock of TvC meter
-#   Value is a big-endian u16 at 0x9246BA0C (high byte c3, low byte 50)
-#
-# P2 stride is estimated at +0x40; confirm with a P2 dump if needed.
+# Confirmed from both team dumps:
+#   P1 current meter: 0x9246BA0C
+#   P2 current meter: 0x927EBA2C
+#   50000 is the normal cap and represents 5 full bars.
+#   One bar is 10000 units.
+#   Values are stored as big-endian u32 integers.
 
 from tvcgui.platform.dolphin import rd32
 

@@ -7,7 +7,7 @@
       "chun_002": true,
       "chun_007": true
     },
-    "selected_mission_id": "chun_001"
+    "selected_mission_id": "chun_002"
   },
   "morrigan": {
     "completed": {
@@ -42,9 +42,11 @@
       "frank_west_003": true,
       "frank_west_004": true,
       "frank_west_005": true,
-      "frank_west_006": true
+      "frank_west_006": true,
+      "frank_west_007": true,
+      "frank_west_008": true
     },
-    "selected_mission_id": "frank_west_006"
+    "selected_mission_id": "frank_west_009"
   },
   "ryu": {
     "completed": {
@@ -56,7 +58,7 @@
       "ryu_004": true,
       "ryu_007": true
     },
-    "selected_mission_id": "ryu_005"
+    "selected_mission_id": "ryu_006"
   },
   "batsu": {
     "completed": {
@@ -101,7 +103,7 @@
       "joe_the_condor_001": true,
       "joe_the_condor_003": true
     },
-    "selected_mission_id": "joe_the_condor_006"
+    "selected_mission_id": "joe_the_condor_004"
   },
   "yatterman_2": {
     "completed": {
@@ -152,9 +154,10 @@
       "roll_001": true,
       "roll_002": true,
       "roll_004": true,
-      "roll_006": true
+      "roll_006": true,
+      "roll_008": true
     },
-    "selected_mission_id": "roll_006"
+    "selected_mission_id": "roll_002"
   },
   "casshan": {
     "completed": {
@@ -162,7 +165,10 @@
       "casshan_002": true,
       "casshan_003": true,
       "casshan_005": true,
-      "casshan_008": true
+      "casshan_008": true,
+      "casshan_004": true,
+      "casshan_006": true,
+      "casshan_007": true
     },
     "selected_mission_id": "casshan_008"
   },
@@ -182,5 +188,13 @@
       "zero_003": true
     },
     "selected_mission_id": "zero_004"
+  },
+  "yatterman_1": {
+    "completed": {
+      "yatterman_001": true,
+      "yatterman_003": true,
+      "yatterman_004": true
+    },
+    "selected_mission_id": "yatterman_004"
   }
 }

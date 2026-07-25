@@ -1,0 +1,12 @@
+# Legacy monolithic frame-data cache. Profiles now live one file per fighter.
+data/frame_data/frame_data_profiles.json
+data/frame_data/frame_data_profiles.json.*
+data/frame_data/frame_data_profiles/.write.lock
+data/frame_data/frame_data_profiles/*.tmp
+data/frame_data/frame_data_profiles/*.lock
+
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+

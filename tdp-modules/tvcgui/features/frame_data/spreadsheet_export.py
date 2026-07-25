@@ -66,6 +66,16 @@ CSV_FIELDS = (
     "multi_hit_count",
     "invulnerability",
     "invulnerability_frames",
+    "invulnerability_ranges",
+    "counter",
+    "counter_mask",
+    "guard_point",
+    "guard_point_mask",
+    "armor",
+    "armor_kind",
+    "armor_mask",
+    "protection_source",
+    "protection_observations",
     "cancel_probe",
     "baroque_probe",
     "armor_probe",
@@ -562,8 +572,9 @@ class FrameDataSpreadsheetExporter:
     def _build_row(self, slot: Mapping[str, Any], move: Mapping[str, Any], *, seen_utc: str) -> dict[str, str]:
         action_id = _as_int(move.get("id"))
         label = _export_label(move)
-        invulnerability = _first_text(move, "invuln_kind", "invuln")
+        invulnerability = _first_text(move, "invuln", "invuln_kind")
         runtime = move.get("runtime_stun") if isinstance(move.get("runtime_stun"), Mapping) else {}
+        protection = move.get("runtime_protection") if isinstance(move.get("runtime_protection"), Mapping) else {}
         origin = _data_origin(move, slot)
         return {
             "schema": EXPORT_SCHEMA,
@@ -599,6 +610,21 @@ class FrameDataSpreadsheetExporter:
             "multi_hit_count": _as_text(move.get("multi_hit_count")),
             "invulnerability": invulnerability,
             "invulnerability_frames": _as_text(move.get("invuln_frames")),
+            "invulnerability_ranges": _as_text(move.get("invuln_ranges") or protection.get("invuln_ranges")),
+            "counter": _as_text(move.get("counter")),
+            "counter_mask": _hex(move.get("counter_mask")),
+            "guard_point": _as_text(move.get("guard_point")),
+            "guard_point_mask": _hex(move.get("guard_point_mask")),
+            "armor": _as_text(move.get("armor")),
+            "armor_kind": _as_text(move.get("armor_kind")),
+            "armor_mask": _hex(move.get("armor_mask")),
+            "protection_source": _as_text(
+                move.get("counter_source")
+                or move.get("guard_point_source")
+                or move.get("armor_source")
+                or move.get("invuln_confidence")
+            ),
+            "protection_observations": _as_text(protection.get("observations")),
             "cancel_probe": _as_text(move.get("cancel_probe")),
             "baroque_probe": _as_text(move.get("baroque_probe")),
             "armor_probe": _as_text(move.get("armor_probe")),
