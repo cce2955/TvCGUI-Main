@@ -81,7 +81,7 @@ MISSION_COMBO_KEEPALIVE_STATES = set(MISSION_REACTION_STATES) | set(MISSION_MEGA
 
 MISSION_BLOCKSTUN_STATES = {48, 49, 50, 51, 52, 53}
 MISSION_IGNORE_LABELS = {"", "idle", "crouched", "crouching"}
-MISSION_ASSIST_OFF_STATES = {430, 432, 433}
+MISSION_ASSIST_OFF_STATES = {420, 424, 425, 426, 427, 428, 430, 431, 432, 433, 0x01A1, 0x01A8, 0x01AE}
 MISSION_AIRBORNE_LABEL_TOKENS = (
     "jump", "air ", "j.", "air dash", "air weapon switch",
     "air random flight",
@@ -120,6 +120,8 @@ MISSION_GENERIC_VAR_LABELS = {"VAR", "var"}
 
 MISSION_SELF_VAR_MISSIONS = {"alex_011"}
 
+# Legacy fallback for existing mission packs. New missions should use
+# setup_meter_refill=true in their JSON instead of adding another ID here.
 MISSION_METER_REFILL_MISSIONS = {"ryu_008", "saki_009", "alex_017"}
 
 MISSION_INPUT_DIRECTION_MASK = 0x0F
@@ -290,6 +292,7 @@ def _new_mission_runtime(
         "mission_input_match_serial": 0,
         "mission_step_start_serial": 0,
         "pending_input_serial": 0,
+        "pending_action_serial": 0,
         "mission_prev_direction": None,
         "mission_prev_buttons": 0,
         "mission_baroque_latch": 0,
@@ -382,6 +385,17 @@ class MissionManager:
         # Core runtime state
         self._runtime: dict = _new_mission_runtime()
         self._active_slot: str | None = None
+        # Mission ownership is pinned to the point fighter selected when Mission
+        # Mode is enabled. Assist calls may temporarily perturb the live slot
+        # snapshots, but they must never replace the mission pack or donate
+        # their actions to the point character's route.
+        self._mission_owner: dict[str, Any] = {
+            "slot": None,
+            "teamtag": "",
+            "base": 0,
+            "char_id": 0,
+            "name": "",
+        }
 
         # Selector state
         self._selector: dict = {
@@ -399,6 +413,11 @@ class MissionManager:
             "mission_key": None,
             "saved_debug_values": {},
             "applied_debug_values": {},
+        }
+        self._meter_refill_state: dict = {
+            "mission_key": None,
+            "saved_p1meter_flag": None,
+            "saved_baroque_flag": None,
         }
 
         # Frame index, updated each call to update().
@@ -510,6 +529,119 @@ class MissionManager:
     @active_slot.setter
     def active_slot(self, value: str | None) -> None:
         self._active_slot = value
+        if value is None:
+            self._clear_mission_owner()
+
+    def _snap_char_id(self, snap: dict | None) -> int:
+        if not isinstance(snap, dict):
+            return 0
+        for field in ("csv_char_id", "char_id", "id"):
+            try:
+                value = int(snap.get(field, 0) or 0)
+            except Exception:
+                value = 0
+            if value:
+                return value
+        return 0
+
+    def _snap_action_id(self, snap: dict | None) -> int:
+        if not isinstance(snap, dict):
+            return 0
+        for field in ("mv_id_display", "mv_id", "attA", "attB"):
+            try:
+                value = int(snap.get(field, 0) or 0) & 0x7FFF
+            except Exception:
+                value = 0
+            if value:
+                return value
+        return 0
+
+    def _snap_is_support_or_assist(self, snap: dict | None) -> bool:
+        if not isinstance(snap, dict):
+            return True
+        label = str(snap.get("mv_label") or "").strip().lower()
+        action_id = self._snap_action_id(snap)
+        return bool(
+            action_id in MISSION_ASSIST_OFF_STATES
+            or "assist" in label
+            or "tag out" in label
+            or "tag in taunt" in label
+            or "ko" in label
+            or int(snap.get("cur", 1) or 0) <= 0
+        )
+
+    def _clear_mission_owner(self) -> None:
+        self._mission_owner = {
+            "slot": None,
+            "teamtag": "",
+            "base": 0,
+            "char_id": 0,
+            "name": "",
+        }
+
+    def _capture_mission_owner(self, slot_label: str, snaps_dict: dict | None = None) -> None:
+        snaps = snaps_dict or getattr(self, "_render_snap_by_slot", {}) or {}
+        snap = snaps.get(slot_label) if isinstance(snaps, dict) else None
+        self._mission_owner = {
+            "slot": slot_label,
+            "teamtag": str((snap or {}).get("teamtag") or ("P1" if str(slot_label).startswith("P1") else "P2")),
+            "base": int((snap or {}).get("base") or 0),
+            "char_id": self._snap_char_id(snap),
+            "name": str((snap or {}).get("name") or "").strip(),
+        }
+
+    def _ensure_mission_owner(self, snaps_dict: dict | None = None) -> None:
+        if not self._active_slot:
+            self._clear_mission_owner()
+            return
+        if not self._mission_owner.get("slot"):
+            self._capture_mission_owner(self._active_slot, snaps_dict)
+
+    def _mission_owner_matches_snap(self, snap: dict | None) -> bool:
+        if not isinstance(snap, dict):
+            return False
+        owner_base = int(self._mission_owner.get("base", 0) or 0)
+        snap_base = int(snap.get("base", 0) or 0)
+        if owner_base and snap_base:
+            return owner_base == snap_base
+        owner_char_id = int(self._mission_owner.get("char_id", 0) or 0)
+        snap_char_id = self._snap_char_id(snap)
+        if owner_char_id and snap_char_id:
+            return owner_char_id == snap_char_id
+        owner_name = str(self._mission_owner.get("name") or "").strip().lower()
+        snap_name = str(snap.get("name") or "").strip().lower()
+        return bool(owner_name and snap_name and owner_name == snap_name)
+
+    def _mission_owner_slot(self, snaps_dict: dict | None = None) -> str | None:
+        self._ensure_mission_owner(snaps_dict)
+        snaps = snaps_dict or getattr(self, "_render_snap_by_slot", {}) or {}
+        owner_slot = str(self._mission_owner.get("slot") or self._active_slot or "")
+        teamtag = str(self._mission_owner.get("teamtag") or "")
+        candidate_slots = []
+        if teamtag:
+            candidate_slots.extend((f"{teamtag}-C1", f"{teamtag}-C2"))
+        if owner_slot and owner_slot not in candidate_slots:
+            candidate_slots.insert(0, owner_slot)
+        for candidate in candidate_slots:
+            snap = snaps.get(candidate) if isinstance(snaps, dict) else None
+            if self._mission_owner_matches_snap(snap):
+                return candidate
+        # Never switch ownership to an assist merely because the point snapshot
+        # was briefly unavailable. Keep the pinned logical slot and mission pack.
+        return owner_slot or self._active_slot
+
+    def _mission_owner_name(self, snaps_dict: dict | None = None) -> str:
+        self._ensure_mission_owner(snaps_dict)
+        name = str(self._mission_owner.get("name") or "").strip()
+        if name:
+            return name
+        owner_slot = self._mission_owner_slot(snaps_dict)
+        snaps = snaps_dict or getattr(self, "_render_snap_by_slot", {}) or {}
+        snap = snaps.get(owner_slot) if owner_slot and isinstance(snaps, dict) else None
+        name = str((snap or {}).get("name") or "").strip()
+        if name:
+            self._mission_owner["name"] = name
+        return name
 
     @property
     def selector_open(self) -> bool:
@@ -556,6 +688,7 @@ class MissionManager:
         self._frame_idx = frame_idx
         self._now = now
         self._render_snap_by_slot = render_snap_by_slot
+        self._ensure_mission_owner(render_snap_by_slot)
         self._sample_health_deltas(render_snap_by_slot, frame_idx)
         self._update_selector_from_inputs(snaps, now)
         if now >= self._next_command_poll:
@@ -578,8 +711,7 @@ class MissionManager:
         if not self._active_slot:
             return
 
-        snap = self._render_snap_by_slot.get(self._active_slot) if hasattr(self, "_render_snap_by_slot") else None
-        character_name = snap.get("name") if snap else None
+        character_name = self._mission_owner_name(getattr(self, "_render_snap_by_slot", {}))
         if not character_name:
             return
 
@@ -638,8 +770,7 @@ class MissionManager:
         if slot != self._active_slot or not mission_id:
             return
 
-        snap = self._render_snap_by_slot.get(self._active_slot) if hasattr(self, "_render_snap_by_slot") else None
-        character_name = snap.get("name") if snap else None
+        character_name = self._mission_owner_name(getattr(self, "_render_snap_by_slot", {}))
         if not character_name:
             return
 
@@ -711,13 +842,15 @@ class MissionManager:
         payload = self._build_empty_overlay_payload()
 
         if self._active_slot:
-            snap = snaps.get(self._active_slot)
-            character_name = snap.get("name") if snap else None
+            self._ensure_mission_owner(snaps)
+            point_slot = self._mission_owner_slot(snaps) or self._active_slot
+            character_name = self._mission_owner_name(snaps)
 
             if character_name:
                 payload = build_overlay_payload(character_name)
                 payload["active"] = True
                 payload["slot"] = self._active_slot
+                payload["point_slot"] = point_slot
                 payload = self._augment_payload_with_runtime(payload, snaps)
                 payload["selector_open"] = bool(self._selector["open"])
                 payload["selector_index"] = int(self._selector["selected_index"])
@@ -744,14 +877,8 @@ class MissionManager:
 
 
     def write_mode_state(self, *, force: bool = False) -> None:
-        if not self._active_slot:
-            if self._runtime.get("saved_meter_flag_mission") in MISSION_METER_REFILL_MISSIONS:
-                saved = self._runtime.get("saved_p1meter_flag")
-                if saved is not None:
-                    self._write_debug_flag("P1Meter", int(saved))
-                saved_b = self._runtime.get("saved_baroque_flag")
-                if saved_b is not None:
-                    self._write_debug_flag("BaroquePct", int(saved_b))
+        if not self._active_slot and self._meter_refill_state.get("mission_key") is not None:
+            self._restore_meter_refill_overrides()
 
         payload = {
             "active": bool(self._active_slot),
@@ -778,16 +905,25 @@ class MissionManager:
     def restore_debug_overrides(self) -> None:
         'Call at shutdown to restore any debug flags the module overwrote.'
         self._restore_debug_overrides()
+        self._restore_meter_refill_overrides()
 
     # ------------------------------------------------------------------
     # Toggle active slot (called from click handler in main)
     # ------------------------------------------------------------------
 
     def toggle_active_slot(self, slot_label: str) -> None:
-        self._active_slot = None if self._active_slot == slot_label else slot_label
+        disabling = self._active_slot == slot_label
+        self._active_slot = None if disabling else slot_label
         if self._active_slot:
-            snap = getattr(self, "_render_snap_by_slot", {}).get(self._active_slot)
-            self._sync_input_cursors_to_latest(self._active_slot, snap)
+            self._capture_mission_owner(
+                self._active_slot,
+                getattr(self, "_render_snap_by_slot", {}),
+            )
+            owner_slot = self._mission_owner_slot(getattr(self, "_render_snap_by_slot", {}))
+            snap = getattr(self, "_render_snap_by_slot", {}).get(owner_slot)
+            self._sync_input_cursors_to_latest(owner_slot or self._active_slot, snap)
+        else:
+            self._clear_mission_owner()
         self._runtime = _new_mission_runtime(slot=self._active_slot)
         self.write_mode_state(force=True)
         self.write_overlay_data(force=True)
@@ -911,6 +1047,39 @@ class MissionManager:
         self._setup_state["saved_debug_values"] = {}
         self._setup_state["applied_debug_values"] = {}
 
+    def _mission_meter_refill_enabled(self, payload: dict) -> bool:
+        mission_id = str((payload or {}).get("active_mission_id") or "")
+        return bool((payload or {}).get("active_mission_setup_meter_refill")) or mission_id in MISSION_METER_REFILL_MISSIONS
+
+    def _restore_meter_refill_overrides(self) -> None:
+        state = self._meter_refill_state
+        saved_meter = state.get("saved_p1meter_flag")
+        saved_baroque = state.get("saved_baroque_flag")
+        if isinstance(saved_meter, int):
+            self._write_debug_flag("P1Meter", saved_meter)
+        if isinstance(saved_baroque, int):
+            self._write_debug_flag("BaroquePct", saved_baroque)
+        state["mission_key"] = None
+        state["saved_p1meter_flag"] = None
+        state["saved_baroque_flag"] = None
+
+    def _sync_meter_refill_mission(self, payload: dict) -> bool:
+        enabled = self._mission_meter_refill_enabled(payload)
+        mission_key = (payload.get("slot"), payload.get("active_mission_id")) if enabled else None
+        state = self._meter_refill_state
+        if state.get("mission_key") == mission_key:
+            return enabled
+
+        if state.get("mission_key") is not None:
+            self._restore_meter_refill_overrides()
+
+        if mission_key is not None:
+            state["mission_key"] = mission_key
+            state["saved_p1meter_flag"] = int(self._read_debug_flag("P1Meter") or 0)
+            state["saved_baroque_flag"] = int(self._read_debug_flag("BaroquePct") or 0)
+
+        return enabled
+
     def _sync_debug_overrides(self, payload: dict) -> None:
         if not isinstance(payload, dict) or not payload.get("active"):
             if self._setup_state.get("mission_key") is not None:
@@ -991,27 +1160,59 @@ class MissionManager:
     def _label_is_taunt(self, label: str) -> bool:
         return (label or "").strip().lower() == "taunt"
 
+    def _native_point_slot(self, slot_label: str, snaps_dict: dict) -> str | None:
+        """Resolve the team's actual point fighter from the native point flag.
+
+        Assist calls can shuffle which live snapshot looks active, but they do
+        not change this flag. A real tag does, so Down, Down, Taunt can affirm
+        the newly tagged point character without assist calls stealing Mission
+        Mode ownership.
+        """
+        if not slot_label:
+            return None
+        prefix = "P1" if str(slot_label).startswith("P1") else "P2"
+        c1 = f"{prefix}-C1"
+        c2 = f"{prefix}-C2"
+        s1 = snaps_dict.get(c1) if isinstance(snaps_dict, dict) else None
+        s2 = snaps_dict.get(c2) if isinstance(snaps_dict, dict) else None
+
+        if s1 and not s2:
+            return c1
+        if s2 and not s1:
+            return c2
+        if not s1 and not s2:
+            return None
+
+        c1_is_point = bool((s1 or {}).get("damage_point_active", (s1 or {}).get("damage_is_point")))
+        c2_is_point = bool((s2 or {}).get("damage_point_active", (s2 or {}).get("damage_is_point")))
+        if c1_is_point != c2_is_point:
+            return c1 if c1_is_point else c2
+
+        return self._team_active_slot(slot_label, snaps_dict)
+
     def _selector_source_slot(self, snaps_dict: dict) -> str | None:
         if not self._active_slot:
             return None
 
-        active_snap = snaps_dict.get(self._active_slot) or self._render_snap_by_slot.get(self._active_slot)
-        if not active_snap:
-            return self._active_slot
+        # Once open, keep reading the affirmed owner. While closed, listen to
+        # the native point fighter so a real tag can intentionally rebind it.
+        if self._selector.get("open"):
+            owner_slot = self._mission_owner_slot(snaps_dict)
+            return owner_slot or self._active_slot
+        return self._native_point_slot(self._active_slot, snaps_dict) or self._active_slot
 
-        teamtag = active_snap.get("teamtag")
-        if not teamtag:
-            return self._active_slot
+    def _affirm_selector_point_owner(self, snaps_dict: dict) -> tuple[str | None, str]:
+        """Pin Mission Mode to the point fighter performing the shortcut."""
+        point_slot = self._native_point_slot(self._active_slot or "", snaps_dict)
+        if not point_slot:
+            return None, ""
+        snap = snaps_dict.get(point_slot) if isinstance(snaps_dict, dict) else None
+        if not isinstance(snap, dict):
+            return None, ""
 
-        team_slots = [s for s in (f"{teamtag}-C1", f"{teamtag}-C2") if s in snaps_dict]
-        if not team_slots:
-            return self._active_slot
-
-        team_active = self._team_active_slot(self._active_slot, snaps_dict)
-        if team_active in team_slots:
-            return team_active
-
-        return self._active_slot if self._active_slot in team_slots else team_slots[0]
+        self._active_slot = point_slot
+        self._capture_mission_owner(point_slot, snaps_dict)
+        return point_slot, self._mission_owner_name(snaps_dict)
 
     def _input_packets_for_slot(
         self,
@@ -1077,17 +1278,18 @@ class MissionManager:
             self._close_selector()
             return
 
-        character_name = snap.get("name")
-        if not character_name:
-            self._close_selector()
-            return
-
-
-        payload = build_overlay_payload(character_name)
-        missions = payload.get("missions", [])
-        if not missions:
-            self._close_selector()
-            return
+        character_name = ""
+        missions: list[dict] = []
+        if self._selector["open"]:
+            character_name = self._mission_owner_name(snaps_dict)
+            if not character_name:
+                self._close_selector()
+                return
+            payload = build_overlay_payload(character_name)
+            missions = payload.get("missions", [])
+            if not missions:
+                self._close_selector()
+                return
 
         packets = self._input_packets_for_slot(
             selector_slot, snap, consumer="selector"
@@ -1135,7 +1337,6 @@ class MissionManager:
                             progress = load_progress()
                             progress = set_selected_mission_id(progress, character_name, mission_id)
                             save_progress(progress)
-                            self._active_slot = selector_slot
                             self._runtime = _new_mission_runtime(slot=self._active_slot)
                             self._close_selector()
                             self.write_mode_state(force=True)
@@ -1154,10 +1355,13 @@ class MissionManager:
                         self._selector["sequence"][-1]
                         - self._selector["sequence"][-2]
                     ) <= MISSION_SELECTOR_REPEAT_WINDOW:
-                        self._active_slot = selector_slot
-                        self._runtime = _new_mission_runtime(slot=self._active_slot)
-                        self._open_selector(character_name, sample_now)
-                        self.write_mode_state(force=True)
+                        _point_slot, point_character = self._affirm_selector_point_owner(snaps_dict)
+                        if point_character:
+                            point_payload = build_overlay_payload(point_character)
+                            if point_payload.get("missions"):
+                                self._runtime = _new_mission_runtime(slot=self._active_slot)
+                                self._open_selector(point_character, sample_now)
+                                self.write_mode_state(force=True)
 
             self._selector["last_direction"] = direction
             self._selector["last_taunt_held"] = taunt_held
@@ -1179,6 +1383,13 @@ class MissionManager:
             return c2
         if not s1 and not s2:
             return None
+
+        # Native fighter+0x44A0 is authoritative for the point character.
+        # Assist calls leave it alone; real tags change it.
+        c1_is_point = bool(s1.get("damage_point_active", s1.get("damage_is_point")))
+        c2_is_point = bool(s2.get("damage_point_active", s2.get("damage_is_point")))
+        if c1_is_point != c2_is_point:
+            return c1 if c1_is_point else c2
 
         mv1 = s1.get("attA") or s1.get("attB") or 0
         mv2 = s2.get("attA") or s2.get("attB") or 0
@@ -1359,6 +1570,86 @@ class MissionManager:
         return damage_values
 
 
+    def _action_can_own_hit(
+        self,
+        action: dict,
+        frame_idx: int,
+        *,
+        sample_ns: int = 0,
+    ) -> bool:
+        timing = self._prediction_timing_for_action(action)
+        startup = max(1, int(timing.get("startup", 0) or 0))
+        active = max(1, int(timing.get("active", 0) or 0))
+        action_ns = int((action or {}).get("sample_ns", 0) or 0)
+        hit_ns = int(sample_ns or 0)
+        if action_ns > 0 and hit_ns > 0:
+            earliest_ns, deadline_ns = self._prediction_window_ns(action)
+            return earliest_ns <= hit_ns <= deadline_ns
+        action_frame = int((action or {}).get("frame", frame_idx) or frame_idx)
+        earliest_frame = action_frame + max(0, startup - 2)
+        deadline_frame = action_frame + startup + active + MISSION_PREDICTION_CONFIRM_PADDING
+        return earliest_frame <= int(frame_idx) <= deadline_frame
+
+    def _candidate_action_serials_for_hit(
+        self,
+        frame_idx: int,
+        *,
+        sample_ns: int = 0,
+        sample_seq: int = 0,
+    ) -> list[int]:
+        """Return every live native action that could have produced a hit.
+
+        Delayed attacks, projectiles, install releases, and attacks that require
+        a later trigger can still connect after another native action begins.
+        Treating only the newest action as the owner makes those hits impossible
+        to confirm.  Keep the full eligible set; the ordered mission step later
+        claims the matching action after real hit evidence arrives.
+        """
+        hit_seq = int(sample_seq or 0)
+        candidates: list[int] = []
+        for action in self._runtime.get("mission_action_events", []):
+            if action.get("consumed"):
+                continue
+            action_seq = int(action.get("sample_seq", 0) or 0)
+            if hit_seq and action_seq and action_seq > hit_seq:
+                continue
+            if not self._action_can_own_hit(action, frame_idx, sample_ns=sample_ns):
+                continue
+            serial = int(action.get("serial", 0) or 0)
+            if serial > 0 and serial not in candidates:
+                candidates.append(serial)
+        return candidates
+
+    def _owner_action_serial_for_hit(
+        self,
+        frame_idx: int,
+        *,
+        sample_ns: int = 0,
+        sample_seq: int = 0,
+    ) -> int:
+        """Compatibility view of the newest eligible action owner."""
+        candidates = self._candidate_action_serials_for_hit(
+            frame_idx,
+            sample_ns=sample_ns,
+            sample_seq=sample_seq,
+        )
+        return int(candidates[-1] if candidates else 0)
+
+    def _hit_can_confirm_action(self, hit: dict, action_serial: int) -> bool:
+        wanted = int(action_serial or 0)
+        if wanted <= 0:
+            return True
+        candidates = [
+            int(serial or 0)
+            for serial in ((hit or {}).get("candidate_action_serials") or [])
+            if int(serial or 0) > 0
+        ]
+        if candidates:
+            return wanted in candidates
+        # Backward compatibility for buffered events and older tests created
+        # before candidate ownership was introduced.
+        return int((hit or {}).get("owner_action_serial", 0) or 0) == wanted
+
     def _record_mission_hit_events(
         self,
         global_combo_count: int | None,
@@ -1392,10 +1683,19 @@ class MissionManager:
         positive_damage = [int(value) for value in damage_values if int(value or 0) > 0]
         new_event_count = 0
 
-        def new_event(*, hp_seen: bool, combo_seen: bool, damage: int = 0) -> dict:
+        def new_event(
+            *,
+            hp_seen: bool,
+            combo_seen: bool,
+            damage: int = 0,
+            owner_action_serial: int = 0,
+        ) -> dict:
             nonlocal new_event_count
             serial = int(self._runtime.get("mission_hit_serial", 0) or 0) + 1
             self._runtime["mission_hit_serial"] = serial
+            candidate_action_serials = self._candidate_action_serials_for_hit(frame_idx)
+            if int(owner_action_serial or 0) > 0 and int(owner_action_serial) not in candidate_action_serials:
+                candidate_action_serials.append(int(owner_action_serial))
             event = {
                 "serial": serial,
                 "frame": int(frame_idx),
@@ -1403,6 +1703,10 @@ class MissionManager:
                 "hp_seen": bool(hp_seen),
                 "combo_seen": bool(combo_seen),
                 "damage": max(0, int(damage or 0)),
+                # Keep the newest owner for compatibility/debug display, but
+                # mission confirmation uses the full candidate set below.
+                "owner_action_serial": int(owner_action_serial or (candidate_action_serials[-1] if candidate_action_serials else 0)),
+                "candidate_action_serials": candidate_action_serials,
                 "consumed": False,
             }
             events.append(event)
@@ -1417,11 +1721,26 @@ class MissionManager:
                 if not event.get("hp_seen")
                 and 0 <= int(frame_idx) - int(event.get("last_frame", event.get("frame", frame_idx))) <= MISSION_HIT_CORRELATION_WINDOW
             ), None)
+            owner_action_serial = self._owner_action_serial_for_hit(frame_idx)
             if match is None:
-                new_event(hp_seen=True, combo_seen=False, damage=damage)
+                new_event(
+                    hp_seen=True,
+                    combo_seen=False,
+                    damage=damage,
+                    owner_action_serial=owner_action_serial,
+                )
             else:
                 match["hp_seen"] = True
                 match["damage"] = int(match.get("damage", 0) or 0) + damage
+                if owner_action_serial:
+                    match["owner_action_serial"] = owner_action_serial
+                merged_candidates = list(match.get("candidate_action_serials") or [])
+                for serial in self._candidate_action_serials_for_hit(frame_idx):
+                    if serial not in merged_candidates:
+                        merged_candidates.append(serial)
+                if owner_action_serial and owner_action_serial not in merged_candidates:
+                    merged_candidates.append(owner_action_serial)
+                match["candidate_action_serials"] = merged_candidates
                 match["last_frame"] = int(frame_idx)
 
         # Counter increments are authoritative for hit count. Pair each one to
@@ -1451,11 +1770,19 @@ class MissionManager:
         ]
         return new_event_count
 
-    def _peek_mission_hit_event(self, frame_idx: int, min_frame: int | None = None) -> dict | None:
+    def _peek_mission_hit_event(
+        self,
+        frame_idx: int,
+        min_frame: int | None = None,
+        owner_action_serial: int = 0,
+    ) -> dict | None:
         floor = -999999 if min_frame is None else int(min_frame)
+        wanted_owner = int(owner_action_serial or 0)
         for event in self._runtime.get("mission_hit_events", []):
             event_frame = int(event.get("frame", frame_idx))
             age = int(frame_idx) - event_frame
+            if wanted_owner and not self._hit_can_confirm_action(event, wanted_owner):
+                continue
             if (
                 event_frame >= floor
                 and 0 <= age <= MISSION_HIT_CONFIRM_WINDOW
@@ -1464,8 +1791,17 @@ class MissionManager:
                 return event
         return None
 
-    def _consume_mission_hit_event(self, frame_idx: int, min_frame: int | None = None) -> bool:
-        event = self._peek_mission_hit_event(frame_idx, min_frame=min_frame)
+    def _consume_mission_hit_event(
+        self,
+        frame_idx: int,
+        min_frame: int | None = None,
+        owner_action_serial: int = 0,
+    ) -> bool:
+        event = self._peek_mission_hit_event(
+            frame_idx,
+            min_frame=min_frame,
+            owner_action_serial=owner_action_serial,
+        )
         if not event:
             return False
         event["consumed"] = True
@@ -1490,6 +1826,17 @@ class MissionManager:
             if self._mission_label_matches(str(candidate), expected):
                 return True
         return False
+
+    def _latest_matching_action_event(self, step: Any, labels: list[str]) -> dict | None:
+        consumed = int(self._runtime.get("mission_action_consumed_serial", 0) or 0)
+        for event in reversed(self._runtime.get("mission_action_events", [])):
+            if event.get("consumed"):
+                continue
+            if int(event.get("serial", 0) or 0) <= consumed:
+                continue
+            if self._action_event_matches_step(event, step, labels):
+                return event
+        return None
 
     def _prediction_timing_for_action(self, event: dict) -> dict[str, int]:
         char_id = int((event or {}).get("char_id", 0) or 0)
@@ -1677,9 +2024,8 @@ class MissionManager:
             action_serial = int(action.get("serial", 0) or 0)
             action_seq = int(action.get("sample_seq", 0) or 0)
             for hit in hits:
-                owner = int(hit.get("owner_action_serial", 0) or 0)
                 hit_seq = int(hit.get("sample_seq", 0) or 0)
-                if owner and owner != action_serial:
+                if not self._hit_can_confirm_action(hit, action_serial):
                     continue
                 if hit_seq and action_seq and hit_seq < action_seq:
                     continue
@@ -1730,6 +2076,7 @@ class MissionManager:
                 "pending_anim": None,
                 "pending_started_frame": -9999,
                 "pending_input_serial": 0,
+                "pending_action_serial": 0,
                 "pending_label_confirmed": False,
                 "pending_arm_source": "",
                 "reset_grace_frames": completed_grace,
@@ -1881,6 +2228,7 @@ class MissionManager:
                 "pending_anim": None,
                 "pending_started_frame": -9999,
                 "pending_input_serial": 0,
+                "pending_action_serial": 0,
                 "pending_label_confirmed": False,
                 "pending_arm_source": "",
                 "reset_grace_frames": completed_grace,
@@ -2077,6 +2425,9 @@ class MissionManager:
     ) -> None:
         action_id = int((packet or {}).get("action_id", 0) or 0) & 0x7FFF
         char_id = int((packet or {}).get("char_id", 0) or 0)
+        owner_char_id = int(self._mission_owner.get("char_id", 0) or 0)
+        if owner_char_id and char_id and char_id != owner_char_id:
+            return
         last_action = self._runtime.get("mission_last_action_id")
         last_seq = int(self._runtime.get("mission_last_action_sample_seq", -1) or -1)
         if action_id == int(last_action or 0) and int(sample_seq or 0) == last_seq:
@@ -2142,14 +2493,10 @@ class MissionManager:
                         damage_values.append(damage)
                         serial = int(self._runtime.get("mission_hit_serial", 0) or 0) + 1
                         self._runtime["mission_hit_serial"] = serial
-                        action_events = [
-                            event for event in self._runtime.get("mission_action_events", [])
-                            if not event.get("consumed")
-                            and int(event.get("sample_seq", 0) or 0) <= seq
-                        ]
-                        owner_action_serial = (
-                            int(action_events[-1].get("serial", 0) or 0)
-                            if action_events else 0
+                        owner_action_serial = self._owner_action_serial_for_hit(
+                            frame_idx,
+                            sample_ns=int((packet or {}).get("sample_ns", 0) or 0),
+                            sample_seq=seq,
                         )
                         self._runtime.setdefault("mission_hit_events", []).append({
                             "serial": serial,
@@ -3036,11 +3383,13 @@ class MissionManager:
     def _augment_payload_with_runtime(self, payload: dict, snaps_dict: dict) -> dict:
         payload = dict(payload or {})
         slot = payload.get("slot")
+        route_slot = payload.get("point_slot") or self._mission_owner_slot(snaps_dict) or slot
         mission_id = payload.get("active_mission_id")
         steps = list(payload.get("active_mission_steps") or [])
         mission_goal = dict(payload.get("active_mission_goal") or {})
         character_name = payload.get("character")
         frame_idx = self._frame_idx
+        meter_refill_enabled = self._sync_meter_refill_mission(payload)
 
         def _clear_payload(final_count, final_idx, final_label):
             print(f"[mission clear] slot={slot} mission_id={mission_id} character={character_name!r}")
@@ -3101,13 +3450,13 @@ class MissionManager:
                 celebrate_acked_token=int(self._runtime.get("celebrate_acked_token", 0) or 0),
             )
 
-        snap = snaps_dict.get(slot) or self._render_snap_by_slot.get(slot) if hasattr(self, "_render_snap_by_slot") else snaps_dict.get(slot) or {}
+        snap = snaps_dict.get(route_slot) or self._render_snap_by_slot.get(route_slot) if hasattr(self, "_render_snap_by_slot") else snaps_dict.get(route_slot) or {}
         snap = snap or {}
         current_label = (snap.get("mv_label") or "").strip()
         current_anim = snap.get("mv_id_display")
-        mission_input = self._record_mission_input_stream(slot, snap, frame_idx)
+        mission_input = self._record_mission_input_stream(route_slot, snap, frame_idx)
         realtime_damage_values, realtime_hitstun_exit, realtime_hitstun_now = (
-            self._record_opponent_realtime_stream(slot, snaps_dict, frame_idx)
+            self._record_opponent_realtime_stream(route_slot, snaps_dict, frame_idx)
         )
         current_inputs = {
             "A": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_A else 0,
@@ -3116,15 +3465,15 @@ class MissionManager:
             "P": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_P else 0,
             "T": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_TAUNT else 0,
         }
-        opponent_in_hitstun = self._opponent_in_hitstun(slot, snaps_dict)
-        opponent_in_megacrash = self._opponent_in_megacrash(slot, snaps_dict)
+        opponent_in_hitstun = self._opponent_in_hitstun(route_slot, snaps_dict)
+        opponent_in_megacrash = self._opponent_in_megacrash(route_slot, snaps_dict)
         previous_opponent_megacrash = bool(
             self._runtime.get("last_opponent_megacrash", False)
         )
         global_combo_count = self._global_combo_count()
         global_combo_active = bool(global_combo_count is not None and global_combo_count > 0)
         self._runtime["global_combo_count"] = int(global_combo_count or 0)
-        fallback_damage_values = self._opponent_damage_this_frame(slot, snaps_dict)
+        fallback_damage_values = self._opponent_damage_this_frame(route_slot, snaps_dict)
         damage_values = list(realtime_damage_values or fallback_damage_values)
         opponent_took_damage = bool(damage_values)
         frame_damage = sum(int(x) for x in damage_values)
@@ -3140,13 +3489,10 @@ class MissionManager:
             or mission_input.get("baroque")
         )
 
-        # Meter-refill mission gate. Refill outside combo, disable refill during combo.
-        if mission_id in MISSION_METER_REFILL_MISSIONS:
+        # Five-bar starter gate. Refill outside combo, then disable refill while
+        # the route is live so spending meter still behaves normally.
+        if meter_refill_enabled:
             meter_val = int(snap.get("meter", 0) or 0)
-            if self._runtime.get("saved_meter_flag_mission") != mission_id:
-                self._runtime["saved_p1meter_flag"] = int(self._read_debug_flag("P1Meter") or 0)
-                self._runtime["saved_baroque_flag"] = int(self._read_debug_flag("BaroquePct") or 0)
-                self._runtime["saved_meter_flag_mission"] = mission_id
             self._write_debug_flag("BaroquePct", 1)
             if opponent_in_hitstun:
                 self._write_debug_flag("P1Meter", 0)
@@ -3217,6 +3563,7 @@ class MissionManager:
                 "pending_labels": [],
                 "pending_anim": None,
                 "pending_started_frame": -9999,
+                "pending_action_serial": 0,
                 "pending_label_confirmed": False,
                 "pending_arm_source": "",
                 "reset_grace_frames": 0,
@@ -3311,7 +3658,7 @@ class MissionManager:
                 target_state = str(mission_goal.get("target_state", "")).strip().lower()
                 needed = int(mission_goal.get("frames", 0) or 0)
                 in_target = (
-                    self._opponent_in_state(slot, snaps_dict, MISSION_BLOCKSTUN_STATES)
+                    self._opponent_in_state(route_slot, snaps_dict, MISSION_BLOCKSTUN_STATES)
                     if target_state == "blockstun" else False
                 )
                 if in_target:
@@ -3373,12 +3720,16 @@ class MissionManager:
         # Drain every already-confirmed ordinary normal before applying route
         # reset logic. This removes the one-step-per-update bottleneck and keeps
         # later buffered inputs available for their own mission steps.
-        progress_index, action_advances = self._drain_buffered_action_steps(
-            steps, progress_index, frame_idx
-        )
-        progress_index, normal_advances = self._drain_buffered_normal_steps(
-            steps, progress_index, frame_idx
-        )
+        if actual_hitstun_now or opponent_in_megacrash:
+            progress_index, action_advances = self._drain_buffered_action_steps(
+                steps, progress_index, frame_idx
+            )
+            progress_index, normal_advances = self._drain_buffered_normal_steps(
+                steps, progress_index, frame_idx
+            )
+        else:
+            action_advances = 0
+            normal_advances = 0
         buffered_advances = action_advances + normal_advances
         self._runtime["mission_buffered_advances"] = buffered_advances
         self._runtime["progress_index"] = progress_index
@@ -3425,6 +3776,7 @@ class MissionManager:
                 "pending_labels": [],
                 "pending_anim": None,
                 "pending_started_frame": -9999,
+                "pending_action_serial": 0,
                 "pending_label_confirmed": False,
                 "pending_arm_source": "",
                 "reset_grace_frames": 0,
@@ -3464,7 +3816,7 @@ class MissionManager:
         expected_labels = self._step_labels(expected_step)
 
         generic_partner_var_step = self._step_is_generic_partner_var(mission_id, expected_labels)
-        partner_var_matched = generic_partner_var_step and self._partner_matches_generic_var(slot, snaps_dict)
+        partner_var_matched = generic_partner_var_step and self._partner_matches_generic_var(route_slot, snaps_dict)
 
         expected_norm = {str(label or "").strip().lower() for label in expected_labels}
         dedicated_megacrash_match = self._megacrash_step_matches(
@@ -3515,6 +3867,7 @@ class MissionManager:
                 "pending_anim": None,
                 "pending_started_frame": -9999,
                 "pending_input_serial": 0,
+                "pending_action_serial": 0,
                 "pending_label_confirmed": False,
                 "pending_arm_source": "",
             })
@@ -3540,12 +3893,16 @@ class MissionManager:
             matched_input_serial = int(
                 self._runtime.get("mission_input_match_serial", 0) or 0
             )
+            matching_action = self._latest_matching_action_event(expected_step, expected_labels)
+            matching_action_serial = int((matching_action or {}).get("serial", 0) or 0)
+            matching_action_frame = int((matching_action or {}).get("frame", frame_idx) or frame_idx)
             self._runtime.update({
                 "pending_step_index": progress_index,
                 "pending_labels": expected_labels[:],
                 "pending_anim": current_anim if current_matches_expected else None,
-                "pending_started_frame": int(frame_idx),
+                "pending_started_frame": matching_action_frame,
                 "pending_input_serial": matched_input_serial,
+                "pending_action_serial": matching_action_serial,
                 "pending_label_confirmed": bool(current_matches_expected),
                 "pending_arm_source": "label+input" if current_matches_expected else "input",
             })
@@ -3620,6 +3977,7 @@ class MissionManager:
                 "pending_labels": [],
                 "pending_anim": None,
                 "pending_started_frame": -9999,
+                "pending_action_serial": 0,
                 "pending_label_confirmed": False,
                 "pending_arm_source": "",
                 "reset_grace_frames": completed_grace,
@@ -3696,17 +4054,16 @@ class MissionManager:
                     matched_input_serial = int(
                         self._runtime.get("mission_input_match_serial", 0) or 0
                     )
-                    buffered_hit = self._peek_mission_hit_event(
-                        frame_idx,
-                        min_frame=int(frame_idx) - MISSION_HIT_PRELABEL_WINDOW,
-                    )
-                    buffered_frame = int(buffered_hit.get("frame", frame_idx)) if buffered_hit else int(frame_idx)
+                    matching_action = self._latest_matching_action_event(expected_step, expected_labels)
+                    matching_action_serial = int((matching_action or {}).get("serial", 0) or 0)
+                    matching_action_frame = int((matching_action or {}).get("frame", frame_idx) or frame_idx)
                     self._runtime.update({
                         "pending_step_index": progress_index,
                         "pending_labels": expected_labels[:],
                         "pending_anim": current_anim,
-                        "pending_started_frame": buffered_frame,
+                        "pending_started_frame": matching_action_frame,
                         "pending_input_serial": matched_input_serial,
+                        "pending_action_serial": matching_action_serial,
                         "pending_label_confirmed": bool(current_matches_expected),
                         "pending_arm_source": "label" if current_matches_expected else "input",
                     })
@@ -3730,16 +4087,16 @@ class MissionManager:
                 matched_input_serial = int(
                     self._runtime.get("mission_input_match_serial", 0) or 0
                 )
-                buffered_hit = self._peek_mission_hit_event(
-                    frame_idx,
-                    min_frame=int(frame_idx) - MISSION_HIT_PRELABEL_WINDOW,
-                )
+                matching_action = self._latest_matching_action_event(expected_step, expected_labels)
+                matching_action_serial = int((matching_action or {}).get("serial", 0) or 0)
+                matching_action_frame = int((matching_action or {}).get("frame", frame_idx) or frame_idx)
                 self._runtime.update({
                     "pending_step_index": progress_index,
                     "pending_labels": expected_labels[:],
                     "pending_anim": current_anim,
-                    "pending_started_frame": int(buffered_hit.get("frame", frame_idx)) if buffered_hit else int(frame_idx),
+                    "pending_started_frame": matching_action_frame,
                     "pending_input_serial": matched_input_serial,
+                    "pending_action_serial": matching_action_serial,
                     "pending_label_confirmed": bool(current_matches_expected),
                     "pending_arm_source": "baroque",
                 })
@@ -3753,9 +4110,11 @@ class MissionManager:
                 if pending_anim is None:
                     pending_anim = current_anim
                     self._runtime["pending_anim"] = current_anim
+                pending_action_serial = int(self._runtime.get("pending_action_serial", 0) or 0)
                 buffered_hit = self._peek_mission_hit_event(
                     frame_idx,
                     min_frame=int(frame_idx) - MISSION_HIT_PRELABEL_WINDOW,
+                    owner_action_serial=pending_action_serial,
                 )
                 if buffered_hit is not None:
                     self._runtime["pending_started_frame"] = min(
@@ -3764,9 +4123,11 @@ class MissionManager:
                     )
             pending_started_frame = int(self._runtime.get("pending_started_frame", -9999) or -9999)
             pending_label_confirmed = bool(self._runtime.get("pending_label_confirmed", False))
+            pending_action_serial = int(self._runtime.get("pending_action_serial", 0) or 0)
             pending_hit_confirm_available = self._peek_mission_hit_event(
                 frame_idx,
                 min_frame=pending_started_frame,
+                owner_action_serial=pending_action_serial,
             ) is not None
             pending_age = int(frame_idx) - pending_started_frame
             pending_move_still_owns_window = bool(
@@ -3796,6 +4157,7 @@ class MissionManager:
                     "pending_anim": None,
                     "pending_started_frame": -9999,
                     "pending_input_serial": 0,
+                    "pending_action_serial": 0,
                     "pending_label_confirmed": False,
                     "pending_arm_source": "",
                 })
@@ -3813,10 +4175,9 @@ class MissionManager:
                     or input_can_identify_expected
                     or baroque_damage_confirm
                 )
-                and (opponent_in_combo_state or pending_hit_confirm_available or reset_grace_confirm_allowed)
+                and (actual_hitstun_now or opponent_in_megacrash or reset_grace_confirm_allowed)
                 and (
                     pending_hit_confirm_available
-                    or opponent_took_damage
                     or non_damage_confirm
                     or doronjo_pass
                     or repeat_same_step_damage
@@ -3824,8 +4185,12 @@ class MissionManager:
                 )
             ):
                 completed_grace = self._step_grace(expected_step)
-                if pending_hit_confirm_available or opponent_took_damage or doronjo_pass or repeat_same_step_damage:
-                    self._consume_mission_hit_event(frame_idx, min_frame=pending_started_frame)
+                if pending_hit_confirm_available or doronjo_pass or repeat_same_step_damage:
+                    self._consume_mission_hit_event(
+                        frame_idx,
+                        min_frame=pending_started_frame,
+                        owner_action_serial=pending_action_serial,
+                    )
 
                 progress_index += 1
 
@@ -3842,6 +4207,8 @@ class MissionManager:
                     "pending_labels": [],
                     "pending_anim": None,
                     "pending_started_frame": -9999,
+                    "pending_input_serial": 0,
+                    "pending_action_serial": 0,
                     "pending_label_confirmed": False,
                     "pending_arm_source": "",
                     "reset_grace_frames": completed_grace,
@@ -3892,25 +4259,30 @@ class MissionManager:
             )
             return _clear_payload(len(steps), final_idx, final_label)
 
-        predicted_progress = self._refresh_predicted_progress(
+        tracked_progress = self._refresh_predicted_progress(
             steps,
             progress_index,
         )
         self._prune_mission_event_buffers()
+        # Native action prediction is diagnostic only. A row is completed and
+        # the mission clears only after the defender enters real hitstun and the
+        # hit event is owned by that exact action. This prevents a whiffed super
+        # from appearing complete merely because its startup animation began.
         display_index = min(
-            max(0, int(predicted_progress)),
+            max(0, int(progress_index)),
             max(0, len(steps) - 1),
         )
+        tracked_steps = max(0, int(tracked_progress) - int(progress_index))
 
         payload.update({
             "just_cleared": False,
             "clear_seq": int(self._runtime.get("clear_seq", 0)),
             "celebrate_pending": bool(self._runtime.get("celebrate_pending", False)),
             "celebrate_token": int(self._runtime.get("celebrate_token", 0) or 0),
-            "completed_step_count": predicted_progress,
+            "completed_step_count": progress_index,
             "confirmed_step_count": progress_index,
-            "predicted_step_count": max(0, predicted_progress - progress_index),
-            "prediction_active": bool(predicted_progress > progress_index),
+            "predicted_step_count": tracked_steps,
+            "prediction_active": bool(tracked_steps > 0),
             "prediction_revision": int(self._runtime.get("prediction_revision", 0) or 0),
             "current_step_index": display_index,
             "current_step_label": (
@@ -3928,11 +4300,13 @@ class MissionManager:
         return {
             "active": False,
             "slot": self._active_slot,
+            "point_slot": self._mission_owner.get("slot") if hasattr(self, "_mission_owner") else self._active_slot,
             "character": None,
             "mission_count": 0,
             "active_mission_id": None,
             "active_mission_name": None,
             "active_mission_steps": [],
+            "active_mission_setup_meter_refill": False,
             "missions": [],
             "completed_step_count": 0,
             "confirmed_step_count": 0,

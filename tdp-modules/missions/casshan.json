@@ -284,6 +284,20 @@
         "delay_frames": 5,
         "cooldown_sec": 2.0
       }
+    },
+    {
+      "mission_id": "casshan_009",
+      "name": "Challenge",
+      "notes": "5 Bar Starter.",
+      "setup_meter_refill": true,
+      "steps": [
+        {
+          "label": "Scrap Android"
+        },
+        {
+          "label": "Brutal Axe"
+        }
+      ]
     }
   ]
 }

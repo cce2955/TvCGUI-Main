@@ -372,6 +372,26 @@
           "input": "623X"
         }
       ]
+    },
+    {
+      "mission_id": "zero_008",
+      "name": "Challenge",
+      "notes": "5 Bar Starter.",
+      "setup_meter_refill": true,
+      "steps": [
+        {
+          "label": "Rekkoha"
+        },
+        {
+          "label": "3C"
+        },
+        {
+          "label": "j.C"
+        },
+        {
+          "label": "Sentsuizan B"
+        }
+      ]
     }
   ]
 }

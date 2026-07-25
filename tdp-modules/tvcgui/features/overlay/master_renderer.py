@@ -1962,7 +1962,16 @@ class MasterOverlay:
             data.get("confirmed_step_count", completed_count) or 0
         )
         confirmed_count = max(0, min(completed_count, confirmed_count))
-        predicted_count = max(0, completed_count - confirmed_count)
+        predicted_count = max(
+            0,
+            int(
+                data.get(
+                    "predicted_step_count",
+                    max(0, completed_count - confirmed_count),
+                )
+                or 0
+            ),
+        )
         current_index = int(data.get("current_step_index", 0) or 0)
         total_steps = len(steps)
         mission_done = total_steps > 0 and confirmed_count >= total_steps
@@ -2219,8 +2228,13 @@ class MasterOverlay:
             True,
             (115, 187, 255),
         )
+        progress_status = (
+            "TRACKING"
+            if predicted_count > 0
+            else ("COMPLETE" if mission_done else "CONFIRMED")
+        )
         progress_label = self.smallfont.render(
-            "TRACKING" if predicted_count > 0 else "COMPLETED",
+            progress_status,
             True,
             (171, 209, 244) if predicted_count > 0 else (198, 211, 229),
         )

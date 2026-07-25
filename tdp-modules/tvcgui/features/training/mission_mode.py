@@ -49,6 +49,7 @@ class MissionDef:
     steps: List[MissionStep] = field(default_factory=list)
     notes: str = ""
     setup_debug_flags: Dict[str, int] = field(default_factory=dict)
+    setup_meter_refill: bool = False
     setup_megacrash_trainer: Dict[str, Any] = field(default_factory=dict)
     goal: Dict[str, Any] = field(default_factory=dict)
 
@@ -415,6 +416,12 @@ def _load_mission_pack_uncached(character_name: str) -> MissionPack:
                 except Exception:
                     pass
 
+        raw_setup_meter_refill = entry.get("setup_meter_refill", False)
+        if isinstance(raw_setup_meter_refill, str):
+            setup_meter_refill = raw_setup_meter_refill.strip().lower() in {"1", "true", "yes", "on"}
+        else:
+            setup_meter_refill = bool(raw_setup_meter_refill)
+
         setup_megacrash_trainer: Dict[str, Any] = {}
         raw_setup_mega = (
             entry.get("setup_megacrash_trainer")
@@ -515,6 +522,7 @@ def _load_mission_pack_uncached(character_name: str) -> MissionPack:
                 steps=steps,
                 notes=notes,
                 setup_debug_flags=setup_debug_flags,
+                setup_meter_refill=setup_meter_refill,
                 setup_megacrash_trainer=setup_megacrash_trainer,
                 goal=goal,
             )
@@ -741,6 +749,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
         ),
         "active_mission_goal": dict(active.goal) if active else {},
         "active_mission_setup_debug_flags": dict(active.setup_debug_flags) if active else {},
+        "active_mission_setup_meter_refill": bool(active.setup_meter_refill) if active else False,
         "active_mission_setup_megacrash_trainer": dict(active.setup_megacrash_trainer) if active else {},
         "selected_mission_id": selected_id,
         "missions": [
@@ -764,6 +773,7 @@ def build_overlay_payload(character_name: str) -> Dict[str, Any]:
 ] if mission.steps else _goal_to_step_labels(mission.goal),
                 "goal": dict(mission.goal),
                 "setup_debug_flags": dict(mission.setup_debug_flags),
+                "setup_meter_refill": bool(mission.setup_meter_refill),
                 "setup_megacrash_trainer": dict(mission.setup_megacrash_trainer),
             }
             for mission in pack.missions

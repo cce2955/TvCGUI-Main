@@ -188,6 +188,20 @@
           "input": "XX"
         }
       ]
+    },
+    {
+      "mission_id": "ken_006",
+      "name": "Challenge",
+      "notes": "5 Bar Starter.",
+      "setup_meter_refill": true,
+      "steps": [
+        {
+          "label": "5C"
+        },
+        {
+          "label": "Phoenix"
+        }
+      ]
     }
   ]
 }

@@ -170,7 +170,7 @@
       "casshan_006": true,
       "casshan_007": true
     },
-    "selected_mission_id": "casshan_008"
+    "selected_mission_id": "casshan_009"
   },
   "tekkaman": {
     "completed": {
@@ -196,5 +196,11 @@
       "yatterman_004": true
     },
     "selected_mission_id": "yatterman_004"
+  },
+  "ken_the_eagle": {
+    "completed": {
+      "ken_006": true
+    },
+    "selected_mission_id": "ken_001"
   }
 }

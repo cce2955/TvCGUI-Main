@@ -111,5 +111,6 @@ def test_renderer_snaps_progress_and_scroll_without_catchup_delay() -> None:
 def test_predicted_steps_are_distinct_from_confirmed_steps_in_renderer() -> None:
     source = MASTER_RENDERER.read_text(encoding="utf-8")
     assert 'data.get("confirmed_step_count", completed_count)' in source
-    assert '"TRACKING" if predicted_count > 0 else "COMPLETED"' in source
+    assert 'data.get(\n                    "predicted_step_count"' in source
+    assert '"COMPLETE" if mission_done else "CONFIRMED"' in source
     assert 'ready = self.smallfont.render("READY"' in source
