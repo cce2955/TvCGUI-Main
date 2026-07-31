@@ -1,525 +1,5 @@
 {
   "moves": {
-    "15:256": {
-      "action_id": 256,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 5,
-          "6": 8
-        },
-        "last_frame": 8498,
-        "last_freeze": 6,
-        "last_value": 12,
-        "samples": {
-          "12": 13
-        }
-      },
-      "last_frame": 8498,
-      "last_freeze": 6,
-      "last_recovery": 10,
-      "move_label": "5A",
-      "recovery": {
-        "last_frame": 2264,
-        "last_value": 10,
-        "samples": {
-          "10": 3,
-          "11": 3,
-          "12": 2,
-          "13": 4,
-          "7": 1,
-          "8": 1,
-          "9": 3
-        }
-      }
-    },
-    "15:257": {
-      "action_id": 257,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 5,
-          "9": 7
-        },
-        "last_frame": 9746,
-        "last_freeze": 9,
-        "last_value": 17,
-        "samples": {
-          "17": 12
-        }
-      },
-      "last_frame": 9746,
-      "last_freeze": 9,
-      "last_recovery": 14,
-      "move_label": "5B",
-      "recovery": {
-        "last_frame": 14053,
-        "last_value": 14,
-        "samples": {
-          "14": 1
-        }
-      }
-    },
-    "15:258": {
-      "action_id": 258,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 24,
-          "12": 17,
-          "3": 1,
-          "7": 2
-        },
-        "last_frame": 10543,
-        "last_freeze": 12,
-        "last_value": 21,
-        "samples": {
-          "13": 2,
-          "16": 1,
-          "17": 3,
-          "21": 38
-        }
-      },
-      "last_frame": 10543,
-      "last_freeze": 12,
-      "last_recovery": 26,
-      "move_label": "5C",
-      "recovery": {
-        "last_frame": 12944,
-        "last_value": 26,
-        "samples": {
-          "1": 1,
-          "18": 1,
-          "2": 1,
-          "25": 2,
-          "26": 2,
-          "31": 1,
-          "32": 1,
-          "34": 2
-        }
-      }
-    },
-    "15:259": {
-      "action_id": 259,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 13,
-          "6": 15
-        },
-        "last_frame": 10528,
-        "last_freeze": 6,
-        "last_value": 12,
-        "samples": {
-          "12": 27,
-          "13": 1
-        }
-      },
-      "last_frame": 10528,
-      "last_freeze": 6,
-      "last_recovery": 14,
-      "move_label": "2A",
-      "recovery": {
-        "last_frame": 9580,
-        "last_value": 14,
-        "samples": {
-          "1": 1,
-          "12": 3,
-          "13": 3,
-          "14": 4,
-          "15": 2
-        }
-      }
-    },
-    "15:260": {
-      "action_id": 260,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 18,
-          "9": 15
-        },
-        "last_frame": 10534,
-        "last_freeze": 9,
-        "last_value": 17,
-        "samples": {
-          "12": 1,
-          "17": 32
-        }
-      },
-      "last_frame": 10534,
-      "last_freeze": 9,
-      "last_recovery": 10,
-      "move_label": "2B",
-      "recovery": {
-        "last_frame": 14101,
-        "last_value": 10,
-        "samples": {
-          "10": 2,
-          "11": 2,
-          "12": 1,
-          "8": 1
-        }
-      }
-    },
-    "15:261": {
-      "action_id": 261,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 9,
-          "12": 14,
-          "7": 2
-        },
-        "last_frame": 10080,
-        "last_freeze": 12,
-        "last_value": 21,
-        "samples": {
-          "13": 2,
-          "21": 23
-        }
-      },
-      "last_frame": 10080,
-      "last_freeze": 12,
-      "last_recovery": 22,
-      "move_label": "2C",
-      "recovery": {
-        "last_frame": 3869,
-        "last_value": 22,
-        "samples": {
-          "22": 2,
-          "23": 2,
-          "24": 1,
-          "25": 2,
-          "26": 2,
-          "27": 1,
-          "28": 3,
-          "29": 1
-        }
-      }
-    },
-    "15:262": {
-      "action_id": 262,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 3,
-          "12": 2,
-          "7": 1
-        },
-        "last_frame": 10098,
-        "last_freeze": 0,
-        "last_value": 13,
-        "samples": {
-          "13": 2,
-          "21": 4
-        }
-      },
-      "last_frame": 10098,
-      "last_freeze": 0,
-      "last_recovery": 34,
-      "move_label": "6C",
-      "recovery": {
-        "last_frame": 63297,
-        "last_value": 34,
-        "samples": {
-          "32": 1,
-          "34": 4,
-          "35": 4
-        }
-      }
-    },
-    "15:264": {
-      "action_id": 264,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 10,
-          "7": 1,
-          "9": 12
-        },
-        "last_frame": 10551,
-        "last_freeze": 0,
-        "last_value": 21,
-        "samples": {
-          "13": 3,
-          "17": 1,
-          "21": 19
-        }
-      },
-      "last_frame": 10551,
-      "last_freeze": 0,
-      "last_recovery": 37,
-      "move_label": "3C",
-      "recovery": {
-        "last_frame": 10135,
-        "last_value": 37,
-        "samples": {
-          "15": 1,
-          "33": 1,
-          "35": 1,
-          "36": 3,
-          "37": 2
-        }
-      }
-    },
-    "15:265": {
-      "action_id": 265,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "0": 11,
-          "12": 4,
-          "4": 2,
-          "6": 7,
-          "7": 7
-        },
-        "last_frame": 10577,
-        "last_freeze": 7,
-        "last_value": 13,
-        "samples": {
-          "12": 12,
-          "13": 11,
-          "18": 5,
-          "21": 3
-        }
-      },
-      "last_frame": 10577,
-      "last_freeze": 7,
-      "last_recovery": 19,
-      "move_label": "j.A",
-      "recovery": {
-        "last_frame": 3521,
-        "last_value": 19,
-        "samples": {
-          "19": 2,
-          "2": 1,
-          "20": 1,
-          "21": 1,
-          "9": 1
-        }
-      }
-    },
-    "15:270": {
-      "action_id": 270,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 15,
-      "char_name": "Morrigan",
-      "hit": {
-        "freeze_samples": {
-          "9": 1
-        },
-        "last_frame": 933,
-        "last_freeze": 9,
-        "last_value": 17,
-        "samples": {
-          "17": 1
-        }
-      },
-      "last_frame": 14065,
-      "last_freeze": 9,
-      "last_recovery": 25,
-      "move_label": "6B",
-      "recovery": {
-        "last_frame": 14065,
-        "last_value": 25,
-        "samples": {
-          "24": 1,
-          "25": 3,
-          "26": 2
-        }
-      }
-    },
-    "26:264": {
-      "action_id": 264,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 26,
-      "char_name": "Tekkaman Blade",
-      "hit": {
-        "freeze_samples": {
-          "9": 2
-        },
-        "last_frame": 55780,
-        "last_freeze": 9,
-        "last_value": 21,
-        "samples": {
-          "21": 2
-        }
-      },
-      "last_frame": 55780,
-      "last_freeze": 9,
-      "last_recovery": 26,
-      "move_label": "3C",
-      "recovery": {
-        "last_frame": 6912,
-        "last_value": 26,
-        "samples": {
-          "26": 1,
-          "27": 1
-        }
-      }
-    },
-    "26:265": {
-      "action_id": 265,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 26,
-      "char_name": "Tekkaman Blade",
-      "hit": {
-        "freeze_samples": {
-          "0": 1
-        },
-        "last_frame": 55417,
-        "last_freeze": 0,
-        "last_value": 12,
-        "samples": {
-          "12": 1
-        }
-      },
-      "last_frame": 55417,
-      "last_freeze": 0,
-      "last_recovery": 7,
-      "move_label": "j.A",
-      "recovery": {
-        "last_frame": 646,
-        "last_value": 7,
-        "samples": {
-          "11": 1,
-          "12": 1,
-          "14": 2,
-          "15": 3,
-          "16": 1,
-          "2": 2,
-          "3": 1,
-          "4": 2,
-          "5": 1,
-          "6": 1,
-          "7": 1,
-          "9": 1
-        }
-      }
-    },
-    "26:266": {
-      "action_id": 266,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 26,
-      "char_name": "Tekkaman Blade",
-      "hit": {
-        "freeze_samples": {
-          "0": 1,
-          "12": 1,
-          "7": 1
-        },
-        "last_frame": 55798,
-        "last_freeze": 12,
-        "last_value": 21,
-        "samples": {
-          "17": 2,
-          "21": 1
-        }
-      },
-      "last_frame": 55798,
-      "last_freeze": 12,
-      "last_recovery": 12,
-      "move_label": "j.B",
-      "recovery": {
-        "last_frame": 230999,
-        "last_value": 12,
-        "samples": {
-          "11": 2,
-          "12": 4,
-          "13": 1,
-          "16": 1,
-          "4": 1,
-          "8": 1,
-          "9": 2
-        }
-      }
-    },
-    "26:267": {
-      "action_id": 267,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 26,
-      "char_name": "Tekkaman Blade",
-      "hit": {
-        "freeze_samples": {
-          "12": 2,
-          "6": 1,
-          "9": 1
-        },
-        "last_frame": 55489,
-        "last_freeze": 9,
-        "last_value": 17,
-        "samples": {
-          "12": 1,
-          "17": 1,
-          "21": 2
-        }
-      },
-      "last_frame": 55489,
-      "last_freeze": 9,
-      "last_recovery": 8,
-      "move_label": "j.C",
-      "recovery": {
-        "last_frame": 1235,
-        "last_value": 8,
-        "samples": {
-          "1": 1,
-          "10": 2,
-          "11": 3,
-          "14": 4,
-          "2": 2,
-          "3": 2,
-          "5": 1,
-          "8": 3
-        }
-      }
-    },
     "3:258": {
       "action_id": 258,
       "block": {
@@ -529,29 +9,34 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 7,
-          "12": 10,
-          "9": 1
+          "0": 17,
+          "12": 1
         },
-        "last_frame": 1065,
+        "last_frame": 149540,
         "last_freeze": 0,
-        "last_value": 6,
+        "last_value": 24,
         "samples": {
-          "21": 16,
-          "24": 1,
-          "6": 1
+          "12": 1,
+          "17": 2,
+          "21": 6,
+          "22": 1,
+          "23": 1,
+          "24": 6,
+          "27": 1
         }
       },
-      "last_frame": 1065,
+      "last_frame": 149540,
       "last_freeze": 0,
-      "last_recovery": 31,
+      "last_recovery": 32,
       "move_label": "5C",
       "recovery": {
-        "last_frame": 5089,
-        "last_value": 31,
+        "last_frame": 938,
+        "last_value": 32,
         "samples": {
-          "28": 1,
-          "31": 1
+          "12": 1,
+          "22": 1,
+          "24": 1,
+          "32": 2
         }
       }
     },
@@ -563,20 +48,26 @@
       "char_id": 3,
       "char_name": "Tekkaman",
       "hit": {
-        "samples": {}
+        "freeze_samples": {
+          "0": 6,
+          "12": 1
+        },
+        "last_frame": 149520,
+        "last_freeze": 0,
+        "last_value": 12,
+        "samples": {
+          "12": 1,
+          "17": 1,
+          "18": 1,
+          "21": 3,
+          "27": 1
+        }
       },
-      "last_frame": 12960,
-      "last_recovery": 29,
+      "last_frame": 149520,
+      "last_freeze": 0,
       "move_label": "2C",
       "recovery": {
-        "last_frame": 12960,
-        "last_value": 29,
-        "samples": {
-          "26": 1,
-          "29": 1,
-          "33": 1,
-          "34": 1
-        }
+        "samples": {}
       }
     },
     "3:264": {
@@ -588,26 +79,20 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 3,
-          "9": 9
+          "0": 1
         },
-        "last_frame": 37602,
+        "last_frame": 762,
         "last_freeze": 0,
         "last_value": 21,
         "samples": {
-          "21": 12
+          "21": 1
         }
       },
-      "last_frame": 37602,
+      "last_frame": 762,
       "last_freeze": 0,
-      "last_recovery": 31,
       "move_label": "3C",
       "recovery": {
-        "last_frame": 31687,
-        "last_value": 31,
-        "samples": {
-          "31": 1
-        }
+        "samples": {}
       }
     },
     "3:265": {
@@ -619,34 +104,32 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 5,
-          "4": 1,
-          "6": 11
+          "0": 4,
+          "12": 1,
+          "6": 1
         },
-        "last_frame": 37618,
-        "last_freeze": 0,
+        "last_frame": 723,
+        "last_freeze": 6,
         "last_value": 12,
         "samples": {
-          "12": 15,
-          "21": 2
+          "12": 2,
+          "21": 2,
+          "24": 1,
+          "27": 1
         }
       },
-      "last_frame": 37618,
-      "last_freeze": 0,
+      "last_frame": 770,
+      "last_freeze": 6,
       "last_recovery": 12,
       "move_label": "j.A",
       "recovery": {
-        "last_frame": 12632,
+        "last_frame": 770,
         "last_value": 12,
         "samples": {
-          "10": 1,
           "12": 1,
-          "13": 1,
-          "17": 1,
-          "2": 1,
-          "20": 1,
+          "15": 1,
           "4": 1,
-          "5": 1
+          "7": 1
         }
       }
     },
@@ -659,29 +142,25 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 7,
-          "12": 2,
-          "2": 10,
-          "7": 10
+          "0": 5
         },
-        "last_frame": 37639,
-        "last_freeze": 2,
-        "last_value": 21,
+        "last_frame": 766,
+        "last_freeze": 0,
+        "last_value": 17,
         "samples": {
-          "17": 14,
-          "21": 15
+          "17": 3,
+          "21": 2
         }
       },
-      "last_frame": 37639,
-      "last_freeze": 2,
-      "last_recovery": 9,
+      "last_frame": 766,
+      "last_freeze": 0,
+      "last_recovery": 1,
       "move_label": "j.B",
       "recovery": {
-        "last_frame": 33976,
-        "last_value": 9,
+        "last_frame": 7528,
+        "last_value": 1,
         "samples": {
-          "2": 1,
-          "9": 1
+          "1": 1
         }
       }
     },
@@ -694,33 +173,30 @@
       "char_name": "Tekkaman",
       "hit": {
         "freeze_samples": {
-          "0": 3,
-          "12": 1,
-          "9": 2
+          "0": 5,
+          "9": 1
         },
-        "last_frame": 12711,
-        "last_freeze": 9,
-        "last_value": 17,
+        "last_frame": 866,
+        "last_freeze": 0,
+        "last_value": 24,
         "samples": {
-          "12": 2,
           "17": 1,
-          "21": 2,
-          "24": 1
+          "21": 3,
+          "24": 2
         }
       },
-      "last_frame": 37399,
-      "last_freeze": 9,
-      "last_recovery": 22,
+      "last_frame": 866,
+      "last_freeze": 0,
+      "last_recovery": 8,
       "move_label": "j.C",
       "recovery": {
-        "last_frame": 37399,
-        "last_value": 22,
+        "last_frame": 393,
+        "last_value": 8,
         "samples": {
-          "10": 1,
-          "12": 1,
-          "22": 1,
-          "3": 1,
-          "4": 1
+          "18": 1,
+          "5": 1,
+          "8": 3,
+          "9": 1
         }
       }
     },
@@ -732,31 +208,17 @@
       "char_id": 4,
       "char_name": "Polimar",
       "hit": {
-        "freeze_samples": {
-          "0": 5,
-          "6": 6
-        },
-        "last_frame": 2181,
-        "last_freeze": 0,
-        "last_value": 12,
-        "samples": {
-          "12": 10,
-          "21": 1
-        }
+        "samples": {}
       },
-      "last_frame": 9753,
-      "last_freeze": 0,
-      "last_recovery": 13,
+      "last_frame": 1596,
+      "last_recovery": 5,
       "move_label": "5A",
       "recovery": {
-        "last_frame": 9753,
-        "last_value": 13,
+        "last_frame": 1596,
+        "last_value": 5,
         "samples": {
-          "13": 1,
-          "14": 1,
-          "17": 1,
-          "19": 1,
-          "20": 2
+          "21": 1,
+          "5": 1
         }
       }
     },
@@ -769,42 +231,20 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 21,
-          "3": 10,
-          "6": 1,
-          "9": 12
+          "0": 1
         },
-        "last_frame": 2184,
+        "last_frame": 1582,
         "last_freeze": 0,
-        "last_value": 17,
+        "last_value": 14,
         "samples": {
-          "12": 8,
-          "15": 1,
-          "16": 2,
-          "17": 33
+          "14": 1
         }
       },
-      "last_frame": 2184,
+      "last_frame": 1582,
       "last_freeze": 0,
-      "last_recovery": 16,
       "move_label": "5B",
       "recovery": {
-        "last_frame": 2028,
-        "last_value": 16,
-        "samples": {
-          "12": 1,
-          "15": 1,
-          "16": 1,
-          "17": 1,
-          "19": 1,
-          "21": 1,
-          "23": 1,
-          "24": 1,
-          "25": 1,
-          "27": 1,
-          "28": 1,
-          "7": 1
-        }
+        "samples": {}
       }
     },
     "4:258": {
@@ -816,35 +256,25 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 27,
-          "12": 8,
-          "4": 2
+          "0": 1,
+          "12": 1
         },
-        "last_frame": 2192,
+        "last_frame": 1586,
         "last_freeze": 12,
         "last_value": 21,
         "samples": {
-          "17": 5,
-          "20": 1,
-          "21": 31
+          "21": 2
         }
       },
-      "last_frame": 13872,
+      "last_frame": 1603,
       "last_freeze": 12,
-      "last_recovery": 4,
+      "last_recovery": 12,
       "move_label": "5C",
       "recovery": {
-        "last_frame": 13872,
-        "last_value": 4,
+        "last_frame": 1603,
+        "last_value": 12,
         "samples": {
-          "21": 1,
-          "24": 2,
-          "28": 1,
-          "29": 1,
-          "30": 2,
-          "31": 1,
-          "32": 1,
-          "4": 1
+          "12": 1
         }
       }
     },
@@ -857,33 +287,20 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 4,
-          "12": 1,
-          "6": 5
+          "6": 1
         },
-        "last_frame": 13646,
+        "last_frame": 1581,
         "last_freeze": 6,
         "last_value": 12,
         "samples": {
-          "12": 9,
-          "21": 1
+          "12": 1
         }
       },
-      "last_frame": 14319,
+      "last_frame": 1581,
       "last_freeze": 6,
-      "last_recovery": 12,
       "move_label": "2A",
       "recovery": {
-        "last_frame": 14319,
-        "last_value": 12,
-        "samples": {
-          "10": 1,
-          "12": 2,
-          "14": 1,
-          "6": 1,
-          "7": 1,
-          "9": 1
-        }
+        "samples": {}
       }
     },
     "4:260": {
@@ -895,38 +312,20 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 16,
-          "3": 6,
-          "9": 3
+          "0": 2
         },
-        "last_frame": 2140,
-        "last_freeze": 9,
+        "last_frame": 1584,
+        "last_freeze": 0,
         "last_value": 17,
         "samples": {
-          "17": 25
+          "17": 2
         }
       },
-      "last_frame": 2140,
-      "last_freeze": 9,
-      "last_recovery": 19,
+      "last_frame": 1584,
+      "last_freeze": 0,
       "move_label": "2B",
       "recovery": {
-        "last_frame": 1731,
-        "last_value": 19,
-        "samples": {
-          "13": 1,
-          "14": 1,
-          "16": 1,
-          "19": 1,
-          "22": 1,
-          "26": 1,
-          "27": 3,
-          "28": 4,
-          "29": 1,
-          "30": 3,
-          "31": 2,
-          "9": 1
-        }
+        "samples": {}
       }
     },
     "4:261": {
@@ -938,27 +337,24 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 9,
-          "12": 4
+          "0": 2
         },
-        "last_frame": 2148,
+        "last_frame": 1587,
         "last_freeze": 0,
         "last_value": 21,
         "samples": {
-          "21": 13
+          "21": 2
         }
       },
-      "last_frame": 2148,
+      "last_frame": 1594,
       "last_freeze": 0,
-      "last_recovery": 20,
+      "last_recovery": 19,
       "move_label": "2C",
       "recovery": {
-        "last_frame": 13766,
-        "last_value": 20,
+        "last_frame": 1594,
+        "last_value": 19,
         "samples": {
-          "20": 2,
-          "23": 1,
-          "24": 1
+          "19": 1
         }
       }
     },
@@ -970,34 +366,17 @@
       "char_id": 4,
       "char_name": "Polimar",
       "hit": {
-        "freeze_samples": {
-          "0": 27,
-          "12": 17
-        },
-        "last_frame": 2163,
-        "last_freeze": 0,
-        "last_value": 21,
-        "samples": {
-          "12": 1,
-          "21": 43
-        }
+        "samples": {}
       },
-      "last_frame": 13858,
-      "last_freeze": 0,
-      "last_recovery": 27,
+      "last_frame": 1618,
+      "last_recovery": 15,
       "move_label": "6C",
       "recovery": {
-        "last_frame": 13858,
-        "last_value": 27,
+        "last_frame": 1618,
+        "last_value": 15,
         "samples": {
-          "27": 2,
-          "29": 1,
-          "30": 1,
-          "33": 1,
-          "34": 1,
-          "35": 1,
-          "37": 1,
-          "38": 1
+          "15": 1,
+          "23": 1
         }
       }
     },
@@ -1010,61 +389,24 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 5
+          "0": 1
         },
-        "last_frame": 1817,
+        "last_frame": 1605,
         "last_freeze": 0,
         "last_value": 21,
         "samples": {
-          "21": 5
+          "21": 1
         }
       },
-      "last_frame": 1817,
+      "last_frame": 99517,
       "last_freeze": 0,
-      "last_recovery": 33,
+      "last_recovery": 9,
       "move_label": "3C",
       "recovery": {
-        "last_frame": 24560,
-        "last_value": 33,
+        "last_frame": 99517,
+        "last_value": 9,
         "samples": {
-          "20": 1,
-          "29": 2,
-          "31": 1,
-          "32": 1,
-          "33": 1
-        }
-      }
-    },
-    "4:265": {
-      "action_id": 265,
-      "block": {
-        "samples": {}
-      },
-      "char_id": 4,
-      "char_name": "Polimar",
-      "hit": {
-        "freeze_samples": {
-          "0": 6,
-          "6": 1
-        },
-        "last_frame": 1825,
-        "last_freeze": 0,
-        "last_value": 12,
-        "samples": {
-          "12": 7
-        }
-      },
-      "last_frame": 13410,
-      "last_freeze": 0,
-      "last_recovery": 13,
-      "move_label": "j.A",
-      "recovery": {
-        "last_frame": 13410,
-        "last_value": 13,
-        "samples": {
-          "12": 1,
-          "13": 3,
-          "14": 1
+          "9": 1
         }
       }
     },
@@ -1077,32 +419,25 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 17,
-          "12": 1,
-          "7": 5
+          "0": 2
         },
-        "last_frame": 2068,
+        "last_frame": 99539,
         "last_freeze": 0,
-        "last_value": 17,
+        "last_value": 21,
         "samples": {
-          "17": 20,
-          "21": 3
+          "17": 1,
+          "21": 1
         }
       },
-      "last_frame": 2246,
+      "last_frame": 99539,
       "last_freeze": 0,
-      "last_recovery": 1,
+      "last_recovery": 15,
       "move_label": "j.B",
       "recovery": {
-        "last_frame": 2246,
-        "last_value": 1,
+        "last_frame": 713,
+        "last_value": 15,
         "samples": {
-          "1": 1,
-          "10": 1,
-          "11": 1,
-          "5": 1,
-          "8": 1,
-          "9": 1
+          "15": 1
         }
       }
     },
@@ -1114,34 +449,20 @@
       "char_id": 4,
       "char_name": "Polimar",
       "hit": {
-        "freeze_samples": {
-          "0": 3
-        },
-        "last_frame": 3614,
-        "last_freeze": 0,
-        "last_value": 21,
-        "samples": {
-          "21": 3
-        }
+        "samples": {}
       },
-      "last_frame": 335,
-      "last_freeze": 0,
-      "last_recovery": 21,
+      "last_frame": 99541,
+      "last_recovery": 1,
       "move_label": "j.C",
       "recovery": {
-        "last_frame": 335,
-        "last_value": 21,
+        "last_frame": 99541,
+        "last_value": 1,
         "samples": {
-          "14": 2,
-          "17": 1,
-          "21": 1,
-          "24": 1,
-          "26": 1,
-          "6": 1
+          "1": 1
         }
       }
     }
   },
-  "updated_utc": "2026-07-25T23:50:52Z",
+  "updated_utc": "2026-07-29T23:48:32Z",
   "version": 2
 }

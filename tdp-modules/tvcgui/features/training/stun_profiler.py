@@ -33,8 +33,8 @@ except Exception:
 
 from tvcgui.core.paths import user_data_path
 from tvcgui.core.constants import (
-    RUNTIME_RESOLVED_STUN_OFF,
-    RUNTIME_STUN_REMAINING_OFF,
+    RUNTIME_HITSTUN_REMAINING_OFF,
+    RUNTIME_REACTION_TIMER_OFF,
     RUNTIME_IMPACT_FREEZE_OFF,
 )
 
@@ -275,8 +275,8 @@ class _AttackCandidate:
 
 @dataclass
 class _TargetState:
-    assigned: int = 0
-    remaining: int = 0
+    hitstun: int = 0
+    reaction_timer: int = 0
     freeze: int = 0
     hp: int = 0
 
@@ -710,26 +710,37 @@ class RuntimeStunProfiler:
                 continue
             live_slots.add(str(slot))
 
-            assigned = self._valid_runtime_counter(self._read_u32(base + RUNTIME_RESOLVED_STUN_OFF))
-            remaining = self._valid_runtime_counter(self._read_u32(base + RUNTIME_STUN_REMAINING_OFF))
+            hitstun = self._valid_runtime_counter(
+                self._read_u32(base + RUNTIME_HITSTUN_REMAINING_OFF)
+            )
+            reaction_timer = self._valid_runtime_counter(
+                self._read_u32(base + RUNTIME_REACTION_TIMER_OFF)
+            )
             freeze = self._valid_runtime_counter(self._read_u32(base + RUNTIME_IMPACT_FREEZE_OFF))
             hp = _safe_int(snap.get("cur"), 0)
-            current = _TargetState(assigned=assigned, remaining=remaining, freeze=freeze, hp=hp)
+            current = _TargetState(
+                hitstun=hitstun,
+                reaction_timer=reaction_timer,
+                freeze=freeze,
+                hp=hp,
+            )
             previous = self._prev_target.get(str(slot))
 
-            # Expose raw live counters for the HUD/debug inspector even before
-            # a contact has a clean attacker attribution.
-            snap["runtime_stun_assigned"] = assigned
-            snap["runtime_stun_remaining"] = remaining
+            # +0x1210 is the resolved value and the live countdown. The old
+            # implementation incorrectly treated +0x1228 as universal remaining
+            # hitstun; recomp shows that field is a separate 0x300-family timer.
+            snap["runtime_stun_assigned"] = hitstun
+            snap["runtime_stun_remaining"] = hitstun
+            snap["runtime_reaction_timer_remaining"] = reaction_timer
             snap["runtime_hitstop_remaining"] = freeze
 
+            previous_hitstun = previous.hitstun if previous is not None else 0
             is_new_contact = bool(
-                assigned > 0
+                hitstun > 0
                 and (
                     previous is None
-                    or previous.assigned <= 0
-                    or assigned > previous.assigned
-                    or remaining > (previous.remaining + 1)
+                    or previous_hitstun <= 0
+                    or hitstun > (previous_hitstun + 1)
                 )
             )
 
@@ -738,7 +749,7 @@ class RuntimeStunProfiler:
                 pending = _PendingContact(
                     target_slot=str(slot),
                     attacker=self._pick_attacker(str(slot), snap, frame),
-                    assigned=assigned,
+                    assigned=hitstun,
                     freeze=freeze,
                     started_frame=frame,
                     outcome=outcome,

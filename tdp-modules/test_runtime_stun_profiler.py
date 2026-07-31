@@ -7,7 +7,7 @@ from tvcgui.features.training.stun_profiler import (
     RuntimeStunProfiler,
     apply_runtime_stun_observations,
 )
-from tvcgui.core.constants import RUNTIME_RESOLVED_STUN_OFF, RUNTIME_STUN_REMAINING_OFF, RUNTIME_IMPACT_FREEZE_OFF
+from tvcgui.core.constants import RUNTIME_HITSTUN_REMAINING_OFF, RUNTIME_REACTION_TIMER_OFF, RUNTIME_IMPACT_FREEZE_OFF
 
 
 def _f32_word(value: float) -> int:
@@ -40,8 +40,8 @@ def test_observes_and_overlays_runtime_hitstun_only_for_engine_targets():
             },
         }
         profiler.update(snaps, frame=1)
-        values[target_base + RUNTIME_RESOLVED_STUN_OFF] = 17
-        values[target_base + RUNTIME_STUN_REMAINING_OFF] = 17
+        values[target_base + RUNTIME_HITSTUN_REMAINING_OFF] = 17
+        values[target_base + RUNTIME_REACTION_TIMER_OFF] = 0
         values[target_base + RUNTIME_IMPACT_FREEZE_OFF] = 9
         snaps["P2-C1"].update({"f063": 4, "cur": 9800})
         assert profiler.update(snaps, frame=2)

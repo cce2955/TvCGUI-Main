@@ -57,8 +57,11 @@ OFF_ACTION_FRAME_FLOAT = 0x01D8
 OFF_FRAME_A = 0x021C
 OFF_FRAME_B = 0x0220
 OFF_BLOCKSTUN_REMAINING = 0x1204
-OFF_RESOLVED_STUN = 0x1210
-OFF_STUN_REMAINING = 0x1228
+OFF_HITSTUN_REMAINING = 0x1210
+OFF_REACTION_TIMER = 0x1228
+# Compatibility aliases for existing capture serialization.
+OFF_RESOLVED_STUN = OFF_HITSTUN_REMAINING
+OFF_STUN_REMAINING = OFF_REACTION_TIMER
 OFF_FREEZE_A = 0x211C
 OFF_FREEZE_B = 0x2120
 STUN_SCAN_OFFSETS = tuple(range(0x1200, 0x1244, 4))
@@ -413,8 +416,8 @@ def summarize_blockstun_scan(captures: list[TimingCapture]) -> str:
 def summarize_capture(capture: TimingCapture) -> str:
     samples = list(capture.samples)
     fields = (
-        ("resolved_stun", "+1210"),
-        ("stun_remaining", "+1228"),
+        ("resolved_stun", "+1210 hitstun"),
+        ("stun_remaining", "+1228 secondary reaction timer"),
         ("freeze_a", "+211C"),
         ("freeze_b", "+2120"),
     )
@@ -599,7 +602,7 @@ class TimingProbeWindow:
         xscroll.grid(row=1, column=0, sticky="ew")
         headings = {
             "index": "#", "time": "Time", "expected": "Expected", "observed": "Observed", "move": "Move",
-            "attacker": "Attacker", "defender": "Defender", "resolved": "+1210 D", "remaining": "+1228 D",
+            "attacker": "Attacker", "defender": "Defender", "resolved": "+1210 hitstun D", "remaining": "+1228 reaction D",
             "freeze_a": "+211C A/D", "freeze_b": "+2120 A/D", "result": "Result",
         }
         widths = {
@@ -682,7 +685,7 @@ class TimingProbeWindow:
         timeline_x.grid(row=1, column=0, sticky="ew")
         timeline_headings = {
             "ms": "ms", "role": "Role", "action": "Action", "move_frame": "Move frame", "frame_a": "Frame A", "frame_b": "Frame B",
-            "resolved": "+1210", "remaining": "+1228", "freeze_a": "+211C", "freeze_b": "+2120", "state": "f063", "hp": "HP",
+            "resolved": "+1210 hitstun", "remaining": "+1228 reaction", "freeze_a": "+211C", "freeze_b": "+2120", "state": "f063", "hp": "HP",
         }
         timeline_widths = {
             "ms": 76, "role": 78, "action": 180, "move_frame": 82, "frame_a": 72, "frame_b": 72, "resolved": 72, "remaining": 72,
@@ -1076,7 +1079,7 @@ class TimingProbeWindow:
         fieldnames = [
             "capture", "timestamp", "expected", "observed", "result", "attacker_slot", "defender_slot", "char_id", "action_id", "action_name",
             "contact_ms", "elapsed_ms", "role", "base", "state_char_id", "state_action_id", "action_frame", "frame_a", "frame_b",
-            "resolved_stun_1210", "stun_remaining_1228", "freeze_a_211c", "freeze_b_2120", "state_063", "hp",
+            "hitstun_remaining_1210", "secondary_reaction_timer_1228", "freeze_a_211c", "freeze_b_2120", "state_063", "hp",
             *[f"scan_{offset:04x}" for offset in STUN_SCAN_OFFSETS],
             "notes",
         ]
@@ -1108,8 +1111,8 @@ class TimingProbeWindow:
                                     "action_frame": state.action_frame,
                                     "frame_a": state.frame_a,
                                     "frame_b": state.frame_b,
-                                    "resolved_stun_1210": state.resolved_stun,
-                                    "stun_remaining_1228": state.stun_remaining,
+                                    "hitstun_remaining_1210": state.resolved_stun,
+                                    "secondary_reaction_timer_1228": state.stun_remaining,
                                     "freeze_a_211c": state.freeze_a,
                                     "freeze_b_2120": state.freeze_b,
                                     "state_063": state.state_063,

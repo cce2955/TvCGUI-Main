@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "native_functions": {
+    "combo_scaling": "0x8013C398",
+    "collision_resolver": "0x8004DFD4",
+    "damage": "0x801404DC",
+    "deferred_phase_swap": "0x8007F048"
+  },
+  "fighter_fields": {
+    "0x44A0": {
+      "name": "point_active",
+      "confidence": "confirmed",
+      "description": "Stable point-character selector"
+    },
+    "0x44A4": {
+      "name": "combo_lane_active",
+      "confidence": "confirmed_dual_use",
+      "description": "Mutable combat-lane gate used by Baroque eligibility and combo proration",
+      "on": {"loss_per_hit": 0.05, "floor": 0.35},
+      "off": {"loss_per_hit": 0.03, "floor": 0.43}
+    }
+  },
+  "actor_fields": {
+    "0x80": "property_a",
+    "0x84": "property_b",
+    "0x8C": "base_damage",
+    "0x35C": "deferred_property_a",
+    "0x360": "deferred_property_b"
+  },
+  "property_b_bits": {
+    "0x00000001": {"name": "one_eighth_chip_route_a", "confidence": "confirmed"},
+    "0x00000004": {"name": "grab_family", "confidence": "confirmed"},
+    "0x00000008": {"name": "special_collision_route", "confidence": "confirmed"},
+    "0x00004000": {"name": "pre_resolved_collision_route", "confidence": "confirmed"},
+    "0x00010000": {"name": "damage_result_reset_route", "confidence": "confirmed"},
+    "0x00040000": {"name": "one_eighth_chip_route_b", "confidence": "confirmed"},
+    "0x00080000": {"name": "grab_modifier_route", "confidence": "confirmed"},
+    "0x00100000": {"name": "paired_a_b_eligibility_condition", "confidence": "confirmed"},
+    "0x40000000": {"name": "propagates_result_flag_1", "confidence": "confirmed"},
+    "0x00000002": {"name": "init_default_bit", "confidence": "observed"},
+    "0x00000010": {"name": "cleanup_managed_bit", "confidence": "observed"},
+    "0x00000040": {"name": "common_normal_hit_bit", "confidence": "observed"},
+    "0x00000100": {"name": "default_collision_family", "confidence": "observed"},
+    "0x00000200": {"name": "conditional_mode_bit", "confidence": "observed"}
+  }
+}

@@ -14,7 +14,8 @@
         "setup_debug_flags": "Training/debug values automatically applied while this mission is active.",
         "steps": "Ordered list of required actions.",
         "goal": "Optional alternate clear condition instead of steps.",
-        "setup_meter_refill": "When true, fills Player 1 to five bars before the route and disables refill while the combo is active."
+        "setup_meter_refill": "When true, fills Player 1 to five bars before the route and disables refill while the combo is active.",
+        "delayed_confirm_frames": "Optional generic extended hit-confirm window for traps, summons, stored attacks, cinematic phases, or moves that require a later trigger. It changes detection only and is not shown as a player hint."
       },
       "mission_id": "example_001",
       "name": "How Flags Work",
@@ -69,7 +70,8 @@
         },
         {
           "label": "Super",
-          "_note": "Final normal step."
+          "_note": "delayed_confirm_frames keeps this move eligible to own a later real hit for the declared number of frames. Use only when the attack is intentionally delayed or externally triggered.",
+          "delayed_confirm_frames": 120
         }
       ]
     },

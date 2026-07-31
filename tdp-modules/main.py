@@ -152,6 +152,13 @@ try:
 except Exception as _runtime_attack_property_profiler_import_error:
     RuntimeAttackPropertyProfiler = None
 try:
+    from tvcgui.features.training.attack_resolver_readonly import get_attack_resolver_research
+    from tvcgui.features.training.attack_resolver_window import open_attack_resolver_window
+except Exception as _attack_resolver_readonly_import_error:
+    get_attack_resolver_research = None
+    open_attack_resolver_window = None
+    print(f"[attack research] read-only window unavailable: {_attack_resolver_readonly_import_error!r}", flush=True)
+try:
     from tvcgui.features.training.meter_generation_profiler import RuntimeMeterGenerationProfiler
 except Exception as _runtime_meter_generation_profiler_import_error:
     RuntimeMeterGenerationProfiler = None
@@ -159,6 +166,10 @@ try:
     from tvcgui.features.training.red_health_profiler import RuntimeRedHealthProfiler
 except Exception as _runtime_red_health_profiler_import_error:
     RuntimeRedHealthProfiler = None
+try:
+    from tvcgui.features.training.reaction_state_profiler import RuntimeReactionStateProfiler
+except Exception as _runtime_reaction_profiler_import_error:
+    RuntimeReactionStateProfiler = None
 try:
     from tvcgui.features.training.profiler_scheduler import RuntimeProfilerScheduler
 except Exception as _runtime_profiler_scheduler_import_error:
@@ -364,6 +375,9 @@ except Exception:
         return None
 
 from tvcgui.features.training.mission_manager import MissionManager
+from tvcgui.runtime.mission_events import MissionEventStream
+from tvcgui.runtime.realtime_sampler import RealtimeCombatSampler
+from tvcgui.runtime.mission_menu_input import MissionMenuInputInterpreter
 from tvcgui.features.overlay.manager import HudOverlayManager
 from tvcgui.core.paths import user_data_path
 
@@ -1119,10 +1133,27 @@ def legacy_main():
         read_debug_flags_fn=merged_debug_values,
         move_label_for_fn=move_label_for,
     )
-    hud_mgr = HudOverlayManager(move_map=move_map, global_map=global_map)
-    mission_mgr.set_input_sample_provider(hud_mgr.mission_input_bundle)
+    realtime_sampler = RealtimeCombatSampler()
+    hud_mgr = HudOverlayManager(
+        move_map=move_map,
+        global_map=global_map,
+        realtime_sampler=realtime_sampler,
+    )
+    mission_event_stream = MissionEventStream()
+    realtime_sampler.add_listener(mission_event_stream.on_sample)
+    mission_mgr.set_event_provider(mission_event_stream.events_since)
+
+    # Mission Select owns a completely separate realtime interpreter. It emits
+    # OPEN/NEXT/PREVIOUS/SELECT commands from raw controller edges and never
+    # shares MissionManager's route state, event cursor, or completion lifecycle.
+    mission_menu_input = MissionMenuInputInterpreter()
+    realtime_sampler.add_listener(mission_menu_input.on_sample)
+    mission_mgr.set_menu_input_interpreter(mission_menu_input)
+
+    # Compatibility queue for older input contracts and non-selector callers.
+    mission_mgr.set_input_sample_provider(realtime_sampler.snapshot_for_slot)
     mission_megacrash_rt = MissionMegacrashRealtime()
-    hud_mgr.add_input_sample_listener(mission_megacrash_rt.on_sample)
+    realtime_sampler.add_listener(mission_megacrash_rt.on_sample)
 
     # ------------------------------------------------------------------
     # Runtime state
@@ -1386,19 +1417,56 @@ def legacy_main():
             print(f"[runtime protection] unavailable: {_runtime_protection_profiler_error!r}", flush=True)
 
     _profile_console = str(os.environ.get("TVC_PROFILE_CONSOLE", "")).strip().lower() in {"1", "true", "yes", "on"}
+    _attack_property_console_value = str(
+        os.environ.get("TVC_ATTACK_PROPERTY_DEBUG", "1")
+    ).strip().lower()
+    _attack_property_console = _attack_property_console_value not in {
+        "0", "false", "no", "off"
+    }
 
     runtime_attack_property_profiler = None
     if RuntimeAttackPropertyProfiler is not None:
         try:
-            runtime_attack_property_profiler = RuntimeAttackPropertyProfiler(emit_console=_profile_console)
+            _native_attack_capture = str(
+                os.environ.get("TVC_NATIVE_ATTACK_CAPTURE", "1")
+            ).strip().lower() in {"1", "true", "yes", "on"}
+            runtime_attack_property_profiler = RuntimeAttackPropertyProfiler(
+                emit_console=_attack_property_console,
+                start_worker=False,
+                enable_resolver_hook=_native_attack_capture,
+            )
             print(
-                "[attack flags] profiler armed; output: "
+                "[attack flags] live move-definition reader armed; "
+                f"native damage capture={'ON' if _native_attack_capture else 'OFF'}; output: "
                 "data/runtime/runtime_attack_property_profiles.json and "
                 "runtime_attack_property_events.csv",
                 flush=True,
             )
+            if _attack_property_console:
+                print(
+                    "[attack flags] FULL RAW FLAG CONSOLE ON; "
+                    "copy lines beginning [ATKPROP_JSON]",
+                    flush=True,
+                )
+            else:
+                print(
+                    "[attack flags] raw console disabled by "
+                    "TVC_ATTACK_PROPERTY_DEBUG=0",
+                    flush=True,
+                )
         except Exception as _runtime_attack_property_profiler_error:
             print(f"[attack flags] unavailable: {_runtime_attack_property_profiler_error!r}", flush=True)
+
+    runtime_attack_research = None
+    if get_attack_resolver_research is not None:
+        try:
+            runtime_attack_research = get_attack_resolver_research()
+            print(
+                "[attack research] read-only contact correlator ready; open Research to capture",
+                flush=True,
+            )
+        except Exception as _runtime_attack_research_error:
+            print(f"[attack research] unavailable: {_runtime_attack_research_error!r}", flush=True)
 
     runtime_meter_generation_profiler = None
     if RuntimeMeterGenerationProfiler is not None:
@@ -1426,6 +1494,19 @@ def legacy_main():
         except Exception as _runtime_red_health_profiler_error:
             print(f"[red health] unavailable: {_runtime_red_health_profiler_error!r}", flush=True)
 
+    runtime_reaction_profiler = None
+    if RuntimeReactionStateProfiler is not None:
+        try:
+            runtime_reaction_profiler = RuntimeReactionStateProfiler(emit_console=_profile_console)
+            print(
+                "[reaction state] profiler armed; output: "
+                "data/runtime/runtime_reaction_profiles.json and "
+                "runtime_reaction_events.csv",
+                flush=True,
+            )
+        except Exception as _runtime_reaction_profiler_error:
+            print(f"[reaction state] unavailable: {_runtime_reaction_profiler_error!r}", flush=True)
+
     runtime_profiler_scheduler = None
     if RuntimeProfilerScheduler is not None:
         try:
@@ -1433,6 +1514,7 @@ def legacy_main():
                 runtime_attack_property_profiler,
                 runtime_meter_generation_profiler,
                 runtime_red_health_profiler,
+                runtime_reaction_profiler,
             ))
         except Exception as _runtime_profiler_scheduler_error:
             runtime_profiler_scheduler = None
@@ -1559,7 +1641,7 @@ def legacy_main():
             show_damage_badge = True
             show_meter_panel = True
             show_red_health_panel = True
-            show_attack_property_panel = True
+            show_attack_property_panel = False
             show_tag_card = True
 
     def _mark_hud_info_set_custom() -> None:
@@ -1688,7 +1770,7 @@ def legacy_main():
             "show_damage_inactive": bool(show_damage_inactive),
             "show_meter_panel": bool(show_meter_panel),
             "show_red_health_panel": bool(show_red_health_panel),
-            "show_attack_property_panel": bool(show_attack_property_panel),
+            "show_attack_property_panel": False,
             "show_tag_card": bool(show_tag_card),
             "hud_info_set": str(hud_info_set),
             "native_hud_defaults_v": 3,
@@ -1738,7 +1820,7 @@ def legacy_main():
                 show_meter_panel = bool(_existing_master.get("show_meter_panel", show_meter_panel))
                 show_red_health_panel = bool(_existing_master.get("show_red_health_panel", show_red_health_panel))
                 show_damage_inactive = bool(_existing_master.get("show_damage_inactive", show_damage_inactive))
-                show_attack_property_panel = bool(_existing_master.get("show_attack_property_panel", False))
+                show_attack_property_panel = False
                 show_tag_card = bool(_existing_master.get("show_tag_card", show_tag_card))
                 restored_set = str(_existing_master.get("hud_info_set", "CUSTOM") or "CUSTOM").strip().upper()
                 hud_info_set = restored_set if restored_set in {"CORE", "RESEARCH", "FULL", "CUSTOM"} else "CUSTOM"
@@ -2512,13 +2594,13 @@ def legacy_main():
             if frame_idx % 300 == 0:
                 print(f"[profile label] override failed: {_profile_label_error!r}", flush=True)
 
-        # Mission mode consumes the same dedicated 240 Hz input queue as the
-        # HUD and evaluates before profilers, timing analysis, and drawing. This
-        # keeps selector input, step advancement, and hitstun-edge resets on the
-        # earliest possible path through the frame.
+        # The realtime sampler feeds two independent consumers before the slow
+        # GUI work: immutable combat events for mission matching, and a separate
+        # raw-input interpreter for Mission Select. MissionManager only drains
+        # their commands/state here; it does not parse controller gestures.
         _perf_section_start = time.perf_counter()
         try:
-            hud_mgr.prime_input_sampler_targets(render_snap_by_slot)
+            realtime_sampler.set_targets(render_snap_by_slot)
             mission_mgr.update(snaps, render_snap_by_slot, frame_idx, now)
         except Exception as _mission_tick_error:
             if frame_idx % 60 == 0:
@@ -2650,9 +2732,21 @@ def legacy_main():
                     runtime_meter_generation_profiler.update(snaps, frame=frame_idx, now=now)
                 if runtime_red_health_profiler is not None:
                     runtime_red_health_profiler.update(snaps, frame=frame_idx, now=now)
+                if runtime_reaction_profiler is not None:
+                    runtime_reaction_profiler.update(snaps, frame=frame_idx, now=now)
             except Exception as _runtime_profiler_error:
                 if frame_idx % 300 == 0:
                     print(f"[telemetry] inline fallback failed: {_runtime_profiler_error!r}", flush=True)
+
+        # Dedicated attack research is strictly observational. It consumes the
+        # already-built snapshots after attack-property and reaction telemetry
+        # have annotated them. It never writes game memory or patches code.
+        if runtime_attack_research is not None:
+            try:
+                runtime_attack_research.update(snaps, frame=frame_idx, now=now)
+            except Exception as _runtime_attack_research_tick_error:
+                if frame_idx % 300 == 0:
+                    print(f"[attack research] read-only tick failed: {_runtime_attack_research_tick_error!r}", flush=True)
 
         # Assist selector runtime hook. The assist scanner stores per-fighter
         # desired assists; main.py owns the reliable current move label/id, so
@@ -3611,10 +3705,15 @@ def legacy_main():
                 continue
 
             elif attack_property_panel_btn_rect.collidepoint(mx, my):
-                show_attack_property_panel = not show_attack_property_panel
-                _mark_hud_info_set_custom()
+                # Raw attack research lives in a dedicated read-only window.
+                # The transparent match overlay never receives the old panel.
+                show_attack_property_panel = False
                 _write_master_control()
                 _sync_master_overlay_state()
+                if open_attack_resolver_window is not None:
+                    open_attack_resolver_window()
+                else:
+                    print("[attack research] dedicated read-only window unavailable", flush=True)
                 mouse_clicked_pos = None
                 continue
 
@@ -4400,6 +4499,10 @@ def legacy_main():
         hud_mgr.close()
     except Exception:
         pass
+    try:
+        realtime_sampler.close()
+    except Exception:
+        pass
 
     if master_overlay_proc and master_overlay_proc.poll() is None:
         try:
@@ -4425,6 +4528,11 @@ def legacy_main():
         pass
 
     try:
+        if runtime_attack_research is not None:
+            runtime_attack_research.close()
+    except Exception:
+        pass
+    try:
         if runtime_attack_property_profiler is not None:
             runtime_attack_property_profiler.flush()
     except Exception:
@@ -4437,6 +4545,11 @@ def legacy_main():
     try:
         if runtime_red_health_profiler is not None:
             runtime_red_health_profiler.flush()
+    except Exception:
+        pass
+    try:
+        if runtime_reaction_profiler is not None:
+            runtime_reaction_profiler.close()
     except Exception:
         pass
 

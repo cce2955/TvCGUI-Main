@@ -7,7 +7,7 @@ patching the game:
 * +0x0058 bit 0x00400000, an attack-state prerequisite checked by the native eligibility resolver
 * +0x0244 bits 0x02000000/0x04000000/0x08000000, accepted Mid/High/Low attacks
 * +0x444C, a Baroque lockout value used by the full activation resolver
-* +0x44A4, the move-local Baroque permission state
+* +0x44A4, a mutable combat-lane gate shared by Baroque and proration
 
 This module records the exact action frames where those fields are live and
 stores the observations outside the static scanner cache. It never writes to
@@ -809,10 +809,10 @@ class RuntimeProtectionProfiler:
                 elif armor_active:
                     track.armor_trigger_frames.add(action_frame)
 
-            # +0x44A4 is the move-local Baroque permission state. The full
-            # activation resolver also checks attack state, lockouts, health,
-            # input, and other global restrictions, but those do not define
-            # the move's cancel window. Record the permission state directly.
+            # +0x44A4 is a dual-purpose combat-lane gate. The Baroque
+            # activation resolver reads it as permission, while the combo
+            # helper reads the same word to choose 5%/35% versus 3%/43%
+            # proration. Record the raw permission/lane state directly.
             baroque_gate_value = int(flag58) & BAROQUE_CANCEL_GATE_BIT
             track.baroque_timer_values[action_frame] = int(baroque_timer) & 0xFFFFFFFF
             track.baroque_permission_values[action_frame] = int(baroque_permission) & 0xFFFFFFFF

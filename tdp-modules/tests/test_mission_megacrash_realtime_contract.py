@@ -94,7 +94,7 @@ def test_mission_megacrash_uses_sample_clock_not_gui_frame(monkeypatch) -> None:
 
 
 def test_action_frame_samples_do_not_bloat_mission_edge_queue() -> None:
-    source = (ROOT / "tvcgui" / "features" / "overlay" / "manager.py").read_text(encoding="utf-8")
+    source = (ROOT / "tvcgui" / "runtime" / "realtime_sampler.py").read_text(encoding="utf-8")
     assert "if meaningful_change:" in source
     assert "Action-frame-only" in source
-    assert "listener(str(slot_label), dict(queued_sample))" in source
+    assert "listener(slot, dict(sample))" in source

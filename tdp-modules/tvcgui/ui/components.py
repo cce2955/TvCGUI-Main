@@ -726,7 +726,7 @@ def draw_top_command_dock(
         accent=GUI_DANGER, fill=(57, 35, 43) if show_red_health_panel else (27, 33, 45), align="center",
     )
     draw_glass_button(
-        screen, attack_property_panel_btn_rect, "Atk Props", dockfont,
+        screen, attack_property_panel_btn_rect, "Research", dockfont,
         active=bool(show_attack_property_panel), hover=attack_property_panel_btn_rect.collidepoint(mx, my),
         accent=GUI_ACCENT_PURPLE, fill=(48, 40, 68) if show_attack_property_panel else (27, 33, 45), align="center",
     )
@@ -918,12 +918,12 @@ def draw_top_command_dock(
             help_tip = "Red HP paints recoverable health into the existing bars and adds the recoverable amount beside HP."
             help_accent = GUI_DANGER
         elif attack_property_panel_btn_rect.collidepoint(mx, my):
-            help_tip = "Attack Properties adds the active packet, damage, victim, raw words, and decoded flags to each team panel."
+            help_tip = "Research opens the standalone read-only attack window. It never patches game code or adds another row to the match overlay."
             help_accent = GUI_ACCENT_PURPLE
         elif tag_card_btn_rect.collidepoint(mx, my):
             help_tip = "Tag controls only the incoming tag resource card."
         elif clear_card_btn_rect.collidepoint(mx, my):
-            help_tip = "Clear hides optional HUD cards, native research additions, and the Attack Properties row."
+            help_tip = "Clear hides optional HUD cards. Research capture is controlled from its standalone window."
             help_accent = GUI_ACCENT_RED
         elif hb_btn_rect.collidepoint(mx, my):
             help_tip = "Hitboxes control only attack and projectile box drawings."

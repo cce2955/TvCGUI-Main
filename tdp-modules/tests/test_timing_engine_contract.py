@@ -29,7 +29,8 @@ def test_decoded_offsets_are_centralized():
 
     assert module.OFF_BLOCKSTUN_REMAINING == 0x1204
     assert module.OFF_HITSTUN_TOTAL == 0x1210
-    assert module.OFF_HITSTUN_REMAINING == 0x1228
+    assert module.OFF_HITSTUN_REMAINING == 0x1210
+    assert module.OFF_REACTION_TIMER == 0x1228
     assert module.OFF_ACTIVE_HITSTOP == 0x211C
     assert module.OFF_PENDING_HITSTOP == 0x2120
 

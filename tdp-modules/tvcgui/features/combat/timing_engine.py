@@ -20,8 +20,11 @@ except Exception:
 
 OFF_ACTION_FRAME_FLOAT = 0x01D8
 OFF_BLOCKSTUN_REMAINING = 0x1204
-OFF_HITSTUN_TOTAL = 0x1210
-OFF_HITSTUN_REMAINING = 0x1228
+# +0x1210 is both the freshly assigned value and the live countdown.
+# +0x1228 is a separate 0x300-family reaction timer, not general hitstun.
+OFF_HITSTUN_REMAINING = 0x1210
+OFF_HITSTUN_TOTAL = OFF_HITSTUN_REMAINING  # compatibility alias
+OFF_REACTION_TIMER = 0x1228
 OFF_ACTIVE_HITSTOP = 0x211C
 OFF_PENDING_HITSTOP = 0x2120
 
@@ -79,6 +82,7 @@ class LiveTimingState:
     blockstun_remaining: int
     hitstun_total: int
     hitstun_remaining: int
+    reaction_timer: int
     active_hitstop: int
     pending_hitstop: int
     x: float = 0.0
@@ -165,8 +169,9 @@ class TimingEngine:
             action_frame=action_frame,
             hp=max(0, _int(snap.get("cur") or snap.get("hp"), 0)),
             blockstun_remaining=live("timing_blockstun", OFF_BLOCKSTUN_REMAINING),
-            hitstun_total=live("timing_hitstun_total", OFF_HITSTUN_TOTAL),
+            hitstun_total=live("timing_hitstun_remaining", OFF_HITSTUN_REMAINING),
             hitstun_remaining=live("timing_hitstun_remaining", OFF_HITSTUN_REMAINING),
+            reaction_timer=live("timing_reaction_timer", OFF_REACTION_TIMER),
             active_hitstop=live("timing_hitstop_active", OFF_ACTIVE_HITSTOP),
             pending_hitstop=live("timing_hitstop_pending", OFF_PENDING_HITSTOP),
             x=float(snap.get("x") or snap.get("pos_x") or 0.0),
@@ -393,8 +398,11 @@ class TimingEngine:
                     continue
                 snap["timing_action_frame"] = int(state.action_frame)
                 snap["timing_blockstun"] = int(state.blockstun_remaining)
-                snap["timing_hitstun_total"] = int(state.hitstun_total)
+                # Keep the legacy total key as a compatibility mirror. The
+                # confirmed field is one live countdown at +0x1210.
+                snap["timing_hitstun_total"] = int(state.hitstun_remaining)
                 snap["timing_hitstun_remaining"] = int(state.hitstun_remaining)
+                snap["timing_reaction_timer"] = int(state.reaction_timer)
                 snap["timing_hitstop_active"] = int(state.active_hitstop)
                 snap["timing_hitstop_pending"] = int(state.pending_hitstop)
                 snap["timing_hitstop"] = int(state.hitstop)
@@ -439,6 +447,7 @@ __all__ = [
     "OFF_BLOCKSTUN_REMAINING",
     "OFF_HITSTUN_TOTAL",
     "OFF_HITSTUN_REMAINING",
+    "OFF_REACTION_TIMER",
     "OFF_ACTIVE_HITSTOP",
     "OFF_PENDING_HITSTOP",
     "LiveTimingState",

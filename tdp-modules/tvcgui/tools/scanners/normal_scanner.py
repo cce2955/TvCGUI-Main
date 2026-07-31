@@ -248,9 +248,11 @@ INVULN_HOLD_SENTINEL_FRAMES = 999
 # handling. Keep only the still-experimental Baroque and armor evidence here.
 EXPERIMENTAL_PROPERTY_FIELDS = {
     "cancel": set(),
-    # Only the two native fields used by the Baroque eligibility resolver.
-    # The old broad list included +0x0058 and mislabeled guard/armor writes as
-    # Baroque evidence in the GUI.
+    # The two native fields used by the Baroque eligibility resolver.
+    # +0x44A4 is dual-purpose: it is initialized/synchronized with combat role,
+    # can be changed by move/transition logic, and also selects the native combo
+    # proration lane. Keep it here as Baroque evidence, but never describe it as
+    # a Baroque-only field.
     "baroque": {0x444C, 0x44A4},
     "armor": {
         0x0058, 0x005C, 0x0060, 0x0064, 0x006C, 0x0074,

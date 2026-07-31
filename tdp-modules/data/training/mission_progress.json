@@ -33,7 +33,7 @@
       "alex_012": true,
       "alex_008": true
     },
-    "selected_mission_id": "alex_015"
+    "selected_mission_id": "alex_002"
   },
   "frank_west": {
     "completed": {
@@ -129,7 +129,7 @@
       "soki_011": true,
       "soki_012": true
     },
-    "selected_mission_id": "soki_002"
+    "selected_mission_id": "soki_004"
   },
   "ippatsuman": {
     "completed": {
@@ -168,9 +168,10 @@
       "casshan_008": true,
       "casshan_004": true,
       "casshan_006": true,
-      "casshan_007": true
+      "casshan_007": true,
+      "casshan_009": true
     },
-    "selected_mission_id": "casshan_009"
+    "selected_mission_id": "casshan_008"
   },
   "tekkaman": {
     "completed": {
@@ -199,8 +200,16 @@
   },
   "ken_the_eagle": {
     "completed": {
-      "ken_006": true
+      "ken_the_eagle_008": true,
+      "ken_006": true,
+      "ken_001": true
     },
-    "selected_mission_id": "ken_001"
+    "selected_mission_id": "ken_004"
+  },
+  "doronjo": {
+    "completed": {
+      "doronjo_003": true
+    },
+    "selected_mission_id": "doronjo_003"
   }
 }

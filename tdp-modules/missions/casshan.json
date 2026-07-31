@@ -292,7 +292,8 @@
       "setup_meter_refill": true,
       "steps": [
         {
-          "label": "Scrap Android"
+          "label": "Scrap Android",
+          "delayed_confirm_frames": 180
         },
         {
           "label": "Brutal Axe"

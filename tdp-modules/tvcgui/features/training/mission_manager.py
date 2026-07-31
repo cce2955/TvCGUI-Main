@@ -27,8 +27,29 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from tvcgui.platform.dolphin import rd8, wd8
+from tvcgui.platform.dolphin import wd8
 from tvcgui.runtime import input_monitor
+from tvcgui.runtime.mission_events import (
+    EVENT_ACTION,
+    EVENT_COMBO_BEGIN,
+    EVENT_COMBO_CHANGE,
+    EVENT_COMBO_END,
+    EVENT_DAMAGE,
+    EVENT_HITSTUN_BEGIN,
+    EVENT_HITSTUN_END,
+    EVENT_INPUT,
+    EVENT_MEGACRASH_BEGIN,
+    EVENT_MEGACRASH_END,
+    MissionEvent,
+)
+from tvcgui.runtime.mission_menu_input import (
+    MISSION_MENU_CLOSE,
+    MISSION_MENU_NEXT,
+    MISSION_MENU_OPEN,
+    MISSION_MENU_PREVIOUS,
+    MISSION_MENU_SELECT,
+    MissionMenuCommand,
+)
 from tvcgui.core.paths import user_data_path
 from tvcgui.features.training.mission_mode import (
     build_overlay_payload,
@@ -281,6 +302,7 @@ def _new_mission_runtime(
         "last_inputs": {},
         "mission_input_events": [],
         "mission_input_serial": 0,
+        "mission_attack_command_serial": 0,
         "mission_input_consumed_serial": 0,
         "mission_action_events": [],
         "mission_action_serial": 0,
@@ -293,6 +315,7 @@ def _new_mission_runtime(
         "mission_step_start_serial": 0,
         "pending_input_serial": 0,
         "pending_action_serial": 0,
+        "pending_delayed_confirm_until_frame": -9999,
         "mission_prev_direction": None,
         "mission_prev_buttons": 0,
         "mission_baroque_latch": 0,
@@ -326,6 +349,7 @@ def _new_mission_runtime(
         "goal_failed": False,
         "goal_last_damage_frame": -1,
         "last_sampled_damage_frame": -1,
+        "last_damage_event_sequence": 0,
         "clear_seq": int(clear_seq),
         "celebrate_token": int(celebrate_token),
         "celebrate_pending": bool(celebrate_pending),
@@ -402,17 +426,24 @@ class MissionManager:
             "open": False,
             "selected_index": 0,
             "sequence": [],
+            "sequence_blocked": False,
             "last_direction": 0,
             "last_taunt_held": False,
+            "source_slot": None,
             "opened_at": 0.0,
             "hint_until": 0.0,
         }
+        # Raw Mission Select input is owned by a standalone 240 Hz interpreter.
+        # MissionManager only consumes immutable menu commands.
+        self._menu_input_interpreter = None
 
         # Debug override save/restore state
         self._setup_state: dict = {
             "mission_key": None,
             "saved_debug_values": {},
             "applied_debug_values": {},
+            "completed_mission_key": None,
+            "idle_mission_key": None,
         }
         self._meter_refill_state: dict = {
             "mission_key": None,
@@ -455,6 +486,22 @@ class MissionManager:
         # one late 60 Hz snapshot.
         self._input_sample_provider = None
         self._input_sample_cursor_by_consumer: dict[tuple[str, str], int] = {}
+
+        # Realtime Mission Mode source. The sampler owns all Dolphin reads and
+        # publishes immutable events. Mission consumers keep independent cursors
+        # so selector, route matching, and state tracking never steal events.
+        self._event_provider = None
+        self._event_cursor_by_consumer: dict[tuple[str, str], int] = {}
+        self._event_state_cursor: int = 0
+        self._event_state: dict[str, Any] = {
+            "latest_sequence": 0,
+            "combo_count": 0,
+            "hitstun_by_slot": {},
+            "megacrash_by_slot": {},
+            "action_by_slot": {},
+            "hp_by_slot": {},
+            "damage_events": [],
+        }
 
     def _load_mission_frame_timings(self) -> dict[tuple[int, int], dict[str, int]]:
         """Load compact startup, active, and hitstun data for prediction.
@@ -652,10 +699,123 @@ class MissionManager:
         return dict(self._last_overlay_payload or {})
 
     def set_input_sample_provider(self, provider) -> None:
-        """Use a high-frequency input source supplied by HudOverlayManager."""
+        """Compatibility source used by older tests and standalone callers."""
         self._input_sample_provider = provider
 
+    def set_menu_input_interpreter(self, interpreter) -> None:
+        """Attach the standalone Mission Select input interpreter."""
+        self._menu_input_interpreter = interpreter
+        if interpreter is not None and self._selector.get("open"):
+            slot = str(self._selector.get("source_slot") or self._active_slot or "")
+            if slot:
+                try:
+                    interpreter.set_menu_open("P2" if slot.startswith("P2") else "P1", slot)
+                except Exception:
+                    pass
+
+    def set_event_provider(self, provider) -> None:
+        """Attach the immutable realtime event stream.
+
+        The provider signature is ``provider(cursor, slot_label=None)`` and
+        returns ``(newest_sequence, events)``. Mission Mode never reads Dolphin
+        directly while this provider is attached.
+        """
+        self._event_provider = provider if callable(provider) else None
+        self._event_cursor_by_consumer.clear()
+        self._event_state_cursor = 0
+
+    def _events_for_consumer(
+        self,
+        consumer: str,
+        slot_label: str | None = None,
+    ) -> list[MissionEvent]:
+        provider = self._event_provider
+        if not callable(provider):
+            return []
+        key = (str(consumer), str(slot_label or "*"))
+        default_cursor = (
+            int(self._runtime.get("mission_event_floor_sequence", 0) or 0)
+            if str(consumer).startswith("mission")
+            else 0
+        )
+        cursor = int(self._event_cursor_by_consumer.get(key, default_cursor) or 0)
+        try:
+            newest, events = provider(cursor, slot_label)
+        except TypeError:
+            newest, events = provider(cursor)
+            if slot_label:
+                events = [event for event in events if getattr(event, "slot", "") == slot_label]
+        except Exception:
+            return []
+        self._event_cursor_by_consumer[key] = max(cursor, int(newest or 0))
+        return [event for event in (events or ()) if isinstance(event, MissionEvent)]
+
+    def _drain_event_state(self) -> None:
+        """Update the latest combat state from immutable events only."""
+        provider = self._event_provider
+        if not callable(provider):
+            return
+        try:
+            newest, events = provider(self._event_state_cursor, None)
+        except TypeError:
+            newest, events = provider(self._event_state_cursor)
+        except Exception:
+            return
+        self._event_state_cursor = max(self._event_state_cursor, int(newest or 0))
+        self._event_state["latest_sequence"] = self._event_state_cursor
+        hitstun_by_slot = self._event_state.setdefault("hitstun_by_slot", {})
+        megacrash_by_slot = self._event_state.setdefault("megacrash_by_slot", {})
+        action_by_slot = self._event_state.setdefault("action_by_slot", {})
+        hp_by_slot = self._event_state.setdefault("hp_by_slot", {})
+        damage_events = self._event_state.setdefault("damage_events", [])
+
+        for event in events or ():
+            if not isinstance(event, MissionEvent):
+                continue
+            slot = str(event.slot or "")
+            if event.kind == EVENT_ACTION:
+                action_by_slot[slot] = int(event.action_id)
+            elif event.kind == EVENT_DAMAGE:
+                hp_by_slot[slot] = int(event.current_hp)
+                damage_events.append(event)
+            elif event.kind == EVENT_HITSTUN_BEGIN:
+                hitstun_by_slot[slot] = True
+            elif event.kind == EVENT_HITSTUN_END:
+                hitstun_by_slot[slot] = False
+            elif event.kind == EVENT_MEGACRASH_BEGIN:
+                megacrash_by_slot[slot] = True
+            elif event.kind == EVENT_MEGACRASH_END:
+                megacrash_by_slot[slot] = False
+            elif event.kind in (EVENT_COMBO_BEGIN, EVENT_COMBO_CHANGE, EVENT_COMBO_END):
+                self._event_state["combo_count"] = int(event.combo_count)
+
+        # Keep enough history for a delayed GUI frame while bounding allocations.
+        if len(damage_events) > 128:
+            del damage_events[:-128]
+
+    def _fresh_runtime(self, **kwargs) -> dict:
+        """Create mission state whose event cursors start at the live stream head."""
+        runtime = _new_mission_runtime(**kwargs)
+        floor = int(self._event_state.get("latest_sequence", 0) or 0)
+        runtime["last_damage_event_sequence"] = floor
+        runtime["mission_event_floor_sequence"] = floor
+        for key in list(self._event_cursor_by_consumer):
+            if str(key[0]).startswith("mission"):
+                del self._event_cursor_by_consumer[key]
+        return runtime
+
     def _sync_input_cursors_to_latest(self, slot_label: str, snap: dict | None = None) -> None:
+        if callable(self._event_provider):
+            try:
+                newest, _events = self._event_provider(0, None)
+            except TypeError:
+                newest, _events = self._event_provider(0)
+            except Exception:
+                newest = 0
+            for consumer in ("selector", "mission", "mission-opponent"):
+                self._event_cursor_by_consumer[(consumer, str(slot_label))] = int(newest or 0)
+            return
+
         provider = self._input_sample_provider
         if not callable(provider) or not slot_label:
             return
@@ -689,8 +849,10 @@ class MissionManager:
         self._now = now
         self._render_snap_by_slot = render_snap_by_slot
         self._ensure_mission_owner(render_snap_by_slot)
-        self._sample_health_deltas(render_snap_by_slot, frame_idx)
-        self._update_selector_from_inputs(snaps, now)
+        self._drain_event_state()
+        if not callable(self._event_provider):
+            self._sample_health_deltas(render_snap_by_slot, frame_idx)
+        self._consume_menu_input_commands(snaps, now)
         if now >= self._next_command_poll:
             self._next_command_poll = now + MISSION_COMMAND_POLL_INTERVAL
             self.consume_select_command()
@@ -732,7 +894,8 @@ class MissionManager:
         progress = set_selected_mission_id(progress, character_name, new_id)
         save_progress(progress)
 
-        self._runtime = _new_mission_runtime(slot=self._active_slot)
+        self._prepare_selected_mission(character_name, new_id)
+        self._runtime = self._fresh_runtime(slot=self._active_slot)
         self.write_overlay_data()
 
     # ------------------------------------------------------------------
@@ -778,8 +941,9 @@ class MissionManager:
         progress = set_selected_mission_id(progress, character_name, mission_id)
         save_progress(progress)
 
-        self._runtime = _new_mission_runtime(slot=self._active_slot)
-        self._close_selector()
+        self._prepare_selected_mission(character_name, mission_id)
+        self._runtime = self._fresh_runtime(slot=self._active_slot)
+        self._close_selector(rearm=True)
 
     def consume_celebrate_ack(self) -> None:
         if not os.path.isfile(MISSION_CELEBRATE_ACK_FILE):
@@ -854,7 +1018,7 @@ class MissionManager:
                 payload = self._augment_payload_with_runtime(payload, snaps)
                 payload["selector_open"] = bool(self._selector["open"])
                 payload["selector_index"] = int(self._selector["selected_index"])
-                payload["selector_hint"] = "Down, Down, Taunt: Open Mission Select"
+                payload["selector_hint"] = "Down, Down, Taunt from neutral: Open Mission Select"
                 payload["selector_controls"] = "Down: Move  Taunt: Select  Mouse still works"
                 payload["scanlines"] = True
 
@@ -913,6 +1077,10 @@ class MissionManager:
 
     def toggle_active_slot(self, slot_label: str) -> None:
         disabling = self._active_slot == slot_label
+        if disabling:
+            self._restore_debug_overrides(force_cpu_idle=True)
+            self._restore_meter_refill_overrides()
+            self._close_selector()
         self._active_slot = None if disabling else slot_label
         if self._active_slot:
             self._capture_mission_owner(
@@ -924,7 +1092,7 @@ class MissionManager:
             self._sync_input_cursors_to_latest(owner_slot or self._active_slot, snap)
         else:
             self._clear_mission_owner()
-        self._runtime = _new_mission_runtime(slot=self._active_slot)
+        self._runtime = self._fresh_runtime(slot=self._active_slot)
         self.write_mode_state(force=True)
         self.write_overlay_data(force=True)
 
@@ -1038,14 +1206,51 @@ class MissionManager:
 
         return {}
 
-    def _restore_debug_overrides(self) -> None:
-        for name, original_value in dict(self._setup_state.get("saved_debug_values") or {}).items():
+    def _restore_debug_overrides(self, *, force_cpu_idle: bool = False) -> None:
+        saved_values = dict(self._setup_state.get("saved_debug_values") or {})
+        for name, original_value in saved_values.items():
             if isinstance(original_value, int):
                 self._write_debug_flag(name, original_value)
                 print(f"[mission restore] {name} -> {original_value}")
+        if force_cpu_idle:
+            self._write_debug_flag("CpuAction", 0)
+            print("[mission restore] CpuAction -> 0")
         self._setup_state["mission_key"] = None
         self._setup_state["saved_debug_values"] = {}
         self._setup_state["applied_debug_values"] = {}
+
+    def _mission_debug_key(self, payload: dict) -> tuple | None:
+        if not isinstance(payload, dict) or not payload.get("active"):
+            return None
+        mission_id = payload.get("active_mission_id")
+        if not mission_id:
+            return None
+        return (
+            payload.get("slot"),
+            payload.get("character"),
+            mission_id,
+        )
+
+    def _prepare_selected_mission(self, character_name: str, mission_id: str) -> None:
+        """Rearm setup flags when a mission is explicitly selected."""
+        selected_key = (self._active_slot, character_name, mission_id)
+        current_key = self._setup_state.get("mission_key")
+        if current_key is not None and current_key != selected_key:
+            self._restore_debug_overrides(force_cpu_idle=True)
+        self._setup_state["completed_mission_key"] = None
+        self._setup_state["idle_mission_key"] = None
+
+    def _release_completed_mission_overrides(self, mission_key: tuple | None) -> None:
+        """Release mission-owned flags immediately when the route clears."""
+        if mission_key is None:
+            return
+        if self._setup_state.get("mission_key") is not None:
+            self._restore_debug_overrides(force_cpu_idle=True)
+        elif self._setup_state.get("idle_mission_key") != mission_key:
+            self._write_debug_flag("CpuAction", 0)
+            print("[mission restore] CpuAction -> 0")
+        self._setup_state["completed_mission_key"] = mission_key
+        self._setup_state["idle_mission_key"] = mission_key
 
     def _mission_meter_refill_enabled(self, payload: dict) -> bool:
         mission_id = str((payload or {}).get("active_mission_id") or "")
@@ -1081,28 +1286,44 @@ class MissionManager:
         return enabled
 
     def _sync_debug_overrides(self, payload: dict) -> None:
-        if not isinstance(payload, dict) or not payload.get("active"):
+        mission_key = self._mission_debug_key(payload)
+        if mission_key is None:
             if self._setup_state.get("mission_key") is not None:
-                self._restore_debug_overrides()
+                self._restore_debug_overrides(force_cpu_idle=True)
+            self._setup_state["completed_mission_key"] = None
+            self._setup_state["idle_mission_key"] = None
+            return
+
+        if bool(payload.get("just_cleared")):
+            self._release_completed_mission_overrides(mission_key)
+            return
+
+        if self._setup_state.get("completed_mission_key") == mission_key:
+            # Completion owns CpuAction until the user explicitly selects a
+            # mission again. Reassert idle if any later system changes it.
+            if self._read_debug_flag("CpuAction") != 0:
+                self._write_debug_flag("CpuAction", 0)
+            self._setup_state["idle_mission_key"] = mission_key
             return
 
         overrides = self._extract_active_overrides(payload)
-        mission_key = (
-            payload.get("slot"),
-            payload.get("character"),
-            payload.get("active_mission_id"),
-        )
-
-        if not overrides:
-            if self._setup_state.get("mission_key") is not None:
-                self._restore_debug_overrides()
-            return
-
         current_key = self._setup_state.get("mission_key")
 
         if current_key != mission_key:
             if current_key is not None:
-                self._restore_debug_overrides()
+                self._restore_debug_overrides(force_cpu_idle=True)
+
+            self._setup_state["completed_mission_key"] = None
+            self._setup_state["idle_mission_key"] = None
+
+            if "CpuAction" not in overrides:
+                if self._read_debug_flag("CpuAction") != 0:
+                    self._write_debug_flag("CpuAction", 0)
+                self._setup_state["idle_mission_key"] = mission_key
+
+            if not overrides:
+                self._setup_state["mission_key"] = mission_key
+                return
 
             saved = {}
             applied = {}
@@ -1117,28 +1338,51 @@ class MissionManager:
                         f"{name}: {cur} -> {wanted}"
                     )
 
-            if applied:
-                self._setup_state["mission_key"] = mission_key
-                self._setup_state["saved_debug_values"] = saved
-                self._setup_state["applied_debug_values"] = applied
-            else:
-                self._setup_state["mission_key"] = None
-                self._setup_state["saved_debug_values"] = {}
-                self._setup_state["applied_debug_values"] = {}
+            self._setup_state["mission_key"] = mission_key
+            self._setup_state["saved_debug_values"] = saved
+            self._setup_state["applied_debug_values"] = applied
             return
 
         for name, wanted in (self._setup_state.get("applied_debug_values") or {}).items():
             if self._read_debug_flag(name) != wanted:
                 self._write_debug_flag(name, wanted)
 
+        # Unless this mission explicitly owns CpuAction, idle is the permanent
+        # mission default rather than a one-frame cleanup write.
+        if "CpuAction" not in overrides and self._read_debug_flag("CpuAction") != 0:
+            self._write_debug_flag("CpuAction", 0)
+            self._setup_state["idle_mission_key"] = mission_key
+
     # ------------------------------------------------------------------
     # Selector helpers
     # ------------------------------------------------------------------
 
-    def _close_selector(self) -> None:
+    def _close_selector(self, *, rearm: bool = False) -> None:
+        slot = str(self._selector.get("source_slot") or self._active_slot or "")
         self._selector["open"] = False
         self._selector["sequence"] = []
+        self._selector["sequence_blocked"] = False
         self._selector["opened_at"] = 0.0
+        if rearm:
+            self._selector["last_direction"] = 0
+            self._selector["last_taunt_held"] = False
+        interpreter = self._menu_input_interpreter
+        if interpreter is not None:
+            try:
+                interpreter.close_menu("P2" if slot.startswith("P2") else "P1")
+            except Exception:
+                pass
+
+    def _set_selector_source_slot(self, slot_label: str | None) -> None:
+        """Reset gesture state when control moves to another point fighter."""
+        normalized = str(slot_label or "") or None
+        if self._selector.get("source_slot") == normalized:
+            return
+        self._selector["source_slot"] = normalized
+        self._selector["sequence"] = []
+        self._selector["sequence_blocked"] = False
+        self._selector["last_direction"] = 0
+        self._selector["last_taunt_held"] = False
 
     def _open_selector(self, character_name: str, now: float) -> None:
         payload = build_overlay_payload(character_name)
@@ -1153,6 +1397,14 @@ class MissionManager:
         self._selector["opened_at"] = now
         self._selector["hint_until"] = now + 8.0
         self._selector["sequence"] = []
+        self._selector["sequence_blocked"] = False
+        slot = str(self._selector.get("source_slot") or self._active_slot or "")
+        interpreter = self._menu_input_interpreter
+        if interpreter is not None and slot:
+            try:
+                interpreter.set_menu_open("P2" if slot.startswith("P2") else "P1", slot)
+            except Exception:
+                pass
 
     def _label_is_crouch(self, label: str) -> bool:
         return (label or "").strip().lower() in {"crouched", "crouching"}
@@ -1221,8 +1473,20 @@ class MissionManager:
         *,
         consumer: str,
     ) -> list[dict]:
-        """Return every unseen high-frequency sample for one independent consumer."""
+        """Return every unseen realtime observation for one consumer.
+
+        Mission matching consumes the immutable combat event stream. The
+        selector shortcut intentionally consumes the sampler's raw input-edge
+        queue instead. Down, Down, Taunt is a gesture, not a combat event
+        grammar, and converting unrelated ACTION/HITSTUN events back into input
+        packets can overwrite its direction-edge state between taps.
+        """
         provider = self._input_sample_provider
+        prefer_input_queue = str(consumer) == "selector" and callable(provider)
+        if callable(self._event_provider) and not prefer_input_queue:
+            events = self._events_for_consumer(consumer, slot_label)
+            return [event.as_packet() for event in events]
+
         latest: dict = {}
         samples: list[dict] = []
         if callable(provider):
@@ -1262,109 +1526,140 @@ class MissionManager:
             packet = {}
         return [packet] if packet else []
 
-    def _update_selector_from_inputs(self, snaps_dict: dict, now: float) -> None:
-        """Drive Mission Select from every captured Down and Taunt edge."""
-        if not self._active_slot:
-            self._close_selector()
+    def _consume_menu_input_commands(self, snaps_dict: dict, now: float) -> None:
+        """Apply commands from the standalone realtime menu interpreter."""
+        interpreter = self._menu_input_interpreter
+        if interpreter is None:
+            return
+        try:
+            commands = interpreter.drain_commands()
+        except Exception:
             return
 
-        selector_slot = self._selector_source_slot(snaps_dict)
-        if not selector_slot:
-            self._close_selector()
-            return
+        all_snaps = dict(getattr(self, "_render_snap_by_slot", {}) or {})
+        all_snaps.update(snaps_dict or {})
 
-        snap = snaps_dict.get(selector_slot) or self._render_snap_by_slot.get(selector_slot)
-        if not snap:
-            self._close_selector()
-            return
+        for command in commands or ():
+            if not isinstance(command, MissionMenuCommand):
+                continue
+            kind = str(command.kind or "")
+            slot = str(command.slot or "")
 
-        character_name = ""
-        missions: list[dict] = []
-        if self._selector["open"]:
-            character_name = self._mission_owner_name(snaps_dict)
-            if not character_name:
+            if kind == MISSION_MENU_CLOSE:
                 self._close_selector()
-                return
-            payload = build_overlay_payload(character_name)
-            missions = payload.get("missions", [])
+                continue
+
+            if kind == MISSION_MENU_OPEN:
+                snap = all_snaps.get(slot)
+                if not isinstance(snap, dict):
+                    try:
+                        interpreter.close_menu(command.teamtag)
+                    except Exception:
+                        pass
+                    continue
+
+                # The shortcut owns activation and follows the native point slot.
+                self._active_slot = slot
+                self._capture_mission_owner(slot, all_snaps)
+                self._set_selector_source_slot(slot)
+                character_name = self._mission_owner_name(all_snaps)
+                payload = build_overlay_payload(character_name) if character_name else {}
+                if not (payload.get("missions") or []):
+                    self._close_selector()
+                    continue
+
+                self._runtime = self._fresh_runtime(slot=slot)
+                self._open_selector(character_name, float(now))
+                self.write_mode_state(force=True)
+                continue
+
+            if not self._selector.get("open"):
+                continue
+
+            character_name = self._mission_owner_name(all_snaps)
+            payload = build_overlay_payload(character_name) if character_name else {}
+            missions = list(payload.get("missions") or [])
             if not missions:
                 self._close_selector()
+                continue
+
+            if kind == MISSION_MENU_NEXT:
+                self._selector["selected_index"] = (
+                    int(self._selector.get("selected_index", 0)) + 1
+                ) % len(missions)
+                self._selector["opened_at"] = float(now)
+                self._selector["hint_until"] = float(now) + 8.0
+                continue
+
+            if kind == MISSION_MENU_PREVIOUS:
+                self._selector["selected_index"] = (
+                    int(self._selector.get("selected_index", 0)) - 1
+                ) % len(missions)
+                self._selector["opened_at"] = float(now)
+                self._selector["hint_until"] = float(now) + 8.0
+                continue
+
+            if kind == MISSION_MENU_SELECT:
+                idx = int(self._selector.get("selected_index", 0)) % len(missions)
+                mission_id = missions[idx].get("mission_id")
+                if mission_id:
+                    progress = load_progress()
+                    progress = set_selected_mission_id(
+                        progress, character_name, mission_id
+                    )
+                    save_progress(progress)
+                    self._prepare_selected_mission(character_name, mission_id)
+                    self._runtime = self._fresh_runtime(slot=self._active_slot)
+                self._close_selector(rearm=True)
+                self.write_mode_state(force=True)
+
+        if self._selector.get("open") and float(now) - float(
+            self._selector.get("opened_at", 0.0) or 0.0
+        ) > 8.0:
+            self._close_selector()
+
+    def _update_selector_from_inputs(self, snaps_dict: dict, now: float) -> None:
+        """Legacy adapter for tests and standalone callers.
+
+        Production wiring attaches MissionMenuInputInterpreter directly to the
+        240 Hz sampler. This fallback only forwards cached raw packets into the
+        same standalone interpreter when an older caller invokes this method.
+        Gesture state and parsing still do not live in MissionManager.
+        """
+        if self._menu_input_interpreter is None and callable(self._input_sample_provider):
+            try:
+                from tvcgui.runtime.mission_menu_input import MissionMenuInputInterpreter
+
+                self._menu_input_interpreter = MissionMenuInputInterpreter()
+            except Exception:
                 return
 
-        packets = self._input_packets_for_slot(
-            selector_slot, snap, consumer="selector"
-        )
-        if not packets:
-            return
+        interpreter = self._menu_input_interpreter
+        if interpreter is not None and callable(self._input_sample_provider):
+            selector_slot = self._selector_source_slot(snaps_dict)
+            snap = (snaps_dict or {}).get(selector_slot) if selector_slot else None
+            if selector_slot and isinstance(snap, dict):
+                packets = self._input_packets_for_slot(
+                    selector_slot, snap, consumer="selector"
+                )
+                point_active = bool(
+                    snap.get(
+                        "damage_point_active",
+                        snap.get("damage_is_point", True),
+                    )
+                )
+                for packet in packets:
+                    forwarded = dict(packet or {})
+                    forwarded.setdefault("slot", selector_slot)
+                    forwarded.setdefault("base", int(snap.get("base", 0) or 0))
+                    forwarded.setdefault("char_id", self._snap_char_id(snap))
+                    forwarded.setdefault("point_active", point_active)
+                    try:
+                        interpreter.on_sample(selector_slot, forwarded)
+                    except Exception:
+                        continue
 
-        for sample_index, packet in enumerate(packets):
-            sample_now = float(now) + sample_index * 0.000001
-            held = int((packet or {}).get("held") or 0) & 0xFFFF
-            pressed = int((packet or {}).get("pressed") or 0) & 0xFFFF
-            direction = held & MISSION_INPUT_DIRECTION_MASK
-            previous_direction = int(self._selector.get("last_direction", 0) or 0)
-
-            down_rising = _mission_selector_down_rising(direction, previous_direction, pressed)
-            up_rising = direction == 0x04 and previous_direction != 0x04
-            taunt_held = (held & MISSION_INPUT_TAUNT) == MISSION_INPUT_TAUNT
-            taunt_pressed = (pressed & MISSION_INPUT_TAUNT) == MISSION_INPUT_TAUNT
-            taunt_rising = taunt_pressed or (
-                taunt_held and not bool(self._selector.get("last_taunt_held", False))
-            )
-
-            if self._selector["open"]:
-                if sample_now - self._selector["opened_at"] > 8.0:
-                    self._close_selector()
-                else:
-                    if down_rising:
-                        self._selector["selected_index"] = (
-                            int(self._selector.get("selected_index", 0)) + 1
-                        ) % len(missions)
-                        self._selector["opened_at"] = sample_now
-                        self._selector["hint_until"] = sample_now + 8.0
-
-                    if up_rising:
-                        self._selector["selected_index"] = (
-                            int(self._selector.get("selected_index", 0)) - 1
-                        ) % len(missions)
-                        self._selector["opened_at"] = sample_now
-                        self._selector["hint_until"] = sample_now + 8.0
-
-                    if taunt_rising:
-                        idx = int(self._selector.get("selected_index", 0)) % len(missions)
-                        mission_id = missions[idx].get("mission_id")
-                        if mission_id:
-                            progress = load_progress()
-                            progress = set_selected_mission_id(progress, character_name, mission_id)
-                            save_progress(progress)
-                            self._runtime = _new_mission_runtime(slot=self._active_slot)
-                            self._close_selector()
-                            self.write_mode_state(force=True)
-            else:
-                if down_rising:
-                    seq = self._selector["sequence"]
-                    if not seq or (sample_now - seq[-1]) <= MISSION_SELECTOR_REPEAT_WINDOW:
-                        seq.append(sample_now)
-                    else:
-                        seq[:] = [sample_now]
-                    if len(seq) > 2:
-                        del seq[:-2]
-
-                if taunt_rising and len(self._selector["sequence"]) >= 2:
-                    if (
-                        self._selector["sequence"][-1]
-                        - self._selector["sequence"][-2]
-                    ) <= MISSION_SELECTOR_REPEAT_WINDOW:
-                        _point_slot, point_character = self._affirm_selector_point_owner(snaps_dict)
-                        if point_character:
-                            point_payload = build_overlay_payload(point_character)
-                            if point_payload.get("missions"):
-                                self._runtime = _new_mission_runtime(slot=self._active_slot)
-                                self._open_selector(point_character, sample_now)
-                                self.write_mode_state(force=True)
-
-            self._selector["last_direction"] = direction
-            self._selector["last_taunt_held"] = taunt_held
+        self._consume_menu_input_commands(snaps_dict, now)
 
     # ------------------------------------------------------------------
     # Team / slot helpers
@@ -1505,27 +1800,63 @@ class MissionManager:
         return False
 
     def _opponent_in_hitstun(self, slot_label: str, snaps_dict: dict) -> bool:
-        return self._opponent_in_state(slot_label, snaps_dict, MISSION_REACTION_STATES)
+        if not slot_label:
+            return False
+        my_team = "P1" if str(slot_label).startswith("P1") else "P2"
+        if callable(self._event_provider):
+            return any(
+                bool(active) and ("P1" if str(other_slot).startswith("P1") else "P2") != my_team
+                for other_slot, active in self._event_state.get("hitstun_by_slot", {}).items()
+            )
+
+        if self._opponent_in_state(slot_label, snaps_dict, MISSION_REACTION_STATES):
+            return True
+        for other_snap in (snaps_dict or {}).values():
+            if not isinstance(other_snap, dict) or other_snap.get("teamtag") == my_team:
+                continue
+            try:
+                if int(other_snap.get("timing_hitstun_remaining", 0) or 0) > 0:
+                    return True
+            except Exception:
+                pass
+        return False
 
     def _opponent_in_megacrash(self, slot_label: str, snaps_dict: dict) -> bool:
+        if not slot_label:
+            return False
+        if callable(self._event_provider):
+            my_team = "P1" if str(slot_label).startswith("P1") else "P2"
+            return any(
+                bool(active) and ("P1" if str(other_slot).startswith("P1") else "P2") != my_team
+                for other_slot, active in self._event_state.get("megacrash_by_slot", {}).items()
+            )
         return self._opponent_in_state(slot_label, snaps_dict, MISSION_MEGACRASH_STATES)
 
     def _global_combo_count(self) -> int | None:
-        """Read TvC's game-wide combo count, or None if Dolphin is unavailable.
-
-        This survives crouching/airborne hitstun action-ID changes and resets to
-        zero only when the combo itself has actually ended.
-        """
-        try:
-            value = rd8(MISSION_GLOBAL_COMBO_COUNTER_ADDR)
-            return int(value) if value is not None else None
-        except Exception:
-            return None
+        """Return the combo count already published by the realtime sampler."""
+        if callable(self._event_provider):
+            return int(self._event_state.get("combo_count", 0) or 0)
+        value = self._runtime.get("global_combo_count")
+        return int(value) if value is not None else None
 
     def _opponent_damage_this_frame(self, slot_label: str, snaps_dict: dict) -> list[int]:
         if not slot_label:
             return []
         my_team = "P1" if slot_label.startswith("P1") else "P2"
+
+        if callable(self._event_provider):
+            cursor = int(self._runtime.get("last_damage_event_sequence", 0) or 0)
+            damage_events = list(self._event_state.get("damage_events", []) or [])
+            fresh = [event for event in damage_events if int(event.sequence) > cursor]
+            if fresh:
+                self._runtime["last_damage_event_sequence"] = max(
+                    int(event.sequence) for event in fresh
+                )
+            return [
+                int(event.damage)
+                for event in fresh
+                if event.team and event.team != my_team and int(event.damage) > 0
+            ]
 
         # Prefer the manager-wide sample. It is collected before mission
         # commands and survives mission changes, so the first hit cannot be
@@ -1584,10 +1915,20 @@ class MissionManager:
         hit_ns = int(sample_ns or 0)
         if action_ns > 0 and hit_ns > 0:
             earliest_ns, deadline_ns = self._prediction_window_ns(action)
+            last_sample_ns = int((action or {}).get("last_sample_ns", action_ns) or action_ns)
+            deadline_ns = max(
+                deadline_ns,
+                last_sample_ns
+                + int(MISSION_PREDICTION_CONFIRM_PADDING * (1_000_000_000 / 60.0)),
+            )
             return earliest_ns <= hit_ns <= deadline_ns
         action_frame = int((action or {}).get("frame", frame_idx) or frame_idx)
+        action_last_frame = int((action or {}).get("last_frame", action_frame) or action_frame)
         earliest_frame = action_frame + max(0, startup - 2)
-        deadline_frame = action_frame + startup + active + MISSION_PREDICTION_CONFIRM_PADDING
+        deadline_frame = max(
+            action_frame + startup + active + MISSION_PREDICTION_CONFIRM_PADDING,
+            action_last_frame + MISSION_PREDICTION_CONFIRM_PADDING,
+        )
         return earliest_frame <= int(frame_idx) <= deadline_frame
 
     def _candidate_action_serials_for_hit(
@@ -1606,18 +1947,62 @@ class MissionManager:
         claims the matching action after real hit evidence arrives.
         """
         hit_seq = int(sample_seq or 0)
-        candidates: list[int] = []
+        live_actions = []
+        directly_eligible = []
         for action in self._runtime.get("mission_action_events", []):
             if action.get("consumed"):
                 continue
             action_seq = int(action.get("sample_seq", 0) or 0)
             if hit_seq and action_seq and action_seq > hit_seq:
                 continue
-            if not self._action_can_own_hit(action, frame_idx, sample_ns=sample_ns):
+            live_actions.append(action)
+            if self._action_can_own_hit(action, frame_idx, sample_ns=sample_ns):
+                directly_eligible.append(action)
+
+        # Cinematic supers and other scripted attacks can traverse several
+        # native action IDs after one command. If any phase is eligible at the
+        # hit frame, every earlier phase from that same input command remains a
+        # candidate. This keeps the player-facing move as the hit owner without
+        # permitting an unrelated later input to donate its hit.
+        eligible_chains = {
+            (
+                int(action.get("char_id", 0) or 0),
+                int(
+                    action.get("command_serial", action.get("input_serial", 0)) or 0
+                ),
+            )
+            for action in directly_eligible
+            if int(action.get("command_serial", action.get("input_serial", 0)) or 0) > 0
+        }
+        candidates: list[int] = []
+        for action in live_actions:
+            chain_key = (
+                int(action.get("char_id", 0) or 0),
+                int(
+                    action.get("command_serial", action.get("input_serial", 0)) or 0
+                ),
+            )
+            if action not in directly_eligible and chain_key not in eligible_chains:
                 continue
             serial = int(action.get("serial", 0) or 0)
             if serial > 0 and serial not in candidates:
                 candidates.append(serial)
+
+        # Generic delayed-hit support. A mission step may declare a longer
+        # confirmation window for summons, traps, stored attacks, or glitches
+        # that require a later trigger action. This is data-driven and is not
+        # tied to any character or move name.
+        pending_serial = int(self._runtime.get("pending_action_serial", 0) or 0)
+        pending_deadline = int(
+            self._runtime.get("pending_delayed_confirm_until_frame", -9999) or -9999
+        )
+        if pending_serial > 0 and int(frame_idx) <= pending_deadline:
+            pending_action = self._mission_action_event_by_serial(pending_serial)
+            if pending_action is not None:
+                pending_seq = int(pending_action.get("sample_seq", 0) or 0)
+                if not hit_seq or not pending_seq or pending_seq <= hit_seq:
+                    if pending_serial not in candidates:
+                        candidates.insert(0, pending_serial)
         return candidates
 
     def _owner_action_serial_for_hit(
@@ -1806,6 +2191,51 @@ class MissionManager:
             return False
         event["consumed"] = True
         return True
+
+    def _mission_action_event_by_serial(self, serial: int) -> dict | None:
+        wanted = int(serial or 0)
+        if wanted <= 0:
+            return None
+        for event in self._runtime.get("mission_action_events", []):
+            if int(event.get("serial", 0) or 0) == wanted:
+                return event
+        return None
+
+    def _pending_command_chain_active(
+        self,
+        pending_action_serial: int,
+        pending_input_serial: int,
+    ) -> bool:
+        pending_action = self._mission_action_event_by_serial(pending_action_serial)
+        command_serial = 0
+        if pending_action is not None:
+            command_serial = int(
+                pending_action.get(
+                    "command_serial",
+                    pending_action.get("input_serial", 0),
+                )
+                or 0
+            )
+        if command_serial <= 0:
+            command_serial = int(pending_input_serial or 0)
+        if command_serial <= 0:
+            return False
+
+        live_events = [
+            event
+            for event in self._runtime.get("mission_action_events", [])
+            if not event.get("consumed")
+        ]
+        if not live_events:
+            return False
+        latest = max(live_events, key=lambda event: int(event.get("serial", 0) or 0))
+        latest_command = int(
+            latest.get("command_serial", latest.get("input_serial", 0)) or 0
+        )
+        return bool(
+            latest_command == command_serial
+            and int(latest.get("serial", 0) or 0) >= int(pending_action_serial or 0)
+        )
 
     def _mission_input_event_by_serial(self, serial: int) -> dict | None:
         wanted = int(serial or 0)
@@ -2077,6 +2507,7 @@ class MissionManager:
                 "pending_started_frame": -9999,
                 "pending_input_serial": 0,
                 "pending_action_serial": 0,
+                "pending_delayed_confirm_until_frame": -9999,
                 "pending_label_confirmed": False,
                 "pending_arm_source": "",
                 "reset_grace_frames": completed_grace,
@@ -2229,6 +2660,7 @@ class MissionManager:
                 "pending_started_frame": -9999,
                 "pending_input_serial": 0,
                 "pending_action_serial": 0,
+                "pending_delayed_confirm_until_frame": -9999,
                 "pending_label_confirmed": False,
                 "pending_arm_source": "",
                 "reset_grace_frames": completed_grace,
@@ -2249,6 +2681,7 @@ class MissionManager:
             "mission_input_events": [],
             "mission_action_events": [],
             "mission_input_serial": 0,
+            "mission_attack_command_serial": 0,
             "mission_action_serial": 0,
             "mission_action_consumed_serial": 0,
             "mission_last_action_id": None,
@@ -2256,6 +2689,8 @@ class MissionManager:
             "mission_input_consumed_serial": 0,
             "mission_input_match_serial": 0,
             "pending_input_serial": 0,
+            "pending_action_serial": 0,
+            "pending_delayed_confirm_until_frame": -9999,
             "pending_label_confirmed": False,
             "pending_arm_source": "",
             "mission_step_start_serial": int(self._runtime.get("mission_input_serial", 0) or 0),
@@ -2311,6 +2746,10 @@ class MissionManager:
         raw_pressed_buttons = pressed & MISSION_INPUT_ATTACK_MASK
         transition_pressed_buttons = held_buttons & ~previous_buttons
         pressed_buttons = raw_pressed_buttons | transition_pressed_buttons
+        if pressed_buttons:
+            self._runtime["mission_attack_command_serial"] = int(
+                self._runtime.get("mission_attack_command_serial", 0) or 0
+            ) + 1
         events = self._runtime.setdefault("mission_input_events", [])
 
         tokens = []
@@ -2398,12 +2837,64 @@ class MissionManager:
             "baroque": int(self._runtime.get("mission_baroque_latch", 0) or 0) > 0,
         }
 
-    def _action_label_candidates(self, action_id: int, char_id: int = 0) -> list[str]:
+    def _resolved_snapshot_move_labels(self, snap: dict) -> list[str]:
+        """Return the same resolved labels the HUD presents to the player.
+
+        Mission matching is label-first. Native action IDs are retained only
+        for hit ownership and timing because many specials, cinematic supers,
+        projectiles, and scripted attacks use internal IDs that differ from the
+        final label shown by the HUD.
+        """
+        if not isinstance(snap, dict):
+            return []
+
+        labels: list[str] = []
+        for value in (
+            snap.get("final_move_label"),
+            snap.get("mv_label_display"),
+            snap.get("mv_label"),
+            snap.get("profile_resolved_label"),
+            snap.get("profile_live_label"),
+            snap.get("mv_label_base"),
+        ):
+            text = str(value or "").strip()
+            if text and text not in labels:
+                labels.append(text)
+        for value in snap.get("mv_label_aliases") or []:
+            text = str(value or "").strip()
+            if text and text not in labels:
+                labels.append(text)
+        return labels
+
+    def _snapshot_action_label_candidates(
+        self,
+        snap: dict,
+        action_id: int,
+    ) -> list[str]:
+        """Return HUD labels for the latest native action sample.
+
+        The caller only supplies ``snap`` for the newest unseen 240 Hz packet
+        in a render frame. Therefore the HUD label belongs to that latest
+        action even when its internal ID differs from ``mv_id_display``.
+        """
+        _ = action_id
+        return self._resolved_snapshot_move_labels(snap)
+
+    def _action_label_candidates(
+        self,
+        action_id: int,
+        char_id: int = 0,
+        snap: dict | None = None,
+    ) -> list[str]:
         action = int(action_id or 0) & 0x7FFF
         labels: list[str] = []
-        generic = MISSION_GENERIC_ACTION_LABELS.get(action)
-        if generic:
-            labels.append(generic)
+
+        # Player-facing resolved labels are authoritative for mission identity.
+        # Native and generic maps are fallback aliases only.
+        for label in self._snapshot_action_label_candidates(snap or {}, action):
+            if label not in labels:
+                labels.append(label)
+
         try:
             mapped = self._move_label_for(
                 action,
@@ -2415,6 +2906,10 @@ class MissionManager:
             mapped = None
         if mapped and str(mapped).strip() and str(mapped).strip() not in labels:
             labels.append(str(mapped).strip())
+
+        generic = MISSION_GENERIC_ACTION_LABELS.get(action)
+        if generic and generic not in labels:
+            labels.append(generic)
         return labels
 
     def _record_mission_action_sample(
@@ -2422,9 +2917,15 @@ class MissionManager:
         packet: dict,
         frame_idx: int,
         sample_seq: int = 0,
+        snap: dict | None = None,
     ) -> None:
         action_id = int((packet or {}).get("action_id", 0) or 0) & 0x7FFF
-        char_id = int((packet or {}).get("char_id", 0) or 0)
+        packet_char_id = int((packet or {}).get("char_id", 0) or 0)
+        try:
+            resolved_char_id = int((snap or {}).get("csv_char_id", 0) or 0)
+        except Exception:
+            resolved_char_id = 0
+        char_id = resolved_char_id or packet_char_id
         owner_char_id = int(self._mission_owner.get("char_id", 0) or 0)
         if owner_char_id and char_id and char_id != owner_char_id:
             return
@@ -2436,14 +2937,23 @@ class MissionManager:
         self._runtime["mission_last_action_sample_seq"] = int(sample_seq or 0)
         if action_id < 0x100:
             return
-        labels = self._action_label_candidates(action_id, char_id)
-        if not labels:
-            return
+        # Keep unlabeled native attack phases too. Cinematic level 3s and
+        # scripted attacks often transition through internal action IDs that
+        # are absent from the move map. Those phases still extend the original
+        # command chain and can own a later hit.
+        labels = self._action_label_candidates(action_id, char_id, snap=snap)
         events = self._runtime.setdefault("mission_action_events", [])
         previous = events[-1] if events else None
         if previous and int(previous.get("action_id", 0) or 0) == action_id:
             previous["last_sample_seq"] = int(sample_seq or 0)
+            previous["last_sample_ns"] = int((packet or {}).get("sample_ns", 0) or 0)
             previous["last_frame"] = int(frame_idx)
+            previous_labels = list(previous.get("labels") or [])
+            for label in labels:
+                if label not in previous_labels:
+                    previous_labels.append(label)
+            previous["labels"] = previous_labels
+            previous["phase_only"] = not bool(previous_labels)
             return
         serial = int(self._runtime.get("mission_action_serial", 0) or 0) + 1
         self._runtime["mission_action_serial"] = serial
@@ -2454,10 +2964,15 @@ class MissionManager:
             "sample_seq": int(sample_seq or 0),
             "last_sample_seq": int(sample_seq or 0),
             "sample_ns": int((packet or {}).get("sample_ns", 0) or 0),
+            "last_sample_ns": int((packet or {}).get("sample_ns", 0) or 0),
             "action_id": action_id,
             "char_id": char_id,
             "labels": labels,
+            "phase_only": not bool(labels),
             "input_serial": int(self._runtime.get("mission_input_serial", 0) or 0),
+            "command_serial": int(
+                self._runtime.get("mission_attack_command_serial", 0) or 0
+            ),
             "consumed": False,
         })
         del events[:-MISSION_ACTION_EVENT_LIMIT]
@@ -2476,6 +2991,64 @@ class MissionManager:
         any_sampled = False
         any_hitstun = False
 
+        if callable(self._event_provider):
+            # Discover opponents from both the current render snapshots and the
+            # realtime state cache. This keeps hit confirmation alive even when
+            # the GUI skipped or temporarily omitted an opponent snapshot.
+            enemy_slots: set[str] = set()
+            for other_slot, other_snap in (snaps_dict or {}).items():
+                if not isinstance(other_snap, dict):
+                    continue
+                other_team = str(other_snap.get("teamtag") or (
+                    "P1" if str(other_slot).startswith("P1") else "P2"
+                ))
+                if other_team and other_team != my_team:
+                    enemy_slots.add(str(other_slot))
+            for state_key in (
+                "hitstun_by_slot", "megacrash_by_slot", "action_by_slot", "hp_by_slot"
+            ):
+                for other_slot in self._event_state.get(state_key, {}):
+                    other_team = (
+                        "P1" if str(other_slot).startswith("P1")
+                        else "P2" if str(other_slot).startswith("P2")
+                        else ""
+                    )
+                    if other_team and other_team != my_team:
+                        enemy_slots.add(str(other_slot))
+
+            for other_slot in sorted(enemy_slots):
+                for event in self._events_for_consumer("mission-opponent", other_slot):
+                    any_sampled = True
+                    if event.kind == EVENT_DAMAGE and int(event.damage) > 0:
+                        damage_values.append(int(event.damage))
+                        serial = int(self._runtime.get("mission_hit_serial", 0) or 0) + 1
+                        self._runtime["mission_hit_serial"] = serial
+                        candidates = self._candidate_action_serials_for_hit(
+                            frame_idx,
+                            sample_ns=int(event.timestamp_ns),
+                            sample_seq=int(event.sequence),
+                        )
+                        self._runtime.setdefault("mission_hit_events", []).append({
+                            "serial": serial,
+                            "frame": int(frame_idx),
+                            "last_frame": int(frame_idx),
+                            "sample_seq": int(event.sequence),
+                            "sample_ns": int(event.timestamp_ns),
+                            "hp_seen": True,
+                            "combo_seen": int(self._event_state.get("combo_count", 0) or 0) > 0,
+                            "damage": int(event.damage),
+                            "owner_action_serial": int(candidates[-1] if candidates else 0),
+                            "candidate_action_serials": candidates,
+                            "consumed": False,
+                        })
+                        del self._runtime["mission_hit_events"][:-MISSION_HIT_EVENT_LIMIT]
+                        self._runtime["mission_last_hit_evidence_frame"] = int(frame_idx)
+                    elif event.kind == EVENT_HITSTUN_END:
+                        hitstun_exit = True
+
+            any_hitstun = self._opponent_in_hitstun(slot_label, snaps_dict)
+            return damage_values, hitstun_exit, bool(any_hitstun)
+
         for other_slot, other_snap in (snaps_dict or {}).items():
             if not isinstance(other_snap, dict) or other_snap.get("teamtag") == my_team:
                 continue
@@ -2493,21 +3066,26 @@ class MissionManager:
                         damage_values.append(damage)
                         serial = int(self._runtime.get("mission_hit_serial", 0) or 0) + 1
                         self._runtime["mission_hit_serial"] = serial
-                        owner_action_serial = self._owner_action_serial_for_hit(
+                        hit_sample_ns = int((packet or {}).get("sample_ns", 0) or 0)
+                        candidate_action_serials = self._candidate_action_serials_for_hit(
                             frame_idx,
-                            sample_ns=int((packet or {}).get("sample_ns", 0) or 0),
+                            sample_ns=hit_sample_ns,
                             sample_seq=seq,
+                        )
+                        owner_action_serial = int(
+                            candidate_action_serials[-1] if candidate_action_serials else 0
                         )
                         self._runtime.setdefault("mission_hit_events", []).append({
                             "serial": serial,
                             "frame": int(frame_idx),
                             "last_frame": int(frame_idx),
                             "sample_seq": seq,
-                            "sample_ns": int((packet or {}).get("sample_ns", 0) or 0),
+                            "sample_ns": hit_sample_ns,
                             "hp_seen": True,
                             "combo_seen": False,
                             "damage": int(damage),
                             "owner_action_serial": owner_action_serial,
+                            "candidate_action_serials": candidate_action_serials,
                             "consumed": False,
                         })
                         del self._runtime["mission_hit_events"][:-MISSION_HIT_EVENT_LIMIT]
@@ -2542,14 +3120,22 @@ class MissionManager:
             "fresh_attack": False,
             "baroque": False,
         }
-        for packet in packets:
+        packet_count = len(packets)
+        for packet_index, packet in enumerate(packets):
             sample_seq = int((packet or {}).get("seq", 0) or 0)
             result = self._record_mission_input(
                 packet,
                 frame_idx,
                 sample_seq=sample_seq,
             )
-            self._record_mission_action_sample(packet, frame_idx, sample_seq)
+            self._record_mission_action_sample(
+                packet,
+                frame_idx,
+                sample_seq,
+                # A 60 Hz HUD snapshot represents the newest unseen 240 Hz
+                # packet, not every older packet drained in this render frame.
+                snap=snap if packet_index == packet_count - 1 else None,
+            )
             aggregate["held"] = int(result.get("held", 0) or 0)
             aggregate["direction"] = int(result.get("direction", 0) or 0)
             aggregate["pressed"] |= int(result.get("pressed", 0) or 0)
@@ -3079,15 +3665,73 @@ class MissionManager:
         value = __import__("re").sub(r"[^a-z0-9]+", " ", value)
         return " ".join(value.split())
 
+    def _mission_label_signature(self, label: str) -> tuple[str, str, str]:
+        """Return ``(full, family, strength)`` for mission move matching.
+
+        The live resolver may expose phases such as ``Start/Whiff`` and
+        strength suffixes such as ``A``, ``B``, or ``C``.  Mission JSON can ask
+        for an exact strength (``Slam B``) or a generic family
+        (``Powerbomb``), which intentionally accepts every strength.
+        """
+        import re
+
+        full = self._canonical_mission_label(label)
+        if not full:
+            return "", "", ""
+
+        phase_suffixes = (
+            " start whiff",
+            " startup whiff",
+            " start or whiff",
+            " start",
+            " whiff",
+        )
+
+        def strip_phase(value: str) -> str:
+            result = value
+            changed = True
+            while changed:
+                changed = False
+                for suffix in phase_suffixes:
+                    if result.endswith(suffix):
+                        result = result[: -len(suffix)].strip()
+                        changed = True
+                        break
+            return result
+
+        family = strip_phase(full)
+        strength = ""
+        strength_match = re.match(r"^(.*\S)\s+([abc])$", family)
+        if strength_match:
+            possible_family = strip_phase(strength_match.group(1).strip())
+            # ``air B`` is a normal, not the B-strength form of a move named
+            # ``air``. Numeric notation such as 5B is already one token.
+            if possible_family and possible_family != "air":
+                family = possible_family
+                strength = strength_match.group(2)
+
+        return full, family, strength
+
+    def _mission_label_family_equal(self, left: str, right: str) -> bool:
+        # Human-authored missions commonly use both "Power Bomb" and
+        # "Powerbomb". Punctuation and whitespace are not move identity.
+        return bool(left and right and left.replace(" ", "") == right.replace(" ", ""))
+
     def _mission_label_matches(self, current_label: str, expected_labels: list[str]) -> bool:
-        current = self._canonical_mission_label(current_label)
+        current, current_family, current_strength = self._mission_label_signature(
+            current_label
+        )
         if not current:
             return False
         for expected in expected_labels or []:
-            wanted = self._canonical_mission_label(expected)
+            wanted, wanted_family, wanted_strength = self._mission_label_signature(
+                expected
+            )
             if not wanted:
                 continue
             if current == wanted:
+                return True
+            if current.replace(" ", "") == wanted.replace(" ", ""):
                 return True
             if {current, wanted} <= {"air a", "ja"}:
                 return True
@@ -3095,6 +3739,16 @@ class MissionManager:
                 return True
             if {current, wanted} <= {"air c", "jc"}:
                 return True
+            if not self._mission_label_family_equal(current_family, wanted_family):
+                continue
+            # An explicitly named strength remains strict. A generic family in
+            # mission JSON intentionally accepts A, B, C, or an unsuffixed live
+            # label from a shared hit/cinematic phase.
+            if wanted_strength:
+                if current_strength == wanted_strength:
+                    return True
+                continue
+            return True
         return False
 
     def _mission_snapshot_label_matches(self, snap: dict, expected_labels: list[str]) -> bool:
@@ -3105,11 +3759,7 @@ class MissionManager:
         projectile variant spawns, so missions can distinguish levels without
         breaking older steps that still expect the unqualified move name.
         """
-        candidates = [
-            str((snap or {}).get("mv_label") or "").strip(),
-            str((snap or {}).get("mv_label_display") or "").strip(),
-        ]
-        candidates.extend(str(x or "").strip() for x in ((snap or {}).get("mv_label_aliases") or []))
+        candidates = self._resolved_snapshot_move_labels(snap or {})
         seen = set()
         for candidate in candidates:
             canon = self._canonical_mission_label(candidate)
@@ -3376,6 +4026,19 @@ class MissionManager:
         except Exception:
             return 0
 
+    def _step_delayed_confirm_frames(self, step) -> int:
+        """Return a generic extended hit-confirm window for delayed attacks.
+
+        This supports traps, summons, stored attacks, cinematic phases, and
+        trigger glitches without hardcoding character or move names.
+        """
+        if not isinstance(step, dict):
+            return 0
+        try:
+            return max(0, int(step.get("delayed_confirm_frames", 0) or 0))
+        except Exception:
+            return 0
+
     def _step_is_pass(self, step) -> bool:
         return isinstance(step, dict) and bool(step.get("pass", False))
     def _step_grace_keeps_alive_only(self, step) -> bool:
@@ -3401,9 +4064,14 @@ class MissionManager:
             next_seq = int(self._runtime.get("clear_seq", 0)) + 1
             next_token = int(self._runtime.get("celebrate_token", 0)) + 1
 
+            self._release_completed_mission_overrides(
+                (slot, character_name, mission_id)
+            )
+
             cp = build_overlay_payload(character_name or "")
             cp["active"] = True
             cp["slot"] = slot
+            cp["point_slot"] = route_slot
             cp["just_cleared"] = True
             cp["clear_seq"] = next_seq
             cp["celebrate_pending"] = True
@@ -3415,7 +4083,7 @@ class MissionManager:
             cp["current_step_index"] = final_idx
             cp["current_step_label"] = final_label
 
-            self._runtime = _new_mission_runtime(
+            self._runtime = self._fresh_runtime(
                 slot=slot,
                 mission_id=mission_id,
                 clear_seq=next_seq,
@@ -3426,7 +4094,7 @@ class MissionManager:
             return cp
 
         if not payload.get("active") or not slot or not mission_id or (not steps and not mission_goal):
-            self._runtime = _new_mission_runtime()
+            self._runtime = self._fresh_runtime()
             payload.update({
                 "completed_step_count": 0,
                 "current_step_index": 0,
@@ -3441,7 +4109,7 @@ class MissionManager:
             self._runtime.get("slot") != slot
             or self._runtime.get("mission_id") != mission_id
         ):
-            self._runtime = _new_mission_runtime(
+            self._runtime = self._fresh_runtime(
                 slot=slot,
                 mission_id=mission_id,
                 clear_seq=int(self._runtime.get("clear_seq", 0) or 0),
@@ -3452,45 +4120,66 @@ class MissionManager:
 
         snap = snaps_dict.get(route_slot) or self._render_snap_by_slot.get(route_slot) if hasattr(self, "_render_snap_by_slot") else snaps_dict.get(route_slot) or {}
         snap = snap or {}
-        current_label = (snap.get("mv_label") or "").strip()
+        current_label = str(
+            snap.get("final_move_label")
+            or snap.get("mv_label_display")
+            or snap.get("mv_label")
+            or ""
+        ).strip()
         current_anim = snap.get("mv_id_display")
-        mission_input = self._record_mission_input_stream(route_slot, snap, frame_idx)
-        realtime_damage_values, realtime_hitstun_exit, realtime_hitstun_now = (
-            self._record_opponent_realtime_stream(route_slot, snaps_dict, frame_idx)
+        current_inputs = snap.get("inputs") or {}
+
+        realtime_inputs: dict = {}
+        realtime_damage: list[int] = []
+        realtime_hitstun_exit = False
+        realtime_hitstun_state: bool | None = None
+        if callable(self._event_provider):
+            realtime_inputs = self._record_mission_input_stream(
+                str(route_slot), snap, frame_idx
+            )
+            realtime_damage, realtime_hitstun_exit, realtime_hitstun_state = (
+                self._record_opponent_realtime_stream(
+                    str(route_slot), snaps_dict, frame_idx
+                )
+            )
+            self._prune_mission_event_buffers()
+            if realtime_inputs:
+                current_inputs = realtime_inputs
+            action_events = list(self._runtime.get("mission_action_events") or [])
+            if action_events:
+                latest_action = action_events[-1]
+                action_labels = list(latest_action.get("labels") or [])
+                if action_labels:
+                    current_label = str(action_labels[0])
+                current_anim = int(latest_action.get("action_id", 0) or 0)
+
+        opponent_in_hitstun = (
+            bool(realtime_hitstun_state)
+            if realtime_hitstun_state is not None
+            else self._opponent_in_hitstun(route_slot, snaps_dict)
         )
-        current_inputs = {
-            "A": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_A else 0,
-            "B": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_B else 0,
-            "C": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_C else 0,
-            "P": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_P else 0,
-            "T": 1 if mission_input.get("pressed_buttons", 0) & MISSION_INPUT_TAUNT else 0,
-        }
-        opponent_in_hitstun = self._opponent_in_hitstun(route_slot, snaps_dict)
-        opponent_in_megacrash = self._opponent_in_megacrash(route_slot, snaps_dict)
-        previous_opponent_megacrash = bool(
-            self._runtime.get("last_opponent_megacrash", False)
+        previous_actual_hitstun = bool(
+            self._runtime.get("last_actual_hitstun", False)
         )
-        global_combo_count = self._global_combo_count()
-        global_combo_active = bool(global_combo_count is not None and global_combo_count > 0)
-        self._runtime["global_combo_count"] = int(global_combo_count or 0)
-        fallback_damage_values = self._opponent_damage_this_frame(route_slot, snaps_dict)
-        damage_values = list(realtime_damage_values or fallback_damage_values)
+        actual_hitstun_now = bool(opponent_in_hitstun)
+        hitstun_exit_edge = bool(
+            realtime_hitstun_exit
+            or (previous_actual_hitstun and not actual_hitstun_now)
+        )
+        damage_values = (
+            realtime_damage
+            if callable(self._event_provider)
+            else self._opponent_damage_this_frame(route_slot, snaps_dict)
+        )
         opponent_took_damage = bool(damage_values)
         frame_damage = sum(int(x) for x in damage_values)
-        new_hit_evidence = self._record_mission_hit_events(
-            global_combo_count,
-            [] if realtime_damage_values else damage_values,
-            frame_idx,
-        )
-
         baroque_pool_adjusted = bool(
             snap.get("baroque_cancel_raw")
-            or snap.get("baroque_cancel_latched")
-            or mission_input.get("baroque")
+            or realtime_inputs.get("baroque", False)
         )
 
-        # Five-bar starter gate. Refill outside combo, then disable refill while
-        # the route is live so spending meter still behaves normally.
+        # Declarative five-bar setup. Preserve the old reliable behavior,
+        # but enable it from mission JSON for any character.
         if meter_refill_enabled:
             meter_val = int(snap.get("meter", 0) or 0)
             self._write_debug_flag("BaroquePct", 1)
@@ -3500,9 +4189,41 @@ class MissionManager:
                 self._write_debug_flag("P1Meter", 1 if meter_val < 50000 else 0)
 
         progress_index = int(self._runtime.get("progress_index", 0))
-        # Primary reaction state is the route authority. The global combo
-        # counter remains available only for hit-count evidence.
-        self._runtime["hitstun_grace"] = 0
+        starting_progress_index = progress_index
+        starting_consumed_input_serial = int(
+            self._runtime.get("mission_input_consumed_serial", 0) or 0
+        )
+
+        # Drain the immutable event timeline before evaluating the late GUI
+        # snapshot. event_index and mission_index are independent, so one GUI
+        # update can confirm every action and hit that happened while it was
+        # busy. The snapshot path below remains only for legacy and unusual
+        # declarative steps that are not yet represented by native events.
+        buffered_advanced = 0
+        if callable(self._event_provider) and steps:
+            progress_index, action_advanced = self._drain_buffered_action_steps(
+                steps, progress_index, frame_idx
+            )
+            buffered_advanced += action_advanced
+            progress_index, normal_advanced = self._drain_buffered_normal_steps(
+                steps, progress_index, frame_idx
+            )
+            buffered_advanced += normal_advanced
+            self._runtime["progress_index"] = progress_index
+
+            if progress_index >= len(steps):
+                final_idx = max(0, len(steps) - 1)
+                final_label = (
+                    " / ".join(self._step_labels(steps[final_idx]))
+                    if steps else None
+                )
+                return _clear_payload(len(steps), final_idx, final_label)
+
+        # Hitstun grace
+        if opponent_in_hitstun:
+            self._runtime["hitstun_grace"] = 0
+        else:
+            self._runtime["hitstun_grace"] = 0
 
         # Shell release grace
         shell_release_grace = int(self._runtime.get("shell_release_grace", 0) or 0)
@@ -3510,87 +4231,17 @@ class MissionManager:
             self._runtime["shell_release_grace"] = shell_release_grace - 1
 
         reset_grace_active_now = int(self._runtime.get("reset_grace_frames", 0)) > 0
-
-        expected_step_for_reset = steps[progress_index] if progress_index < len(steps) else None
-        expected_labels_for_reset = self._step_labels(expected_step_for_reset)
-        dedicated_megacrash_reset_edge = self._megacrash_step_matches(
-            expected_labels_for_reset,
-            opponent_in_megacrash,
-            previous_opponent_megacrash,
+        global_combo_count = self._global_combo_count()
+        global_combo_active = bool(
+            global_combo_count is not None and int(global_combo_count) > 0
         )
+        dedicated_megacrash_match = self._opponent_in_megacrash(route_slot, snaps_dict)
         opponent_real_combo_state = _mission_route_combo_live(
             global_combo_active,
             opponent_in_hitstun,
-            dedicated_megacrash_reset_edge,
-        )
-        actual_hitstun_now = bool(
-            realtime_hitstun_now
-            if realtime_hitstun_now is not None
-            else (opponent_in_hitstun or opponent_in_megacrash)
-        )
-        previous_actual_hitstun = bool(
-            self._runtime.get("last_actual_hitstun", False)
-        )
-        hitstun_exit_edge = bool(
-            realtime_hitstun_exit
-            or (previous_actual_hitstun and not actual_hitstun_now)
-        )
-        self._runtime["last_actual_hitstun"] = actual_hitstun_now
-
-        # No inferred latches are allowed to keep a route alive after the real
-        # reaction flag drops. Only an explicit mission-step grace value can
-        # extend the route beyond the true hitstun exit edge.
+            dedicated_megacrash_match,
+        ) or dedicated_megacrash_match
         opponent_in_combo_state = opponent_real_combo_state
-
-        explicit_reset_grace = bool(
-            int(self._runtime.get("reset_grace_frames", 0) or 0) > 0
-            and self._runtime.get("reset_grace_step_index") == progress_index
-        )
-        if (
-            steps
-            and progress_index > 0
-            and hitstun_exit_edge
-            and not explicit_reset_grace
-        ):
-            print(
-                f"[mission hitstun ended] slot={slot} mission_id={mission_id} "
-                f"step={progress_index}; resetting on exact reaction edge"
-            )
-            progress_index = 0
-            self._runtime.update({
-                "progress_index": 0,
-                "pending_step_index": None,
-                "pending_labels": [],
-                "pending_anim": None,
-                "pending_started_frame": -9999,
-                "pending_action_serial": 0,
-                "pending_label_confirmed": False,
-                "pending_arm_source": "",
-                "reset_grace_frames": 0,
-                "reset_grace_labels": [],
-                "reset_grace_step_index": None,
-                "reset_grace_keeps_alive_only": False,
-                "shell_installed": False,
-                "shell_release_grace": 0,
-                "last_seen_label": "",
-                "last_seen_anim": None,
-                "last_seen_hitstun": False,
-                "last_opponent_megacrash": False,
-                "last_inputs": {},
-            })
-            self._clear_trial_detection_buffers()
-            payload.update({
-                "just_cleared": False,
-                "clear_seq": int(self._runtime.get("clear_seq", 0)),
-                "celebrate_pending": bool(self._runtime.get("celebrate_pending", False)),
-                "celebrate_token": int(self._runtime.get("celebrate_token", 0) or 0),
-                "completed_step_count": 0,
-                "current_step_index": 0,
-                "current_step_label": (
-                    " / ".join(self._step_labels(steps[0])) if steps else None
-                ),
-            })
-            return payload
 
         if (
             self._runtime.get("shell_installed")
@@ -3599,52 +4250,15 @@ class MissionManager:
         ):
             self._runtime["shell_release_grace"] = 20
 
-        # Goal-type missions have no ordered-step grace. The exact frame the
-        # defender leaves real hitstun ends the attempt immediately.
-        if mission_goal and hitstun_exit_edge:
-            self._runtime.update({
-                "goal_combo_damage": 0,
-                "goal_combo_hits": 0,
-                "goal_hp_hit_count": 0,
-                "goal_hit_latch": 0,
-                "goal_failed": False,
-                "goal_last_damage_frame": -1,
-            })
-
         # Goal-type missions
         if mission_goal:
             goal_type = str(mission_goal.get("type", "")).strip().lower()
 
-            if goal_type in {"damage_under_hits", "combo_damage"}:
-                hit_latch = max(0, int(self._runtime.get("goal_hit_latch", 0) or 0) - 1)
-                if frame_damage > 0:
-                    # HP may update before the reaction action ID. Damage is
-                    # authoritative and must start the combo goal immediately.
-                    self._runtime["goal_combo_damage"] = (
-                        int(self._runtime.get("goal_combo_damage", 0)) + frame_damage
-                    )
-                    hp_hit_count = max(1, len(damage_values))
-                    self._runtime["goal_hp_hit_count"] = (
-                        int(self._runtime.get("goal_hp_hit_count", 0)) + hp_hit_count
-                    )
+            if opponent_in_combo_state and frame_damage > 0:
+                self._runtime["goal_combo_damage"] = int(self._runtime.get("goal_combo_damage", 0)) + frame_damage
+                if self._runtime.get("goal_last_damage_frame") != frame_idx:
+                    self._runtime["goal_combo_hits"] = int(self._runtime.get("goal_combo_hits", 0)) + 1
                     self._runtime["goal_last_damage_frame"] = frame_idx
-                    hit_latch = 2
-
-                counter_hits = max(0, int(global_combo_count or 0))
-                self._runtime["goal_combo_hits"] = max(
-                    int(self._runtime.get("goal_combo_hits", 0)),
-                    int(self._runtime.get("goal_hp_hit_count", 0)),
-                    counter_hits,
-                )
-                self._runtime["goal_hit_latch"] = hit_latch
-
-            goal_combo_live = bool(
-                opponent_in_combo_state
-                or global_combo_active
-                or frame_damage > 0
-                or new_hit_evidence > 0
-                or int(self._runtime.get("goal_hit_latch", 0) or 0) > 0
-            )
 
             def _goal_base(payload):
                 payload["just_cleared"] = False
@@ -3694,10 +4308,9 @@ class MissionManager:
                     and not self._runtime.get("goal_failed", False)
                 ):
                     return _clear_payload(1, 0, payload["current_step_label"])
-                if not goal_combo_live:
+                if not opponent_in_combo_state:
                     self._runtime.update({
                         "goal_combo_damage": 0, "goal_combo_hits": 0,
-                        "goal_hp_hit_count": 0, "goal_hit_latch": 0,
                         "goal_failed": False, "goal_last_damage_frame": -1,
                     })
                 return payload
@@ -3709,134 +4322,101 @@ class MissionManager:
                 payload["current_step_label"] = f"{combo_dmg}/{needed_dmg} combo damage"
                 if needed_dmg > 0 and combo_dmg >= needed_dmg:
                     return _clear_payload(1, 0, payload["current_step_label"])
-                if not goal_combo_live:
+                if not opponent_in_combo_state:
                     self._runtime.update({
                         "goal_combo_damage": 0, "goal_combo_hits": 0,
-                        "goal_hp_hit_count": 0, "goal_hit_latch": 0,
                         "goal_failed": False, "goal_last_damage_frame": -1,
                     })
                 return payload
 
-        # Drain every already-confirmed ordinary normal before applying route
-        # reset logic. This removes the one-step-per-update bottleneck and keeps
-        # later buffered inputs available for their own mission steps.
-        if actual_hitstun_now or opponent_in_megacrash:
-            progress_index, action_advances = self._drain_buffered_action_steps(
-                steps, progress_index, frame_idx
-            )
-            progress_index, normal_advances = self._drain_buffered_normal_steps(
-                steps, progress_index, frame_idx
-            )
-        else:
-            action_advances = 0
-            normal_advances = 0
-        buffered_advances = action_advances + normal_advances
-        self._runtime["mission_buffered_advances"] = buffered_advances
-        self._runtime["progress_index"] = progress_index
+        # Step-list missions
+        expected_step_for_reset = steps[progress_index] if progress_index < len(steps) else None
+        expected_labels_for_reset = self._step_labels(expected_step_for_reset)
+        expected_label_visible_for_reset = bool(
+            expected_labels_for_reset
+            and self._mission_label_matches(current_label, expected_labels_for_reset)
+            and not self._label_is_ignorable(current_label)
+        )
 
-        if progress_index >= len(steps):
-            final_idx = max(0, len(steps) - 1)
-            final_label = (
-                (" / ".join(steps[final_idx]) if isinstance(steps[final_idx], list) else steps[final_idx])
-                if steps else None
-            )
-            return _clear_payload(len(steps), final_idx, final_label)
-
-        # Step-list missions. Route liveness is strict: once both the global
-        # combo counter and actual hitstun end, the route fails immediately
-        # unless the completed step supplied an explicit grace frame count.
         grace_left = int(self._runtime.get("reset_grace_frames", 0) or 0)
         grace_step_index = self._runtime.get("reset_grace_step_index")
-        dropped_with_matching_grace = bool(
-            not actual_hitstun_now
-            and grace_left > 0
-            and grace_step_index == progress_index
+        explicit_reset_grace = bool(
+            grace_left > 0 and grace_step_index == progress_index
         )
-        if hitstun_exit_edge or dropped_with_matching_grace:
-            reset_now, grace_left = _mission_combo_reset_tick(
-                progress_index,
-                False,
-                grace_left,
-                grace_step_index,
-            )
-        else:
-            reset_now = False
-        self._runtime["reset_grace_frames"] = grace_left
+        hitstun_exit_requires_reset = bool(
+            progress_index > 0
+            and hitstun_exit_edge
+            and not explicit_reset_grace
+        )
 
-        if reset_now:
-            print(
-                f"[mission combo dropped] slot={slot} mission_id={mission_id} "
-                f"step={progress_index} reaction={int(opponent_in_hitstun)} "
-                f"combo_counter={int(global_combo_count or 0)}; resetting immediately"
-            )
-            progress_index = 0
-            self._runtime.update({
-                "progress_index": 0,
-                "pending_step_index": None,
-                "pending_labels": [],
-                "pending_anim": None,
-                "pending_started_frame": -9999,
-                "pending_action_serial": 0,
-                "pending_label_confirmed": False,
-                "pending_arm_source": "",
-                "reset_grace_frames": 0,
-                "reset_grace_labels": [],
-                "reset_grace_step_index": None,
-                "reset_grace_keeps_alive_only": False,
-                "shell_installed": False,
-                "shell_release_grace": 0,
-                "last_seen_label": "",
-                "last_seen_anim": None,
-                "last_seen_hitstun": False,
-                "last_actual_hitstun": False,
-                "last_opponent_megacrash": False,
-                "last_inputs": {},
-            })
-            self._clear_trial_detection_buffers()
+        if progress_index > 0 and not opponent_real_combo_state:
+            if expected_label_visible_for_reset and not (
+                grace_left > 0 and grace_step_index == progress_index
+            ):
+                # Cinematic or delayed expected move is visibly active. Keep the
+                # route armed, but do not treat this as a hit confirmation.
+                reset_now = False
+                remaining_grace = grace_left
+            else:
+                reset_now, remaining_grace = _mission_combo_reset_tick(
+                    progress_index,
+                    opponent_real_combo_state,
+                    grace_left,
+                    grace_step_index,
+                )
+            self._runtime["reset_grace_frames"] = remaining_grace
+            if hitstun_exit_requires_reset:
+                reset_now = True
+            if reset_now:
+                progress_index = 0
+                self._runtime.update({
+                    "progress_index": 0,
+                    "pending_step_index": None,
+                    "pending_labels": [],
+                    "pending_anim": None,
+                    "pending_frame": None,
+                    "reset_grace_frames": 0,
+                    "reset_grace_labels": [],
+                    "reset_grace_step_index": None,
+                    "reset_grace_keeps_alive_only": False,
+                    "shell_installed": False,
+                    "shell_release_grace": 0,
+                    "last_seen_label": "",
+                    "last_seen_anim": None,
+                    "last_seen_hitstun": False,
+                    "last_actual_hitstun": False,
+                    "last_inputs": {},
+                })
 
         last_seen_label = self._runtime.get("last_seen_label", "")
         last_seen_anim = self._runtime.get("last_seen_anim")
-        last_seen_hitstun = bool(self._runtime.get("last_seen_hitstun", False))
+        last_seen_hitstun = bool(
+            self._runtime.get(
+                "last_actual_hitstun",
+                self._runtime.get("last_seen_hitstun", False),
+            )
+        )
+        hitstun_edge_confirm = bool(opponent_in_hitstun and not last_seen_hitstun)
         last_inputs = self._runtime.get("last_inputs") or {}
 
         has_fresh_attack_input = self._has_fresh_attack_input(current_inputs, last_inputs)
 
-        current_move_level = int(snap.get("move_level") or 0)
-        last_seen_move_level = int(self._runtime.get("last_seen_move_level", 0) or 0)
         is_fresh_instance = (
             current_anim != last_seen_anim
             or current_label != last_seen_label
-            or current_move_level != last_seen_move_level
             or (opponent_in_combo_state and not last_seen_hitstun)
             or has_fresh_attack_input
         )
 
-        starting_progress_index = progress_index
         expected_step = steps[progress_index] if progress_index < len(steps) else None
         expected_labels = self._step_labels(expected_step)
 
         generic_partner_var_step = self._step_is_generic_partner_var(mission_id, expected_labels)
         partner_var_matched = generic_partner_var_step and self._partner_matches_generic_var(route_slot, snaps_dict)
 
-        expected_norm = {str(label or "").strip().lower() for label in expected_labels}
-        dedicated_megacrash_match = self._megacrash_step_matches(
-            expected_labels,
-            opponent_in_megacrash,
-            previous_opponent_megacrash,
-        )
-        current_matches_expected = self._mission_snapshot_label_matches(
-            snap,
-            expected_labels,
-        )
-        hit_confirm_available = self._peek_mission_hit_event(frame_idx) is not None
-        input_matches_expected = self._step_input_matches(
-            character_name, expected_step, expected_labels, frame_idx
-        )
-        non_damage_confirm = (
-            self._step_has_non_damage_confirm(expected_labels, snap, current_label)
-            or (self._step_is_baroque_cancel(expected_labels) and input_matches_expected)
-        )
-        step_allows_whiff = self._step_allows_whiff_confirm(expected_labels, expected_step)
+        current_matches_expected = self._mission_label_matches(current_label, expected_labels)
+        non_damage_confirm = self._step_has_non_damage_confirm(expected_labels, snap, current_label)
+        step_allows_whiff = self._step_allows_whiff_confirm(expected_labels)
         pass_confirm = self._step_is_pass(expected_step)
         zero_damage_confirm = (
             self._step_allows_zero_damage_confirm(character_name, expected_labels, current_label)
@@ -3848,73 +4428,19 @@ class MissionManager:
             and opponent_in_combo_state
             and baroque_pool_adjusted
         )
-        input_can_identify_expected = bool(
-            input_matches_expected
-            and (
-                current_matches_expected
-                or self._label_is_ignorable(current_label)
-                or step_allows_whiff
-                or pass_confirm
-                or zero_damage_confirm
-                or self._step_is_baroque_cancel(expected_labels)
-            )
-        )
 
         if self._runtime.get("pending_step_index") != progress_index:
             self._runtime.update({
                 "pending_step_index": None,
                 "pending_labels": [],
                 "pending_anim": None,
-                "pending_started_frame": -9999,
-                "pending_input_serial": 0,
-                "pending_action_serial": 0,
-                "pending_label_confirmed": False,
-                "pending_arm_source": "",
             })
 
         pending_step_index = self._runtime.get("pending_step_index")
         pending_labels = list(self._runtime.get("pending_labels") or [])
-        pending_input_serial = int(
-            self._runtime.get("pending_input_serial", 0) or 0
-        )
-
-        # Arm from the expected command before the action label catches up.
-        # Input alone never completes the step. It only opens the ownership
-        # window so an HP or combo edge that arrives first remains claimable.
-        if (
-            MISSION_REQUIRE_DAMAGE_CONFIRM
-            and pending_step_index != progress_index
-            and expected_labels
-            and input_matches_expected
-            and not pass_confirm
-            and not step_allows_whiff
-            and not zero_damage_confirm
-        ):
-            matched_input_serial = int(
-                self._runtime.get("mission_input_match_serial", 0) or 0
-            )
-            matching_action = self._latest_matching_action_event(expected_step, expected_labels)
-            matching_action_serial = int((matching_action or {}).get("serial", 0) or 0)
-            matching_action_frame = int((matching_action or {}).get("frame", frame_idx) or frame_idx)
-            self._runtime.update({
-                "pending_step_index": progress_index,
-                "pending_labels": expected_labels[:],
-                "pending_anim": current_anim if current_matches_expected else None,
-                "pending_started_frame": matching_action_frame,
-                "pending_input_serial": matched_input_serial,
-                "pending_action_serial": matching_action_serial,
-                "pending_label_confirmed": bool(current_matches_expected),
-                "pending_arm_source": "label+input" if current_matches_expected else "input",
-            })
-            pending_step_index = progress_index
-            pending_labels = expected_labels[:]
-            pending_input_serial = matched_input_serial
 
         reset_grace_active = int(self._runtime.get("reset_grace_frames", 0) or 0) > 0
-        reset_grace_confirm_allowed = (
-    reset_grace_active
-    and not self._step_grace_keeps_alive_only(expected_step)
-)
+        reset_grace_confirm_allowed = False
         reset_grace_match = (
             reset_grace_active
             and current_matches_expected
@@ -3941,31 +4467,18 @@ class MissionManager:
             expected_labels
             and (
                 partner_var_matched
-                or dedicated_megacrash_match
                 or (
-                    (current_matches_expected or input_can_identify_expected)
-                    and (input_can_identify_expected or not self._label_is_ignorable(current_label))
+                    current_matches_expected
+                    and not self._label_is_ignorable(current_label)
                     and (
                         pass_confirm
                         or (
-                            (is_fresh_instance or input_can_identify_expected)
-                            and (
-                                opponent_in_combo_state
-                                or hit_confirm_available
-                                or step_allows_whiff
-                                or reset_grace_match
-                                or zero_damage_confirm
-                                or post_install_match
-                            )
+                            is_fresh_instance
                         )
                     )
                 )
             )
         )
-
-        # Mission routes are ordered subsequences. Unlisted moves are ignored,
-        # but a normal required move must still own its confirmation window.
-        # Only explicit whiff, pass, zero-damage, and grace rules may bypass that.
 
         if partner_var_matched:
             print(f"[mission generic var] slot={slot} step={progress_index} labels={expected_labels!r}")
@@ -3976,10 +4489,6 @@ class MissionManager:
                 "pending_step_index": None,
                 "pending_labels": [],
                 "pending_anim": None,
-                "pending_started_frame": -9999,
-                "pending_action_serial": 0,
-                "pending_label_confirmed": False,
-                "pending_arm_source": "",
                 "reset_grace_frames": completed_grace,
                 "reset_grace_labels": [],
                 "reset_grace_step_index": progress_index if completed_grace > 0 else None,
@@ -4027,7 +4536,6 @@ class MissionManager:
                         f"matched={expected_labels!r} zero={zero_damage_confirm}"
                     )
 
-                    completed_grace = self._step_grace(expected_step)
                     progress_index += 1
 
                     self._runtime.update({
@@ -4035,10 +4543,8 @@ class MissionManager:
                         "pending_step_index": None,
                         "pending_labels": [],
                         "pending_anim": None,
-                        "reset_grace_frames": completed_grace,
+                        "reset_grace_frames": 0,
                         "reset_grace_labels": [],
-                        "reset_grace_step_index": progress_index if completed_grace > 0 else None,
-                        "reset_grace_keeps_alive_only": self._step_grace_keeps_alive_only(expected_step),
                         "shell_install_hold": 0,
                         "post_install_hold_frames": 12 if zero_damage_confirm else 0,
                         "shell_installed": zero_damage_confirm,
@@ -4051,25 +4557,14 @@ class MissionManager:
                     })
 
                 else:
-                    matched_input_serial = int(
-                        self._runtime.get("mission_input_match_serial", 0) or 0
-                    )
-                    matching_action = self._latest_matching_action_event(expected_step, expected_labels)
-                    matching_action_serial = int((matching_action or {}).get("serial", 0) or 0)
-                    matching_action_frame = int((matching_action or {}).get("frame", frame_idx) or frame_idx)
                     self._runtime.update({
                         "pending_step_index": progress_index,
                         "pending_labels": expected_labels[:],
                         "pending_anim": current_anim,
-                        "pending_started_frame": matching_action_frame,
-                        "pending_input_serial": matched_input_serial,
-                        "pending_action_serial": matching_action_serial,
-                        "pending_label_confirmed": bool(current_matches_expected),
-                        "pending_arm_source": "label" if current_matches_expected else "input",
+                        "pending_frame": frame_idx,
                     })
                     pending_step_index = progress_index
                     pending_labels = expected_labels[:]
-                    pending_input_serial = matched_input_serial
 
             repeat_same_step_damage = self._can_repeat_same_step_on_damage(
                 steps,
@@ -4080,104 +4575,43 @@ class MissionManager:
                 damage_values,
             )
 
+            pending_frame = int(self._runtime.get("pending_frame", frame_idx) or frame_idx)
+            fresh_buffered_hit = False
+            for hit_event in list(self._runtime.get("mission_hit_events") or []):
+                if not isinstance(hit_event, dict) or hit_event.get("consumed"):
+                    continue
+                hit_frame = int(hit_event.get("frame", -1) or -1)
+                if hit_frame < pending_frame:
+                    continue
+                if not (hit_event.get("hp_seen") or int(hit_event.get("damage", 0) or 0) > 0):
+                    continue
+                if not opponent_in_hitstun:
+                    continue
+                fresh_buffered_hit = True
+                hit_event["consumed"] = True
+                break
+
             if (
                 baroque_damage_confirm
                 and pending_step_index != progress_index
             ):
-                matched_input_serial = int(
-                    self._runtime.get("mission_input_match_serial", 0) or 0
-                )
-                matching_action = self._latest_matching_action_event(expected_step, expected_labels)
-                matching_action_serial = int((matching_action or {}).get("serial", 0) or 0)
-                matching_action_frame = int((matching_action or {}).get("frame", frame_idx) or frame_idx)
                 self._runtime.update({
                     "pending_step_index": progress_index,
                     "pending_labels": expected_labels[:],
                     "pending_anim": current_anim,
-                    "pending_started_frame": matching_action_frame,
-                    "pending_input_serial": matched_input_serial,
-                    "pending_action_serial": matching_action_serial,
-                    "pending_label_confirmed": bool(current_matches_expected),
-                    "pending_arm_source": "baroque",
+                    "pending_frame": frame_idx,
                 })
                 pending_step_index = progress_index
                 pending_labels = expected_labels[:]
-                pending_input_serial = matched_input_serial
-
-            pending_anim = self._runtime.get("pending_anim")
-            if pending_step_index == progress_index and current_matches_expected:
-                self._runtime["pending_label_confirmed"] = True
-                if pending_anim is None:
-                    pending_anim = current_anim
-                    self._runtime["pending_anim"] = current_anim
-                pending_action_serial = int(self._runtime.get("pending_action_serial", 0) or 0)
-                buffered_hit = self._peek_mission_hit_event(
-                    frame_idx,
-                    min_frame=int(frame_idx) - MISSION_HIT_PRELABEL_WINDOW,
-                    owner_action_serial=pending_action_serial,
-                )
-                if buffered_hit is not None:
-                    self._runtime["pending_started_frame"] = min(
-                        int(self._runtime.get("pending_started_frame", frame_idx) or frame_idx),
-                        int(buffered_hit.get("frame", frame_idx)),
-                    )
-            pending_started_frame = int(self._runtime.get("pending_started_frame", -9999) or -9999)
-            pending_label_confirmed = bool(self._runtime.get("pending_label_confirmed", False))
-            pending_action_serial = int(self._runtime.get("pending_action_serial", 0) or 0)
-            pending_hit_confirm_available = self._peek_mission_hit_event(
-                frame_idx,
-                min_frame=pending_started_frame,
-                owner_action_serial=pending_action_serial,
-            ) is not None
-            pending_age = int(frame_idx) - pending_started_frame
-            pending_move_still_owns_window = bool(
-                current_matches_expected
-                or current_anim == pending_anim
-                or (
-                    not pending_label_confirmed
-                    and 0 <= pending_age <= MISSION_HIT_PRELABEL_WINDOW
-                    and bool(pending_input_serial)
-                )
-                or reset_grace_confirm_allowed
-                or step_allows_whiff
-            )
-
-            # If another non-ignorable move starts before the required move is
-            # confirmed, discard the pending marker. The unrelated move remains
-            # irrelevant and cannot donate its later damage to this step.
-            if (
-                pending_step_index == progress_index
-                and pending_labels
-                and not pending_move_still_owns_window
-                and not self._label_is_ignorable(current_label)
-            ):
-                self._runtime.update({
-                    "pending_step_index": None,
-                    "pending_labels": [],
-                    "pending_anim": None,
-                    "pending_started_frame": -9999,
-                    "pending_input_serial": 0,
-                    "pending_action_serial": 0,
-                    "pending_label_confirmed": False,
-                    "pending_arm_source": "",
-                })
-                pending_step_index = None
-                pending_labels = []
-                pending_input_serial = 0
 
             if (
                 pending_step_index == progress_index
                 and pending_labels
-                and pending_move_still_owns_window
+                and (opponent_in_combo_state or reset_grace_confirm_allowed)
                 and (
-                    pending_label_confirmed
-                    or current_matches_expected
-                    or input_can_identify_expected
-                    or baroque_damage_confirm
-                )
-                and (actual_hitstun_now or opponent_in_megacrash or reset_grace_confirm_allowed)
-                and (
-                    pending_hit_confirm_available
+                    opponent_took_damage
+                    or fresh_buffered_hit
+                    or hitstun_edge_confirm
                     or non_damage_confirm
                     or doronjo_pass
                     or repeat_same_step_damage
@@ -4185,12 +4619,6 @@ class MissionManager:
                 )
             ):
                 completed_grace = self._step_grace(expected_step)
-                if pending_hit_confirm_available or doronjo_pass or repeat_same_step_damage:
-                    self._consume_mission_hit_event(
-                        frame_idx,
-                        min_frame=pending_started_frame,
-                        owner_action_serial=pending_action_serial,
-                    )
 
                 progress_index += 1
 
@@ -4206,11 +4634,6 @@ class MissionManager:
                     "pending_step_index": None,
                     "pending_labels": [],
                     "pending_anim": None,
-                    "pending_started_frame": -9999,
-                    "pending_input_serial": 0,
-                    "pending_action_serial": 0,
-                    "pending_label_confirmed": False,
-                    "pending_arm_source": "",
                     "reset_grace_frames": completed_grace,
                     "reset_grace_labels": [],
                     "reset_grace_step_index": progress_index if completed_grace > 0 else None,
@@ -4224,30 +4647,17 @@ class MissionManager:
                 self._runtime["progress_index"] = progress_index
 
         if progress_index > starting_progress_index:
-            # The next route step may only use inputs that occur after this step
-            # completed. This prevents an earlier 5B from satisfying a future 5B
-            # after 5A completes, while still ignoring arbitrary extra inputs
-            # performed between the required ordered markers.
-            serial_to_consume = max(
+            self._runtime["mission_input_consumed_serial"] = max(
+                starting_consumed_input_serial,
                 int(self._runtime.get("mission_input_consumed_serial", 0) or 0),
-                int(pending_input_serial or 0),
-                int(self._runtime.get("pending_input_serial", 0) or 0),
-                int(self._runtime.get("mission_input_match_serial", 0) or 0),
             )
-            self._consume_mission_input_through(serial_to_consume)
-            self._runtime["mission_step_start_serial"] = serial_to_consume
 
         if not partner_var_matched:
             self._runtime.update({
                 "last_seen_label": current_label,
                 "last_seen_anim": current_anim,
-                "last_seen_move_level": current_move_level,
-                # Store the same sustained signal used for liveness. Otherwise
-                # a crouching reaction with an unmapped action ID can look like a
-                # new combo edge every frame while the global counter is nonzero.
-                "last_seen_hitstun": opponent_in_combo_state,
-                "last_actual_hitstun": opponent_in_hitstun or opponent_in_megacrash,
-                "last_opponent_megacrash": opponent_in_megacrash,
+                "last_seen_hitstun": opponent_in_hitstun,
+                "last_actual_hitstun": actual_hitstun_now,
                 "last_inputs": dict(current_inputs),
             })
 
@@ -4259,21 +4669,19 @@ class MissionManager:
             )
             return _clear_payload(len(steps), final_idx, final_label)
 
-        tracked_progress = self._refresh_predicted_progress(
-            steps,
-            progress_index,
+        tracking_current_step = bool(
+            self._runtime.get("pending_step_index") == progress_index
+            and list(self._runtime.get("pending_labels") or [])
         )
-        self._prune_mission_event_buffers()
-        # Native action prediction is diagnostic only. A row is completed and
-        # the mission clears only after the defender enters real hitstun and the
-        # hit event is owned by that exact action. This prevents a whiffed super
-        # from appearing complete merely because its startup animation began.
-        display_index = min(
-            max(0, int(progress_index)),
-            max(0, len(steps) - 1),
+        predicted_progress = progress_index
+        if callable(self._event_provider):
+            predicted_progress = self._refresh_predicted_progress(
+                steps, progress_index
+            )
+        predicted_step_count = max(
+            1 if tracking_current_step else 0,
+            predicted_progress - progress_index,
         )
-        tracked_steps = max(0, int(tracked_progress) - int(progress_index))
-
         payload.update({
             "just_cleared": False,
             "clear_seq": int(self._runtime.get("clear_seq", 0)),
@@ -4281,14 +4689,15 @@ class MissionManager:
             "celebrate_token": int(self._runtime.get("celebrate_token", 0) or 0),
             "completed_step_count": progress_index,
             "confirmed_step_count": progress_index,
-            "predicted_step_count": tracked_steps,
-            "prediction_active": bool(tracked_steps > 0),
-            "prediction_revision": int(self._runtime.get("prediction_revision", 0) or 0),
-            "current_step_index": display_index,
+            "predicted_step_count": predicted_step_count,
+            "prediction_active": bool(predicted_step_count or tracking_current_step),
+            "current_step_index": progress_index,
             "current_step_label": (
-                " / ".join(self._step_labels(steps[display_index]))
-                if display_index < len(steps) else None
+                " / ".join(self._step_labels(steps[progress_index]))
+                if progress_index < len(steps) else None
             ),
+            "mission_event_cursor": int(self._event_state.get("latest_sequence", 0) or 0),
+            "mission_buffered_advances": int(buffered_advanced),
         })
         return payload
 

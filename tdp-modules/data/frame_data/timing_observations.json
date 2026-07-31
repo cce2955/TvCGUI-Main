@@ -14,14 +14,37 @@
               ],
               "value": 9
             },
-            "hitstop": {
+            "damage": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                3
+                720
+              ],
+              "value": 720
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 4,
+              "samples": [
+                3,
+                2,
+                6,
+                5
               ],
               "value": 3
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
+              "samples": [
+                12,
+                12,
+                12
+              ],
+              "value": 12
             }
           }
         },
@@ -38,45 +61,46 @@
               "value": 12
             },
             "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                9,
+                9
+              ],
+              "value": 9
+            },
+            "hitstun": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                9
+                17
               ],
-              "value": 9
+              "value": 17
             }
           }
         },
         "258": {
           "action_name": "5C",
           "fields": {
-            "damage": {
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                6,
+                12
+              ],
+              "value": 6
+            },
+            "hitstun": {
               "confidence": "matched",
               "matches": 2,
               "sample_count": 2,
               "samples": [
-                2800,
-                2800
-              ],
-              "value": 2800
-            },
-            "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
-              "samples": [
-                5
-              ],
-              "value": 5
-            },
-            "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 2,
-              "samples": [
                 21,
-                19
+                21
               ],
               "value": 21
             }
@@ -102,6 +126,52 @@
                 3
               ],
               "value": 3
+            }
+          }
+        },
+        "264": {
+          "action_name": "3C",
+          "fields": {
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "265": {
+          "action_name": "j.A",
+          "fields": {
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1
+              ],
+              "value": 1
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
             }
           }
         },
@@ -140,38 +210,24 @@
         "270": {
           "action_name": "6B",
           "fields": {
-            "damage": {
-              "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
-              "samples": [
-                2480,
-                2480,
-                2480
-              ],
-              "value": 2480
-            },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 4,
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
               "samples": [
                 9,
-                9,
-                7,
                 7
               ],
               "value": 9
             },
             "hitstun": {
-              "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 4,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 3,
               "samples": [
                 17,
                 17,
-                17,
-                17
+                16
               ],
               "value": 17
             }
@@ -269,13 +325,32 @@
               ],
               "value": 14
             },
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2922
+              ],
+              "value": 2922
+            },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 12,
-                10
+                10,
+                8
+              ],
+              "value": 12
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
               ],
               "value": 12
             }
@@ -354,6 +429,20 @@
               "value": 12
             }
           }
+        },
+        "430": {
+          "action_name": "assist standby",
+          "fields": {
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
         }
       }
     },
@@ -362,35 +451,47 @@
         "430": {
           "action_name": "assist standby",
           "fields": {
-            "damage": {
+            "blockstun": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                13732
+                2
+              ],
+              "value": 2
+            },
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                13732,
+                3400
               ],
               "value": 13732
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 10,
-                19
+                19,
+                12
               ],
               "value": 10
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 3,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 4,
               "samples": [
                 12,
                 13,
+                21,
                 21
               ],
-              "value": 12
+              "value": 21
             }
           }
         }
@@ -398,24 +499,81 @@
     },
     "11": {
       "moves": {
-        "260": {
-          "action_name": "2B",
+        "257": {
+          "action_name": "5B",
           "fields": {
             "damage": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                1920
+                2000
               ],
-              "value": 1920
+              "value": 2000
             },
             "hitstun": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                6
+                15
+              ],
+              "value": 15
+            }
+          }
+        },
+        "258": {
+          "action_name": "5C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3200
+              ],
+              "value": 3200
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                18
+              ],
+              "value": 18
+            }
+          }
+        },
+        "260": {
+          "action_name": "2B",
+          "fields": {
+            "damage": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                1920,
+                1920
+              ],
+              "value": 1920
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5
+              ],
+              "value": 5
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                6,
+                17
               ],
               "value": 6
             }
@@ -425,10 +583,11 @@
           "action_name": "Tank Slice C",
           "fields": {
             "blockstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                15,
                 15
               ],
               "value": 15
@@ -436,9 +595,10 @@
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                6
+                6,
+                1
               ],
               "value": 6
             }
@@ -473,41 +633,33 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 13,
+              "matches": 14,
               "sample_count": 16,
               "samples": [
                 800,
                 800,
                 800,
-                800,
-                800,
-                800,
-                800,
-                800,
-                800,
-                800,
-                1560,
-                800,
-                800,
-                800,
                 2780,
-                684
+                684,
+                800,
+                800,
+                800,
+                800,
+                800,
+                800,
+                800,
+                800,
+                800,
+                800,
+                800
               ],
               "value": 800
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 4,
+              "matches": 6,
               "sample_count": 16,
               "samples": [
-                5,
-                6,
-                3,
-                3,
-                1,
-                5,
-                4,
-                2,
                 2,
                 4,
                 6,
@@ -515,13 +667,21 @@
                 5,
                 6,
                 6,
-                4
+                4,
+                6,
+                6,
+                4,
+                4,
+                4,
+                5,
+                6,
+                3
               ],
               "value": 6
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 16,
+              "matches": 15,
               "sample_count": 16,
               "samples": [
                 12,
@@ -538,7 +698,7 @@
                 12,
                 12,
                 12,
-                12,
+                5,
                 12
               ],
               "value": 12
@@ -583,10 +743,10 @@
                 1440,
                 1440,
                 1440,
-                1440,
-                1440,
                 810,
-                9082
+                9082,
+                1440,
+                1440
               ],
               "value": 1440
             },
@@ -595,8 +755,6 @@
               "matches": 4,
               "sample_count": 16,
               "samples": [
-                9,
-                7,
                 9,
                 8,
                 7,
@@ -610,9 +768,11 @@
                 5,
                 6,
                 6,
-                7
+                7,
+                9,
+                9
               ],
-              "value": 7
+              "value": 9
             },
             "hitstun": {
               "confidence": "confirmed",
@@ -632,9 +792,9 @@
                 17,
                 17,
                 17,
+                11,
                 17,
-                17,
-                11
+                17
               ],
               "value": 17
             }
@@ -663,7 +823,7 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 15,
+              "matches": 14,
               "sample_count": 16,
               "samples": [
                 2480,
@@ -673,11 +833,11 @@
                 2480,
                 2480,
                 2480,
-                5313,
                 2480,
                 2480,
+                4425,
                 2480,
-                2480,
+                4417,
                 2480,
                 2480,
                 2480,
@@ -687,31 +847,31 @@
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 8,
+              "matches": 6,
               "sample_count": 16,
               "samples": [
                 12,
                 12,
-                12,
-                12,
-                9,
-                9,
                 10,
+                10,
+                9,
+                4,
+                12,
+                3,
+                3,
+                12,
+                9,
                 8,
                 12,
                 12,
-                12,
-                6,
-                6,
-                9,
-                9,
-                12
+                3,
+                7
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 16,
+              "matches": 14,
               "sample_count": 16,
               "samples": [
                 21,
@@ -722,11 +882,11 @@
                 21,
                 21,
                 21,
+                18,
                 21,
                 21,
                 21,
-                21,
-                21,
+                17,
                 21,
                 21,
                 21
@@ -755,20 +915,21 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 5,
+              "sample_count": 6,
               "samples": [
                 349,
                 1484,
                 1016,
                 1484,
-                5919
+                5919,
+                720
               ],
               "value": 1484
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 8,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 9,
               "samples": [
                 3,
                 6,
@@ -777,19 +938,21 @@
                 5,
                 4,
                 4,
+                6,
                 6
               ],
-              "value": 3
+              "value": 6
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 5,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 6,
               "samples": [
                 12,
                 9,
                 11,
                 7,
+                12,
                 12
               ],
               "value": 12
@@ -811,29 +974,32 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 1360,
-                1360
+                1360,
+                740
               ],
               "value": 1360
             },
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 3,
+              "sample_count": 4,
               "samples": [
                 8,
                 9,
-                9
+                9,
+                7
               ],
               "value": 9
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                17,
                 17,
                 17
               ],
@@ -859,19 +1025,24 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 5,
+              "sample_count": 8,
               "samples": [
                 2400,
                 2400,
-                2400
+                2400,
+                10983,
+                4960,
+                2400,
+                2400,
+                4560
               ],
               "value": 2400
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 8,
+              "matches": 4,
+              "sample_count": 13,
               "samples": [
                 12,
                 9,
@@ -880,15 +1051,25 @@
                 11,
                 11,
                 83,
-                9
+                9,
+                12,
+                5,
+                9,
+                12,
+                12
               ],
-              "value": 9
+              "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 8,
+              "sample_count": 8,
               "samples": [
+                21,
+                21,
+                21,
+                21,
+                21,
                 21,
                 21,
                 21
@@ -910,33 +1091,51 @@
               "value": 15
             },
             "damage": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 6,
+              "sample_count": 8,
               "samples": [
                 2160,
+                2160,
+                2160,
+                2160,
+                2160,
+                1160,
+                6000,
                 2160
               ],
               "value": 2160
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 3,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 9,
               "samples": [
                 9,
                 10,
-                10
+                10,
+                12,
+                12,
+                10,
+                9,
+                6,
+                9
               ],
-              "value": 10
+              "value": 9
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 3,
+              "confidence": "confirmed",
+              "matches": 7,
+              "sample_count": 9,
               "samples": [
                 12,
                 21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                12,
                 21
               ],
               "value": 21
@@ -1097,9 +1296,15 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 6,
-              "sample_count": 6,
+              "matches": 12,
+              "sample_count": 12,
               "samples": [
+                2560,
+                2560,
+                2560,
+                2560,
+                2560,
+                2560,
                 2560,
                 2560,
                 2560,
@@ -1111,8 +1316,8 @@
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 8,
+              "matches": 5,
+              "sample_count": 14,
               "samples": [
                 10,
                 10,
@@ -1121,15 +1326,27 @@
                 12,
                 11,
                 10,
-                12
+                12,
+                11,
+                12,
+                12,
+                6,
+                12,
+                9
               ],
-              "value": 10
+              "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 6,
-              "sample_count": 6,
+              "matches": 12,
+              "sample_count": 12,
               "samples": [
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
                 21,
                 21,
                 21,
@@ -1167,20 +1384,22 @@
             "hitstop": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 4,
+              "sample_count": 5,
               "samples": [
                 9,
                 7,
                 9,
-                9
+                9,
+                4
               ],
               "value": 9
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                17,
                 17
               ],
               "value": 17
@@ -1203,10 +1422,9 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 14,
-              "sample_count": 15,
+              "matches": 15,
+              "sample_count": 16,
               "samples": [
-                2400,
                 2400,
                 2400,
                 2400,
@@ -1220,17 +1438,17 @@
                 2400,
                 2400,
                 43999,
+                2400,
+                2400,
                 2400
               ],
               "value": 2400
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 6,
+              "matches": 7,
               "sample_count": 16,
               "samples": [
-                11,
-                10,
                 12,
                 10,
                 12,
@@ -1244,7 +1462,9 @@
                 9,
                 12,
                 12,
-                10
+                10,
+                10,
+                12
               ],
               "value": 12
             },
@@ -1279,33 +1499,54 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 4,
+              "matches": 10,
+              "sample_count": 11,
               "samples": [
                 2800,
                 2800,
+                2800,
+                2800,
+                2800,
+                2800,
+                2800,
+                2800,
+                2400,
                 2800,
                 2800
               ],
               "value": 2800
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 4,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 11,
               "samples": [
                 12,
                 8,
                 10,
-                11
+                11,
+                12,
+                4,
+                11,
+                12,
+                11,
+                12,
+                9
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 4,
+              "matches": 11,
+              "sample_count": 11,
               "samples": [
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
                 21,
                 21,
                 21,
@@ -1319,30 +1560,45 @@
           "action_name": "Hado H",
           "fields": {
             "damage": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 7,
+              "sample_count": 7,
               "samples": [
+                3200,
+                3200,
+                3200,
+                3200,
+                3200,
                 3200,
                 3200
               ],
               "value": 3200
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 7,
               "samples": [
                 12,
-                11
+                11,
+                10,
+                10,
+                10,
+                10,
+                6
               ],
-              "value": 12
+              "value": 10
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 7,
+              "sample_count": 7,
               "samples": [
+                21,
+                21,
+                21,
+                21,
+                21,
                 21,
                 21
               ],
@@ -1382,6 +1638,41 @@
             }
           }
         },
+        "309": {
+          "action_name": "Tatsu H",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                8343,
+                6183
+              ],
+              "value": 8343
+            },
+            "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                12,
+                12
+              ],
+              "value": 12
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "310": {
           "action_name": "Shoryu L",
           "fields": {
@@ -1399,28 +1690,31 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                2400
+                2400,
+                21360
               ],
               "value": 2400
             },
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 3,
+              "sample_count": 4,
               "samples": [
                 7,
                 8,
-                8
+                8,
+                86
               ],
               "value": 8
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -1456,7 +1750,7 @@
             "damage": {
               "confidence": "confirmed",
               "matches": 5,
-              "sample_count": 7,
+              "sample_count": 8,
               "samples": [
                 6036,
                 6036,
@@ -1464,14 +1758,15 @@
                 4536,
                 6036,
                 6036,
-                4036
+                4036,
+                8196
               ],
               "value": 6036
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 7,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 8,
               "samples": [
                 10,
                 12,
@@ -1479,15 +1774,17 @@
                 8,
                 10,
                 11,
+                12,
                 12
               ],
-              "value": 10
+              "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 7,
-              "sample_count": 7,
+              "matches": 8,
+              "sample_count": 8,
               "samples": [
+                21,
                 21,
                 21,
                 21,
@@ -1506,28 +1803,34 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 2,
+              "sample_count": 4,
               "samples": [
                 2320,
-                2320
+                2320,
+                3120,
+                12644
               ],
               "value": 2320
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 4,
               "samples": [
                 11,
-                10
+                10,
+                9,
+                12
               ],
               "value": 11
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 4,
               "samples": [
+                21,
+                21,
                 21,
                 21
               ],
@@ -1541,30 +1844,33 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 3,
+              "sample_count": 4,
               "samples": [
                 2640,
                 2140,
-                2640
+                2640,
+                9864
               ],
               "value": 2640
             },
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 3,
+              "sample_count": 4,
               "samples": [
                 10,
                 12,
-                10
+                10,
+                12
               ],
               "value": 10
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 4,
+              "sample_count": 4,
               "samples": [
+                21,
                 21,
                 21,
                 21
@@ -1618,10 +1924,11 @@
               "value": 15
             },
             "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                1680,
                 1680
               ],
               "value": 1680
@@ -1629,18 +1936,20 @@
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 12,
-                10
+                10,
+                11
               ],
               "value": 12
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -1693,6 +2002,38 @@
                 21,
                 21,
                 21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "353": {
+          "action_name": "Tatsu Super",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                16406
+              ],
+              "value": 16406
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
                 21
               ],
               "value": 21
@@ -1770,31 +2111,37 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 4,
+              "sample_count": 5,
               "samples": [
                 800,
                 800,
-                800
+                800,
+                800,
+                3200
               ],
               "value": 800
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 3,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 5,
               "samples": [
                 10,
                 4,
-                11
+                11,
+                12,
+                12
               ],
-              "value": 10
+              "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 5,
+              "sample_count": 5,
               "samples": [
+                21,
+                21,
                 21,
                 21,
                 21
@@ -1841,30 +2188,41 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 3,
+              "sample_count": 8,
               "samples": [
                 2400,
                 1725,
-                4000
+                4000,
+                1500,
+                4400,
+                3517,
+                3832,
+                43999
               ],
               "value": 2400
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                7
+                7,
+                12
               ],
               "value": 7
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 6,
+              "sample_count": 7,
               "samples": [
                 21,
-                21
+                21,
+                21,
+                21,
+                21,
+                21,
+                12
               ],
               "value": 21
             }
@@ -1899,9 +2257,10 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                7140
+                7140,
+                16400
               ],
               "value": 7140
             },
@@ -1915,10 +2274,11 @@
               "value": 12
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                12,
                 12
               ],
               "value": 12
@@ -1945,28 +2305,31 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 16560,
-                6080
+                6080,
+                41167
               ],
               "value": 16560
             },
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 87,
-                87
+                87,
+                90
               ],
               "value": 87
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                21,
                 21,
                 21
               ],
@@ -1995,32 +2358,48 @@
         "256": {
           "action_name": "5A",
           "fields": {
-            "damage": {
+            "blockstun": {
               "confidence": "matched",
               "matches": 2,
               "sample_count": 2,
               "samples": [
+                9,
+                9
+              ],
+              "value": 9
+            },
+            "damage": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 4,
+              "samples": [
                 520,
-                520
+                520,
+                1140,
+                1140
               ],
               "value": 520
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 3,
               "samples": [
-                2
+                2,
+                6,
+                4
               ],
               "value": 2
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 2,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 4,
               "samples": [
                 12,
-                2
+                2,
+                12,
+                1
               ],
               "value": 12
             }
@@ -2031,34 +2410,42 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 4,
+              "sample_count": 6,
               "samples": [
                 940,
                 940,
-                940
+                940,
+                3200,
+                940,
+                1057
               ],
               "value": 940
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 3,
+              "sample_count": 5,
               "samples": [
                 8,
                 4,
-                9
+                9,
+                12,
+                2
               ],
               "value": 8
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 4,
+              "sample_count": 6,
               "samples": [
                 17,
                 17,
-                17
+                17,
+                21,
+                17,
+                11
               ],
               "value": 17
             }
@@ -2069,9 +2456,10 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 8,
-              "sample_count": 8,
+              "matches": 9,
+              "sample_count": 9,
               "samples": [
+                2080,
                 2080,
                 2080,
                 2080,
@@ -2084,9 +2472,9 @@
               "value": 2080
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 8,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 9,
               "samples": [
                 9,
                 10,
@@ -2095,14 +2483,15 @@
                 11,
                 12,
                 9,
-                10
+                10,
+                12
               ],
-              "value": 9
+              "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 8,
-              "sample_count": 8,
+              "matches": 9,
+              "sample_count": 9,
               "samples": [
                 21,
                 21,
@@ -2111,6 +2500,39 @@
                 21,
                 21,
                 21,
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "261": {
+          "action_name": "2C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6105
+              ],
+              "value": 6105
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                4
+              ],
+              "value": 4
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
                 21
               ],
               "value": 21
@@ -2219,36 +2641,49 @@
         "266": {
           "action_name": "j.B",
           "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                11
+              ],
+              "value": 11
+            },
             "damage": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 4,
+              "sample_count": 5,
               "samples": [
                 860,
                 860,
                 271,
-                860
+                860,
+                1739
               ],
               "value": 860
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 5,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 7,
               "samples": [
                 3,
                 7,
                 5,
                 7,
+                5,
+                5,
                 5
               ],
-              "value": 7
+              "value": 5
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 5,
-              "sample_count": 5,
+              "matches": 6,
+              "sample_count": 6,
               "samples": [
+                17,
                 17,
                 17,
                 17,
@@ -2265,11 +2700,87 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                1380
+                1380,
+                4367
               ],
               "value": 1380
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                12,
+                9
+              ],
+              "value": 12
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "304": {
+          "action_name": "Kikoken L",
+          "fields": {
+            "damage": {
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 4,
+              "samples": [
+                2400,
+                2400,
+                2400,
+                2400
+              ],
+              "value": 2400
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 4,
+              "samples": [
+                8,
+                11,
+                12,
+                10
+              ],
+              "value": 8
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 4,
+              "samples": [
+                21,
+                21,
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "305": {
+          "action_name": "Kikoken M",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2400
+              ],
+              "value": 2400
             },
             "hitstop": {
               "confidence": "single",
@@ -2285,44 +2796,6 @@
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                21
-              ],
-              "value": 21
-            }
-          }
-        },
-        "304": {
-          "action_name": "Kikoken L",
-          "fields": {
-            "damage": {
-              "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
-              "samples": [
-                2400,
-                2400,
-                2400
-              ],
-              "value": 2400
-            },
-            "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 3,
-              "samples": [
-                8,
-                11,
-                12
-              ],
-              "value": 8
-            },
-            "hitstun": {
-              "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
-              "samples": [
-                21,
-                21,
                 21
               ],
               "value": 21
@@ -2349,6 +2822,70 @@
                 7
               ],
               "value": 7
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "309": {
+          "action_name": "SBK H",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                860
+              ],
+              "value": 860
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3
+              ],
+              "value": 3
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "311": {
+          "action_name": "Tensho B",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                7001
+              ],
+              "value": 7001
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
             },
             "hitstun": {
               "confidence": "single",
@@ -2435,31 +2972,34 @@
             "damage": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 3,
+              "sample_count": 4,
               "samples": [
                 800,
                 800,
-                800
+                800,
+                2007
               ],
               "value": 800
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 4,
+              "sample_count": 5,
               "samples": [
                 10,
                 57,
                 12,
-                11
+                11,
+                9
               ],
               "value": 10
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 4,
+              "matches": 5,
+              "sample_count": 5,
               "samples": [
+                21,
                 21,
                 21,
                 21,
@@ -2514,34 +3054,71 @@
               "value": 15
             },
             "damage": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 4,
+              "confidence": "confirmed",
+              "matches": 6,
+              "sample_count": 16,
               "samples": [
-                3327,
                 1073,
                 3327,
-                2998
+                2998,
+                3004,
+                5484,
+                3004,
+                5308,
+                5319,
+                3004,
+                5484,
+                5308,
+                3004,
+                3004,
+                4436,
+                5359,
+                3004
               ],
-              "value": 3327
+              "value": 3004
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 4,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 16,
               "samples": [
                 7,
                 3,
                 3,
-                6
+                6,
+                5,
+                6,
+                6,
+                12,
+                4,
+                7,
+                9,
+                2,
+                5,
+                7,
+                2,
+                7
               ],
-              "value": 3
+              "value": 7
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 16,
+              "sample_count": 16,
               "samples": [
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
                 21,
                 21,
                 21
@@ -2555,8 +3132,8 @@
           "fields": {
             "blockstun": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 9,
+              "matches": 8,
+              "sample_count": 14,
               "samples": [
                 17,
                 15,
@@ -2566,7 +3143,12 @@
                 2,
                 15,
                 15,
-                14
+                14,
+                15,
+                15,
+                15,
+                15,
+                15
               ],
               "value": 15
             },
@@ -2575,69 +3157,69 @@
               "matches": 4,
               "sample_count": 16,
               "samples": [
+                500,
+                500,
                 4200,
-                4800,
-                6000,
-                8000,
-                49504,
-                2800,
-                3600,
-                3600,
-                3600,
-                3600,
-                4600,
-                4000,
-                4000,
-                4400,
-                5000,
-                5000
+                4200,
+                5400,
+                8400,
+                5400,
+                8400,
+                1560,
+                10000,
+                800,
+                800,
+                800,
+                800,
+                2782,
+                924
               ],
-              "value": 3600
+              "value": 800
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 3,
+              "matches": 7,
               "sample_count": 16,
               "samples": [
-                12,
-                21,
-                58,
-                58,
-                58,
-                84,
-                8,
-                10,
-                11,
                 82,
-                10,
+                82,
+                84,
+                79,
+                9,
+                80,
+                71,
                 12,
-                66,
-                682,
-                74,
-                82
+                7,
+                6,
+                6,
+                6,
+                6,
+                6,
+                6,
+                6
               ],
-              "value": 58
+              "value": 6
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 10,
+              "matches": 12,
               "sample_count": 16,
               "samples": [
                 4,
                 21,
-                10,
                 21,
-                1117519872,
-                21,
-                4,
-                21,
-                4,
-                21,
-                4,
+                12,
                 21,
                 21,
                 21,
                 21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                12,
+                12,
                 21
               ],
               "value": 21
@@ -2674,6 +3256,15 @@
         "256": {
           "action_name": "5A",
           "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                9
+              ],
+              "value": 9
+            },
             "damage": {
               "confidence": "single",
               "matches": 1,
@@ -2687,9 +3278,10 @@
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                5
+                5,
+                1
               ],
               "value": 5
             },
@@ -2918,21 +3510,32 @@
         "430": {
           "action_name": "assist standby",
           "fields": {
-            "damage": {
+            "blockstun": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                1280
+                2
+              ],
+              "value": 2
+            },
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                1280,
+                1058
               ],
               "value": 1280
             },
             "hitstun": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                17
+                17,
+                21
               ],
               "value": 17
             }
@@ -3217,8 +3820,8 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 5,
-              "sample_count": 13,
+              "matches": 6,
+              "sample_count": 14,
               "samples": [
                 2800,
                 4000,
@@ -3231,6 +3834,7 @@
                 2000,
                 500,
                 500,
+                4000,
                 4000,
                 4000
               ],
@@ -3273,6 +3877,48 @@
     },
     "16": {
       "moves": {
+        "256": {
+          "action_name": "5A",
+          "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                9
+              ],
+              "value": 9
+            },
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1200
+              ],
+              "value": 1200
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                6,
+                5
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
+            }
+          }
+        },
         "257": {
           "action_name": "5B",
           "fields": {
@@ -3309,28 +3955,31 @@
           "action_name": "2A",
           "fields": {
             "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                1120,
                 1120
               ],
               "value": 1120
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                6,
                 6
               ],
               "value": 6
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                12,
                 12
               ],
               "value": 12
@@ -3392,6 +4041,29 @@
                 12
               ],
               "value": 12
+            }
+          }
+        },
+        "264": {
+          "action_name": "3C",
+          "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                15
+              ],
+              "value": 15
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5
+              ],
+              "value": 5
             }
           }
         },
@@ -3494,32 +4166,99 @@
             }
           }
         },
-        "311": {
-          "action_name": "Slash Elbow M",
+        "305": {
+          "action_name": "Flash Chop B",
           "fields": {
             "damage": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                22087
+                19600
               ],
-              "value": 22087
+              "value": 19600
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                2
+                17
               ],
-              "value": 2
+              "value": 17
             },
             "hitstun": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "306": {
+          "action_name": "Flash Chop C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                15662
+              ],
+              "value": 15662
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                8
+              ],
+              "value": 8
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "311": {
+          "action_name": "Slash Elbow M",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                22087,
+                18267
+              ],
+              "value": 22087
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                2,
+                84
+              ],
+              "value": 2
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -3576,7 +4315,7 @@
             "damage": {
               "confidence": "confirmed",
               "matches": 4,
-              "sample_count": 9,
+              "sample_count": 10,
               "samples": [
                 8027,
                 3905,
@@ -3586,24 +4325,26 @@
                 1,
                 1,
                 1,
-                678
+                678,
+                3943
               ],
               "value": 1
             },
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 12,
-                12
+                12,
+                6
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 9,
+              "matches": 5,
+              "sample_count": 10,
               "samples": [
                 21,
                 21,
@@ -3613,6 +4354,7 @@
                 12,
                 12,
                 12,
+                21,
                 21
               ],
               "value": 21
@@ -3625,9 +4367,10 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                4780
+                4780,
+                17299
               ],
               "value": 4780
             },
@@ -3641,10 +4384,11 @@
               "value": 20
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -3657,27 +4401,30 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 672,
-                2923
+                2923,
+                7159
               ],
               "value": 672
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                15
+                15,
+                12
               ],
               "value": 15
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                21,
                 21,
                 21
               ],
@@ -3712,6 +4459,83 @@
     },
     "17": {
       "moves": {
+        "256": {
+          "action_name": "5A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 4,
+              "samples": [
+                1280,
+                608,
+                640,
+                1248
+              ],
+              "value": 1280
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5
+              ],
+              "value": 5
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 4,
+              "samples": [
+                12,
+                1,
+                5,
+                10
+              ],
+              "value": 12
+            }
+          }
+        },
+        "304": {
+          "action_name": "Voomerang A",
+          "fields": {
+            "damage": {
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 4,
+              "samples": [
+                2400,
+                2400,
+                2400,
+                2400
+              ],
+              "value": 2400
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                6,
+                2
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 4,
+              "samples": [
+                21,
+                7,
+                21,
+                18
+              ],
+              "value": 21
+            }
+          }
+        },
         "309": {
           "action_name": "Shocking Pink C",
           "fields": {
@@ -3723,6 +4547,38 @@
                 3600
               ],
               "value": 3600
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "324": {
+          "action_name": "Red Hot Kick B",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3688
+              ],
+              "value": 3688
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                10
+              ],
+              "value": 10
             },
             "hitstun": {
               "confidence": "single",
@@ -3762,21 +4618,40 @@
           "action_name": "assist standby",
           "fields": {
             "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 3,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 8,
               "samples": [
                 2400,
                 400,
-                2140
+                2140,
+                3600,
+                3600,
+                3600,
+                10800,
+                10400
               ],
-              "value": 2400
+              "value": 3600
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                10
+              ],
+              "value": 10
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 4,
+              "matches": 9,
+              "sample_count": 9,
               "samples": [
+                21,
+                21,
+                21,
+                21,
+                21,
                 21,
                 21,
                 21,
@@ -3810,11 +4685,66 @@
               "value": 21
             }
           }
+        },
+        "575": {
+          "action_name": "Taunt",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                4848
+              ],
+              "value": 4848
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3
+              ],
+              "value": 3
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
         }
       }
     },
     "18": {
       "moves": {
+        "258": {
+          "action_name": "5C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1280
+              ],
+              "value": 1280
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                9
+              ],
+              "value": 9
+            }
+          }
+        },
         "270": {
           "action_name": "6B",
           "fields": {
@@ -3866,6 +4796,40 @@
                 8
               ],
               "value": 7
+            }
+          }
+        },
+        "282": {
+          "action_name": "Charged C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                3280,
+                20760
+              ],
+              "value": 3280
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                82
+              ],
+              "value": 82
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                19,
+                21
+              ],
+              "value": 19
             }
           }
         },
@@ -4509,20 +5473,55 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                14695
+                14695,
+                1200
               ],
               "value": 14695
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                7
+                7,
+                82
               ],
               "value": 7
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "312": {
+          "action_name": "Bucket C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5360
+              ],
+              "value": 5360
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6
+              ],
+              "value": 6
             },
             "hitstun": {
               "confidence": "single",
@@ -4557,6 +5556,52 @@
                 21
               ],
               "value": 21
+            }
+          }
+        },
+        "314": {
+          "action_name": "Bucket Charge B",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                4160
+              ],
+              "value": 4160
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "315": {
+          "action_name": "Bucket Charge C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                4160
+              ],
+              "value": 4160
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                20
+              ],
+              "value": 20
             }
           }
         },
@@ -4744,25 +5789,47 @@
         "430": {
           "action_name": "assist standby",
           "fields": {
-            "damage": {
+            "blockstun": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 3,
+              "sample_count": 1,
+              "samples": [
+                1
+              ],
+              "value": 1
+            },
+            "damage": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 5,
               "samples": [
                 2800,
                 5188,
-                5094
+                5094,
+                1280,
+                1280
               ],
-              "value": 2800
+              "value": 1280
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5
+              ],
+              "value": 5
             },
             "hitstun": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 3,
+              "sample_count": 5,
               "samples": [
                 21,
                 21,
-                21
+                21,
+                12,
+                14
               ],
               "value": 21
             }
@@ -5035,28 +6102,31 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 2373,
-                1808
+                1808,
+                3203
               ],
               "value": 2373
             },
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 6,
-                6
+                6,
+                11
               ],
               "value": 6
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                21,
                 21,
                 21
               ],
@@ -5159,7 +6229,7 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 7,
+              "sample_count": 8,
               "samples": [
                 2500,
                 4000,
@@ -5167,14 +6237,15 @@
                 2500,
                 1833,
                 1500,
-                3199
+                3199,
+                8400
               ],
               "value": 2500
             },
             "hitstop": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 7,
+              "sample_count": 8,
               "samples": [
                 11,
                 10,
@@ -5182,15 +6253,17 @@
                 10,
                 9,
                 10,
-                8
+                8,
+                20
               ],
               "value": 10
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 7,
-              "sample_count": 7,
+              "matches": 8,
+              "sample_count": 8,
               "samples": [
+                21,
                 21,
                 21,
                 21,
@@ -5315,38 +6388,29 @@
               "value": 20
             },
             "damage": {
-              "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 4,
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
               "samples": [
-                4600,
-                3078,
-                3078,
-                3078
+                4600
               ],
-              "value": 3078
+              "value": 4600
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 5,
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
               "samples": [
                 7,
-                11,
-                11,
-                83,
-                14
+                11
               ],
-              "value": 11
+              "value": 7
             },
             "hitstun": {
-              "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 4,
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
               "samples": [
-                21,
-                21,
-                21,
                 21
               ],
               "value": 21
@@ -5405,19 +6469,21 @@
             "damage": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 3,
+              "sample_count": 4,
               "samples": [
                 3600,
                 3600,
-                3600
+                3600,
+                8768
               ],
               "value": 3600
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 4,
+              "sample_count": 4,
               "samples": [
+                12,
                 12,
                 12,
                 12
@@ -5426,9 +6492,10 @@
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 4,
+              "sample_count": 4,
               "samples": [
+                21,
                 21,
                 21,
                 21
@@ -5480,13 +6547,45 @@
             }
           }
         },
+        "320": {
+          "action_name": "Shooting Star Kick A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3200
+              ],
+              "value": 3200
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                10
+              ],
+              "value": 10
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "321": {
           "action_name": "Shooting Star Kick B",
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 5,
-              "sample_count": 7,
+              "matches": 6,
+              "sample_count": 8,
               "samples": [
                 3200,
                 3200,
@@ -5494,14 +6593,15 @@
                 3200,
                 3200,
                 2000,
-                2139
+                2139,
+                3200
               ],
               "value": 3200
             },
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 7,
+              "sample_count": 8,
               "samples": [
                 8,
                 9,
@@ -5509,15 +6609,17 @@
                 9,
                 10,
                 12,
-                6
+                6,
+                10
               ],
               "value": 9
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 7,
-              "sample_count": 7,
+              "matches": 8,
+              "sample_count": 8,
               "samples": [
+                21,
                 21,
                 21,
                 21,
@@ -5584,14 +6686,14 @@
                 2880,
                 4464,
                 9500,
-                2664
+                1920
               ],
               "value": 10005
             },
             "hitstop": {
               "confidence": "confirmed",
               "matches": 4,
-              "sample_count": 7,
+              "sample_count": 8,
               "samples": [
                 100,
                 100,
@@ -5599,7 +6701,8 @@
                 3,
                 3,
                 3,
-                3
+                3,
+                78
               ],
               "value": 3
             },
@@ -5620,41 +6723,19 @@
             }
           }
         },
-        "353": {
-          "action_name": "Scrap Android",
-          "fields": {
-            "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
-              "samples": [
-                3200
-              ],
-              "value": 3200
-            },
-            "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
-              "samples": [
-                21
-              ],
-              "value": 21
-            }
-          }
-        },
         "417": {
           "action_name": "assist leave",
           "fields": {
             "damage": {
               "confidence": "confirmed",
               "matches": 4,
-              "sample_count": 4,
+              "sample_count": 5,
               "samples": [
                 800,
                 800,
                 800,
-                800
+                800,
+                2000
               ],
               "value": 800
             },
@@ -5695,10 +6776,9 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 6,
-              "sample_count": 6,
+              "matches": 5,
+              "sample_count": 5,
               "samples": [
-                800,
                 800,
                 800,
                 800,
@@ -5710,7 +6790,7 @@
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 8,
+              "sample_count": 7,
               "samples": [
                 10,
                 57,
@@ -5718,17 +6798,15 @@
                 12,
                 12,
                 9,
-                7,
-                3
+                7
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 7,
-              "sample_count": 7,
+              "matches": 6,
+              "sample_count": 6,
               "samples": [
-                21,
                 21,
                 21,
                 21,
@@ -5776,6 +6854,38 @@
             }
           }
         },
+        "426": {
+          "action_name": "assist attack",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5690
+              ],
+              "value": 5690
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5
+              ],
+              "value": 5
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "430": {
           "action_name": "assist standby",
           "fields": {
@@ -5784,59 +6894,68 @@
               "matches": 4,
               "sample_count": 16,
               "samples": [
-                7595,
+                500,
+                500,
+                4600,
+                2912,
+                6000,
                 15000,
-                3850,
-                15000,
-                3850,
-                15000,
-                1500,
-                1500,
-                1500,
-                15000,
-                1288,
-                1500,
-                1200,
-                1172,
-                409,
-                18750
+                4600,
+                4800,
+                4600,
+                320,
+                43199,
+                47999,
+                91998,
+                47999,
+                500,
+                500
               ],
-              "value": 15000
+              "value": 500
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 7,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 16,
               "samples": [
-                10,
-                11,
-                11,
                 7,
                 9,
                 9,
-                6
+                12,
+                11,
+                12,
+                12,
+                88,
+                78,
+                213,
+                12,
+                78,
+                84,
+                5,
+                6,
+                3
               ],
-              "value": 11
+              "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 14,
+              "matches": 13,
               "sample_count": 16,
               "samples": [
                 21,
                 21,
                 21,
                 21,
-                21,
-                21,
-                21,
-                21,
-                21,
                 17,
                 21,
                 21,
                 21,
                 17,
+                9,
+                21,
+                21,
+                21,
+                21,
                 21,
                 21
               ],
@@ -5856,6 +6975,38 @@
                 12
               ],
               "value": 12
+            }
+          }
+        },
+        "512": {
+          "action_name": "Denko C Charge",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                15410
+              ],
+              "value": 15410
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
             }
           }
         },
@@ -5892,38 +7043,73 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 5,
+              "sample_count": 6,
               "samples": [
                 5055,
                 4686,
                 3168,
                 9301,
-                3183
+                3183,
+                8655
               ],
               "value": 5055
             },
             "hitstop": {
               "confidence": "confirmed",
               "matches": 5,
-              "sample_count": 5,
+              "sample_count": 6,
               "samples": [
                 4,
                 4,
                 4,
                 4,
-                4
+                4,
+                10
               ],
               "value": 4
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 5,
-              "sample_count": 5,
+              "matches": 6,
+              "sample_count": 6,
               "samples": [
                 21,
                 21,
                 21,
                 21,
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "520": {
+          "action_name": "Scrap Android",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                33372
+              ],
+              "value": 33372
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                82
+              ],
+              "value": 82
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
                 21
               ],
               "value": 21
@@ -5970,13 +7156,15 @@
           "action_name": "5C",
           "fields": {
             "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 3,
               "samples": [
-                10000
+                10000,
+                2800,
+                2800
               ],
-              "value": 10000
+              "value": 2800
             },
             "hitstop": {
               "confidence": "single",
@@ -5990,9 +7178,11 @@
             "hitstun": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 3,
               "samples": [
-                21
+                21,
+                7,
+                18
               ],
               "value": 21
             }
@@ -6029,26 +7219,29 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                3021
+                3021,
+                4588
               ],
               "value": 3021
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                18
+                18,
+                13
               ],
               "value": 18
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -6087,14 +7280,84 @@
             }
           }
         },
+        "267": {
+          "action_name": "j.C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                19667
+              ],
+              "value": 19667
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "308": {
+          "action_name": "Grenade B",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3600
+              ],
+              "value": 3600
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                10
+              ],
+              "value": 10
+            }
+          }
+        },
+        "309": {
+          "action_name": "Grenade C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3600
+              ],
+              "value": 3600
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                13
+              ],
+              "value": 13
+            }
+          }
+        },
         "418": {
           "action_name": "Tag In",
           "fields": {
             "damage": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                800,
                 800,
                 800
               ],
@@ -6103,18 +7366,20 @@
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 11,
-                12
+                12,
+                9
               ],
               "value": 11
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                21,
                 21,
                 21
               ],
@@ -6127,9 +7392,10 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 6,
-              "sample_count": 6,
+              "matches": 7,
+              "sample_count": 7,
               "samples": [
+                3600,
                 3600,
                 3600,
                 3600,
@@ -6142,22 +7408,24 @@
             "hitstop": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 6,
+              "sample_count": 7,
               "samples": [
                 18,
                 13,
                 18,
                 18,
                 2,
-                8
+                8,
+                3
               ],
               "value": 18
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 6,
-              "sample_count": 6,
+              "matches": 7,
+              "sample_count": 7,
               "samples": [
+                21,
                 21,
                 21,
                 21,
@@ -6184,7 +7452,7 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 10,
+              "sample_count": 12,
               "samples": [
                 2080,
                 7200,
@@ -6195,28 +7463,30 @@
                 2574,
                 3600,
                 2160,
-                4679
+                4679,
+                2000,
+                5632
               ],
-              "value": 2160
+              "value": 2000
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 4,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 5,
               "samples": [
                 12,
                 79,
                 8,
+                12,
                 12
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 6,
+              "matches": 7,
               "sample_count": 16,
               "samples": [
-                16,
                 15,
                 12,
                 21,
@@ -6231,6 +7501,7 @@
                 21,
                 21,
                 8,
+                21,
                 21
               ],
               "value": 21
@@ -6241,6 +7512,102 @@
     },
     "21": {
       "moves": {
+        "258": {
+          "action_name": "5C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3200
+              ],
+              "value": 3200
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                15
+              ],
+              "value": 15
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                25
+              ],
+              "value": 25
+            }
+          }
+        },
+        "314": {
+          "action_name": "Issen",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                15580
+              ],
+              "value": 15580
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                67
+              ],
+              "value": 67
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "417": {
+          "action_name": "assist leave",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                800
+              ],
+              "value": 800
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1
+              ],
+              "value": 1
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "424": {
           "action_name": "assist taunt",
           "fields": {
@@ -6270,18 +7637,20 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                2560
+                2560,
+                6000
               ],
               "value": 2560
             },
             "hitstun": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                21
+                21,
+                12
               ],
               "value": 21
             }
@@ -6293,18 +7662,32 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 3,
               "samples": [
-                4139
+                4139,
+                3892,
+                3200
               ],
               "value": 4139
             },
-            "hitstun": {
+            "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                21
+                2,
+                1
+              ],
+              "value": 2
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 3,
+              "samples": [
+                21,
+                21,
+                20
               ],
               "value": 21
             }
@@ -6318,32 +7701,41 @@
           "action_name": "5A",
           "fields": {
             "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 6,
               "samples": [
                 842,
-                920
+                920,
+                920,
+                920,
+                920,
+                1840
               ],
-              "value": 842
+              "value": 920
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 3,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 5,
               "samples": [
                 2,
                 6,
-                2
+                2,
+                6,
+                6
               ],
-              "value": 2
+              "value": 6
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 3,
+              "matches": 5,
+              "sample_count": 6,
               "samples": [
                 12,
+                12,
+                12,
+                10,
                 12,
                 12
               ],
@@ -6355,18 +7747,19 @@
           "action_name": "5B",
           "fields": {
             "blockstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                12,
                 12
               ],
               "value": 12
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 7,
-              "sample_count": 7,
+              "matches": 12,
+              "sample_count": 13,
               "samples": [
                 1480,
                 1480,
@@ -6374,14 +7767,20 @@
                 1480,
                 1480,
                 1480,
-                1480
+                1480,
+                1480,
+                1480,
+                1480,
+                1480,
+                1480,
+                2775
               ],
               "value": 1480
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 8,
+              "matches": 6,
+              "sample_count": 15,
               "samples": [
                 8,
                 8,
@@ -6390,14 +7789,21 @@
                 9,
                 7,
                 6,
-                9
+                9,
+                2,
+                1,
+                9,
+                9,
+                8,
+                9,
+                4
               ],
-              "value": 8
+              "value": 9
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 7,
-              "sample_count": 7,
+              "matches": 13,
+              "sample_count": 14,
               "samples": [
                 17,
                 17,
@@ -6405,6 +7811,13 @@
                 17,
                 17,
                 17,
+                17,
+                17,
+                17,
+                17,
+                17,
+                17,
+                3,
                 17
               ],
               "value": 17
@@ -6425,8 +7838,8 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 9,
-              "sample_count": 9,
+              "matches": 15,
+              "sample_count": 16,
               "samples": [
                 2500,
                 2500,
@@ -6436,14 +7849,21 @@
                 2500,
                 2500,
                 2500,
-                2500
+                2500,
+                2500,
+                2500,
+                2500,
+                2500,
+                2500,
+                2500,
+                3855
               ],
               "value": 2500
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 9,
-              "sample_count": 10,
+              "matches": 12,
+              "sample_count": 16,
               "samples": [
                 12,
                 12,
@@ -6454,14 +7874,20 @@
                 12,
                 12,
                 12,
+                12,
+                12,
+                10,
+                10,
+                12,
+                8,
                 12
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 9,
-              "sample_count": 9,
+              "matches": 15,
+              "sample_count": 16,
               "samples": [
                 21,
                 21,
@@ -6471,9 +7897,48 @@
                 21,
                 21,
                 21,
-                21
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
+                6
               ],
               "value": 21
+            }
+          }
+        },
+        "259": {
+          "action_name": "2A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                720
+              ],
+              "value": 720
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3
+              ],
+              "value": 3
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
             }
           }
         },
@@ -6482,9 +7947,11 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 6,
-              "sample_count": 6,
+              "matches": 8,
+              "sample_count": 8,
               "samples": [
+                2000,
+                2000,
                 2000,
                 2000,
                 2000,
@@ -6497,14 +7964,16 @@
             "hitstun": {
               "confidence": "confirmed",
               "matches": 4,
-              "sample_count": 6,
+              "sample_count": 8,
               "samples": [
                 21,
                 16,
                 12,
                 21,
                 21,
-                21
+                21,
+                13,
+                11
               ],
               "value": 21
             }
@@ -6539,6 +8008,38 @@
                 21
               ],
               "value": 21
+            }
+          }
+        },
+        "265": {
+          "action_name": "j.A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                740
+              ],
+              "value": 740
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
             }
           }
         },
@@ -6584,10 +8085,11 @@
           "action_name": "j.C",
           "fields": {
             "damage": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                2700,
                 2700,
                 2700
               ],
@@ -6596,18 +8098,20 @@
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 10,
-                8
+                8,
+                9
               ],
               "value": 10
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                21,
                 21,
                 21
               ],
@@ -6620,8 +8124,8 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 7,
+              "matches": 4,
+              "sample_count": 8,
               "samples": [
                 1000,
                 200,
@@ -6629,18 +8133,20 @@
                 1500,
                 1500,
                 1050,
-                1050
+                1050,
+                1500
               ],
               "value": 1500
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 5,
-              "sample_count": 7,
+              "matches": 6,
+              "sample_count": 8,
               "samples": [
                 12,
                 9,
                 11,
+                12,
                 12,
                 12,
                 12,
@@ -6650,9 +8156,10 @@
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 7,
-              "sample_count": 7,
+              "matches": 8,
+              "sample_count": 8,
               "samples": [
+                21,
                 21,
                 21,
                 21,
@@ -6670,27 +8177,74 @@
           "fields": {
             "damage": {
               "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 5,
+              "matches": 5,
+              "sample_count": 6,
               "samples": [
                 2255,
                 2255,
                 2255,
                 1155,
+                2255,
                 2255
               ],
               "value": 2255
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 5,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 6,
               "samples": [
                 12,
                 10,
                 11,
                 12,
+                10,
                 10
+              ],
+              "value": 10
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 6,
+              "sample_count": 6,
+              "samples": [
+                21,
+                21,
+                21,
+                21,
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "306": {
+          "action_name": "shuriken C",
+          "fields": {
+            "damage": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 5,
+              "samples": [
+                2050,
+                3047,
+                2050,
+                3047,
+                3047
+              ],
+              "value": 3047
+            },
+            "hitstop": {
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 5,
+              "samples": [
+                10,
+                12,
+                12,
+                12,
+                12
               ],
               "value": 12
             },
@@ -6709,73 +8263,38 @@
             }
           }
         },
-        "306": {
-          "action_name": "shuriken C",
-          "fields": {
-            "damage": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 4,
-              "samples": [
-                2050,
-                3047,
-                2050,
-                3047
-              ],
-              "value": 2050
-            },
-            "hitstop": {
-              "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 4,
-              "samples": [
-                10,
-                12,
-                12,
-                12
-              ],
-              "value": 12
-            },
-            "hitstun": {
-              "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 4,
-              "samples": [
-                21,
-                21,
-                21,
-                21
-              ],
-              "value": 21
-            }
-          }
-        },
         "311": {
           "action_name": "Battering Ram B",
           "fields": {
             "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 3,
               "samples": [
-                2800
+                2800,
+                2800,
+                6400
               ],
               "value": 2800
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 3,
               "samples": [
-                20
+                20,
+                20,
+                8
               ],
               "value": 20
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                21,
+                21,
                 21
               ],
               "value": 21
@@ -6852,12 +8371,13 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 4,
+              "sample_count": 5,
               "samples": [
                 905,
                 2485,
                 1152,
-                1170
+                1170,
+                3850
               ],
               "value": 905
             },
@@ -6872,9 +8392,10 @@
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 4,
-              "sample_count": 4,
+              "matches": 5,
+              "sample_count": 5,
               "samples": [
+                17,
                 17,
                 17,
                 17,
@@ -6890,18 +8411,20 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 2950,
-                5498
+                5498,
+                4699
               ],
               "value": 2950
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                21,
                 21,
                 21
               ],
@@ -6938,17 +8461,19 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                800
+                800,
+                3200
               ],
               "value": 800
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -6961,7 +8486,7 @@
             "damage": {
               "confidence": "confirmed",
               "matches": 9,
-              "sample_count": 9,
+              "sample_count": 10,
               "samples": [
                 800,
                 800,
@@ -6971,14 +8496,15 @@
                 800,
                 800,
                 800,
-                800
+                800,
+                4400
               ],
               "value": 800
             },
             "hitstop": {
               "confidence": "confirmed",
               "matches": 4,
-              "sample_count": 9,
+              "sample_count": 10,
               "samples": [
                 8,
                 12,
@@ -6988,15 +8514,17 @@
                 12,
                 12,
                 6,
-                3
+                3,
+                6
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 9,
-              "sample_count": 9,
+              "matches": 10,
+              "sample_count": 10,
               "samples": [
+                21,
                 21,
                 21,
                 21,
@@ -7047,18 +8575,10 @@
           "action_name": "assist standby",
           "fields": {
             "damage": {
-              "confidence": "confirmed",
-              "matches": 3,
+              "confidence": "matched",
+              "matches": 2,
               "sample_count": 16,
               "samples": [
-                500,
-                4000,
-                1000,
-                8400,
-                1000,
-                5000,
-                1920,
-                4400,
                 5000,
                 13400,
                 7800,
@@ -7066,20 +8586,23 @@
                 4000,
                 1000,
                 8400,
-                6000
+                6000,
+                2400,
+                4400,
+                500,
+                500,
+                8400,
+                5840,
+                4240,
+                4800
               ],
-              "value": 1000
+              "value": 8400
             },
             "hitstop": {
-              "confidence": "confirmed",
-              "matches": 4,
+              "confidence": "matched",
+              "matches": 2,
               "sample_count": 16,
               "samples": [
-                9,
-                82,
-                12,
-                12,
-                12,
                 2,
                 21,
                 12,
@@ -7090,9 +8613,14 @@
                 66,
                 84,
                 3,
-                82
+                82,
+                12,
+                83,
+                10,
+                78,
+                2
               ],
-              "value": 12
+              "value": 2
             },
             "hitstun": {
               "confidence": "confirmed",
@@ -7101,13 +8629,13 @@
               "samples": [
                 21,
                 21,
-                21,
-                21,
-                21,
-                21,
-                21,
-                21,
                 7,
+                21,
+                21,
+                21,
+                21,
+                21,
+                21,
                 21,
                 21,
                 21,
@@ -7172,8 +8700,211 @@
     },
     "28": {
       "moves": {
+        "256": {
+          "action_name": "5A",
+          "fields": {
+            "damage": {
+              "confidence": "confirmed",
+              "matches": 7,
+              "sample_count": 8,
+              "samples": [
+                3283,
+                730,
+                730,
+                730,
+                730,
+                730,
+                730,
+                730
+              ],
+              "value": 730
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 3,
+              "samples": [
+                6,
+                1,
+                2
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 6,
+              "sample_count": 8,
+              "samples": [
+                12,
+                12,
+                12,
+                6,
+                12,
+                9,
+                12,
+                12
+              ],
+              "value": 12
+            }
+          }
+        },
+        "257": {
+          "action_name": "5B",
+          "fields": {
+            "damage": {
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 5,
+              "samples": [
+                620,
+                1209,
+                620,
+                620,
+                620
+              ],
+              "value": 620
+            },
+            "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 4,
+              "samples": [
+                7,
+                6,
+                7,
+                2
+              ],
+              "value": 7
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 5,
+              "samples": [
+                14,
+                17,
+                17,
+                17,
+                17
+              ],
+              "value": 17
+            }
+          }
+        },
         "258": {
           "action_name": "5C",
+          "fields": {
+            "damage": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 4,
+              "samples": [
+                2100,
+                2100,
+                6204,
+                2500
+              ],
+              "value": 2100
+            },
+            "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 5,
+              "samples": [
+                12,
+                7,
+                1,
+                10,
+                10
+              ],
+              "value": 10
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 5,
+              "sample_count": 5,
+              "samples": [
+                21,
+                21,
+                21,
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "259": {
+          "action_name": "2A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                730
+              ],
+              "value": 730
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2
+              ],
+              "value": 2
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
+            }
+          }
+        },
+        "260": {
+          "action_name": "2B",
+          "fields": {
+            "damage": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
+              "samples": [
+                1400,
+                1400,
+                1400
+              ],
+              "value": 1400
+            },
+            "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                5,
+                5
+              ],
+              "value": 5
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 3,
+              "samples": [
+                12,
+                17,
+                17
+              ],
+              "value": 17
+            }
+          }
+        },
+        "261": {
+          "action_name": "2C",
           "fields": {
             "damage": {
               "confidence": "single",
@@ -7189,15 +8920,355 @@
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                12
+                6
               ],
-              "value": 12
+              "value": 6
             },
             "hitstun": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "265": {
+          "action_name": "j.A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                800
+              ],
+              "value": 800
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5
+              ],
+              "value": 5
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
+            }
+          }
+        },
+        "266": {
+          "action_name": "j.B",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1560
+              ],
+              "value": 1560
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                7
+              ],
+              "value": 7
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                17
+              ],
+              "value": 17
+            }
+          }
+        },
+        "267": {
+          "action_name": "j.C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2400
+              ],
+              "value": 2400
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                11
+              ],
+              "value": 11
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "304": {
+          "action_name": "Yatter Shield A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                2460,
+                3800
+              ],
+              "value": 2460
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                12,
+                77
+              ],
+              "value": 12
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "306": {
+          "action_name": "Yatter Shield C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1030
+              ],
+              "value": 1030
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                8
+              ],
+              "value": 8
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "310": {
+          "action_name": "yatter step A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2220
+              ],
+              "value": 2220
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "316": {
+          "action_name": "yatter shock A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5440
+              ],
+              "value": 5440
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                77
+              ],
+              "value": 77
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "317": {
+          "action_name": "yatter shock B",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3440
+              ],
+              "value": 3440
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                11
+              ],
+              "value": 11
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "336": {
+          "action_name": "yattersplash A",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1404
+              ],
+              "value": 1404
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2
+              ],
+              "value": 2
+            }
+          }
+        },
+        "352": {
+          "action_name": "Yatter Passion",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5639
+              ],
+              "value": 5639
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "418": {
+          "action_name": "Tag In",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                3639,
+                1530
+              ],
+              "value": 3639
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                9,
+                6
+              ],
+              "value": 9
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -7263,6 +9334,29 @@
                 12
               ],
               "value": 4
+            }
+          }
+        },
+        "512": {
+          "action_name": "This Week's Special Robots",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                22721
+              ],
+              "value": 22721
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
             }
           }
         }
@@ -8276,64 +10370,77 @@
         "430": {
           "action_name": "assist standby",
           "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1
+              ],
+              "value": 1
+            },
             "damage": {
               "confidence": "confirmed",
-              "matches": 6,
+              "matches": 5,
               "sample_count": 16,
               "samples": [
-                2400,
-                2400,
-                2400,
-                2400,
-                1000,
-                2400,
-                1920,
-                4800,
-                1919,
                 2400,
                 1439,
                 840,
                 5530,
                 840,
                 2000,
-                4800
+                4800,
+                3600,
+                7200,
+                3600,
+                3600,
+                3600,
+                8200,
+                4400,
+                4600,
+                3600
               ],
-              "value": 2400
+              "value": 3600
             },
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 5,
+              "sample_count": 9,
               "samples": [
                 83,
                 12,
                 219,
                 10,
-                12
+                12,
+                7,
+                10,
+                4,
+                8
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 10,
+              "matches": 15,
               "sample_count": 16,
               "samples": [
                 21,
+                21,
+                21,
+                21,
+                21,
+                21,
                 12,
                 21,
                 21,
-                12,
-                20,
-                12,
-                12,
                 21,
                 21,
                 21,
                 21,
                 21,
                 21,
-                21,
-                12
+                21
               ],
               "value": 21
             }
@@ -8416,15 +10523,48 @@
     },
     "3": {
       "moves": {
-        "258": {
-          "action_name": "5C",
+        "257": {
+          "action_name": "5B",
           "fields": {
             "damage": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                3280
+                2560
+              ],
+              "value": 2560
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                24
+              ],
+              "value": 24
+            }
+          }
+        },
+        "258": {
+          "action_name": "5C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                3280,
+                5407
               ],
               "value": 3280
             },
@@ -8438,10 +10578,11 @@
               "value": 11
             },
             "hitstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                21,
                 21
               ],
               "value": 21
@@ -8471,6 +10612,75 @@
             }
           }
         },
+        "260": {
+          "action_name": "2B",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2880
+              ],
+              "value": 2880
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5
+              ],
+              "value": 5
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                24
+              ],
+              "value": 24
+            }
+          }
+        },
+        "262": {
+          "action_name": "6C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1275
+              ],
+              "value": 1275
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                9
+              ],
+              "value": 9
+            }
+          }
+        },
+        "265": {
+          "action_name": "j.A",
+          "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1
+              ],
+              "value": 1
+            }
+          }
+        },
         "267": {
           "action_name": "j.C",
           "fields": {
@@ -8494,6 +10704,52 @@
             }
           }
         },
+        "309": {
+          "action_name": "Tek Lancer C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5924
+              ],
+              "value": 5924
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                3
+              ],
+              "value": 3
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "321": {
+          "action_name": "Gatling B Air",
+          "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1
+              ],
+              "value": 1
+            }
+          }
+        },
         "416": {
           "action_name": "Tag Out",
           "fields": {
@@ -8505,6 +10761,65 @@
                 1
               ],
               "value": 1
+            }
+          }
+        },
+        "418": {
+          "action_name": "Tag In",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                14625
+              ],
+              "value": 14625
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "430": {
+          "action_name": "assist standby",
+          "fields": {
+            "damage": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
+              "samples": [
+                1500,
+                1500,
+                1500
+              ],
+              "value": 1500
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 3,
+              "samples": [
+                21,
+                20,
+                16
+              ],
+              "value": 21
             }
           }
         },
@@ -8613,7 +10928,7 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 8,
+              "sample_count": 10,
               "samples": [
                 3116,
                 2000,
@@ -8622,14 +10937,16 @@
                 1446,
                 1148,
                 2066,
-                1894
+                1894,
+                3570,
+                3803
               ],
               "value": 3116
             },
             "hitstop": {
               "confidence": "confirmed",
               "matches": 3,
-              "sample_count": 10,
+              "sample_count": 11,
               "samples": [
                 12,
                 11,
@@ -8640,15 +10957,18 @@
                 10,
                 11,
                 10,
-                9
+                9,
+                10
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 11,
-              "sample_count": 11,
+              "matches": 13,
+              "sample_count": 13,
               "samples": [
+                21,
+                21,
                 21,
                 21,
                 21,
@@ -8904,27 +11224,30 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                9785
+                9785,
+                720
               ],
               "value": 9785
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                11
+                11,
+                58
               ],
               "value": 11
             },
             "hitstun": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                21
+                21,
+                12
               ],
               "value": 21
             }
@@ -8939,6 +11262,38 @@
               "sample_count": 2,
               "samples": [
                 21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "368": {
+          "action_name": "Frank Lvl 3 Startup",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                22990
+              ],
+              "value": 22990
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                27
+              ],
+              "value": 27
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
                 21
               ],
               "value": 21
@@ -8986,7 +11341,7 @@
             "damage": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 9,
+              "sample_count": 8,
               "samples": [
                 3600,
                 16800,
@@ -8995,8 +11350,7 @@
                 1080,
                 3000,
                 3360,
-                4560,
-                4800
+                4560
               ],
               "value": 3000
             },
@@ -9011,8 +11365,8 @@
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 5,
-              "sample_count": 9,
+              "matches": 4,
+              "sample_count": 8,
               "samples": [
                 21,
                 21,
@@ -9021,7 +11375,6 @@
                 9,
                 4,
                 17,
-                21,
                 21
               ],
               "value": 21
@@ -9048,6 +11401,61 @@
     },
     "4": {
       "moves": {
+        "314": {
+          "action_name": "Storm Low",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                4080
+              ],
+              "value": 4080
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                20
+              ],
+              "value": 20
+            }
+          }
+        },
+        "315": {
+          "action_name": "Storm Overhead",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                4960
+              ],
+              "value": 4960
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                4
+              ],
+              "value": 4
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "353": {
           "action_name": "Tenshin Drill",
           "fields": {
@@ -9086,36 +11494,94 @@
             }
           }
         },
-        "430": {
-          "action_name": "assist standby",
+        "418": {
+          "action_name": "Tag In",
           "fields": {
-            "damage": {
+            "blockstun": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 1,
               "samples": [
-                1860,
-                5000
+                14
               ],
-              "value": 1860
+              "value": 14
             },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                20
+                3
+              ],
+              "value": 3
+            }
+          }
+        },
+        "430": {
+          "action_name": "assist standby",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 3,
+              "samples": [
+                1860,
+                5000,
+                46398
+              ],
+              "value": 1860
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                20,
+                83
               ],
               "value": 20
+            },
+            "hitstun": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                21,
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "465": {
+          "action_name": "Forward Throw",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5200
+              ],
+              "value": 5200
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6
+              ],
+              "value": 6
             },
             "hitstun": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                21
+                12
               ],
-              "value": 21
+              "value": 12
             }
           }
         }
@@ -9313,6 +11779,38 @@
             }
           }
         },
+        "261": {
+          "action_name": "2C",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                4199
+              ],
+              "value": 4199
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                2
+              ],
+              "value": 2
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "266": {
           "action_name": "j.B",
           "fields": {
@@ -9368,6 +11866,29 @@
             }
           }
         },
+        "418": {
+          "action_name": "Tag In",
+          "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                14
+              ],
+              "value": 14
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                6
+              ],
+              "value": 6
+            }
+          }
+        },
         "424": {
           "action_name": "assist taunt",
           "fields": {
@@ -9399,6 +11920,38 @@
               "value": 21
             }
           }
+        },
+        "513": {
+          "action_name": "Doronjo Counter",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                19190
+              ],
+              "value": 19190
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                68
+              ],
+              "value": 68
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
         }
       }
     },
@@ -9410,12 +11963,13 @@
             "blockstun": {
               "confidence": "confirmed",
               "matches": 4,
-              "sample_count": 4,
+              "sample_count": 5,
               "samples": [
                 9,
                 9,
                 9,
-                9
+                9,
+                8
               ],
               "value": 9
             },
@@ -9429,17 +11983,18 @@
               "value": 800
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 5,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 6,
               "samples": [
                 3,
                 5,
                 4,
                 2,
+                6,
                 6
               ],
-              "value": 3
+              "value": 6
             },
             "hitstun": {
               "confidence": "single",
@@ -9492,10 +12047,12 @@
               "value": 11
             },
             "damage": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
               "samples": [
+                800,
+                800,
                 800
               ],
               "value": 800
@@ -9517,9 +12074,11 @@
             "hitstun": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 3,
               "samples": [
-                13
+                13,
+                10,
+                7
               ],
               "value": 13
             }
@@ -9583,14 +12142,35 @@
               ],
               "value": 27
             },
+            "damage": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                3280,
+                3280
+              ],
+              "value": 3280
+            },
             "hitstop": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                12
+                12,
+                5
               ],
               "value": 12
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                22,
+                20
+              ],
+              "value": 22
             }
           }
         },
@@ -9759,20 +12339,41 @@
             "blockstun": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 1,
+              "sample_count": 2,
               "samples": [
-                15
+                15,
+                1
               ],
               "value": 15
             },
-            "hitstop": {
+            "damage": {
               "confidence": "single",
               "matches": 1,
               "sample_count": 1,
               "samples": [
-                7
+                2534
               ],
-              "value": 7
+              "value": 2534
+            },
+            "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 3,
+              "samples": [
+                7,
+                11,
+                11
+              ],
+              "value": 11
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
             }
           }
         },
@@ -9788,6 +12389,73 @@
                 14
               ],
               "value": 14
+            }
+          }
+        },
+        "416": {
+          "action_name": "Tag Out",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                800
+              ],
+              "value": 800
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                13
+              ],
+              "value": 13
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
+        "430": {
+          "action_name": "assist standby",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                1200,
+                2060
+              ],
+              "value": 1200
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                6,
+                13
+              ],
+              "value": 6
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                12,
+                25
+              ],
+              "value": 12
             }
           }
         }
@@ -9806,6 +12474,24 @@
                 1
               ],
               "value": 1
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                5
+              ],
+              "value": 5
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
             }
           }
         },
@@ -9901,6 +12587,38 @@
             }
           }
         },
+        "313": {
+          "action_name": "Bingo",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                11712
+              ],
+              "value": 11712
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                81
+              ],
+              "value": 81
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                21
+              ],
+              "value": 21
+            }
+          }
+        },
         "430": {
           "action_name": "assist standby",
           "fields": {
@@ -9916,56 +12634,56 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 5,
+              "matches": 4,
               "sample_count": 16,
               "samples": [
-                4800,
-                4600,
-                4800,
-                5600,
-                9200,
-                4800,
-                4600,
-                500,
-                4600,
-                4800,
-                4600,
-                4800,
-                500,
-                500,
                 800,
-                4600
+                4600,
+                500,
+                4600,
+                4800,
+                500,
+                500,
+                6800,
+                500,
+                4600,
+                4800,
+                4600,
+                4800,
+                4800,
+                6800,
+                14048
               ],
-              "value": 4800
+              "value": 4600
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 5,
+              "matches": 4,
               "sample_count": 16,
               "samples": [
-                84,
-                84,
-                84,
-                82,
-                12,
-                4,
-                10,
-                18,
-                10,
-                11,
                 12,
                 12,
                 10,
                 12,
                 9,
-                12
+                12,
+                11,
+                4,
+                84,
+                10,
+                82,
+                83,
+                82,
+                83,
+                83,
+                3
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 8,
-              "sample_count": 13,
+              "matches": 9,
+              "sample_count": 15,
               "samples": [
                 21,
                 21,
@@ -9979,6 +12697,8 @@
                 21,
                 21,
                 21,
+                21,
+                12,
                 21
               ],
               "value": 21

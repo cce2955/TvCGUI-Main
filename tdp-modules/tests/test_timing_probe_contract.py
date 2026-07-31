@@ -73,8 +73,8 @@ def test_main_gui_has_separate_timing_monitor_button_and_window():
 def test_probe_is_observation_only():
     source = Path(__file__).resolve().parents[1] / "tvcgui" / "features" / "training" / "timing_probe_window.py"
     text = source.read_text(encoding="utf-8")
-    assert "OFF_RESOLVED_STUN = 0x1210" in text
-    assert "OFF_STUN_REMAINING = 0x1228" in text
+    assert "OFF_HITSTUN_REMAINING = 0x1210" in text
+    assert "OFF_REACTION_TIMER = 0x1228" in text
     assert "OFF_FREEZE_A = 0x211C" in text
     assert "OFF_FREEZE_B = 0x2120" in text
     assert "wd32" not in text

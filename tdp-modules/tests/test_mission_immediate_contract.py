@@ -152,3 +152,59 @@ def test_explicit_grace_is_the_only_hitstun_exit_exception() -> None:
     assert result["completed_step_count"] == 1
     assert manager._runtime["progress_index"] == 1
     assert manager._runtime["reset_grace_frames"] == 1
+
+
+def test_expired_grace_resets_on_the_first_frame_after_window() -> None:
+    manager = _manager()
+    manager.active_slot = "P1-C1"
+    manager._runtime.update({
+        "slot": "P1-C1",
+        "mission_id": "ryu_001",
+        "progress_index": 1,
+        "last_actual_hitstun": True,
+        "reset_grace_frames": 2,
+        "reset_grace_step_index": 1,
+    })
+    payload = {
+        "active": True,
+        "slot": "P1-C1",
+        "character": "Ryu",
+        "active_mission_id": "ryu_001",
+        "active_mission_steps": [
+            {"label": "5A", "input": "5A"},
+            {"label": "5B", "input": "5B"},
+        ],
+        "active_mission_goal": {},
+    }
+    snaps = {
+        "P1-C1": {
+            "base": 0x90000000,
+            "name": "Ryu",
+            "teamtag": "P1",
+            "mv_label": "Idle",
+            "mv_id_display": 0,
+        },
+        "P2-C1": {
+            "base": 0x91000000,
+            "name": "Chun-Li",
+            "teamtag": "P2",
+            "attA": 0,
+            "cur": 40000,
+        },
+    }
+    manager._render_snap_by_slot = snaps
+
+    for frame, expected_grace in ((10, 1), (11, 0)):
+        manager._frame_idx = frame
+        manager._health_damage_frame = frame
+        result = manager._augment_payload_with_runtime(payload, snaps)
+        assert result["completed_step_count"] == 1
+        assert manager._runtime["reset_grace_frames"] == expected_grace
+
+    manager._frame_idx = 12
+    manager._health_damage_frame = 12
+    result = manager._augment_payload_with_runtime(payload, snaps)
+
+    assert result["completed_step_count"] == 0
+    assert result["current_step_index"] == 0
+    assert manager._runtime["progress_index"] == 0

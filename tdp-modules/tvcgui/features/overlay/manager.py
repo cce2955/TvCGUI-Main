@@ -22,17 +22,14 @@ import time
 from typing import TYPE_CHECKING
 
 from tvcgui.core.paths import user_data_path
-from tvcgui.features.frame_data.attack_property_runtime import resolve_live_attack_property
-from tvcgui.runtime import input_monitor
+from tvcgui.features.frame_data.attack_property_runtime import resolve_live_attack_definition
+from tvcgui.runtime.realtime_sampler import RealtimeCombatSampler
 from tvcgui.features.overlay.damage_scaling import annotate_damage_scaling_payload
 
 if TYPE_CHECKING:
     from tvcgui.features.training.mission_manager import MissionManager
 
 HUD_OVERLAY_DATA_FILE = user_data_path("overlay", "hud_overlay_data.json")
-INPUT_SAMPLER_HZ = 240.0
-INPUT_SAMPLE_QUEUE_LIMIT = 128
-
 ATTACK_PROPERTY_SHORT_LABELS = {
     0x01: "UNBLK",
     0x02: "UNBLK",
@@ -77,29 +74,38 @@ def _overlay_attack_property_label(value) -> str:
 
 
 
-def _extract_move_attack_property(value, depth: int = 0):
-    """Read the first hit property's byte from the exact tree move row."""
-    if depth > 7:
-        return None
-    if isinstance(value, dict):
-        direct = value.get("attack_property")
-        try:
-            parsed = int(direct) & 0xFF
-        except Exception:
-            parsed = None
-        if _known_attack_property(parsed):
-            return parsed
-        for key in ("hit_segments", "damage_segments", "segments", "hits", "phases", "owned_fields"):
-            child = value.get(key)
-            found = _extract_move_attack_property(child, depth + 1)
-            if found is not None:
-                return found
-    elif isinstance(value, (list, tuple)):
-        for child in value:
-            found = _extract_move_attack_property(child, depth + 1)
-            if found is not None:
-                return found
-    return None
+
+
+def _attack_property_move_quality(move: dict | None) -> tuple[int, int, int]:
+    """Prefer the populated owner when one action ID has duplicate scan rows."""
+    if not isinstance(move, dict):
+        return (0, 0, 0)
+    segments = [row for row in (move.get("hit_segments") or []) if isinstance(row, dict)]
+    populated = sum(
+        1 for key in (
+            "attack_property", "damage", "active_start", "active_end",
+            "hit_reaction", "kb_type", "hitstun", "blockstun",
+        )
+        if move.get(key) is not None
+    )
+    source_bonus = 1 if str(move.get("source") or "") == "table" else 0
+    return (len(segments), populated, source_bonus)
+
+
+def _bridge_attack_property_annotations(slot_payload: dict, snap: dict) -> None:
+    """Forward profiler annotations into the subprocess payload.
+
+    The telemetry scheduler annotates the main-process fighter snapshot, but
+    the overlay subprocess only sees fields serialized here. Static move
+    definitions have no runtime actor address, so dropping display/source
+    metadata makes valid properties look inactive.
+    """
+    for key, value in (snap or {}).items():
+        if key.startswith("attack_property_") and key not in {
+            "attack_property",
+            "attack_property_label",
+        }:
+            slot_payload[key] = value
 
 
 class HudOverlayManager:
@@ -115,7 +121,12 @@ class HudOverlayManager:
         Global anim-ID -> label mapping.
     """
 
-    def __init__(self, move_map: dict, global_map: dict) -> None:
+    def __init__(
+        self,
+        move_map: dict,
+        global_map: dict,
+        realtime_sampler: RealtimeCombatSampler | None = None,
+    ) -> None:
         self._move_map = move_map
         self._global_map = global_map
 
@@ -132,161 +143,20 @@ class HudOverlayManager:
         )
         self._payload_writer_thread.start()
 
-        # The GUI and transparent overlay run independently, and the GUI can be
-        # busy for more than one game frame. Poll the live input packet on a
-        # dedicated high-frequency thread so short taps and neutral separators
-        # survive even when the normal render loop is late.
-        self._input_sample_seq: int = 0
-        self._input_samples_by_slot: dict[str, list[dict]] = {}
-        self._input_sampler_targets: dict[str, int] = {}
-        self._input_latest_by_slot: dict[str, dict] = {}
-        self._input_raw_state_by_slot: dict[str, tuple[int, int, int, int, int, int]] = {}
-        self._input_sample_listeners: list = []
-        self._input_lock = threading.RLock()
-        self._input_sampler_stop = threading.Event()
-        self._input_sampler_thread = threading.Thread(
-            target=self._input_sampler_loop,
-            name="TvCInputSampler",
-            daemon=True,
-        )
-        self._input_sampler_thread.start()
+        # Realtime Dolphin reads belong to a permanent scheduler outside the
+        # overlay. HudOverlayManager only reads cached packets from it.
+        self._realtime_sampler = realtime_sampler or RealtimeCombatSampler()
+        self._owns_realtime_sampler = realtime_sampler is None
 
     def _set_input_sampler_targets(self, render_snap_by_slot: dict) -> None:
-        targets: dict[str, int] = {}
-        for slot_label, snap in (render_snap_by_slot or {}).items():
-            if not isinstance(snap, dict):
-                continue
-            try:
-                base = int(snap.get("base") or 0)
-            except Exception:
-                base = 0
-            if base:
-                targets[str(slot_label)] = base
-        with self._input_lock:
-            self._input_sampler_targets = targets
+        self._realtime_sampler.set_targets(render_snap_by_slot)
 
-    def _queue_input_sample(self, slot_label: str, packet: dict) -> None:
-        held = int((packet or {}).get("held", 0) or 0) & 0xFFFF
-        raw_pressed = int((packet or {}).get("pressed", 0) or 0) & 0xFFFF
-        raw_released = int((packet or {}).get("released", 0) or 0) & 0xFFFF
-        action_id = int((packet or {}).get("action_id", 0) or 0) & 0x7FFF
-        action_frame = max(0, int((packet or {}).get("action_frame", 0) or 0))
-        current_hp = int((packet or {}).get("current_hp", 0) or 0)
-        queued_sample = None
-        listeners = []
-
-        with self._input_lock:
-            previous = self._input_raw_state_by_slot.get(slot_label)
-            if previous is None:
-                previous_held = held
-                previous_pressed = 0
-                previous_released = 0
-                previous_action = action_id
-                previous_action_frame = action_frame
-                previous_hp = current_hp
-            else:
-                (
-                    previous_held, previous_pressed, previous_released,
-                    previous_action, previous_action_frame, previous_hp,
-                ) = previous
-
-            fresh_pressed = raw_pressed & ~int(previous_pressed)
-            fresh_released = raw_released & ~int(previous_released)
-            held_changed = previous is None or held != int(previous_held)
-            action_changed = previous is None or action_id != int(previous_action)
-            action_frame_changed = previous is None or action_frame != int(previous_action_frame)
-            hp_changed = previous is None or current_hp != int(previous_hp)
-
-            self._input_raw_state_by_slot[slot_label] = (
-                held, raw_pressed, raw_released, action_id, action_frame, current_hp,
-            )
-            self._input_latest_by_slot[slot_label] = {
-                **dict(packet or {}),
-                "held": held,
-                "pressed": fresh_pressed,
-                "released": fresh_released,
-                "action_frame": action_frame,
-            }
-
-            meaningful_change = bool(
-                held_changed
-                or fresh_pressed
-                or fresh_released
-                or action_changed
-                or hp_changed
-            )
-            if not meaningful_change and not action_frame_changed:
-                return
-
-            if meaningful_change:
-                self._input_sample_seq += 1
-            queued_sample = {
-                "seq": self._input_sample_seq if meaningful_change else 0,
-                "slot": str(slot_label),
-                "base": int((packet or {}).get("base", 0) or 0),
-                "held": held,
-                "pressed": fresh_pressed,
-                "released": fresh_released,
-                "char_id": int((packet or {}).get("char_id", 0) or 0),
-                "action_id": action_id,
-                "action_frame": action_frame,
-                "current_hp": current_hp,
-                "sample_ns": time.monotonic_ns(),
-            }
-            # The mission queue keeps only meaningful edges. Action-frame-only
-            # samples go straight to realtime listeners, avoiding 60 duplicate
-            # route events per second per fighter.
-            if meaningful_change:
-                queue = self._input_samples_by_slot.setdefault(slot_label, [])
-                queue.append(queued_sample)
-                del queue[:-INPUT_SAMPLE_QUEUE_LIMIT]
-            listeners = list(self._input_sample_listeners)
-
-        # Realtime listeners must never wait for the GUI frame. They are kept
-        # tiny and run outside the sampler lock so one forced action cannot
-        # block input collection for the other slots.
-        for listener in listeners:
-            try:
-                listener(str(slot_label), dict(queued_sample))
-            except Exception:
-                continue
-
-    def _input_sampler_loop(self) -> None:
-        interval = 1.0 / max(60.0, float(INPUT_SAMPLER_HZ))
-        next_tick = time.perf_counter()
-        while not self._input_sampler_stop.is_set():
-            with self._input_lock:
-                targets = dict(self._input_sampler_targets)
-            for slot_label, base in targets.items():
-                try:
-                    packet = input_monitor.read_overlay_input_packet(slot_label, base)
-                except Exception:
-                    continue
-                if packet:
-                    self._queue_input_sample(slot_label, packet)
-
-            next_tick += interval
-            delay = next_tick - time.perf_counter()
-            if delay <= 0.0:
-                next_tick = time.perf_counter()
-                delay = 0.001
-            self._input_sampler_stop.wait(delay)
-
-    def _input_snapshot_for_slot(self, slot_label: str, base: int) -> tuple[dict, list[dict]]:
-        with self._input_lock:
-            packet = dict(self._input_latest_by_slot.get(slot_label) or {})
-            samples = list(self._input_samples_by_slot.get(slot_label) or [])
-        if not packet:
-            try:
-                packet = input_monitor.read_overlay_input_packet(slot_label, base)
-            except Exception:
-                packet = {}
-            if packet:
-                self._queue_input_sample(slot_label, packet)
-                with self._input_lock:
-                    packet = dict(self._input_latest_by_slot.get(slot_label) or packet)
-                    samples = list(self._input_samples_by_slot.get(slot_label) or [])
-        return packet, samples
+    def _input_snapshot_for_slot(
+        self,
+        slot_label: str,
+        base: int,
+    ) -> tuple[dict, list[dict]]:
+        return self._realtime_sampler.snapshot_for_slot(slot_label, base)
 
     def _queue_payload(self, payload: dict) -> None:
         with self._payload_condition:
@@ -328,17 +198,10 @@ class HudOverlayManager:
         self._set_input_sampler_targets(render_snap_by_slot)
 
     def add_input_sample_listener(self, listener) -> None:
-        if not callable(listener):
-            return
-        with self._input_lock:
-            if listener not in self._input_sample_listeners:
-                self._input_sample_listeners.append(listener)
+        self._realtime_sampler.add_listener(listener)
 
     def remove_input_sample_listener(self, listener) -> None:
-        with self._input_lock:
-            self._input_sample_listeners = [
-                item for item in self._input_sample_listeners if item is not listener
-            ]
+        self._realtime_sampler.remove_listener(listener)
 
     def mission_input_bundle(self, slot_label: str, fighter_base: int = 0) -> tuple[dict, list[dict]]:
         """Return the latest packet plus the sampler's ordered edge queue."""
@@ -383,7 +246,10 @@ class HudOverlayManager:
             active_start = None
             active_end = None
             attack_property = None
+            attack_property_b = None
             attack_property_label = ""
+            matched_move = None
+            native_definition = None
             input_packet, input_samples = self._input_snapshot_for_slot(
                 slot_label,
                 int(snap.get("base") or 0),
@@ -397,34 +263,37 @@ class HudOverlayManager:
                 for slot_data in last_scan_normals:
                     if slot_data.get("slot_label") == slot_label:
                         slot_tree_row = slot_data
-                        for mv in slot_data.get("moves", []):
-                            if mv.get("id") == cur_anim:
-                                active_start = mv.get("active_start")
-                                active_end = mv.get("active_end")
-                                attack_property = _extract_move_attack_property(mv)
-                                attack_property_label = _overlay_attack_property_label(attack_property)
-                                break
+                        candidates = [
+                            mv for mv in slot_data.get("moves", [])
+                            if isinstance(mv, dict) and mv.get("id") == cur_anim
+                        ]
+                        if candidates:
+                            matched_move = max(candidates, key=_attack_property_move_quality)
+                            active_start = matched_move.get("active_start")
+                            active_end = matched_move.get("active_end")
                         break
 
-            # The compact preview can omit lazily discovered property packets.
-            # Resolve the exact live action through the same character-table and
-            # packet locator used by the frame-data tree. This is cached by live
-            # table root plus action ID, so normal frames perform no extra scan.
-            if cur_anim is not None and not attack_property_label:
+            # Attack Property is native-only. Resolve the current action from
+            # the fighter's character table and never fill this card from the
+            # frame-data profile or scanner tree.
+            if cur_anim is not None:
                 try:
                     tree_root = int((slot_tree_row or {}).get("chr_tbl_abs") or 0)
                 except Exception:
                     tree_root = 0
-                attack_property = resolve_live_attack_property(
+                native_definition = resolve_live_attack_definition(
                     int(snap.get("base") or 0),
                     int(cur_anim),
                     chr_tbl_abs=tree_root or None,
                 )
-                attack_property_label = _overlay_attack_property_label(attack_property)
+                if native_definition.get("status") == "OK":
+                    attack_property = native_definition.get("property_a")
+                    attack_property_b = native_definition.get("property_b")
+                    attack_property_label = _overlay_attack_property_label(attack_property)
 
             partner_slot = mission_var.get("partner_slot")
 
-            payload[slot_label] = {
+            slot_payload = {
                 "name":                   snap.get("name"),
                 "cur":                    snap.get("cur"),
                 "max":                    snap.get("max"),
@@ -540,6 +409,72 @@ class HudOverlayManager:
                 "timing_hitstop":          int(snap.get("timing_hitstop") or 0),
             }
 
+            # Preserve all attack-property annotations produced by the
+            # background profiler. The earlier serializer copied only raw
+            # actor fields, which dropped the move-definition active/source
+            # flags and made the HUD show only the detected action.
+            _bridge_attack_property_annotations(slot_payload, snap)
+
+            # Native script is the authoritative Attack Property source.
+            # Always overwrite any older pool/resolver/profile annotation for
+            # the current action so this badge stays a clean native harvest.
+            existing_attack_source = str(slot_payload.get("attack_property_display_source") or "")
+            existing_attack_phases = [
+                row for row in (slot_payload.get("attack_property_phases") or [])
+                if isinstance(row, dict)
+            ]
+            projectile_only_profiler_result = bool(
+                slot_payload.get("attack_property_projectiles")
+                and not existing_attack_phases
+                and existing_attack_source in {
+                    "live_attack_actor", "live_attack_actor_latched",
+                    "live_projectile_actor", "live_projectile_latched",
+                }
+            )
+            if (
+                not projectile_only_profiler_result
+                and isinstance(native_definition, dict)
+                and native_definition.get("status") == "OK"
+                and _known_attack_property(attack_property)
+            ):
+                native_phases = [
+                    dict(phase)
+                    for phase in (native_definition.get("phases") or [])
+                    if isinstance(phase, dict)
+                ]
+                projectile_rows = [
+                    row for row in (slot_payload.get("attack_property_projectiles") or [])
+                    if isinstance(row, dict)
+                ]
+                has_projectiles = bool(projectile_rows)
+                has_live_projectiles = any(bool(row.get("projectile_live")) for row in projectile_rows)
+                slot_payload.update({
+                    "attack_property_display_active": True,
+                    "attack_property_display_source": (
+                        "native_script_and_live_attack_actor"
+                        if has_live_projectiles
+                        else ("native_script_and_last_attack_actor" if has_projectiles else "move_definition")
+                    ),
+                    "attack_property_packet_state": (
+                        "CURRENT MOVE + LIVE ATTACK ACTOR"
+                        if has_live_projectiles
+                        else ("CURRENT MOVE + LAST ATTACK ACTOR" if has_projectiles else "CURRENT MOVE")
+                    ),
+                    "attack_property_packet_source": "move_definition",
+                    "attack_property_packet_action_id": int(cur_anim or 0),
+                    "attack_property_packet_action_name": str(mv_label_display or mv_label or ""),
+                    "attack_property_live_actor": 0,
+                    "attack_property_live_a": int(attack_property) & 0xFF,
+                    "attack_property_live_b": int(attack_property_b or 0) & 0xFFFFFFFF,
+                    "attack_property_definition_status": "OK",
+                    "attack_property_definition_action_id": int(cur_anim or 0),
+                    "attack_property_definition_action_source": "native_action_script",
+                    "attack_property_phase_count": len(native_phases),
+                    "attack_property_phases": native_phases,
+                })
+
+            payload[slot_label] = slot_payload
+
         annotate_damage_scaling_payload(payload, render_snap_by_slot)
         payload["_punish_trainer"] = dict(punish_overlay or {})
         payload["_timing_engine"] = dict(timing_payload or {})
@@ -552,9 +487,8 @@ class HudOverlayManager:
             self._proc = None
             self._active = False
     def close(self) -> None:
-        self._input_sampler_stop.set()
-        if self._input_sampler_thread.is_alive():
-            self._input_sampler_thread.join(timeout=1.0)
+        if self._owns_realtime_sampler:
+            self._realtime_sampler.close()
         with self._payload_condition:
             self._payload_writer_stop = True
             self._payload_condition.notify_all()

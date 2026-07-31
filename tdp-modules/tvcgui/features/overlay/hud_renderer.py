@@ -3112,6 +3112,581 @@ def _compact_red_health_values(snap: dict) -> tuple[int, int, int, float, int, i
     return current, auxiliary, recoverable, recoverable_pct, pending_current, pending_aux, event
 
 
+
+
+def _attack_property_a_ui(raw_value: int) -> tuple[str, str]:
+    """Return plain-language guard and strength labels for property A."""
+    raw = int(raw_value) & 0xFFFFFFFF
+    guard_mask = raw & 0x38
+    strength_mask = raw & 0x07
+
+    guards = []
+    for bit, label in ((0x08, "MID"), (0x10, "HIGH"), (0x20, "LOW")):
+        if guard_mask & bit:
+            guards.append(label)
+    if guards:
+        guard = "/".join(guards)
+    elif strength_mask:
+        guard = "UNBLOCKABLE"
+    else:
+        guard = "NO GUARD DATA"
+
+    strengths = []
+    for bit, label in ((0x01, "LIGHT"), (0x02, "MEDIUM"), (0x04, "HEAVY")):
+        if strength_mask & bit:
+            strengths.append(label)
+    strength = "/".join(strengths) if strengths else "NO HIT TIER"
+    return guard, strength
+
+
+def _attack_property_b_ui(
+    raw_value: int,
+    *,
+    source_kind: str = "script",
+) -> list[tuple[str, tuple[int, int, int]]]:
+    """Translate native Property B without promoting correlations to facts."""
+    raw = int(raw_value) & 0xFFFFFFFF
+    projectile = str(source_kind or "script").strip().lower() in {"projectile", "actor", "spawned_actor"}
+    out: list[tuple[str, tuple[int, int, int]]] = []
+
+    if projectile:
+        # The native registry holds any spawned attack object, not only travel
+        # projectiles. Keep actor-family labels broad until individual low bits
+        # are proven across bullets, weapons, summons, and capture objects.
+        if raw & 0x00000002:
+            out.append(("SPAWNED-ATTACK CORE FLAG (CORRELATED)", (109, 209, 205)))
+        if raw & 0x00000008:
+            out.append(("ALTERNATE NORMAL/CONTACT ROUTE 0x00000008 (UNRESOLVED)", (255, 174, 115)))
+        if raw & 0x00000080:
+            out.append(("ACTOR CONTACT FAMILY 0x80 (CORRELATED)", (185, 139, 238)))
+        if raw & 0x00000100:
+            out.append(("INITIAL ACTOR PHASE", (255, 174, 115)))
+        if raw & 0x00000020:
+            out.append(("SUSTAINED-CONTACT ACTOR ROUTE", (185, 139, 238)))
+        if raw & 0x00000010:
+            out.append(("TARGET-ACQUIRED / CONTACT-LOCK (CORRELATED)", (255, 174, 115)))
+        if raw & 0x00000001:
+            out.append(("NATIVE RESULT MODIFIER +0004", (236, 188, 92)))
+        if raw & 0x00000040:
+            out.append(("STANDARD STRIKE BASELINE", (127, 205, 255)))
+        if raw & 0x00040000:
+            out.append(("SPECIAL CHIP ROUTE B · 1/8", (236, 188, 92)))
+        if raw & 0x00400000:
+            out.append(("GROUND CAPTURE ROUTE CORE", (255, 151, 105)))
+        if raw & 0x00080000:
+            out.append(("CAPTURE/CINEMATIC MOD 0x00080000 (CORRELATED)", (255, 174, 115)))
+        if raw & 0x40000000:
+            out.append(("RESULT PROPAGATION MODIFIER +1", (255, 151, 105)))
+
+        known = (
+            0x00000001 | 0x00000002 | 0x00000008 | 0x00000010 | 0x00000020 | 0x00000040 | 0x00000080 |
+            0x00000100 | 0x00040000 | 0x00080000 | 0x00400000 | 0x40000000
+        )
+        unknown = raw & ~known
+        if unknown:
+            out.append((f"ACTOR B UNRESOLVED 0x{unknown:08X}", (255, 112, 120)))
+        if not out:
+            out.append(("NO SPAWNED-ACTOR B FLAGS", (126, 139, 158)))
+        return out
+
+    # Exact native combinations are clearer than pretending each low bit has a
+    # universal meaning. These names are tied to repeated raw captures.
+    exact: dict[int, list[tuple[str, tuple[int, int, int]]]] = {
+        0x00000015: [
+            ("CAPTURE TRIGGER PACKET", (255, 151, 105)),
+        ],
+        0x00400014: [
+            ("GROUND CAPTURE PACKET", (255, 151, 105)),
+        ],
+        0x400C0055: [
+            ("LEVEL 3 CINEMATIC CAPTURE PACKET", (255, 151, 105)),
+        ],
+        0x40080055: [
+            ("CINEMATIC CAPTURE / LAUNCH PACKET (CORRELATED)", (255, 151, 105)),
+        ],
+        0x40000041: [
+            ("RESULT PROPAGATION MODIFIER +1", (255, 151, 105)),
+            ("STANDARD STRIKE BASELINE", (127, 205, 255)),
+            ("NATIVE RESULT MODIFIER +0004", (236, 188, 92)),
+        ],
+        0x01000001: [
+            ("REPEAT-CONTACT HANDLING", (255, 174, 115)),
+            ("NATIVE RESULT MODIFIER +0004", (236, 188, 92)),
+        ],
+        0x01000041: [
+            ("REPEAT-CONTACT HANDLING", (255, 174, 115)),
+            ("STANDARD STRIKE BASELINE", (127, 205, 255)),
+            ("NATIVE RESULT MODIFIER +0004", (236, 188, 92)),
+        ],
+        0x00000041: [
+            ("STANDARD STRIKE BASELINE", (127, 205, 255)),
+            ("NATIVE RESULT MODIFIER +0004", (236, 188, 92)),
+        ],
+    }
+    if raw in exact:
+        return exact[raw]
+
+    if raw & 0x00000040:
+        out.append(("STANDARD STRIKE BASELINE", (127, 205, 255)))
+    if raw & 0x00000008:
+        out.append(("ALTERNATE NORMAL/CONTACT ROUTE 0x00000008 (UNRESOLVED)", (255, 174, 115)))
+    if raw & 0x00040000:
+        out.append(("SPECIAL CHIP ROUTE B · 1/8", (236, 188, 92)))
+    if raw & 0x00000001:
+        out.append(("NATIVE RESULT MODIFIER +0004", (236, 188, 92)))
+    if raw & 0x01000000:
+        out.append(("REPEAT-CONTACT HANDLING", (255, 174, 115)))
+    if raw & 0x40000000:
+        out.append(("RESULT PROPAGATION MODIFIER +1", (255, 151, 105)))
+    if raw & 0x00400000:
+        out.append(("GROUND CAPTURE ROUTE CORE", (255, 151, 105)))
+    if raw & 0x00080000:
+        out.append(("CAPTURE/CINEMATIC MOD 0x00080000 (CORRELATED)", (255, 174, 115)))
+
+    known = (
+        0x00000001 | 0x00000008 | 0x00000040 | 0x00040000 | 0x00400000 |
+        0x00080000 | 0x01000000 | 0x40000000
+    )
+    unknown = raw & ~known
+    if unknown:
+        out.append((f"B UNRESOLVED 0x{unknown:08X}", (255, 112, 120)))
+    if not out:
+        out.append(("NO B FLAGS", (126, 139, 158)))
+    return out
+
+def _attack_scaling_ui(attack: dict) -> str:
+    loss = attack.get("attack_property_live_scaling_loss_per_hit")
+    floor = attack.get("attack_property_live_scaling_floor")
+    try:
+        loss_pct = int(round(float(loss) * 100.0))
+        floor_pct = int(round(float(floor) * 100.0))
+    except Exception:
+        return "PRORATION UNKNOWN"
+    return f"PRORATE {loss_pct}% / MIN {floor_pct}%"
+
+
+def _attack_source_ui(attack_slot: str, attack: dict) -> str:
+    source_badge = "C1" if str(attack_slot or "").endswith("C1") else "C2"
+    packet_state = str(attack.get("attack_property_packet_state") or "CONTACT").upper()
+    try:
+        sequence = int(attack.get("attack_property_event_sequence") or 0)
+    except Exception:
+        sequence = 0
+    action_name = str(attack.get("attack_property_packet_action_name") or "").strip().upper()
+    event_label = f"{source_badge} {packet_state}"
+    if sequence:
+        event_label += f" #{sequence}"
+    if action_name and action_name not in {"IDLE", "UNKNOWN"}:
+        return f"{event_label}: {action_name}"
+    return event_label
+
+
+def _attack_optional_int(value):
+    try:
+        return None if value is None else int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _attack_optional_float(value):
+    try:
+        return None if value is None else float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _attack_property_phase_rows(attack: dict) -> list[dict]:
+    """Return native action-script phases only, with no profile merge."""
+    attack = attack if isinstance(attack, dict) else {}
+    native = [dict(row) for row in (attack.get("attack_property_phases") or []) if isinstance(row, dict)]
+    count = max(len(native), _panel_int(attack.get("attack_property_phase_count"), 0))
+    if (
+        count <= 0
+        and bool(attack.get("attack_property_display_active"))
+        and not attack.get("attack_property_projectiles")
+    ):
+        count = 1
+
+    rows: list[dict] = []
+    for index in range(count):
+        row = dict(native[index]) if index < len(native) else {}
+        row["phase_index"] = _panel_int(row.get("phase_index"), index + 1)
+        row["source"] = "native_action_script"
+        if index == 0:
+            row.setdefault("property_a", attack.get("attack_property_live_a"))
+            row.setdefault("property_b", attack.get("attack_property_live_b"))
+        elif index == 1:
+            row.setdefault("property_a", attack.get("attack_property_live_phase_a"))
+            row.setdefault("property_b", attack.get("attack_property_live_phase_b"))
+        if row.get("a_result_flags_raw") is None and row.get("hit_result_raw") is not None:
+            row["a_result_flags_raw"] = row.get("hit_result_raw")
+        if row.get("a_result_code") is None and row.get("a_result_flags_raw") is not None:
+            row["a_result_code"] = (_panel_int(row.get("a_result_flags_raw"), 0) >> 8) & 0x00FFFFFF
+        if row.get("hit_reaction") is None and row.get("a_result_code") is not None:
+            row["hit_reaction"] = row.get("a_result_code")
+        if "native_operations" not in row:
+            row["native_operations"] = [
+                dict(operation)
+                for operation in (row.get("operations") or [])
+                if isinstance(operation, dict)
+            ]
+        rows.append(row)
+    return rows
+
+def _attack_property_phase_groups(rows_or_attack) -> list[dict]:
+    """Collapse identical native script blocks without discarding raw rows."""
+    if isinstance(rows_or_attack, dict):
+        rows = _attack_property_phase_rows(rows_or_attack)
+    else:
+        rows = [dict(row) for row in (rows_or_attack or []) if isinstance(row, dict)]
+    groups: list[dict] = []
+    by_signature: dict[tuple, dict] = {}
+    for row in rows:
+        signature = (
+            _panel_int(row.get("property_a_initial", row.get("property_a")), 0),
+            _panel_int(row.get("property_a_final", row.get("property_a")), 0),
+            _panel_int(row.get("property_a_post_result_or_mask"), 0),
+            _panel_int(row.get("property_b_initial", row.get("property_b")), 0),
+            _panel_int(row.get("property_b"), 0),
+            _panel_int(row.get("a_result_flags_raw", row.get("hit_result_raw")), -1),
+            _panel_int(row.get("property_a_initial_unknown_mask"), 0),
+        )
+        group = by_signature.get(signature)
+        if group is None:
+            group = dict(row)
+            group["group_index"] = len(groups) + 1
+            group["repeat_count"] = 0
+            group["phase_indices"] = []
+            groups.append(group)
+            by_signature[signature] = group
+        group["repeat_count"] += 1
+        group["phase_indices"].append(_panel_int(row.get("phase_index"), len(group["phase_indices"]) + 1))
+    return groups
+
+
+def _attack_property_phase_count(attack: dict) -> int:
+    return len(_attack_property_phase_rows(attack))
+
+
+def _attack_projectile_rows(attack: dict) -> list[dict]:
+    """Compatibility accessor for spawned attack-actor rows."""
+    attack = attack if isinstance(attack, dict) else {}
+    source_rows = attack.get("attack_property_actors") or attack.get("attack_property_projectiles") or []
+    return [dict(row) for row in source_rows if isinstance(row, dict)]
+
+
+def _attack_actor_groups(attack: dict) -> list[dict]:
+    """Group simultaneous/recycled actors by native definition for readability."""
+    groups: list[dict] = []
+    by_signature: dict[tuple, dict] = {}
+    for row in _attack_projectile_rows(attack):
+        signature = (
+            str(row.get("attack_actor_name") or row.get("projectile_action_name") or ""),
+            _panel_int(row.get("property_a"), 0),
+            _panel_int(row.get("property_b"), 0),
+            _panel_int(row.get("phase_property_a"), 0),
+            _panel_int(row.get("phase_property_b"), 0),
+            bool(row.get("attack_actor_live", row.get("projectile_live"))),
+            bool(row.get("cleanup_observed")),
+            bool(row.get("inactive_generic_actor")),
+        )
+        group = by_signature.get(signature)
+        if group is None:
+            group = dict(row)
+            group["actor_count"] = 0
+            group["actor_indices"] = []
+            group["allocation_epochs"] = []
+            groups.append(group)
+            by_signature[signature] = group
+        group["actor_count"] += 1
+        group["actor_indices"].append(_panel_int(row.get("attack_actor_index", row.get("projectile_index")), 0))
+        epoch = _panel_int(row.get("allocation_epoch"), 0)
+        if epoch and epoch not in group["allocation_epochs"]:
+            group["allocation_epochs"].append(epoch)
+    return groups
+
+
+def _attack_projectile_primary_tokens(row: dict) -> list[tuple[str, tuple[int, int, int]]]:
+    index = max(1, _panel_int(row.get("attack_actor_index", row.get("projectile_index")), 1))
+    projectile_id = _panel_int(row.get("attack_actor_id", row.get("projectile_id")), 0)
+    actor_count = max(1, _panel_int(row.get("actor_count"), 1))
+    actor_label = f"ACTORS ×{actor_count}" if actor_count > 1 else f"ACTOR {index}"
+    tokens = [(actor_label, (127, 205, 255))]
+    if projectile_id:
+        tokens.append((f"ID {projectile_id:04X}", (166, 181, 204)))
+    prop_a = _panel_int(row.get("property_a"), 0)
+    guard, strength = _attack_property_a_ui(prop_a)
+    actor_name = str(row.get("attack_actor_name") or row.get("projectile_action_name") or "").upper()
+    prop_b = _panel_int(row.get("property_b"), 0)
+    capture_actor = bool(
+        (prop_a & 0x00300000)
+        or (prop_b & 0x00400000)
+        or any(word in actor_name for word in ("GRAB", "THROW", "CLUTCH", "CAPTURE"))
+    )
+    if guard == "UNBLOCKABLE":
+        label = "UNBLOCKABLE CAPTURE" if capture_actor else "GUARD DECODE UNVERIFIED"
+        tokens.append((label, (255, 174, 115)))
+    else:
+        tokens.append((guard, (109, 209, 205)))
+    tokens.append((strength, (185, 139, 238)))
+    high_flags = prop_a & ~0x3F
+    if high_flags == 0x00200000:
+        tokens.append(("CAPTURE TRIGGER / OPPONENT LOCK", (255, 151, 105)))
+    elif high_flags == 0x00100000:
+        tokens.append(("VICTIM STABILIZER / CARRIED-REACTION MODIFIER", (255, 174, 115)))
+    elif high_flags:
+        result_label = _attack_reaction_label(None, high_flags)
+        if not result_label.startswith("A RESULT FLAGS"):
+            tokens.append((result_label, (255, 174, 115)))
+        else:
+            tokens.append((f"A FLAGS 0x{high_flags:08X}", (255, 174, 115)))
+    epoch = _panel_int(row.get("allocation_epoch"), 0)
+    if epoch:
+        tokens.append((f"LIFETIME E{epoch}", (144, 155, 174)))
+    if bool(row.get("inactive_generic_actor")):
+        tokens.append(("UNRESOLVED INACTIVE ACTOR", (255, 112, 120)))
+    if bool(row.get("attack_actor_live", row.get("projectile_live"))):
+        tokens.append(("LIVE SPAWNED ACTOR", (102, 224, 164)))
+    else:
+        age = max(0, _panel_int(row.get("age_frames"), 0))
+        label = f"LAST SPAWNED ACTOR {age}F" if age else "LAST SPAWNED ACTOR"
+        tokens.append((label, (236, 188, 92)))
+    return tokens
+
+
+def _attack_projectile_secondary_tokens(
+    row: dict,
+    *,
+    include_raw: bool = False,
+) -> list[tuple[str, tuple[int, int, int]]]:
+    prop_b = _panel_int(row.get("property_b"), 0)
+    tokens = list(_attack_property_b_ui(prop_b, source_kind="actor"))
+    phase_a = _panel_int(row.get("phase_property_a"), 0)
+    phase_b = _panel_int(row.get("phase_property_b"), 0)
+    if phase_a or phase_b:
+        tokens.append(("QUEUED / DEFERRED DEFINITION", (109, 209, 205)))
+        if phase_a:
+            guard, strength = _attack_property_a_ui(phase_a)
+            if guard == "UNBLOCKABLE":
+                tokens.append(("QUEUED GUARD DECODE UNVERIFIED", (255, 174, 115)))
+            else:
+                tokens.append((f"QUEUED {guard}", (109, 209, 205)))
+            tokens.append((f"QUEUED {strength}", (185, 139, 238)))
+        if phase_b:
+            for text, color in _attack_property_b_ui(phase_b, source_kind="actor"):
+                tokens.append((f"QUEUED {text}", color))
+    if include_raw:
+        actor = _panel_int(row.get("actor"), 0)
+        linked = _panel_int(row.get("linked"), 0)
+        tokens.append((f"A 0x{_panel_int(row.get('property_a'), 0) & 0xFFFFFFFF:08X}", (166, 181, 204)))
+        tokens.append((f"B 0x{prop_b & 0xFFFFFFFF:08X}", (166, 181, 204)))
+        if actor:
+            tokens.append((f"ACTOR 0x{actor:08X}", (144, 155, 174)))
+        if linked:
+            tokens.append((f"LINK 0x{linked:08X}", (144, 155, 174)))
+        layout = str(row.get("property_layout") or "").strip()
+        registry = str(row.get("registry_source") or "").strip()
+        if layout:
+            tokens.append((f"LAYOUT {layout}", (144, 155, 174)))
+        if registry:
+            tokens.append((f"SOURCE {registry.upper()}", (144, 155, 174)))
+    return tokens
+
+
+def _attack_phase_primary_tokens(row: dict) -> list[tuple[str, tuple[int, int, int]]]:
+    tokens: list[tuple[str, tuple[int, int, int]]] = []
+    phase_index = max(1, _panel_int(row.get("phase_index"), 1))
+    group_index = max(0, _panel_int(row.get("group_index"), 0))
+    repeat_count = max(1, _panel_int(row.get("repeat_count"), 1))
+    label = f"TYPE {group_index}" if group_index else f"P{phase_index}"
+    if repeat_count > 1:
+        label += f" ×{repeat_count}"
+    tokens.append((label, (127, 205, 255)))
+
+    prop_a = _panel_int(row.get("property_a"), 0)
+    guard, strength = _attack_property_a_ui(prop_a)
+    tokens.append((guard, (109, 209, 205) if guard != "UNBLOCKABLE" else (255, 112, 120)))
+    tokens.append((strength, (185, 139, 238)))
+
+    initial_unknown = _attack_optional_int(row.get("property_a_initial_unknown_mask"))
+    if initial_unknown not in (None, 0):
+        initial_unknown &= 0xFFFFFFFF
+        if initial_unknown == 0x00200000:
+            tokens.append(("CAPTURE TRIGGER / OPPONENT LOCK 0x00200000", (255, 174, 115)))
+        else:
+            tokens.append((f"A INIT FLAGS 0x{initial_unknown:08X}", (255, 174, 115)))
+    post_flags = _panel_int(row.get("property_a_post_result_or_mask"), 0) & 0xFFFFFFFF
+    if post_flags:
+        if post_flags == 0x08000000:
+            tokens.append(("A POST 0x08000000 · COMMON ATTACK FLAG", (166, 181, 204)))
+        elif post_flags == 0x18000000:
+            tokens.append(("A POST 0x18000000 · HIGH/AIR FAMILY (CORRELATED)", (255, 174, 115)))
+        else:
+            tokens.append((f"A POST FLAGS 0x{post_flags:08X}", (255, 174, 115)))
+
+    operation_count = _attack_optional_int(row.get("operation_count"))
+    if operation_count:
+        tokens.append((f"{operation_count} NATIVE OPS", (166, 181, 204)))
+    return tokens
+
+_NATIVE_A_RESULT_RAW_LABELS = {
+    0x00000000: "NORMAL HIT RESULT",
+    0x00000100: "LAUNCH / SOFT-KD ROUTE",
+    0x00000200: "HARD KNOCKDOWN",
+    0x00000300: "SPIRAL KNOCKDOWN",
+    0x00000400: "SWEEP",
+    0x00000800: "STAGGER",
+    0x00001000: "CAPTURE / THROW CONNECTION",
+    0x00001800: "CAPTURE + STAGGER",
+    0x00004000: "OTG ENABLED",
+    0x00004100: "OTG + LAUNCH / SOFT-KD",
+    0x00004200: "OTG + HARD KNOCKDOWN",
+    0x00008000: "WALL BOUNCE (POWERED ROLL SWING OBSERVED)",
+    0x00008200: "HARD KNOCKDOWN (ROLL SWING FAMILY)",
+    0x00008300: "EXACT REACTION 0x00008300 UNRESOLVED",
+    0x00008800: "EXACT REACTION 0x00008800 UNRESOLVED",
+    0x00010000: "AIRBORNE SOFT-KNOCKDOWN OVERRIDE (PROVISIONAL)",
+    0x00010100: "CONDITIONAL REACTION COMPOSITE (UNRESOLVED)",
+    0x00020000: "SPECIAL REACTION COMPONENT (UNRESOLVED)",
+    0x00024000: "SPECIAL REACTION COMPONENT + OTG",
+    0x00040000: "LAUNCHER",
+    0x00080000: "AIR KNOCKDOWN",
+    0x00100100: "STABILIZED SOFT KNOCKDOWN",
+    0x00110000: "REPEATED-JUGGLE ROUTE (CORRELATED)",
+    0x00201000: "CINEMATIC IMPACT / TRANSITION",
+    0x00420000: "MEGACRASH BLOWBACK",
+    0x00300100: "CINEMATIC + LAUNCH",
+    0x00301000: "CINEMATIC + CAPTURE",
+    0x00301100: "CINEMATIC + CAPTURE + LAUNCH",
+    0x80000080: "CRUMPLE",
+    0x80000200: "WALL-INTERACTION HARD KNOCKDOWN",
+    0x80008200: "POWERED/CHARGED WALL-BOUNCE REACTION",
+    0x80000800: "STAGGER + FORCED TURNAROUND",
+    0x80004200: "OTG + HARD KNOCKDOWN + HIGH MODIFIER UNRESOLVED",
+    0x80080000: "SPECIAL AIR-KNOCKDOWN COMPOSITE",
+}
+
+# Shifted code fallback for captures whose exact raw word is not in the ledger.
+_NATIVE_ATTACK_REACTION_LABELS = {
+    0x00000000: "NORMAL HIT RESULT",
+    0x00000001: "LAUNCH / SOFT-KD ROUTE",
+    0x00000002: "HARD KNOCKDOWN",
+    0x00000003: "SPIRAL KNOCKDOWN",
+    0x00000004: "SWEEP",
+    0x00000008: "STAGGER",
+    0x00000010: "CAPTURE / THROW CONNECTION",
+    0x00000018: "CAPTURE + STAGGER",
+    0x00000040: "OTG ENABLED",
+    0x00000041: "OTG + LAUNCH / SOFT-KD",
+    0x00000042: "OTG + HARD KNOCKDOWN",
+    0x00000080: "WALL BOUNCE (POWERED ROLL SWING OBSERVED)",
+    0x00000082: "HARD KNOCKDOWN (ROLL SWING FAMILY)",
+    0x00000083: "EXACT REACTION 0x00008300 UNRESOLVED",
+    0x00000088: "EXACT REACTION 0x00008800 UNRESOLVED",
+    0x00000100: "AIRBORNE SOFT-KNOCKDOWN OVERRIDE (PROVISIONAL)",
+    0x00000200: "SPECIAL REACTION COMPONENT (UNRESOLVED)",
+    0x00000240: "SPECIAL REACTION COMPONENT + OTG",
+    0x00000400: "LAUNCHER",
+    0x00000800: "AIR KNOCKDOWN",
+    0x00001001: "STABILIZED SOFT KNOCKDOWN",
+    0x00002010: "CINEMATIC IMPACT / TRANSITION",
+    0x00004200: "MEGACRASH BLOWBACK",
+    0x00800002: "WALL-INTERACTION HARD KNOCKDOWN",
+    0x00800082: "POWERED/CHARGED WALL-BOUNCE REACTION",
+    0x00800008: "STAGGER + FORCED TURNAROUND",
+    0x00800042: "OTG + HARD KNOCKDOWN + HIGH MODIFIER UNRESOLVED",
+    0x00800800: "SPECIAL AIR-KNOCKDOWN COMPOSITE",
+    0x00001100: "REPEATED-JUGGLE ROUTE (CORRELATED)",
+    0x00003001: "CINEMATIC + LAUNCH",
+    0x00003010: "CINEMATIC + CAPTURE",
+    0x00003011: "CINEMATIC + CAPTURE + LAUNCH",
+    0x00000101: "CONDITIONAL REACTION COMPOSITE (UNRESOLVED)",
+}
+
+
+def _attack_reaction_label(value: int | None, raw_value: int | None = None) -> str:
+    """Prefer exact Property A result words over their shifted code.
+
+    Exact raw matching preserves low-byte behavior such as 0x80000080 Crumple,
+    which cannot be reconstructed from the historical value>>8 code alone.
+    """
+    raw = _attack_optional_int(raw_value)
+    if raw is not None:
+        raw &= 0xFFFFFFFF
+        known_raw = _NATIVE_A_RESULT_RAW_LABELS.get(raw)
+        if known_raw:
+            return known_raw
+    reaction = _attack_optional_int(value)
+    if reaction is None:
+        return ""
+    known = _NATIVE_ATTACK_REACTION_LABELS.get(reaction)
+    if known:
+        return known
+    if raw is not None:
+        return f"A RESULT FLAGS 0x{raw:08X}"
+    return f"A RESULT CODE 0x{reaction & 0xFFFFFFFF:08X}"
+
+
+def _attack_phase_secondary_tokens(
+    row: dict,
+    *,
+    include_raw: bool = False,
+) -> list[tuple[str, tuple[int, int, int]]]:
+    """Display only values harvested from the native Property A/B script."""
+    tokens = list(_attack_property_b_ui(_panel_int(row.get("property_b"), 0)))
+
+    reaction = _attack_optional_int(row.get("a_result_code", row.get("hit_reaction")))
+    result_raw = _attack_optional_int(row.get("a_result_flags_raw", row.get("hit_result_raw")))
+    if reaction is not None:
+        reaction_text = _attack_reaction_label(reaction, result_raw)
+        if include_raw:
+            reaction_text += f" [A FLAGS 0x{(result_raw or 0) & 0xFFFFFFFF:08X}]"
+        tokens.append((reaction_text, (224, 151, 169)))
+    elif _attack_optional_int(row.get("result_clear_mask")):
+        tokens.append(("A RESULT FLAGS CLEARED, NO OR VALUE", (255, 112, 120)))
+
+    if include_raw:
+        initial_a = _attack_optional_int(row.get("property_a_initial"))
+        initial_b = _attack_optional_int(row.get("property_b_initial"))
+        final_b = _attack_optional_int(row.get("property_b"))
+        if initial_a is not None:
+            tokens.append((f"A SET 0x{initial_a & 0xFFFFFFFF:08X}", (166, 181, 204)))
+        final_a = _attack_optional_int(row.get("property_a_final"))
+        post_a = _attack_optional_int(row.get("property_a_post_result_or_mask"))
+        if final_a is not None:
+            tokens.append((f"A FINAL 0x{final_a & 0xFFFFFFFF:08X}", (166, 181, 204)))
+        if post_a:
+            tokens.append((f"A POST OR 0x{post_a & 0xFFFFFFFF:08X}", (190, 164, 236)))
+        if initial_b is not None:
+            tokens.append((f"B SET 0x{initial_b & 0xFFFFFFFF:08X}", (166, 181, 204)))
+        if final_b is not None and initial_b is not None and final_b != initial_b:
+            tokens.append((f"B FINAL 0x{final_b & 0xFFFFFFFF:08X}", (190, 164, 236)))
+    return tokens
+
+def _attack_move_context_tokens(attack: dict) -> list[tuple[str, tuple[int, int, int]]]:
+    """Attack Property intentionally excludes frame-data/profile context."""
+    del attack
+    return []
+
+def _attack_native_operation_text(row: dict) -> str:
+    operations = [
+        operation for operation in (row.get("native_operations") or row.get("operations") or [])
+        if isinstance(operation, dict)
+    ]
+    parts = []
+    for operation in operations:
+        name = str(operation.get("operation_name") or "").upper()
+        if not name:
+            op = _panel_int(operation.get("operation"), -1)
+            name = {0x01: "SET", 0x15: "OR", 0x17: "CLEAR"}.get(op, f"OP{op:02X}")
+        field = str(operation.get("field_name") or "").upper()
+        if not field:
+            field = "A" if _panel_int(operation.get("field_id"), 0) == 0x240 else "B"
+        value = _panel_int(operation.get("value"), 0) & 0xFFFFFFFF
+        parts.append(f"{name} {field} {value:08X}")
+    return "  >  ".join(parts)
+
+
 def _compact_research_tokens(
     mode: str,
     team: str,
@@ -3184,26 +3759,71 @@ def _compact_research_tokens(
         attack_slot, attack = _active_attack_snapshot(team)
         attack = attack if isinstance(attack, dict) else {}
         actor = _panel_int(attack.get("attack_property_live_actor"), 0)
-        if not actor:
-            return "ATK PROP", [("NO ACTIVE HIT PACKET", (126, 139, 158))]
+        display_active = bool(attack.get("attack_property_display_active")) or bool(actor)
+        if not display_active:
+            status = str(attack.get("attack_property_definition_status") or "WAITING").upper()
+            error = str(attack.get("attack_property_definition_error") or "").strip()
+            action_id = _panel_int(
+                attack.get("attack_property_definition_action_id")
+                or attack.get("mv_id_display")
+                or attack.get("attA"),
+                0,
+            )
+            tokens = [("NO PROPERTY FOR CURRENT ACTION", (126, 139, 158))]
+            detail = status.replace("_", " ")
+            if action_id:
+                detail += f"  ACTION {action_id:04X}"
+            tokens.append((detail, (255, 112, 120) if error else (166, 181, 204)))
+            if error:
+                tokens.append((_compact_trim(error.upper(), 34), (255, 112, 120)))
+            return "ATK PROP", tokens
+
         damage = _panel_int(attack.get("attack_property_live_damage"), 0)
-        victim = str(attack.get("attack_property_live_victim_slot") or "-")
-        status20 = _panel_hex(attack.get("attack_property_live_status20"))
-        prop_a = _panel_hex(attack.get("attack_property_live_a"))
-        prop_b = _panel_hex(attack.get("attack_property_live_b"))
-        text_a = str(attack.get("attack_property_live_a_text") or "UNRESOLVED").upper()
-        text_b = str(attack.get("attack_property_live_b_text") or "UNRESOLVED").upper()
-        source_badge = "C1" if str(attack_slot or "").endswith("C1") else "C2"
-        tokens.extend(
-            [
-                (f"{source_badge} {text_a}", accent),
-                (f"DMG {damage} > {victim}", (255, 124, 132)),
-                (f"A {prop_a}", (185, 139, 238)),
-                (f"B {prop_b} {text_b}", (185, 139, 238)),
-                (f"ST {status20}", (157, 179, 211)),
-                (f"ACT {actor:08X}", (137, 153, 178)),
-            ]
-        )
+        victim = str(attack.get("attack_property_live_victim_slot") or "").strip().upper()
+        prop_a = _panel_int(attack.get("attack_property_live_a"), 0)
+        prop_b = _panel_int(attack.get("attack_property_live_b"), 0)
+        source = str(attack.get("attack_property_display_source") or attack.get("attack_property_packet_source") or "")
+        guard, strength = _attack_property_a_ui(prop_a)
+
+        tokens.append((_attack_source_ui(attack_slot, attack), accent))
+        tokens.append((guard, (109, 209, 205) if guard != "UNBLOCKABLE" else (255, 112, 120)))
+        tokens.append((strength, (185, 139, 238)))
+        if source in {"move_definition", "move_definition_latched"}:
+            state_text = "CURRENT NATIVE SCRIPT" if source == "move_definition" else "LAST NATIVE SCRIPT"
+            tokens.append((state_text, (127, 205, 255)))
+            action_id = _panel_int(attack.get("attack_property_packet_action_id"), 0)
+            if action_id:
+                tokens.append((f"ACTION {action_id:04X}", (166, 181, 204)))
+            phases = _attack_property_phase_rows(attack)
+            phase_groups = _attack_property_phase_groups(phases)
+            block_text = f"{len(phases)} SCRIPT BLOCK{'S' if len(phases) != 1 else ''}"
+            if len(phase_groups) != len(phases):
+                block_text += f" · {len(phase_groups)} UNIQUE"
+            tokens.append((block_text, (166, 181, 204)))
+            for phase in phase_groups[:2]:
+                tokens.extend(_attack_phase_primary_tokens(phase))
+                tokens.extend(_attack_phase_secondary_tokens(phase))
+            if len(phase_groups) > 2:
+                tokens.append((f"+{len(phase_groups) - 2} MORE TYPES", (166, 181, 204)))
+            return "ATK PROP", tokens
+
+        damage_text = f"BASE DMG {damage}"
+        if victim and victim != "-":
+            damage_text += f" TO {victim}"
+        tokens.append((damage_text, (255, 124, 132)))
+        tokens.append((_attack_scaling_ui(attack), (236, 188, 92)))
+        tokens.extend(_attack_property_b_ui(prop_b))
+
+        phase_a = _panel_int(attack.get("attack_property_live_phase_a"), 0)
+        phase_b = _panel_int(attack.get("attack_property_live_phase_b"), 0)
+        if phase_a or phase_b:
+            next_guard, next_strength = _attack_property_a_ui(phase_a)
+            tokens.append(("NEXT PHASE", (109, 209, 205)))
+            if phase_a:
+                tokens.append((f"NEXT {next_guard}", (109, 209, 205)))
+                tokens.append((f"NEXT {next_strength}", (185, 139, 238)))
+            for label, color in _attack_property_b_ui(phase_b):
+                tokens.append((f"NEXT {label}", color))
         return "ATK PROP", tokens
 
     return "DATA", []
@@ -3262,6 +3882,163 @@ def _draw_compact_research_row(
         draw_x += chip.get_width() + gap_x
 
     screen.set_clip(old_clip)
+
+
+def _compact_attack_badge_height(team: str, font_sm, scale: float) -> int:
+    _slot, attack = _active_attack_snapshot(team)
+    attack = attack if isinstance(attack, dict) else {}
+    phase_rows = _attack_property_phase_rows(attack)
+    phase_groups = _attack_property_phase_groups(phase_rows)
+    phase_count = len(phase_rows)
+    projectile_count = len(_attack_actor_groups(attack))
+    visible_phases = min(3, len(phase_groups))
+    visible_projectiles = min(2, projectile_count)
+    header_h = max(font_sm.get_height() + 8, int(21 * scale))
+    line_h = max(font_sm.get_height() + 5, int(18 * scale))
+    body_h = visible_phases * line_h * 2
+    if phase_count > visible_phases:
+        body_h += line_h
+    if projectile_count:
+        body_h += line_h  # SPAWNED ATTACK ACTORS section label
+        body_h += visible_projectiles * line_h * 2
+        if projectile_count > visible_projectiles:
+            body_h += line_h
+    if not phase_count and not projectile_count:
+        body_h = line_h * 2
+    return header_h + body_h + max(7, int(8 * scale))
+
+
+def _draw_attack_property_badge(
+    screen,
+    font_sm,
+    team: str,
+    x: int,
+    y: int,
+    right: int,
+    height: int,
+    scale: float,
+) -> None:
+    """Draw fighter script blocks and persistent spawned attack actors."""
+    slot, attack = _active_attack_snapshot(team)
+    attack = attack if isinstance(attack, dict) else {}
+    accent = (236, 92, 108) if team == "P1" else (82, 164, 236)
+    width = max(1, right - x)
+    rect = pygame.Rect(x, y, width, max(1, height))
+
+    shell = pygame.Surface(rect.size, pygame.SRCALPHA)
+    pygame.draw.rect(shell, (11, 18, 29, 218), shell.get_rect(), border_radius=max(5, int(6 * scale)))
+    pygame.draw.rect(shell, (*accent, 118), shell.get_rect(), 1, border_radius=max(5, int(6 * scale)))
+    title_bar = pygame.Rect(0, 0, shell.get_width(), max(font_sm.get_height() + 8, int(21 * scale)))
+    pygame.draw.rect(shell, (*accent, 32), title_bar, border_radius=max(5, int(6 * scale)))
+    pygame.draw.line(shell, (*accent, 88), (0, title_bar.bottom), (shell.get_width(), title_bar.bottom), 1)
+    screen.blit(shell, rect.topleft)
+
+    pad = max(6, int(7 * scale))
+    title = font_sm.render("ATK PROPERTY", True, accent)
+    screen.blit(title, (rect.x + pad, rect.y + max(2, int(3 * scale))))
+
+    move = str(
+        attack.get("attack_property_packet_action_name")
+        or attack.get("final_move_label")
+        or attack.get("mv_label_display")
+        or attack.get("mv_label")
+        or "---"
+    ).strip().upper()
+    phases = _attack_property_phase_rows(attack)
+    phase_groups = _attack_property_phase_groups(phases)
+    projectiles = _attack_actor_groups(attack)
+    action_id = _panel_int(
+        attack.get("attack_property_packet_action_id")
+        or attack.get("attack_property_definition_action_id")
+        or attack.get("mv_id_display")
+        or attack.get("attA"),
+        0,
+    )
+    summary_parts = [move]
+    if phases:
+        summary_parts.append("NATIVE SCRIPT")
+    if projectiles:
+        live_count = sum(
+            max(1, _panel_int(row.get("actor_count"), 1))
+            for row in projectiles
+            if bool(row.get("attack_actor_live", row.get("projectile_live")))
+        )
+        total_actor_count = sum(max(1, _panel_int(row.get("actor_count"), 1)) for row in projectiles)
+        if live_count:
+            summary_parts.append(f"{live_count} LIVE ATTACK ACTOR{'S' if live_count != 1 else ''}")
+        else:
+            summary_parts.append(f"{total_actor_count} LAST ATTACK ACTOR{'S' if total_actor_count != 1 else ''}")
+    if action_id:
+        summary_parts.append(f"ACT {action_id:04X}")
+    if phases:
+        block_text = f"{len(phases)} SCRIPT BLOCK{'S' if len(phases) != 1 else ''}"
+        if len(phase_groups) != len(phases):
+            block_text += f" · {len(phase_groups)} UNIQUE"
+        summary_parts.append(block_text)
+    summary = _panel_fit(font_sm, "  |  ".join(summary_parts), max(1, rect.width - title.get_width() - pad * 3))
+    summary.set_alpha(220)
+    screen.blit(summary, (rect.right - pad - summary.get_width(), rect.y + max(2, int(3 * scale))))
+
+    if not phases and not projectiles:
+        status = str(attack.get("attack_property_definition_status") or "WAITING").upper().replace("_", " ")
+        message = _panel_fit(font_sm, f"NO NATIVE PROPERTY FOR CURRENT ACTION  {status}", rect.width - pad * 2)
+        message.set_alpha(180)
+        screen.blit(message, (rect.x + pad, rect.y + title_bar.height + max(7, int(8 * scale))))
+        return
+
+    line_y = rect.y + title_bar.height + max(4, int(5 * scale))
+    line_h = max(font_sm.get_height() + 5, int(18 * scale))
+
+    def draw_token_line(tokens, draw_y: int) -> None:
+        draw_x = rect.x + pad
+        max_x = rect.right - pad
+        for text, color in tokens:
+            remaining = max_x - draw_x
+            if remaining <= max(22, int(26 * scale)):
+                break
+            fitted = _compact_fit_text(font_sm, str(text or ""), max(1, remaining - max(8, int(10 * scale))))
+            chip = _render_compact_text_chip(font_sm, fitted, color, scale, 1.0)
+            if draw_x + chip.get_width() > max_x:
+                break
+            screen.blit(chip, (draw_x, draw_y))
+            draw_x += chip.get_width() + max(3, int(4 * scale))
+
+    visible_phases = phase_groups[:3]
+    for row in visible_phases:
+        draw_token_line(_attack_phase_primary_tokens(row), line_y)
+        line_y += line_h
+        secondary = _attack_phase_secondary_tokens(row)
+        if secondary:
+            draw_token_line(secondary, line_y)
+        else:
+            quiet = font_sm.render("NO EXTRA NATIVE FLAGS", True, (126, 139, 158))
+            quiet.set_alpha(175)
+            screen.blit(quiet, (rect.x + pad, line_y + 1))
+        line_y += line_h
+    if len(phase_groups) > len(visible_phases):
+        more = font_sm.render(f"+{len(phase_groups) - len(visible_phases)} MORE UNIQUE BLOCK TYPES IN RESEARCH PANEL", True, (166, 181, 204))
+        more.set_alpha(190)
+        screen.blit(more, (rect.x + pad, line_y))
+        line_y += line_h
+
+    if projectiles:
+        any_live_projectile = any(bool(row.get("attack_actor_live", row.get("projectile_live"))) for row in projectiles)
+        section_text = "SPAWNED ATTACK ACTORS" if any_live_projectile else "LAST SPAWNED ATTACK ACTORS"
+        section_color = (102, 224, 164) if any_live_projectile else (236, 188, 92)
+        section = font_sm.render(section_text, True, section_color)
+        section.set_alpha(225)
+        screen.blit(section, (rect.x + pad, line_y + 1))
+        line_y += line_h
+        visible_projectiles = projectiles[:2]
+        for row in visible_projectiles:
+            draw_token_line(_attack_projectile_primary_tokens(row), line_y)
+            line_y += line_h
+            draw_token_line(_attack_projectile_secondary_tokens(row), line_y)
+            line_y += line_h
+        if len(projectiles) > len(visible_projectiles):
+            more = font_sm.render(f"+{len(projectiles) - len(visible_projectiles)} MORE ACTOR DEFINITIONS IN RESEARCH PANEL", True, (166, 181, 204))
+            more.set_alpha(190)
+            screen.blit(more, (rect.x + pad, min(rect.bottom - more.get_height() - 2, line_y)))
 
 
 def _draw_compact_history_line(screen, font_sm, title: str, items: list[dict], x: int, y: int, right: int, scale: float, prev_items: list[dict] | None = None, slide_progress: float = 0.0) -> None:
@@ -4775,10 +5552,15 @@ def _active_attack_snapshot(team: str) -> tuple[str, dict] | tuple[None, None]:
             continue
         count = _panel_int(snap.get("attack_property_packet_count"), 0)
         actor = _panel_int(snap.get("attack_property_live_actor"), 0)
-        candidates.append((1 if actor else 0, count, slot, snap))
+        display_active = bool(snap.get("attack_property_display_active")) or bool(actor)
+        source = str(snap.get("attack_property_display_source") or snap.get("attack_property_packet_source") or "")
+        source_rank = 3 if actor else (2 if source == "move_definition" else (1 if display_active else 0))
+        capture_frame = _panel_int(snap.get("attack_property_packet_capture_frame"), -1)
+        sequence = _panel_int(snap.get("attack_property_event_sequence"), 0)
+        candidates.append((source_rank, capture_frame, sequence, count, slot, snap))
     if candidates:
-        candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
-        _actor, _count, slot, snap = candidates[0]
+        candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3]), reverse=True)
+        _rank, _capture, _sequence, _count, slot, snap = candidates[0]
         return slot, snap
     return None, None
 
@@ -4800,15 +5582,49 @@ def _draw_attack_property_panel(screen, font, font_sm, scale: float) -> None:
             pygame.draw.line(card, (42, 56, 73, 170), (10, row_y), (width - 10, row_y), 1)
         accent = (236, 92, 108) if team == "P1" else (82, 164, 236)
         actor = _panel_int(snap.get("attack_property_live_actor"), 0)
+        display_active = bool(snap.get("attack_property_display_active")) or bool(actor)
         name = _compact_trim(str(snap.get("name") or slot or "---"), 13)
-        move = _compact_trim(str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "---"), 22)
-        header = font_sm.render(f"{team}  {name}  {move}", True, accent)
+        packet_move = str(snap.get("attack_property_packet_action_name") or "")
+        move = _compact_trim(packet_move or str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "---"), 22)
+        packet_state = str(snap.get("attack_property_packet_state") or "NONE").upper()
+        header = font_sm.render(f"{team}  {packet_state}  {name}  {move}", True, accent)
         card.blit(header, (12, row_y + 5))
 
-        if not actor:
-            empty = font.render("NO ACTIVE HIT PACKET", True, (123, 137, 157))
+        if not display_active:
+            status = str(snap.get("attack_property_definition_status") or "WAITING").upper().replace("_", " ")
+            error = str(snap.get("attack_property_definition_error") or "").strip()
+            action_id = _panel_int(snap.get("attack_property_definition_action_id") or snap.get("mv_id_display") or snap.get("attA"), 0)
+            empty = font.render("NO PROPERTY FOR CURRENT ACTION", True, (123, 137, 157))
             card.blit(empty, (12, row_y + 28))
+            detail_text = f"{status}  ACTION {action_id:04X}" if action_id else status
+            if error:
+                detail_text += f"  {error}"
+            detail = _panel_fit(font_sm, detail_text, width - 24)
+            card.blit(detail, (12, row_y + 54))
             continue
+
+        source = str(snap.get("attack_property_display_source") or snap.get("attack_property_packet_source") or "")
+        if source in {"move_definition", "move_definition_latched"}:
+            phases = _attack_property_phase_rows(snap)
+            phase_groups = _attack_property_phase_groups(phases)
+            first = phase_groups[0] if phase_groups else {}
+            state_text = "CURRENT NATIVE SCRIPT" if source == "move_definition" else "LAST NATIVE SCRIPT"
+            action_id = _panel_int(snap.get("attack_property_packet_action_id"), 0)
+            primary = "  ".join(text for text, _color in _attack_phase_primary_tokens(first))
+            secondary = "  ".join(text for text, _color in _attack_phase_secondary_tokens(first))
+            count_text = f"{len(phases)} BLOCKS"
+            if len(phase_groups) != len(phases):
+                count_text += f" / {len(phase_groups)} UNIQUE"
+            line1 = _panel_fit(font_sm, f"{state_text}  ACTION {action_id:04X}  {count_text}", width - 24)
+            line2 = _panel_fit(font_sm, primary, width - 24)
+            line3 = _panel_fit(font_sm, secondary, width - 24)
+            card.blit(line1, (12, row_y + 27))
+            line2.set_alpha(220)
+            card.blit(line2, (12, row_y + 47))
+            line3.set_alpha(195)
+            card.blit(line3, (12, row_y + 67))
+            continue
+
 
         damage = _panel_int(snap.get("attack_property_live_damage"), 0)
         status20 = _panel_hex(snap.get("attack_property_live_status20"))
@@ -4816,10 +5632,15 @@ def _draw_attack_property_panel(screen, font, font_sm, scale: float) -> None:
         prop_b = _panel_hex(snap.get("attack_property_live_b"))
         text_a = str(snap.get("attack_property_live_a_text") or "UNRESOLVED")
         text_b = str(snap.get("attack_property_live_b_text") or "UNRESOLVED")
+        scaling = str(snap.get("attack_property_live_scaling_track") or "Combat lane unknown")
         victim = str(snap.get("attack_property_live_victim_slot") or "-")
+        phase_a = _panel_int(snap.get("attack_property_live_phase_a"), 0)
+        phase_b = _panel_int(snap.get("attack_property_live_phase_b"), 0)
         line1 = f"ACTOR {actor:08X}  DMG {damage}  VICTIM {victim}  STATUS {status20}"
         line2 = f"A {prop_a}  {text_a}"
-        line3 = f"B {prop_b}  {text_b}"
+        line3 = f"B {prop_b}  {text_b}  |  {scaling}"
+        if phase_a or phase_b:
+            line3 += f"  |  NEXT A {phase_a:08X} B {phase_b:08X}"
         for offset, line in enumerate((line1, line2, line3)):
             surf = _panel_fit(font_sm, line, width - 24)
             if offset:
@@ -5012,7 +5833,7 @@ def _research_dock_geometry(screen, scale: float, panel: str) -> pygame.Rect:
         "damage": max(112, int(118 * scale)),
         "meter": max(98, int(104 * scale)),
         "red": max(170, int(178 * scale)),
-        "attack": max(112, int(120 * scale)),
+        "attack": max(220, int(240 * scale)),
     }
     title_h = max(27, int(29 * scale))
     height = title_h + content_heights.get(panel, content_heights["damage"])
@@ -5188,13 +6009,111 @@ def _draw_research_attack_content(card, area: pygame.Rect, font, font_sm, scale:
         pygame.draw.rect(card, (*accent, 105), cell, 1, border_radius=max(4, int(5 * scale)))
         pad = max(8, int(9 * scale))
         actor = _panel_int(snap.get("attack_property_live_actor"), 0)
+        display_active = bool(snap.get("attack_property_display_active")) or bool(actor)
         name = _compact_trim(str(snap.get("name") or slot or "---"), 14)
-        move = _compact_trim(str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "---"), 25)
-        header = _panel_fit(font_sm, f"{team}  {name}  {move}", cell.width - pad * 2)
+        packet_move = str(snap.get("attack_property_packet_action_name") or "")
+        move = _compact_trim(packet_move or str(snap.get("final_move_label") or snap.get("mv_label_display") or snap.get("mv_label") or "---"), 25)
+        packet_state = str(snap.get("attack_property_packet_state") or "NONE").upper()
+        header = _panel_fit(font_sm, f"{team}  {packet_state}  {name}  {move}", cell.width - pad * 2)
         card.blit(header, (cell.x + pad, cell.y + pad))
-        if not actor:
-            empty = font.render("NO ACTIVE HIT PACKET", True, (123, 137, 157))
+        if not display_active:
+            status = str(snap.get("attack_property_definition_status") or "WAITING").upper().replace("_", " ")
+            error = str(snap.get("attack_property_definition_error") or "").strip()
+            action_id = _panel_int(snap.get("attack_property_definition_action_id") or snap.get("mv_id_display") or snap.get("attA"), 0)
+            empty = font.render("NO PROPERTY FOR CURRENT ACTION", True, (123, 137, 157))
             card.blit(empty, (cell.x + pad, cell.y + pad + header.get_height() + 9))
+            detail_text = f"{status}  ACTION {action_id:04X}" if action_id else status
+            if error:
+                detail_text += f"  {error}"
+            detail = _panel_fit(font_sm, detail_text, cell.width - pad * 2)
+            card.blit(detail, (cell.x + pad, cell.y + pad + header.get_height() + 34))
+            continue
+
+        source = str(snap.get("attack_property_display_source") or snap.get("attack_property_packet_source") or "")
+        projectiles = _attack_actor_groups(snap)
+        if source in {
+            "move_definition", "move_definition_latched",
+            "native_script_and_live_attack_actor", "native_script_and_last_attack_actor",
+            "live_attack_actor", "live_attack_actor_latched",
+            "native_script_and_live_projectile", "native_script_and_last_projectile",
+            "live_projectile_actor", "live_projectile_latched",
+        }:
+            if source == "move_definition":
+                state_text = "CURRENT NATIVE SCRIPT"
+            elif source == "move_definition_latched":
+                state_text = "LAST NATIVE SCRIPT"
+            elif source in {"native_script_and_live_attack_actor", "native_script_and_live_projectile"}:
+                state_text = "CURRENT NATIVE SCRIPT + LIVE ATTACK ACTOR"
+            elif source in {"native_script_and_last_attack_actor", "native_script_and_last_projectile"}:
+                state_text = "CURRENT NATIVE SCRIPT + LAST ATTACK ACTOR"
+            elif source in {"live_attack_actor_latched", "live_projectile_latched"}:
+                state_text = "LAST SPAWNED ATTACK ACTOR"
+            else:
+                state_text = "LIVE SPAWNED ATTACK ACTOR"
+            action_id = _panel_int(snap.get("attack_property_packet_action_id"), 0)
+            line_y = cell.y + pad + header.get_height() + 10
+            phases = _attack_property_phase_rows(snap)
+            phase_groups = _attack_property_phase_groups(phases)
+            summary = f"{state_text}  ACTION {action_id:04X}"
+            if phases:
+                summary += f"  {len(phases)} SCRIPT BLOCK{'S' if len(phases) != 1 else ''}"
+                if len(phase_groups) != len(phases):
+                    summary += f"  {len(phase_groups)} UNIQUE"
+            if projectiles:
+                live_count = sum(
+                    max(1, _panel_int(row.get("actor_count"), 1))
+                    for row in projectiles
+                    if bool(row.get("attack_actor_live", row.get("projectile_live")))
+                )
+                total_actor_count = sum(max(1, _panel_int(row.get("actor_count"), 1)) for row in projectiles)
+                projectile_word = "LIVE ATTACK ACTOR" if live_count else "LAST ATTACK ACTOR"
+                projectile_count = live_count if live_count else total_actor_count
+                summary += f"  {projectile_count} {projectile_word}{'S' if projectile_count != 1 else ''}"
+            surf = _panel_fit(font_sm, summary, cell.width - pad * 2)
+            card.blit(surf, (cell.x + pad, line_y))
+            line_y += font_sm.get_height() + 5
+
+            phase_line_h = font_sm.get_height() + 3
+            remaining_lines = max(0, (cell.bottom - pad - line_y) // max(1, phase_line_h))
+            visible_phase_count = max(1, remaining_lines // 3) if phase_groups else 0
+            visible_phases = phase_groups[:visible_phase_count]
+            for phase in visible_phases:
+                primary = "  ".join(text for text, _color in _attack_phase_primary_tokens(phase))
+                secondary = "  ".join(text for text, _color in _attack_phase_secondary_tokens(phase, include_raw=True))
+                operations = _attack_native_operation_text(phase)
+                for text, color in (
+                    (primary, (214, 224, 239)),
+                    (secondary, (166, 181, 204)),
+                    (operations, (144, 155, 174)),
+                ):
+                    if not text or line_y + font_sm.get_height() > cell.bottom - pad:
+                        continue
+                    row_s = font_sm.render(_compact_fit_text(font_sm, text, cell.width - pad * 2), True, color)
+                    card.blit(row_s, (cell.x + pad, line_y))
+                    line_y += font_sm.get_height() + 3
+            if len(phase_groups) > len(visible_phases) and line_y + font_sm.get_height() <= cell.bottom - pad:
+                more = font_sm.render(f"+{len(phase_groups) - len(visible_phases)} MORE UNIQUE BLOCK TYPES", True, (166, 181, 204))
+                card.blit(more, (cell.x + pad, line_y))
+                line_y += font_sm.get_height() + 3
+
+            if projectiles and line_y + font_sm.get_height() <= cell.bottom - pad:
+                any_live_projectile = any(bool(row.get("projectile_live")) for row in projectiles)
+                proj_header_text = "LIVE SPAWNED ATTACK ACTORS" if any_live_projectile else "LAST SPAWNED ATTACK ACTORS"
+                proj_header_color = (102, 224, 164) if any_live_projectile else (236, 188, 92)
+                proj_header = font_sm.render(proj_header_text, True, proj_header_color)
+                card.blit(proj_header, (cell.x + pad, line_y))
+                line_y += font_sm.get_height() + 3
+                for projectile in projectiles:
+                    primary = "  ".join(text for text, _color in _attack_projectile_primary_tokens(projectile))
+                    secondary = "  ".join(text for text, _color in _attack_projectile_secondary_tokens(projectile, include_raw=True))
+                    for text, color in ((primary, (214, 224, 239)), (secondary, (144, 155, 174))):
+                        if not text or line_y + font_sm.get_height() > cell.bottom - pad:
+                            break
+                        row_s = font_sm.render(_compact_fit_text(font_sm, text, cell.width - pad * 2), True, color)
+                        card.blit(row_s, (cell.x + pad, line_y))
+                        line_y += font_sm.get_height() + 3
+                    if line_y + font_sm.get_height() > cell.bottom - pad:
+                        break
             continue
 
         damage = _panel_int(snap.get("attack_property_live_damage"), 0)
@@ -5203,11 +6122,15 @@ def _draw_research_attack_content(card, area: pygame.Rect, font, font_sm, scale:
         prop_b = _panel_hex(snap.get("attack_property_live_b"))
         text_a = str(snap.get("attack_property_live_a_text") or "UNRESOLVED")
         text_b = str(snap.get("attack_property_live_b_text") or "UNRESOLVED")
+        scaling = str(snap.get("attack_property_live_scaling_track") or "Combat lane unknown")
         victim = str(snap.get("attack_property_live_victim_slot") or "-")
+        phase_a = _panel_int(snap.get("attack_property_live_phase_a"), 0)
+        phase_b = _panel_int(snap.get("attack_property_live_phase_b"), 0)
+        phase_text = f"  |  NEXT A {phase_a:08X} B {phase_b:08X}" if (phase_a or phase_b) else ""
         lines = (
             f"ACTOR {actor:08X}  DMG {damage}  VICTIM {victim}  STATUS {status20}",
             f"A {prop_a}  {text_a}",
-            f"B {prop_b}  {text_b}",
+            f"B {prop_b}  {text_b}  |  {scaling}{phase_text}",
         )
         line_y = cell.y + pad + header.get_height() + 7
         for line in lines:
@@ -5852,8 +6775,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     show_meter_inline = bool(control is not None and getattr(control, "show_meter_panel", False))
     show_red_inline = bool(control is not None and getattr(control, "show_red_health_panel", False))
     show_attack_inline = bool(control is not None and getattr(control, "show_attack_property_panel", False))
-    research_mode = "attack" if show_attack_inline else None
-    research_row_height = max(31, int(34 * scale)) if show_attack_inline else 0
+    research_row_height = _compact_attack_badge_height(team, font_sm, scale) if show_attack_inline else 0
     research_gap = max(1, int(2 * scale)) if show_attack_inline else 0
     research_layout_extra = research_row_height + research_gap
     damage_scale_row_h = max(font_sm.get_height() + 4, int(17 * scale))
@@ -6218,15 +7140,10 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     )
 
     if show_attack_inline:
-        _draw_compact_research_row(
+        _draw_attack_property_badge(
             screen,
             font_sm,
-            "attack",
             team,
-            point_label,
-            point,
-            partner_label,
-            partner,
             left,
             research_y,
             right,

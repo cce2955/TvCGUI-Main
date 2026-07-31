@@ -75,12 +75,26 @@ FLAG_064      = 0x064
 FLAG_072      = 0x072        # appears tied to airborne/ground state
 
 # Victim-side counters populated by the hit/block resolver at runtime.
-# They are observation targets for the reverse profiler, not write targets.
-# +0x1210 receives the resolved stun amount; +0x1228 is the live countdown;
-# +0x2120 is the impact-freeze countdown observed on contact.
-RUNTIME_RESOLVED_STUN_OFF  = 0x1210
-RUNTIME_STUN_REMAINING_OFF = 0x1228
-RUNTIME_IMPACT_FREEZE_OFF  = 0x2120
+# They are observation targets for reverse profiling, never write targets.
+#
+# Recomp trace (2026-07-26):
+#   +0x1204 receives resolved blockstun.
+#   +0x1210 receives resolved hitstun and is the countdown decremented by the
+#           fighter update. It is not an immutable "total" field.
+#   +0x1228 is a separate countdown copied from +0x1210 only when the reaction
+#           family at +0x4480 equals 0x300. Its exact gameplay name remains
+#           under investigation, so expose it as a secondary reaction timer.
+#   +0x2120 is the pending/impact-freeze countdown observed on contact.
+RUNTIME_BLOCKSTUN_REMAINING_OFF = 0x1204
+RUNTIME_HITSTUN_REMAINING_OFF = 0x1210
+RUNTIME_REACTION_TIMER_OFF = 0x1228
+RUNTIME_IMPACT_FREEZE_OFF = 0x2120
+
+# Compatibility aliases for older modules and persisted tests. Both old stun
+# names now point at the confirmed live hitstun countdown. New code should use
+# RUNTIME_HITSTUN_REMAINING_OFF and RUNTIME_REACTION_TIMER_OFF explicitly.
+RUNTIME_RESOLVED_STUN_OFF = RUNTIME_HITSTUN_REMAINING_OFF
+RUNTIME_STUN_REMAINING_OFF = RUNTIME_HITSTUN_REMAINING_OFF
 
 
 # ------------------------------------------------------------

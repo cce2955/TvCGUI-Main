@@ -6,22 +6,43 @@ from typing import Any, Iterable
 
 
 _SNAPSHOT_KEYS = {
-    "base", "id", "name",
+    "base", "id", "name", "teamtag", "slotname", "slot_label",
+    "f062", "f063", "f064", "f072", "x", "y",
     "attA", "attB", "timing_action_id", "move_id", "mv_id_display",
     "mv_label", "mv_label_display", "move_frame", "action_frame",
     "cur", "max", "aux", "meter",
     "attack_property_live_actor", "attack_property_live_damage",
+    "attack_property_live_authored_damage", "attack_property_live_damage_calc_output",
+    "attack_property_live_damage_calc_aux", "attack_property_native_damage_calc_complete",
+    "attack_property_live_applied_damage", "attack_property_live_resolved_damage",
+    "attack_property_live_resolved_aux", "attack_property_native_damage_complete",
     "attack_property_live_a", "attack_property_live_b",
     "attack_property_live_status20", "attack_property_live_phase_a",
     "attack_property_live_phase_b", "attack_property_live_victim_slot",
     "attack_property_live_action_frame", "attack_property_live_a_text",
     "attack_property_live_b_text", "attack_property_live_b_unknown",
+    "attack_property_live_phase_a_text", "attack_property_live_phase_b_text",
+    "attack_property_live_phase_b_unknown",
+    "attack_property_live_owner_point_active",
+    "attack_property_live_combo_lane_active",
+    "attack_property_live_scaling_loss_per_hit",
+    "attack_property_live_scaling_floor", "attack_property_live_scaling_track",
+    "attack_property_packet_state", "attack_property_packet_source",
+    "attack_property_packet_capture_frame", "attack_property_packet_age_frames",
+    "attack_property_packet_action_id", "attack_property_packet_action_name",
+    "attack_property_pool_manager", "attack_property_pool_free_head",
+    "attack_property_pool_status", "attack_property_packet_count",
+    "attack_property_display_active", "attack_property_display_source",
+    "attack_property_resolver_hook_state", "attack_property_resolver_hook_error",
+    "attack_property_resolver_lost_events", "attack_property_sampler_error",
+    "damage_point_active", "damage_combo_lane_active", "damage_baroque_permission",
 }
 
 _ANNOTATION_PREFIXES = (
     "attack_property_",
     "meter_profile_",
     "red_health_",
+    "reaction_",
 )
 
 

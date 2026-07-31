@@ -3,9 +3,11 @@ from __future__ import annotations
 import struct
 from typing import Any
 
-from tvcgui.core.constants import CHAR_NAMES, OFF_CHAR_ID, SLOTS
+from tvcgui.core.constants import (
+    CHAR_NAMES, OFF_CHAR_ID, RUNTIME_HITSTUN_REMAINING_OFF, SLOTS,
+)
 from tvcgui.features.combat.move_id_map import lookup_move_name
-from tvcgui.platform.dolphin import addr_in_ram, rbytes, rd32
+from tvcgui.platform.dolphin import addr_in_ram, rbytes, rd8, rd32
 
 ACTION_FRAME_OFF = 0x01D8
 ACTION_OFF = 0x01E8
@@ -30,6 +32,7 @@ PENDING_COMMAND_PARAM_OFF = 0x2114
 P1_SOURCE_STATUS_ADDR = 0x803F404C
 P1_DECODED_SOURCE_ADDR = 0x803F4050
 P1_RAW_SOURCE_ADDR = 0x803F4054
+GLOBAL_COMBO_COUNTER_ADDR = 0x809BDDB3
 
 DIRECTION_MASK = 0x0F
 BUTTON_A = 0x80
@@ -103,7 +106,21 @@ def _fighter_base(slot_label: str) -> tuple[int, int]:
     return ptr_addr, base
 
 
-def read_overlay_input_packet(slot_label: str = "P1-C1", fighter_base: int = 0) -> dict[str, Any]:
+def read_global_combo_count() -> int:
+    """Read the game-wide combo counter for the realtime sampler."""
+    try:
+        value = rd8(GLOBAL_COMBO_COUNTER_ADDR)
+        return int(value) if value is not None else 0
+    except Exception:
+        return 0
+
+
+def read_overlay_input_packet(
+    slot_label: str = "P1-C1",
+    fighter_base: int = 0,
+    *,
+    combo_count: int | None = None,
+) -> dict[str, Any]:
     """Read only the small input packet needed by the in-game overlay."""
     label = str(slot_label or "P1-C1")
     base = int(fighter_base or 0) & 0xFFFFFFFF
@@ -118,6 +135,12 @@ def read_overlay_input_packet(slot_label: str = "P1-C1", fighter_base: int = 0) 
             "held": 0,
             "pressed": 0,
             "released": 0,
+            "current_hp": 0,
+            "action_id": 0,
+            "action_frame": 0,
+            "hitstun_remaining": 0,
+            "combo_count": 0,
+            "point_active": False,
             "held_text": "5",
             "pressed_text": "none",
             "released_text": "none",
@@ -161,6 +184,19 @@ def read_overlay_input_packet(slot_label: str = "P1-C1", fighter_base: int = 0) 
     except Exception:
         action_frame = 0
 
+    # Mission events are produced on this realtime lane. Read the confirmed
+    # victim hitstun countdown and global combo count here so MissionManager
+    # never polls Dolphin or waits for the slower GUI snapshot pass.
+    hitstun_remaining = _read_u32(base + RUNTIME_HITSTUN_REMAINING_OFF)
+    # fighter+0x44A0 is the native point-character flag. Sampling it here keeps
+    # menu ownership on the realtime lane and lets a real tag immediately move
+    # the shortcut to the newly controlled fighter.
+    point_active = bool(_read_u32(base + 0x44A0))
+    if combo_count is None:
+        combo_count = read_global_combo_count()
+    else:
+        combo_count = max(0, int(combo_count or 0))
+
     return {
         "connected": True,
         "slot": label,
@@ -169,6 +205,9 @@ def read_overlay_input_packet(slot_label: str = "P1-C1", fighter_base: int = 0) 
         "action_id": action_id,
         "action_frame": action_frame,
         "current_hp": current_hp,
+        "hitstun_remaining": hitstun_remaining,
+        "combo_count": combo_count,
+        "point_active": point_active,
         "previous": previous,
         "held": held,
         "pressed": pressed,
