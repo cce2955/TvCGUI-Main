@@ -1038,7 +1038,28 @@ MIT License - free for community use and research.
 Not affiliated with Capcom, Tatsunoko, or the Dolphin project.
 
 ---
+## Open Source and Legal Notice
 
+This repository contains original tooling, documentation, schemas, tests, and independently researched factual mappings.
+
+It does not include or grant rights to:
+
+- Game executables, disc images, or ROM data
+- Memory dumps or save states
+- Extracted textures, portraits, audio, or other game assets
+- Proprietary source code or decompiled source distributions
+- Generated recompilation output containing copyrighted game logic
+- Nintendo, Capcom, Eighting, or Dolphin project trademarks and assets
+
+Users must provide their own legally obtained game files and emulator installation.
+
+Research notes such as memory addresses, structure offsets, field descriptions, and behavioral observations are provided for interoperability, debugging, preservation, and educational research.
+
+This project is not affiliated with, endorsed by, or sponsored by Nintendo, Capcom, Eighting, Dolphin Emulator, or any related rights holder.
+
+Unless otherwise noted, original code in this repository is licensed under the MIT License. Third-party components remain subject to their respective licenses. See `LICENSE`, `NOTICE.txt`, `THIRD_PARTY_NOTICES.txt`, and `SOURCE_BOUNDARY.md` for details.
+
+---
 ## Special Thanks
 
 - Jaaaames - for his amazing foundational work
