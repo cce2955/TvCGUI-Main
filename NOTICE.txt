@@ -1,0 +1,21 @@
+TvC Mapping
+Copyright (c) 2026 TvC Mapping contributors
+
+TvC Mapping is an independent, unofficial interoperability, research, and
+training-tool project. It is not affiliated with, authorized by, sponsored by,
+or endorsed by Capcom, Tatsunoko Production, Nintendo, Dolphin Emulator, or
+any other rights holder.
+
+Tatsunoko vs. Capcom, its characters, names, logos, artwork, audio, game code,
+and other game content are the property of their respective owners. Product
+and company names are used only to identify compatibility and research scope.
+
+This repository is intended to contain only independently authored source
+code, tests, documentation, schemas, and factual interoperability data. It
+must not contain game disc images, executable game code, encryption keys,
+firmware, extracted game assets, raw memory dumps, generated recompilation or
+decompilation output derived from proprietary game binaries, or any other
+copyrighted material for which redistribution permission has not been granted.
+
+Users must provide their own legally obtained game and emulator installation.
+No game files are supplied by this project.

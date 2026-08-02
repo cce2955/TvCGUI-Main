@@ -1,13 +1,104 @@
-
-# Python cache/build junk
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
 
-# Runtime overlay/training state
-tdp-modules/*.tmp
-tdp-modules/hud_overlay_data.json
-tdp-modules/mission_overlay_data.json
-tdp-modules/mission_mode_state.json
-tdp-modules/mission_progress.json
-tdp-modules/megacrash_trainer.json
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Build and packaging
+build/
+dist/
+*.egg-info/
+*.exe
+*.msi
+*.dll
+*.pdb
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Runtime captures and logs
+data/runtime/
+runtime/
+logs/
+*.log
+*.jsonl
+*.dmp
+*.dump
+*.mem
+*.raw
+*.savestate
+*.state
+memdump*/
+*_memdump_*/
+crashdumps/
+
+# Game images, executables, firmware, and keys
+*.iso
+*.gcm
+*.rvz
+*.wia
+*.wbfs
+*.ciso
+*.nfs
+*.gcz
+*.tgc
+*.wad
+*.dol
+*.rel
+*.elf
+*.rom
+*.key
+keys.txt
+firmware/
+orig/
+baserom*/
+
+# Extracted or proprietary game assets
+*.brres
+*.bres
+*.szs
+*.arc
+*.fpk
+*.pac
+*.bns
+*.brstm
+assets/extracted/
+assets/game/
+extracted/
+
+# Recompilation, decompilation, and private research output
+TvC_Recomp*/
+recomp*/
+decomp*/
+generated/
+disassembly/
+asm_dumps/
+private_research/
+*.o
+*.obj
+
+# Recorder exports that may contain private or proprietary process data
+runtime_*_events.csv
+runtime_*_profiles.json
+runtime_*_contacts.csv
+runtime_*_sources.csv
+proj_dump.bin

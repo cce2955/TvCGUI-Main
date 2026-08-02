@@ -1,0 +1,54 @@
+THIRD-PARTY SOFTWARE NOTICES
+
+This file describes known external software used by or alongside TvC Mapping.
+It does not replace the license text shipped by any third-party project.
+Exact versions and licenses must be rechecked for every public release.
+
+1. Python
+   Role: Runtime for the TvC Mapping application.
+   License: Python Software Foundation License and other historical notices
+            included with the applicable Python release.
+   Distribution model: Normally installed separately by the user. If a Python
+                       runtime is bundled, include the complete license and
+                       notices from that exact Python distribution.
+
+2. pygame
+   Role: User interface, rendering, and input support.
+   Known project license: GNU Lesser General Public License version 2.1.
+   Distribution model: Normally installed separately through Python package
+                       tooling. If pygame binaries or source are bundled,
+                       preserve its copyright notices, provide the LGPL text,
+                       and satisfy the LGPL requirements for the bundled form.
+   Important: TvC Mapping's MIT license does not relicense pygame.
+
+3. Dolphin Emulator
+   Role: External emulator process whose memory may be observed by TvC Mapping.
+   Known project licensing: Per-file SPDX licensing, with the repository as an
+                            aggregate described by Dolphin as GPLv3-compatible.
+   Distribution model: Dolphin is not included in this repository and must be
+                       obtained separately by the user.
+   Important: Do not copy Dolphin source code into MIT-licensed files. Do not
+              bundle a Dolphin binary without performing a separate GPL source,
+              notice, and license compliance review for that distribution.
+
+4. DolRecomp
+   Role: Optional research/development tool used to study PowerPC code.
+   Known project license: GNU General Public License version 3.
+   Distribution model: Not included in this repository.
+   Important: Do not copy DolRecomp source into MIT-licensed files. Generated
+              output produced from a proprietary game executable must not be
+              published merely because the generator itself is open source.
+
+5. decomp-toolkit
+   Role: Optional research/development tooling.
+   Known project licensing: Dual licensed under Apache License 2.0 or MIT.
+   Distribution model: Not included unless explicitly vendored.
+
+DEPENDENCY AUDIT REQUIREMENT
+
+Before each release, compare this notice against requirements.txt,
+pyproject.toml, lock files, vendored directories, packaged executables, DLLs,
+fonts, icons, sample data, and installer contents. Add every distributed
+third-party component and preserve its required notices. Development tools
+that are not copied or bundled generally remain under their own licenses and
+should be documented without being relicensed.
