@@ -81,6 +81,11 @@ RANGE_DYNAMIC_MAX_SHAPES_PER_FRAME = 8
 RANGE_HORIZONTAL_ENVELOPE_VERSION = 1
 RANGE_VERTICAL_ENVELOPE_VERSION = 1
 RANGE_VERTICAL_ENVELOPE_MAX_SPAN = 8.0
+# When both ruler axes are enabled, reconstruct a compact 2D threat envelope
+# from the same confirmed active-frame samples. Each horizontal slice keeps
+# its own forward reach instead of combining unrelated X/Y maxima into a box.
+RANGE_COVERAGE_SLICE_COUNT = 13
+RANGE_COVERAGE_TOUCH_EPSILON = 0.045
 # Air/special sweeps remain visible long enough to read after the active state
 # ends, but never leave an old airborne arc permanently on the floor.
 RANGE_DYNAMIC_LINGER_MS = 520
@@ -2998,6 +3003,8 @@ class Overlay:
         source_label: Optional[str] = None,
         airborne: bool = False,
         posture: str = "stand",
+        state_override: Optional[str] = None,
+        detail_override: Optional[str] = None,
     ) -> None:
         """Draw a retained center-to-tip ruler at the fighter's current height."""
         try:
@@ -3053,11 +3060,13 @@ class Overlay:
                 self.screen.blit(marker, (int(tsx) - mc, int(tsy) - mc))
 
             if self.font_small is not None:
-                state = "TOUCHING" if touching else ("OUT OF RANGE" if has_target else "BODY LEARNING")
-                if not has_target:
+                state = str(state_override) if state_override else ("TOUCHING" if touching else ("OUT OF RANGE" if has_target else "BODY LEARNING"))
+                if detail_override is not None:
+                    detail = str(detail_override)
+                elif not has_target:
                     detail = "target profile pending"
                 elif touching:
-                    detail = f"{target_slot} hurtbox"
+                    detail = f"{target_slot} body"
                 else:
                     detail = f"+{max(0.0, float(target_gap or 0.0)):.2f}u"
                 move_tag = str(move_name or "RANGE")[:12]
@@ -3150,6 +3159,104 @@ class Overlay:
                 by = max(2, top - badge.get_height() - 6)
                 self.screen.blit(badge, (bx, by))
             self.screen.blit(surf, (x - rail_x_px, top - 20))
+        except Exception:
+            pass
+
+    def draw_saved_coverage_envelope(
+        self,
+        source_slot: str,
+        center_x: float,
+        center_y: float,
+        center_z: float,
+        direction: float,
+        slices: List[Dict[str, float]],
+        touching: bool,
+        target_slot: str = "",
+        move_name: str = "RANGE",
+        source_label: Optional[str] = None,
+        airborne: bool = False,
+    ) -> None:
+        """Draw a compact 2D active-coverage envelope from sampled Y slices.
+
+        Each row represents the real forward reach available at that height
+        across the move's confirmed active frames. The rows are connected only
+        as a visual envelope; this is not a max-X by max-Y rectangle.
+        """
+        try:
+            if not isinstance(slices, list) or len(slices) < 2:
+                return
+            direction = 1.0 if float(direction) >= 0.0 else -1.0
+            projected: List[Tuple[float, float, float, float]] = []
+            for item in slices:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    y_rel = float(item.get("y_from_start"))
+                    near = max(0.0, float(item.get("near_from_start") or 0.0))
+                    far = max(near, float(item.get("far_from_start") or 0.0))
+                except Exception:
+                    continue
+                if not all(math.isfinite(v) for v in (y_rel, near, far)) or far <= 0.02:
+                    continue
+                x_near = float(center_x) + direction * near
+                x_far = float(center_x) + direction * far
+                world_y = float(center_y) + y_rel
+                npx, npy, _nd, _nf = self.world_to_screen(x_near, world_y, float(center_z))
+                fpx, fpy, _fd, _ff = self.world_to_screen(x_far, world_y, float(center_z))
+                if all(math.isfinite(v) for v in (npx, npy, fpx, fpy)):
+                    projected.append((float(npx), float(npy), float(fpx), float(fpy)))
+            if len(projected) < 2:
+                return
+
+            accent = (92, 236, 145) if touching else ((182, 124, 255) if airborne else (104, 210, 255))
+            xs = [v for row in projected for v in (row[0], row[2])]
+            ys = [v for row in projected for v in (row[1], row[3])]
+            pad = 12
+            left = int(math.floor(min(xs))) - pad
+            top = int(math.floor(min(ys))) - pad
+            right = int(math.ceil(max(xs))) + pad
+            bottom = int(math.ceil(max(ys))) + pad
+            width = max(4, right - left)
+            height = max(4, bottom - top)
+            surf = pygame.Surface((width, height), pygame.SRCALPHA)
+
+            near_points = [(int(row[0] - left), int(row[1] - top)) for row in projected]
+            far_points = [(int(row[2] - left), int(row[3] - top)) for row in projected]
+            polygon = near_points + list(reversed(far_points))
+            if len(polygon) >= 3:
+                pygame.draw.polygon(surf, (*accent, 24 if not touching else 34), polygon)
+
+            # Individual rows make the varying X-at-Y relationship readable.
+            for idx, (npx, npy, fpx, fpy) in enumerate(projected):
+                a = 62 if idx not in (0, len(projected) - 1) else 92
+                pygame.draw.line(
+                    surf, (*accent, a),
+                    (int(npx - left), int(npy - top)),
+                    (int(fpx - left), int(fpy - top)),
+                    1,
+                )
+
+            if len(far_points) >= 2:
+                pygame.draw.lines(surf, (*accent, 205), False, far_points, 2)
+            if len(near_points) >= 2:
+                pygame.draw.lines(surf, (*accent, 92), False, near_points, 1)
+            for px, py in far_points:
+                pygame.draw.circle(surf, (*accent, 205), (px, py), 2)
+
+            if self.font_small is not None:
+                source_tag = str(source_label or source_slot)
+                target_tag = f"  vs {target_slot}" if target_slot else ""
+                label = f"{source_tag} {str(move_name or 'RANGE')[:12]}  2D COVERAGE{target_tag}"
+                txt = self.font_small.render(label, True, (238, 248, 255))
+                tw, th = txt.get_size()
+                badge = pygame.Surface((tw + 8, th + 4), pygame.SRCALPHA)
+                pygame.draw.rect(badge, (7, 15, 25, 216), badge.get_rect(), border_radius=3)
+                pygame.draw.rect(badge, (*accent, 185), badge.get_rect(), 1, border_radius=3)
+                badge.blit(txt, (4, 2))
+                bx = max(0, min(width - badge.get_width(), (width - badge.get_width()) // 2))
+                surf.blit(badge, (bx, 0))
+
+            self.screen.blit(surf, (left, top))
         except Exception:
             pass
 
@@ -4147,6 +4254,257 @@ class HitboxRenderer:
         """Return the persisted display policy for a saved body action."""
         mode = str(saved.get("display_mode") or profile.get("display_mode") or "ground_ruler").strip().lower()
         return mode if mode in {"ground_ruler", "dynamic_only"} else "ground_ruler"
+
+    @staticmethod
+    def _coverage_slices_from_dynamic_frames(
+        frames: Optional[List[Dict[str, Any]]],
+        slice_count: int = RANGE_COVERAGE_SLICE_COUNT,
+    ) -> Optional[List[Dict[str, float]]]:
+        """Approximate full X/Y threat coverage with horizontal slices.
+
+        A slice is calculated from every active hitbox circle that crosses the
+        sampled Y height. Root travel and local hitbox travel stay paired per
+        frame, so a move cannot borrow max X from one frame and max Y from
+        another to create a fake rectangular corner.
+        """
+        if not isinstance(frames, list) or not frames:
+            return None
+        circles: List[Tuple[float, float, float]] = []
+        lower = None
+        upper = None
+        for item in frames:
+            if not isinstance(item, dict):
+                continue
+            root = item.get("root")
+            shapes = item.get("shapes")
+            if not isinstance(root, (tuple, list)) or len(root) < 3 or not isinstance(shapes, list):
+                continue
+            try:
+                root_fwd = float(root[0])
+                root_y = float(root[1])
+            except Exception:
+                continue
+            if not all(math.isfinite(v) for v in (root_fwd, root_y)) or abs(root_fwd) > RANGE_PROFILE_MAX_ROOT_ADVANCE:
+                continue
+            for shape in shapes:
+                if not isinstance(shape, (tuple, list)) or len(shape) < 4:
+                    continue
+                try:
+                    local_fwd = float(shape[0])
+                    local_y = float(shape[1])
+                    radius = float(shape[3])
+                except Exception:
+                    continue
+                if not all(math.isfinite(v) for v in (local_fwd, local_y, radius)):
+                    continue
+                if radius <= 0.01 or radius > 1.5:
+                    continue
+                fwd = root_fwd + local_fwd
+                y = root_y + local_y
+                if abs(fwd) > RANGE_PROFILE_MAX_LOCAL_REACH:
+                    continue
+                circles.append((fwd, y, radius))
+                lo = y - radius
+                hi = y + radius
+                lower = lo if lower is None else min(lower, lo)
+                upper = hi if upper is None else max(upper, hi)
+        if not circles or lower is None or upper is None or upper <= lower + 0.01:
+            return None
+        if float(upper) - float(lower) > RANGE_VERTICAL_ENVELOPE_MAX_SPAN:
+            return None
+
+        count = max(5, min(25, int(slice_count or RANGE_COVERAGE_SLICE_COUNT)))
+        out: List[Dict[str, float]] = []
+        for idx in range(count):
+            t = 0.0 if count <= 1 else float(idx) / float(count - 1)
+            sample_y = float(lower) + (float(upper) - float(lower)) * t
+            near = None
+            far = None
+            contributors = 0
+            for center_fwd, center_y, radius in circles:
+                dy = sample_y - center_y
+                if abs(dy) > radius + 1e-6:
+                    continue
+                half = math.sqrt(max(0.0, radius * radius - dy * dy))
+                lo = center_fwd - half
+                hi = center_fwd + half
+                near = lo if near is None else min(near, lo)
+                far = hi if far is None else max(far, hi)
+                contributors += 1
+            if far is None or near is None or contributors <= 0:
+                continue
+            # The range ruler is a forward-threat guide. Coverage behind the
+            # action root is intentionally excluded from this presentation.
+            clipped_near = max(0.0, float(near))
+            clipped_far = max(clipped_near, float(far))
+            if clipped_far <= 0.02 or clipped_far > RANGE_PROFILE_MAX_LOCAL_REACH:
+                continue
+            out.append({
+                "y_from_start": float(sample_y),
+                "near_from_start": float(clipped_near),
+                "far_from_start": float(clipped_far),
+                "contributors": float(contributors),
+            })
+        return out or None
+
+    def _coverage_gap_to_target(
+        self,
+        source_x: float,
+        source_y: float,
+        direction: float,
+        slices: List[Dict[str, float]],
+        target_root: Tuple[float, float, float],
+        target_local: Dict[str, float],
+        hurtboxes: List[HurtboxState],
+    ) -> Tuple[Optional[float], bool]:
+        """Return minimum horizontal gap across Y slices that cross the body.
+
+        The horizontal body edge uses the same core-body calculation as the
+        working single-axis ruler. Live hurt circles decide only whether the
+        target actually occupies each sampled height.
+        """
+        try:
+            sy = float(source_y)
+            tx, ty, tz = (float(target_root[0]), float(target_root[1]), float(target_root[2]))
+            if not all(math.isfinite(v) for v in (sy, tx, ty, tz)):
+                return None, False
+
+            core_hurts: List[Tuple[float, float, float, float]] = []
+            for hurt in list(hurtboxes or []):
+                try:
+                    hx, hy, hz, hr = float(hurt.x), float(hurt.y), float(hurt.z), max(0.0, float(hurt.radius))
+                except Exception:
+                    continue
+                if not all(math.isfinite(v) for v in (hx, hy, hz, hr)) or hr <= 0.01:
+                    continue
+                if abs(hx - tx) > 1.10 or abs(hy - ty) > 2.80 or abs(hz - tz) > 2.20:
+                    continue
+                core_hurts.append((hx, hy, hz, hr))
+
+            try:
+                fallback_lo = ty + max(-2.40, min(2.40, float(target_local.get("min_y", -1.70))))
+                fallback_hi = ty + max(-2.40, min(2.40, float(target_local.get("max_y", 1.70))))
+            except Exception:
+                fallback_lo, fallback_hi = ty - 1.70, ty + 1.70
+            if fallback_hi < fallback_lo:
+                fallback_lo, fallback_hi = fallback_hi, fallback_lo
+
+            best_gap: Optional[float] = None
+            vertical_overlap = False
+            for item in list(slices or []):
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    y_world = sy + float(item.get("y_from_start"))
+                    far = float(item.get("far_from_start"))
+                except Exception:
+                    continue
+                if not all(math.isfinite(v) for v in (y_world, far)) or far <= 0.02:
+                    continue
+
+                if core_hurts:
+                    at_height = any(abs(y_world - hy) <= hr + 0.02 for _hx, hy, _hz, hr in core_hurts)
+                else:
+                    at_height = fallback_lo - 0.02 <= y_world <= fallback_hi + 0.02
+                if not at_height:
+                    continue
+                vertical_overlap = True
+                gap = self._horizontal_ruler_gap_to_target(
+                    float(source_x), direction, far, target_root, target_local, hurtboxes,
+                )
+                if gap is None:
+                    continue
+                best_gap = float(gap) if best_gap is None else min(best_gap, float(gap))
+            return best_gap, vertical_overlap
+        except Exception:
+            return None, False
+
+    @staticmethod
+    def _horizontal_ruler_gap_to_target(
+        source_x: float,
+        direction: float,
+        far_units: float,
+        target_root: Tuple[float, float, float],
+        target_local: Dict[str, float],
+        hurtboxes: List[HurtboxState],
+    ) -> Optional[float]:
+        """Return the visible horizontal gap from the ruler to the target body.
+
+        A skeletal rig contains many circles. The outermost circle is not a
+        stable body edge: hands, animation helpers, and occasional descriptor
+        outliers can extend well beyond the visible core body. Using min/max
+        across the whole rig made the ruler turn green while a clear gap was
+        still visible on screen.
+
+        Use a body-weighted live edge instead. The near-side edge is taken from
+        the inner 35th percentile of the live hurtbox edges. This keeps the
+        current pose responsive while preventing one or two extreme descriptors
+        from deciding the result. If live geometry is unavailable, use the
+        stored body envelope but cap its horizontal extent to a conservative
+        half-width so old accumulated profiles cannot recreate the same bug.
+        """
+        try:
+            sx = float(source_x)
+            direction = 1.0 if float(direction) >= 0.0 else -1.0
+            far = max(0.0, float(far_units))
+            tx = float(target_root[0])
+            ty = float(target_root[1])
+            tz = float(target_root[2])
+            if not all(math.isfinite(v) for v in (sx, far, tx, ty, tz)):
+                return None
+
+            if direction > 0.0 and tx < sx - 0.05:
+                return None
+            if direction < 0.0 and tx > sx + 0.05:
+                return None
+
+            ruler_edge = sx + direction * far
+            live_edges: List[float] = []
+            for hurt in list(hurtboxes or []):
+                try:
+                    hx = float(hurt.x)
+                    hy = float(hurt.y)
+                    hz = float(hurt.z)
+                    hr = max(0.0, float(hurt.radius))
+                except Exception:
+                    continue
+                if not all(math.isfinite(v) for v in (hx, hy, hz, hr)):
+                    continue
+                # Reject detached bone/helper descriptors before calculating the
+                # body edge. Normal fighters keep their vulnerable core close to
+                # the fighter root even when limbs animate farther outward.
+                if abs(hx - tx) > 1.10 or abs(hy - ty) > 2.80 or abs(hz - tz) > 2.20:
+                    continue
+                live_edges.append(hx - hr if direction > 0.0 else hx + hr)
+
+            if len(live_edges) >= 4:
+                live_edges.sort()
+                n = len(live_edges)
+                if direction > 0.0:
+                    idx = min(n - 1, max(0, int(math.floor((n - 1) * 0.35))))
+                else:
+                    idx = min(n - 1, max(0, int(math.ceil((n - 1) * 0.65))))
+                target_edge = float(live_edges[idx])
+            elif live_edges:
+                # Small rigs do not provide enough samples for a percentile.
+                # Use their median rather than an extreme edge.
+                live_edges.sort()
+                target_edge = float(live_edges[len(live_edges) // 2])
+            else:
+                try:
+                    raw_extent = abs(float(target_local["min_x"] if direction > 0.0 else target_local["max_x"]))
+                except Exception:
+                    raw_extent = 0.38
+                body_extent = max(0.18, min(0.48, raw_extent))
+                target_edge = tx - body_extent if direction > 0.0 else tx + body_extent
+
+            if not math.isfinite(target_edge):
+                return None
+            if direction > 0.0:
+                return max(0.0, target_edge - ruler_edge)
+            return max(0.0, ruler_edge - target_edge)
+        except Exception:
+            return None
 
     def _range_target_candidates(
         self,
@@ -6668,7 +7026,13 @@ class HitboxRenderer:
                         nearest_slot = ""
                         direction = 1.0 if float(saved.get("last_direction") or 1.0) >= 0.0 else -1.0
 
-                    if bool(range_ruler_axes.get("vertical", False)):
+                    horizontal_axis_on = bool(range_ruler_axes.get("horizontal", False))
+                    vertical_axis_on = bool(range_ruler_axes.get("vertical", False))
+                    coverage_slices = None
+                    if horizontal_axis_on and vertical_axis_on:
+                        coverage_slices = self._coverage_slices_from_dynamic_frames(self._range_dynamic_sweep(profile))
+
+                    if vertical_axis_on:
                         vertical = self._range_profile_vertical_geometry(profile)
                         if vertical is not None:
                             ov.draw_saved_vertical_range_zone(
@@ -6685,7 +7049,7 @@ class HitboxRenderer:
                                 posture=live_posture,
                             )
 
-                    if not bool(range_ruler_axes.get("horizontal", False)):
+                    if not horizontal_axis_on:
                         continue
 
                     geometry = self._range_profile_geometry(profile)
@@ -6694,6 +7058,13 @@ class HitboxRenderer:
                     adjustment, calibration_pips = self._range_adjustment(profile)
                     far = max(0.0, geometry["reach_from_start"] + adjustment)
                     tip_forward = max(0.0, geometry["tip_center_from_start"] + adjustment)
+                    if coverage_slices and abs(float(adjustment)) > 1e-6:
+                        adjusted_slices: List[Dict[str, float]] = []
+                        for _slice in coverage_slices:
+                            _near = max(0.0, float(_slice.get("near_from_start") or 0.0))
+                            _far = max(_near, float(_slice.get("far_from_start") or 0.0) + float(adjustment))
+                            adjusted_slices.append({**_slice, "near_from_start": _near, "far_from_start": _far})
+                        coverage_slices = adjusted_slices
                     tip_y = geometry["tip_y_from_start"]
                     tip_z = geometry["tip_z_from_start"]
                     tip_radius = max(0.0, geometry["tip_radius"])
@@ -6701,6 +7072,18 @@ class HitboxRenderer:
                         continue
 
                     if not candidates:
+                        if coverage_slices:
+                            ov.draw_saved_coverage_envelope(
+                                source_slot,
+                                display_center[0], display_center[1], display_center[2],
+                                direction,
+                                coverage_slices,
+                                False,
+                                "",
+                                str(saved.get("move_name") or "RANGE"),
+                                source_label=self._ruler_source_label(source_slot, saved),
+                                airborne=bool(use_air_ruler),
+                            )
                         ov.draw_saved_range_zone(
                             source_slot, "", display_center[0], display_center[1], display_center[2],
                             direction, far, tip_forward, tip_y, tip_z, tip_radius,
@@ -6711,37 +7094,78 @@ class HitboxRenderer:
                         )
                         continue
 
-                    tip_center = (
-                        float(display_center[0]) + direction * tip_forward,
-                        float(display_center[1]) + tip_y,
-                        float(display_center[2]) + tip_z,
-                    )
                     best_gap = None
                     best_slot = nearest_slot
                     best_source = "profile"
+                    best_vertical_overlap = True
+                    coverage_mode = bool(coverage_slices)
                     for _dist2, candidate_slot, candidate_root, candidate_local, candidate_source in candidates:
                         hlist = list(self.cached_hurtboxes.get(candidate_slot) or [])
-                        if hlist:
-                            for hurt in hlist:
-                                dx = float(tip_center[0]) - float(hurt.x)
-                                dy = float(tip_center[1]) - float(hurt.y)
-                                dz = float(tip_center[2]) - float(hurt.z)
-                                surface_gap = max(0.0, math.sqrt(dx * dx + dy * dy + dz * dz) - tip_radius - float(hurt.radius))
-                                item = (surface_gap, candidate_slot, "live")
-                                if best_gap is None or item[0] < best_gap[0]:
-                                    best_gap = item
+                        if coverage_mode:
+                            candidate_gap, vertical_overlap = self._coverage_gap_to_target(
+                                float(display_center[0]),
+                                float(display_center[1]),
+                                direction,
+                                coverage_slices or [],
+                                candidate_root,
+                                candidate_local,
+                                hlist,
+                            )
+                            # A target at the wrong height is not a 2D coverage
+                            # contact even if it is horizontally inside max X.
+                            if not vertical_overlap:
+                                item = (float("inf"), candidate_slot, "live" if hlist else candidate_source, False)
+                            elif candidate_gap is None:
+                                continue
+                            else:
+                                item = (float(candidate_gap), candidate_slot, "live" if hlist else candidate_source, True)
                         else:
-                            body_world = self._world_bounds(candidate_root, candidate_local)
-                            _touch, surface_gap = self._sphere_aabb_touch_or_gap(tip_center, tip_radius, body_world)
-                            item = (surface_gap, candidate_slot, candidate_source)
-                            if best_gap is None or item[0] < best_gap[0]:
-                                best_gap = item
+                            horizontal_gap = self._horizontal_ruler_gap_to_target(
+                                float(display_center[0]),
+                                direction,
+                                far,
+                                candidate_root,
+                                candidate_local,
+                                hlist,
+                            )
+                            if horizontal_gap is None:
+                                continue
+                            item = (float(horizontal_gap), candidate_slot, "live" if hlist else candidate_source, True)
+                        if best_gap is None or item[0] < best_gap[0]:
+                            best_gap = item
                     if best_gap is None:
                         target_gap = None
                         touching = False
+                        best_vertical_overlap = False if coverage_mode else True
                     else:
-                        target_gap, best_slot, best_source = best_gap
-                        touching = float(target_gap) <= 0.045
+                        target_gap, best_slot, best_source, best_vertical_overlap = best_gap
+                        if not math.isfinite(float(target_gap)):
+                            target_gap = None
+                        touching = bool(best_vertical_overlap and target_gap is not None and float(target_gap) <= RANGE_COVERAGE_TOUCH_EPSILON)
+
+                    state_override = None
+                    detail_override = None
+                    if coverage_mode:
+                        state_override = "TOUCHING" if touching else "OUT OF COVERAGE"
+                        if touching:
+                            detail_override = f"{best_slot} body"
+                        elif not best_vertical_overlap:
+                            detail_override = "HEIGHT MISS"
+                        elif target_gap is not None:
+                            detail_override = f"+{max(0.0, float(target_gap)):.2f}u"
+                        else:
+                            detail_override = "NO OVERLAP"
+                        ov.draw_saved_coverage_envelope(
+                            source_slot,
+                            display_center[0], display_center[1], display_center[2],
+                            direction,
+                            coverage_slices or [],
+                            touching,
+                            best_slot,
+                            str(saved.get("move_name") or "RANGE"),
+                            source_label=self._ruler_source_label(source_slot, saved),
+                            airborne=bool(use_air_ruler),
+                        )
 
                     ov.draw_saved_range_zone(
                         source_slot, best_slot,
@@ -6753,6 +7177,8 @@ class HitboxRenderer:
                         source_label=self._ruler_source_label(source_slot, saved),
                         airborne=bool(use_air_ruler),
                         posture=live_posture,
+                        state_override=state_override,
+                        detail_override=detail_override,
                     )
                 except Exception:
                     continue

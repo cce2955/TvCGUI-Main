@@ -133,7 +133,7 @@ MISSION_WHIFF_CONFIRM_LABELS = {
         "Pummel A", "Pummel B", "Pummel C",
         "Cactus Bunker A", "Cactus Bunker B", "Cactus Bunker C",
         "Air Rock A", "Air Rock B", "Air Rock C",
-        "Quick Upper B", "yatter step", "Omochama", "Jump Cancel",
+        "Quick Upper B", "yatter step", "Omochama",
     }
 }
 
@@ -3848,20 +3848,12 @@ class MissionManager:
             or step.get("whiff_confirm", False)
             or step.get("allow_whiff", False)
         )
-        step_text = " ".join(
-            [str(value or "") for value in expected_labels]
-            + ([
-                str(step.get("display") or ""),
-                str(step.get("input") or step.get("command") or step.get("notation") or ""),
-            ] if isinstance(step, dict) else [])
-        ).lower()
-        jump_cancel = "jump cancel" in step_text or "7 / 8 / 9" in step_text
-        if matched or explicit or jump_cancel:
+        if matched or explicit:
             print(
                 f"[mission whiff confirm] labels={sorted(matched)!r} "
                 f"explicit={explicit}"
             )
-        return explicit or bool(matched) or jump_cancel
+        return explicit or bool(matched)
 
     def _step_allows_zero_damage_confirm(
         self, character_name: str, expected_labels: list[str], current_label: str
@@ -4041,6 +4033,50 @@ class MissionManager:
 
     def _step_is_pass(self, step) -> bool:
         return isinstance(step, dict) and bool(step.get("pass", False))
+
+    def _step_is_jump_cancel(self, step) -> bool:
+        labels = self._step_labels(step)
+        extra = []
+        if isinstance(step, dict):
+            extra = [
+                str(step.get("display") or ""),
+                str(step.get("input") or step.get("command") or step.get("notation") or ""),
+            ]
+        step_text = " ".join([str(value or "") for value in labels] + extra).strip().lower()
+        return "jump cancel" in step_text or "7 / 8 / 9" in step_text
+
+    def _consume_jump_cancel_free_passes(self, steps: list, progress_index: int) -> tuple[int, int]:
+        """Skip mission Jump Cancel rows that have no reliable runtime label.
+
+        Jump cancels are route notation, not a dependable live action label in
+        every character path. Treating them as free passes keeps the mission
+        focused on the attacks before and after the jump instead of stalling.
+        """
+        progress = max(0, int(progress_index or 0))
+        advanced = 0
+        while progress < len(steps) and self._step_is_jump_cancel(steps[progress]):
+            step = steps[progress]
+            completed_grace = self._step_grace(step)
+            print(f"[mission jump cancel pass] step={progress}")
+            progress += 1
+            advanced += 1
+            self._runtime.update({
+                "progress_index": progress,
+                "pending_step_index": None,
+                "pending_labels": [],
+                "pending_anim": None,
+                "pending_frame": None,
+                "reset_grace_frames": completed_grace,
+                "reset_grace_labels": [],
+                "reset_grace_step_index": progress if completed_grace > 0 else None,
+                "reset_grace_keeps_alive_only": self._step_grace_keeps_alive_only(step),
+                "last_seen_label": "",
+                "last_seen_anim": None,
+                "last_seen_hitstun": False,
+                "last_inputs": {},
+            })
+        return progress, advanced
+
     def _step_grace_keeps_alive_only(self, step) -> bool:
         return isinstance(step, dict) and bool(step.get("grace_keeps_alive_only", False))
     def _augment_payload_with_runtime(self, payload: dict, snaps_dict: dict) -> dict:
@@ -4211,13 +4247,19 @@ class MissionManager:
             buffered_advanced += normal_advanced
             self._runtime["progress_index"] = progress_index
 
-            if progress_index >= len(steps):
-                final_idx = max(0, len(steps) - 1)
-                final_label = (
-                    " / ".join(self._step_labels(steps[final_idx]))
-                    if steps else None
-                )
-                return _clear_payload(len(steps), final_idx, final_label)
+        progress_index, jump_cancel_advanced = self._consume_jump_cancel_free_passes(
+            steps, progress_index
+        )
+        buffered_advanced += jump_cancel_advanced
+        self._runtime["progress_index"] = progress_index
+
+        if progress_index >= len(steps):
+            final_idx = max(0, len(steps) - 1)
+            final_label = (
+                " / ".join(self._step_labels(steps[final_idx]))
+                if steps else None
+            )
+            return _clear_payload(len(steps), final_idx, final_label)
 
         # Hitstun grace
         if opponent_in_hitstun:
@@ -4645,6 +4687,12 @@ class MissionManager:
                 print(f"[mission advance] slot={slot} step={progress_index} matched={current_label!r}")
                 progress_index += 1
                 self._runtime["progress_index"] = progress_index
+
+        progress_index, late_jump_cancel_advanced = self._consume_jump_cancel_free_passes(
+            steps, progress_index
+        )
+        if late_jump_cancel_advanced:
+            self._runtime["progress_index"] = progress_index
 
         if progress_index > starting_progress_index:
             self._runtime["mission_input_consumed_serial"] = max(

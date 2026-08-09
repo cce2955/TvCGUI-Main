@@ -478,6 +478,7 @@ def _command_dock_layout(width: int, tools_open: bool) -> tuple[dict[str, tuple[
         ("tag_btn", 46),
         ("clear_btn", 54),
         ("tools_btn", 76),
+        ("help_btn", 62),
     ]
     section, rects = _layout_command_section(width_i, y, "HUD", hud_specs)
     sections["hud"] = (section, rects)
@@ -681,6 +682,7 @@ def draw_top_command_dock(
     tag_card_btn_rect = hud["tag_btn"]
     clear_card_btn_rect = hud["clear_btn"]
     tools_btn_rect = hud["tools_btn"]
+    help_btn_rect = hud["help_btn"]
 
     draw_glass_button(
         screen, hud_btn_rect, "Overlay: ON" if overlay_enabled else "Overlay: OFF", dockfont,
@@ -753,6 +755,11 @@ def draw_top_command_dock(
         screen, tools_btn_rect, "Tools  ▴" if tools_open else "Tools  ▾", dockfont,
         active=bool(tools_open), hover=tools_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
         fill=(43, 58, 86) if tools_open else (27, 33, 45), align="center",
+    )
+    draw_glass_button(
+        screen, help_btn_rect, "Help", dockfont,
+        active=False, hover=help_btn_rect.collidepoint(mx, my), accent=GUI_APP_ACCENT,
+        fill=(27, 33, 45), align="center",
     )
 
     visual = draw_section("visuals")
@@ -941,6 +948,9 @@ def draw_top_command_dock(
             help_accent = GUI_ACCENT_PURPLE
         elif tools_btn_rect.collidepoint(mx, my):
             help_tip = "Tools opens dedicated Training and Lab / Setup sections."
+        elif help_btn_rect.collidepoint(mx, my):
+            help_tip = "Help opens the built-in guide for HUD controls, frame data, trainers, charge tracking, and setup tools."
+            help_accent = GUI_APP_ACCENT
 
         _draw_horizontal_gradient(screen, help_rect, _mix_col((12, 23, 36), help_accent, 0.06), (7, 13, 22), 248)
         pygame.draw.rect(screen, (38, 55, 73), help_rect, 1, border_radius=5)
@@ -972,7 +982,7 @@ def draw_top_command_dock(
         interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect,
         meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect,
         tag_card_btn_rect, clear_card_btn_rect,
-        tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect,
+        tools_btn_rect, help_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect,
         ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,
     )
 

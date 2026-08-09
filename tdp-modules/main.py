@@ -445,6 +445,8 @@ from tvcgui.runtime.utilities import (
 
 
 
+from tvcgui.ui.help_window import open_help_window
+
 from tvcgui.ui.components import (
     TOP_UI_RESERVED,
     GUI_APP_ACCENT,
@@ -3094,7 +3096,7 @@ def legacy_main():
 
         punish_trainer_active = bool(punish_trainer_state.get("enabled", False))
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect, meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect, meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, help_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -3561,6 +3563,11 @@ def legacy_main():
         # ------------------------------------------------------------------
         if mouse_clicked_pos is not None:
             mx, my = mouse_clicked_pos
+
+            if help_btn_rect.collidepoint(mx, my):
+                open_help_window()
+                mouse_clicked_pos = None
+                continue
 
             if tools_btn_rect.collidepoint(mx, my):
                 dock_tools_open = not bool(dock_tools_open)

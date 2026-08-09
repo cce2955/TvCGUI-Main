@@ -17507,6 +17507,47 @@
       "team": "P2",
       "timestamp_utc": "2026-07-30T00:06:04Z",
       "wakeup_start_offset": ""
+    },
+    {
+      "action_path": "80 Hard Knockdown > 73 Knockdown Face Up > 113 Get Up Face Up > 1 Action 1 > 65 Overhead Hitstun > 1 Action 1",
+      "air_recovery_start_offset": "",
+      "char_id": 1,
+      "character_name": "Ken the Eagle",
+      "duration_frames": 38,
+      "end_action_id": 1,
+      "end_action_name": "Action 1",
+      "end_frame": 329,
+      "entered_air_recovery": false,
+      "entered_knockdown": true,
+      "entered_wakeup": true,
+      "f062_path": "8 > 0 > 8 > 168 > 160 > 168 > 8 > 168 > 160 > 168",
+      "f063_path": "64 > 192 > 64 > 192 > 0 > 1 > 0 > 1",
+      "f064_path": "0 > 4 > 0 > 4 > 0",
+      "f072_path": "0",
+      "fighter_base": "0x927EB9E0",
+      "hitstun_decrement_frames": 0,
+      "hitstun_hold_frames": 32,
+      "knockdown_start_offset": 0,
+      "max_blockstun": 0,
+      "max_combo_count": 0,
+      "max_hitstun": 21,
+      "max_reaction_timer": 20,
+      "max_timer_1218": 255488,
+      "max_timer_121c": 4,
+      "notes": "+0x1228 secondary reaction timer observed; +0x1210 held instead of decrementing on one or more sampled frames",
+      "phase_path": "knockdown > wakeup > hitstun > neutral",
+      "reaction_family_path": "0x00000000",
+      "reaction_mode_path": "0",
+      "reaction_stack_path": "0 > 29 > 40 > 32 > 25 > 21 > 17 > 13 > 38 > 22 > 11 > 2 > 31 > 22 > 14 > 6 > 38 > 28 > 20 > 15 > 0 > 32 > 22 > 8",
+      "recovery_offset": 38,
+      "sequence_kind": "hit",
+      "slot": "P2-C1",
+      "start_action_id": 80,
+      "start_action_name": "Hard Knockdown",
+      "start_frame": 291,
+      "team": "P2",
+      "timestamp_utc": "2026-08-09T22:43:54Z",
+      "wakeup_start_offset": 13
     }
   ],
   "signatures": {
@@ -20903,6 +20944,19 @@
       "phase_path": "knockdown > wakeup > hitstun > knockdown > wakeup > hitstun > knockdown > air_recovery > hitstun > neutral > knockdown > air_recovery > hitstun > neutral",
       "sequence_kind": "hit"
     },
+    "1|hit|80 Hard Knockdown > 73 Knockdown Face Up > 113 Get Up Face Up > 1 Action 1 > 65 Overhead Hitstun > 1 Action 1|21|0|20": {
+      "action_path": "80 Hard Knockdown > 73 Knockdown Face Up > 113 Get Up Face Up > 1 Action 1 > 65 Overhead Hitstun > 1 Action 1",
+      "char_id": 1,
+      "character_name": "Ken the Eagle",
+      "count": 1,
+      "max_blockstun": 0,
+      "max_duration_frames": 38,
+      "max_hitstun": 21,
+      "max_reaction_timer": 20,
+      "min_duration_frames": 38,
+      "phase_path": "knockdown > wakeup > hitstun > neutral",
+      "sequence_kind": "hit"
+    },
     "1|hit|81 Bounce Launch > 82 Bounce Off > 91 Soft Knockdown > 97 Launched > 160 Air Recovery > 30 Action 30 > 1 Action 1 > 97 Launched > 160 Air Recovery > 30 Action 30 > 1 Action 1 > 4609 Action 4609 > 102 Knockdown Face Up > 113 Get Up Face Up > 1 Action 1 > 64 Standing Hitstun > 1 Action 1 > 64 Standing Hitstun > 1 Action 1|21|0|21": {
       "action_path": "81 Bounce Launch > 82 Bounce Off > 91 Soft Knockdown > 97 Launched > 160 Air Recovery > 30 Action 30 > 1 Action 1 > 97 Launched > 160 Air Recovery > 30 Action 30 > 1 Action 1 > 4609 Action 4609 > 102 Knockdown Face Up > 113 Get Up Face Up > 1 Action 1 > 64 Standing Hitstun > 1 Action 1 > 64 Standing Hitstun > 1 Action 1",
       "char_id": 1,
@@ -21840,6 +21894,6 @@
       "sequence_kind": "hit"
     }
   },
-  "updated_utc": "2026-07-30T00:06:04Z",
+  "updated_utc": "2026-08-09T22:43:54Z",
   "version": 1
 }

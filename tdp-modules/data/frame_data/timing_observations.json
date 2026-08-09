@@ -1644,28 +1644,34 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 4,
               "samples": [
                 8343,
-                6183
+                6183,
+                6922,
+                3210
               ],
               "value": 8343
             },
             "hitstop": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 4,
               "samples": [
+                12,
+                12,
                 12,
                 12
               ],
               "value": 12
             },
             "hitstun": {
-              "confidence": "matched",
-              "matches": 2,
-              "sample_count": 2,
+              "confidence": "confirmed",
+              "matches": 4,
+              "sample_count": 4,
               "samples": [
+                21,
+                21,
                 21,
                 21
               ],

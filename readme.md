@@ -831,6 +831,7 @@ BAD_PTRS: {0x00000000, 0x80520000}
 6   Doronjo
 7   Ippatsuman
 8   Jun the Swan
+9   Unknown (most likely Hakushon)
 10  Karas
 11  PTX-40A
 12  Ryu
