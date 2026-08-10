@@ -2791,7 +2791,7 @@
       "vertical_geometry_source": "full_active_envelope"
     },
     "12:266": {
-      "advance_at_tip": -0.37353515625,
+      "advance_at_tip": 0.0,
       "anchor": "fighter_root",
       "calibration": {
         "false_negative_hits": 0,
@@ -2801,53 +2801,6 @@
       },
       "char_id": 12,
       "display_mode": "ground_ruler",
-      "dynamic_sweep": {
-        "frame_count": 1,
-        "frames": [
-          {
-            "frame": 9,
-            "root": [
-              -0.37353515625,
-              0.36474609375,
-              0.0
-            ],
-            "shapes": [
-              [
-                0.5719375610351562,
-                0.7938446998596191,
-                0.0,
-                0.19999998807907104
-              ],
-              [
-                0.36649084091186523,
-                1.0657007694244385,
-                0.0,
-                0.14999999105930328
-              ],
-              [
-                0.36649084091186523,
-                1.0657007694244385,
-                0.0,
-                0.2199999988079071
-              ]
-            ]
-          }
-        ],
-        "shape_count": 3,
-        "version": 2
-      },
-      "horizontal_envelope": {
-        "active_frame": 9,
-        "advance_at_tip": -0.37353515625,
-        "reach_from_start": 0.3984023928642273,
-        "shape_index": 0,
-        "tip_center_from_active_root": 0.5719375610351562,
-        "tip_center_from_start": 0.19840240478515625,
-        "tip_radius": 0.19999998807907104,
-        "tip_y_from_start": 1.1585907936096191,
-        "tip_z_from_start": 0.0,
-        "version": 1
-      },
       "last_sample": {
         "active_root": [
           5.409902572631836,
@@ -2867,31 +2820,14 @@
       "move_kind": "air_normal",
       "move_name": "j.B",
       "profile_schema": 5,
-      "reach_from_start": 0.3984023928642273,
-      "ruler_geometry_source": "max_horizontal_active_envelope",
+      "reach_from_start": 0.7304331660270691,
       "samples": 1,
-      "tip_center_from_active_root": 0.5719375610351562,
-      "tip_center_from_start": 0.19840240478515625,
+      "tip_center_from_active_root": 0.530433177947998,
+      "tip_center_from_start": 0.530433177947998,
       "tip_radius": 0.19999998807907104,
-      "tip_y_from_start": 1.1585907936096191,
+      "tip_y_from_start": 1.0980439186096191,
       "tip_z_from_start": 0.0,
-      "updated_ms": 31758,
-      "vertical_envelope": {
-        "lower_active_frame": 9,
-        "lower_forward_from_start": 0.19840240478515625,
-        "lower_radius": 0.19999998807907104,
-        "lower_shape_index": 0,
-        "lower_y_from_start": 0.9585908055305481,
-        "lower_z_from_start": 0.0,
-        "upper_active_frame": 9,
-        "upper_forward_from_start": -0.007044315338134766,
-        "upper_radius": 0.2199999988079071,
-        "upper_shape_index": 2,
-        "upper_y_from_start": 1.6504468619823456,
-        "upper_z_from_start": 0.0,
-        "version": 1
-      },
-      "vertical_geometry_source": "full_active_envelope"
+      "updated_ms": 129263
     },
     "12:267": {
       "advance_at_tip": 0.8701171875,

@@ -82,6 +82,12 @@ Shows the furthest forward edge of saved active hitbox reach.
 Vertical
 Shows the full vertical active-hitbox envelope. Horizontal and Vertical can be enabled together.
 
+Envelope
+When Horizontal and Vertical are both enabled, Envelope adds the sampled 2D threat shape and its time heatmap. Turn Envelope off if you want both simple ruler axes without the filled 2D coverage shape.
+
+Ruler Lock
+Opens a move picker for the four fighter slots. Choose a saved move and Lock Selected to keep that move's ruler visible while you reposition the characters. Unlock Slot or Unlock All returns to the normal automatic move/posture behavior.
+
 Visual slot mapping
 1 = P1-C1
 2 = P2-C1

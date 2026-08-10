@@ -1693,6 +1693,12 @@ def legacy_main():
     # Axes are independent: Horz is the default, Vert can be added without
     # replacing it. Legacy configs below migrate into this shape.
     ruler_axes = {"horizontal": True, "vertical": False}
+    # Preserve the current combined-axis behavior by default. Users can turn
+    # Envelope off to keep Horizontal + Vertical without the 2D coverage fill.
+    ruler_envelope_enabled = True
+    # Optional per-raw-slot display locks. Empty means the existing automatic
+    # move/posture selection remains untouched.
+    ruler_locks = {}
 
     try:
         if os.path.exists(HITBOX_FILTER_FILE):
@@ -1714,11 +1720,19 @@ def legacy_main():
                     _stored_axis = str(_existing_filter.get("range_ruler_axis", "horizontal") or "horizontal").strip().lower()
                     ruler_axes["horizontal"] = _stored_axis != "vertical"
                     ruler_axes["vertical"] = _stored_axis == "vertical"
+                ruler_envelope_enabled = bool(_existing_filter.get("range_ruler_envelope", True))
+                _stored_locks = _existing_filter.get("range_ruler_locks")
+                if isinstance(_stored_locks, dict):
+                    ruler_locks = {
+                        str(_slot): str(_profile)
+                        for _slot, _profile in _stored_locks.items()
+                        if str(_slot) in {"P1", "P2", "P3", "P4"} and str(_profile).strip()
+                    }
     except Exception:
         pass
 
     def _write_hitbox_filter():
-        nonlocal ruler_enabled, ruler_axes
+        nonlocal ruler_enabled, ruler_axes, ruler_envelope_enabled, ruler_locks
         # Keep P1/P2/P3/P4 at top-level for older overlay builds, and add
         # separate hurtbox controls for the new split layer.  The saved range
         # profiles are read-only; this only controls whether the existing
@@ -1750,6 +1764,12 @@ def legacy_main():
         # Keep an old single-axis value for older overlay builds. The current
         # overlay reads range_ruler_axes and can render both at once.
         payload["range_ruler_axis"] = "vertical" if (payload["range_ruler_axes"]["vertical"] and not payload["range_ruler_axes"]["horizontal"]) else "horizontal"
+        payload["range_ruler_envelope"] = bool(ruler_envelope_enabled)
+        payload["range_ruler_locks"] = {
+            str(_slot): str(_profile)
+            for _slot, _profile in dict(ruler_locks).items()
+            if str(_slot) in {"P1", "P2", "P3", "P4"} and str(_profile).strip()
+        }
         payload["ruler_slots"] = dict(ruler_slots)
         payload["hurtbox_slots"] = dict(hurtbox_slots)
         payload["show_hurtboxes"] = any(hurtbox_slots.values())
@@ -1759,6 +1779,49 @@ def legacy_main():
                 json.dump(payload, f)
         except Exception:
             pass
+
+    def _ruler_lock_roster_snapshot():
+        raw_to_panel = {
+            "P1": "P1-C1",
+            "P2": "P1-C2",
+            "P3": "P2-C1",
+            "P4": "P2-C2",
+        }
+        result = {}
+        for _raw_slot, _panel_slot in raw_to_panel.items():
+            _snap = render_snap_by_slot.get(_panel_slot) or {}
+            try:
+                _cid = int(_snap.get("id") or _snap.get("csv_char_id") or _snap.get("char_id") or 0)
+            except Exception:
+                _cid = 0
+            result[_raw_slot] = {
+                "panel_slot": _panel_slot,
+                "char_id": _cid,
+                "name": str(_snap.get("name") or CHAR_NAMES.get(_cid) or "Unknown"),
+            }
+        return result
+
+    def _set_ruler_locks(new_locks):
+        nonlocal ruler_locks
+        if not isinstance(new_locks, dict):
+            new_locks = {}
+        ruler_locks = {
+            str(_slot): str(_profile)
+            for _slot, _profile in new_locks.items()
+            if str(_slot) in {"P1", "P2", "P3", "P4"} and str(_profile).strip()
+        }
+        _write_hitbox_filter()
+
+    def _open_ruler_lock_picker():
+        try:
+            from tvcgui.ui.ruler_lock_window import open_ruler_lock_window
+            open_ruler_lock_window(
+                _ruler_lock_roster_snapshot(),
+                dict(ruler_locks),
+                _set_ruler_locks,
+            )
+        except Exception as exc:
+            print(f"[ruler lock] window failed: {exc!r}")
 
     def _write_master_control():
         payload = {
@@ -3096,7 +3159,7 @@ def legacy_main():
 
         punish_trainer_active = bool(punish_trainer_state.get("enabled", False))
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect, meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, help_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect, meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, help_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_envelope_rect, ruler_lock_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -3104,6 +3167,8 @@ def legacy_main():
             ruler_slots=ruler_slots,
             ruler_enabled=bool(ruler_enabled),
             ruler_axes=dict(ruler_axes),
+            ruler_envelope_enabled=bool(ruler_envelope_enabled),
+            ruler_lock_active=bool(ruler_locks),
             overlay_enabled=overlay_enabled,
             show_interaction_card=show_interaction_card,
             show_combo_card=show_combo_card,
@@ -3504,7 +3569,13 @@ def legacy_main():
             if bool(ruler_axes.get("vertical", False)):
                 _axis_labels.append("Vertical")
             axis_label = "+".join(_axis_labels) or "No axis"
-            status_parts.append(f"Ruler {axis_label} {active_ruler_slots or 'OFF'}")
+            _ruler_extra = []
+            if bool(ruler_axes.get("horizontal", False)) and bool(ruler_axes.get("vertical", False)):
+                _ruler_extra.append("Envelope ON" if ruler_envelope_enabled else "Envelope OFF")
+            if ruler_locks:
+                _ruler_extra.append(f"Locks {len(ruler_locks)}")
+            _ruler_suffix = f" ({', '.join(_ruler_extra)})" if _ruler_extra else ""
+            status_parts.append(f"Ruler {axis_label} {active_ruler_slots or 'OFF'}{_ruler_suffix}")
         else:
             status_parts.append("Ruler OFF")
         if mission_mgr.active_slot:
@@ -3616,6 +3687,19 @@ def legacy_main():
                 _write_hitbox_filter()
                 _write_master_control()
                 _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif ruler_envelope_rect.collidepoint(mx, my):
+                ruler_envelope_enabled = not bool(ruler_envelope_enabled)
+                _write_hitbox_filter()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif ruler_lock_rect.collidepoint(mx, my):
+                _open_ruler_lock_picker()
                 mouse_clicked_pos = None
                 continue
 

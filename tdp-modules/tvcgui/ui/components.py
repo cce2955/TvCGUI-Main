@@ -492,6 +492,8 @@ def _command_dock_layout(width: int, tools_open: bool) -> tuple[dict[str, tuple[
         ("ruler_btn", 84),
         ("ruler_h", 82),
         ("ruler_v", 70),
+        ("ruler_envelope", 82),
+        ("ruler_lock", 92),
     ])
     visual_specs.extend((f"ruler_{slot}", 22) for slot in ("P1", "P2", "P3", "P4"))
     section, rects = _layout_command_section(width_i, y, "VISUALS", visual_specs)
@@ -560,6 +562,8 @@ def draw_top_command_dock(
     ruler_slots: dict,
     ruler_enabled: bool,
     ruler_axes: dict,
+    ruler_envelope_enabled: bool,
+    ruler_lock_active: bool,
     overlay_enabled: bool,
     show_interaction_card: bool,
     show_combo_card: bool,
@@ -768,6 +772,8 @@ def draw_top_command_dock(
     ruler_btn_rect = visual["ruler_btn"]
     ruler_axis_h_rect = visual["ruler_h"]
     ruler_axis_v_rect = visual["ruler_v"]
+    ruler_envelope_rect = visual["ruler_envelope"]
+    ruler_lock_rect = visual["ruler_lock"]
 
     hb_on = any(bool(v) for v in hitbox_slots.values())
     hurt_on = any(bool(v) for v in hurtbox_slots.values())
@@ -797,6 +803,16 @@ def draw_top_command_dock(
         screen, ruler_axis_v_rect, "Vertical", dockfont,
         active=ruler_vert_on, hover=ruler_axis_v_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
         fill=(48, 43, 76) if ruler_vert_on else (27, 33, 45), align="center",
+    )
+    draw_glass_button(
+        screen, ruler_envelope_rect, "Envelope", dockfont,
+        active=bool(ruler_envelope_enabled), hover=ruler_envelope_rect.collidepoint(mx, my), accent=GUI_ACCENT_PURPLE,
+        fill=(48, 43, 76) if ruler_envelope_enabled else (27, 33, 45), align="center",
+    )
+    draw_glass_button(
+        screen, ruler_lock_rect, "Ruler Lock", dockfont,
+        active=bool(ruler_lock_active), hover=ruler_lock_rect.collidepoint(mx, my), accent=GUI_WARNING,
+        fill=(57, 49, 30) if ruler_lock_active else (27, 33, 45), align="center",
     )
 
     slot_colors = dict(GUI_SLOT_MUTED)
@@ -946,6 +962,12 @@ def draw_top_command_dock(
         elif ruler_axis_v_rect.collidepoint(mx, my):
             help_tip = "Vertical toggles the full active hitbox height envelope."
             help_accent = GUI_ACCENT_PURPLE
+        elif ruler_envelope_rect.collidepoint(mx, my):
+            help_tip = "Envelope adds the 2D sampled threat shape when Horizontal and Vertical are both on. Turn it off to keep only the two ruler axes."
+            help_accent = GUI_ACCENT_PURPLE
+        elif ruler_lock_rect.collidepoint(mx, my):
+            help_tip = "Ruler Lock opens a move picker. Locking a saved move keeps that move's ruler visible until you unlock it."
+            help_accent = GUI_WARNING
         elif tools_btn_rect.collidepoint(mx, my):
             help_tip = "Tools opens dedicated Training and Lab / Setup sections."
         elif help_btn_rect.collidepoint(mx, my):
@@ -983,7 +1005,7 @@ def draw_top_command_dock(
         meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect,
         tag_card_btn_rect, clear_card_btn_rect,
         tools_btn_rect, help_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect,
-        ruler_axis_h_rect, ruler_axis_v_rect, ruler_filter_rects,
+        ruler_axis_h_rect, ruler_axis_v_rect, ruler_envelope_rect, ruler_lock_rect, ruler_filter_rects,
     )
 
 
