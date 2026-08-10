@@ -472,6 +472,7 @@ def _command_dock_layout(width: int, tools_open: bool) -> tuple[dict[str, tuple[
         ("interaction_btn", 84),
         ("combo_btn", 58),
         ("damage_btn", 88),
+        ("untech_btn", 92),
         ("meter_btn", 64),
         ("red_health_btn", 68),
         ("attack_props_btn", 86),
@@ -569,6 +570,7 @@ def draw_top_command_dock(
     show_combo_card: bool,
     hud_info_set: str,
     show_damage_badge: bool,
+    show_untech_panel: bool,
     show_damage_inactive: bool,
     show_meter_panel: bool,
     show_red_health_panel: bool,
@@ -680,6 +682,7 @@ def draw_top_command_dock(
     combo_card_btn_rect = hud["combo_btn"]
     info_set_btn_rect = hud["info_set_btn"]
     damage_badge_btn_rect = hud["damage_btn"]
+    untech_panel_btn_rect = hud["untech_btn"]
     meter_panel_btn_rect = hud["meter_btn"]
     red_health_panel_btn_rect = hud["red_health_btn"]
     attack_property_panel_btn_rect = hud["attack_props_btn"]
@@ -722,6 +725,11 @@ def draw_top_command_dock(
         accent=GUI_WARNING, fill=(57, 49, 30) if show_damage_badge else (27, 33, 45), align="center",
     )
     draw_glass_button(
+        screen, untech_panel_btn_rect, "HS Scale: ON" if show_untech_panel else "HS Scale: OFF", dockfont,
+        active=bool(show_untech_panel), hover=untech_panel_btn_rect.collidepoint(mx, my),
+        accent=GUI_ACCENT_RED, fill=(59, 38, 43) if show_untech_panel else (27, 33, 45), align="center",
+    )
+    draw_glass_button(
         screen, meter_panel_btn_rect, "Meter", dockfont,
         active=bool(show_meter_panel), hover=meter_panel_btn_rect.collidepoint(mx, my),
         accent=GUI_CONFIRM, fill=(31, 50, 43) if show_meter_panel else (27, 33, 45), align="center",
@@ -745,6 +753,7 @@ def draw_top_command_dock(
         show_interaction_card
         or show_combo_card
         or show_damage_badge
+        or show_untech_panel
         or show_meter_panel
         or show_red_health_panel
         or show_attack_property_panel
@@ -934,6 +943,9 @@ def draw_top_command_dock(
         elif damage_badge_btn_rect.collidepoint(mx, my):
             help_tip = "Damage Mod adds branded C1 and C2 damage-scaling gauges beneath the character health rows."
             help_accent = GUI_WARNING
+        elif untech_panel_btn_rect.collidepoint(mx, my):
+            help_tip = "HS Scale shows air-recovery hitstun scaling. The red tail is lockout removed by combo deterioration."
+            help_accent = GUI_ACCENT_RED
         elif meter_panel_btn_rect.collidepoint(mx, my):
             help_tip = "Meter adds the latest gain or spend beside the existing meter display. Color shows prediction status."
             help_accent = GUI_CONFIRM
@@ -1001,7 +1013,7 @@ def draw_top_command_dock(
         megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect,
         overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect,
         action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, solo_team_btn_rect, timing_probe_btn_rect,
-        interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect,
+        interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect, untech_panel_btn_rect,
         meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect,
         tag_card_btn_rect, clear_card_btn_rect,
         tools_btn_rect, help_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect,

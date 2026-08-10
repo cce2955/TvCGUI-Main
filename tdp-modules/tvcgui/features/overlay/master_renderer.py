@@ -484,6 +484,7 @@ class MasterControl:
     show_interaction_card: bool = False
     show_combo_card: bool = False
     show_damage_badge: bool = False
+    show_untech_panel: bool = False
     show_damage_inactive: bool = True
     show_meter_panel: bool = True
     show_red_health_panel: bool = True
@@ -883,6 +884,7 @@ class MasterOverlay:
             "show_interaction_card": self.control.show_interaction_card,
             "show_combo_card": self.control.show_combo_card,
             "show_damage_badge": self.control.show_damage_badge,
+            "show_untech_panel": self.control.show_untech_panel,
             "show_damage_inactive": self.control.show_damage_inactive,
             "show_meter_panel": self.control.show_meter_panel,
             "show_red_health_panel": self.control.show_red_health_panel,
@@ -915,6 +917,7 @@ class MasterOverlay:
             self.control.show_interaction_card = bool(data.get("show_interaction_card", False))
             self.control.show_combo_card = bool(data.get("show_combo_card", False))
             self.control.show_damage_badge = bool(data.get("show_damage_badge", False))
+            self.control.show_untech_panel = bool(data.get("show_untech_panel", False))
             self.control.show_damage_inactive = bool(data.get("show_damage_inactive", True))
             self.control.show_meter_panel = bool(data.get("show_meter_panel", True))
             self.control.show_red_health_panel = bool(data.get("show_red_health_panel", True))
@@ -940,6 +943,7 @@ class MasterOverlay:
                 self.control.show_interaction_card = bool(data.get("show_interaction_card", False))
                 self.control.show_combo_card = bool(data.get("show_combo_card", False))
                 self.control.show_damage_badge = bool(data.get("show_damage_badge", False))
+                self.control.show_untech_panel = bool(data.get("show_untech_panel", False))
                 self.control.show_damage_inactive = bool(data.get("show_damage_inactive", True))
                 self.control.show_meter_panel = bool(data.get("show_meter_panel", True))
                 self.control.show_red_health_panel = bool(data.get("show_red_health_panel", True))

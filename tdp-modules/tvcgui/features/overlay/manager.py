@@ -25,6 +25,7 @@ from tvcgui.core.paths import user_data_path
 from tvcgui.features.frame_data.attack_property_runtime import resolve_live_attack_definition
 from tvcgui.runtime.realtime_sampler import RealtimeCombatSampler
 from tvcgui.features.overlay.damage_scaling import annotate_damage_scaling_payload
+from tvcgui.features.overlay.hitstun_scaling import annotate_hitstun_scaling_payload
 
 if TYPE_CHECKING:
     from tvcgui.features.training.mission_manager import MissionManager
@@ -476,6 +477,7 @@ class HudOverlayManager:
             payload[slot_label] = slot_payload
 
         annotate_damage_scaling_payload(payload, render_snap_by_slot)
+        annotate_hitstun_scaling_payload(payload, render_snap_by_slot)
         payload["_punish_trainer"] = dict(punish_overlay or {})
         payload["_timing_engine"] = dict(timing_payload or {})
 

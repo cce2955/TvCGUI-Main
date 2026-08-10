@@ -28,7 +28,7 @@ A good first setup is Set: Core, then enable Hitboxes or Hurtboxes only when you
         """HUD CONTROLS
 
 Set: Core / Research / Full
-Cycles between useful information presets. Core keeps the basic HUD concise. Research adds damage-scaling information. Full enables the broader live combat display. Changing individual HUD toggles changes the preset to Custom.
+Cycles between useful information presets. Core keeps the basic HUD concise. Research adds damage scaling and HS Scale. Full enables the broader live combat display while retaining both research gauges. Changing individual HUD toggles changes the preset to Custom.
 
 Overlay
 Shows or hides the core team HUD. Hitboxes, hurtboxes, ruler guides, Mission Mode, and trainer prompts are separate layers.
@@ -41,6 +41,9 @@ Shows the live combo ledger and recent route information.
 
 Dmg
 Shows the live damage-scaling gauges. See the Damage Scaling topic for how to read them.
+
+HS Scale
+Shows air-recovery hitstun scaling. The red end of the bar is lockout removed by combo deterioration. See the Hitstun Scaling topic for details.
 
 Meter
 Adds meter gain and spend information beside the normal meter display.
@@ -149,7 +152,38 @@ Labels
 The HUD may identify contributors such as combo scaling, Baroque, Guts, Danger, team or DHC modifiers, Roll-specific modifiers, height-related effects, or another decoded modifier. The label tells you why the displayed multiplier changed rather than making you infer it from the final damage number alone.
 
 Approximation marker
-An asterisk means the displayed modifier is an inferred or approximate interpretation rather than a fully proven direct field. Treat it as useful live guidance, not a guaranteed internal formula.""",
+An asterisk means the displayed modifier is an inferred or approximate interpretation rather than a fully proven direct field. Treat it as useful live guidance, not a guaranteed internal formula.
+
+This gauge is independent from hitstun scaling. Use the HS Scale button when you want to see air-recovery deterioration.""",
+    ),
+    (
+        "Hitstun Scaling",
+        """HITSTUN SCALING
+
+TvC deteriorates air-combo recovery lockout separately from ordinary grounded hitstun and separately from damage scaling. The HS Scale button shows that native system as a frame gauge.
+
+Blue segment
+Frames still remaining on the defender's current native air-recovery lockout.
+
+Gray segment
+Effective lockout frames that were available on this hit but have already elapsed.
+
+Red segment
+Frames removed before the lockout began because of combo deterioration. This is the visual deflation portion of the bar.
+
+DECAY
+The exact number of frames removed by the native rule. The game removes one frame for every four qualifying count units.
+
+Current / base
+When Continuo observes the start of the native lockout it reconstructs an approximate pre-deterioration base for the bar. A tilde marks that reconstructed base as approximate because the HUD may sample after the timer has already begun counting down.
+
+NO TECH
+The native CANTUKEMI state is active. Recovery is being blocked independently of the normal untech countdown.
+
+FLOOR 4F
+The deterioration branch never initializes the air-recovery lockout below four frames.
+
+This is not ordinary DSTIFF hitstun. The normal resolved hitstun timer is a separate game field.""",
     ),
     (
         "Frame Data Fields",

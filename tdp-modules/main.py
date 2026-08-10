@@ -1601,6 +1601,7 @@ def legacy_main():
     show_interaction_card = False
     show_combo_card       = False
     show_damage_badge     = False
+    show_untech_panel     = False
     show_damage_inactive  = True
     show_meter_panel      = True
     show_red_health_panel = True
@@ -1610,7 +1611,7 @@ def legacy_main():
 
     def _apply_hud_info_set(name: str) -> None:
         nonlocal overlay_enabled, show_interaction_card, show_combo_card
-        nonlocal show_damage_badge, show_damage_inactive, show_meter_panel
+        nonlocal show_damage_badge, show_untech_panel, show_damage_inactive, show_meter_panel
         nonlocal show_red_health_panel, show_attack_property_panel, show_tag_card
         nonlocal hud_info_set
 
@@ -1625,6 +1626,7 @@ def legacy_main():
             show_interaction_card = False
             show_combo_card = False
             show_damage_badge = False
+            show_untech_panel = False
             show_meter_panel = True
             show_red_health_panel = True
             show_attack_property_panel = False
@@ -1633,6 +1635,7 @@ def legacy_main():
             show_interaction_card = False
             show_combo_card = False
             show_damage_badge = True
+            show_untech_panel = True
             show_meter_panel = True
             show_red_health_panel = True
             show_attack_property_panel = False
@@ -1641,6 +1644,7 @@ def legacy_main():
             show_interaction_card = True
             show_combo_card = True
             show_damage_badge = True
+            show_untech_panel = True
             show_meter_panel = True
             show_red_health_panel = True
             show_attack_property_panel = False
@@ -1832,6 +1836,7 @@ def legacy_main():
             "show_interaction_card": bool(show_interaction_card),
             "show_combo_card": bool(show_combo_card),
             "show_damage_badge": bool(show_damage_badge),
+            "show_untech_panel": bool(show_untech_panel),
             "show_damage_inactive": bool(show_damage_inactive),
             "show_meter_panel": bool(show_meter_panel),
             "show_red_health_panel": bool(show_red_health_panel),
@@ -1882,6 +1887,7 @@ def legacy_main():
                 _apply_hud_info_set("CORE")
             else:
                 show_damage_badge = bool(_existing_master.get("show_damage_badge", show_damage_badge))
+                show_untech_panel = bool(_existing_master.get("show_untech_panel", show_untech_panel))
                 show_meter_panel = bool(_existing_master.get("show_meter_panel", show_meter_panel))
                 show_red_health_panel = bool(_existing_master.get("show_red_health_panel", show_red_health_panel))
                 show_damage_inactive = bool(_existing_master.get("show_damage_inactive", show_damage_inactive))
@@ -3159,7 +3165,7 @@ def legacy_main():
 
         punish_trainer_active = bool(punish_trainer_state.get("enabled", False))
 
-        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect, meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, help_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_envelope_rect, ruler_lock_rect, ruler_filter_rects = draw_top_command_dock(
+        hb_btn_rect, hurt_btn_rect, ps_btn_rect, as_btn_rect, hud_btn_rect, megacrash_btn_rect, memdump_btn_rect, win_counter_btn_rect, overseer_btn_rect, select_probe_btn_rect, yami_stage_btn_rect, ko_control_btn_rect, action_spoof_btn_rect, cancel_mapper_btn_rect, cancel_lab_btn_rect, action_recorder_btn_rect, timing_probe_btn_rect, interaction_card_btn_rect, combo_card_btn_rect, info_set_btn_rect, damage_badge_btn_rect, untech_panel_btn_rect, meter_panel_btn_rect, red_health_panel_btn_rect, attack_property_panel_btn_rect, tag_card_btn_rect, clear_card_btn_rect, tools_btn_rect, help_btn_rect, hb_filter_rects, hurt_filter_rects, ruler_btn_rect, ruler_axis_h_rect, ruler_axis_v_rect, ruler_envelope_rect, ruler_lock_rect, ruler_filter_rects = draw_top_command_dock(
             screen,
             smallfont,
             hitbox_slots=hitbox_slots,
@@ -3174,6 +3180,7 @@ def legacy_main():
             show_combo_card=show_combo_card,
             hud_info_set=hud_info_set,
             show_damage_badge=show_damage_badge,
+            show_untech_panel=show_untech_panel,
             show_damage_inactive=show_damage_inactive,
             show_meter_panel=show_meter_panel,
             show_red_health_panel=show_red_health_panel,
@@ -3743,6 +3750,7 @@ def legacy_main():
                 show_interaction_card = False
                 show_combo_card = False
                 show_damage_badge = False
+                show_untech_panel = False
                 show_damage_inactive = True
                 show_meter_panel = False
                 show_red_health_panel = False
@@ -3773,6 +3781,14 @@ def legacy_main():
             elif damage_badge_btn_rect.collidepoint(mx, my):
                 show_damage_badge = not show_damage_badge
                 show_damage_inactive = False
+                _mark_hud_info_set_custom()
+                _write_master_control()
+                _sync_master_overlay_state()
+                mouse_clicked_pos = None
+                continue
+
+            elif untech_panel_btn_rect.collidepoint(mx, my):
+                show_untech_panel = not show_untech_panel
                 _mark_hud_info_set_custom()
                 _write_master_control()
                 _sync_master_overlay_state()

@@ -5810,6 +5810,147 @@ def _draw_compact_damage_scaling_rows(
             )
 
 
+
+def _draw_compact_untech_scaling_row(
+    screen,
+    font_sm,
+    team: str,
+    snap: dict,
+    x: int,
+    y: int,
+    right: int,
+    scale: float,
+) -> None:
+    """Draw native air-recovery deterioration as a compact deflation gauge."""
+    del team
+    header_h = max(font_sm.get_height(), int(12 * scale))
+    row_h = max(font_sm.get_height() + 4, int(17 * scale))
+    inner_pad = max(5, int(6 * scale))
+
+    brand_surface = font_sm.render("HS SCALE", True, (151, 164, 184))
+    brand_y = y + max(0, (header_h - brand_surface.get_height()) // 2)
+    screen.blit(brand_surface, (x + 2, brand_y))
+    brand_line_x = x + brand_surface.get_width() + max(6, int(8 * scale))
+    pygame.draw.line(
+        screen,
+        (47, 59, 75),
+        (brand_line_x, y + header_h // 2),
+        (right, y + header_h // 2),
+        1,
+    )
+
+    row_rect = pygame.Rect(x, y + header_h, max(80, right - x), row_h)
+    radius = max(3, int(4 * scale))
+    pygame.draw.rect(screen, (14, 19, 28, 210), row_rect, border_radius=radius)
+    pygame.draw.rect(screen, (78, 96, 122, 105), row_rect, 1, border_radius=radius)
+
+    live = bool(snap.get("hitstun_decay_live", False))
+    rule = snap.get("hitstun_decay_rule_enabled")
+    counter = max(0, int(snap.get("hitstun_decay_counter") or 0))
+    loss = max(0, int(snap.get("hitstun_decay_frames") or 0))
+    remaining = max(0, int(snap.get("hitstun_untech_remaining") or 0))
+    effective_start = max(0, int(snap.get("hitstun_untech_effective_start") or 0))
+    base_est = max(0, int(snap.get("hitstun_untech_base_estimate") or 0))
+    latched_loss = max(0, int(snap.get("hitstun_untech_latched_loss") or loss))
+    approximate = bool(snap.get("hitstun_untech_approximate", False))
+    cantukemi = bool(snap.get("hitstun_cantukemi", False))
+
+    if not live:
+        left_text = "NO DATA"
+        right_text = "---"
+        value_color = (91, 102, 119)
+    elif rule is False:
+        left_text = "DECAY -0F"
+        right_text = "SCALING OFF"
+        value_color = (91, 102, 119)
+    elif cantukemi:
+        left_text = f"DECAY -{loss}F"
+        right_text = "NO TECH"
+        value_color = (235, 91, 108)
+    else:
+        left_text = f"DECAY -{loss}F"
+        if remaining > 0 and base_est > 0:
+            prefix = "~" if approximate else ""
+            right_text = f"{remaining}/{prefix}{base_est}F"
+            value_color = (235, 136, 91) if loss > 0 else (122, 183, 198)
+        elif base_est > 0:
+            prefix = "~" if approximate else ""
+            right_text = f"LAST {effective_start}/{prefix}{base_est}F"
+            value_color = (235, 136, 91) if latched_loss > 0 else (122, 183, 198)
+        else:
+            right_text = "WAITING" if remaining <= 0 else f"{remaining}F"
+            value_color = (235, 136, 91) if loss > 0 else (122, 183, 198)
+
+    left_surface = font_sm.render(left_text, True, value_color)
+    right_surface = font_sm.render(right_text, True, value_color)
+    text_y = row_rect.centery - left_surface.get_height() // 2
+    screen.blit(left_surface, (row_rect.x + inner_pad, text_y))
+    screen.blit(
+        right_surface,
+        (row_rect.right - inner_pad - right_surface.get_width(), row_rect.centery - right_surface.get_height() // 2),
+    )
+
+    gauge_x = row_rect.x + inner_pad + left_surface.get_width() + max(7, int(9 * scale))
+    gauge_right = row_rect.right - inner_pad - right_surface.get_width() - max(7, int(9 * scale))
+    gauge_w = max(18, gauge_right - gauge_x)
+    gauge_h = max(5, int(6 * scale))
+    gauge_y = row_rect.centery - gauge_h // 2
+    gauge = pygame.Rect(gauge_x, gauge_y, gauge_w, gauge_h)
+    pygame.draw.rect(screen, (43, 52, 66), gauge, border_radius=max(2, gauge_h // 2))
+
+    # The full width is the estimated pre-deterioration lockout. The red tail
+    # is the part removed before the timer starts. The cool fill is what is
+    # still left on the live native countdown.
+    if base_est > 0 and live and rule is not False and not cantukemi:
+        effective = max(0, min(base_est, effective_start if effective_start > 0 else base_est - latched_loss))
+        removed = max(0, min(base_est, base_est - effective))
+        remaining_clamped = max(0, min(effective, remaining))
+
+        effective_w = int(round(gauge_w * effective / float(base_est)))
+        remaining_w = int(round(gauge_w * remaining_clamped / float(base_est)))
+        removed_x = gauge.x + effective_w
+
+        if effective_w > 0:
+            pygame.draw.rect(
+                screen,
+                (72, 82, 96),
+                pygame.Rect(gauge.x, gauge.y, effective_w, gauge.h),
+                border_radius=max(2, gauge_h // 2),
+            )
+        if remaining_w > 0:
+            pygame.draw.rect(
+                screen,
+                (122, 183, 198),
+                pygame.Rect(gauge.x, gauge.y, remaining_w, gauge.h),
+                border_radius=max(2, gauge_h // 2),
+            )
+        if removed > 0 and removed_x < gauge.right:
+            pygame.draw.rect(
+                screen,
+                (235, 91, 108),
+                pygame.Rect(removed_x, gauge.y, gauge.right - removed_x, gauge.h),
+                border_radius=max(2, gauge_h // 2),
+            )
+        if 0 < effective_w < gauge_w:
+            pygame.draw.line(
+                screen,
+                (238, 218, 224),
+                (gauge.x + effective_w, gauge.y - 2),
+                (gauge.x + effective_w, gauge.bottom + 1),
+                1,
+            )
+    elif live and rule is not False and loss > 0:
+        # Before a lockout has been observed, show the deterioration step as a
+        # compact red warning marker instead of inventing a fake percentage.
+        marker_w = max(3, min(gauge_w, int(round(gauge_w * min(1.0, loss / 12.0)))))
+        pygame.draw.rect(
+            screen,
+            (235, 91, 108),
+            pygame.Rect(gauge.right - marker_w, gauge.y, marker_w, gauge.h),
+            border_radius=max(2, gauge_h // 2),
+        )
+
+
 def _research_dock_active_panel(control=None) -> str | None:
     """Return one fallback research panel when the core HUD is hidden."""
     if control is None:
@@ -5817,6 +5958,7 @@ def _research_dock_active_panel(control=None) -> str | None:
     for key, attr in (
         ("attack", "show_attack_property_panel"),
         ("damage", "show_damage_badge"),
+        ("untech", "show_untech_panel"),
         ("meter", "show_meter_panel"),
         ("red", "show_red_health_panel"),
     ):
@@ -5831,6 +5973,7 @@ def _research_dock_geometry(screen, scale: float, panel: str) -> pygame.Rect:
     width = min(screen.get_width() - margin * 2, max_width)
     content_heights = {
         "damage": max(112, int(118 * scale)),
+        "untech": max(72, int(78 * scale)),
         "meter": max(98, int(104 * scale)),
         "red": max(170, int(178 * scale)),
         "attack": max(220, int(240 * scale)),
@@ -5845,6 +5988,7 @@ def _research_dock_geometry(screen, scale: float, panel: str) -> pygame.Rect:
 def _research_dock_title(panel: str) -> tuple[str, tuple[int, int, int]]:
     return {
         "damage": ("RESEARCH DOCK  |  DAMAGE MODIFIER", (222, 170, 74)),
+        "untech": ("RESEARCH DOCK  |  HITSTUN SCALING", (235, 136, 91)),
         "meter": ("RESEARCH DOCK  |  METER GENERATION", (67, 201, 156)),
         "red": ("RESEARCH DOCK  |  RECOVERABLE HEALTH", (223, 82, 102)),
         "attack": ("RESEARCH DOCK  |  ATTACK PROPERTIES", (158, 109, 216)),
@@ -5891,6 +6035,46 @@ def _draw_research_damage_content(card, area: pygame.Rect, font, font_sm, scale:
             surface = font_sm.render(line, True, (164, 184, 207))
             card.blit(surface, (cell.x + pad, factor_y))
             factor_y += font_sm.get_height() + 2
+
+
+def _draw_research_untech_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
+    gap = max(8, int(10 * scale))
+    cell_w = (area.width - gap) // 2
+    for index, team in enumerate(("P1", "P2")):
+        slot, snap = _team_point_snapshot(team)
+        snap = snap if isinstance(snap, dict) else {}
+        accent = (236, 92, 108) if team == "P1" else (82, 164, 236)
+        cell = pygame.Rect(area.x + index * (cell_w + gap), area.y, cell_w, area.height)
+        pygame.draw.rect(card, (*accent, 20), cell, border_radius=max(4, int(5 * scale)))
+        pygame.draw.rect(card, (*accent, 110), cell, 1, border_radius=max(4, int(5 * scale)))
+        pad = max(8, int(9 * scale))
+        counter = max(0, _panel_int(snap.get("hitstun_decay_counter"), 0))
+        loss = max(0, _panel_int(snap.get("hitstun_decay_frames"), 0))
+        remaining = max(0, _panel_int(snap.get("hitstun_untech_remaining"), 0))
+        effective = max(0, _panel_int(snap.get("hitstun_untech_effective_start"), 0))
+        base = max(0, _panel_int(snap.get("hitstun_untech_base_estimate"), 0))
+        cantukemi = bool(snap.get("hitstun_cantukemi", False))
+        name = _compact_trim(str(snap.get("name") or slot or "---"), 15)
+        header = font_sm.render(f"{team}  {name}", True, accent)
+        value_text = "NO TECH" if cantukemi else (f"{remaining}/~{base}F" if base > 0 and remaining > 0 else f"DECAY -{loss}F")
+        value = font.render(value_text, True, (235, 91, 108) if cantukemi else (232, 240, 248))
+        card.blit(header, (cell.x + pad, cell.y + pad))
+        card.blit(value, (cell.right - pad - value.get_width(), cell.y + max(3, pad - 4)))
+        bar = pygame.Rect(cell.x + pad, cell.y + pad + max(header.get_height(), value.get_height()) + 5, cell.width - pad * 2, max(8, int(9 * scale)))
+        pygame.draw.rect(card, (24, 34, 47), bar, border_radius=3)
+        if base > 0 and not cantukemi:
+            eff = max(0, min(base, effective if effective > 0 else base - loss))
+            rem = max(0, min(eff, remaining))
+            eff_w = int(round(bar.width * eff / float(base)))
+            rem_w = int(round(bar.width * rem / float(base)))
+            if eff_w > 0:
+                pygame.draw.rect(card, (72, 82, 96), (bar.x, bar.y, eff_w, bar.height), border_radius=3)
+            if rem_w > 0:
+                pygame.draw.rect(card, (122, 183, 198), (bar.x, bar.y, rem_w, bar.height), border_radius=3)
+            if eff_w < bar.width:
+                pygame.draw.rect(card, (235, 91, 108), (bar.x + eff_w, bar.y, bar.width - eff_w, bar.height), border_radius=3)
+        detail = _panel_fit(font_sm, f"QUALIFYING COUNT {counter}   LOSS -{loss}F   FLOOR 4F", cell.width - pad * 2)
+        card.blit(detail, (cell.x + pad, bar.bottom + 5))
 
 
 def _draw_research_meter_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
@@ -6148,6 +6332,8 @@ def _draw_research_dock(screen, font, font_sm, scale: float, panel: str) -> None
     area = pygame.Rect(pad, title_h + 2, rect.width - pad * 2, rect.height - title_h - pad)
     if panel == "damage":
         _draw_research_damage_content(card, area, font, font_sm, scale)
+    elif panel == "untech":
+        _draw_research_untech_content(card, area, font, font_sm, scale)
     elif panel == "meter":
         _draw_research_meter_content(card, area, font, font_sm, scale)
     elif panel == "red":
@@ -6772,6 +6958,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     hold_expand = max(0.0, min(1.0, float(team_anim.get("hold_expand", 0.0))))
 
     show_damage_inline = bool(control is not None and getattr(control, "show_damage_badge", False))
+    show_untech_inline = bool(control is not None and getattr(control, "show_untech_panel", False))
     show_meter_inline = bool(control is not None and getattr(control, "show_meter_panel", False))
     show_red_inline = bool(control is not None and getattr(control, "show_red_health_panel", False))
     show_attack_inline = bool(control is not None and getattr(control, "show_attack_property_panel", False))
@@ -6781,11 +6968,16 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     damage_scale_row_h = max(font_sm.get_height() + 4, int(17 * scale))
     damage_scale_gap = max(2, int(3 * scale))
     damage_scale_header_h = max(font_sm.get_height(), int(12 * scale))
+    untech_header_h = max(font_sm.get_height(), int(12 * scale))
+    untech_row_h = max(font_sm.get_height() + 4, int(17 * scale))
     damage_scale_height = damage_scale_header_h + damage_scale_row_h * 2 + damage_scale_gap
+    untech_scale_height = untech_header_h + untech_row_h
     damage_scale_layout_extra = damage_scale_height + max(3, int(4 * scale)) if show_damage_inline else 0
+    untech_scale_layout_extra = untech_scale_height + max(3, int(4 * scale)) if show_untech_inline else 0
+    scaling_layout_extra = damage_scale_layout_extra + untech_scale_layout_extra
 
     width = max(442, int(486 * scale))
-    collapsed_height = max(154, int(166 * scale)) + research_layout_extra + damage_scale_layout_extra
+    collapsed_height = max(154, int(166 * scale)) + research_layout_extra + scaling_layout_extra
     hold_extra_height = max(18, int(20 * scale))
     height = collapsed_height + int(hold_extra_height * hold_expand)
     # Keep both compact team panels flush with the game viewport corners.
@@ -6891,7 +7083,8 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     secondary_y = hp_y + max(7, int(8 * scale)) + int(7 * scale)
     partner_hp_y = secondary_y + font_sm.get_height() + int(2 * scale)
     damage_scale_y = partner_hp_y + max(5, int(6 * scale)) + int(4 * scale)
-    strip_y = partner_hp_y + max(5, int(6 * scale)) + int(5 * scale) + damage_scale_layout_extra
+    untech_scale_y = damage_scale_y + (damage_scale_layout_extra if show_damage_inline else 0)
+    strip_y = partner_hp_y + max(5, int(6 * scale)) + int(5 * scale) + scaling_layout_extra
     history_y = strip_y + max(17, int(18 * scale)) + int(3 * scale)
     input_y = history_y + max(12, int(13 * scale)) + int(2 * scale)
     input_row_h = max(15, int(17 * scale))
@@ -7270,6 +7463,17 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
             info_right,
             scale,
         )
+    if show_untech_inline:
+        _draw_compact_untech_scaling_row(
+            screen,
+            font_sm,
+            team,
+            point,
+            left,
+            untech_scale_y,
+            info_right,
+            scale,
+        )
 
     if control is None or getattr(control, "show_tag_card", True):
         _draw_tag_card(screen, font_sm, team_anim, x, y + height + int(5 * scale), width, scale, is_left, dt)
@@ -7403,6 +7607,7 @@ class HudRenderer:
             control is not None
             and (
                 getattr(control, "show_damage_badge", False)
+                or getattr(control, "show_untech_panel", False)
                 or getattr(control, "show_meter_panel", False)
                 or getattr(control, "show_red_health_panel", False)
                 or getattr(control, "show_attack_property_panel", False)
