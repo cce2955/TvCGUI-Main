@@ -231,20 +231,26 @@
       "char_name": "Polimar",
       "hit": {
         "freeze_samples": {
-          "0": 1
+          "0": 2
         },
-        "last_frame": 1582,
+        "last_frame": 1646,
         "last_freeze": 0,
-        "last_value": 14,
+        "last_value": 12,
         "samples": {
+          "12": 1,
           "14": 1
         }
       },
-      "last_frame": 1582,
+      "last_frame": 1646,
       "last_freeze": 0,
+      "last_recovery": 3,
       "move_label": "5B",
       "recovery": {
-        "samples": {}
+        "last_frame": 1179,
+        "last_value": 3,
+        "samples": {
+          "3": 1
+        }
       }
     },
     "4:258": {
@@ -463,6 +469,6 @@
       }
     }
   },
-  "updated_utc": "2026-08-10T01:15:21Z",
+  "updated_utc": "2026-08-11T13:10:35Z",
   "version": 2
 }

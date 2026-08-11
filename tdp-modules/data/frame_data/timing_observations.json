@@ -633,11 +633,9 @@
             },
             "damage": {
               "confidence": "confirmed",
-              "matches": 14,
+              "matches": 13,
               "sample_count": 16,
               "samples": [
-                800,
-                800,
                 800,
                 2780,
                 684,
@@ -651,7 +649,9 @@
                 800,
                 800,
                 800,
-                800
+                800,
+                800,
+                1560
               ],
               "value": 800
             },
@@ -660,7 +660,6 @@
               "matches": 6,
               "sample_count": 16,
               "samples": [
-                2,
                 4,
                 6,
                 3,
@@ -675,13 +674,14 @@
                 4,
                 5,
                 6,
-                3
+                3,
+                5
               ],
               "value": 6
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 15,
+              "matches": 14,
               "sample_count": 16,
               "samples": [
                 12,
@@ -696,10 +696,10 @@
                 12,
                 12,
                 12,
-                12,
-                12,
                 5,
-                12
+                12,
+                12,
+                8
               ],
               "value": 12
             }
@@ -1026,7 +1026,7 @@
             "damage": {
               "confidence": "confirmed",
               "matches": 5,
-              "sample_count": 8,
+              "sample_count": 9,
               "samples": [
                 2400,
                 2400,
@@ -1035,14 +1035,15 @@
                 4960,
                 2400,
                 2400,
-                4560
+                4560,
+                63
               ],
               "value": 2400
             },
             "hitstop": {
               "confidence": "confirmed",
               "matches": 4,
-              "sample_count": 13,
+              "sample_count": 14,
               "samples": [
                 12,
                 9,
@@ -1056,15 +1057,17 @@
                 5,
                 9,
                 12,
-                12
+                12,
+                71
               ],
               "value": 12
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 8,
-              "sample_count": 8,
+              "matches": 9,
+              "sample_count": 9,
               "samples": [
+                21,
                 21,
                 21,
                 21,
@@ -1082,10 +1085,11 @@
           "action_name": "6C",
           "fields": {
             "blockstun": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 1,
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
               "samples": [
+                15,
                 15
               ],
               "value": 15
@@ -1108,8 +1112,8 @@
             },
             "hitstop": {
               "confidence": "confirmed",
-              "matches": 3,
-              "sample_count": 9,
+              "matches": 4,
+              "sample_count": 10,
               "samples": [
                 9,
                 10,
@@ -1119,6 +1123,7 @@
                 10,
                 9,
                 6,
+                9,
                 9
               ],
               "value": 9
@@ -1841,6 +1846,15 @@
         "315": {
           "action_name": "Donkey H",
           "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                15
+              ],
+              "value": 15
+            },
             "damage": {
               "confidence": "matched",
               "matches": 2,
@@ -1856,12 +1870,13 @@
             "hitstop": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 4,
+              "sample_count": 5,
               "samples": [
                 10,
                 12,
                 10,
-                12
+                12,
+                2
               ],
               "value": 10
             },
@@ -3158,7 +3173,6 @@
               "sample_count": 16,
               "samples": [
                 500,
-                500,
                 4200,
                 4200,
                 5400,
@@ -3172,7 +3186,8 @@
                 800,
                 800,
                 2782,
-                924
+                924,
+                4400
               ],
               "value": 800
             },
@@ -3202,10 +3217,9 @@
             },
             "hitstun": {
               "confidence": "confirmed",
-              "matches": 12,
+              "matches": 13,
               "sample_count": 16,
               "samples": [
-                4,
                 21,
                 21,
                 12,
@@ -3220,6 +3234,7 @@
                 21,
                 12,
                 12,
+                21,
                 21
               ],
               "value": 21
@@ -5473,28 +5488,31 @@
             "damage": {
               "confidence": "single",
               "matches": 1,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
                 14695,
-                1200
+                1200,
+                7500
               ],
               "value": 14695
             },
             "hitstop": {
-              "confidence": "single",
-              "matches": 1,
-              "sample_count": 2,
-              "samples": [
-                7,
-                82
-              ],
-              "value": 7
-            },
-            "hitstun": {
               "confidence": "matched",
               "matches": 2,
-              "sample_count": 2,
+              "sample_count": 3,
               "samples": [
+                7,
+                82,
+                82
+              ],
+              "value": 82
+            },
+            "hitstun": {
+              "confidence": "confirmed",
+              "matches": 3,
+              "sample_count": 3,
+              "samples": [
+                21,
                 21,
                 21
               ],
@@ -6894,6 +6912,8 @@
               "matches": 4,
               "sample_count": 16,
               "samples": [
+                500,
+                500,
                 4600,
                 2912,
                 6000,
@@ -6907,17 +6927,17 @@
                 91998,
                 47999,
                 500,
-                500,
-                4600,
-                4800
+                500
               ],
-              "value": 4600
+              "value": 500
             },
             "hitstop": {
               "confidence": "confirmed",
               "matches": 4,
               "sample_count": 16,
               "samples": [
+                7,
+                9,
                 9,
                 12,
                 11,
@@ -6931,9 +6951,7 @@
                 84,
                 5,
                 6,
-                3,
-                83,
-                83
+                3
               ],
               "value": 12
             },
@@ -7690,6 +7708,35 @@
                 20
               ],
               "value": 21
+            }
+          }
+        }
+      }
+    },
+    "218720": {
+      "moves": {
+        "31104": {
+          "action_name": "FLAG_1145216",
+          "fields": {
+            "hitstop": {
+              "confidence": "matched",
+              "matches": 2,
+              "sample_count": 2,
+              "samples": [
+                165,
+                165
+              ],
+              "value": 165
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 2,
+              "samples": [
+                17,
+                21
+              ],
+              "value": 17
             }
           }
         }
@@ -11584,6 +11631,38 @@
               "value": 12
             }
           }
+        },
+        "468": {
+          "action_name": "Back Throw",
+          "fields": {
+            "damage": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                11180
+              ],
+              "value": 11180
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                71
+              ],
+              "value": 71
+            },
+            "hitstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                12
+              ],
+              "value": 12
+            }
+          }
         }
       }
     },
@@ -12421,6 +12500,29 @@
                 21
               ],
               "value": 21
+            }
+          }
+        },
+        "417": {
+          "action_name": "assist leave",
+          "fields": {
+            "blockstun": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                14
+              ],
+              "value": 14
+            },
+            "hitstop": {
+              "confidence": "single",
+              "matches": 1,
+              "sample_count": 1,
+              "samples": [
+                1
+              ],
+              "value": 1
             }
           }
         },

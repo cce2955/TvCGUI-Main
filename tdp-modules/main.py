@@ -191,6 +191,8 @@ FD_AUTO_EXPORT_ENABLED = str(os.environ.get("TVC_FD_AUTO_EXPORT", "0")).strip().
 from tvcgui.runtime.ko_control import (
     KO_GLOBAL_HOLD_GROUPS,
     apply_ko_control_full_toggle,
+    apply_ko_control_auto_mode,
+    tick_ko_control_auto,
     apply_ko_global_hold,
     apply_ko_input_inject,
     apply_ko_rescue_packet,
@@ -198,6 +200,7 @@ from tvcgui.runtime.ko_control import (
     capture_ko_rewind_baselines,
     idle_restore_status_text,
     ko_dol_status_text,
+    maintain_ko_survivor_control,
 )
 
 from tvcgui.core.config import (
@@ -1237,12 +1240,13 @@ def legacy_main():
     ko_dol_patch_index = -1
     ko_control_full_enabled = False
     ko_control_live_active = False
+    ko_control_patch_watch_last = 0.0
     ko_global_hold_baseline = None
 
     # Off by default means the DOL addresses are restored when the GUI starts,
     # not merely that the button is visually off.
     try:
-        apply_ko_control_full_toggle(False, verify=False)
+        apply_ko_control_auto_mode("off", verify=False)
         print("[ko control] default OFF; restored KO/input DOL originals", flush=True)
     except Exception as _e:
         print(f"[ko control] default OFF restore skipped: {_e!r}", flush=True)
@@ -2617,6 +2621,28 @@ def legacy_main():
         if p1_giant_solo or p2_giant_solo:
             snaps = reassign_slots_for_giants(snaps)
 
+        # KO Control is armed conservatively during live play. SAFE leaves the
+        # normal CPU/controller path alone. FULL is applied only after a whole
+        # team is KO'd, then automatically drops back to SAFE when both teams
+        # are live again. This keeps Arcade CPU behavior native before the KO.
+        if bool(ko_control_full_enabled):
+            try:
+                ko_control_live_active, ko_control_patch_watch_last, _ko_auto_result, _ko_auto_state = tick_ko_control_auto(
+                    True,
+                    bool(ko_control_live_active),
+                    snaps,
+                    now,
+                    ko_control_patch_watch_last,
+                    verify=False,
+                    baseline_by_slot=ko_rewind_baseline_by_slot,
+                )
+                if isinstance(_ko_auto_result, dict) and not bool(_ko_auto_result.get("ok", True)):
+                    if frame_idx % 120 == 0:
+                        print(f"[ko control] auto patch apply incomplete: {_ko_auto_result}", flush=True)
+            except Exception as _ko_auto_error:
+                if frame_idx % 120 == 0:
+                    print(f"[ko control] auto mode failed: {_ko_auto_error!r}", flush=True)
+
         # Projectile-backed move-level detection. Charged/leveled actions often
         # share one action ID, so use the exact projectile variant that spawned
         # to resolve Lv1/Lv2/Lv3 without relying on held-button timing.
@@ -3955,11 +3981,14 @@ def legacy_main():
 
             elif ko_control_btn_rect.collidepoint(mx, my):
                 ko_control_full_enabled = not bool(ko_control_full_enabled)
-                ko_control_live_active = bool(ko_control_full_enabled)
+                ko_control_live_active = False
                 ko_dol_patch_index = -1
                 idle_restore_hold_until_by_slot.clear()
                 ko_global_hold_baseline = None
-                result = apply_ko_control_full_toggle(ko_control_full_enabled, verify=True)
+                result = apply_ko_control_auto_mode("safe" if ko_control_full_enabled else "off", verify=True)
+                ko_control_patch_watch_last = now if ko_control_full_enabled else 0.0
+                if not ko_control_full_enabled:
+                    maintain_ko_survivor_control(False, {}, now)
                 idle_restore_status = {"text": ko_dol_status_text(result), "until": now + 5.0}
                 print(f"[ko control] {idle_restore_status['text']}", flush=True)
                 mouse_clicked_pos = None
