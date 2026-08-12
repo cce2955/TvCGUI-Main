@@ -15,6 +15,11 @@ from tvcgui.features.training.attack_resolver_readonly import (
 )
 
 try:
+    from tvcgui.features.training.throw_inspector_window import open_throw_inspector_window
+except Exception as _throw_inspector_import_error:
+    open_throw_inspector_window = None
+
+try:
     from tvcgui.features.frame_data.widgets import apply_titlebar_icon
 except Exception:
     def apply_titlebar_icon(_window):
@@ -155,6 +160,13 @@ class AttackResolverWindow:
         search.pack(side="left")
         search.bind("<KeyRelease>", lambda _event: self._rebuild_rows())
 
+        ttk.Button(
+            controls,
+            text="Throw Inspector",
+            style="Research.TButton",
+            command=self._open_throw_inspector,
+        ).pack(side="left", padx=(12, 0))
+
         ttk.Button(controls, text="Clear", style="Research.TButton", command=self._clear).pack(side="right")
         ttk.Button(controls, text="Export JSON", style="Research.TButton", command=self._export_json).pack(side="right", padx=(0, 6))
         ttk.Button(controls, text="Export sources", style="Research.TButton", command=self._export_sources_csv).pack(side="right", padx=(0, 6))
@@ -235,6 +247,16 @@ class AttackResolverWindow:
         frame.columnconfigure(0, weight=1)
         self.notebook.add(frame, text=title)
         return text
+
+    def _open_throw_inspector(self) -> None:
+        if open_throw_inspector_window is None:
+            self.status_var.set("Throw Inspector unavailable: import failed.")
+            return
+        try:
+            open_throw_inspector_window()
+            self.status_var.set("Throw Inspector opened.")
+        except Exception as exc:
+            self.status_var.set(f"Throw Inspector failed to open: {exc}")
 
     def _toggle_capture(self) -> None:
         self.engine.set_capture_enabled(bool(self.capture_var.get()))

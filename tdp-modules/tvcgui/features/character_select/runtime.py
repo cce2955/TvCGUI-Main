@@ -639,7 +639,40 @@ MIXED_GIANT_SEQ_BRANCH_PATCHES: tuple[tuple[int, int, int, str], ...] = (
     (0x275A8, 0x000275DC, 0x000275F4, "Gold Lightan mixed-team confirm"),
     (0x275B8, 0x000275DC, 0x000275F4, "PTX-40A mixed-team confirm"),
 )
+
+# First live mixed-team test is intentionally PTX-only.  The Gold Lightan
+# entries remain documented above but stay native until PTX is proven end to end.
+PTX_TEAM_SEQ_BRANCH_PATCHES: tuple[tuple[int, int, int, str], ...] = tuple(
+    row for row in MIXED_GIANT_SEQ_BRANCH_PATCHES if "PTX-40A" in row[3]
+)
 _MIXED_GIANT_SEQ_SESSION: dict[int, int] = {}
+
+# Mixed PTX 2v2 startup headroom.
+#
+# The successful four-fighter construction dump with the earlier 0x6F0000
+# giant reservation showed:
+#   PTX arena total       0x6F0020
+#   PTX arena free        0x2A2D20
+#   global MEM2 heap free 0x00004640
+#
+# 0x8014F9A0 is an arena suballocator and 0x8014F9C4 crashes when its arena
+# lookup returns NULL.  Forced-start experiments reached that exact failure,
+# consistent with the global heap having essentially no startup headroom.
+#
+# Return 0x210000 bytes of the giant reservation to the global heap.  Based on
+# the captured PTX arena high-water state this leaves about 0x92D20 bytes
+# (~587 KiB) free inside PTX while raising global free space to about 0x214640
+# (~2.08 MiB).  Normal fighters retain their native 0x380000 reservation.
+#
+# Native instruction at 0x8003C15C: lis r4, 0x70  -> 0x00700000
+# Patched instruction:                 lis r4, 0x4E  -> 0x004E0000
+PTX_GIANT_HEAP_BUDGET_PATCH: tuple[int, int, int, str] = (
+    0x8003C15C,
+    0x3C800070,
+    0x3C80004E,
+    "giant fighter reservation 0x700000 -> 0x4E0000",
+)
+_PTX_GIANT_HEAP_BUDGET_SESSION: dict[int, int] = {}
 
 # Large-card presentation cache.
 #
@@ -3116,17 +3149,25 @@ def _tick_extra_characters_request() -> None:
         return
 
     if present:
+        gate_wrote = 0
+        gate_failed = 0
+        if not _mixed_giant_sequence_gate_present():
+            gate_wrote, gate_failed = _install_mixed_giant_sequence_gate()
         with _LOCK:
-            _ROSTER_STATE["extra_characters_enabled"] = True
+            _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + int(gate_wrote)
+            _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + int(gate_failed)
+            _ROSTER_STATE["extra_characters_enabled"] = gate_failed == 0
             _ROSTER_STATE["extra_characters_mode"] = (
-                "working 3-Yami inserts + ID 0x00 null slot, PTX visible but unselectable"
+                "working 3-Yami inserts + PTX mixed-team gate + heap budget"
+                if gate_failed == 0
+                else "working 3-Yami inserts; PTX gate pending"
             )
-            _ROSTER_STATE["mixed_giant_classifier_installed"] = False
-            _ROSTER_STATE["mixed_giant_classifier_detail"] = "disabled; native giant rules"
-            _ROSTER_STATE["mixed_giant_partner_enabled"] = False
-            _ROSTER_STATE["mixed_giant_partner_mode"] = ""
-            _ROSTER_STATE["last_action"] = "Working Extra Characters roster present"
-            _ROSTER_STATE["last_error"] = ""
+            _ROSTER_STATE["last_action"] = (
+                f"Extra Characters roster + PTX gate present wrote={gate_wrote}"
+                if gate_failed == 0
+                else f"Extra Characters roster present; PTX gate failed={gate_failed}"
+            )
+            _ROSTER_STATE["last_error"] = "" if gate_failed == 0 else "PTX mixed-team gate not installed"
         return
 
     if active_since and (now - active_since) < _EXTRA_SELECT_STABLE_DELAY_SEC:
@@ -3173,29 +3214,170 @@ def _resolve_chrsel_seq_heap_base() -> int | None:
     return None
 
 
+def _ptx_giant_heap_budget_patch_present() -> bool:
+    addr, _native, patched, _label = PTX_GIANT_HEAP_BUDGET_PATCH
+    return _safe_read_u32be(int(addr)) == int(patched)
+
+
+def _install_ptx_giant_heap_budget_patch() -> tuple[int, int]:
+    """Give a mixed PTX team enough contiguous fighter-heap room for slot 4."""
+    addr, native, patched, label = PTX_GIANT_HEAP_BUDGET_PATCH
+    current = _safe_read_u32be(int(addr))
+    if current is None:
+        return 0, 1
+    current_i = int(current) & 0xFFFFFFFF
+    if current_i == int(patched):
+        return 0, 0
+    if current_i != int(native):
+        with _LOCK:
+            _ROSTER_STATE["last_error"] = (
+                f"PTX heap patch refused: {label}; expected 0x{int(native):08X}, "
+                f"found 0x{current_i:08X}"
+            )
+        return 0, 1
+    _PTX_GIANT_HEAP_BUDGET_SESSION.setdefault(int(addr), current_i)
+    if not _safe_write_u32be(int(addr), int(patched)):
+        return 0, 1
+    if _safe_read_u32be(int(addr)) != int(patched):
+        _safe_write_u32be(int(addr), current_i)
+        _PTX_GIANT_HEAP_BUDGET_SESSION.pop(int(addr), None)
+        return 0, 1
+    print(
+        f"[char select] PTX mixed-team heap budget installed at 0x{int(addr):08X}: "
+        "0x700000 -> 0x4E0000",
+        flush=True,
+    )
+    return 1, 0
+
+
+def _restore_ptx_giant_heap_budget_patch() -> tuple[int, int]:
+    """Restore the native 7 MiB giant reservation if this exact patch is live."""
+    addr, native, patched, _label = PTX_GIANT_HEAP_BUDGET_PATCH
+    current = _safe_read_u32be(int(addr))
+    if current is None:
+        return 0, 1
+    current_i = int(current) & 0xFFFFFFFF
+    if current_i == int(native):
+        _PTX_GIANT_HEAP_BUDGET_SESSION.pop(int(addr), None)
+        return 0, 0
+    if current_i != int(patched):
+        return 0, 1
+    if _safe_write_u32be(int(addr), int(native)) and _safe_read_u32be(int(addr)) == int(native):
+        _PTX_GIANT_HEAP_BUDGET_SESSION.pop(int(addr), None)
+        return 1, 0
+    return 0, 1
+
+
 def _mixed_giant_sequence_gate_present() -> bool:
     base = _resolve_chrsel_seq_heap_base()
     if base is None:
         return False
-    return all(
-        _safe_read_u32be(base + off) == patched
-        for off, _native, patched, _label in MIXED_GIANT_SEQ_BRANCH_PATCHES
+    return (
+        all(
+            _safe_read_u32be(base + off) == patched
+            for off, _native, patched, _label in PTX_TEAM_SEQ_BRANCH_PATCHES
+        )
+        and _ptx_giant_heap_budget_patch_present()
     )
 
 
 def _install_mixed_giant_sequence_gate() -> tuple[int, int]:
-    """Leave native giant-character selection rules untouched.
+    """Install the PTX mixed-team gate in the loaded chrsel.seq scene.
 
-    Extra Characters only installs the Yami roster extension. PTX and Gold
-    Lightan remain subject to the stock giant-team restrictions until the
-    mixed-team path is repaired independently.
+    This is a one-shot, scene-local data rewrite.  It does not patch DOL code
+    and it does not poll/write the selector reject words every frame.
+
+    Only PTX routes are changed in this first live test:
+      - P1 PTX bright/selectable route
+      - P2 PTX bright/selectable route
+      - shared PTX thumbnail bright route
+      - PTX second-character confirm branch
+
+    Every word is verified against the native value before writing.  If any
+    expected word does not match, earlier writes from this call are rolled back.
     """
+    base = _resolve_chrsel_seq_heap_base()
+    if base is None:
+        with _LOCK:
+            _ROSTER_STATE["mixed_giant_classifier_installed"] = False
+            _ROSTER_STATE["mixed_giant_classifier_detail"] = "PTX gate: chrsel.seq heap not reachable"
+            _ROSTER_STATE["mixed_giant_partner_enabled"] = False
+            _ROSTER_STATE["mixed_giant_partner_mode"] = ""
+        return 0, 1
+
+    # If Character Select rebuilt at another heap address, stale session entries
+    # belong to the dead scene and must not poison later restore attempts.
+    current_addrs = {int(base) + int(off) for off, _native, _patched, _label in PTX_TEAM_SEQ_BRANCH_PATCHES}
+    for stale_addr in tuple(_MIXED_GIANT_SEQ_SESSION):
+        if int(stale_addr) not in current_addrs:
+            _MIXED_GIANT_SEQ_SESSION.pop(int(stale_addr), None)
+
+    wrote = 0
+    failed = 0
+    changed: list[tuple[int, int, int]] = []
+    details: list[str] = []
+
+    for off, native, patched, label in PTX_TEAM_SEQ_BRANCH_PATCHES:
+        addr = int(base) + int(off)
+        current = _safe_read_u32be(addr)
+        if current is None:
+            failed += 1
+            details.append(f"{label}: unreadable at 0x{addr:08X}")
+            break
+
+        current_i = int(current) & 0xFFFFFFFF
+        if current_i == int(patched):
+            details.append(f"{label}: already installed")
+            continue
+        if current_i != int(native):
+            failed += 1
+            details.append(
+                f"{label}: expected 0x{int(native):08X}, found 0x{current_i:08X}"
+            )
+            break
+
+        _MIXED_GIANT_SEQ_SESSION.setdefault(addr, current_i)
+        if _safe_write_u32be(addr, int(patched)) and _safe_read_u32be(addr) == int(patched):
+            wrote += 1
+            changed.append((addr, current_i, int(patched)))
+            details.append(f"{label}: installed")
+        else:
+            failed += 1
+            details.append(f"{label}: write/verify failed at 0x{addr:08X}")
+            break
+
+    heap_wrote = 0
+    heap_failed = 0
+    if failed == 0:
+        heap_wrote, heap_failed = _install_ptx_giant_heap_budget_patch()
+        wrote += heap_wrote
+        failed += heap_failed
+
+    if failed:
+        # Roll back only the scene words changed by this call. If the heap word
+        # was installed here, restore it as part of the same failed transaction.
+        for addr, original, patched in reversed(changed):
+            if _safe_read_u32be(addr) == patched:
+                _safe_write_u32be(addr, original)
+            _MIXED_GIANT_SEQ_SESSION.pop(addr, None)
+        if heap_wrote:
+            _restore_ptx_giant_heap_budget_patch()
+
+    installed = failed == 0 and _mixed_giant_sequence_gate_present()
     with _LOCK:
-        _ROSTER_STATE["mixed_giant_classifier_installed"] = False
-        _ROSTER_STATE["mixed_giant_classifier_detail"] = "disabled; native giant rules restored"
-        _ROSTER_STATE["mixed_giant_partner_enabled"] = False
-        _ROSTER_STATE["mixed_giant_partner_mode"] = ""
-    return 0, 0
+        _ROSTER_STATE["mixed_giant_classifier_installed"] = installed
+        _ROSTER_STATE["mixed_giant_classifier_detail"] = "; ".join(details)
+        _ROSTER_STATE["mixed_giant_partner_enabled"] = installed
+        _ROSTER_STATE["mixed_giant_partner_mode"] = "PTX mixed-team chrsel.seq + heap budget" if installed else ""
+        if installed:
+            _ROSTER_STATE["last_action"] = f"PTX mixed-team gate installed wrote={wrote}"
+            _ROSTER_STATE["last_error"] = ""
+        elif failed:
+            _ROSTER_STATE["last_error"] = "PTX mixed-team gate install failed"
+
+    if installed and wrote:
+        print(f"[char select] PTX mixed-team gate installed at 0x{base:08X}; writes={wrote}", flush=True)
+    return wrote, 0 if installed else max(1, failed)
 
 
 def _retired_install_mixed_giant_sequence_gate() -> tuple[int, int]:
@@ -3254,32 +3436,45 @@ def _retired_install_mixed_giant_sequence_gate() -> tuple[int, int]:
 
 
 def _restore_mixed_giant_sequence_gate() -> tuple[int, int]:
-    """Restore only loaded sequence words owned by this runtime session."""
+    """Restore PTX Character Select words and the giant heap-budget DOL word."""
+    restored = 0
+    failed = 0
+
+    heap_restored, heap_failed = _restore_ptx_giant_heap_budget_patch()
+    restored += heap_restored
+    failed += heap_failed
+
     originals = dict(_MIXED_GIANT_SEQ_SESSION)
     if not originals:
         with _LOCK:
             _ROSTER_STATE["mixed_giant_classifier_installed"] = False
-            _ROSTER_STATE["mixed_giant_classifier_detail"] = ""
+            _ROSTER_STATE["mixed_giant_classifier_detail"] = (
+                "" if failed == 0 else "PTX heap-budget restore incomplete"
+            )
             _ROSTER_STATE["mixed_giant_partner_enabled"] = False
             _ROSTER_STATE["mixed_giant_partner_mode"] = ""
-        return 0, 0
+        return restored, failed
 
     base = _resolve_chrsel_seq_heap_base()
     if base is None:
+        # The loaded Character Select heap is gone, so those scene-local words
+        # no longer exist. The DOL heap-budget word above is still restored.
         _MIXED_GIANT_SEQ_SESSION.clear()
         with _LOCK:
             _ROSTER_STATE["mixed_giant_classifier_installed"] = False
-            _ROSTER_STATE["mixed_giant_classifier_detail"] = "scene rebuilt; stale sequence restore skipped"
+            _ROSTER_STATE["mixed_giant_classifier_detail"] = (
+                "scene rebuilt; stale sequence restore skipped"
+                if failed == 0
+                else "scene rebuilt; PTX heap-budget restore incomplete"
+            )
             _ROSTER_STATE["mixed_giant_partner_enabled"] = False
             _ROSTER_STATE["mixed_giant_partner_mode"] = ""
-        return 0, 0
+        return restored, failed
 
     patched_by_addr = {
         int(base) + int(off): int(patched)
-        for off, _native, patched, _label in MIXED_GIANT_SEQ_BRANCH_PATCHES
+        for off, _native, patched, _label in PTX_TEAM_SEQ_BRANCH_PATCHES
     }
-    restored = 0
-    failed = 0
     for addr, original in originals.items():
         current = _safe_read_u32be(addr)
         if current == original:
@@ -3293,9 +3488,12 @@ def _restore_mixed_giant_sequence_gate() -> tuple[int, int]:
             _MIXED_GIANT_SEQ_SESSION.pop(addr, None)
         else:
             failed += 1
+
     with _LOCK:
         _ROSTER_STATE["mixed_giant_classifier_installed"] = False
-        _ROSTER_STATE["mixed_giant_classifier_detail"] = "" if failed == 0 else "sequence helper restore incomplete"
+        _ROSTER_STATE["mixed_giant_classifier_detail"] = (
+            "" if failed == 0 else "PTX mixed-team restore incomplete"
+        )
         _ROSTER_STATE["mixed_giant_partner_enabled"] = False
         _ROSTER_STATE["mixed_giant_partner_mode"] = ""
     return restored, failed
@@ -3712,8 +3910,8 @@ def queue_extra_characters_on() -> dict[str, Any]:
             _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + gate_failed
             if present and gate_failed == 0:
                 _ROSTER_STATE["extra_characters_enabled"] = True
-                _ROSTER_STATE["extra_characters_mode"] = "3 Yami roster + mixed giant chrsel.seq gate"
-                _ROSTER_STATE["last_action"] = f"Extra characters ON; native giant rules preserved"
+                _ROSTER_STATE["extra_characters_mode"] = "3 Yami roster + PTX mixed-team gate + heap budget"
+                _ROSTER_STATE["last_action"] = f"Extra characters ON; PTX mixed-team gate installed"
             elif gate_failed:
                 _ROSTER_STATE["last_action"] = "Extra characters armed; MEM2 gate will retry on service tick"
                 _ROSTER_STATE["last_error"] = "mixed giant sequence gate not reachable yet"
@@ -3977,10 +4175,9 @@ def _install_extra_characters_on() -> tuple[int, int]:
       Frank West -> Yami 1 -> PTX-40A
       Ryu -> ID 0x00 null test slot
 
-    Only the guarded roster table and its three count mirrors are written.
-    PTX remains governed by the game's native giant-team rules. No DOL
-    eligibility patch, chrsel.seq branch rewrite, presentation-route patch,
-    BRRES patch, or live selector-result polling is performed here.
+    The guarded roster table/count mirrors are written first, then the loaded
+    chrsel.seq PTX compatibility words are rewritten once. No DOL eligibility
+    patch and no live selector-result polling is used.
     """
     wrote = 0
     failed = 0
@@ -3993,16 +4190,15 @@ def _install_extra_characters_on() -> tuple[int, int]:
     wrote += w
     failed += f
 
-    # Clear any session bookkeeping left by a previously loaded PTX experiment.
-    # The current build does not install or refresh those patches.
-    _MIXED_GIANT_SEQ_SESSION.clear()
+    # Static DOL classifier experiments remain retired.  The PTX sequence
+    # session is intentionally retained so OFF can restore the scene words.
     _MIXED_GIANT_ELIGIBILITY_SESSION.clear()
 
+    gate_wrote, gate_failed = _install_mixed_giant_sequence_gate()
+    wrote += gate_wrote
+    failed += gate_failed
+
     with _LOCK:
-        _ROSTER_STATE["mixed_giant_classifier_installed"] = False
-        _ROSTER_STATE["mixed_giant_classifier_detail"] = "disabled; native giant rules"
-        _ROSTER_STATE["mixed_giant_partner_enabled"] = False
-        _ROSTER_STATE["mixed_giant_partner_mode"] = ""
         _ROSTER_STATE["thumbnail_material_optional_failed"] = 0
         _ROSTER_STATE["visual_table_patch_installed"] = False
         _ROSTER_STATE["visual_table_patch_mode"] = "not used by working roster-only mode"
@@ -4013,7 +4209,7 @@ def _install_extra_characters_on() -> tuple[int, int]:
         _ROSTER_STATE["extra_characters_enabled"] = failed == 0
         _ROSTER_STATE["extra_characters_requested"] = True
         _ROSTER_STATE["extra_characters_mode"] = (
-            "working 3-Yami inserts + ID 0x00 null slot, PTX visible but unselectable"
+            "working 3-Yami inserts + PTX mixed-team gate + heap budget"
             if failed == 0
             else ""
         )
