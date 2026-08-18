@@ -43,7 +43,7 @@ Dmg
 Shows the live damage-scaling gauges. See the Damage Scaling topic for how to read them.
 
 HS Scale
-Shows air-recovery hitstun scaling. The red end of the bar is lockout removed by combo deterioration. See the Hitstun Scaling topic for details.
+Shows a per-hit air-recovery expiry clock. The fill advances toward the scaled recovery point; the red end is the portion removed by combo deterioration. A new hit replaces the old clock immediately. See the Hitstun Scaling topic for details.
 
 Meter
 Adds meter gain and spend information beside the normal meter display.
@@ -160,22 +160,28 @@ This gauge is independent from hitstun scaling. Use the HS Scale button when you
         "Hitstun Scaling",
         """HITSTUN SCALING
 
-TvC deteriorates air-combo recovery lockout separately from ordinary grounded hitstun and separately from damage scaling. The HS Scale button shows that native system as a frame gauge.
+TvC deteriorates air-combo recovery lockout separately from ordinary grounded hitstun and separately from damage scaling. The HS Scale button shows that native system as a per-hit expiry clock.
 
 Blue segment
-Frames still remaining on the defender's current native air-recovery lockout.
+Elapsed frames on the current hit. The fill starts at zero and advances one step whenever the native air-recovery timer decrements.
 
 Gray segment
-Effective lockout frames that were available on this hit but have already elapsed.
+The runway still available before the scaled recovery endpoint.
 
 Red segment
-Frames removed before the lockout began because of combo deterioration. This is the visual deflation portion of the bar.
+The part of the raw lockout that is no longer reachable because combo deterioration moved recovery earlier.
+
+Stop marker
+The defender's effective recovery endpoint for this hit. The fill stops here rather than filling the raw bar.
 
 DECAY
-The exact number of frames removed by the native rule. The game removes one frame for every four qualifying count units.
+The exact deterioration step from the native rule. The game removes one frame for every four qualifying count units.
 
-Current / base
-When Continuo observes the start of the native lockout it reconstructs an approximate pre-deterioration base for the bar. A tilde marks that reconstructed base as approximate because the HUD may sample after the timer has already begun counting down.
+Elapsed / target
+The live recovery clock for every hit. It starts full and drains toward zero. Native +0x1220 air-recovery lockout is used when present; ordinary +0x1210 hitstun is the fallback so the clock is visible before decay begins. For example, a raw approximately 24F window with DECAY -4F can produce a 21F effective window that drains 21 through 0. The raw reconstruction is approximate because the HUD may observe the native timer after initialization.
+
+New hit
+A new combo hit immediately discards the previous clock and starts a fresh bar, even when the replacement lockout is shorter than the old timer had remaining.
 
 NO TECH
 The native CANTUKEMI state is active. Recovery is being blocked independently of the normal untech countdown.

@@ -41,7 +41,7 @@ class RealtimeCombatSampler:
         self._targets: dict[str, int] = {}
         self._latest_by_slot: dict[str, dict] = {}
         self._raw_state_by_slot: dict[
-            str, tuple[int, int, int, int, int, int, int, int, bool]
+            str, tuple[int, int, int, int, int, int, int, int, bool, int, int, int, int]
         ] = {}
         self._listeners: list[Callable] = []
         self._lock = threading.RLock()
@@ -98,7 +98,13 @@ class RealtimeCombatSampler:
         action_id = int(packet.get("action_id", 0) or 0) & 0x7FFF
         action_frame = max(0, int(packet.get("action_frame", 0) or 0))
         current_hp = int(packet.get("current_hp", 0) or 0)
+        blockstun_remaining = max(0, int(packet.get("blockstun_remaining", 0) or 0))
         hitstun_remaining = max(0, int(packet.get("hitstun_remaining", 0) or 0))
+        untech_remaining = max(0, int(packet.get("untech_remaining", 0) or 0))
+        impact_freeze_remaining = max(0, int(packet.get("impact_freeze_remaining", 0) or 0))
+        fighter_combo_count = max(0, int(packet.get("fighter_combo_count", 0) or 0))
+        decay_counter = max(0, int(packet.get("decay_counter", 0) or 0))
+        state_flags_6c = int(packet.get("state_flags_6c", 0) or 0) & 0xFFFFFFFF
         combo_count = max(0, int(packet.get("combo_count", 0) or 0))
         point_active = bool(
             packet.get(
@@ -116,9 +122,15 @@ class RealtimeCombatSampler:
                 previous_action = action_id
                 previous_action_frame = action_frame
                 previous_hp = current_hp
+                previous_blockstun = blockstun_remaining
                 previous_hitstun = hitstun_remaining
                 previous_combo = combo_count
                 previous_point_active = point_active
+                previous_untech = untech_remaining
+                previous_impact_freeze = impact_freeze_remaining
+                previous_fighter_combo = fighter_combo_count
+                previous_decay_counter = decay_counter
+                previous_state_flags_6c = state_flags_6c
             else:
                 (
                     previous_held,
@@ -127,9 +139,15 @@ class RealtimeCombatSampler:
                     previous_action,
                     previous_action_frame,
                     previous_hp,
+                    previous_blockstun,
                     previous_hitstun,
                     previous_combo,
                     previous_point_active,
+                    previous_untech,
+                    previous_impact_freeze,
+                    previous_fighter_combo,
+                    previous_decay_counter,
+                    previous_state_flags_6c,
                 ) = previous
 
             fresh_pressed = raw_pressed & ~int(previous_pressed)
@@ -140,11 +158,19 @@ class RealtimeCombatSampler:
                 previous is None or action_frame != int(previous_action_frame)
             )
             hp_changed = previous is None or current_hp != int(previous_hp)
+            blockstun_changed = (
+                previous is None or blockstun_remaining != int(previous_blockstun)
+            )
             hitstun_changed = (
                 previous is None or hitstun_remaining != int(previous_hitstun)
             )
             combo_changed = previous is None or combo_count != int(previous_combo)
             point_changed = previous is None or point_active != bool(previous_point_active)
+            untech_changed = previous is None or untech_remaining != int(previous_untech)
+            impact_freeze_changed = previous is None or impact_freeze_remaining != int(previous_impact_freeze)
+            fighter_combo_changed = previous is None or fighter_combo_count != int(previous_fighter_combo)
+            decay_counter_changed = previous is None or decay_counter != int(previous_decay_counter)
+            state_flags_changed = previous is None or state_flags_6c != int(previous_state_flags_6c)
 
             self._raw_state_by_slot[slot] = (
                 held,
@@ -153,9 +179,15 @@ class RealtimeCombatSampler:
                 action_id,
                 action_frame,
                 current_hp,
+                blockstun_remaining,
                 hitstun_remaining,
                 combo_count,
                 point_active,
+                untech_remaining,
+                impact_freeze_remaining,
+                fighter_combo_count,
+                decay_counter,
+                state_flags_6c,
             )
 
             meaningful_change = bool(
@@ -164,9 +196,15 @@ class RealtimeCombatSampler:
                 or fresh_released
                 or action_changed
                 or hp_changed
+                or blockstun_changed
                 or hitstun_changed
                 or combo_changed
                 or point_changed
+                or untech_changed
+                or impact_freeze_changed
+                or fighter_combo_changed
+                or decay_counter_changed
+                or state_flags_changed
             )
             if not meaningful_change and not action_frame_changed:
                 return
@@ -187,7 +225,13 @@ class RealtimeCombatSampler:
                 "action_id": action_id,
                 "action_frame": action_frame,
                 "current_hp": current_hp,
+                "blockstun_remaining": blockstun_remaining,
                 "hitstun_remaining": hitstun_remaining,
+                "untech_remaining": untech_remaining,
+                "impact_freeze_remaining": impact_freeze_remaining,
+                "fighter_combo_count": fighter_combo_count,
+                "decay_counter": decay_counter,
+                "state_flags_6c": state_flags_6c,
                 "combo_count": combo_count,
                 "point_active": point_active,
                 "sample_ns": int(packet.get("sample_ns", 0) or time.monotonic_ns()),

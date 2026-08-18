@@ -4,7 +4,8 @@ import struct
 from typing import Any
 
 from tvcgui.core.constants import (
-    CHAR_NAMES, OFF_CHAR_ID, RUNTIME_HITSTUN_REMAINING_OFF, SLOTS,
+    CHAR_NAMES, OFF_CHAR_ID, RUNTIME_BLOCKSTUN_REMAINING_OFF, RUNTIME_HITSTUN_REMAINING_OFF,
+    RUNTIME_IMPACT_FREEZE_OFF, SLOTS,
 )
 from tvcgui.features.combat.move_id_map import lookup_move_name
 from tvcgui.platform.dolphin import addr_in_ram, rbytes, rd8, rd32
@@ -13,6 +14,10 @@ ACTION_FRAME_OFF = 0x01D8
 ACTION_OFF = 0x01E8
 STATE_FLAGS_A_OFF = 0x0058
 STATE_FLAGS_B_OFF = 0x0060
+STATE_FLAGS_6C_OFF = 0x006C
+FIGHTER_COMBO_COUNT_OFF = 0x11C4
+HITSTUN_DECAY_COUNTER_OFF = 0x11CC
+UNTECH_TIMER_OFF = 0x1220
 
 INPUT_PREVIOUS_OFF = 0x13C8
 INPUT_HELD_OFF = 0x13CC
@@ -138,7 +143,13 @@ def read_overlay_input_packet(
             "current_hp": 0,
             "action_id": 0,
             "action_frame": 0,
+            "blockstun_remaining": 0,
             "hitstun_remaining": 0,
+            "untech_remaining": 0,
+            "impact_freeze_remaining": 0,
+            "fighter_combo_count": 0,
+            "decay_counter": 0,
+            "state_flags_6c": 0,
             "combo_count": 0,
             "point_active": False,
             "held_text": "5",
@@ -146,37 +157,76 @@ def read_overlay_input_packet(
             "released_text": "none",
         }
 
-    # These four words are contiguous. One bulk process-memory read is much
-    # cheaper than four individual reads, which matters for the 240 Hz overlay
-    # input sampler. Fall back to scalar reads if the block is unavailable.
+    # Realtime sampling is latency-sensitive. All fields used by this packet
+    # live inside one contiguous fighter-struct span, so take one process-memory
+    # snapshot instead of several separate RPM/DME calls. At 240 Hz across four
+    # fighters, removing those extra round trips matters far more than copying
+    # ~17 KB of local memory. The scalar path remains as a safety fallback.
+    realtime_span_end = 0x44A4  # includes the native point flag at +0x44A0
+    realtime_span_size = realtime_span_end - OFF_CHAR_ID
     try:
-        packet_blob = rbytes(base + INPUT_PREVIOUS_OFF, 16)
+        realtime_blob = rbytes(base + OFF_CHAR_ID, realtime_span_size)
     except Exception:
-        packet_blob = None
-    if packet_blob and len(packet_blob) >= 16:
-        previous, held, pressed, released = struct.unpack(">IIII", packet_blob[:16])
+        realtime_blob = None
+
+    if realtime_blob and len(realtime_blob) >= realtime_span_size:
+        def blob_u32(offset: int) -> int:
+            return struct.unpack_from(">I", realtime_blob, int(offset) - OFF_CHAR_ID)[0]
+
+        char_id = blob_u32(OFF_CHAR_ID)
+        current_hp = blob_u32(0x28)
+        action_frame_raw = blob_u32(ACTION_FRAME_OFF)
+        action_id = blob_u32(ACTION_OFF) & 0x7FFF
+        blockstun_remaining = blob_u32(RUNTIME_BLOCKSTUN_REMAINING_OFF)
+        hitstun_remaining = blob_u32(RUNTIME_HITSTUN_REMAINING_OFF)
+        untech_remaining = blob_u32(UNTECH_TIMER_OFF)
+        impact_freeze_remaining = blob_u32(RUNTIME_IMPACT_FREEZE_OFF)
+        fighter_combo_count = blob_u32(FIGHTER_COMBO_COUNT_OFF)
+        decay_counter = blob_u32(HITSTUN_DECAY_COUNTER_OFF)
+        state_flags_6c = blob_u32(STATE_FLAGS_6C_OFF)
+        previous = blob_u32(INPUT_PREVIOUS_OFF)
+        held = blob_u32(INPUT_HELD_OFF)
+        pressed = blob_u32(INPUT_PRESSED_OFF)
+        released = blob_u32(INPUT_RELEASED_OFF)
+        point_active = bool(blob_u32(0x44A0))
     else:
-        previous = _read_u32(base + INPUT_PREVIOUS_OFF)
-        held = _read_u32(base + INPUT_HELD_OFF)
-        pressed = _read_u32(base + INPUT_PRESSED_OFF)
-        released = _read_u32(base + INPUT_RELEASED_OFF)
-    # Mission mode needs the actual action identity, especially for air normals.
-    # A neutral-stick j.B is still j.B, not 5B. Sampling the native action ID in
-    # the same 240 Hz packet avoids reconstructing move identity from direction.
-    try:
-        fighter_blob = rbytes(base + OFF_CHAR_ID, (ACTION_OFF - OFF_CHAR_ID) + 4)
-    except Exception:
-        fighter_blob = None
-    if fighter_blob and len(fighter_blob) >= (ACTION_OFF - OFF_CHAR_ID) + 4:
-        char_id = struct.unpack_from(">I", fighter_blob, 0)[0]
-        current_hp = struct.unpack_from(">I", fighter_blob, 0x28 - OFF_CHAR_ID)[0]
-        action_frame_raw = struct.unpack_from(">I", fighter_blob, ACTION_FRAME_OFF - OFF_CHAR_ID)[0]
-        action_id = struct.unpack_from(">I", fighter_blob, ACTION_OFF - OFF_CHAR_ID)[0] & 0x7FFF
-    else:
-        char_id = _read_u32(base + OFF_CHAR_ID)
-        current_hp = _read_u32(base + 0x28)
-        action_frame_raw = _read_u32(base + ACTION_FRAME_OFF)
-        action_id = _read_u32(base + ACTION_OFF) & 0x7FFF
+        # Fallback keeps the older segmented reads for unusual builds where a
+        # large contiguous read is unavailable.
+        try:
+            packet_blob = rbytes(base + INPUT_PREVIOUS_OFF, 16)
+        except Exception:
+            packet_blob = None
+        if packet_blob and len(packet_blob) >= 16:
+            previous, held, pressed, released = struct.unpack(">IIII", packet_blob[:16])
+        else:
+            previous = _read_u32(base + INPUT_PREVIOUS_OFF)
+            held = _read_u32(base + INPUT_HELD_OFF)
+            pressed = _read_u32(base + INPUT_PRESSED_OFF)
+            released = _read_u32(base + INPUT_RELEASED_OFF)
+
+        try:
+            fighter_blob = rbytes(base + OFF_CHAR_ID, (ACTION_OFF - OFF_CHAR_ID) + 4)
+        except Exception:
+            fighter_blob = None
+        if fighter_blob and len(fighter_blob) >= (ACTION_OFF - OFF_CHAR_ID) + 4:
+            char_id = struct.unpack_from(">I", fighter_blob, 0)[0]
+            current_hp = struct.unpack_from(">I", fighter_blob, 0x28 - OFF_CHAR_ID)[0]
+            action_frame_raw = struct.unpack_from(">I", fighter_blob, ACTION_FRAME_OFF - OFF_CHAR_ID)[0]
+            action_id = struct.unpack_from(">I", fighter_blob, ACTION_OFF - OFF_CHAR_ID)[0] & 0x7FFF
+        else:
+            char_id = _read_u32(base + OFF_CHAR_ID)
+            current_hp = _read_u32(base + 0x28)
+            action_frame_raw = _read_u32(base + ACTION_FRAME_OFF)
+            action_id = _read_u32(base + ACTION_OFF) & 0x7FFF
+
+        blockstun_remaining = _read_u32(base + RUNTIME_BLOCKSTUN_REMAINING_OFF)
+        hitstun_remaining = _read_u32(base + RUNTIME_HITSTUN_REMAINING_OFF)
+        untech_remaining = _read_u32(base + UNTECH_TIMER_OFF)
+        impact_freeze_remaining = _read_u32(base + RUNTIME_IMPACT_FREEZE_OFF)
+        fighter_combo_count = _read_u32(base + FIGHTER_COMBO_COUNT_OFF)
+        decay_counter = _read_u32(base + HITSTUN_DECAY_COUNTER_OFF)
+        state_flags_6c = _read_u32(base + STATE_FLAGS_6C_OFF)
+        point_active = bool(_read_u32(base + 0x44A0))
 
     try:
         action_frame_float = struct.unpack(">f", struct.pack(">I", action_frame_raw & 0xFFFFFFFF))[0]
@@ -184,14 +234,9 @@ def read_overlay_input_packet(
     except Exception:
         action_frame = 0
 
-    # Mission events are produced on this realtime lane. Read the confirmed
-    # victim hitstun countdown and global combo count here so MissionManager
-    # never polls Dolphin or waits for the slower GUI snapshot pass.
-    hitstun_remaining = _read_u32(base + RUNTIME_HITSTUN_REMAINING_OFF)
-    # fighter+0x44A0 is the native point-character flag. Sampling it here keeps
-    # menu ownership on the realtime lane and lets a real tag immediately move
-    # the shortcut to the newly controlled fighter.
-    point_active = bool(_read_u32(base + 0x44A0))
+    # Mission events are produced on this realtime lane. The fighter snapshot
+    # above already supplied hitstun and point ownership; global combo count is
+    # sampled once per scheduler tick and shared across all slot packets.
     if combo_count is None:
         combo_count = read_global_combo_count()
     else:
@@ -205,7 +250,13 @@ def read_overlay_input_packet(
         "action_id": action_id,
         "action_frame": action_frame,
         "current_hp": current_hp,
+        "blockstun_remaining": blockstun_remaining,
         "hitstun_remaining": hitstun_remaining,
+        "untech_remaining": untech_remaining,
+        "impact_freeze_remaining": impact_freeze_remaining,
+        "fighter_combo_count": fighter_combo_count,
+        "decay_counter": decay_counter,
+        "state_flags_6c": state_flags_6c,
         "combo_count": combo_count,
         "point_active": point_active,
         "previous": previous,

@@ -944,7 +944,7 @@ def draw_top_command_dock(
             help_tip = "Damage Mod adds branded C1 and C2 damage-scaling gauges beneath the character health rows."
             help_accent = GUI_WARNING
         elif untech_panel_btn_rect.collidepoint(mx, my):
-            help_tip = "HS Scale shows air-recovery hitstun scaling. The red tail is lockout removed by combo deterioration."
+            help_tip = "HS Scale is a per-hit recovery clock. It starts full and drains to recovery; a new hit resets it immediately."
             help_accent = GUI_ACCENT_RED
         elif meter_panel_btn_rect.collidepoint(mx, my):
             help_tip = "Meter adds the latest gain or spend beside the existing meter display. Color shows prediction status."

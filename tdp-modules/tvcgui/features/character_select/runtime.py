@@ -619,6 +619,44 @@ GIANT_ELIGIBILITY_PATCHES: tuple[tuple[int, int, int, str], ...] = (
 )
 _MIXED_GIANT_ELIGIBILITY_SESSION: dict[int, int] = {}
 
+# Gold Lightan uses an explicit native reject in mode 2, plus reject entries
+# in the mode-1 and mode-3 jump tables. These are the actual classifier
+# locations confirmed from the recomp and the 2026-08-11 Lightan-select dump.
+# PTX is intentionally NOT included here. Its already-working chrsel.seq path
+# remains untouched.
+LIGHTAN_ELIGIBILITY_PATCHES: tuple[tuple[int, int, int, str], ...] = (
+    (0x8006C76C, 0x41820074, 0x60000000, "mode 2 Gold Lightan explicit reject"),
+    (0x803686BC, 0x8006C7E0, 0x8006C754, "mode 1 Gold Lightan accept"),
+    (0x80368640, 0x8006C7E0, 0x8006C7D8, "mode 3 Gold Lightan accept"),
+)
+_LIGHTAN_ELIGIBILITY_SESSION: dict[int, int] = {}
+_LIGHTAN_SEQ_SESSION: dict[int, int] = {}
+
+# Gold Lightan mixed-team startup heap class.
+#
+# 2026-08-11 mixed Lightan dump:
+#   Lightan arena total    0x4E0020
+#   Lightan arena free     0x17AEA0
+#   shared tail heap free  0x00000060
+#
+# The allocator classifier at 0x8003C308 checks Lightan (0x0B) first, then
+# PTX-40A (0x16), and sends either match to the giant arena path. NOP only
+# Lightan's equality branch. Lightan then falls through the PTX comparison and,
+# because it is not PTX, takes the normal 0x380000 fighter-arena path. PTX still
+# takes the existing giant path and therefore keeps the proven 0x4E0000 budget.
+#
+# The captured Lightan arena had 0x365180 bytes in use, so a 0x380020 arena
+# leaves about 0x1AEA0 bytes (~108 KiB) inside Lightan while returning 0x160000
+# bytes (1.375 MiB) to the shared startup heap. This is a guarded live test, not
+# a claim that Lightan can never need more private arena later in a match.
+LIGHTAN_NORMAL_HEAP_CLASS_PATCH: tuple[int, int, int, str] = (
+    0x8003C30C,
+    0x4182000C,
+    0x60000000,
+    "Gold Lightan giant-class branch -> normal 0x380000 arena",
+)
+_LIGHTAN_HEAP_CLASS_SESSION: dict[int, int] = {}
+
 # The loaded chrsel.seq helper at offset 0x2754C is the authoritative
 # second-character compatibility check. The equality branches at 0x275A4 and
 # 0x275B4 send Gold Lightan and PTX-40A to 0x275DC, which sets the blocked
@@ -640,10 +678,14 @@ MIXED_GIANT_SEQ_BRANCH_PATCHES: tuple[tuple[int, int, int, str], ...] = (
     (0x275B8, 0x000275DC, 0x000275F4, "PTX-40A mixed-team confirm"),
 )
 
-# First live mixed-team test is intentionally PTX-only.  The Gold Lightan
-# entries remain documented above but stay native until PTX is proven end to end.
+# PTX keeps its proven four-word mixed-team gate unchanged. Gold Lightan is
+# installed as a separate additive transaction so a Lightan mismatch can never
+# roll back or disable the working PTX route.
 PTX_TEAM_SEQ_BRANCH_PATCHES: tuple[tuple[int, int, int, str], ...] = tuple(
     row for row in MIXED_GIANT_SEQ_BRANCH_PATCHES if "PTX-40A" in row[3]
+)
+LIGHTAN_TEAM_SEQ_BRANCH_PATCHES: tuple[tuple[int, int, int, str], ...] = tuple(
+    row for row in MIXED_GIANT_SEQ_BRANCH_PATCHES if "Gold Lightan" in row[3]
 )
 _MIXED_GIANT_SEQ_SESSION: dict[int, int] = {}
 
@@ -899,6 +941,8 @@ _ROSTER_STATE: dict[str, Any] = {
     "mixed_giant_partner_writes": 0,
     "mixed_giant_classifier_installed": False,
     "mixed_giant_classifier_detail": "",
+    "lightan_mixed_team_enabled": False,
+    "lightan_mixed_team_detail": "",
     "thumbnail_alias_installed": False,
     "thumbnail_alias_mode": "",
     "thumbnail_material_copy_installed": False,
@@ -3149,25 +3193,48 @@ def _tick_extra_characters_request() -> None:
         return
 
     if present:
+        # PTX remains the authoritative/core transaction. Gold Lightan is an
+        # additive transaction installed only after PTX + shared heap budget are
+        # confirmed, so a Lightan failure cannot roll PTX back.
         gate_wrote = 0
         gate_failed = 0
         if not _mixed_giant_sequence_gate_present():
             gate_wrote, gate_failed = _install_mixed_giant_sequence_gate()
+
+        # Gold Lightan's four scene-local sequence words are independent of PTX's
+        # four words and of the shared heap-budget word. Always service
+        # Lightan separately so PTX/heap state cannot suppress selection.
+        lightan_wrote = 0
+        lightan_failed = 0
+        if not _lightan_mixed_team_gate_present():
+            lightan_wrote, lightan_failed = _install_lightan_mixed_team_gate()
+
         with _LOCK:
-            _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + int(gate_wrote)
-            _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + int(gate_failed)
+            _ROSTER_STATE["patches"] = int(_ROSTER_STATE.get("patches", 0) or 0) + int(gate_wrote) + int(lightan_wrote)
+            _ROSTER_STATE["failed"] = int(_ROSTER_STATE.get("failed", 0) or 0) + int(gate_failed) + int(lightan_failed)
             _ROSTER_STATE["extra_characters_enabled"] = gate_failed == 0
-            _ROSTER_STATE["extra_characters_mode"] = (
-                "working 3-Yami inserts + PTX mixed-team gate + heap budget"
-                if gate_failed == 0
-                else "working 3-Yami inserts; PTX gate pending"
-            )
-            _ROSTER_STATE["last_action"] = (
-                f"Extra Characters roster + PTX gate present wrote={gate_wrote}"
-                if gate_failed == 0
-                else f"Extra Characters roster present; PTX gate failed={gate_failed}"
-            )
-            _ROSTER_STATE["last_error"] = "" if gate_failed == 0 else "PTX mixed-team gate not installed"
+            if gate_failed:
+                if lightan_failed:
+                    _ROSTER_STATE["extra_characters_mode"] = "working 3-Yami inserts; PTX/shared heap pending; Lightan pending"
+                    _ROSTER_STATE["last_action"] = (
+                        f"Extra Characters roster present; PTX/shared heap failed={gate_failed}; "
+                        f"Lightan failed={lightan_failed}"
+                    )
+                    _ROSTER_STATE["last_error"] = "PTX/shared heap and Gold Lightan gates pending"
+                else:
+                    _ROSTER_STATE["extra_characters_mode"] = "working 3-Yami inserts + Lightan select gate; PTX/shared heap pending"
+                    _ROSTER_STATE["last_action"] = (
+                        f"Gold Lightan select gate preserved; PTX/shared heap failed={gate_failed}"
+                    )
+                    _ROSTER_STATE["last_error"] = "PTX/shared giant heap patch pending"
+            elif lightan_failed:
+                _ROSTER_STATE["extra_characters_mode"] = "working 3-Yami inserts + PTX mixed-team gate + heap budget; Lightan pending"
+                _ROSTER_STATE["last_action"] = f"PTX preserved; Gold Lightan gate failed={lightan_failed}"
+                _ROSTER_STATE["last_error"] = "Gold Lightan gate failed; PTX remains active"
+            else:
+                _ROSTER_STATE["extra_characters_mode"] = "working 3-Yami inserts + PTX/Lightan mixed-team gates + shared heap budget"
+                _ROSTER_STATE["last_action"] = f"Extra Characters roster + PTX/Lightan gates present wrote={gate_wrote + lightan_wrote}"
+                _ROSTER_STATE["last_error"] = ""
         return
 
     if active_since and (now - active_since) < _EXTRA_SELECT_STABLE_DELAY_SEC:
@@ -3380,6 +3447,239 @@ def _install_mixed_giant_sequence_gate() -> tuple[int, int]:
     return wrote, 0 if installed else max(1, failed)
 
 
+def _lightan_heap_class_patch_present() -> bool:
+    addr, _native, patched, _label = LIGHTAN_NORMAL_HEAP_CLASS_PATCH
+    return _safe_read_u32be(int(addr)) == int(patched)
+
+
+def _install_lightan_heap_class_patch() -> tuple[int, int]:
+    """Route Gold Lightan through the normal arena while leaving PTX giant."""
+    addr, native, patched, label = LIGHTAN_NORMAL_HEAP_CLASS_PATCH
+    current = _safe_read_u32be(int(addr))
+    if current is None:
+        return 0, 1
+    current_i = int(current) & 0xFFFFFFFF
+    if current_i == int(patched):
+        return 0, 0
+    if current_i != int(native):
+        with _LOCK:
+            _ROSTER_STATE["last_error"] = (
+                f"Lightan heap-class patch refused: {label}; "
+                f"expected 0x{int(native):08X}, found 0x{current_i:08X}"
+            )
+        return 0, 1
+
+    _LIGHTAN_HEAP_CLASS_SESSION.setdefault(int(addr), current_i)
+    if not _safe_write_u32be(int(addr), int(patched)):
+        _LIGHTAN_HEAP_CLASS_SESSION.pop(int(addr), None)
+        return 0, 1
+    if _safe_read_u32be(int(addr)) != int(patched):
+        _safe_write_u32be(int(addr), current_i)
+        _LIGHTAN_HEAP_CLASS_SESSION.pop(int(addr), None)
+        return 0, 1
+
+    print(
+        f"[char select] Gold Lightan heap class installed at 0x{int(addr):08X}: "
+        "giant -> normal 0x380000 arena; PTX remains giant",
+        flush=True,
+    )
+    return 1, 0
+
+
+def _restore_lightan_heap_class_patch() -> tuple[int, int]:
+    """Restore Lightan's native giant-class equality branch if we own it."""
+    addr, native, patched, _label = LIGHTAN_NORMAL_HEAP_CLASS_PATCH
+    current = _safe_read_u32be(int(addr))
+    if current is None:
+        return 0, 1
+    current_i = int(current) & 0xFFFFFFFF
+    if current_i == int(native):
+        _LIGHTAN_HEAP_CLASS_SESSION.pop(int(addr), None)
+        return 0, 0
+    if current_i != int(patched):
+        return 0, 1
+    if _safe_write_u32be(int(addr), int(native)) and _safe_read_u32be(int(addr)) == int(native):
+        _LIGHTAN_HEAP_CLASS_SESSION.pop(int(addr), None)
+        return 1, 0
+    return 0, 1
+
+
+def _lightan_mixed_team_gate_present() -> bool:
+    """Return True when Lightan select routes and its mixed-team heap class are patched."""
+    base = _resolve_chrsel_seq_heap_base()
+    if base is None:
+        return False
+    return (
+        all(
+            _safe_read_u32be(int(base) + int(off)) == int(patched)
+            for off, _native, patched, _label in LIGHTAN_TEAM_SEQ_BRANCH_PATCHES
+        )
+        and _lightan_heap_class_patch_present()
+    )
+
+
+def _install_lightan_mixed_team_gate() -> tuple[int, int]:
+    """Enable Gold Lightan as a normal teammate using the proven PTX mechanism.
+
+    The 2026-08-11 21:58 dump shows the Lightan and PTX routes side-by-side in
+    the same loaded chrsel.seq. PTX's four destination words are patched and
+    selectable; Lightan's four matching words remain native. Patch only those
+    four Lightan destinations:
+      - P1 bright/selectable route
+      - P2 bright/selectable route
+      - shared thumbnail bright route
+      - second-character confirm accept route
+
+    This transaction owns only Lightan addresses. PTX words are never touched.
+    """
+    base = _resolve_chrsel_seq_heap_base()
+    if base is None:
+        with _LOCK:
+            _ROSTER_STATE["lightan_mixed_team_enabled"] = False
+            _ROSTER_STATE["lightan_mixed_team_detail"] = "chrsel.seq heap not reachable"
+        return 0, 1
+
+    current_addrs = {
+        int(base) + int(off)
+        for off, _native, _patched, _label in LIGHTAN_TEAM_SEQ_BRANCH_PATCHES
+    }
+    # A rebuilt Character Select scene gets a new heap base. Discard stale
+    # bookkeeping instead of ever restoring into a dead scene.
+    for stale_addr in tuple(_LIGHTAN_SEQ_SESSION):
+        if int(stale_addr) not in current_addrs:
+            _LIGHTAN_SEQ_SESSION.pop(int(stale_addr), None)
+
+    wrote = 0
+    failed = 0
+    changed: list[tuple[int, int, int]] = []
+    details: list[str] = []
+
+    for off, native, patched, label in LIGHTAN_TEAM_SEQ_BRANCH_PATCHES:
+        addr = int(base) + int(off)
+        current = _safe_read_u32be(addr)
+        if current is None:
+            failed += 1
+            details.append(f"{label}: unreadable at 0x{addr:08X}")
+            break
+
+        current_i = int(current) & 0xFFFFFFFF
+        if current_i == int(patched):
+            details.append(f"{label}: already installed")
+            continue
+        if current_i != int(native):
+            failed += 1
+            details.append(
+                f"{label}: expected 0x{int(native):08X}, found 0x{current_i:08X}"
+            )
+            break
+
+        _LIGHTAN_SEQ_SESSION.setdefault(addr, current_i)
+        if _safe_write_u32be(addr, int(patched)) and _safe_read_u32be(addr) == int(patched):
+            wrote += 1
+            changed.append((addr, current_i, int(patched)))
+            details.append(f"{label}: installed")
+        else:
+            failed += 1
+            details.append(f"{label}: write/verify failed at 0x{addr:08X}")
+            break
+
+    heap_wrote = 0
+    heap_failed = 0
+    if failed == 0:
+        heap_wrote, heap_failed = _install_lightan_heap_class_patch()
+        wrote += heap_wrote
+        failed += heap_failed
+        if heap_failed:
+            details.append("Lightan normal-arena class patch failed")
+        elif heap_wrote:
+            details.append("Lightan normal-arena class patch installed")
+        else:
+            details.append("Lightan normal-arena class patch already installed")
+
+    if failed:
+        for addr, original, patched in reversed(changed):
+            if _safe_read_u32be(addr) == patched:
+                _safe_write_u32be(addr, original)
+            _LIGHTAN_SEQ_SESSION.pop(addr, None)
+        if heap_wrote:
+            _restore_lightan_heap_class_patch()
+
+    installed = failed == 0 and _lightan_mixed_team_gate_present()
+    with _LOCK:
+        _ROSTER_STATE["lightan_mixed_team_enabled"] = installed
+        _ROSTER_STATE["lightan_mixed_team_detail"] = "; ".join(details)
+        if installed:
+            _ROSTER_STATE["last_error"] = ""
+        elif failed:
+            _ROSTER_STATE["last_error"] = "Gold Lightan chrsel.seq gate install failed"
+
+    if installed and wrote:
+        print(
+            f"[char select] Gold Lightan mixed-team gate installed at "
+            f"0x{int(base):08X}; writes={wrote}",
+            flush=True,
+        )
+    return wrote, 0 if installed else max(1, failed)
+
+
+def _restore_lightan_mixed_team_gate() -> tuple[int, int]:
+    """Restore Lightan chrsel.seq words plus its mixed-team heap-class branch."""
+    restored, failed = _restore_lightan_heap_class_patch()
+    originals = dict(_LIGHTAN_SEQ_SESSION)
+    if not originals:
+        with _LOCK:
+            _ROSTER_STATE["lightan_mixed_team_enabled"] = False
+            _ROSTER_STATE["lightan_mixed_team_detail"] = (
+                "" if failed == 0 else "Gold Lightan heap-class restore incomplete"
+            )
+        return restored, failed
+
+    base = _resolve_chrsel_seq_heap_base()
+    if base is None:
+        _LIGHTAN_SEQ_SESSION.clear()
+        with _LOCK:
+            _ROSTER_STATE["lightan_mixed_team_enabled"] = False
+            _ROSTER_STATE["lightan_mixed_team_detail"] = (
+                "scene rebuilt; stale sequence restore skipped"
+                if failed == 0
+                else "scene rebuilt; Lightan heap-class restore incomplete"
+            )
+        return restored, failed
+
+    patched_by_addr = {
+        int(base) + int(off): int(patched)
+        for off, _native, patched, _label in LIGHTAN_TEAM_SEQ_BRANCH_PATCHES
+    }
+
+    for addr, original in originals.items():
+        current = _safe_read_u32be(int(addr))
+        if current is None:
+            failed += 1
+            continue
+        if int(current) == int(original):
+            _LIGHTAN_SEQ_SESSION.pop(int(addr), None)
+            continue
+        if int(current) != int(patched_by_addr.get(int(addr), -1)):
+            failed += 1
+            continue
+        if (
+            _safe_write_u32be(int(addr), int(original))
+            and _safe_read_u32be(int(addr)) == int(original)
+        ):
+            restored += 1
+            _LIGHTAN_SEQ_SESSION.pop(int(addr), None)
+        else:
+            failed += 1
+
+    with _LOCK:
+        _ROSTER_STATE["lightan_mixed_team_enabled"] = False
+        _ROSTER_STATE["lightan_mixed_team_detail"] = (
+            "" if failed == 0 else "Gold Lightan chrsel.seq restore incomplete"
+        )
+    return restored, failed
+
+
+
 def _retired_install_mixed_giant_sequence_gate() -> tuple[int, int]:
     """Retained implementation for research, not called by Extra Characters."""
     base = _resolve_chrsel_seq_heap_base()
@@ -3436,9 +3736,13 @@ def _retired_install_mixed_giant_sequence_gate() -> tuple[int, int]:
 
 
 def _restore_mixed_giant_sequence_gate() -> tuple[int, int]:
-    """Restore PTX Character Select words and the giant heap-budget DOL word."""
+    """Restore PTX scene words, Gold Lightan classifier, and giant heap budget."""
     restored = 0
     failed = 0
+
+    lightan_restored, lightan_failed = _restore_lightan_mixed_team_gate()
+    restored += lightan_restored
+    failed += lightan_failed
 
     heap_restored, heap_failed = _restore_ptx_giant_heap_budget_patch()
     restored += heap_restored
@@ -4175,9 +4479,10 @@ def _install_extra_characters_on() -> tuple[int, int]:
       Frank West -> Yami 1 -> PTX-40A
       Ryu -> ID 0x00 null test slot
 
-    The guarded roster table/count mirrors are written first, then the loaded
-    chrsel.seq PTX compatibility words are rewritten once. No DOL eligibility
-    patch and no live selector-result polling is used.
+    The guarded roster table/count mirrors are written first, then the proven
+    PTX chrsel.seq gate + shared giant heap budget are installed. Gold Lightan's
+    four adjacent chrsel.seq words are applied afterward as a separate additive
+    transaction. No live selector-result polling is used.
     """
     wrote = 0
     failed = 0
@@ -4198,6 +4503,18 @@ def _install_extra_characters_on() -> tuple[int, int]:
     wrote += gate_wrote
     failed += gate_failed
 
+    # Gold Lightan is an additive chrsel.seq transaction. Attempt it regardless
+    # of the PTX/shared-heap transaction result.  This is important when PTX's four
+    # scene words are already resident but the shared DOL heap word is native:
+    # Lightan selection should still be installed while the heap word is retried
+    # independently on later service ticks.
+    lightan_wrote = 0
+    lightan_failed = 0
+    lightan_wrote, lightan_failed = _install_lightan_mixed_team_gate()
+    wrote += lightan_wrote
+    # Do not add Lightan failure to the core failure count. PTX and the
+    # working Extra Characters roster stay enabled if Lightan alone fails.
+
     with _LOCK:
         _ROSTER_STATE["thumbnail_material_optional_failed"] = 0
         _ROSTER_STATE["visual_table_patch_installed"] = False
@@ -4208,17 +4525,20 @@ def _install_extra_characters_on() -> tuple[int, int]:
         _ROSTER_STATE["thumbnail_material_copy_mode"] = "not used by working roster-only mode"
         _ROSTER_STATE["extra_characters_enabled"] = failed == 0
         _ROSTER_STATE["extra_characters_requested"] = True
-        _ROSTER_STATE["extra_characters_mode"] = (
-            "working 3-Yami inserts + PTX mixed-team gate + heap budget"
-            if failed == 0
-            else ""
-        )
+        if failed:
+            _ROSTER_STATE["extra_characters_mode"] = ""
+        elif lightan_failed:
+            _ROSTER_STATE["extra_characters_mode"] = "working 3-Yami inserts + PTX mixed-team gate + heap budget; Lightan pending"
+        else:
+            _ROSTER_STATE["extra_characters_mode"] = "working 3-Yami inserts + PTX/Lightan mixed-team gates + shared heap budget"
         _ROSTER_STATE["last_action"] = (
             f"Working Extra Characters roster ON wrote={wrote} failed={failed}; "
-            f"count=0x{EXTRA_CLONE10_COUNT:02X}"
+            f"Lightan failed={lightan_failed}; count=0x{EXTRA_CLONE10_COUNT:02X}"
         )
         _ROSTER_STATE["last_error"] = (
-            "" if failed == 0 else f"Working Extra Characters roster failed writes={failed}"
+            f"Working Extra Characters roster failed writes={failed}"
+            if failed
+            else ("Gold Lightan gate failed; PTX remains active" if lightan_failed else "")
         )
     return wrote, failed
 

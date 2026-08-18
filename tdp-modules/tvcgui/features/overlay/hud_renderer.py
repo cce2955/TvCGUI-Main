@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import time
 from typing import Optional
 import math
@@ -31,6 +32,8 @@ from tvcgui.features.overlay.damage_scaling import build_damage_breakdown_lines,
 # ---------------------------------------------------------------------------
 
 DATA_FILE = user_data_path("overlay", "hud_overlay_data.json")
+REALTIME_INPUT_FILE = user_data_path("overlay", "hud_input_realtime.json")
+REALTIME_STUN_FILE = os.path.join(tempfile.gettempdir(), "tvcgui_hud_stun_realtime.json")
 TARGET_FPS = 60
 COLORKEY = (0, 0, 0)
 
@@ -758,6 +761,8 @@ def _update_adv() -> None:
 ANIM_SPEED = 10.0
 FADE_SPEED = 6.0
 PIP_SPEED  = 12.0
+# HS Scale keeps its numeric/native countdown exact, but lets the blue body
+# trail slightly while draining so short 15-25F windows remain readable.
 _anim_state = {
     "overlay_alpha": 0.0,
     "slots": {},
@@ -773,6 +778,21 @@ def _approach(current: float, target: float, speed: float, dt: float) -> float:
         return min(current + speed * dt, target)
     else:
         return max(current - speed * dt, target)
+
+def _ease_visual(current: float | None, target: float, responsiveness: float, dt: float) -> float:
+    """Frame-rate independent easing for display-only gauges."""
+    target = float(target)
+    if current is None or not math.isfinite(float(current)):
+        return target
+    current = float(current)
+    dt = max(0.0, min(0.10, float(dt or 0.0)))
+    if dt <= 0.0:
+        return target
+    blend = 1.0 - math.exp(-max(0.1, float(responsiveness)) * dt)
+    value = current + (target - current) * blend
+    if abs(value - target) < 0.001:
+        return target
+    return value
 
 def _get_slot_anim(slot_label: str):
     return _anim_state["slots"].setdefault(slot_label, {
@@ -812,6 +832,28 @@ def _get_slot_anim(slot_label: str):
         "prev_input_key": None,
         "last_input_frame": -9999,
         "last_input_sample_seq": 0,
+        "last_input_timestamp_frame": -999999,
+        "damage_scale_visual_pct": None,
+        "damage_scale_target_pct": None,
+        "damage_scale_pulse": 0.0,
+        "hs_visual_remaining": None,
+        "hs_visual_effective": None,
+        "hs_visual_elapsed": 0.0,
+        "hs_visual_generation": -1,
+        "hs_visual_target": 0,
+        "hs_visual_last_frame": -1,
+        "hs_visual_signature": None,
+        "hs_visual_pulse": 0.0,
+        "hs_contact_generation": 0,
+        "hs_contact_start_ns": 0,
+        "hs_contact_target": 0,
+        "hs_contact_raw": 0,
+        "hs_contact_loss": 0,
+        "hs_contact_move": "",
+        "bs_contact_generation": 0,
+        "bs_contact_target": 0,
+        "bs_contact_remaining": 0,
+        "bs_contact_move": "",
         "hp_display_frac": None,
         "hp_trail_frac": None,
         "hp_trail_delay": 0.0,
@@ -1074,6 +1116,10 @@ def sync_overlay_to_dolphin(dolphin_hwnd: int, overlay_hwnd: int):
 
 _last_data_signature: tuple[int, int, int, int] | None = None
 _cached_slots: dict = {}
+_last_realtime_input_signature: tuple[int, int, int, int] | None = None
+_cached_realtime_inputs: dict = {}
+_last_realtime_stun_signature: tuple[int, int, int, int] | None = None
+_cached_realtime_stun: dict = {}
 
 def read_slot_data() -> dict:
     global _last_data_signature, _cached_slots
@@ -1094,6 +1140,195 @@ def read_slot_data() -> dict:
     except Exception:
         pass
     return _cached_slots
+
+def read_realtime_input_data() -> dict:
+    """Read the low-latency input sidecar independently of the full HUD payload."""
+    global _last_realtime_input_signature, _cached_realtime_inputs
+    try:
+        stat = os.stat(REALTIME_INPUT_FILE)
+        signature = (
+            int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+            int(getattr(stat, "st_ctime_ns", int(stat.st_ctime * 1_000_000_000))),
+            int(stat.st_size),
+            int(getattr(stat, "st_ino", 0)),
+        )
+        if signature != _last_realtime_input_signature:
+            with open(REALTIME_INPUT_FILE, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                _cached_realtime_inputs = loaded
+                _last_realtime_input_signature = signature
+    except Exception:
+        pass
+    return _cached_realtime_inputs
+
+def read_realtime_stun_data() -> dict:
+    """Read the tiny native-stun IPC independently of input history."""
+    global _last_realtime_stun_signature, _cached_realtime_stun
+    try:
+        stat = os.stat(REALTIME_STUN_FILE)
+        signature = (
+            int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+            int(getattr(stat, "st_ctime_ns", int(stat.st_ctime * 1_000_000_000))),
+            int(stat.st_size),
+            int(getattr(stat, "st_ino", 0)),
+        )
+        if signature != _last_realtime_stun_signature:
+            with open(REALTIME_STUN_FILE, encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                _cached_realtime_stun = loaded
+                _last_realtime_stun_signature = signature
+    except Exception:
+        pass
+    return _cached_realtime_stun
+
+
+def _merge_realtime_inputs(slots: dict, realtime_payload: dict) -> None:
+    """Overlay realtime inputs plus the independent native-stun transport."""
+    if not isinstance(slots, dict) or not isinstance(realtime_payload, dict):
+        return
+    slot_map = realtime_payload.get("slots")
+    if not isinstance(slot_map, dict):
+        slot_map = {}
+    stun_payload = read_realtime_stun_data()
+    combat_payload = stun_payload if isinstance(stun_payload, dict) and stun_payload else realtime_payload
+    combat_slot_map = combat_payload.get("slots") if isinstance(combat_payload, dict) else None
+    if not isinstance(combat_slot_map, dict):
+        combat_slot_map = slot_map
+
+    now_ns = time.monotonic_ns()
+    max_age_ns = 2_000_000_000
+    for slot_label, realtime_state in slot_map.items():
+        snap = slots.get(slot_label)
+        if not isinstance(snap, dict) or not isinstance(realtime_state, dict):
+            continue
+        latest = realtime_state.get("latest")
+        samples = realtime_state.get("samples")
+        if not isinstance(latest, dict):
+            latest = {}
+        if not isinstance(samples, list):
+            samples = []
+
+        fresh_samples = []
+        for item in samples:
+            if not isinstance(item, dict):
+                continue
+            try:
+                sample_ns = int(item.get("sample_ns", 0) or 0)
+            except Exception:
+                sample_ns = 0
+            if sample_ns <= 0 or now_ns - sample_ns <= max_age_ns:
+                fresh_samples.append(item)
+
+        try:
+            latest_ns = int(latest.get("sample_ns", 0) or 0)
+        except Exception:
+            latest_ns = 0
+        latest_fresh = latest_ns <= 0 or now_ns - latest_ns <= max_age_ns
+        if latest_fresh and latest:
+            snap["input_held"] = int(latest.get("held", snap.get("input_held", 0)) or 0) & 0xFFFF
+            snap["input_pressed"] = int(latest.get("pressed", 0) or 0) & 0xFFFF
+            snap["input_released"] = int(latest.get("released", 0) or 0) & 0xFFFF
+            # These are the same 240 Hz fighter snapshot, not extra reads. Keep
+            # the victim's exact engine counters available to the HS renderer.
+            snap["realtime_blockstun_remaining"] = max(0, int(latest.get("blockstun_remaining", 0) or 0))
+            snap["realtime_hitstun_remaining"] = max(0, int(latest.get("hitstun_remaining", 0) or 0))
+            snap["realtime_untech_remaining"] = max(0, int(latest.get("untech_remaining", 0) or 0))
+            snap["realtime_impact_freeze_remaining"] = max(0, int(latest.get("impact_freeze_remaining", 0) or 0))
+            snap["realtime_combat_sample_ns"] = latest_ns
+        if fresh_samples:
+            snap["input_samples"] = fresh_samples
+
+    # Contact is still identified by the 240 Hz HP edge, but duration comes
+    # from the victim's native +0x1210/+0x1220 values already present on that
+    # same sample. Each render enriches the immutable contact event with the
+    # victim's newest native remaining counter so hitstop and other holds are
+    # reflected exactly instead of approximated from wall-clock time.
+    hs_teams = combat_payload.get("hs_teams") if isinstance(combat_payload, dict) else None
+    if isinstance(hs_teams, dict):
+        for team, hs_state in hs_teams.items():
+            if team not in {"P1", "P2"} or not isinstance(hs_state, dict):
+                continue
+            latest_hs = hs_state.get("latest")
+            if not isinstance(latest_hs, dict):
+                latest_hs = {}
+            try:
+                hs_ns = int(latest_hs.get("sample_ns", 0) or 0)
+            except Exception:
+                hs_ns = 0
+            hs_fresh = bool(latest_hs) and (hs_ns <= 0 or now_ns - hs_ns <= max_age_ns)
+
+            enriched_hs = dict(latest_hs) if hs_fresh else {}
+            if enriched_hs:
+                victim_slot = str(enriched_hs.get("victim_slot") or "")
+                victim_state = combat_slot_map.get(victim_slot)
+                victim_latest = victim_state.get("latest") if isinstance(victim_state, dict) else None
+                if isinstance(victim_latest, dict):
+                    try:
+                        victim_ns = int(victim_latest.get("sample_ns", 0) or 0)
+                    except Exception:
+                        victim_ns = 0
+                    victim_fresh = victim_ns <= 0 or now_ns - victim_ns <= max_age_ns
+                    if victim_fresh:
+                        enriched_hs["native_hitstun_current"] = max(0, int(victim_latest.get("hitstun_remaining", 0) or 0))
+                        enriched_hs["native_untech_current"] = max(0, int(victim_latest.get("untech_remaining", 0) or 0))
+                        enriched_hs["native_current_sample_ns"] = victim_ns
+
+            for suffix in ("C1", "C2"):
+                team_snap = slots.get(f"{team}-{suffix}")
+                if not isinstance(team_snap, dict):
+                    continue
+                if enriched_hs:
+                    team_snap["realtime_hs_contact"] = dict(enriched_hs)
+                else:
+                    team_snap.pop("realtime_hs_contact", None)
+
+    # Blockstun uses its own native +0x1204 contact generation. Unlike hitstun,
+    # blocked contacts do not require HP loss, so the manager mints them from
+    # +0x1204 plus the impact-freeze re-arm edge. The current counter is merged
+    # here every render so Dolphin pause/frame-step controls the entire gauge.
+    bs_teams = combat_payload.get("bs_teams") if isinstance(combat_payload, dict) else None
+    if isinstance(bs_teams, dict):
+        for team, bs_state in bs_teams.items():
+            if team not in {"P1", "P2"} or not isinstance(bs_state, dict):
+                continue
+            latest_bs = bs_state.get("latest")
+            if not isinstance(latest_bs, dict):
+                latest_bs = {}
+            try:
+                bs_ns = int(latest_bs.get("sample_ns", 0) or 0)
+            except Exception:
+                bs_ns = 0
+            # Do not wall-clock-expire a native blockstun token. During Dolphin
+            # pause/frame-step the sampler correctly stops producing new game
+            # state, so an old contact timestamp is expected while +0x1204 is
+            # frozen. The manager clears the token only on native +0x1204 == 0
+            # or replaces it on the next blocked contact.
+            enriched_bs = dict(latest_bs) if latest_bs else {}
+            if enriched_bs:
+                victim_slot = str(enriched_bs.get("victim_slot") or "")
+                victim_state = combat_slot_map.get(victim_slot)
+                victim_latest = victim_state.get("latest") if isinstance(victim_state, dict) else None
+                if isinstance(victim_latest, dict):
+                    try:
+                        victim_ns = int(victim_latest.get("sample_ns", 0) or 0)
+                    except Exception:
+                        victim_ns = 0
+                    # Same rule for the current native value: a paused game
+                    # intentionally leaves this sample old in wall time. Treat
+                    # it as authoritative until a new game-state sample arrives.
+                    enriched_bs["native_blockstun_current"] = max(0, int(victim_latest.get("blockstun_remaining", 0) or 0))
+                    enriched_bs["native_current_sample_ns"] = victim_ns
+
+            for suffix in ("C1", "C2"):
+                team_snap = slots.get(f"{team}-{suffix}")
+                if not isinstance(team_snap, dict):
+                    continue
+                if enriched_bs:
+                    team_snap["realtime_blockstun_contact"] = dict(enriched_bs)
+                else:
+                    team_snap.pop("realtime_blockstun_contact", None)
 
 # ---------------------------------------------------------------------------
 # Drawing helpers
@@ -2358,9 +2593,27 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
     pending_samples.sort(key=lambda item: int(item.get("seq", 0) or 0))
 
     if pending_samples:
-        sample_count = len(pending_samples)
-        for sample_index, sample in enumerate(pending_samples):
-            sample_frame = int(_frame) - (sample_count - sample_index - 1)
+        # Timestamp edges against the renderer's actual 60 Hz clock. Using the
+        # newest packet in a batch as "frame zero" made a captured input look
+        # younger than it really was whenever transport took a frame or two.
+        # The sidecar now gets the edge on screen quickly, and this keeps its
+        # frame counter honest from the instant it appears.
+        now_ns = time.monotonic_ns()
+        game_frame_ns = 1_000_000_000.0 / 60.0
+        last_timestamp_frame = int(slot_anim.get("last_input_timestamp_frame", -999999) or -999999)
+        for sample in pending_samples:
+            try:
+                sample_ns = int(sample.get("sample_ns", 0) or 0)
+            except Exception:
+                sample_ns = 0
+            if sample_ns > 0 and now_ns >= sample_ns:
+                age_frames = int(round((now_ns - sample_ns) / game_frame_ns))
+                sample_frame = int(_frame) - max(0, age_frames)
+            else:
+                sample_frame = int(_frame)
+            # Ordered samples must never travel backwards on the display clock.
+            sample_frame = max(last_timestamp_frame, sample_frame)
+            last_timestamp_frame = sample_frame
             _track_compact_input_packet(
                 slot_anim,
                 int(sample.get("held", 0) or 0) & 0xFFFF,
@@ -2369,6 +2622,7 @@ def _compact_track_slot(slot_label: str, snap: dict) -> None:
                 sample_frame,
             )
         slot_anim["last_input_sample_seq"] = int(pending_samples[-1].get("seq", 0) or 0)
+        slot_anim["last_input_timestamp_frame"] = last_timestamp_frame
     else:
         # Continue active frame counters and hold qualification while unchanged.
         _track_compact_input_packet(
@@ -5663,6 +5917,7 @@ def _draw_compact_damage_scaling_rows(
     y: int,
     right: int,
     scale: float,
+    dt: float,
 ) -> None:
     """Draw compact 100 percent deviation gauges for both team slots."""
     opponent_team = "P2" if team == "P1" else "P1"
@@ -5768,6 +6023,17 @@ def _draw_compact_damage_scaling_rows(
             else:
                 gauge_color = (122, 183, 198)
 
+        slot_anim = _get_slot_anim(slot_label)
+        previous_target = slot_anim.get("damage_scale_target_pct")
+        if previous_target is None or abs(float(previous_target) - float(percent)) > 0.01:
+            slot_anim["damage_scale_target_pct"] = float(percent)
+            if live:
+                slot_anim["damage_scale_pulse"] = 1.0
+        visual_percent = _ease_visual(slot_anim.get("damage_scale_visual_pct"), float(percent), 30.0, dt)
+        slot_anim["damage_scale_visual_pct"] = visual_percent
+        pulse = max(0.0, float(slot_anim.get("damage_scale_pulse", 0.0)) - max(0.0, dt) * 4.8)
+        slot_anim["damage_scale_pulse"] = pulse
+
         value_surface = font_sm.render(value_text, True, gauge_color)
         value_x = row_rect.right - inner_pad - value_surface.get_width()
         screen.blit(value_surface, (value_x, row_rect.centery - value_surface.get_height() // 2))
@@ -5793,7 +6059,7 @@ def _draw_compact_damage_scaling_rows(
         )
 
         if live:
-            ratio = max(0.0, min(1.0, percent / 200.0))
+            ratio = max(0.0, min(1.0, visual_percent / 200.0))
             marker_x = gauge_x + int(round(gauge_w * ratio))
             pygame.draw.line(
                 screen,
@@ -5802,13 +6068,152 @@ def _draw_compact_damage_scaling_rows(
                 (max(base_x, marker_x), gauge_y),
                 max(2, int(3 * scale)),
             )
-            pygame.draw.circle(
-                screen,
-                gauge_color,
-                (marker_x, gauge_y),
-                max(2, int(2 * scale)),
-            )
+            marker_radius = max(2, int(2 * scale))
+            if pulse > 0.001:
+                glow_radius = marker_radius + max(1, int(round((2.0 + 2.0 * pulse) * scale)))
+                glow = pygame.Surface((glow_radius * 2 + 4, glow_radius * 2 + 4), pygame.SRCALPHA)
+                pygame.draw.circle(glow, (*gauge_color, int(92 * pulse)), (glow.get_width() // 2, glow.get_height() // 2), glow_radius)
+                screen.blit(glow, (marker_x - glow.get_width() // 2, gauge_y - glow.get_height() // 2))
+            pygame.draw.circle(screen, gauge_color, (marker_x, gauge_y), marker_radius + (1 if pulse > 0.45 else 0))
 
+
+
+def _realtime_hs_contact_clock(slot_anim: dict, snap: dict) -> dict | None:
+    """Return the current per-hit clock from native victim counters.
+
+    The HP edge creates a generation, but the countdown itself follows the
+    victim's +0x1210 hitstun or +0x1220 untech timer. This means hitstop pauses
+    the HUD exactly when the game pauses the underlying counter.
+    """
+    event = snap.get("realtime_hs_contact") if isinstance(snap, dict) else None
+    if not isinstance(event, dict):
+        return None
+    try:
+        generation = max(0, int(event.get("generation", 0) or 0))
+        target = max(0, int(event.get("target", 0) or 0))
+        source = str(event.get("clock_source") or "")
+        raw = max(target, int(event.get("raw_estimate", target) or target))
+        loss = max(0, int(event.get("decay_frames", 0) or 0))
+    except Exception:
+        return None
+    if generation <= 0 or target <= 0 or source not in {"hitstun", "untech"}:
+        return None
+
+    if generation != int(slot_anim.get("hs_contact_generation", 0) or 0):
+        slot_anim["hs_contact_generation"] = generation
+        slot_anim["hs_contact_target"] = target
+        slot_anim["hs_contact_raw"] = raw
+        slot_anim["hs_contact_loss"] = loss
+        slot_anim["hs_contact_source"] = source
+        slot_anim["hs_contact_move"] = str(event.get("move_label") or "")
+        slot_anim["hs_contact_remaining"] = target
+
+    target = max(0, int(slot_anim.get("hs_contact_target", target) or 0))
+    raw = max(target, int(slot_anim.get("hs_contact_raw", raw) or raw))
+    loss = max(0, int(slot_anim.get("hs_contact_loss", loss) or loss))
+    source = str(slot_anim.get("hs_contact_source") or source)
+
+    if source == "untech":
+        current_raw = event.get("native_untech_current", event.get("native_untech", target))
+    else:
+        current_raw = event.get("native_hitstun_current", event.get("native_hitstun", target))
+    try:
+        current = max(0, min(target, int(current_raw or 0)))
+    except Exception:
+        current = max(0, int(slot_anim.get("hs_contact_remaining", target) or target))
+
+    # A same-generation clock may only drain. This protects the display from a
+    # stale sidecar sample arriving out of order without inventing any frames.
+    previous_remaining = max(0, min(target, int(slot_anim.get("hs_contact_remaining", target) or target)))
+    remaining = min(previous_remaining, current)
+    slot_anim["hs_contact_remaining"] = remaining
+    elapsed = max(0, target - remaining)
+    return {
+        # Separate namespace from the slower manager-side latch generation so
+        # a realtime hit always hard-resets the visual sweep immediately.
+        "generation": 1_000_000 + generation,
+        "target": target,
+        "elapsed": elapsed,
+        "remaining": remaining,
+        "raw": raw,
+        "loss": loss,
+        "clock_source": source,
+        "active": remaining > 0,
+        "expired": remaining <= 0,
+        "move_label": str(slot_anim.get("hs_contact_move") or ""),
+    }
+
+def _realtime_blockstun_contact_clock(slot_anim: dict, snap: dict) -> dict | None:
+    """Return the frame-step-locked native +0x1204 blockstun clock."""
+    event = snap.get("realtime_blockstun_contact") if isinstance(snap, dict) else None
+    if not isinstance(event, dict):
+        return None
+    try:
+        generation = max(0, int(event.get("generation", 0) or 0))
+        target = max(0, int(event.get("target", 0) or 0))
+    except Exception:
+        return None
+    if generation <= 0 or target <= 0:
+        return None
+
+    if generation != int(slot_anim.get("bs_contact_generation", 0) or 0):
+        slot_anim["bs_contact_generation"] = generation
+        slot_anim["bs_contact_target"] = target
+        slot_anim["bs_contact_remaining"] = target
+        slot_anim["bs_contact_move"] = str(event.get("move_label") or "")
+
+    target = max(0, int(slot_anim.get("bs_contact_target", target) or 0))
+    try:
+        current = max(0, min(target, int(event.get("native_blockstun_current", event.get("native_blockstun", target)) or 0)))
+    except Exception:
+        current = max(0, int(slot_anim.get("bs_contact_remaining", target) or target))
+
+    # Same-generation blockstun can only drain. A new blocked move gets a new
+    # generation from the manager and therefore hard-resets even if its total is
+    # shorter than the old move's remaining blockstun.
+    previous_remaining = max(0, min(target, int(slot_anim.get("bs_contact_remaining", target) or target)))
+    remaining = min(previous_remaining, current)
+    slot_anim["bs_contact_remaining"] = remaining
+    return {
+        "generation": 2_000_000 + generation,
+        "target": target,
+        "remaining": remaining,
+        "elapsed": max(0, target - remaining),
+        "active": remaining > 0,
+        "expired": remaining <= 0,
+        "move_label": str(slot_anim.get("bs_contact_move") or ""),
+    }
+
+
+def _hs_visual_elapsed(slot_anim: dict, generation: int, elapsed: int, target: int, dt: float) -> float:
+    """Return the exact native elapsed frame count for HS geometry.
+
+    This bar is intentionally game-frame locked. Dolphin pause/frame-step must
+    freeze the entire visual, so wall-clock ``dt`` is never allowed to advance
+    the fill between native +0x1210/+0x1220 counter changes.
+    """
+    del dt
+    global _frame
+    generation = max(0, int(generation or 0))
+    target = max(0, int(target or 0))
+    exact = float(max(0, min(target, int(elapsed or 0)))) if target > 0 else 0.0
+
+    slot_anim["hs_visual_generation"] = generation
+    slot_anim["hs_visual_target"] = target
+    slot_anim["hs_visual_elapsed"] = exact
+    slot_anim["hs_visual_last_frame"] = _frame
+    return exact
+
+
+# Stun-clock identity colors. Keep these distinct so the rows can be read at
+# a glance without relying on the text label:
+#   hitstun = blue/cyan, untech = purple, blockstun = orange.
+STUN_CLOCK_HIT_COLOR = (122, 183, 198)
+STUN_CLOCK_HIT_HEAD = (218, 246, 252)
+STUN_CLOCK_UNTECH_COLOR = (167, 151, 220)
+STUN_CLOCK_UNTECH_HEAD = (236, 230, 252)
+STUN_CLOCK_BLOCK_COLOR = (235, 136, 91)
+STUN_CLOCK_BLOCK_HEAD = (252, 224, 202)
 
 
 def _draw_compact_untech_scaling_row(
@@ -5820,14 +6225,21 @@ def _draw_compact_untech_scaling_row(
     y: int,
     right: int,
     scale: float,
+    dt: float,
 ) -> None:
-    """Draw native air-recovery deterioration as a compact deflation gauge."""
-    del team
+    """Draw HS Scale as a native per-hit remaining-time clock.
+
+    Grounded/ordinary hits follow resolved +0x1210 hitstun. Air-recovery cases
+    follow final scaled +0x1220 untech lockout. The cool fill starts full and
+    drains only when the game decrements that native counter.
+    """
+    slot_label = _get_active_slot(team) or f"{team}-C1"
+    slot_anim = _get_slot_anim(slot_label)
     header_h = max(font_sm.get_height(), int(12 * scale))
     row_h = max(font_sm.get_height() + 4, int(17 * scale))
     inner_pad = max(5, int(6 * scale))
 
-    brand_surface = font_sm.render("HS SCALE", True, (151, 164, 184))
+    brand_surface = font_sm.render("STUN CLOCKS", True, (151, 164, 184))
     brand_y = y + max(0, (header_h - brand_surface.get_height()) // 2)
     screen.blit(brand_surface, (x + 2, brand_y))
     brand_line_x = x + brand_surface.get_width() + max(6, int(8 * scale))
@@ -5846,40 +6258,67 @@ def _draw_compact_untech_scaling_row(
 
     live = bool(snap.get("hitstun_decay_live", False))
     rule = snap.get("hitstun_decay_rule_enabled")
-    counter = max(0, int(snap.get("hitstun_decay_counter") or 0))
-    loss = max(0, int(snap.get("hitstun_decay_frames") or 0))
-    remaining = max(0, int(snap.get("hitstun_untech_remaining") or 0))
-    effective_start = max(0, int(snap.get("hitstun_untech_effective_start") or 0))
-    base_est = max(0, int(snap.get("hitstun_untech_base_estimate") or 0))
-    latched_loss = max(0, int(snap.get("hitstun_untech_latched_loss") or loss))
-    approximate = bool(snap.get("hitstun_untech_approximate", False))
+    target = max(0, int(snap.get("hitstun_untech_expiry_target", snap.get("hitstun_untech_effective_start")) or 0))
+    loss = max(0, int(snap.get("hitstun_untech_latched_loss", snap.get("hitstun_decay_frames")) or 0)) if target > 0 else max(0, int(snap.get("hitstun_decay_frames") or 0))
+    elapsed = max(0, min(target, int(snap.get("hitstun_untech_elapsed") or 0))) if target > 0 else 0
+    base_est = max(target, int(snap.get("hitstun_untech_base_estimate") or 0))
+    generation = max(0, int(snap.get("hitstun_untech_generation") or 0))
+    active = bool(snap.get("hitstun_untech_active", False))
+    expired = bool(snap.get("hitstun_untech_expired", False))
     cantukemi = bool(snap.get("hitstun_cantukemi", False))
+    clock_source = str(snap.get("hitstun_clock_source") or "untech")
 
+    # Prefer the direct native contact clock. The slower manager-side latch
+    # remains only as a compatibility fallback when no realtime event exists.
+    contact_clock = _realtime_hs_contact_clock(slot_anim, snap)
+    if contact_clock is not None:
+        live = True
+        target = int(contact_clock["target"])
+        loss = int(contact_clock["loss"])
+        elapsed = int(contact_clock["elapsed"])
+        base_est = max(target, int(contact_clock["raw"]))
+        generation = int(contact_clock["generation"])
+        active = bool(contact_clock["active"])
+        expired = bool(contact_clock["expired"])
+        clock_source = str(contact_clock.get("clock_source") or "hitstun")
+        cantukemi = False
+
+    # The HS visual is game-frame locked. No pulse/trail may continue moving
+    # while Dolphin is paused; a native counter change is the only animation
+    # clock for this row.
+    visual_signature = (generation, base_est, target, loss, bool(cantukemi), bool(live))
+    slot_anim["hs_visual_signature"] = visual_signature
+    hs_pulse = 0.0
+
+    remaining_frames = max(0, target - elapsed) if target > 0 else 0
+    show_untech_decay = clock_source == "untech" and loss > 0
     if not live:
         left_text = "NO DATA"
         right_text = "---"
         value_color = (91, 102, 119)
-    elif rule is False:
-        left_text = "DECAY -0F"
-        right_text = "SCALING OFF"
-        value_color = (91, 102, 119)
     elif cantukemi:
-        left_text = f"DECAY -{loss}F"
+        left_text = f"UNTECH -{loss}F"
         right_text = "NO TECH"
         value_color = (235, 91, 108)
-    else:
-        left_text = f"DECAY -{loss}F"
-        if remaining > 0 and base_est > 0:
-            prefix = "~" if approximate else ""
-            right_text = f"{remaining}/{prefix}{base_est}F"
-            value_color = (235, 136, 91) if loss > 0 else (122, 183, 198)
-        elif base_est > 0:
-            prefix = "~" if approximate else ""
-            right_text = f"LAST {effective_start}/{prefix}{base_est}F"
-            value_color = (235, 136, 91) if latched_loss > 0 else (122, 183, 198)
+    elif target > 0:
+        if clock_source == "hitstun":
+            left_text = "HITSTUN"
+        elif show_untech_decay:
+            left_text = f"UNTECH -{loss}F"
         else:
-            right_text = "WAITING" if remaining <= 0 else f"{remaining}F"
-            value_color = (235, 136, 91) if loss > 0 else (122, 183, 198)
+            left_text = "UNTECH"
+        right_text = f"{remaining_frames}/{target}F"
+        value_color = STUN_CLOCK_UNTECH_COLOR if clock_source == "untech" else STUN_CLOCK_HIT_COLOR
+        if expired:
+            value_color = (151, 164, 184)
+    elif rule is False:
+        left_text = "HITSTUN"
+        right_text = "WAITING"
+        value_color = (91, 102, 119)
+    else:
+        left_text = f"UNTECH -{loss}F" if loss > 0 else "UNTECH"
+        right_text = "WAITING"
+        value_color = STUN_CLOCK_UNTECH_COLOR
 
     left_surface = font_sm.render(left_text, True, value_color)
     right_surface = font_sm.render(right_text, True, value_color)
@@ -5898,50 +6337,56 @@ def _draw_compact_untech_scaling_row(
     gauge = pygame.Rect(gauge_x, gauge_y, gauge_w, gauge_h)
     pygame.draw.rect(screen, (43, 52, 66), gauge, border_radius=max(2, gauge_h // 2))
 
-    # The full width is the estimated pre-deterioration lockout. The red tail
-    # is the part removed before the timer starts. The cool fill is what is
-    # still left on the live native countdown.
-    if base_est > 0 and live and rule is not False and not cantukemi:
-        effective = max(0, min(base_est, effective_start if effective_start > 0 else base_est - latched_loss))
-        removed = max(0, min(base_est, base_est - effective))
-        remaining_clamped = max(0, min(effective, remaining))
+    if target > 0 and live and not cantukemi:
+        denominator = max(1, base_est, target)
+        target_w = max(1, min(gauge_w, int(round(gauge_w * target / float(denominator)))))
+        visual_elapsed = _hs_visual_elapsed(slot_anim, generation, elapsed, target, dt)
+        visual_remaining = max(0.0, float(target) - visual_elapsed)
+        exact_remaining = max(0, target - elapsed)
+        fill_w = max(0, min(target_w, int(round(gauge_w * visual_remaining / float(denominator)))))
+        exact_w = max(0, min(target_w, int(round(gauge_w * exact_remaining / float(denominator)))))
 
-        effective_w = int(round(gauge_w * effective / float(base_est)))
-        remaining_w = int(round(gauge_w * remaining_clamped / float(base_est)))
-        removed_x = gauge.x + effective_w
-
-        if effective_w > 0:
-            pygame.draw.rect(
-                screen,
-                (72, 82, 96),
-                pygame.Rect(gauge.x, gauge.y, effective_w, gauge.h),
-                border_radius=max(2, gauge_h // 2),
-            )
-        if remaining_w > 0:
-            pygame.draw.rect(
-                screen,
-                (122, 183, 198),
-                pygame.Rect(gauge.x, gauge.y, remaining_w, gauge.h),
-                border_radius=max(2, gauge_h // 2),
-            )
-        if removed > 0 and removed_x < gauge.right:
+        # Effective window track. The blue body starts full and drains left.
+        pygame.draw.rect(
+            screen,
+            (72, 82, 96),
+            pygame.Rect(gauge.x, gauge.y, target_w, gauge.h),
+            border_radius=max(2, gauge_h // 2),
+        )
+        # Frames removed by deterioration remain visible beyond the stop line.
+        if target_w < gauge_w:
             pygame.draw.rect(
                 screen,
                 (235, 91, 108),
-                pygame.Rect(removed_x, gauge.y, gauge.right - removed_x, gauge.h),
+                pygame.Rect(gauge.x + target_w, gauge.y, gauge_w - target_w, gauge.h),
                 border_radius=max(2, gauge_h // 2),
             )
-        if 0 < effective_w < gauge_w:
-            pygame.draw.line(
+        # The body is the exact native countdown. Its color identifies the
+        # native clock: blue for ordinary hitstun, purple for untech.
+        fill_color = STUN_CLOCK_UNTECH_COLOR if clock_source == "untech" else STUN_CLOCK_HIT_COLOR
+        head_color = STUN_CLOCK_UNTECH_HEAD if clock_source == "untech" else STUN_CLOCK_HIT_HEAD
+        if fill_w > 0:
+            pygame.draw.rect(
                 screen,
-                (238, 218, 224),
-                (gauge.x + effective_w, gauge.y - 2),
-                (gauge.x + effective_w, gauge.bottom + 1),
-                1,
+                fill_color,
+                pygame.Rect(gauge.x, gauge.y, fill_w, gauge.h),
+                border_radius=max(2, gauge_h // 2),
             )
+        pygame.draw.line(
+            screen,
+            (238, 218, 224),
+            (gauge.x + target_w, gauge.y - 2),
+            (gauge.x + target_w, gauge.bottom + 1),
+            1,
+        )
+        if active and elapsed < target:
+            # Bright head and blue body are both locked to the exact native remaining frame.
+            lead_x = gauge.x + max(0, min(target_w - 1, exact_w))
+            lead_alpha = int(118 + 112 * hs_pulse)
+            lead = pygame.Surface((max(5, int(9 * scale)), gauge_h + max(4, int(6 * scale))), pygame.SRCALPHA)
+            pygame.draw.ellipse(lead, (*head_color, max(0, min(230, lead_alpha))), lead.get_rect())
+            screen.blit(lead, (lead_x - lead.get_width() // 2, gauge_y - (lead.get_height() - gauge_h) // 2))
     elif live and rule is not False and loss > 0:
-        # Before a lockout has been observed, show the deterioration step as a
-        # compact red warning marker instead of inventing a fake percentage.
         marker_w = max(3, min(gauge_w, int(round(gauge_w * min(1.0, loss / 12.0)))))
         pygame.draw.rect(
             screen,
@@ -5950,6 +6395,61 @@ def _draw_compact_untech_scaling_row(
             border_radius=max(2, gauge_h // 2),
         )
 
+    # Second row: the victim's resolved +0x1204 blockstun. It has no smoothing
+    # or wall-clock animation. The fill changes only when the game decrements
+    # +0x1204, so Dolphin pause and frame advance are represented exactly.
+    block_gap = max(2, int(3 * scale))
+    block_rect = pygame.Rect(x, row_rect.bottom + block_gap, max(80, right - x), row_h)
+    pygame.draw.rect(screen, (14, 19, 28, 210), block_rect, border_radius=radius)
+    pygame.draw.rect(screen, (78, 96, 122, 105), block_rect, 1, border_radius=radius)
+    block_clock = _realtime_blockstun_contact_clock(slot_anim, snap)
+    if block_clock is None:
+        block_target = 0
+        block_remaining = 0
+        block_left = "BLOCKSTUN"
+        block_right = "---"
+        block_color = (91, 102, 119)
+    else:
+        block_target = max(0, int(block_clock.get("target", 0) or 0))
+        block_remaining = max(0, min(block_target, int(block_clock.get("remaining", 0) or 0)))
+        block_left = "BLOCKSTUN"
+        block_right = f"{block_remaining}/{block_target}F"
+        block_color = STUN_CLOCK_BLOCK_COLOR if block_remaining > 0 else (151, 164, 184)
+
+    block_left_surface = font_sm.render(block_left, True, block_color)
+    block_right_surface = font_sm.render(block_right, True, block_color)
+    block_text_y = block_rect.centery - block_left_surface.get_height() // 2
+    screen.blit(block_left_surface, (block_rect.x + inner_pad, block_text_y))
+    screen.blit(
+        block_right_surface,
+        (block_rect.right - inner_pad - block_right_surface.get_width(), block_rect.centery - block_right_surface.get_height() // 2),
+    )
+
+    block_gauge_x = block_rect.x + inner_pad + block_left_surface.get_width() + max(7, int(9 * scale))
+    block_gauge_right = block_rect.right - inner_pad - block_right_surface.get_width() - max(7, int(9 * scale))
+    block_gauge_w = max(18, block_gauge_right - block_gauge_x)
+    block_gauge_h = max(5, int(6 * scale))
+    block_gauge_y = block_rect.centery - block_gauge_h // 2
+    block_gauge = pygame.Rect(block_gauge_x, block_gauge_y, block_gauge_w, block_gauge_h)
+    pygame.draw.rect(screen, (43, 52, 66), block_gauge, border_radius=max(2, block_gauge_h // 2))
+    if block_target > 0:
+        block_fill_w = max(0, min(block_gauge_w, int(round(block_gauge_w * block_remaining / float(block_target)))))
+        if block_fill_w > 0:
+            pygame.draw.rect(
+                screen,
+                STUN_CLOCK_BLOCK_COLOR,
+                pygame.Rect(block_gauge.x, block_gauge.y, block_fill_w, block_gauge.h),
+                border_radius=max(2, block_gauge_h // 2),
+            )
+        if block_remaining > 0:
+            block_head_x = block_gauge.x + max(0, min(block_gauge_w - 1, block_fill_w))
+            pygame.draw.line(
+                screen,
+                STUN_CLOCK_BLOCK_HEAD,
+                (block_head_x, block_gauge.y - 2),
+                (block_head_x, block_gauge.bottom + 1),
+                1,
+            )
 
 def _research_dock_active_panel(control=None) -> str | None:
     """Return one fallback research panel when the core HUD is hidden."""
@@ -5995,7 +6495,7 @@ def _research_dock_title(panel: str) -> tuple[str, tuple[int, int, int]]:
     }.get(panel, ("RESEARCH DOCK", (104, 169, 224)))
 
 
-def _draw_research_damage_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
+def _draw_research_damage_content(card, area: pygame.Rect, font, font_sm, scale: float, dt: float) -> None:
     rows = _damage_modifier_badge_rows()
     if not rows:
         empty = font.render("NO LIVE DAMAGE DATA", True, (125, 139, 158))
@@ -6013,6 +6513,19 @@ def _draw_research_damage_content(card, area: pygame.Rect, font, font_sm, scale:
         percent = float(data.get("percent") or 100.0)
         approximate = bool(data.get("approximate", False))
         live = bool(data.get("live", False))
+        source_slot = str(data.get("source_slot") or "")
+        slot_anim = _get_slot_anim(source_slot) if source_slot else None
+        if slot_anim is not None:
+            previous_target = slot_anim.get("damage_scale_target_pct")
+            if previous_target is None or abs(float(previous_target) - percent) > 0.01:
+                slot_anim["damage_scale_target_pct"] = percent
+                if live:
+                    slot_anim["damage_scale_pulse"] = 1.0
+            visual_percent = _ease_visual(slot_anim.get("damage_scale_visual_pct"), percent, 30.0, dt)
+            slot_anim["damage_scale_visual_pct"] = visual_percent
+            slot_anim["damage_scale_pulse"] = max(0.0, float(slot_anim.get("damage_scale_pulse", 0.0)) - max(0.0, dt) * 4.8)
+        else:
+            visual_percent = percent
         label_s = _panel_fit(font_sm, label, cell.width - pad * 2 - max(76, int(86 * scale)))
         value_s = font.render(
             f"{percent:.1f}%" + ("*" if approximate else ""),
@@ -6023,7 +6536,7 @@ def _draw_research_damage_content(card, area: pygame.Rect, font, font_sm, scale:
         card.blit(value_s, (cell.right - pad - value_s.get_width(), cell.y + max(3, pad - 4)))
 
         meter = pygame.Rect(cell.x + pad, cell.y + pad + max(label_s.get_height(), value_s.get_height()) + 4, cell.width - pad * 2, meter_h)
-        _draw_damage_modifier_meter(card, meter, percent if live else 0.0, accent if live else (104, 112, 126), scale)
+        _draw_damage_modifier_meter(card, meter, visual_percent if live else 0.0, accent if live else (104, 112, 126), scale)
 
         factors = list(data.get("factors") or ["BASE"])
         if not live:
@@ -6037,7 +6550,7 @@ def _draw_research_damage_content(card, area: pygame.Rect, font, font_sm, scale:
             factor_y += font_sm.get_height() + 2
 
 
-def _draw_research_untech_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
+def _draw_research_untech_content(card, area: pygame.Rect, font, font_sm, scale: float, dt: float) -> None:
     gap = max(8, int(10 * scale))
     cell_w = (area.width - gap) // 2
     for index, team in enumerate(("P1", "P2")):
@@ -6049,33 +6562,65 @@ def _draw_research_untech_content(card, area: pygame.Rect, font, font_sm, scale:
         pygame.draw.rect(card, (*accent, 110), cell, 1, border_radius=max(4, int(5 * scale)))
         pad = max(8, int(9 * scale))
         counter = max(0, _panel_int(snap.get("hitstun_decay_counter"), 0))
-        loss = max(0, _panel_int(snap.get("hitstun_decay_frames"), 0))
-        remaining = max(0, _panel_int(snap.get("hitstun_untech_remaining"), 0))
-        effective = max(0, _panel_int(snap.get("hitstun_untech_effective_start"), 0))
-        base = max(0, _panel_int(snap.get("hitstun_untech_base_estimate"), 0))
+        target = max(0, _panel_int(snap.get("hitstun_untech_expiry_target", snap.get("hitstun_untech_effective_start")), 0))
+        loss = max(0, _panel_int(snap.get("hitstun_untech_latched_loss", snap.get("hitstun_decay_frames")), 0)) if target > 0 else max(0, _panel_int(snap.get("hitstun_decay_frames"), 0))
+        elapsed = max(0, min(target, _panel_int(snap.get("hitstun_untech_elapsed"), 0))) if target > 0 else 0
+        base = max(target, _panel_int(snap.get("hitstun_untech_base_estimate"), 0))
+        generation = max(0, _panel_int(snap.get("hitstun_untech_generation"), 0))
+        active = bool(snap.get("hitstun_untech_active", False))
+        expired = bool(snap.get("hitstun_untech_expired", False))
         cantukemi = bool(snap.get("hitstun_cantukemi", False))
+        approximate = bool(snap.get("hitstun_untech_approximate", False))
+
+        slot_anim = _get_slot_anim(slot or f"{team}-C1")
+        signature = (generation, base, target, loss, cantukemi)
+        slot_anim["hs_visual_signature"] = signature
+        slot_anim["hs_visual_pulse"] = 0.0
+
         name = _compact_trim(str(snap.get("name") or slot or "---"), 15)
         header = font_sm.render(f"{team}  {name}", True, accent)
-        value_text = "NO TECH" if cantukemi else (f"{remaining}/~{base}F" if base > 0 and remaining > 0 else f"DECAY -{loss}F")
-        value = font.render(value_text, True, (235, 91, 108) if cantukemi else (232, 240, 248))
+        remaining_frames = max(0, target - elapsed) if target > 0 else 0
+        if cantukemi:
+            value_text = "NO TECH"
+            value_color = (235, 91, 108)
+        elif target > 0:
+            value_text = f"{remaining_frames}/{target}F"
+            value_color = (151, 164, 184) if expired else (232, 240, 248)
+        else:
+            value_text = f"DECAY -{loss}F"
+            value_color = (232, 240, 248)
+        value = font.render(value_text, True, value_color)
         card.blit(header, (cell.x + pad, cell.y + pad))
         card.blit(value, (cell.right - pad - value.get_width(), cell.y + max(3, pad - 4)))
+
         bar = pygame.Rect(cell.x + pad, cell.y + pad + max(header.get_height(), value.get_height()) + 5, cell.width - pad * 2, max(8, int(9 * scale)))
         pygame.draw.rect(card, (24, 34, 47), bar, border_radius=3)
-        if base > 0 and not cantukemi:
-            eff = max(0, min(base, effective if effective > 0 else base - loss))
-            rem = max(0, min(eff, remaining))
-            eff_w = int(round(bar.width * eff / float(base)))
-            rem_w = int(round(bar.width * rem / float(base)))
-            if eff_w > 0:
-                pygame.draw.rect(card, (72, 82, 96), (bar.x, bar.y, eff_w, bar.height), border_radius=3)
-            if rem_w > 0:
-                pygame.draw.rect(card, (122, 183, 198), (bar.x, bar.y, rem_w, bar.height), border_radius=3)
-            if eff_w < bar.width:
-                pygame.draw.rect(card, (235, 91, 108), (bar.x + eff_w, bar.y, bar.width - eff_w, bar.height), border_radius=3)
-        detail = _panel_fit(font_sm, f"QUALIFYING COUNT {counter}   LOSS -{loss}F   FLOOR 4F", cell.width - pad * 2)
-        card.blit(detail, (cell.x + pad, bar.bottom + 5))
+        if target > 0 and not cantukemi:
+            denominator = max(1, base, target)
+            target_w = max(1, min(bar.width, int(round(bar.width * target / float(denominator)))))
+            visual_elapsed = _hs_visual_elapsed(slot_anim, generation, elapsed, target, dt)
+            visual_remaining = max(0.0, float(target) - visual_elapsed)
+            exact_remaining = max(0, target - elapsed)
+            fill_w = max(0, min(target_w, int(round(bar.width * visual_remaining / float(denominator)))))
+            exact_w = max(0, min(target_w, int(round(bar.width * exact_remaining / float(denominator)))))
+            pygame.draw.rect(card, (72, 82, 96), (bar.x, bar.y, target_w, bar.height), border_radius=3)
+            if target_w < bar.width:
+                pygame.draw.rect(card, (235, 91, 108), (bar.x + target_w, bar.y, bar.width - target_w, bar.height), border_radius=3)
+            if fill_w > 0:
+                pygame.draw.rect(card, (122, 183, 198), (bar.x, bar.y, fill_w, bar.height), border_radius=3)
+            pygame.draw.line(card, (238, 218, 224), (bar.x + target_w, bar.y - 1), (bar.x + target_w, bar.bottom), 1)
+            if active and elapsed < target:
+                lead_x = bar.x + max(0, min(target_w - 1, exact_w))
+                pygame.draw.line(card, (218, 246, 252), (lead_x, bar.y - 2), (lead_x, bar.bottom + 1), 1)
 
+        raw_prefix = "~" if approximate and base > 0 else ""
+        raw_text = f"RAW {raw_prefix}{base}F" if base > 0 else "RAW --"
+        detail = _panel_fit(
+            font_sm,
+            f"{raw_text}   DECAY -{loss}F   COUNT {counter}   FLOOR 4F",
+            cell.width - pad * 2,
+        )
+        card.blit(detail, (cell.x + pad, bar.bottom + 5))
 
 def _draw_research_meter_content(card, area: pygame.Rect, font, font_sm, scale: float) -> None:
     gap = max(8, int(10 * scale))
@@ -6323,7 +6868,7 @@ def _draw_research_attack_content(card, area: pygame.Rect, font, font_sm, scale:
             line_y += font_sm.get_height() + 3
 
 
-def _draw_research_dock(screen, font, font_sm, scale: float, panel: str) -> None:
+def _draw_research_dock(screen, font, font_sm, scale: float, panel: str, dt: float) -> None:
     rect = _research_dock_geometry(screen, scale, panel)
     title, accent = _research_dock_title(panel)
     card = _draw_research_shell(screen, rect, title, accent, font_sm)
@@ -6331,9 +6876,9 @@ def _draw_research_dock(screen, font, font_sm, scale: float, panel: str) -> None
     pad = max(9, int(10 * scale))
     area = pygame.Rect(pad, title_h + 2, rect.width - pad * 2, rect.height - title_h - pad)
     if panel == "damage":
-        _draw_research_damage_content(card, area, font, font_sm, scale)
+        _draw_research_damage_content(card, area, font, font_sm, scale, dt)
     elif panel == "untech":
-        _draw_research_untech_content(card, area, font, font_sm, scale)
+        _draw_research_untech_content(card, area, font, font_sm, scale, dt)
     elif panel == "meter":
         _draw_research_meter_content(card, area, font, font_sm, scale)
     elif panel == "red":
@@ -6343,10 +6888,10 @@ def _draw_research_dock(screen, font, font_sm, scale: float, panel: str) -> None
     screen.blit(card, rect.topleft)
 
 
-def _draw_research_panels(screen, font, font_sm, scale: float, control=None) -> None:
+def _draw_research_panels(screen, font, font_sm, scale: float, control=None, dt: float = 1.0 / 60.0) -> None:
     panel = _research_dock_active_panel(control)
     if panel is not None:
-        _draw_research_dock(screen, font, font_sm, scale, panel)
+        _draw_research_dock(screen, font, font_sm, scale, panel, dt)
 
 def _draw_live_interaction_ribbon(screen, font, font_sm, scale: float, dt: float) -> None:
     life = max(0.0, float(_interaction_ribbon.get("life") or 0.0) - dt * 0.72)
@@ -6971,7 +7516,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     untech_header_h = max(font_sm.get_height(), int(12 * scale))
     untech_row_h = max(font_sm.get_height() + 4, int(17 * scale))
     damage_scale_height = damage_scale_header_h + damage_scale_row_h * 2 + damage_scale_gap
-    untech_scale_height = untech_header_h + untech_row_h
+    untech_scale_height = untech_header_h + untech_row_h * 2 + max(2, int(3 * scale))
     damage_scale_layout_extra = damage_scale_height + max(3, int(4 * scale)) if show_damage_inline else 0
     untech_scale_layout_extra = untech_scale_height + max(3, int(4 * scale)) if show_untech_inline else 0
     scaling_layout_extra = damage_scale_layout_extra + untech_scale_layout_extra
@@ -7316,10 +7861,10 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     if input_signature != previous_input_signature:
         if previous_input_signature:
             team_anim["input_history_prev"] = [dict(chip) for chip in input_chips[1:]]
-            team_anim["input_history_slide"] = 0.56
+            team_anim["input_history_slide"] = 0.28
         team_anim["input_history_signature"] = input_signature
     team_anim["input_history_current"] = [dict(chip) for chip in input_chips]
-    team_anim["input_history_slide"] = _approach(float(team_anim.get("input_history_slide", 0.0)), 0.0, 6.8, dt)
+    team_anim["input_history_slide"] = _approach(float(team_anim.get("input_history_slide", 0.0)), 0.0, 22.0, dt)
     _draw_compact_input_history(
         screen,
         font_sm,
@@ -7462,6 +8007,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
             damage_scale_y,
             info_right,
             scale,
+            dt,
         )
     if show_untech_inline:
         _draw_compact_untech_scaling_row(
@@ -7473,6 +8019,7 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
             untech_scale_y,
             info_right,
             scale,
+            dt,
         )
 
     if control is None or getattr(control, "show_tag_card", True):
@@ -7539,7 +8086,7 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt, control=None) -> None:
     if HUD_LAYOUT_MODE != "compact":
         if core_visible:
             _draw_overlay_detail(screen, font, font_sm, slots, scale, dt)
-        _draw_research_panels(screen, font, font_sm, scale, control)
+        _draw_research_panels(screen, font, font_sm, scale, control, dt)
         return
 
     if core_visible:
@@ -7553,7 +8100,7 @@ def draw_overlay(screen, font, font_sm, slots, scale, dt, control=None) -> None:
             _draw_live_interaction_ribbon(screen, font, font_sm, scale, dt)
         _tick_combo_ledgers(dt)
     else:
-        _draw_research_panels(screen, font, font_sm, scale, control)
+        _draw_research_panels(screen, font, font_sm, scale, control, dt)
 
 
 # ---------------------------------------------------------------------------
@@ -7568,6 +8115,7 @@ class HudRenderer:
         self.font = make_font(BASE_FONT_SIZE, bold=True)
         self.font_sm = make_font(int(BASE_FONT_SIZE * 0.78), bold=False)
         self._hud_was_visible = False
+        self._last_dt = 1.0 / 60.0
 
     def on_resize(self, w: int, h: int) -> None:
         if w <= 0 or h <= 0:
@@ -7581,8 +8129,10 @@ class HudRenderer:
     def update(self, dt: float, control=None) -> None:
         global _frame, _punish_overlay, _timing_engine_payload
         _frame += 1
+        self._last_dt = max(1.0 / 240.0, min(0.10, float(dt or (1.0 / 60.0))))
 
         new_slots = read_slot_data()
+        _merge_realtime_inputs(new_slots, read_realtime_input_data())
         punish_data = new_slots.get("_punish_trainer") if isinstance(new_slots, dict) else None
         timing_data = new_slots.get("_timing_engine") if isinstance(new_slots, dict) else None
         _punish_overlay = dict(punish_data) if isinstance(punish_data, dict) else {}
@@ -7622,7 +8172,7 @@ class HudRenderer:
         elif not hud_visible:
             self._hud_was_visible = False
 
-        draw_overlay(screen, self.font, self.font_sm, _display_slots, self.scale, 1 / 60.0, control)
+        draw_overlay(screen, self.font, self.font_sm, _display_slots, self.scale, self._last_dt, control)
         if hud_visible:
             _draw_punish_countdown(screen, self.scale)
 
@@ -7672,6 +8222,7 @@ def main() -> None:
         _frame += 1
 
         new_slots = read_slot_data()
+        _merge_realtime_inputs(new_slots, read_realtime_input_data())
         punish_data = new_slots.get("_punish_trainer") if isinstance(new_slots, dict) else None
         _punish_overlay = dict(punish_data) if isinstance(punish_data, dict) else {}
 
