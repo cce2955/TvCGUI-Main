@@ -116,9 +116,9 @@ def test_compact_row_names_the_native_clock_and_only_untech_can_show_decay():
     end = source.index("\ndef _research_dock_active_panel", start)
     body = source[start:end]
     assert 'clock_source = str(contact_clock.get("clock_source") or "hitstun")' in body
-    assert 'left_text = "HITSTUN"' in body
-    assert 'left_text = f"UNTECH -{loss}F"' in body
-    assert 'clock_source == "untech" and loss > 0' in body
+    assert 'hit_label = "HS"' in body
+    assert 'hit_label = f"AIR HS -{loss}" if loss > 0 else "AIR HS"' in body
+    assert 'lost=(loss if clock_source == "untech" else 0)' in body
 
 
 def test_native_renderer_clock_pauses_when_game_counter_holds_and_resets_on_new_hit():

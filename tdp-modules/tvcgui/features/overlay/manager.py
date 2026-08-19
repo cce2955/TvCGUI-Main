@@ -458,6 +458,15 @@ class HudOverlayManager:
             return
 
         previous_sample = self._realtime_latest_sample_by_slot.get(slot)
+        try:
+            previous_action_id = int((previous_sample or {}).get("action_id", -1)) & 0x7FFF
+        except Exception:
+            previous_action_id = -1
+        try:
+            current_action_id = int(sample.get("action_id", 0) or 0) & 0x7FFF
+        except Exception:
+            current_action_id = 0
+        action_changed = previous_sample is None or current_action_id != previous_action_id
         self._realtime_latest_sample_by_slot[slot] = dict(sample)
 
         previous_held = self._input_bridge_last_held.get(slot)
@@ -473,7 +482,9 @@ class HudOverlayManager:
             int(sample.get("decay_counter", 0) or 0),
             int(sample.get("state_flags_6c", 0) or 0) & 0xFFFFFFFF,
             int(sample.get("current_hp", 0) or 0),
+            int(sample.get("current_meter", 0) or 0),
             int(sample.get("action_id", 0) or 0),
+            int(sample.get("action_frame", 0) or 0),
             bool(sample.get("point_active", False)),
         )
         combat_changed = self._input_bridge_last_combat.get(slot) != combat_key
@@ -487,8 +498,12 @@ class HudOverlayManager:
             "pressed": pressed,
             "released": released,
             "sample_ns": sample_ns,
+            "base": int(sample.get("base", 0) or 0),
+            "char_id": int(sample.get("char_id", 0) or 0),
             "current_hp": int(sample.get("current_hp", 0) or 0),
+            "current_meter": int(sample.get("current_meter", 0) or 0),
             "action_id": int(sample.get("action_id", 0) or 0),
+            "action_frame": max(0, int(sample.get("action_frame", 0) or 0)),
             "blockstun_remaining": max(0, int(sample.get("blockstun_remaining", 0) or 0)),
             "hitstun_remaining": max(0, int(sample.get("hitstun_remaining", 0) or 0)),
             "untech_remaining": max(0, int(sample.get("untech_remaining", 0) or 0)),
@@ -502,8 +517,20 @@ class HudOverlayManager:
             if combat_changed:
                 self._emit_realtime_hs_contact(slot, sample, previous_sample)
                 self._emit_realtime_blockstun_contact(slot, sample, previous_sample)
-            state = self._input_bridge_slots.setdefault(slot, {"latest": {}, "samples": []})
+            state = self._input_bridge_slots.setdefault(slot, {"latest": {}, "samples": [], "actions": []})
             state["latest"] = dict(event)
+            if action_changed:
+                actions = state.setdefault("actions", [])
+                actions.append({
+                    "seq": seq,
+                    "sample_ns": sample_ns,
+                    "base": int(sample.get("base", 0) or 0),
+                    "char_id": int(sample.get("char_id", 0) or 0),
+                    "action_id": current_action_id,
+                    "action_frame": max(0, int(sample.get("action_frame", 0) or 0)),
+                    "state_flags_6c": int(sample.get("state_flags_6c", 0) or 0) & 0xFFFFFFFF,
+                })
+                del actions[:-24]
             if input_changed:
                 samples = state.setdefault("samples", [])
                 samples.append(dict(event))
@@ -549,7 +576,7 @@ class HudOverlayManager:
             return {}
         # Keep the realtime stun transport intentionally tiny.
         keys = (
-            "seq", "sample_ns", "current_hp", "action_id",
+            "seq", "sample_ns", "base", "char_id", "current_hp", "current_meter", "action_id", "action_frame",
             "blockstun_remaining", "hitstun_remaining", "untech_remaining",
             "impact_freeze_remaining", "fighter_combo_count", "decay_counter",
             "state_flags_6c", "point_active",
@@ -570,7 +597,10 @@ class HudOverlayManager:
                 if self._stun_bridge_stop and not self._stun_bridge_dirty:
                     return
                 slots = {
-                    slot: {"latest": self._stun_slot_latest(state)}
+                    slot: {
+                        "latest": self._stun_slot_latest(state),
+                        "actions": [dict(item) for item in state.get("actions", ())[-24:]],
+                    }
                     for slot, state in self._input_bridge_slots.items()
                 }
                 hs_teams = {
@@ -795,6 +825,24 @@ class HudOverlayManager:
                 "profile_resolved_label":   snap.get("profile_resolved_label"),
                 "profile_live_active":      bool(snap.get("profile_live_active", False)),
                 "move_label_source":        snap.get("move_label_source"),
+                # Preserve scanner/profile flags for the diagnostic MOVES row.
+                # The native realtime action chooses *when* the event appears;
+                # these fields only enrich that already-created history chip.
+                "move_metadata_action_id":  int(cur_anim or 0),
+                "move_kind":                matched_move.get("kind") if isinstance(matched_move, dict) else None,
+                "move_invuln":              matched_move.get("invuln") if isinstance(matched_move, dict) else None,
+                "move_protection":          (matched_move.get("armor_probe") or matched_move.get("guard_point") or matched_move.get("armor")) if isinstance(matched_move, dict) else None,
+                "move_cancel_probe":        matched_move.get("cancel_probe") if isinstance(matched_move, dict) else None,
+                "move_custom_cancel_window": matched_move.get("custom_cancel_window") if isinstance(matched_move, dict) else None,
+                "move_baroque_probe":       matched_move.get("baroque_probe") if isinstance(matched_move, dict) else None,
+                "move_jump_cancel":         bool(
+                    isinstance(matched_move, dict) and (
+                        matched_move.get("jump_cancel")
+                        or matched_move.get("jump_cancelable")
+                        or matched_move.get("jump_cancellable")
+                        or matched_move.get("jump_cancel_window")
+                    )
+                ),
                 "profile_label_override":   snap.get("profile_label_override", False),
                 "baroque_ready_local":    snap.get("baroque_ready_local", False),
                 "baroque_red_pct_max":    snap.get("baroque_red_pct_max", 0.0),
@@ -812,6 +860,7 @@ class HudOverlayManager:
                 "realtime_sample_ns":     int(input_packet.get("sample_ns", 0) or 0),
                 "realtime_current_hp":    int(input_packet.get("current_hp", snap.get("cur") or 0) or 0),
                 "realtime_action_id":     int(input_packet.get("action_id", cur_anim or 0) or 0),
+                "realtime_action_frame":  max(0, int(input_packet.get("action_frame", 0) or 0)),
                 "realtime_hitstun_remaining": max(0, int(input_packet.get("hitstun_remaining", 0) or 0)),
                 "realtime_untech_remaining": max(0, int(input_packet.get("untech_remaining", 0) or 0)),
                 "realtime_fighter_combo_count": max(0, int(input_packet.get("fighter_combo_count", 0) or 0)),

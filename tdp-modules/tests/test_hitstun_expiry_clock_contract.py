@@ -62,19 +62,16 @@ def test_realtime_sampler_snapshot_contains_hs_fields_without_expanding_read_spa
     assert "state_flags_6c = blob_u32(STATE_FLAGS_6C_OFF)" in source
 
 
-def test_renderer_counts_down_and_uses_smooth_trailing_drain():
+def test_renderer_counts_down_from_native_remaining_without_wall_clock_smoothing():
     source = (ROOT / "tvcgui/features/overlay/hud_renderer.py").read_text(encoding="utf-8")
     start = source.index("def _draw_compact_untech_scaling_row(")
     end = source.index("\ndef _research_dock_active_panel", start)
     compact = source[start:end]
-    assert 'right_text = f"{remaining_frames}/{target}F"' in compact
-    assert "visual_elapsed = _hs_visual_elapsed(slot_anim, generation, elapsed, target, dt)" in compact
-    assert "visual_remaining = max(0.0, float(target) - visual_elapsed)" in compact
-    assert "gauge_w * visual_remaining" in compact
-    assert "gauge_w * exact_remaining" in compact
-    assert "lead_x = gauge.x + max(0, min(target_w - 1, exact_w))" in compact
+    assert "remaining = max(0, target - elapsed) if target > 0 else 0" in compact
+    assert 'hit_value = f"{remaining}/{target}"' in compact
+    assert 'draw_clock_cell(hit_cell, hit_label, hit_value, hit_color, remaining, target' in compact
+    assert "_hs_visual_elapsed(" not in compact
     assert "hitstun_untech_generation" in compact
-
 
 def test_hs_visual_geometry_is_exactly_game_frame_locked():
     source = (ROOT / "tvcgui/features/overlay/hud_renderer.py").read_text(encoding="utf-8")
@@ -122,10 +119,10 @@ def test_renderer_draws_ordinary_hitstun_even_when_decay_rule_is_off():
     start = source.index("def _draw_compact_untech_scaling_row(")
     end = source.index("\ndef _research_dock_active_panel", start)
     compact = source[start:end]
-    assert "if target > 0 and live and not cantukemi:" in compact
+    assert 'elif live and target > 0:' in compact
     assert 'if clock_source == "hitstun":' in compact
-    assert 'left_text = "HITSTUN"' in compact
-    assert 'left_text = f"UNTECH -{loss}F"' in compact
+    assert 'hit_label = "HS"' in compact
+    assert 'hit_label = f"AIR HS -{loss}" if loss > 0 else "AIR HS"' in compact
 
 
 def test_renderer_red_tail_uses_loss_latched_to_current_hit_generation():

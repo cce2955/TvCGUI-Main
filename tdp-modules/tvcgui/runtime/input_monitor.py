@@ -141,6 +141,7 @@ def read_overlay_input_packet(
             "pressed": 0,
             "released": 0,
             "current_hp": 0,
+            "current_meter": 0,
             "action_id": 0,
             "action_frame": 0,
             "blockstun_remaining": 0,
@@ -175,6 +176,10 @@ def read_overlay_input_packet(
 
         char_id = blob_u32(OFF_CHAR_ID)
         current_hp = blob_u32(0x28)
+        # Team meter is owned by the fixed C1 team bank at +0x4C. It is
+        # already inside this same 17 KB fighter snapshot, so exposing it on
+        # the realtime lane costs no additional Dolphin/process-memory read.
+        current_meter = blob_u32(0x4C) if label.endswith("-C1") else 0
         action_frame_raw = blob_u32(ACTION_FRAME_OFF)
         action_id = blob_u32(ACTION_OFF) & 0x7FFF
         blockstun_remaining = blob_u32(RUNTIME_BLOCKSTUN_REMAINING_OFF)
@@ -211,11 +216,13 @@ def read_overlay_input_packet(
         if fighter_blob and len(fighter_blob) >= (ACTION_OFF - OFF_CHAR_ID) + 4:
             char_id = struct.unpack_from(">I", fighter_blob, 0)[0]
             current_hp = struct.unpack_from(">I", fighter_blob, 0x28 - OFF_CHAR_ID)[0]
+            current_meter = struct.unpack_from(">I", fighter_blob, 0x4C - OFF_CHAR_ID)[0] if label.endswith("-C1") else 0
             action_frame_raw = struct.unpack_from(">I", fighter_blob, ACTION_FRAME_OFF - OFF_CHAR_ID)[0]
             action_id = struct.unpack_from(">I", fighter_blob, ACTION_OFF - OFF_CHAR_ID)[0] & 0x7FFF
         else:
             char_id = _read_u32(base + OFF_CHAR_ID)
             current_hp = _read_u32(base + 0x28)
+            current_meter = _read_u32(base + 0x4C) if label.endswith("-C1") else 0
             action_frame_raw = _read_u32(base + ACTION_FRAME_OFF)
             action_id = _read_u32(base + ACTION_OFF) & 0x7FFF
 
@@ -250,6 +257,7 @@ def read_overlay_input_packet(
         "action_id": action_id,
         "action_frame": action_frame,
         "current_hp": current_hp,
+        "current_meter": current_meter,
         "blockstun_remaining": blockstun_remaining,
         "hitstun_remaining": hitstun_remaining,
         "untech_remaining": untech_remaining,

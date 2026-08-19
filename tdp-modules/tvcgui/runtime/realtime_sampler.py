@@ -40,9 +40,7 @@ class RealtimeCombatSampler:
         self._samples_by_slot: dict[str, list[dict]] = {}
         self._targets: dict[str, int] = {}
         self._latest_by_slot: dict[str, dict] = {}
-        self._raw_state_by_slot: dict[
-            str, tuple[int, int, int, int, int, int, int, int, bool, int, int, int, int]
-        ] = {}
+        self._raw_state_by_slot: dict[str, tuple] = {}
         self._listeners: list[Callable] = []
         self._lock = threading.RLock()
         self._stop = threading.Event()
@@ -98,6 +96,7 @@ class RealtimeCombatSampler:
         action_id = int(packet.get("action_id", 0) or 0) & 0x7FFF
         action_frame = max(0, int(packet.get("action_frame", 0) or 0))
         current_hp = int(packet.get("current_hp", 0) or 0)
+        current_meter = max(0, int(packet.get("current_meter", 0) or 0))
         blockstun_remaining = max(0, int(packet.get("blockstun_remaining", 0) or 0))
         hitstun_remaining = max(0, int(packet.get("hitstun_remaining", 0) or 0))
         untech_remaining = max(0, int(packet.get("untech_remaining", 0) or 0))
@@ -122,6 +121,7 @@ class RealtimeCombatSampler:
                 previous_action = action_id
                 previous_action_frame = action_frame
                 previous_hp = current_hp
+                previous_meter = current_meter
                 previous_blockstun = blockstun_remaining
                 previous_hitstun = hitstun_remaining
                 previous_combo = combo_count
@@ -139,6 +139,7 @@ class RealtimeCombatSampler:
                     previous_action,
                     previous_action_frame,
                     previous_hp,
+                    previous_meter,
                     previous_blockstun,
                     previous_hitstun,
                     previous_combo,
@@ -158,6 +159,7 @@ class RealtimeCombatSampler:
                 previous is None or action_frame != int(previous_action_frame)
             )
             hp_changed = previous is None or current_hp != int(previous_hp)
+            meter_changed = previous is None or current_meter != int(previous_meter)
             blockstun_changed = (
                 previous is None or blockstun_remaining != int(previous_blockstun)
             )
@@ -179,6 +181,7 @@ class RealtimeCombatSampler:
                 action_id,
                 action_frame,
                 current_hp,
+                current_meter,
                 blockstun_remaining,
                 hitstun_remaining,
                 combo_count,
@@ -196,6 +199,7 @@ class RealtimeCombatSampler:
                 or fresh_released
                 or action_changed
                 or hp_changed
+                or meter_changed
                 or blockstun_changed
                 or hitstun_changed
                 or combo_changed
@@ -225,6 +229,7 @@ class RealtimeCombatSampler:
                 "action_id": action_id,
                 "action_frame": action_frame,
                 "current_hp": current_hp,
+                "current_meter": current_meter,
                 "blockstun_remaining": blockstun_remaining,
                 "hitstun_remaining": hitstun_remaining,
                 "untech_remaining": untech_remaining,

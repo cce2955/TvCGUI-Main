@@ -16,13 +16,14 @@ def test_stun_clock_identity_colors_are_distinct_and_named():
 
 def test_hitstun_and_untech_text_and_fill_share_their_identity_color():
     src = _source()
-    assert 'value_color = STUN_CLOCK_UNTECH_COLOR if clock_source == "untech" else STUN_CLOCK_HIT_COLOR' in src
-    assert 'fill_color = STUN_CLOCK_UNTECH_COLOR if clock_source == "untech" else STUN_CLOCK_HIT_COLOR' in src
-    assert 'head_color = STUN_CLOCK_UNTECH_HEAD if clock_source == "untech" else STUN_CLOCK_HIT_HEAD' in src
+    assert 'hit_color = STUN_CLOCK_HIT_COLOR' in src
+    assert 'hit_color = STUN_CLOCK_UNTECH_COLOR' in src
+    assert 'hit_head = STUN_CLOCK_UNTECH_HEAD if clock_source == "untech" else STUN_CLOCK_HIT_HEAD' in src
+    assert 'draw_clock_cell(hit_cell, hit_label, hit_value, hit_color' in src
 
 
 def test_blockstun_text_fill_and_marker_are_orange():
     src = _source()
     assert "block_color = STUN_CLOCK_BLOCK_COLOR if block_remaining > 0" in src
-    assert "STUN_CLOCK_BLOCK_COLOR," in src
-    assert "STUN_CLOCK_BLOCK_HEAD," in src
+    assert 'draw_clock_cell(block_cell, "BS", block_value, block_color' in src
+    assert 'head_color=STUN_CLOCK_BLOCK_HEAD' in src

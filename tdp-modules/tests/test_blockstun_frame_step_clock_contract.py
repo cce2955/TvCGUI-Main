@@ -100,22 +100,23 @@ def test_renderer_blockstun_clock_is_native_and_never_wall_clock_driven():
     assert reset["generation"] != first["generation"]
 
 
-def test_stun_panel_renders_second_persona_style_blockstun_row():
+def test_stun_panel_renders_hit_and_block_clocks_side_by_side_on_one_rail():
     source = HUD.read_text(encoding="utf-8")
     start = source.index("def _draw_compact_untech_scaling_row(")
     end = source.index("\ndef _research_dock_active_panel", start)
     body = source[start:end]
-    assert 'font_sm.render("STUN CLOCKS"' in body
-    assert 'block_left = "BLOCKSTUN"' in body
-    assert 'block_right = f"{block_remaining}/{block_target}F"' in body
-    assert "block_fill_w = max(0, min(block_gauge_w" in body
-    assert "_realtime_blockstun_contact_clock(slot_anim, snap)" in body
+    assert 'font_sm.render("STUN"' in body
+    assert 'hit_cell = pygame.Rect(' in body
+    assert 'block_cell = pygame.Rect(' in body
+    assert '_realtime_blockstun_contact_clock(slot_anim, snap)' in body
+    assert 'draw_clock_cell(block_cell, "BS", block_value, block_color' in body
 
 
-def test_stun_panel_layout_reserves_two_rows():
+def test_stun_panel_layout_reserves_one_compact_rail():
     source = HUD.read_text(encoding="utf-8")
-    assert "untech_scale_height = untech_header_h + untech_row_h * 2" in source
-
+    assert "compact_metric_rail_h = max(font_sm.get_height() + 4" in source
+    assert "untech_scale_height = compact_metric_rail_h" in source
+    assert "untech_row_h * 2" not in source
 
 def test_blockstun_contact_lifetime_is_native_zero_driven_not_wall_clock_ttl():
     manager_source = MANAGER.read_text(encoding="utf-8")

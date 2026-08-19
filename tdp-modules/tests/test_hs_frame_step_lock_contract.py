@@ -53,6 +53,6 @@ def test_compact_bar_fill_uses_exact_native_elapsed():
     start = source.index("def _draw_compact_untech_scaling_row(")
     end = source.index("\ndef _research_dock_active_panel", start)
     body = source[start:end]
-    assert "visual_elapsed = _hs_visual_elapsed(slot_anim, generation, elapsed, target, dt)" in body
-    assert "visual_remaining = max(0.0, float(target) - visual_elapsed)" in body
-    assert "exact_remaining = max(0, target - elapsed)" in body
+    assert "remaining = max(0, target - elapsed) if target > 0 else 0" in body
+    assert 'draw_clock_cell(hit_cell, hit_label, hit_value, hit_color, remaining, target' in body
+    assert "_hs_visual_elapsed(" not in body
