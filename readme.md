@@ -43,7 +43,7 @@
 
 The Download for Continuo is through the release page
 
-- https://github.com/cce2955/TvCGUI-Main/releases
+- https://github.com/cce2955/TvC-Continuo/releases
 
 Download it through here, this page is just for developers who want to fork or PR
 
@@ -101,7 +101,7 @@ Start the game and enter training mode or a match.
 ### 3. Run Continuo
 
 ```bash
-open TvCGui.exe
+TvCGUI.exe
 ```
 
 ### 4. Use the HUD
