@@ -41,9 +41,12 @@ class MissionMenuCommand:
 
 
 class MissionMenuInputInterpreter:
-    """Interpret Mission Select controls entirely outside Mission Mode.
+    """Interpret Mission Select controls only while Mission Mode is enabled.
 
-    Closed menu:
+    Disabled:
+        All controller input passes through untouched. No gesture state is kept.
+
+    Closed menu while enabled:
         Down, Down, Taunt -> OPEN
 
     Open menu:
@@ -67,6 +70,7 @@ class MissionMenuInputInterpreter:
         self._lock = threading.RLock()
         self._command_sequence = 0
         self._commands: list[MissionMenuCommand] = []
+        self._enabled: bool = False
         self._point_slot_by_team: dict[str, str] = {}
         self._menu_open_by_team: dict[str, bool] = {}
         self._menu_slot_by_team: dict[str, str] = {}
@@ -132,9 +136,12 @@ class MissionMenuInputInterpreter:
             self._menu_slot_by_team.pop(teamtag, None)
 
     def on_sample(self, slot_label: str, sample: dict) -> None:
-        """Consume one realtime sampler packet."""
+        """Consume one realtime sampler packet while Mission Mode is enabled."""
         if not isinstance(sample, dict):
             return
+        with self._lock:
+            if not self._enabled:
+                return
         slot = str(slot_label or sample.get("slot") or "")
         if not slot:
             return
@@ -224,6 +231,31 @@ class MissionMenuInputInterpreter:
 
             state["last_direction"] = direction
             state["last_taunt_held"] = taunt_held
+
+    def set_enabled(self, enabled: bool) -> None:
+        """Enable the Mission Select gesture only while Mission Mode is active.
+
+        Disabling clears all partial gestures and menu ownership so a Down, Down
+        sequence performed during normal play cannot be completed later by a
+        Taunt after Mission Mode is enabled.
+        """
+        with self._lock:
+            enabled = bool(enabled)
+            if self._enabled == enabled:
+                return
+            self._enabled = enabled
+            self._commands.clear()
+            self._menu_open_by_team.clear()
+            self._menu_slot_by_team.clear()
+            for slot in list(self._state_by_slot):
+                self._reset_gesture(slot, keep_edges=False)
+            if not enabled:
+                self._point_slot_by_team.clear()
+
+    @property
+    def enabled(self) -> bool:
+        with self._lock:
+            return bool(self._enabled)
 
     def drain_commands(self) -> list[MissionMenuCommand]:
         with self._lock:

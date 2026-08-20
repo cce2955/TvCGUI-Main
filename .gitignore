@@ -102,3 +102,13 @@ runtime_*_profiles.json
 runtime_*_contacts.csv
 runtime_*_sources.csv
 proj_dump.bin
+
+# Live overlay IPC state
+tdp-modules/data/overlay/hud_input_realtime.json
+tdp-modules/data/overlay/hud_overlay_data.json
+tdp-modules/data/overlay/hud_overlay_data.json.tmp
+
+# Mission session state
+tdp-modules/data/training/mission_mode_state.json
+tdp-modules/data/training/mission_overlay_data.json
+tdp-modules/data/training/mission_progress.json

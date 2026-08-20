@@ -58,6 +58,7 @@ from tvcgui.features.training.mission_mode import (
     mark_mission_complete,
     set_selected_mission_id,
 )
+from tvcgui.features.training.mission_runtime_v2 import MissionRuntimeV2, RuntimeResult
 
 MISSION_MODE_FILE          = user_data_path("training", "mission_mode_state.json")
 MISSION_OVERLAY_FILE       = user_data_path("training", "mission_overlay_data.json")
@@ -471,6 +472,11 @@ class MissionManager:
         self._last_overlay_progress_signature: tuple = ()
         self._last_mode_serialized: str = ""
         self._overlay_write_condition = threading.Condition()
+        self._overlay_file_lock = threading.RLock()
+        self._overlay_publish_seq: int = 0
+        self._last_overlay_file_seq: int = 0
+        self._last_overlay_mission_id: str = ""
+        self._last_overlay_mission_cursor: int = 0
         self._pending_overlay_payload: dict | None = None
         self._overlay_writer_stop = False
         self._overlay_writer_thread = threading.Thread(
@@ -502,6 +508,29 @@ class MissionManager:
             "hp_by_slot": {},
             "damage_events": [],
         }
+        # Mission Runtime V2 owns route/goal evaluation. The large legacy
+        # evaluator remains below only as a no-realtime compatibility fallback.
+        self._mission_runtime_v2 = MissionRuntimeV2()
+
+        # Realtime mission evaluation must not wait for the main GUI frame. The
+        # sampler already produces immutable events off-thread, so this worker
+        # only drains the in-memory ring and advances MissionRuntimeV2. It does
+        # no Dolphin reads and no scanner work. Progress edges are published
+        # directly to the mission overlay file from this lane.
+        self._mission_realtime_lock = threading.RLock()
+        self._mission_realtime_context: dict[str, Any] = {}
+        self._mission_realtime_context_generation: int = 0
+        self._mission_realtime_result: RuntimeResult | None = None
+        self._mission_realtime_result_key: tuple[str, str, str] | None = None
+        self._mission_realtime_result_signature: tuple = ()
+        self._mission_realtime_stop = threading.Event()
+        self._mission_realtime_wake = threading.Event()
+        self._mission_realtime_thread = threading.Thread(
+            target=self._mission_realtime_loop,
+            name="TvCMissionRealtimeEvaluator",
+            daemon=True,
+        )
+        self._mission_realtime_thread.start()
 
     def _load_mission_frame_timings(self) -> dict[tuple[int, int], dict[str, int]]:
         """Load compact startup, active, and hitstun data for prediction.
@@ -554,15 +583,43 @@ class MissionManager:
                     if startup > 0 and active_end >= startup
                     else MISSION_PREDICTION_FALLBACK_ACTIVE,
                 )
+                jump_cancel_fields = (
+                    "jump_cancel",
+                    "jump_cancelable",
+                    "jump_cancellable",
+                    "jump_cancel_window",
+                )
+                jump_cancel_known = any(
+                    field in move and move.get(field) not in (None, "")
+                    for field in jump_cancel_fields
+                )
+                jump_cancel = bool(
+                    move.get("jump_cancel")
+                    or move.get("jump_cancelable")
+                    or move.get("jump_cancellable")
+                    or move.get("jump_cancel_window")
+                )
                 candidate = {
                     "startup": startup or MISSION_PREDICTION_FALLBACK_STARTUP,
                     "active": active,
                     "hitstun": hitstun,
+                    "jump_cancel_known": jump_cancel_known,
+                    "jump_cancel": jump_cancel,
                 }
                 key = (char_id, action_id)
                 existing = timings.get(key)
                 if existing is None or candidate["startup"] < existing["startup"]:
+                    if existing is not None:
+                        candidate["jump_cancel_known"] = bool(
+                            candidate["jump_cancel_known"] or existing.get("jump_cancel_known")
+                        )
+                        candidate["jump_cancel"] = bool(
+                            candidate["jump_cancel"] or existing.get("jump_cancel")
+                        )
                     timings[key] = candidate
+                elif jump_cancel_known:
+                    existing["jump_cancel_known"] = True
+                    existing["jump_cancel"] = bool(existing.get("jump_cancel") or jump_cancel)
         return timings
 
     # ------------------------------------------------------------------
@@ -703,8 +760,13 @@ class MissionManager:
         self._input_sample_provider = provider
 
     def set_menu_input_interpreter(self, interpreter) -> None:
-        """Attach the standalone Mission Select input interpreter."""
+        """Attach Mission Select input and gate it to active Mission Mode."""
         self._menu_input_interpreter = interpreter
+        if interpreter is not None:
+            try:
+                interpreter.set_enabled(bool(self._active_slot))
+            except Exception:
+                pass
         if interpreter is not None and self._selector.get("open"):
             slot = str(self._selector.get("source_slot") or self._active_slot or "")
             if slot:
@@ -720,9 +782,259 @@ class MissionManager:
         returns ``(newest_sequence, events)``. Mission Mode never reads Dolphin
         directly while this provider is attached.
         """
-        self._event_provider = provider if callable(provider) else None
-        self._event_cursor_by_consumer.clear()
-        self._event_state_cursor = 0
+        live_provider = provider if callable(provider) else None
+        live_floor = 0
+        if live_provider is not None:
+            try:
+                live_floor, _events = live_provider(0, None)
+            except TypeError:
+                try:
+                    live_floor, _events = live_provider(0)
+                except Exception:
+                    live_floor = 0
+            except Exception:
+                live_floor = 0
+        live_floor = max(0, int(live_floor or 0))
+        with self._mission_realtime_lock:
+            self._event_provider = live_provider
+            self._event_cursor_by_consumer.clear()
+            self._event_state_cursor = live_floor
+            self._event_state["latest_sequence"] = live_floor
+            # Attaching the realtime source establishes a hard live boundary.
+            # Do not let events collected before Mission Mode was wired donate
+            # inputs/actions to the current attempt.
+            self._runtime["mission_event_floor_sequence"] = live_floor
+            self._mission_runtime_v2.reset_all(live_floor)
+            self._mission_realtime_result = None
+            self._mission_realtime_result_key = None
+            self._mission_realtime_result_signature = ()
+            self._mission_realtime_context_generation += 1
+        self._mission_realtime_wake.set()
+
+    def _set_mission_realtime_context(
+        self,
+        *,
+        route_slot: str,
+        character_name: str,
+        mission_id: str,
+        steps: list,
+        mission_goal: dict,
+        event_floor: int,
+        char_id: int,
+    ) -> tuple[str, str, str]:
+        """Publish immutable mission configuration to the realtime evaluator."""
+        key = (str(route_slot or ""), str(character_name or ""), str(mission_id or ""))
+        context = {
+            "key": key,
+            "route_slot": str(route_slot or ""),
+            "character_name": str(character_name or ""),
+            "mission_id": str(mission_id or ""),
+            "steps": list(steps or []),
+            "goal": dict(mission_goal or {}),
+            "event_floor": max(0, int(event_floor or 0)),
+            "char_id": max(0, int(char_id or 0)),
+        }
+        with self._mission_realtime_lock:
+            previous = dict(self._mission_realtime_context or {})
+            previous_key = tuple(previous.get("key") or ())
+            previous_floor = int(previous.get("event_floor", -1) or -1)
+            if previous_key != key or previous_floor != context["event_floor"]:
+                self._mission_realtime_context_generation += 1
+                self._mission_realtime_result = None
+                self._mission_realtime_result_key = None
+                self._mission_realtime_result_signature = ()
+            self._mission_realtime_context = context
+        self._mission_realtime_wake.set()
+        return key
+
+    def _initial_realtime_result(self, steps: list, event_floor: int) -> RuntimeResult:
+        current_label = None
+        if steps:
+            step = steps[0]
+            if isinstance(step, dict):
+                current_label = str(step.get("display") or step.get("display_label") or "").strip()
+                if not current_label:
+                    current_label = " / ".join(self._step_labels(step))
+            else:
+                current_label = " / ".join(self._step_labels(step))
+        return RuntimeResult(
+            progress_index=0,
+            current_step_label=current_label or None,
+            cleared=False,
+            phase="armed",
+            attempt_id=1,
+            event_floor=max(0, int(event_floor or 0)),
+            event_cursor=max(0, int(event_floor or 0)),
+            buffered_advances=0,
+            restart_count=0,
+            last_restart_reason="",
+        )
+
+    def _realtime_result_for_key(
+        self,
+        key: tuple[str, str, str],
+        steps: list,
+        event_floor: int,
+    ) -> RuntimeResult:
+        with self._mission_realtime_lock:
+            if self._mission_realtime_result_key == key and self._mission_realtime_result is not None:
+                return self._mission_realtime_result
+        return self._initial_realtime_result(steps, event_floor)
+
+    def _allocate_overlay_publish_seq(self) -> int:
+        with self._overlay_file_lock:
+            self._overlay_publish_seq += 1
+            return int(self._overlay_publish_seq)
+
+    def _publish_mission_realtime_result(
+        self,
+        context: dict,
+        result: RuntimeResult,
+    ) -> None:
+        """Push a changed V2 result to the overlay without waiting for GUI update()."""
+        key = tuple(context.get("key") or ())
+        steps = list(context.get("steps") or [])
+        total_steps = len(steps) if steps else 1
+        completed = total_steps if result.cleared else max(0, int(result.progress_index))
+        current_idx = max(0, min(total_steps - 1, int(result.progress_index))) if total_steps else 0
+        signature = (
+            key,
+            completed,
+            current_idx,
+            bool(result.cleared),
+            int(result.attempt_id),
+            int(result.restart_count),
+            str(result.last_restart_reason),
+            result.goal_progress_type,
+            int(result.goal_current_frames),
+            int(result.goal_damage),
+            int(result.goal_hits),
+        )
+        with self._mission_realtime_lock:
+            if signature == self._mission_realtime_result_signature:
+                return
+            packet = dict(self._last_overlay_payload or {})
+
+        # The worker can outrun the first GUI payload by a millisecond. Do not
+        # consume the signature until the matching mission packet exists; the
+        # idle loop will retry this same result once the packet is staged.
+        if not packet.get("active"):
+            return
+        if str(packet.get("active_mission_id") or "") != str(context.get("mission_id") or ""):
+            return
+
+        with self._mission_realtime_lock:
+            if signature == self._mission_realtime_result_signature:
+                return
+            self._mission_realtime_result_signature = signature
+
+        packet.update({
+            "completed_step_count": completed,
+            "confirmed_step_count": completed,
+            "predicted_step_count": 0,
+            "prediction_active": False,
+            "current_step_index": current_idx,
+            "current_step_label": result.current_step_label,
+            "mission_event_cursor": int(result.event_cursor),
+            "mission_buffered_advances": int(result.buffered_advances),
+            "mission_runtime_version": 2,
+            "mission_attempt_id": int(result.attempt_id),
+            "mission_attempt_phase": str(result.phase),
+            "mission_event_floor": int(result.event_floor),
+            "mission_restart_count": int(result.restart_count),
+            "mission_last_restart_reason": str(result.last_restart_reason),
+            "goal_progress_type": result.goal_progress_type,
+            "goal_current_frames": int(result.goal_current_frames),
+            "goal_needed_frames": int(result.goal_needed_frames),
+            "goal_timer_active": bool(result.goal_timer_active),
+            "goal_current_damage": int(result.goal_damage),
+            "goal_needed_damage": int(result.goal_damage_needed),
+            "goal_current_hits": int(result.goal_hits),
+            "goal_max_hits": int(result.goal_max_hits),
+        })
+        publish_seq = self._allocate_overlay_publish_seq()
+        packet["__publish_seq"] = publish_seq
+        self._write_overlay_payload_file(packet)
+
+    def _mission_realtime_loop(self) -> None:
+        """Continuously consume Mission V2 events independently of GUI cadence."""
+        local_generation = -1
+        cursor = 0
+        while not self._mission_realtime_stop.is_set():
+            with self._mission_realtime_lock:
+                provider = self._event_provider
+                context = dict(self._mission_realtime_context or {})
+                generation = int(self._mission_realtime_context_generation)
+
+            if not callable(provider) or not context.get("key"):
+                self._mission_realtime_wake.wait(0.010)
+                self._mission_realtime_wake.clear()
+                continue
+
+            if generation != local_generation:
+                local_generation = generation
+                cursor = max(0, int(context.get("event_floor", 0) or 0))
+                with self._mission_realtime_lock:
+                    self._mission_runtime_v2.reset_all(cursor)
+                    self._mission_runtime_v2.configure(
+                        slot=str(context.get("route_slot") or ""),
+                        character=str(context.get("character_name") or ""),
+                        mission_id=str(context.get("mission_id") or ""),
+                        raw_steps=list(context.get("steps") or []),
+                        goal=dict(context.get("goal") or {}),
+                        event_floor=cursor,
+                        whiff_policy=lambda labels, step: self._step_allows_whiff_confirm(list(labels), step),
+                    )
+
+            try:
+                newest, events = provider(cursor, None)
+            except TypeError:
+                try:
+                    newest, events = provider(cursor)
+                except Exception:
+                    newest, events = cursor, ()
+            except Exception:
+                newest, events = cursor, ()
+
+            newest = max(cursor, int(newest or 0))
+            if not events and newest <= cursor:
+                with self._mission_realtime_lock:
+                    idle_result = self._mission_realtime_result
+                    idle_key = self._mission_realtime_result_key
+                if idle_result is not None and idle_key == tuple(context.get("key") or ()):
+                    self._publish_mission_realtime_result(context, idle_result)
+                self._mission_realtime_wake.wait(0.0015)
+                self._mission_realtime_wake.clear()
+                continue
+
+            char_id_hint = max(0, int(context.get("char_id", 0) or 0))
+
+            def _resolve_action(event: MissionEvent) -> list[str]:
+                event_action = int(getattr(event, "action_id", 0) or 0) & 0x7FFF
+                char_id = char_id_hint or int(getattr(event, "char_id", 0) or 0)
+                return list(self._action_label_candidates(event_action, char_id, snap=None) or [])
+
+            def _jump_cancel_allowed(action_id: int) -> bool:
+                info = self._mission_timing_by_action.get(
+                    (int(char_id_hint or 0), int(action_id or 0) & 0x7FFF)
+                )
+                if not isinstance(info, dict) or not info.get("jump_cancel_known"):
+                    return True
+                return bool(info.get("jump_cancel"))
+
+            with self._mission_realtime_lock:
+                result = self._mission_runtime_v2.consume(
+                    events,
+                    owner_slot=str(context.get("route_slot") or ""),
+                    label_matcher=self._mission_label_matches,
+                    action_label_resolver=_resolve_action,
+                    jump_cancel_checker=_jump_cancel_allowed,
+                    newest_sequence=newest,
+                )
+                self._mission_realtime_result = result
+                self._mission_realtime_result_key = tuple(context.get("key") or ())
+            cursor = max(cursor, int(result.event_cursor))
+            self._publish_mission_realtime_result(context, result)
 
     def _events_for_consumer(
         self,
@@ -971,8 +1283,66 @@ class MissionManager:
 
     def _queue_overlay_payload(self, payload: dict) -> None:
         with self._overlay_write_condition:
-            self._pending_overlay_payload = dict(payload or {})
+            incoming = dict(payload or {})
+            incoming_seq = int(incoming.get("__publish_seq", 0) or 0)
+            pending_seq = int((self._pending_overlay_payload or {}).get("__publish_seq", 0) or 0)
+            if self._pending_overlay_payload is None or incoming_seq >= pending_seq:
+                self._pending_overlay_payload = incoming
             self._overlay_write_condition.notify()
+
+    def _write_overlay_payload_file(self, payload: dict) -> None:
+        """Write one mission payload without allowing an older async state to win.
+
+        Normal unchanged frames may still use the latest-only background writer,
+        but progress edges call this synchronously. The private publish sequence
+        is not serialized into the public mission payload.
+        """
+        packet = dict(payload or {})
+        publish_seq = int(packet.pop("__publish_seq", 0) or 0)
+        mission_id = str(packet.get("active_mission_id") or "")
+        mission_cursor = max(0, int(packet.get("mission_event_cursor", 0) or 0))
+        try:
+            serialized = json.dumps(packet, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        except Exception:
+            return
+        with self._overlay_file_lock:
+            if publish_seq > 0 and publish_seq < int(self._last_overlay_file_seq or 0):
+                return
+            # A GUI frame can begin before the realtime worker advances and
+            # finish afterward. Publish sequence alone would then let the later
+            # stale GUI write roll the mission pips backward. Event cursor is
+            # the actual combat-state freshness authority.
+            if (
+                mission_id
+                and mission_id == self._last_overlay_mission_id
+                and mission_cursor > 0
+                and mission_cursor < int(self._last_overlay_mission_cursor or 0)
+            ):
+                return
+            if serialized == self._last_overlay_serialized and os.path.isfile(MISSION_OVERLAY_FILE):
+                self._last_overlay_file_seq = max(self._last_overlay_file_seq, publish_seq)
+                self._last_overlay_mission_id = mission_id or self._last_overlay_mission_id
+                self._last_overlay_mission_cursor = max(self._last_overlay_mission_cursor, mission_cursor)
+                return
+            try:
+                tmp = f"{MISSION_OVERLAY_FILE}.tmp"
+                os.makedirs(os.path.dirname(MISSION_OVERLAY_FILE), exist_ok=True)
+                with open(tmp, "w", encoding="utf-8") as handle:
+                    handle.write(serialized)
+                os.replace(tmp, MISSION_OVERLAY_FILE)
+                self._last_overlay_serialized = serialized
+                self._last_overlay_file_seq = max(self._last_overlay_file_seq, publish_seq)
+                if mission_id:
+                    if mission_id != self._last_overlay_mission_id:
+                        self._last_overlay_mission_cursor = mission_cursor
+                    else:
+                        self._last_overlay_mission_cursor = max(self._last_overlay_mission_cursor, mission_cursor)
+                    self._last_overlay_mission_id = mission_id
+                elif not packet.get("active"):
+                    self._last_overlay_mission_id = ""
+                    self._last_overlay_mission_cursor = 0
+            except Exception:
+                pass
 
     def _overlay_writer_loop(self) -> None:
         while True:
@@ -983,18 +1353,7 @@ class MissionManager:
                     return
                 payload = self._pending_overlay_payload
                 self._pending_overlay_payload = None
-            try:
-                serialized = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-                if serialized == self._last_overlay_serialized and os.path.isfile(MISSION_OVERLAY_FILE):
-                    continue
-                tmp = f"{MISSION_OVERLAY_FILE}.tmp"
-                os.makedirs(os.path.dirname(MISSION_OVERLAY_FILE), exist_ok=True)
-                with open(tmp, "w", encoding="utf-8") as handle:
-                    handle.write(serialized)
-                os.replace(tmp, MISSION_OVERLAY_FILE)
-                self._last_overlay_serialized = serialized
-            except Exception:
-                pass
+            self._write_overlay_payload_file(payload)
 
     # ------------------------------------------------------------------
     # File writers
@@ -1018,7 +1377,7 @@ class MissionManager:
                 payload = self._augment_payload_with_runtime(payload, snaps)
                 payload["selector_open"] = bool(self._selector["open"])
                 payload["selector_index"] = int(self._selector["selected_index"])
-                payload["selector_hint"] = "Down, Down, Taunt from neutral: Open Mission Select"
+                payload["selector_hint"] = "Mission Mode: Down, Down, Taunt opens Mission Select"
                 payload["selector_controls"] = "Down: Move  Taunt: Select  Mouse still works"
                 payload["scanlines"] = True
 
@@ -1033,11 +1392,18 @@ class MissionManager:
             bool(payload.get("just_cleared", False)),
             int(payload.get("clear_seq", 0) or 0),
         )
-        # Do not time-throttle mission UI changes. The latest-only writer
-        # publishes the newest state and discards stale intermediate payloads.
+        # Progress edges are latency-sensitive. Publish them synchronously so a
+        # busy latest-only writer cannot collapse hit 1, hit 2, hit 3 into one
+        # late catch-up. Unchanged frames still use the background writer.
+        progress_changed = progress_signature != self._last_overlay_progress_signature
         self._last_overlay_progress_signature = progress_signature
         self._last_overlay_write_time = float(getattr(self, "_now", 0.0) or time.time())
-        self._queue_overlay_payload(payload)
+        publish_payload = dict(payload or {})
+        publish_payload["__publish_seq"] = self._allocate_overlay_publish_seq()
+        if progress_changed or force:
+            self._write_overlay_payload_file(publish_payload)
+        else:
+            self._queue_overlay_payload(publish_payload)
 
 
     def write_mode_state(self, *, force: bool = False) -> None:
@@ -1060,6 +1426,10 @@ class MissionManager:
             pass
 
     def close(self) -> None:
+        self._mission_realtime_stop.set()
+        self._mission_realtime_wake.set()
+        if self._mission_realtime_thread.is_alive():
+            self._mission_realtime_thread.join(timeout=1.0)
         with self._overlay_write_condition:
             self._overlay_writer_stop = True
             self._overlay_write_condition.notify_all()
@@ -1082,6 +1452,12 @@ class MissionManager:
             self._restore_meter_refill_overrides()
             self._close_selector()
         self._active_slot = None if disabling else slot_label
+        interpreter = self._menu_input_interpreter
+        if interpreter is not None:
+            try:
+                interpreter.set_enabled(bool(self._active_slot))
+            except Exception:
+                pass
         if self._active_slot:
             self._capture_mission_owner(
                 self._active_slot,
@@ -1550,6 +1926,21 @@ class MissionManager:
                 continue
 
             if kind == MISSION_MENU_OPEN:
+                # Mission Select shortcut is Mission Mode-only. Never let a
+                # global Down, Down, Taunt gesture activate Mission Mode.
+                if not self._active_slot:
+                    try:
+                        interpreter.close_menu(command.teamtag)
+                    except Exception:
+                        pass
+                    continue
+                active_team = "P2" if str(self._active_slot).startswith("P2") else "P1"
+                if command.teamtag != active_team:
+                    try:
+                        interpreter.close_menu(command.teamtag)
+                    except Exception:
+                        pass
+                    continue
                 snap = all_snaps.get(slot)
                 if not isinstance(snap, dict):
                     try:
@@ -1631,6 +2022,7 @@ class MissionManager:
                 from tvcgui.runtime.mission_menu_input import MissionMenuInputInterpreter
 
                 self._menu_input_interpreter = MissionMenuInputInterpreter()
+                self._menu_input_interpreter.set_enabled(bool(self._active_slot))
             except Exception:
                 return
 
@@ -4080,6 +4472,168 @@ class MissionManager:
     def _step_grace_keeps_alive_only(self, step) -> bool:
         return isinstance(step, dict) and bool(step.get("grace_keeps_alive_only", False))
     def _augment_payload_with_runtime(self, payload: dict, snaps_dict: dict) -> dict:
+        """Evaluate Mission Mode from the immutable realtime event stream.
+
+        Route progression, hit confirmation, restart boundaries, jump cancels,
+        Baroque/assist input steps, and the three supported goal mission types
+        are owned by MissionRuntimeV2.  Snapshot evaluation is retained only as
+        a compatibility fallback when no realtime event provider is attached.
+        """
+        if not callable(self._event_provider):
+            return self._augment_payload_with_runtime_legacy(payload, snaps_dict)
+
+        payload = dict(payload or {})
+        slot = str(payload.get("slot") or "")
+        route_slot = str(
+            payload.get("point_slot")
+            or self._mission_owner_slot(snaps_dict)
+            or slot
+            or ""
+        )
+        mission_id = str(payload.get("active_mission_id") or "")
+        character_name = str(payload.get("character") or "")
+        steps = list(payload.get("active_mission_steps") or [])
+        mission_goal = dict(payload.get("active_mission_goal") or {})
+
+        # Setup helpers remain manager-owned because they intentionally write
+        # debug flags. Runtime V2 is read-only with respect to game state.
+        self._sync_meter_refill_mission(payload)
+
+        if not payload.get("active") or not slot or not mission_id or (not steps and not mission_goal):
+            self._mission_runtime_v2.reset_all(
+                int(self._event_state.get("latest_sequence", 0) or 0)
+            )
+            payload.update({
+                "completed_step_count": 0,
+                "confirmed_step_count": 0,
+                "predicted_step_count": 0,
+                "prediction_active": False,
+                "current_step_index": 0,
+                "current_step_label": None,
+                "just_cleared": False,
+                "celebrate_pending": False,
+                "celebrate_token": 0,
+                "mission_runtime_version": 2,
+            })
+            return payload
+
+        newest_stream_sequence = int(self._event_state.get("latest_sequence", 0) or 0)
+        mission_arm_floor = int(
+            self._runtime.get("mission_event_floor_sequence", newest_stream_sequence)
+            or newest_stream_sequence
+        )
+        self._mission_runtime_v2.configure(
+            slot=route_slot,
+            character=character_name,
+            mission_id=mission_id,
+            raw_steps=steps,
+            goal=mission_goal,
+            event_floor=mission_arm_floor,
+            whiff_policy=lambda labels, step: self._step_allows_whiff_confirm(list(labels), step),
+        )
+
+        snap = (snaps_dict or {}).get(route_slot) or {}
+        route_char_id = self._snap_char_id(snap)
+        realtime_key = self._set_mission_realtime_context(
+            route_slot=route_slot,
+            character_name=character_name,
+            mission_id=mission_id,
+            steps=steps,
+            mission_goal=mission_goal,
+            event_floor=mission_arm_floor,
+            char_id=route_char_id,
+        )
+        # The realtime worker owns event consumption. The GUI frame only reads
+        # its newest immutable result, so scanner/render stalls cannot batch
+        # several mission steps together.
+        result = self._realtime_result_for_key(realtime_key, steps, mission_arm_floor)
+
+        def _clear_v2(final_count: int, final_idx: int, final_label: str | None) -> dict:
+            if character_name and mission_id:
+                progress = load_progress()
+                progress = mark_mission_complete(progress, character_name, mission_id)
+                save_progress(progress)
+
+            next_seq = int(self._runtime.get("clear_seq", 0) or 0) + 1
+            next_token = int(self._runtime.get("celebrate_token", 0) or 0) + 1
+            self._release_completed_mission_overrides((slot, character_name, mission_id))
+
+            cp = build_overlay_payload(character_name or "")
+            cp.update({
+                "active": True,
+                "slot": slot,
+                "point_slot": route_slot,
+                "just_cleared": True,
+                "clear_seq": next_seq,
+                "celebrate_pending": True,
+                "celebrate_token": next_token,
+                "completed_step_count": final_count,
+                "confirmed_step_count": final_count,
+                "predicted_step_count": 0,
+                "prediction_active": False,
+                "current_step_index": final_idx,
+                "current_step_label": final_label,
+                "mission_runtime_version": 2,
+                "mission_attempt_id": result.attempt_id,
+                "mission_restart_count": result.restart_count,
+                "mission_last_restart_reason": result.last_restart_reason,
+                "mission_event_cursor": result.event_cursor,
+            })
+            self._runtime = self._fresh_runtime(
+                slot=slot,
+                mission_id=mission_id,
+                clear_seq=next_seq,
+                celebrate_token=next_token,
+                celebrate_pending=True,
+                celebrate_acked_token=0,
+            )
+            with self._mission_realtime_lock:
+                self._mission_runtime_v2.rearm(result.event_cursor)
+            return cp
+
+        total_steps = len(steps) if steps else 1
+        if result.cleared:
+            final_idx = max(0, total_steps - 1)
+            final_label = result.current_step_label
+            if steps:
+                final_step = steps[final_idx]
+                if isinstance(final_step, dict):
+                    final_label = str(final_step.get("display") or "").strip() or " / ".join(self._step_labels(final_step))
+                else:
+                    final_label = " / ".join(self._step_labels(final_step))
+            return _clear_v2(total_steps, final_idx, final_label)
+
+        payload.update({
+            "just_cleared": False,
+            "clear_seq": int(self._runtime.get("clear_seq", 0) or 0),
+            "celebrate_pending": bool(self._runtime.get("celebrate_pending", False)),
+            "celebrate_token": int(self._runtime.get("celebrate_token", 0) or 0),
+            "completed_step_count": int(result.progress_index),
+            "confirmed_step_count": int(result.progress_index),
+            "predicted_step_count": 0,
+            "prediction_active": False,
+            "current_step_index": int(result.progress_index),
+            "current_step_label": result.current_step_label,
+            "mission_event_cursor": int(result.event_cursor),
+            "mission_buffered_advances": int(result.buffered_advances),
+            "mission_runtime_version": 2,
+            "mission_attempt_id": int(result.attempt_id),
+            "mission_attempt_phase": str(result.phase),
+            "mission_event_floor": int(result.event_floor),
+            "mission_restart_count": int(result.restart_count),
+            "mission_last_restart_reason": str(result.last_restart_reason),
+            "goal_progress_type": result.goal_progress_type,
+            "goal_current_frames": int(result.goal_current_frames),
+            "goal_needed_frames": int(result.goal_needed_frames),
+            "goal_timer_active": bool(result.goal_timer_active),
+            "goal_current_damage": int(result.goal_damage),
+            "goal_needed_damage": int(result.goal_damage_needed),
+            "goal_current_hits": int(result.goal_hits),
+            "goal_max_hits": int(result.goal_max_hits),
+        })
+        return payload
+
+    def _augment_payload_with_runtime_legacy(self, payload: dict, snaps_dict: dict) -> dict:
         payload = dict(payload or {})
         slot = payload.get("slot")
         route_slot = payload.get("point_slot") or self._mission_owner_slot(snaps_dict) or slot
@@ -4776,7 +5330,7 @@ class MissionManager:
             "celebrate_token": 0,
             "selector_open": False,
             "selector_index": 0,
-            "selector_hint": "Down, Down, Taunt: Open Mission Select",
+            "selector_hint": "Mission Mode: Down, Down, Taunt opens Mission Select",
             "selector_controls": "Up/Down: Move  Taunt: Select  Mouse still works",
             "scanlines": True,
             "goal_progress_type": None,

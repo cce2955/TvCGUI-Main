@@ -379,7 +379,7 @@ Starting a mission
 Click Mission Mode on the fighter panel you want to train.
 
 Changing missions
-Use Crouch, Crouch, Taunt in-game to open the mission selector, then choose a mission from the overlay.
+With Mission Mode enabled, use Crouch, Crouch, Taunt in-game to open the mission selector, then choose a mission from the overlay.
 
 Progress
 Correct steps advance immediately. If the route drops before completion, the mission can reset so you can retry.

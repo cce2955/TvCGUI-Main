@@ -8084,8 +8084,10 @@ def _draw_compact_team_panel(screen, font, font_sm, team: str, slots: dict, scal
     )
     hold_expand = max(0.0, min(1.0, float(team_anim.get("hold_expand", 0.0))))
 
-    show_damage_inline = bool(control is not None and getattr(control, "show_damage_badge", False))
-    show_untech_inline = bool(control is not None and getattr(control, "show_untech_panel", False))
+    hud_info_set = str(getattr(control, "hud_info_set", "CUSTOM") or "CUSTOM").strip().upper() if control is not None else "CUSTOM"
+    core_telemetry = hud_info_set == "CORE"
+    show_damage_inline = bool(core_telemetry or (control is not None and getattr(control, "show_damage_badge", False)))
+    show_untech_inline = bool(core_telemetry or (control is not None and getattr(control, "show_untech_panel", False)))
     show_meter_inline = bool(control is not None and getattr(control, "show_meter_panel", False))
     show_red_inline = bool(control is not None and getattr(control, "show_red_health_panel", False))
     show_attack_inline = bool(control is not None and getattr(control, "show_attack_property_panel", False))

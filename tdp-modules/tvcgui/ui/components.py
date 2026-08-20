@@ -471,8 +471,8 @@ def _command_dock_layout(width: int, tools_open: bool) -> tuple[dict[str, tuple[
         ("hud_btn", 100),
         ("interaction_btn", 84),
         ("combo_btn", 58),
-        ("damage_btn", 88),
-        ("untech_btn", 92),
+        ("damage_btn", 100),
+        ("untech_btn", 104),
         ("meter_btn", 64),
         ("red_health_btn", 68),
         ("attack_props_btn", 86),
@@ -718,14 +718,14 @@ def draw_top_command_dock(
         active=True, hover=info_set_btn_rect.collidepoint(mx, my),
         accent=info_set_accent, fill=_mix_col((27, 33, 45), info_set_accent, 0.18), align="center",
     )
-    damage_mode_label = "Dmg: ON" if show_damage_badge else "Dmg: OFF"
+    damage_mode_label = "Damage: ON" if show_damage_badge else "Damage: OFF"
     draw_glass_button(
         screen, damage_badge_btn_rect, damage_mode_label, dockfont,
         active=bool(show_damage_badge), hover=damage_badge_btn_rect.collidepoint(mx, my),
         accent=GUI_WARNING, fill=(57, 49, 30) if show_damage_badge else (27, 33, 45), align="center",
     )
     draw_glass_button(
-        screen, untech_panel_btn_rect, "HS Scale: ON" if show_untech_panel else "HS Scale: OFF", dockfont,
+        screen, untech_panel_btn_rect, "Hitstun: ON" if show_untech_panel else "Hitstun: OFF", dockfont,
         active=bool(show_untech_panel), hover=untech_panel_btn_rect.collidepoint(mx, my),
         accent=GUI_ACCENT_RED, fill=(59, 38, 43) if show_untech_panel else (27, 33, 45), align="center",
     )
@@ -938,7 +938,7 @@ def draw_top_command_dock(
         elif combo_card_btn_rect.collidepoint(mx, my):
             help_tip = "Combo controls only the live combo ledger."
         elif info_set_btn_rect.collidepoint(mx, my):
-            help_tip = "Set cycles CORE, RESEARCH, and FULL information density. Individual toggles switch the label to CUSTOM."
+            help_tip = "Set cycles CORE, RESEARCH, and FULL information density. CORE always includes Damage and Hitstun. Individual toggles switch the label to CUSTOM."
             help_accent = info_set_accent
         elif damage_badge_btn_rect.collidepoint(mx, my):
             help_tip = "Damage Mod adds branded C1 and C2 damage-scaling gauges beneath the character health rows."

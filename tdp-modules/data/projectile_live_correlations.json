@@ -306,6 +306,30 @@
         }
       }
     },
+    "YATTER2": {
+      "char_name": "Yatterman-2",
+      "observations": {
+        "0130:300:00000000": {
+          "damage": 300,
+          "last_actor": 2444319156,
+          "last_seen_unix": 1787237059,
+          "match_evidence": "unique damage correlation",
+          "moves": {
+            "00000130:yattershield": {
+              "action_id": 304,
+              "count": 1,
+              "last_seen_unix": 1787237059,
+              "move_label": "YatterShield"
+            }
+          },
+          "owner_pointer": 2454108608,
+          "projectile_id": 304,
+          "slot": "P1-C1",
+          "static_addr": 0,
+          "static_fmt": ""
+        }
+      }
+    },
     "ZERO": {
       "char_name": "Zero",
       "observations": {

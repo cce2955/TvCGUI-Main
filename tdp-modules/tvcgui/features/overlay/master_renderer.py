@@ -483,8 +483,9 @@ class MasterControl:
     show_debug: bool = False
     show_interaction_card: bool = False
     show_combo_card: bool = False
-    show_damage_badge: bool = False
-    show_untech_panel: bool = False
+    # Core telemetry: damage scaling and native stun clocks are first-class HUD components.
+    show_damage_badge: bool = True
+    show_untech_panel: bool = True
     show_damage_inactive: bool = True
     show_meter_panel: bool = True
     show_red_health_panel: bool = True
@@ -613,7 +614,7 @@ class MasterOverlay:
         self.mission_active = False
         self.mission_slot: Optional[str] = None
         self._last_mission_mtime = 0.0
-        self._last_mission_overlay_mtime = 0.0
+        self._last_mission_overlay_mtime = 0
         self.mission_overlay_data: dict = {}
         self.mission_click_rects: list[tuple[pygame.Rect, Optional[str]]] = []
         self.mission_panel_rect: Optional[pygame.Rect] = None
@@ -891,7 +892,7 @@ class MasterOverlay:
             "show_attack_property_panel": self.control.show_attack_property_panel,
             "show_tag_card": self.control.show_tag_card,
             "hud_info_set": self.control.hud_info_set,
-            "native_hud_defaults_v": 3,
+            "native_hud_defaults_v": 4,
         }
         try:
             _ensure_parent(MASTER_CONTROL_FILE)
@@ -916,43 +917,23 @@ class MasterOverlay:
             self.control.show_debug = bool(data.get("show_debug", False))
             self.control.show_interaction_card = bool(data.get("show_interaction_card", False))
             self.control.show_combo_card = bool(data.get("show_combo_card", False))
-            self.control.show_damage_badge = bool(data.get("show_damage_badge", False))
-            self.control.show_untech_panel = bool(data.get("show_untech_panel", False))
+            self.control.show_damage_badge = bool(data.get("show_damage_badge", True))
+            self.control.show_untech_panel = bool(data.get("show_untech_panel", True))
             self.control.show_damage_inactive = bool(data.get("show_damage_inactive", True))
             self.control.show_meter_panel = bool(data.get("show_meter_panel", True))
             self.control.show_red_health_panel = bool(data.get("show_red_health_panel", True))
             self.control.show_attack_property_panel = bool(data.get("show_attack_property_panel", False))
             self.control.show_tag_card = bool(data.get("show_tag_card", False))
             self.control.hud_info_set = str(data.get("hud_info_set", "CORE") or "CORE").strip().upper()
+            # Damage scaling and native stun clocks are part of CORE. Old control
+            # files may have persisted both as false before they were promoted.
+            # CORE now guarantees them; an individual user toggle should switch
+            # the GUI to CUSTOM and is then respected normally.
+            if self.control.hud_info_set == "CORE":
+                self.control.show_damage_badge = True
+                self.control.show_untech_panel = True
         except Exception:
             pass
-    def _read_control_file(self) -> None:
-            try:
-                mt = os.path.getmtime(MASTER_CONTROL_FILE)
-                if mt == self._last_control_mtime:
-                    return
-                self._last_control_mtime = mt
-
-                with open(MASTER_CONTROL_FILE, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-
-                self.control.show_hud = bool(data.get("show_hud", True))
-                self.control.show_hitboxes = bool(data.get("show_hitboxes", True))
-                self.control.show_hurtboxes = bool(data.get("show_hurtboxes", True))
-                self.control.show_debug = bool(data.get("show_debug", False))
-                self.control.show_interaction_card = bool(data.get("show_interaction_card", False))
-                self.control.show_combo_card = bool(data.get("show_combo_card", False))
-                self.control.show_damage_badge = bool(data.get("show_damage_badge", False))
-                self.control.show_untech_panel = bool(data.get("show_untech_panel", False))
-                self.control.show_damage_inactive = bool(data.get("show_damage_inactive", True))
-                self.control.show_meter_panel = bool(data.get("show_meter_panel", True))
-                self.control.show_red_health_panel = bool(data.get("show_red_health_panel", True))
-                self.control.show_attack_property_panel = bool(data.get("show_attack_property_panel", False))
-                self.control.show_tag_card = bool(data.get("show_tag_card", False))
-                self.control.hud_info_set = str(data.get("hud_info_set", "CORE") or "CORE").strip().upper()
-            except Exception:
-                pass
-
     def _read_mission_mode_file(self) -> None:
         try:
             mt = os.path.getmtime(MISSION_MODE_FILE)
@@ -1068,7 +1049,7 @@ class MasterOverlay:
 
     def _read_mission_overlay_file(self) -> None:
         try:
-            mt = os.path.getmtime(MISSION_OVERLAY_FILE)
+            mt = os.stat(MISSION_OVERLAY_FILE).st_mtime_ns
             if mt == self._last_mission_overlay_mtime:
                 return
             self._last_mission_overlay_mtime = mt
@@ -3153,120 +3134,194 @@ class MasterOverlay:
         pad = 10
 
         if selector_open:
-            sub = self.smallfont.render("Mission Select", True, (180, 180, 180))
-            ctrl = self.smallfont.render(selector_controls, True, (180, 180, 180))
+            # Mission Select uses the same neutral broadcast language as the
+            # compact HUD instead of the old terminal/debug presentation.
+            mission_count = len(missions)
+            completed_missions = sum(1 for mission in missions if bool(mission.get("completed", False)))
 
-            line_surfs = []
+            panel_pad = max(11, int(12 * min(1.25, self.w / 1600.0)))
+            header_h = max(48, self.font.get_height() + self.smallfont.get_height() + 18)
+            controls_h = max(26, self.smallfont.get_height() + 10)
+            row_h = max(31, self.smallfont.get_height() + 13)
+            row_gap = 4
+            footer_h = max(22, self.smallfont.get_height() + 7)
+
+            # Give mission names breathing room, but keep the selector compact
+            # enough to stay out of the match itself.
+            longest_name_w = 0
             for idx, mission in enumerate(missions):
-                selected = idx == selector_index
-                completed = bool(mission.get("completed", False))
-                name = mission.get("name") or mission.get("mission_id") or f"Mission {idx + 1}"
-
-                prefix = "->" if selected else "  "
-                suffix = " [done]" if completed else ""
-                color = (
-                    (255, 220, 90)
-                    if selected
-                    else ((120, 220, 140) if completed else (220, 220, 220))
-                )
-
-                surf = self.smallfont.render(
-                    f"{prefix} {idx + 1}. {name}{suffix}",
-                    True,
-                    color,
-                )
-                line_surfs.append((surf, mission.get("mission_id")))
-
-            content_w = max(
-                [title.get_width(), sub.get_width(), ctrl.get_width()]
-                + [surf.get_width() for surf, _mission_id in line_surfs]
-                + [260]
-            )
-            content_h = (
-                title.get_height()
-                + sub.get_height()
-                + ctrl.get_height()
-                + 12
-                + sum(surf.get_height() + 6 for surf, _mission_id in line_surfs)
-            )
-
-            box_w = content_w + pad * 2
-            box_h = content_h + pad * 2
+                name = str(mission.get("name") or mission.get("mission_id") or f"Mission {idx + 1}")
+                longest_name_w = max(longest_name_w, self.smallfont.size(name)[0])
+            desired_w = max(410, longest_name_w + 190)
+            box_w = min(max(410, int(self.w * 0.30)), max(410, desired_w), max(410, self.w - 32))
+            box_w = min(box_w, 570)
+            rows_h = mission_count * row_h + max(0, mission_count - 1) * row_gap
+            box_h = panel_pad * 2 + header_h + 7 + controls_h + 8 + rows_h + 8 + footer_h
+            box_h = min(box_h, max(180, self.h - 36))
 
             x = (self.w - box_w) // 2
-            y = max(24, int(self.h * 0.08))
+            y = max(20, int(self.h * 0.055))
+            if y + box_h > self.h - 12:
+                y = max(12, self.h - box_h - 12)
             self.mission_panel_rect = pygame.Rect(x, y, box_w, box_h)
 
-            bg = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
-            bg.fill((24, 16, 40, 210))
+            panel = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+            panel_rect = panel.get_rect()
+            radius = 8
 
-            scan_period = 2.2
-            scan_t = (time.time() % scan_period) / scan_period
-            scan_center_y = int(scan_t * (box_h + 40)) - 20
+            # Neutral shell with a quiet top-light and character accent rail.
+            pygame.draw.rect(panel, (10, 14, 20, 238), panel_rect, border_radius=radius)
+            for yy in range(max(1, box_h)):
+                t = yy / max(1, box_h - 1)
+                shade = int(24 - 10 * t)
+                pygame.draw.line(panel, (shade, shade + 4, shade + 10, 72), (1, yy), (box_w - 2, yy), 1)
+            pygame.draw.rect(panel, (70, 82, 102, 210), panel_rect, 1, border_radius=radius)
+            pygame.draw.line(panel, (238, 243, 250, 48), (radius + 2, 1), (box_w - radius - 3, 1), 1)
+            accent_w = max(3, int(4 * min(1.25, self.w / 1600.0)))
+            pygame.draw.rect(panel, (*theme_color, 235), (0, radius, accent_w, max(1, box_h - radius * 2)))
 
-            for yy in range(box_h):
-                dist = abs(yy - scan_center_y)
+            # Header.
+            content_x = panel_pad
+            header_y = panel_pad - 1
+            kicker = self.smallfont.render("MISSION SELECT", True, tuple(min(255, int(c * 0.92 + 30)) for c in theme_color))
+            panel.blit(kicker, (content_x, header_y))
 
-                if dist <= 2:
-                    alpha = 70
-                elif dist <= 6:
-                    alpha = 38
-                elif dist <= 12:
-                    alpha = 18
+            char_label = f"{character}  ·  {display_slot}"
+            char_surf = self.font.render(char_label, True, (239, 243, 250))
+            panel.blit(char_surf, (content_x, header_y + kicker.get_height() + 2))
+
+            progress_text = f"{completed_missions}/{mission_count} CLEAR"
+            progress_s = self.smallfont.render(progress_text, True, (176, 221, 195) if completed_missions else (177, 190, 210))
+            progress_pad_x = 9
+            progress_h = max(20, progress_s.get_height() + 6)
+            progress_w = progress_s.get_width() + progress_pad_x * 2
+            progress_r = pygame.Rect(box_w - panel_pad - progress_w, header_y + 2, progress_w, progress_h)
+            pygame.draw.rect(panel, (18, 40, 34, 218) if completed_missions else (22, 29, 40, 218), progress_r, border_radius=progress_h // 2)
+            pygame.draw.rect(panel, (60, 125, 94, 185) if completed_missions else (72, 88, 112, 170), progress_r, 1, border_radius=progress_h // 2)
+            panel.blit(progress_s, (progress_r.centerx - progress_s.get_width() // 2, progress_r.centery - progress_s.get_height() // 2))
+
+            divider_y = panel_pad + header_h
+            pygame.draw.line(panel, (72, 84, 104, 115), (panel_pad, divider_y), (box_w - panel_pad, divider_y), 1)
+
+            # Controls are grouped into a quiet strip instead of one long debug string.
+            controls_y = divider_y + 7
+            controls_rect = pygame.Rect(panel_pad, controls_y, box_w - panel_pad * 2, controls_h)
+            pygame.draw.rect(panel, (14, 19, 27, 220), controls_rect, border_radius=5)
+            pygame.draw.rect(panel, (52, 64, 82, 150), controls_rect, 1, border_radius=5)
+            control_parts = [
+                ("↑/↓", "MOVE"),
+                ("TAUNT", "SELECT"),
+                ("MOUSE", "CLICK"),
+            ]
+            cx = controls_rect.x + 10
+            for ci, (key_text, action_text) in enumerate(control_parts):
+                key_s = self.smallfont.render(key_text, True, (228, 234, 244))
+                action_s = self.smallfont.render(action_text, True, (126, 142, 166))
+                panel.blit(key_s, (cx, controls_rect.centery - key_s.get_height() // 2))
+                cx += key_s.get_width() + 5
+                panel.blit(action_s, (cx, controls_rect.centery - action_s.get_height() // 2))
+                cx += action_s.get_width() + 12
+                if ci < len(control_parts) - 1:
+                    pygame.draw.line(panel, (63, 75, 94, 130), (cx - 5, controls_rect.y + 6), (cx - 5, controls_rect.bottom - 6), 1)
+
+            rows_top = controls_rect.bottom + 8
+            mouse_pos = pygame.mouse.get_pos()
+            local_mouse = (mouse_pos[0] - x, mouse_pos[1] - y)
+            available_rows_bottom = box_h - panel_pad - footer_h - 8
+            visible_row_capacity = max(1, (available_rows_bottom - rows_top + row_gap) // (row_h + row_gap))
+            if mission_count <= visible_row_capacity:
+                first_visible = 0
+            else:
+                half_window = visible_row_capacity // 2
+                first_visible = max(0, min(selector_index - half_window, mission_count - visible_row_capacity))
+            last_visible = min(mission_count, first_visible + visible_row_capacity)
+
+            for visible_pos, idx in enumerate(range(first_visible, last_visible)):
+                mission = missions[idx]
+                row_y = rows_top + visible_pos * (row_h + row_gap)
+
+                selected = idx == selector_index
+                completed = bool(mission.get("completed", False))
+                mission_id = mission.get("mission_id")
+                name = str(mission.get("name") or mission_id or f"Mission {idx + 1}")
+                row = pygame.Rect(panel_pad, row_y, box_w - panel_pad * 2, row_h)
+                global_row = row.move(x, y)
+                self.mission_click_rects.append((global_row, mission_id))
+                hovered = row.collidepoint(local_mouse)
+
+                # Selection is strong but not loud. Hover is intentionally weaker.
+                if selected:
+                    fill = tuple(int(c * 0.16) for c in theme_color)
+                    pygame.draw.rect(panel, (*fill, 245), row, border_radius=5)
+                    pygame.draw.rect(panel, (*theme_color, 235), row, 1, border_radius=5)
+                    pygame.draw.rect(panel, (*theme_color, 245), (row.x, row.y + 4, 3, row.height - 8), border_radius=2)
+                elif hovered:
+                    pygame.draw.rect(panel, (31, 39, 51, 225), row, border_radius=5)
+                    pygame.draw.rect(panel, (81, 96, 119, 175), row, 1, border_radius=5)
                 else:
-                    alpha = 0
+                    pygame.draw.rect(panel, (20, 26, 35, 205), row, border_radius=5)
+                    pygame.draw.rect(panel, (49, 60, 77, 125), row, 1, border_radius=5)
 
-                if alpha > 0:
-                    pygame.draw.line(
-                        bg,
-                        (theme_color[0], theme_color[1], theme_color[2], alpha),
-                        (0, yy),
-                        (box_w, yy),
-                        1
-                    )
+                # Number chip.
+                num_text = f"{idx + 1:02d}"
+                num_s = self.smallfont.render(num_text, True, (245, 248, 252) if selected else (151, 165, 185))
+                num_w = max(30, num_s.get_width() + 10)
+                num_r = pygame.Rect(row.x + 8, row.centery - max(18, num_s.get_height() + 6) // 2, num_w, max(18, num_s.get_height() + 6))
+                if selected:
+                    pygame.draw.rect(panel, (*theme_color, 190), num_r, border_radius=4)
+                else:
+                    pygame.draw.rect(panel, (32, 41, 54, 220), num_r, border_radius=4)
+                    pygame.draw.rect(panel, (67, 80, 101, 150), num_r, 1, border_radius=4)
+                panel.blit(num_s, (num_r.centerx - num_s.get_width() // 2, num_r.centery - num_s.get_height() // 2))
 
-            self.screen.blit(bg, (x, y))
-            pygame.draw.rect(
-                self.screen,
-                theme_color,
-                (x, y, box_w, box_h),
-                1,
-                border_radius=4,
+                # Completion chip reserves width only when needed.
+                clear_s = None
+                clear_w = 0
+                if completed:
+                    clear_s = self.smallfont.render("CLEAR", True, (118, 224, 161))
+                    clear_w = clear_s.get_width() + 18
+
+                name_x = num_r.right + 10
+                name_right = row.right - 10 - clear_w
+                shown_name = name
+                max_name_w = max(40, name_right - name_x)
+                while self.smallfont.size(shown_name)[0] > max_name_w and len(shown_name) > 4:
+                    shown_name = shown_name[:-4].rstrip() + "…"
+                name_color = (239, 243, 250) if selected else ((167, 216, 185) if completed else (207, 216, 230))
+                name_s = self.smallfont.render(shown_name, True, name_color)
+                panel.blit(name_s, (name_x, row.centery - name_s.get_height() // 2))
+
+                if clear_s is not None:
+                    clear_r = pygame.Rect(row.right - clear_w - 7, row.centery - max(19, clear_s.get_height() + 6) // 2, clear_w, max(19, clear_s.get_height() + 6))
+                    pygame.draw.rect(panel, (12, 43, 34, 220), clear_r, border_radius=4)
+                    pygame.draw.rect(panel, (48, 112, 83, 175), clear_r, 1, border_radius=4)
+                    panel.blit(clear_s, (clear_r.centerx - clear_s.get_width() // 2, clear_r.centery - clear_s.get_height() // 2))
+
+                if selected:
+                    # Tiny one-shot-looking highlight line gives selection some
+                    # life without constantly pulsing the entire row.
+                    pygame.draw.line(panel, (245, 249, 255, 85), (row.x + 6, row.y + 1), (row.right - 7, row.y + 1), 1)
+
+            # Footer tells the player where they are without duplicating controls.
+            footer_y = box_h - panel_pad - footer_h
+            pygame.draw.line(panel, (57, 68, 86, 110), (panel_pad, footer_y - 5), (box_w - panel_pad, footer_y - 5), 1)
+            selected_name = ""
+            if missions and 0 <= selector_index < len(missions):
+                selected_mission = missions[selector_index]
+                selected_name = str(selected_mission.get("name") or selected_mission.get("mission_id") or "")
+            footer_position = f"{selector_index + 1 if mission_count else 0} OF {mission_count}"
+            if mission_count > visible_row_capacity:
+                footer_position += f"  ·  SHOWING {first_visible + 1}-{last_visible}"
+            footer_left = self.smallfont.render(
+                footer_position,
+                True,
+                (124, 140, 162),
             )
+            footer_right = self.smallfont.render("TAUNT TO START", True, tuple(min(255, int(c * 0.78 + 46)) for c in theme_color))
+            panel.blit(footer_left, (panel_pad, footer_y + (footer_h - footer_left.get_height()) // 2))
+            panel.blit(footer_right, (box_w - panel_pad - footer_right.get_width(), footer_y + (footer_h - footer_right.get_height()) // 2))
 
-            pygame.draw.rect(
-                self.screen,
-                (255, 255, 255),
-                (x + 2, y + 2, box_w - 4, box_h - 4),
-                1,
-                border_radius=4,
-            )
-
-            draw_y = y + pad
-            self.screen.blit(title, (x + pad, draw_y))
-            self.screen.blit(progress_surf, (x + box_w - pad - progress_surf.get_width(), draw_y + 2))
-            draw_y += title.get_height() + 4
-            self.screen.blit(sub, (x + pad, draw_y))
-            draw_y += sub.get_height() + 4
-            self.screen.blit(ctrl, (x + pad, draw_y))
-            draw_y += ctrl.get_height() + 8
-
-            for surf, mission_id in line_surfs:
-                row_rect = pygame.Rect(
-                    x + pad - 4,
-                    draw_y - 2,
-                    box_w - pad * 2 + 8,
-                    surf.get_height() + 4,
-                )
-                self.mission_click_rects.append((row_rect, mission_id))
-
-                if row_rect.collidepoint(pygame.mouse.get_pos()):
-                    row_bg = pygame.Surface((row_rect.width, row_rect.height), pygame.SRCALPHA)
-                    row_bg.fill((80, 60, 120, 120))
-                    self.screen.blit(row_bg, (row_rect.x, row_rect.y))
-
-                self.screen.blit(surf, (x + pad, draw_y))
-                draw_y += surf.get_height() + 6
+            self.screen.blit(panel, (x, y))
 
         else:
             self._draw_active_mission_panel(

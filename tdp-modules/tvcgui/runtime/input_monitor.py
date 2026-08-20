@@ -5,7 +5,7 @@ from typing import Any
 
 from tvcgui.core.constants import (
     CHAR_NAMES, OFF_CHAR_ID, RUNTIME_BLOCKSTUN_REMAINING_OFF, RUNTIME_HITSTUN_REMAINING_OFF,
-    RUNTIME_IMPACT_FREEZE_OFF, SLOTS,
+    RUNTIME_IMPACT_FREEZE_OFF, RUNTIME_REACTION_TIMER_OFF, SLOTS,
 )
 from tvcgui.features.combat.move_id_map import lookup_move_name
 from tvcgui.platform.dolphin import addr_in_ram, rbytes, rd8, rd32
@@ -147,6 +147,7 @@ def read_overlay_input_packet(
             "blockstun_remaining": 0,
             "hitstun_remaining": 0,
             "untech_remaining": 0,
+            "reaction_timer_remaining": 0,
             "impact_freeze_remaining": 0,
             "fighter_combo_count": 0,
             "decay_counter": 0,
@@ -185,6 +186,7 @@ def read_overlay_input_packet(
         blockstun_remaining = blob_u32(RUNTIME_BLOCKSTUN_REMAINING_OFF)
         hitstun_remaining = blob_u32(RUNTIME_HITSTUN_REMAINING_OFF)
         untech_remaining = blob_u32(UNTECH_TIMER_OFF)
+        reaction_timer_remaining = blob_u32(RUNTIME_REACTION_TIMER_OFF)
         impact_freeze_remaining = blob_u32(RUNTIME_IMPACT_FREEZE_OFF)
         fighter_combo_count = blob_u32(FIGHTER_COMBO_COUNT_OFF)
         decay_counter = blob_u32(HITSTUN_DECAY_COUNTER_OFF)
@@ -229,6 +231,7 @@ def read_overlay_input_packet(
         blockstun_remaining = _read_u32(base + RUNTIME_BLOCKSTUN_REMAINING_OFF)
         hitstun_remaining = _read_u32(base + RUNTIME_HITSTUN_REMAINING_OFF)
         untech_remaining = _read_u32(base + UNTECH_TIMER_OFF)
+        reaction_timer_remaining = _read_u32(base + RUNTIME_REACTION_TIMER_OFF)
         impact_freeze_remaining = _read_u32(base + RUNTIME_IMPACT_FREEZE_OFF)
         fighter_combo_count = _read_u32(base + FIGHTER_COMBO_COUNT_OFF)
         decay_counter = _read_u32(base + HITSTUN_DECAY_COUNTER_OFF)
@@ -261,6 +264,7 @@ def read_overlay_input_packet(
         "blockstun_remaining": blockstun_remaining,
         "hitstun_remaining": hitstun_remaining,
         "untech_remaining": untech_remaining,
+        "reaction_timer_remaining": reaction_timer_remaining,
         "impact_freeze_remaining": impact_freeze_remaining,
         "fighter_combo_count": fighter_combo_count,
         "decay_counter": decay_counter,

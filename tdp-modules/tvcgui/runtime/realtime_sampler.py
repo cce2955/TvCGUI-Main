@@ -100,6 +100,7 @@ class RealtimeCombatSampler:
         blockstun_remaining = max(0, int(packet.get("blockstun_remaining", 0) or 0))
         hitstun_remaining = max(0, int(packet.get("hitstun_remaining", 0) or 0))
         untech_remaining = max(0, int(packet.get("untech_remaining", 0) or 0))
+        reaction_timer_remaining = max(0, int(packet.get("reaction_timer_remaining", 0) or 0))
         impact_freeze_remaining = max(0, int(packet.get("impact_freeze_remaining", 0) or 0))
         fighter_combo_count = max(0, int(packet.get("fighter_combo_count", 0) or 0))
         decay_counter = max(0, int(packet.get("decay_counter", 0) or 0))
@@ -127,6 +128,7 @@ class RealtimeCombatSampler:
                 previous_combo = combo_count
                 previous_point_active = point_active
                 previous_untech = untech_remaining
+                previous_reaction_timer = reaction_timer_remaining
                 previous_impact_freeze = impact_freeze_remaining
                 previous_fighter_combo = fighter_combo_count
                 previous_decay_counter = decay_counter
@@ -145,14 +147,25 @@ class RealtimeCombatSampler:
                     previous_combo,
                     previous_point_active,
                     previous_untech,
+                    previous_reaction_timer,
                     previous_impact_freeze,
                     previous_fighter_combo,
                     previous_decay_counter,
                     previous_state_flags_6c,
                 ) = previous
 
-            fresh_pressed = raw_pressed & ~int(previous_pressed)
-            fresh_released = raw_released & ~int(previous_released)
+            # Native +0x13D0/+0x13D4 are the preferred edge fields, but also
+            # derive button edges from the held word. This closes the sampling
+            # hole where a very short native pressed pulse can be missed between
+            # polls even though the 240 Hz lane still observes the held change.
+            # Direction is a nibble encoding rather than independent bits, so
+            # only derive button edges here; direction transitions continue to
+            # travel through held_changed below.
+            button_mask = 0x0CF0  # A/B/C/P plus the composite taunt bits
+            held_pressed = (held & ~int(previous_held)) & button_mask
+            held_released = (int(previous_held) & ~held) & button_mask
+            fresh_pressed = (raw_pressed & ~int(previous_pressed)) | held_pressed
+            fresh_released = (raw_released & ~int(previous_released)) | held_released
             held_changed = previous is None or held != int(previous_held)
             action_changed = previous is None or action_id != int(previous_action)
             action_frame_changed = (
@@ -169,6 +182,7 @@ class RealtimeCombatSampler:
             combo_changed = previous is None or combo_count != int(previous_combo)
             point_changed = previous is None or point_active != bool(previous_point_active)
             untech_changed = previous is None or untech_remaining != int(previous_untech)
+            reaction_timer_changed = previous is None or reaction_timer_remaining != int(previous_reaction_timer)
             impact_freeze_changed = previous is None or impact_freeze_remaining != int(previous_impact_freeze)
             fighter_combo_changed = previous is None or fighter_combo_count != int(previous_fighter_combo)
             decay_counter_changed = previous is None or decay_counter != int(previous_decay_counter)
@@ -187,6 +201,7 @@ class RealtimeCombatSampler:
                 combo_count,
                 point_active,
                 untech_remaining,
+                reaction_timer_remaining,
                 impact_freeze_remaining,
                 fighter_combo_count,
                 decay_counter,
@@ -205,6 +220,7 @@ class RealtimeCombatSampler:
                 or combo_changed
                 or point_changed
                 or untech_changed
+                or reaction_timer_changed
                 or impact_freeze_changed
                 or fighter_combo_changed
                 or decay_counter_changed
@@ -233,6 +249,7 @@ class RealtimeCombatSampler:
                 "blockstun_remaining": blockstun_remaining,
                 "hitstun_remaining": hitstun_remaining,
                 "untech_remaining": untech_remaining,
+                "reaction_timer_remaining": reaction_timer_remaining,
                 "impact_freeze_remaining": impact_freeze_remaining,
                 "fighter_combo_count": fighter_combo_count,
                 "decay_counter": decay_counter,

@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 from tvcgui.core.paths import user_data_path
 from tvcgui.features.frame_data.attack_property_runtime import resolve_live_attack_definition
 from tvcgui.runtime.realtime_sampler import RealtimeCombatSampler
+from tvcgui.runtime.mission_events import MissionEventStream
 from tvcgui.features.overlay.damage_scaling import annotate_damage_scaling_payload
 from tvcgui.features.overlay.hitstun_scaling import annotate_hitstun_scaling_payload
 
@@ -194,6 +195,14 @@ class HudOverlayManager:
         # overlay. HudOverlayManager only reads cached packets from it.
         self._realtime_sampler = realtime_sampler or RealtimeCombatSampler()
         self._owns_realtime_sampler = realtime_sampler is None
+
+        # Mission Runtime V2 must be wired at the sampler layer, not by optional
+        # launcher glue. Own the immutable event stream here beside the realtime
+        # sampler so every live build has the same path:
+        # sampler -> MissionEventStream -> MissionManager.
+        self._mission_event_stream = MissionEventStream()
+        self._mission_event_manager = None
+        self._realtime_sampler.add_listener(self._mission_event_stream.on_sample)
 
         # The normal HUD payload is produced by the main GUI frame and may be
         # delayed by heavier scanners. Inputs are latency-sensitive, so mirror
@@ -484,7 +493,6 @@ class HudOverlayManager:
             int(sample.get("current_hp", 0) or 0),
             int(sample.get("current_meter", 0) or 0),
             int(sample.get("action_id", 0) or 0),
-            int(sample.get("action_frame", 0) or 0),
             bool(sample.get("point_active", False)),
         )
         combat_changed = self._input_bridge_last_combat.get(slot) != combat_key
@@ -708,6 +716,16 @@ class HudOverlayManager:
         """
         payload: dict = {}
         self._set_input_sampler_targets(render_snap_by_slot)
+
+        # Guarantee Mission V2 receives the same immutable realtime stream as
+        # the HUD. This removes any dependency on main.py/launcher wiring and
+        # prevents a silent fallback to the old frame-driven mission evaluator.
+        if self._mission_event_manager is not mission_mgr:
+            try:
+                mission_mgr.set_event_provider(self._mission_event_stream.events_since)
+                self._mission_event_manager = mission_mgr
+            except Exception:
+                pass
 
         mission_active_slot = mission_mgr.active_slot
 
@@ -1020,6 +1038,7 @@ class HudOverlayManager:
             self._active = False
     def close(self) -> None:
         self._realtime_sampler.remove_listener(self._on_realtime_input_sample)
+        self._realtime_sampler.remove_listener(self._mission_event_stream.on_sample)
         if self._owns_realtime_sampler:
             self._realtime_sampler.close()
         with self._input_bridge_condition:
